@@ -207,6 +207,17 @@ function bundle_loss(lo; scale = nothing, width = nothing, codimension::Integer 
     return (; strategy = lo, input, loss = _refine_loss(lo, input, codimension))
 end
 
+# The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word), naming the
+# exceptions; its other spellings, `free`, `fix`, `fixed_params` and `hold`, are refused by Core's one refusal of a
+# retired keyword (`refuse_retired_keyword`), never aliased. Every `fit_*` and `refine_*` that takes `fixed` calls it.
+function _refuse_held_spellings(free, fix, fixed_params, hold)
+    refuse_retired_keyword(free, :free, :fixed)
+    refuse_retired_keyword(fix, :fix, :fixed)
+    refuse_retired_keyword(fixed_params, :fixed_params, :fixed)
+    refuse_retired_keyword(hold, :hold, :fixed)
+    return nothing
+end
+
 # The strategy of record of a refine class (or bundle): configs/default.toml
 # [refine.<class>] `optimization_strategy`, or the bundle's own table. Read once,
 # into the constant `_REFINE_STRATEGY_DEFAULTS` (after config_toml.jl), and

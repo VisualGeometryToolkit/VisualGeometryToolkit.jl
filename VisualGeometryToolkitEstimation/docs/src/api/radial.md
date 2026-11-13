@@ -58,11 +58,10 @@ by default, run from the start with no least-squares stage, at the caller's
 `scale = σ` (a refine estimates no scale) or `width = w`; `nothing` is plain least
 squares. A
 SplineLens camera is refined only by back-projection (`fit_camera(SplineLens, …)`,
-`pspline_grid`), or held: here it takes `fixed = (:controls,)`, the camera held
-on its optical axis and the poses refined through its whole `project`; the
-image-space refine of its controls was retired in 0.10.0 (the default `fixed = ()`
-and a `penalty` are refused, naming it). A forward spline is refitted after
-(`fit_forward_spline`). With several rigid boards,
+`pspline_grid`), or held: here it takes `fixed = (:controls,)`, the poses refined
+through its whole `project` under the bundle's strategy and the camera returned as
+given (its forward spline kept); the image-space refine of its controls was retired
+in 0.10.0 (the default `fixed = ()` and a `penalty` are refused, naming it). With several rigid boards,
 `refine_camera_and_poses(camera, poses, board_poses, views)` adds one pose per
 board (board → world) to the same bundle, the correspondences keyed by
 `(view, board)`; each connected group of views and boards keeps its gauge by a
@@ -155,7 +154,6 @@ refine_camera
 approximate_camera
 optical_axis
 pspline_grid
-image_size
 CameraFitMetadata
 ViewAngleLimitError
 ```

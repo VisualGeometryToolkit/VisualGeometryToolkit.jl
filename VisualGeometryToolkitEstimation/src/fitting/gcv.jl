@@ -23,16 +23,18 @@
 # =============================================================================
 
 """
-    check_penalty_weight(w, what; allow_nothing = false) -> w
+    check_penalty_weight(w, what) -> w
 
-A penalty weight as an option states it: a finite β ≥ 0, or `:gcv` (chosen by
-[`gcv_select`](@ref)); with `allow_nothing`, also `nothing` (no penalty). An
-`ArgumentError` naming `what` otherwise.
+A penalty weight as an option states it: a finite β ≥ 0 (no penalty is β = 0), or
+`:gcv` (chosen by [`gcv_select`](@ref)). An `ArgumentError` naming `what`
+otherwise. The keyword `allow_nothing` (which also admitted `nothing`) is retired
+(0.11.0: no caller left), refused by name.
 """
-function check_penalty_weight(w, what::AbstractString; allow_nothing::Bool = false)
-    (w === :gcv || (allow_nothing && w === nothing)) && return w
+function check_penalty_weight(w, what::AbstractString; allow_nothing = RetiredKeyword())
+    refuse_retired_keyword(allow_nothing, :allow_nothing, "β = 0 for no penalty")
+    w === :gcv && return w
     w isa Real && isfinite(w) && w >= 0 && return w
-    throw(ArgumentError("$what = $(repr(w)) is not a finite weight β ≥ 0$(allow_nothing ? ", nothing," : "") or :gcv"))
+    throw(ArgumentError("$what = $(repr(w)) is not a finite weight β ≥ 0 or :gcv"))
 end
 
 """

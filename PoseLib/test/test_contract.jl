@@ -156,6 +156,25 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test (retcode(rp), iterations(rp), rp.width) == (retcode(ra), iterations(ra), ra.width)
     end
 
+    # Below the minimal sample there is nothing to refine: the seed back, unrefined, InitialFailure after 0
+    # iterations and `n = 0` (as VisualGeometryToolkitEstimation's refines; until 0.2.1 `(Success, NoRule)`)
+    @testset "below the minimal sample: InitialFailure, the seed, n = 0" begin
+        few = (relpose_cam = (d.seed, () -> refine_relpose(d.seed, d.K1, d.K2, d.rel[1:4]; max_iter = 25, optimization_strategy = nothing)),
+               relpose_bearing = (d.seed, () -> refine_relpose(d.seed, d.bear[1:4]; max_iter = 25, optimization_strategy = nothing)),
+               fundamental = (d.F0, () -> refine_fundamental(d.F0, d.rel[1:6]; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)),
+               homography = (d.H0, () -> refine_homography(d.H0, d.hom[1:3]; max_iter = 25, optimization_strategy = nothing)),
+               absolute_pose = (d.seed, () -> refine_absolute_pose(d.seed, d.K1, d.abs_cs[1:2]; max_iter = 25, optimization_strategy = nothing)))
+        for (seed, call) in values(few)
+            r = call()
+            @test retcode(r) == VgtkCore.ReturnCode.InitialFailure && VgtkCore.stop_rule(r) == VgtkCore.NoRule
+            @test iterations(r) == 0 && r.n == 0 && estimate(r) == seed
+            VgtkCore.test_termination_record(r)
+        end
+        @test retcode(refine_homography(d.H0, d.hom[1:0]; max_iter = 25, optimization_strategy = nothing)) == VgtkCore.ReturnCode.InitialFailure
+        # at the minimal sample it runs
+        @test retcode(refine_homography(d.H0, d.hom[1:4]; max_iter = 25, optimization_strategy = nothing)) != VgtkCore.ReturnCode.InitialFailure
+    end
+
     @testset "every refiner records its termination (converged == successful_retcode)" begin
         for (name, call) in pairs(calls), lo in (nothing, Irls{TLSShape}())
             w = name === :absolute_pose ? 40.0 : 2.0
@@ -186,15 +205,16 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     @testset "refusals" begin
         # the retired keywords, by name
+        # the retired keywords, by name: Core's one refusal (`refuse_retired_keyword`)
         for call in values(calls)
-            @test_throws ArgumentError call((; loss = TLSShape(), loss_width = 2.0))
-            @test occursin("optimization_strategy", msg(() -> call((; loss = TLSShape(), loss_width = 2.0))))
-            @test occursin("`width", msg(() -> call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))))
+            @test_throws ArgumentError("the keyword `loss` is retired: give `optimization_strategy`") call((; loss = TLSShape(), loss_width = 2.0))
+            @test_throws ArgumentError("the keyword `loss_width` is retired: give `width`") call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))
             # the strategy is required, like max_iter
             @test occursin("needs `optimization_strategy`", msg(() -> call((; width = 2.0))))
         end
-        @test occursin("optimization_strategy", msg(() -> H((; local_optimization = Irls{TLSShape}(), width = 2.0))))
-        @test_throws ArgumentError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
+        @test_throws ArgumentError("the keyword `local_optimization` is retired: give `optimization_strategy`") H((; local_optimization = Irls{TLSShape}(), width = 2.0))
+        # a keyword the refiners never had is Julia's own error
+        @test_throws MethodError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
         # exactly one of scale and width for a robust strategy; neither for least squares
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}()))
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}(), scale = 1.0, width = 2.0))

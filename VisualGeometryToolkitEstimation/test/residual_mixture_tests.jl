@@ -116,6 +116,15 @@ end
     @test err isa ArgumentError && occursin("abs", err.msg) && occursin("distances[3]", err.msg)
 end
 
+@testset "fit_residual_mixture: a held model stops on the cost, never on a parameter change" begin
+    # the distances are a held model's: its parameters never move, so a parameter-change stop would end the EM at
+    # iteration 1 with the nuisance unconverged — refused by name, as `fit_division_camera` validates its own stop
+    r, _ = reprojection_residuals(StableRNG(11); n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0)
+    sc = HalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = 50.0)
+    @test_throws r"NoImprovementStop" fit_residual_mixture(r; weighting = sc, model_dof = 4,
+                                                           config = MixtureEmConfig(stop = VisualGeometryToolkitEstimation.ParameterChangeStop(1.0e-6)))
+end
+
 @testset "fit_residual_mixture: a known mixture" begin
     # 400 Rayleigh inliers at σ = 0.8 per axis, 100 outliers uniform over the
     # ±40 square: the EM recovers σ, the inlier fraction and every label.

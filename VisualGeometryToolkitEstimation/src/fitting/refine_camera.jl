@@ -284,7 +284,7 @@ function refine_camera(
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     M = _offset_matrix(K0)   # K₀₂ / fx₀ (fit_camera.jl)
     start = _refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = _profile_samples(role, L, source, region, K0, weight)
+    pr = _profile_samples(role, L, source, region, K0, weight, device)
     P = _regression_manifold(role, _lens_family_manifold(role, gl, moving), start, moving)
     # a forward guess that folds before the domain's edge (a linear fit over a field its family cannot image) images
     # no radius past its fold: its residual there is capped at the fold, as the reported errors are
@@ -355,7 +355,8 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
 The camera of lens family `L` closest to `source` over `region`, from no guess:
 `refine_camera(estimate(fit_camera(L, source, region)), source, region)` — the linear fit's camera is the refine's
 start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` and `fixed` to
-both (the held coefficients keep the family's anchor values through both), `max_iter` and `device` to the refine. The result is the refine's.
+both (the held coefficients keep the family's anchor values through both), `device` to both (a gauge-K source's rays are
+sampled on it), `max_iter` to the refine. The result is the refine's.
 
 A family with no linear form (a projection with a shape parameter — `DoubleSphere`, `Unified`, `ExtendedUnified` —
 or a `Tilt` or `FieldOfView` term) starts from its anchor instead: the family's zero lens (the double sphere at
@@ -367,10 +368,11 @@ kb = approximate_camera(KannalaBrandt{4}, camera, region)     # a SplineLens cam
 ```
 """
 function approximate_camera(
-        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), kwargs...
+        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        kwargs...
     ) where {L <: AbstractLensModel}
-    start = _approximation_start(_linear_form(L), L, source, region, weight, fixed)
-    return refine_camera(start, source, region; weight, fixed, kwargs...)
+    start = _approximation_start(_linear_form(L), L, source, region, weight, fixed, device)
+    return refine_camera(start, source, region; weight, fixed, device, kwargs...)
 end
 approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = approximate_camera(L, model(source), region; kwargs...)
 approximate_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
@@ -380,11 +382,11 @@ approximate_camera(::Type{Division}, source::CameraModel, region; kwargs...) = a
 
 # The refine's start: the linear fit's camera, or the family's anchor at the source's K (no linear form, or a failed
 # linear fit).
-function _approximation_start(form, ::Type{L}, source, region, weight, fixed) where {L}
-    r = fit_camera(L, source, region; weight, fixed)
+function _approximation_start(form, ::Type{L}, source, region, weight, fixed, device) where {L}
+    r = fit_camera(L, source, region; weight, fixed, device)
     return converged(r) ? estimate(r) : _anchor_camera(L, source)     # a failed linear solve: the anchor
 end
-_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed) where {L} = _anchor_camera(L, source)
+_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed, _device) where {L} = _anchor_camera(L, source)
 # The camera of the source's K with the family's anchor lens, or with a given lens.
 _anchor_camera(::Type{L}, source) where {L} = _anchor_camera(_target_anchor(L), source)
 _anchor_camera(a::AbstractLensModel, source) =
@@ -395,7 +397,7 @@ _anchor_camera(a::AbstractLensModel, source) =
 # ==============================================================================
 
 """
-    optical_axis(camera::BoundedCamera) -> FitResult{<:CameraModel, CameraFitMetadata}
+    optical_axis(camera::BoundedCamera; device = default_device()) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The radially symmetric camera closest to `camera` over the camera's own bound, its `imaged_region` (the sensor ∩ its
 lens coverage ∩ the model's valid domain). It is [`approximate_camera`](@ref) of the stack's Fisheye624 family
@@ -412,11 +414,15 @@ and focal, then the refine with the principal point and the axis free.
     decentred lens reports it.
 - A physical `K` is its own axis: the identity rotation and the source's principal point.
 
+`device` is the backend the camera's rays are sampled and the regression reduced on (`approximate_camera`'s).
+
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
-axis. `fit_camera(SplineLens, …)` and the SplineLens `refine_camera_and_poses` do this first, always.
+axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
+it returns the camera as given).
 """
-optical_axis(camera::BoundedCamera) = approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera); fixed = _AXIS_FIXED)
-optical_axis(camera::VgtkCore.AbstractCamera) = throw(
+optical_axis(camera::BoundedCamera; device = default_device()) =
+    approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera); fixed = _AXIS_FIXED, device)
+optical_axis(camera::VgtkCore.AbstractCamera; device = nothing) = throw(
     ArgumentError(
         "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
             "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"

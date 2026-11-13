@@ -19,7 +19,7 @@ content_id = lowercase hex of SHA-256( UTF-8( JCS( identity tree ) ) )
   shortest digits that round-trip, without an exponent for a decimal exponent
   in −6 < n ≤ 21 (`1.0` is `1`, `1e-5` is `0.00001`, `-0.0` is `0`) and as
   `d.ddde±x` outside it (`1e+21`, `5e-7`). Julia's writer is
-  [`canonical_json`](@ref).
+  VisualGeometryToolkitCore's `canonical_json` (re-exported here).
 - **The identity tree** is the record's BODY — what follows the envelope — in
   base units, under the record's current key names. No `schema`, `generator`,
   `units`, `conventions` or `provenance` enters it, so the identity does not

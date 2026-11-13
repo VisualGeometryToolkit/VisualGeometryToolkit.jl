@@ -681,6 +681,7 @@ public keep_best
 public ManifoldLmWorkspace
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, is_stationary, loss_robustifier
+public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
 # The one map of the stack's LM knobs onto NLLSsolver's options, and whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)

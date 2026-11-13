@@ -228,6 +228,31 @@ function residual_normal_equations!(r, J, lm, x::SVector{N}) where {N}
     return 0.5 * s, g, H
 end
 
+"""
+    reduce_normal_equations(partials::AbstractMatrix, ::Val{N}) -> (½‖r‖², Jᵀr::SVector{N}, JᵀJ::SMatrix{N, N})
+
+[`residual_normal_equations!`](@ref)'s value for a device state, from its per-work-item partial sums. Column `w` of
+`partials` is work item `w`'s share over its rows, `1 + N + N²` entries: `Σ ‖rᵢ‖²`, then the `N` of `Σ Jᵢᵀrᵢ`, then the
+`N × N` of `Σ JᵢᵀJᵢ`, column-major. The columns are summed where they are, on the array's backend
+(`sum(partials; dims = 2)`), and only the `1 + N + N²` totals come to the host. The result is isbits. The cost alone is
+[`reduce_cost`](@ref).
+"""
+function reduce_normal_equations(partials::AbstractMatrix, ::Val{N}) where {N}
+    size(partials, 1) == 1 + N + N * N ||
+        throw(DimensionMismatch("reduce_normal_equations: $(size(partials, 1)) rows of partial sums for N = $N (1 + N + N² = $(1 + N + N * N))"))
+    t = Array(sum(partials; dims = 2))
+    return 0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N)))
+end
+
+"""
+    reduce_cost(partials::AbstractMatrix) -> ½‖r‖²
+
+[`residual_cost!`](@ref)'s value for a device state: half the sum of row 1 of its per-work-item partial sums (the
+layout of [`reduce_normal_equations`](@ref); only row 1 is read, so a cost kernel may write a `1 × W` matrix), summed
+on the array's backend.
+"""
+reduce_cost(partials::AbstractMatrix) = 0.5 * sum(view(partials, 1, :))
+
 # √wᵢ for each point's `rows` residual rows (2 for a 2-vector residual, 1 for a
 # scalar one) — the one fill every LM refit's row scaling uses. The weights obey
 # the one weights contract (`check_weights`: finite, non-negative), checked here.

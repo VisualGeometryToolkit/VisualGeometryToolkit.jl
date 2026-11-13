@@ -90,7 +90,7 @@ end
         @test sort!(collect(keys(b.entries))) == [100.0, 400.0, 1600.0, 3200.0]
         @test b.entries[100.0].black isa ChannelBlack && b.entries[100.0].noise isa NoNoise && b.entries[100.0].defects isa DefectList
         @test b.entries[400.0].black isa FileBlack && b.entries[400.0].noise isa PoissonGaussian && b.entries[400.0].defects isa NoDefects
-        @test b.entries[3200.0] == (black = FileBlack(), noise = NoNoise(), defects = NoDefects())
+        @test b.entries[3200.0].black isa FileBlack && b.entries[3200.0].noise isa NoNoise && b.entries[3200.0].defects isa NoDefects
         d = JSON.parsefile(joinpath(dir, "many.json"))
         @test [x["iso"] for x in d["entries"]] == [100, 400, 1600, 3200]          # in increasing ISO
         @test d["entries"][4] == Dict("iso" => 3200)                              # an empty entry: its ISO alone

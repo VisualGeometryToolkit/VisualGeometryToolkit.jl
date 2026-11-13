@@ -408,7 +408,8 @@ Each input's path is relative to ITS TIER's root ([`tier_data_root`](@ref Visual
 `env`'s `<data_env>_<TIER>`, else the graph's `[sites.<site>.tiers]` table, else `data_root`. A tier root that is
 named but not there makes each of its inputs a row whose tier says so (`"mocap (root /x, from VGTK_DATA_ROOT_MOCAP,
 is not there)"`). Each input is checked by `inspect_input` (src/code_identity.jl), the one check a driver's
-`verify_inputs` makes too: a scratch run's output is refused like another content. An input of the reserved tier
+`verify_inputs` makes too: a scratch run's output is refused like another content, unless this launch is a scratch one
+(`VGTK_SCRATCH=1` in `env`, [`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)). An input of the reserved tier
 [`UNPUBLISHED_TIER`](@ref) is reported missing as never fetched; with `unpublished` (a vector), each such input is
 also pushed there, `(; path, present, used_by)`, for the dry run to list.
 
@@ -434,7 +435,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
             tier = String(get(t, "tier", ""))
             root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
             name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
-            r = inspect_input(id, t, root; root_source = from, root_name = name)        # the one check (src/code_identity.jl)
+            r = inspect_input(id, t, root; root_source = from, root_name = name,        # the one check (src/code_identity.jl)
+                              allow_scratch = scratch_run(env))
             if tier == UNPUBLISHED_TIER && unpublished !== nothing
                 k = findfirst(u -> u.path == t["path"], unpublished)
                 k === nothing ? push!(unpublished, (; path = String(t["path"]), present = r.state !== :missing && r.state !== :root_missing,
@@ -510,8 +512,8 @@ differ from it), the `data_root` and `results_root`, the `stamp` of the launch, 
 `stages` in dependency order, the environment the launch was planned in (`base_env`: the stages' environment is it
 plus each stage's own), and the code it runs: `code_trees` (by name, the git trees of the graph's `code` paths and of
 every stack package the project's environment loads: [`code_trees`](@ref VisualGeometryToolkitEval.code_trees)) and
-`dirty_code`, those of them with uncommitted changes (a launch refuses to run them), and `code_paths`, the project's
-own paths among them (a launch that identifies none is refused too).
+`dirty_code`, those of them with uncommitted changes (a launch refuses to run them; a scratch launch runs them with
+a warning), and `code_paths`, the project's own paths among them (a launch that identifies none is refused too).
 """
 struct ReproducePlan
     graph::StageGraph
@@ -1008,7 +1010,8 @@ function print_plan(io::IO, plan::ReproducePlan; missing = nothing, unpublished 
     println(io, "  manifest $(plan.manifest)")
     println(io, "  markers  $(first(splitext(plan.manifest)))/<stage>/task-<t>.toml  (each task's completion marker: status and reuse read them)")
     println(io, "  code     $(length(plan.code_trees)) tree(s): $(join(sort!(collect(keys(plan.code_trees))), ", "))",
-            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) (a launch is refused)",
+            isempty(plan.dirty_code) ? "" : "  DIRTY: $(join(plan.dirty_code, ", ")) " *
+                (scratch_run(plan.base_env) ? "(a scratch launch: run with a warning)" : "(a launch is refused)"),
             isempty(plan.code_paths) ? "  NO PROJECT CODE: no `src`, no [project] code (a launch is refused)" : "")
     isempty(site.setup) || println(io, "  setup    $(site.setup)")
     for (i, st) in enumerate(plan.stages)
@@ -1212,8 +1215,16 @@ function _through_wrapper(plan::ReproducePlan, st::PlannedStage, c::Vector{Strin
 end
 
 # A run of record runs committed code: its results name it by its trees, which uncommitted changes are not in (the
-# one refusal, the drivers' records too).
-_refuse_dirty_code(plan::ReproducePlan) = refuse_uncommitted_code((; dirty = plan.dirty_code, project_paths = plan.code_paths))
+# one refusal, the drivers' records too). A scratch launch (`VGTK_SCRATCH=1`) runs it with a warning, as a driver's
+# scratch records do: its trees carry `+uncommitted`, so its stages are never reused for committed code.
+function _refuse_dirty_code(plan::ReproducePlan)
+    identity = (; dirty = plan.dirty_code, project_paths = plan.code_paths)
+    if scratch_run(plan.base_env) && !isempty(plan.dirty_code)
+        @warn "a scratch launch runs uncommitted code (VGTK_SCRATCH=1): its stages are never reused for committed code" uncommitted = join(plan.dirty_code, ", ")
+        identity = (; dirty = String[], project_paths = plan.code_paths)    # the project's code must still be identified
+    end
+    return refuse_uncommitted_code(identity)
+end
 
 # The line a backend prints before running a stage an earlier launch ran under other code.
 _print_rerun(io, st::PlannedStage) = isempty(st.rerun) || println(io, rpad(st.spec.name, 32), " rerun: ", st.rerun)

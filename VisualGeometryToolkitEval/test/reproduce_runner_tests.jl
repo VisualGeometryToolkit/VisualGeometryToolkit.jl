@@ -402,6 +402,8 @@ end
         # a scratch run's output is no input of record
         write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
         @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # ... but it is an input of a scratch launch, as of a scratch driver (`verify_inputs`)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = merge(env0, Dict("VGTK_SCRATCH" => "1")), site = "desktop"))
         # a distributed stage: ntasks and nodes; resources validated
         text = read(f.graph, String)
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
@@ -850,6 +852,17 @@ end
         @test code == 0 && occursin("rerun: code changed: no code trees recorded", out) && ran() == 4
         code, out = run_main(args; env = env0)
         @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 4
+        # a scratch launch runs uncommitted code with a warning (docs/src/reproduce.md), under a key of its own
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 3\nend\n")
+        scratch = merge(env0, Dict("VGTK_SCRATCH" => "1"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = scratch)
+        @test code == 0 && occursin("DIRTY: StackPkg (a scratch launch: run with a warning)", out)
+        code, out = @test_logs (:warn, r"a scratch launch runs uncommitted code") match_mode = :any run_main(args; env = scratch)
+        @test code == 0 && ran() == 5
+        @test occursin("src:", rec()["stages"]["setup"]["code_trees"]["StackPkg"]) && occursin("+uncommitted", rec()["stages"]["setup"]["code_trees"]["StackPkg"])
+        code, out = run_main(args; env = env0)                                      # a run of record still refuses it
+        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 5
+        p!("checkout", "-q", "--", "src/StackPkg.jl")
         # the rule itself
         changes = VisualGeometryToolkitEval.code_tree_changes
         @test isempty(changes(Dict("a" => "x"), Dict("a" => "x"))) && isempty(changes(Dict{String, Any}(), Dict{String, String}()))

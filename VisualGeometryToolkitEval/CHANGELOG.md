@@ -52,6 +52,8 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
   never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
   `precompile` must be `true` or `false`.
+- **A site's `[slurm] precompile_time`**: the `--time` of a GPU stage's CPU-only precompile job, its measured time × 2
+  (dgx01: `"0:30:00"`); a real limit lets the scheduler backfill the job.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 

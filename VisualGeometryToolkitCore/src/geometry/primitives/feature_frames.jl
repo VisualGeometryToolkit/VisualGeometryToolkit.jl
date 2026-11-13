@@ -68,7 +68,7 @@ function OrientedDisc(center::Point2{S}, σ::Real, θ::Real) where {S}
     return OrientedDisc{T}(Point2{T}(center), T(σ), T(θ))
 end
 OrientedDisc(x::Real, y::Real, σ::Real, θ::Real) = OrientedDisc(Point2(x, y), σ, θ)
-OrientedDisc(center::AbstractVector, σ::Real, θ::Real) = OrientedDisc(Point2(center...), σ, θ)
+OrientedDisc(center::AbstractVector, σ::Real, θ::Real) = OrientedDisc(Point2(SVector{2}(center)), σ, θ)
 OrientedDisc(o::OrientedDisc) = o
 
 # Construct from Disc by adding orientation
@@ -322,7 +322,7 @@ function EllipticFrame(center::Point2{C}, S::AbstractMatrix) where {C}
     return EllipticFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(S))
 end
 
-EllipticFrame(center::AbstractVector, S::AbstractMatrix) = EllipticFrame(Point2(center...), S)
+EllipticFrame(center::AbstractVector, S::AbstractMatrix) = EllipticFrame(Point2(SVector{2}(center)), S)
 EllipticFrame(e::EllipticFrame) = e
 
 # The symmetric square root S = M^½ of a 2×2 shape matrix (M = S·S): the ONE
@@ -427,7 +427,7 @@ function AffineFrame(center::Point2{C}, A::AbstractMatrix) where {C}
     return AffineFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(A))
 end
 
-AffineFrame(center::AbstractVector, A::AbstractMatrix) = AffineFrame(Point2(center...), A)
+AffineFrame(center::AbstractVector, A::AbstractMatrix) = AffineFrame(Point2(SVector{2}(center)), A)
 AffineFrame(a::AffineFrame) = a
 
 # Construct from EllipticFrame + rotation

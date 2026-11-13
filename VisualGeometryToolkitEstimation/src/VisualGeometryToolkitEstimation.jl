@@ -58,7 +58,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
-using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_symbol,
+using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symbol,
     worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
@@ -150,7 +150,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
 # so the RVG problem files' method definitions extend the VGC functions.
 import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinate_descent!, update_model!,
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
-    block_coordinate_result, current_cost, current_s2
+    block_coordinate_result, current_cost, current_s2, stop_rule   # stop_rule: the criteria's rules (local_optimization.jl)
 using VisualGeometryToolkitCore: StoppingCriterion
 # The EM fits' (fit_division_camera, fit_residual_mixture) scale source and weight kind: imported above.
 import VisualGeometryToolkitCore: weight_kind

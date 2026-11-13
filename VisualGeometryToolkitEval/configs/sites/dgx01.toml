@@ -12,4 +12,5 @@ partition = "gpu"
 gres = "gpu:1"
 cpus_per_task = 2
 mem_per_cpu = "8480M"
+precompile_time = "0:30:00"    # a GPU stage's CPU precompile job: measured ≈ 12–15 min at 6 CPUs (the wave-10 gate preps), × 2
 gpu_limit = 0

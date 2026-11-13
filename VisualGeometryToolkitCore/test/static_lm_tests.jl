@@ -10,11 +10,12 @@
     A = SMatrix{3, 3}(2.0, 0.3, -0.1, 0.3, 1.5, 0.2, -0.1, 0.2, 1.0)
     fj = x -> (d = x - xs; (A * d + 0.1 .* d .^ 3, A + Diagonal(0.3 .* d .^ 2), :extra))
     lb = SVector(-1.0, -1.0, -1.0); ub = SVector(1.0, 1.0, 1.0); s = SVector(1.0, 1.0, 1.0)
-    x, ok, J, e, rule = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, ub, s, 50, 1.0e-20)
+    stops = VgtkCore.StaticLmStops(s; acceptance = 1.0e-20, max_iter = 50)
+    x, ok, J, e, rule = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, ub, stops)
     @test ok && maximum(abs, x - xs) < 1.0e-9 && e[3] === :extra && rule isa VgtkCore.StopRule
     @test VgtkCore.static_lm_termination(ok, rule) == (VgtkCore.ReturnCode.Success, rule)
     # the root outside the box: the solve ends on the bound, unconverged — MaxIters at the cap, Stalled otherwise
-    x2, ok2, _, _, rule2 = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, SVector(1.0, 1.0, 0.5), s, 50, 1.0e-20)
+    x2, ok2, _, _, rule2 = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, SVector(1.0, 1.0, 0.5), stops)
     @test !ok2 && x2[3] <= 0.5
     code2, _ = VgtkCore.static_lm_termination(ok2, rule2)
     @test !VgtkCore.successful_retcode(code2)
@@ -24,8 +25,22 @@
     # 0.05 relative), so it stops coarser than Float64
     A32 = SMatrix{3, 3, Float32}(A); xs32 = SVector{3, Float32}(xs)
     x32, _ = VgtkCore.static_lm(x -> (d = x - xs32; (A32 * d, A32)), zero(SVector{3, Float32}),
-        SVector{3, Float32}(lb), SVector{3, Float32}(ub), SVector{3, Float32}(s), 50, 1.0f-10)
+        SVector{3, Float32}(lb), SVector{3, Float32}(ub), VgtkCore.StaticLmStops(SVector{3, Float32}(s); acceptance = 1.0f-10, max_iter = 50))
     @test x32 isa SVector{3, Float32} && maximum(abs, x32 - xs) < 0.05
+    # THE success rule (the host LM's): an accepted cost is not enough — a point that is not stationary fails. The
+    # iteration cap after one step from a far start ends at a cost below a lax acceptance, short of the root.
+    lax = VgtkCore.StaticLmStops(s; acceptance = 1.0e3, max_iter = 1)
+    x1, ok1, J1, e1, rule1 = VgtkCore.static_lm(fj, SVector(-0.9, 0.9, -0.9), lb, ub, lax)
+    F1 = sum(abs2, e1[1]); g1 = J1' * e1[1]
+    cosine = maximum(abs(g1[j]) / (norm(J1[:, j]) * sqrt(F1)) for j in 1:3)
+    @test rule1 === VgtkCore.IterationCap && F1 < lax.acceptance
+    @test ok1 == (cosine <= lax.stationarity_tol)              # accepted, and judged by the cosine (F and g far above their floors)
+    # a stationary point that is not accepted (a residual floor above the acceptance) fails too: r = (x − 0.5, 1)
+    x2b, ok2b, _, _, rule2b = VgtkCore.static_lm(x -> (SVector(x[1] - 0.5, 1.0), SMatrix{2, 1}(1.0, 0.0)), SVector(0.0),
+        SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 0.5))
+    @test x2b[1] ≈ 0.5 && !ok2b
+    @test VgtkCore.static_lm(x -> (SVector(x[1] - 0.5, 1.0), SMatrix{2, 1}(1.0, 0.0)), SVector(0.0),
+        SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 2.0))[2]   # the same point, accepted
 end
 
 @testitem "cubic_bspline_weight_derivatives, spline_window_sums: the derivatives of the weights and of the window" begin

@@ -403,7 +403,7 @@ module TestScenes
     """
     board_camera(R, t; f = F0, ks = (K0,), center = (0.0, 0.0)) = PosedCamera(
         CameraModel(; focal = f, pp = (Float64(center[1]), Float64(center[2])),
-            lens = Division((k * f^(2p) for (p, k) in enumerate(ks))...)),
+            lens = Division(ntuple(p -> ks[p] * f^(2p), length(ks))...)),   # a Tuple of the lens's fixed order
         EuclideanMap(RotMatrix{3, Float64}(R), SVector{3, Float64}(t))
     )
 

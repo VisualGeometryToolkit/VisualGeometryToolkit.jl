@@ -60,6 +60,22 @@ keywords go to `check_duplication` (the stack repositories compared come from
 function test_duplication end
 
 """
+    test_splat(M::Module; mode = :enforce, extensions = true)
+
+The stack's splat rule ([`check_splat`](@ref)) over package `M`, as a test in
+a gate mode: `:enforce` (`@test` that there is no finding), `:report` (each
+finding logged with `@warn` and the test recorded `@test_broken`; none found,
+an ordinary test) or `:off`. `extensions` goes to `check_splat`. A package on
+[`test_quality_gates`](@ref) gets the same check as its `splat` gate.
+Implemented by VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function test_splat end
+
+# A gate as a test in its mode (`:enforce`, `:report`, `:off`) over the findings `findings()` returns:
+# test_splat and every gate of test_quality_gates. Implemented by VisualGeometryToolkitCoreTestExt.
+function _test_gate end
+
+"""
     test_recorded(make; nested = RECORDED_NESTED_STATES) -> Int
 
 That a [`Recorded`](@ref) run of [`block_coordinate_descent!`](@ref) IS the bare
@@ -130,7 +146,7 @@ function test_docs end
                        config_dirs = nothing, registries = (), stack_dependencies = :enforce,
                        stack_name = string(nameof(M)), stack_extra = nothing,
                        public_names = :enforce, third_party_public = :report,
-                       contract_generics = :enforce)
+                       contract_generics = :enforce, splat = :report)
 
 The stack's static quality gates over package `M`, as one test set — RATCHETS:
 each bound is the value the package meets today and only ever moves down.
@@ -173,7 +189,11 @@ each bound is the value the package meets today and only ever moves down.
     `Dual`, StaticArraysCore's `StaticArray`);
   - `contract_generics`: every method `M` adds to another stack package's
     function lands on that owner's `CONTRACT_GENERICS`
-    ([`contract_generic_violations`](@ref)).
+    ([`contract_generic_violations`](@ref));
+  - `splat` (default `:report`): no call splats a collection whose length is
+    data — a `Vector`, a generator, an abstract type — which compiles the
+    callee once per length ([`check_splat`](@ref) over `M` and its loaded
+    extensions; exceptions are `DUPLICATION.toml`'s `[[splat]]` entries).
 
 Implemented by VisualGeometryToolkitCoreQualityExt: `using Test, Aqua,
 ExplicitImports, JET` loads it.
@@ -318,3 +338,36 @@ code run with `readme` the example's module. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 """
 function test_readme_example end
+
+"""
+    sensor_fixture(; body, iso = 100, exposure = 1.0s, black = nothing, black_std_error = nothing, dark = nothing,
+                   gain = nothing, gain_std_error = nothing, read_noise = nothing, read_noise_std_error = nothing,
+                   relative_noise = nothing, defects = nothing, source = SensorSource.specified)
+        -> (; characterisation, capture, model)
+    sensor_fixture(characterisations::SensorCharacterisation...) -> SensorCharacterisation
+
+THE builder of sensor-model fixtures for tests (owner ruling D13): a test never
+constructs a sensor component, a [`SensorCharacterisation`](@ref) or a
+[`SensorModel`](@ref) itself (check_duplication's `:sensor_component` pattern;
+the absent model `SensorModel()` excepted), it describes one here in plain
+numbers. The slots, each absent when its keywords are `nothing`:
+
+- black: `black` (a 4-tuple per colour index) → [`ChannelBlack`](@ref) (with
+  `black_std_error`); `dark = (; offset, variance, exposure_band, frames)` → a
+  [`Dark`](@ref) over that channel black (the [`FileBlack`](@ref) without `black`);
+- noise: `read_noise` → [`ReadNoise`](@ref) (with `read_noise_std_error`); with
+  a `gain` → [`PoissonGaussian`](@ref) (`gain_std_error` and
+  `read_noise_std_error` its standard errors); `relative_noise` →
+  [`RelativeNoise`](@ref);
+- defects: `defects = (; x, y, onset, size)` → [`DefectList`](@ref).
+
+`source` is one `SensorSource.T` for every slot or a named tuple by slot
+(`(; black = SensorSource.measured)`, specified where it names none). Returns
+the characterisation of `body` with that one entry at `iso`, a one-frame
+`capture` (frame `1` at `iso` and `exposure`, f/8, 14 mm) and the frame's
+`model`, resolved by [`sensor_model`](@ref). The second form merges
+characterisations of one body (their ISOs) into one. The components' own
+`ArgumentError`s reach the caller. Implemented by VisualGeometryToolkitCoreTestExt
+(`using Test` loads it).
+"""
+function sensor_fixture end

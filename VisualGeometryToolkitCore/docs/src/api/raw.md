@@ -32,19 +32,24 @@ Private = false
 Pages = ["raw/linear_raw.jl"]
 ```
 
-## Sensor noise and the black level
+## The sensor model: the black level, the noise and the defects
 
-A frame's Poisson–Gaussian noise ([`SensorNoise`](@ref): the gain K, the read
-noise σ_r, the black level, a master dark and a defect mask, each with its
-source `:measured`, `:estimated` or `:file`) is resolved once per frame by
-[`sensor_noise`](@ref), from a body's record of record or, where none exists,
-estimated from the frame itself by [`photon_transfer`](@ref); a record is
-built from lens-capped frames by [`master_dark`](@ref). The resolved noise is
-what [`LinearRaw`](@ref)`(mosaic; mode, noise)` subtracts: THE one black
-subtraction.
+Three levels: the geometric `Sensor` (part of a camera), a
+[`SensorCharacterisation`](@ref) (ONE body's components per ISO, held beside
+the camera like [`CaptureSettings`](@ref)) and a [`SensorModel`](@ref) (ONE
+frame's black, noise and defect components). Each slot's component is a type,
+absence included ([`FileBlack`](@ref), [`NoNoise`](@ref), [`NoDefects`](@ref)),
+and each present one states its source (`SensorSource`: measured, estimated,
+specified, file). The resolver [`sensor_model`](@ref) is a lookup: the frame's
+body and ISO pick an entry, and with none the absent model `SensorModel()`
+linearises bit for bit as the RAW alone. [`LinearRaw`](@ref)`(mosaic; mode,
+sensor_model)` is THE one black subtraction; under a [`PoissonGaussian`](@ref)
+or [`RelativeNoise`](@ref) its image carries each value's variance. The
+estimators build a characterisation's components from frames, offline:
+[`photon_transfer`](@ref), [`master_dark`](@ref), [`defect_onsets`](@ref).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Private = false
-Pages = ["raw/sensor_noise.jl"]
+Pages = ["raw/sensor_model.jl", "raw/sensor_estimators.jl"]
 ```

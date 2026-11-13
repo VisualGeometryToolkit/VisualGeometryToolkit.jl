@@ -3,9 +3,10 @@
 # =============================================================================
 #
 # `check_naming` and `naming_scope` (stubs in src/quality/naming.jl), `check_raw_decoding`
-# (src/quality/raw_decoding.jl), `check_duplication` (src/quality/duplication.jl), and the
+# (src/quality/raw_decoding.jl), `check_duplication` (src/quality/duplication.jl), `check_splat`
+# (src/quality/splat.jl), and the
 # helpers every stack package's tests share — `rows_cost`, `check_rows_jacobian`,
-# `test_naming`, `test_docs` (stubs in src/quality/test_helpers.jl).
+# `test_naming`, `test_docs`, `sensor_fixture` (stubs in src/quality/test_helpers.jl).
 # Every caller is a test, so they load with the Test standard library rather
 # than with the package.
 # =============================================================================
@@ -15,11 +16,11 @@ using Test: Test
 using TOML: TOML
 using ForwardDiff: ForwardDiff
 using StaticArrays: StaticArray
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, residual_rows!, residual_jacobian_rows!,
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, SplatViolation, residual_rows!, residual_jacobian_rows!,
     Attributed, Recorded, block_coordinate_descent!, current_cost, estimate, retcode, iterations, RECORDED_NESTED_STATES
-import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication,
+import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, check_splat, test_splat, _test_gate, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, test_duplication,
     test_recorded, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
-    test_readme_row, test_readme_example, julia_blocks
+    test_readme_row, test_readme_example, julia_blocks, sensor_fixture
 using VisualGeometryToolkitCore: ReadmeExample
 import VisualGeometryToolkitCore: test_scoring_contract, test_local_optimization_contract, test_constraint_problem,
     test_manifold_contract
@@ -28,9 +29,11 @@ include("VisualGeometryToolkitCoreTestExt/lexers.jl")        # the one Julia tok
 include("VisualGeometryToolkitCoreTestExt/check_naming.jl")
 include("VisualGeometryToolkitCoreTestExt/check_raw_decoding.jl")   # the one RAW path (reads naming_scope)
 include("VisualGeometryToolkitCoreTestExt/check_duplication.jl")    # one implementation per concept (reads both)
+include("VisualGeometryToolkitCoreTestExt/check_splat.jl")          # no splat of a data-length collection (DUPLICATION.toml's [[splat]])
 include("VisualGeometryToolkitCoreTestExt/test_helpers.jl")
 include("VisualGeometryToolkitCoreTestExt/test_docs.jl")         # the docstring gates every package runs
 include("VisualGeometryToolkitCoreTestExt/contracts.jl")
 include("VisualGeometryToolkitCoreTestExt/readme.jl")       # the README's examples, run as a reader runs them
+include("VisualGeometryToolkitCoreTestExt/sensor_fixture.jl")   # the ONE builder of sensor-model fixtures (D13)
 
 end # module VisualGeometryToolkitCoreTestExt

@@ -29,9 +29,16 @@ const _MAX_POSTINGS = 40
 # Each `(use, pattern, owner, home)`: `home` is `(package, files)`, the files of
 # that package (relative paths, or a Regex over them) where the pattern is the owner's own.
 const _RETIRED_PATTERNS = (
-    (:nlls_options, Regex("\\b" * "NLLS" * "Options\\s*\\("),
-        "VisualGeometryToolkitCore's `nlls_options` (src/robust/lm_core.jl): the stack's DᵀD damping and its stall postcondition",
-        ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl",))),
+    # THE LM GATE: a direct call of an LM primitive outside the one adapter. The primitives are NLLSsolver's solver API
+    # (its optimize, problem, cache and options constructors) and Core's internals of the adapter (the retired knob map
+    # and its private successor, the termination decode and stop-code decoder, the engine) and of the device LM (its
+    # increment solve). The entry points are not primitives: `lmsolve_chart!`, `LmProblem` (with `LmStops`) and
+    # `static_lm` (with `StaticLmStops`) may be called anywhere. Every own file is scanned — src/, ext/, test/,
+    # benchmark/, scripts — the home alone excepted: lm_core.jl and the adapter's own tests.
+    (:lm_primitive, Regex("\\bNLLS" * "Options\\s*\\(|\\bNLLSsolver\\.(optimize!|NLLS" * "Problem|Optimize" * "Cache)\\s*\\(|" *
+            "(?<![\\p{L}\\p{N}_!])(_?nlls_" * "options|nlls_" * "termination|nlls_" * "stop_code|_lm_" * "run!|_static_lm_" * "increment)\\s*\\("),
+        "VisualGeometryToolkitCore's one LM adapter (src/robust/lm_core.jl): `lmsolve_chart!` on a chart state or an `LmProblem`, under `LmStops`; `static_lm` under `StaticLmStops` on a device",
+        ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl", "test/lm_driver_tests.jl", "test/static_lm_tests.jl"))),
     (:rotation_angle, Regex("\\ba" * "cos\\s*\\(\\s*clamp\\s*\\(\\s*\\(\\s*(LinearAlgebra\\.)?(tr|sum)\\s*\\("),
         "Rotations' `rotation_angle` (as VisualGeometryToolkitCore's stereo.jl): exact near 0 and π", ("", ())),
     (:srgb_transfer, Regex("\\b0\\.00" * "31308\\b|\\b0\\.0" * "4045\\b"),
@@ -40,6 +47,27 @@ const _RETIRED_PATTERNS = (
     (:tex_macro_writer, Regex("\\b(print|println|write)\\s*\\(.*\\\\{1,2}" * "new" * "command"),
         "VisualGeometryToolkitEval's number macros (src/reproduce/number_macros.jl: `PaperNumbers`, `add_number!`, `write_numbers`)",
         ("VisualGeometryToolkitEval", ("src/reproduce/number_macros.jl", r"^test/"))),
+    # the sensor model (owner rulings D1–D13, 2026-11-13): a consumer never constructs a component, a characterisation or
+    # a model (the absent `SensorModel()` aside); a test describes one through the one fixture helper (D13)
+    (:sensor_component,
+        Regex("\\b(?:File" * "Black|Channel" * "Black|Da" * "rk|No" * "Noise|Read" * "Noise|Poisson" * "Gaussian|Relative" * "Noise|No" *
+              "Defects|Defect" * "List|SensorCharac" * "terisation)(?:\\{[^}]*\\})?\\s*\\(|\\bSensor" * "Model(?:\\{[^}]*\\})?\\s*\\((?!\\s*\\))"),
+        "VisualGeometryToolkitCore's sensor model (src/raw/sensor_model.jl): `sensor_model(characterisation, capture, t)`, " *
+            "`load(SensorCharacterisation, path)` (VisualGeometryToolkitIO); in tests `sensor_fixture` (D13)",
+        ("VisualGeometryToolkitCore", ("src/raw/sensor_model.jl", "src/raw/sensor_estimators.jl",
+                                       "ext/VisualGeometryToolkitCoreTestExt/sensor_fixture.jl"))),
+    # one variance law of a pixel value: LinearRaw's kernel under a PoissonGaussian (or RelativeNoise), its uncertain image
+    # (D11); `α·x + σ²` or `x/K + σ²` written by hand restates it (the Anscombe transform's `α x + 3α²/8 + σ²` does not match)
+    (:value_variance_law,
+        Regex("(?:\\b(?:α|al" * "pha)\\w*\\s*\\.?\\*\\s*[\\w.\\[\\]]+|[\\w.\\[\\]]+\\s*\\.?/\\s*(?:K|gain|electrons_per" * "_dn)\\b)" *
+              "\\s*\\.?\\+\\s*(?:σ|sig" * "ma)\\w*(?:²|\\s*\\.?\\^\\s*2)"),
+        "VisualGeometryToolkitCore's LinearRaw under a PoissonGaussian: each value's variance in its uncertain image (`L.image`'s `attributes`)",
+        ("VisualGeometryToolkitCore", ("src/raw/sensor_model.jl", "src/raw/linear_raw.jl", "test/sensor_model_tests.jl"))),
+    # one black subtraction: LinearRaw / linearview under the frame's SensorModel (its black slot); a hand-indexed
+    # per-channel black (`mosaic.black[c + 1]`) restates it
+    (:black_subtraction, Regex("\\.bla" * "ck\\s*\\["),
+        "VisualGeometryToolkitCore's one linearisation: `LinearRaw(mosaic; mode, sensor_model)`, `linearview(mosaic; sensor_model)`",
+        ("VisualGeometryToolkitCore", (r"^src/raw/", "test/raw_mosaic_tests.jl"))),
 )
 
 _in_home(f, home) = any(h -> h isa Regex ? occursin(h, f) : f == h, home)
@@ -155,6 +183,7 @@ const _EXCEPTION_KEYS = Dict(
     "name" => ("module", "name", "reason"), "similar" => ("functions", "reason"),
     "file" => ("files", "reason"), "pattern" => ("use", "file", "reason"),
     "backend" => ("file", "function", "reason"), "twin" => ("names", "reason"),
+    "splat" => ("file", "function", "reason"),   # check_splat's (check_splat.jl)
 )
 
 # The entries of the root's DUPLICATION.toml, by kind (each a Dict); throws on a defect.
@@ -166,7 +195,7 @@ function _duplication_exceptions(root::AbstractString)
     decl = TOML.parsefile(file)
     for (kind, entries) in decl
         haskey(_EXCEPTION_KEYS, kind) && entries isa AbstractVector ||
-            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]], [[pattern]], [[backend]] or [[twin]] entry"); continue)
+            (push!(errors, "`$kind` is not a [[name]], [[similar]], [[file]], [[pattern]], [[backend]], [[twin]] or [[splat]] entry"); continue)
         for e in entries
             want = _EXCEPTION_KEYS[kind]
             lacking = filter(k -> !haskey(e, k) || isempty(e[k]), collect(want))

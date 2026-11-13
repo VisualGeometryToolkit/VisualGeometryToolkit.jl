@@ -166,7 +166,7 @@ from VGC types.
 | `target_poses` | [`TargetPoses`](@ref) |
 | `observations` | [`TargetObservations`](@ref) (pixels or 3D points, by its frame; each set names its entity, `target_point` or `landmark`). The 0.9 `target_detections`, `target_points2d` and `target_points3d` kinds are read through version steps into it |
 | `detection` | a detection, `Attributed{Uncertain{<:FeatureFrame}}` (the one frame codec, every frame type) |
-| `sensor_noise` | [`SensorNoise`](@ref), every field with its source (`measured`, `estimated`, `file`) |
+| `sensor_characterisation` | [`SensorCharacterisation`](@ref): the body and, per ISO, one body per present component (an absent one absent), each with its source (`measured`, `estimated`, `specified`, `file`) |
 | `capture_settings` | [`CaptureSettings`](@ref), `Attributed` with its identities' sources |
 
 **File names state the kind, never the time.** A file's name is a

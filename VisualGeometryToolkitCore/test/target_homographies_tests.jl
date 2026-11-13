@@ -47,7 +47,8 @@
     @testset "labels: stored unlabeled, minted by homography(th, t, id), as TargetPoses" begin
         F = PixelFrame{:colmap}
         h = homography(tg, 1, :b1)
-        @test h isa HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame, F} && to_homogeneous(h) == to_homogeneous(H1)
+        @test h isa HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame{:b1}, F} && to_homogeneous(h) == to_homogeneous(H1)
+        @test_throws ArgumentError TargetHomographies{F}(Dict(1 => Dict(:b2 => h)))   # another target's plane
         labeled = TargetHomographies{F}(Dict(1 => Dict(:b1 => h)); sensors = "cam")       # its own labels: accepted, stored unlabeled
         @test labeled[1][:b1] === H1
         @test_throws ArgumentError TargetHomographies{F}(Dict(1 => Dict(:b2 => relabel(PixelFrame{:opencv}, F, unlabel(h)))))   # other labels
@@ -55,7 +56,7 @@
         @test_throws ArgumentError TargetHomographies{F}(Dict(1 => Dict(:b1 => to_homogeneous(H1))))     # a matrix: lift it
         Σ = CovMat{8}(σ = 0.01)
         u = TargetHomographies{F}(Dict(1 => Dict(:b1 => Uncertain(h, Σ))))
-        @test geom(u[1][:b1]) === H1 && homography(u, 1, :b1) isa Uncertain{<:HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame, F}}
+        @test geom(u[1][:b1]) === H1 && homography(u, 1, :b1) isa Uncertain{<:HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame{:b1}, F}}
     end
 
     @testset "the parameter protocol: nine canonical entries" begin
@@ -71,7 +72,7 @@
         @test P.parameter_vector(HomographyMap(HomographyMat(-to_homogeneous(H)))) ≈ θ   # the sign rule: H[3,3] ≥ 0
         @test !any(P.length_mask(H)) && length(P.length_mask(H)) == 9
         lab = P.with_parameters(homography(tg, 1, :b1), θ)                  # the frames are kept
-        @test lab isa HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame, PixelFrame{:colmap}}
+        @test lab isa HomographyMap{3, Float64, HomographyMat{Float64}, TargetPlaneFrame{:b1}, PixelFrame{:colmap}}
         @test_throws ArgumentError P.with_parameters(H, θ[1:8])
         @test_throws ArgumentError P.with_parameters(H, zeros(9))           # singular
         @test_throws ArgumentError P.parameter_vector(HomographyMap(SMatrix{3, 3, Float64}(fill(NaN, 9)...)))

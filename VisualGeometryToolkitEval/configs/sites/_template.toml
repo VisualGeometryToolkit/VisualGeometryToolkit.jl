@@ -29,6 +29,8 @@ job_name_prefix = ""        # put before every job's name (the stage's job_name,
                             # --job-name, else <project>-<stage>): a label for the scheduler, e.g. "release-" for
                             # a watcher that prioritizes release runs; never part of a run key. --job-name-prefix=
                             # overrides it for one launch. Empty: the names as they are.
+precompile_time = "0:20:00" # --time of a GPU stage's CPU-only precompile job: its MEASURED time × 2 (a real limit lets
+                            # the scheduler backfill it); empty: the partition's default limit
 
 [local]                     # backend = "local" only
 cuda_visible_devices = "0"  # CUDA_VISIBLE_DEVICES of a GPU stage (CPU stages get ""): the device indices to use, e.g.

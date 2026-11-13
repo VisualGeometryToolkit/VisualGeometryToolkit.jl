@@ -261,5 +261,12 @@ end
         cost = residual_cost!(nothing, lm, x)
         @test cost === 0.5 * sum(view(lm.partials, 1, :))
         @test cost ≈ c
+        # 0.10.2's two calls, the launch and then the reduction, against Core's launch-and-reduce (0.10.3): the same bits
+        apart = similar(lm.partials)
+        args = (lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
+        VgtkCore._launch_rows!(VgtkEstimation._normal_row!, apart, size(apart, 2), args...)
+        @test residual_normal_equations!(nothing, nothing, lm, x) === VgtkCore.reduce_normal_equations(apart, Val(N))
+        VgtkCore._launch_rows!(VgtkEstimation._cost_row!, apart, size(apart, 2), args...)
+        @test residual_cost!(nothing, lm, x) === VgtkCore.reduce_cost(apart)
     end
 end

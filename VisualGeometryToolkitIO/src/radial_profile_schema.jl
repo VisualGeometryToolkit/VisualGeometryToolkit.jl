@@ -37,7 +37,9 @@ const _RADIAL_PROFILE_BODY = _CheckedSpec(_Obj(
     rule = "B + 1 strictly increasing edges (B ≥ 1); `values` one row per channel (at least one), B values each; " *
            "`counts` B counts, each ≥ 0; the equisolid chart states its focal length, and only it",
     schema = [Dict("properties" => Dict("edges" => Dict("minItems" => 2), "values" => Dict("minItems" => 1),
-                                        "counts" => Dict("items" => Dict("minimum" => 0))))])
+                                        "counts" => Dict("items" => Dict("minimum" => 0)),
+                                        "chart" => Dict("if" => Dict("properties" => Dict("type" => Dict("const" => "equisolid"))),
+                                                        "then" => Dict("required" => ["focal_length"]))))])
 const _RADIAL_PROFILE_SPEC = _kind_spec("radial_profile", Pair{Symbol, _Spec}[:profile => _RADIAL_PROFILE_BODY])
 
 function JSON.lower(s::VgioStyle, p::BinnedRadialProfile)

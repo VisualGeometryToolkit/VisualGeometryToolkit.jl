@@ -34,6 +34,7 @@
         return out
     end
     walk!(out, s::VgtkIO._CheckedSpec, x, at) = walk!(out, s.inner, x, at)
+    walk!(out, s::VgtkIO._DetectionSpec, x, at) = walk!(out, s.outer, x, at)   # (its records' shape is its header's)
     function walk!(out, s::VgtkIO._Obj, x, at)
         x isa AbstractDict || return nothing
         for (k, sk) in s.required

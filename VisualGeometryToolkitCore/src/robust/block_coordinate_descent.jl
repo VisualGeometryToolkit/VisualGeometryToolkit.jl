@@ -37,7 +37,7 @@ Each concrete subtype defines extension points:
   (best-tracking, counters the stopping criteria read)
 - [`stopping_criterion`](@ref)`(method)` — the method's own
   [`StoppingCriterion`](@ref) (default [`StopNever`](@ref))
-- `block_coordinate_result(state, method, prob, θ, stop_reason, final_iter)` — package result
+- `block_coordinate_result(state, method, prob, θ, stop_reason, final_iter, stop_rule)` — package result
 """
 abstract type AbstractBlockCoordinateMethod end
 
@@ -70,7 +70,7 @@ and squared residuals of `θ` into the state, and nothing else.
 """
 function update_residuals! end
 """
-    block_coordinate_result(state, method::AbstractBlockCoordinateMethod, prob, θ, stop_reason, final_iter)
+    block_coordinate_result(state, method::AbstractBlockCoordinateMethod, prob, θ, stop_reason, final_iter, stop_rule)
 
 Package the run of [`block_coordinate_descent!`](@ref) as the method's result
 (a [`FitResult`](@ref) for the stack's fits), from the final state, model,
@@ -179,20 +179,51 @@ end
     return _first_reason(Base.tail(cs), state, method, prob, θ, θ_old, iter)
 end
 
+"""
+    stop_rule(criterion::StoppingCriterion, method) -> StopRule
+
+The [`StopRule`](@ref) a criterion's stop records, for the method it stopped:
+`NoRule` by default; Core's own criteria `StopAfterIteration` → `IterationCap`,
+`StopWhenSolveFailed` → `NonFinite` (a failed model block). A package adds a
+method for each criterion it defines (and may specialise on the method).
+[`block_coordinate_descent!`](@ref) asks it of the member of a
+[`StopWhenAny`](@ref) that fired — the first whose [`stop_reason`](@ref) is not
+`:continue`, in evaluation order — and hands it to `block_coordinate_result`,
+so no consumer re-evaluates the criteria to learn which stopped the run.
+"""
+stop_rule(::StoppingCriterion, method) = NoRule
+stop_rule(::StopAfterIteration, method) = IterationCap
+stop_rule(::StopWhenSolveFailed, method) = NonFinite
+
+# The reason and the rule of the criterion that fired (`(:continue, NoRule)` when none did): a StopWhenAny's first
+# member to fire, in order, the one rule `stop_reason` and `stop_rule` both read.
+@inline function _reason_and_rule(c::StoppingCriterion, state, method, prob, θ, θ_old, iter)
+    reason = stop_reason(c, state, method, prob, θ, θ_old, iter)
+    return (reason, reason === :continue ? NoRule : stop_rule(c, method))
+end
+@inline _reason_and_rule(c::StopWhenAny, state, method, prob, θ, θ_old, iter) =
+    _first_reason_and_rule(c.criteria, state, method, prob, θ, θ_old, iter)
+@inline _first_reason_and_rule(::Tuple{}, state, method, prob, θ, θ_old, iter) = (:continue, NoRule)
+@inline function _first_reason_and_rule(cs::Tuple, state, method, prob, θ, θ_old, iter)
+    rr = _reason_and_rule(first(cs), state, method, prob, θ, θ_old, iter)
+    first(rr) === :continue || return rr
+    return _first_reason_and_rule(Base.tail(cs), state, method, prob, θ, θ_old, iter)
+end
+
 Base.:|(a::StoppingCriterion, b::StoppingCriterion) = StopWhenAny((a, b))
 Base.:|(a::StopWhenAny, b::StoppingCriterion) = StopWhenAny((a.criteria..., b))
 Base.:|(a::StoppingCriterion, b::StopWhenAny) = StopWhenAny((a, b.criteria...))
 Base.:|(a::StopWhenAny, b::StopWhenAny) = StopWhenAny((a.criteria..., b.criteria...))
 
-# The criteria that can end a run before its first iteration: only the budget.
-@inline _reason_at_start(c::StopAfterIteration) = c.n <= 0 ? :max_iterations : :continue
-@inline _reason_at_start(::StoppingCriterion) = :continue
-@inline _reason_at_start(c::StopWhenAny) = _first_reason_at_start(c.criteria)
-@inline _first_reason_at_start(::Tuple{}) = :continue
-@inline function _first_reason_at_start(cs::Tuple)
-    reason = _reason_at_start(first(cs))
-    reason === :continue || return reason
-    return _first_reason_at_start(Base.tail(cs))
+# The criteria that can end a run before its first iteration: only the budget (its reason and rule).
+@inline _reason_at_start(c::StopAfterIteration, method) = c.n <= 0 ? (:max_iterations, stop_rule(c, method)) : (:continue, NoRule)
+@inline _reason_at_start(::StoppingCriterion, method) = (:continue, NoRule)
+@inline _reason_at_start(c::StopWhenAny, method) = _first_reason_at_start(c.criteria, method)
+@inline _first_reason_at_start(::Tuple{}, method) = (:continue, NoRule)
+@inline function _first_reason_at_start(cs::Tuple, method)
+    rr = _reason_at_start(first(cs), method)
+    first(rr) === :continue || return rr
+    return _first_reason_at_start(Base.tail(cs), method)
 end
 
 """
@@ -265,7 +296,7 @@ end
 # =============================================================================
 
 """
-    initialize_solver!(state, likelihood, method, prob, θ₀, criterion) -> Symbol
+    initialize_solver!(state, likelihood, method, prob, θ₀, criterion) -> (reason::Symbol, rule::StopRule)
 
 Start a [`block_coordinate_descent!`](@ref) run: clears a [`Recorded`](@ref)
 trace, and returns the reason the run ends before its first iteration
@@ -274,9 +305,9 @@ is built beforehand — by `init_state!` or the caller.
 """
 function initialize_solver!(state, likelihood, method, prob, θ₀, criterion::StoppingCriterion)
     _clear_record!(state)
-    reason = _reason_at_start(criterion)
-    _record_reason!(state, reason)
-    return reason
+    rr = _reason_at_start(criterion, method)
+    _record_reason!(state, first(rr))
+    return rr
 end
 @inline _clear_record!(_state) = nothing
 function _clear_record!(r::Recorded)
@@ -306,15 +337,17 @@ other block run), `update_residuals!`, `update_nuisance!(likelihood)`,
 end
 
 """
-    stop_solver!(state, criterion, method, prob, θ, θ_old, iter) -> Symbol
+    stop_solver!(state, criterion, method, prob, θ, θ_old, iter) -> (reason::Symbol, rule::StopRule)
 
 The run's [`stop_reason`](@ref) after iteration `iter` (`θ` is `nothing` when
-its model block failed), recorded on a [`Recorded`](@ref) state.
+its model block failed), with the [`stop_rule`](@ref) of the criterion that
+fired (`NoRule` while the run continues); the reason recorded on a
+[`Recorded`](@ref) state.
 """
 @inline function stop_solver!(state, criterion::StoppingCriterion, method, prob, θ, θ_old, iter::Int)
-    reason = stop_reason(criterion, _bare(state), method, prob, θ, θ_old, iter)
-    _record_reason!(state, reason)
-    return reason
+    rr = _reason_and_rule(criterion, _bare(state), method, prob, θ, θ_old, iter)
+    _record_reason!(state, first(rr))
+    return rr
 end
 
 """
@@ -347,7 +380,7 @@ failed model block ends the run at once (`:solve_failed`, no other block run);
 otherwise the method's own criterion is read after `post_iteration!`, and only
 then the budget — on the last iteration a method's reason wins over
 `:max_iterations`. `max_iter ≤ 0` runs no iteration. The result is
-`block_coordinate_result(state, method, prob, θ, reason, iterations)` with `θ`
+`block_coordinate_result(state, method, prob, θ, reason, iterations, rule)` with `θ`
 the last model the model block produced (θ₀ if none).
 
 # Monotonicity
@@ -405,7 +438,7 @@ function block_coordinate_descent!(
     criterion = StopWhenSolveFailed() | stopping_criterion(method) | StopAfterIteration(max_iter)
     θ = θ₀
     iter = 0
-    reason = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
+    reason, rule = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
     while reason === :continue
         iter += 1
         θ_old = θ
@@ -413,13 +446,13 @@ function block_coordinate_descent!(
         if isnothing(θ_new)
             # A failed model block ends the run on the last model; the reason is
             # StopWhenSolveFailed's (first in the criterion).
-            reason = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
+            reason, rule = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
             break
         end
         θ = θ_new
-        reason = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
+        reason, rule = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
     end
-    return block_coordinate_result(_bare(state), method, prob, θ, reason, iter)
+    return block_coordinate_result(_bare(state), method, prob, θ, reason, iter, rule)
 end
 
 # =============================================================================

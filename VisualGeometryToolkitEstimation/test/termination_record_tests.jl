@@ -320,11 +320,12 @@ end
     l2m = VgtkCore.BundleMetadata([1.0, 1.0], [0.2, 0.9], [1], 10, NaN, s_, s_; scale = NaN, scale_source = VgtkCore.ScaleNone)
     record!(seen, :BundleMetadata, VgtkCore.FitResult(:calibration, ReturnCode.MaxIters, VgtkCore.IterationCap, 50, 0.3, 2, l2m))
     @test_throws ArgumentError VgtkCore.noise_scale(VgtkCore.FitResult(:c, ReturnCode.Success, VgtkCore.CostDecrease, 1, 0.3, 2, l2m))
-    # the SplineLens bundle
+    # the SplineLens bundle (the camera held: refined only by back-projection, or held)
     truth = spline_truth(); Es3 = truth_poses(3)
     sviews = spline_views(truth, Es3, 1.1)
     record!(seen, :refine_camera_and_poses, refine_camera_and_poses(bounded(perturbed_controls(truth, 0.01)),
-                                                                    [perturbed_pose(E, v) for (v, E) in enumerate(Es3)], sviews))
+                                                                    [perturbed_pose(E, v) for (v, E) in enumerate(Es3)], sviews;
+                                                                    fixed = (:controls,)))
     # the robot-world hand-eye bundle: markers' features from a seed near the truth
     rng = StableRNG(3)
     camera = CameraModel(; focal = 600.0, pp = (400.0, 300.0))

@@ -123,7 +123,8 @@ end
 
     # a bare model has no bound: refused, with the route (the region is the camera's bound, never a default)
     @test_throws r"BoundedCamera" optical_axis(OFF_AXIS)
-    @test_throws r"BoundedCamera" refine_camera_and_poses(OFF_AXIS, [EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))], [[SVector(0.0, 0.0, 2.0) => SVector(500.0, 500.0)]])
+    @test_throws r"BoundedCamera" refine_camera_and_poses(OFF_AXIS, [EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))], [[SVector(0.0, 0.0, 2.0) => SVector(500.0, 500.0)]];
+                                                     fixed = (:controls,))
     # a circular fisheye (an equidistant f = 250 px lens imaging to 100°, its circle r ≈ 436 px on a 1400 × 1000 sensor;
     # its frame turned 3° off its axis): its spline images nothing past the circle, so its corners are the lattice's
     # extrapolation (as the RC golden siemens grid's). Over its image-circle bound the axis is found; over the whole

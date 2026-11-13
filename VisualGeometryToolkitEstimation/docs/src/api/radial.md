@@ -52,16 +52,17 @@ VisualGeometryToolkitCore's `ParameterManifold` — jointly with one pose per
 view (`LeftRigidManifold6`) against the reprojection error of 3D → 2D
 correspondences, from a guess of both: the bundle of a calibration with a known
 target, for any lens the camera's family holds (a fisheye's rays past 90° are
-ordinary data). `free = ()` holds the camera and refines the poses alone. Its
+ordinary data). Naming every parameter in `fixed` holds the camera and refines the poses alone. Its
 strategy is the refine contract's `optimization_strategy` — `Triggs{WelschShape}()`
 by default, run from the start with no least-squares stage, at the caller's
 `scale = σ` (a refine estimates no scale) or `width = w`; `nothing` is plain least
 squares. A
-SplineLens camera refines its backward controls instead (K frozen, the lens
-axis held on ẑ), by implicit differentiation of its projection solve, with a
-scale-free third-difference penalty over its lattice whose weight generalized
-cross-validation chooses by default (`penalty = :gcv`; a number fixes it, `0`
-turns it off); a forward spline is refitted after. With several rigid boards,
+SplineLens camera is refined only by back-projection (`fit_camera(SplineLens, …)`,
+`pspline_grid`), or held: here it takes `fixed = (:controls,)`, the camera held
+on its optical axis and the poses refined through its whole `project`; the
+image-space refine of its controls was retired in 0.10.0 (the default `fixed = ()`
+and a `penalty` are refused, naming it). A forward spline is refitted after
+(`fit_forward_spline`). With several rigid boards,
 `refine_camera_and_poses(camera, poses, board_poses, views)` adds one pose per
 board (board → world) to the same bundle, the correspondences keyed by
 `(view, board)`; each connected group of views and boards keeps its gauge by a
@@ -104,9 +105,8 @@ per parameter and to the penalty operator's mean positive eigenvalue `m̄`
 `gcv_select` chooses β by generalized cross-validation from a score of λ — a
 coarse scan of log₁₀ β, then Brent's method — the score the closed-form curve
 of one penalized least squares (`gcv_curve`: every λ from one generalized
-eigendecomposition). A nonlinear fit evaluates it on its linearization, as the
-SplineLens refine does (one solve at β = 1, the curve, one final solve).
-Public, not exported.
+eigendecomposition). A nonlinear fit evaluates it on its linearization (one
+solve at β = 1, the curve, one final solve). Public, not exported.
 
 ```@docs
 VisualGeometryToolkitEstimation.gcv_curve
@@ -143,7 +143,7 @@ principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineL
 `fit_forward_spline(camera; tolerance)` gives a SplineLens camera its forward spline and keeps everything else — its
 backward, K and frame — so poses estimated against it stay valid; with a forward, `project` evaluates the spline and
 runs no projection solve. It runs the stack's one forward fit (the fit `fit_camera(SplineLens, …; forward = true)` and the
-SplineLens `refine_camera_and_poses` run).
+SplineLens `refine_camera_and_poses`' refit run).
 
 ```@docs
 fit_camera

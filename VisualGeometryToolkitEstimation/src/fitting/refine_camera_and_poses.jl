@@ -42,38 +42,16 @@ reprojection rows at the estimate (pixels, two per correspondence: views in
 block order, each view's correspondences in their order); `s²`, the residual
 variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (`p` the
 free camera parameters plus 6 per view); `free`, the names of the camera
-parameters refined; and `spline`, `nothing` for a parametric camera, for a
-SplineLens camera `(; β, λ, gcv, gcv_at_bound, effective_dof,
-n_nodes_unrefined, n_dropped_window, n_dropped_unprojected, rounds,
-windows_settled, forward, forward_max_px, cost_start, axis_rotation, symmetry_residual,
-refined_axis_offset, refined_symmetry_residual)`:
-the third-difference
-penalty's normalized weight β and its `λ` (0 for none, and with `fixed = (:controls,)`;
-`gcv_select`'s `β` and `λ`); the GCV curve `[(; β, λ, gcv)]` over the weights
-evaluated (ascending; `nothing` unless `penalty = :gcv`), whether its minimum is
-an end of the bracket (the weight GCV wants lies at or past it), and tr H, the
-effective number of parameters at the chosen weight (`nothing` without GCV, and
-when `max_time` cuts GCV's start solve short: then no weight is searched, and β is
-that solve's, 1);
-the present nodes no data row and no third-difference row reads (held at their
-guesses); the correspondences detected on an absent window,
-and those the camera does not project when detected within a cell of one (they
-can be inliers); the solve-and-rebuild rounds (the blocks rebuilt at the
-estimate until every window is its own) and whether the windows settled before
-the cap (`false` when a solve was cut short by `max_time`: its windows were never
-rebuilt); what became of a forward spline
-(`:none` without one, `:refitted` or `:dropped`: the entry's turn of the frame
-leaves it stale, so it is never kept) and the refit's held-out maximum (pixels, or `nothing`); and the joint objective
-(½ the sum of squares, the penalty rows included) at the joint solve's start; then the entry's optical-axis gauge: the frame-labelled
-rotation from the given camera's frame to the refined one's (`optical_axis`, the
-poses turned by it) and the axis fit's symmetry residual (px); and the diagnostic of
-the refined camera's own optical axis: its image's distance from the held principal
-point (px) and its symmetry residual (px). For
-a SplineLens camera `s²` reads the whole cost, the
-third-difference rows included, and `ν = 2n + 3m − p` counts its `m`
-third-difference rows as observations and `p = 3·(the nodes a row reads) − 4 +
-6·views` (the gauge's 4 dimensions, the common scale and the rotation, are no
-unknowns). Then the robust record: `residual_norms` (one per correspondence,
+parameters refined (`()` for a SplineLens camera, which is held); and `spline`,
+`nothing` for a parametric camera, for a SplineLens camera `(; n_dropped_window,
+n_dropped_unprojected, forward, forward_max_px, axis_rotation, symmetry_residual)`: the correspondences detected on an absent window, and those
+the camera does not project when detected within a cell of one (they can be
+inliers); what became of a forward spline (`:none` without one, `:refitted` or
+`:dropped`: the entry's turn of the frame leaves it stale, so it is never kept)
+and the refit's held-out maximum (pixels, or `nothing`); then the entry's optical-axis gauge: the
+frame-labelled rotation from the given camera's frame to the returned one's
+(`optical_axis`, the poses turned by it) and the axis fit's symmetry residual (px).
+For a SplineLens camera `p = 6·views` (the camera is held). Then the robust record: `residual_norms` (one per correspondence,
 pixels), `weights` (the loss's ρ′/ρ′(0) at the estimate under a robust strategy, all
 ones — lazily — under least squares), and the scale the loss ran at, `scale` and
 `scale_source` (`ScaleGiven`/`ScaleUpstream`, or `NaN`/`ScaleNone` under least
@@ -166,7 +144,7 @@ NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
 """
     refine_camera_and_poses(camera, poses, views; fixed = (), box = nothing, optimization_strategy, scale | width,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
-    refine_camera_and_poses(spline_camera, poses, views; fixed = (), penalty = :gcv,
+    refine_camera_and_poses(spline_camera, poses, views; fixed = (:controls,),   # required: a SplineLens camera is held
                             refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
     refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), fixed = (), box,
@@ -184,7 +162,7 @@ scratch and the camera keeps its family (its lens type).
   (the estimate is then bounded alike): intrinsics and lens, the parameters
   VisualGeometryToolkitCore's `parameter_vector(camera)` lists (`f, aspect,
   skew, cx, cy`, then the lens's coefficients), in pixels. A SplineLens camera
-  takes its own route (below).
+  is held, its poses refined (below).
 - `poses` — one world → camera `EuclideanMap{3}` per view (`X_c = R·X + t`, `X`
   in the target's frame), keyed like `views`.
 - `views` — per view, its correspondences `cs = [X => u, …]`: `X` a target
@@ -201,8 +179,8 @@ scratch and the camera keeps its family (its lens type).
   `k1…`; VisualGeometryToolkitCore's `free_parameter_names` resolves it), `()` the
   default: every parameter is refined but the gauge, the skew, which is held by
   construction (naming it is accepted); naming every parameter holds the camera
-  and refines the poses alone. The
-  stack's one parameter-holding keyword (NLLSsolver's word; OpenCV's
+  and refines the poses alone. A SplineLens camera takes `(:controls,)` only
+  (below). The stack's one parameter-holding keyword (NLLSsolver's word; OpenCV's
   `CALIB_FIX_*`): `free`, `fix`, `fixed_params` and `hold` are refused, naming it.
 - `box` — a solver search box on the camera's parameters by name
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
@@ -271,105 +249,39 @@ gauge is its own: an `ArgumentError`); plain poses and points.
 
 # A SplineLens camera
 Its K is a frozen gauge (skew 0) and its parameters are its backward lattice's
-controls at the present nodes, so its route differs (Core's `IntrinsicsRole`
-trait, `GaugeIntrinsics`, selects it):
-- The variables are the present nodes' controls, any norms (a `fit_camera`
-  lattice's, a quasi-interpolant's: they are kept as they are, as normalizing
-  them would change the backprojection), each `c = e^ℓ·D` its direction on its
-  own sphere (the reference's chart, Core's `ControlPatchManifold`) and its
-  log-scale `ℓ` (3 coordinates; the controls grouped into 2 × 2 patches,
-  NLLSsolver's 10-variable block cap), and the poses; only the nodes a row
-  reads are variables, the others kept exactly as they are
-  (`result.spline.n_nodes_unrefined` counts them).
-  The solve runs in three stages,
-  each from the last: the poses alone through the guess's lens, then the
-  directions and the poses with every scale held exactly (the scales are no
-  variable of that stage), then everything (a node's
-  scale is weakly observed and nearly collinear with its direction, so a joint
-  solve from far off creeps, or lets the scales absorb the poses' error). `fixed` is `()` (the default: the
-  controls refined) or `(:controls,)` (the poses alone, the camera's lens held as the entry gauged it); a `box` is an
-  `ArgumentError`.
-- Each correspondence's rows are `K·x* − u`, `x*` the lens's projection solve
-  on the correspondence's 4 × 4 window at the guess, its Jacobian analytic by
-  implicit differentiation at `x*` (no automatic differentiation reaches the
-  solve). With the camera held (`fixed = (:controls,)`, and the poses-alone
-  stage) there is no window: each row projects through the whole camera
-  (`project`), a constant. A correspondence detected on a window with an absent node is
-  dropped and counted (`result.spline.n_dropped_window`), and so is one the
-  camera does not project when detected within one knot cell of such a window
-  (it images it onto the absent nodes; counted apart,
+controls, so its route differs (Core's `IntrinsicsRole` trait, `GaugeIntrinsics`,
+selects it). **A SplineLens camera is refined only by back-projection, or held:**
+its backward is fitted on back-projected rays (`fit_camera(SplineLens, …)`,
+[`pspline_grid`](@ref)), and here it is held while the poses are refined.
+- `fixed = (:controls,)` is required: the camera held, the poses refined. The
+  default `fixed = ()`, which would refine the controls against the pixel rows,
+  is an `ArgumentError` naming the retired image-space refine
+  (VisualGeometryToolkitEstimation 0.10.0), and so is a `penalty` (that route's
+  smoothness weight); a `box` and any other `fixed` are `ArgumentError`s.
+- Each correspondence's rows are `project(camera, X_c) − u` through the whole
+  held camera, a constant (the parametric route's block, on its pose alone): no
+  window, no node column. A correspondence detected on a window with an absent
+  node is dropped and counted (`result.spline.n_dropped_window`), and so is one
+  the camera does not project when detected within one knot cell of such a
+  window (it images it onto the absent nodes; counted apart,
   `result.spline.n_dropped_unprojected`: it can be an inlier); every other one
-  must project at the guess (and at each rebuild's estimate: an
-  `ArgumentError` names the round). A third-difference penalty (Core's
-  `difference_rows`, the P-spline fit's operator, along every row and column
-  of present nodes) holds the nodes the data reach weakly or not at all. Each
-  of its rows is divided by the mean control length of its own 4 nodes, so it
-  is scale-free. Its weight is the stack's normalized β (`penalty_scale`):
-  `λ = β · energy / N / m̄`, the data's energy per parameter read as the mean
-  diagonal of its Gauss–Newton matrix in the nodes' direction coordinates
-  times the controls' squared mean length (scale-free too; the residuals of
-  exact data vanish, so they cannot set it), and `m̄` the mean positive
-  eigenvalue of the Δ³ operator's `DᵀD`. β = 1 weighs the penalty like the
-  data. β is set by `penalty`:
-  - `:gcv` (the default): β minimizes the generalized cross-validation score
-    `GCV = n‖r‖² / (n − tr H)²` of the refine's linearization (`n` the data
-    rows): the whole refine solved ONCE at β = 1 (the bracket's top, where
-    the penalty weighs like the data and no weakly held node swings), its
-    Gauss–Newton step from there for every λ (`r` the data rows' residuals
-    after the step, `H = J(JᵀJ + λDᵀD)⁻¹Jᵀ`, J and D the data and Δ³ rows'
-    Jacobians there, over the variables' coordinates), from ONE
-    generalized eigendecomposition of the pencil `(DᵀD, JᵀJ + DᵀD)` up
-    to 3000 coordinates, else per λ a sparse Cholesky and a 64-probe
-    Hutchinson trace from a fixed seed (deterministic; standard deviation
-    ≤ √(2·tr H / 64)); minimized over `log₁₀ β ∈ [−12, 0]` by the stack's
-    `gcv_select` (one β a decade, then Brent's method to its own floor;
-    a minimum at a bracket end is reported, `gcv_at_bound`); then ONE final
-    solve at the chosen β, from the linearization's Gauss–Newton step there
-    (from the β = 1 estimate if that step stops projecting a correspondence).
-  - a number β > 0: that weight; no GCV. On noisy detections a small weight
-    can let the nodes the data hold weakly swing until a correspondence no
-    longer projects: an `ArgumentError` says so and suggests `:gcv` or a
-    larger weight.
-  - `0` or `nothing`: no smoothness. Then every present node outside every
-    correspondence's window is kept as it is (and counted). Without the
-    Δ³ rows each node's log-scale is held by its data alone, nearly collinear
-    with its own direction, so the joint solve needs ≈ 2–3× the default
-    `max_iter` (≈ 210 iterations on the 3-view fixture); at the default cap it
-    returns `:max_iterations`.
-  The blocks are rebuilt at the estimate and solved again until every
-  correspondence reads its own window (`result.spline.rounds`, at most 5; at
-  the cap the rows, `rms` and the stationarity test are read on the returned
-  camera's own windows, and `windows_settled` is `false`). `iterations` sums
-  every solve.
+  must project at the guess (an `ArgumentError` names the first that does not,
+  or where the lattice folds).
 - First, always, the optical axis. The camera is turned so ẑ is its optical axis and its principal point is that
   axis's pixel, and the guess poses are turned with it, so every image is kept:
   [`optical_axis`](@ref), then Core's `axis_gauged`. The axis is fitted over the camera's own bound, so the camera
-  must be a `BoundedCamera`; a bare model is an `ArgumentError`. The refine runs from there. `result.spline.axis_rotation` is the
-  turn, from the given camera's frame to the refined one's. The refined K is the gauged guess's.
-- The gauge: a rotation of every control together with every pose, and one
-  common scale of every control, leave the cost unchanged. The solve fixes it
-  exactly by the parametrization: the first view's rotation and the log-scale of
-  the node nearest x = 0 are no coordinate of any variable, so the LM's normal
-  matrix is full rank. It holds the frame and K the entry set, and nothing moves
-  the estimate after the LM. K is bit-identical to the axis-gauged guess's.
-- A diagnostic only: `optical_axis` of the refined camera. `result.spline.refined_axis_offset`
-  is how far its axis's image lies from the held principal point (px), and
-  `result.spline.refined_symmetry_residual` is its symmetry residual. Nothing is
-  re-gauged from it.
+  must be a `BoundedCamera`; a bare model is an `ArgumentError`. The poses are refined from there and the camera
+  comes back as the entry gauged it (K bit-identical to the gauged guess's). `result.spline.axis_rotation` is the
+  turn, from the given camera's frame to the returned one's.
 - A forward spline is dropped for the refinement and, with `refit_forward`
   (the default), refitted over `imaged_region(camera)` by
   [`fit_forward_spline`](@ref)`(…; tolerance = forward_tolerance)` (pixels: the
-  refined camera's backward, K and frame kept), which needs a `BoundedCamera` (an `ArgumentError` for a bare camera model). It is
-  never kept, even with `fixed = (:controls,)`: the entry's turn of the frame leaves it stale.
-- The model: the target is exact, so the estimate is the maximum-likelihood
-  one under isotropic Gaussian detection noise (penalized by the
-  smoothness prior; with `penalty = 0` the plain maximum-likelihood one). A board that departs from its
-  design (an in-plane warp, an affine or smooth deformation, a height field)
-  is not modelled here: that is the board-deformation solve of
-  RadiometricCamera's calibration pipeline.
-- `max_time` caps the whole refine (every stage and rebuild round reads what
-  is left of it; the record `(ReturnCode.MaxTime, TimeCap)` when any was cut short).
-- Device: the projections that build each problem run batched on the device
+  returned camera's backward, K and frame kept), which needs a `BoundedCamera` (an
+  `ArgumentError` for a bare camera model). It is never kept: the entry's turn of
+  the frame leaves it stale.
+- Least squares only (`optimization_strategy = nothing`, no `scale` or `width`).
+  `max_time` caps the solve (the record `(ReturnCode.MaxTime, TimeCap)`).
+- Device: the projections that check the guess run batched on the device
   (Core's `default_device()`); the LM is NLLSsolver's, on the CPU.
 
 # Units

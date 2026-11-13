@@ -60,7 +60,7 @@ using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterat
 # through FitResult's constructor.
 using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_symbol,
     worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
-    ToleranceMet, IterationCap, TimeCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
+    ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
 # robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
 # (fitting/_refine.jl) the scale they were handed.
@@ -238,7 +238,7 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
-using VisualGeometryToolkitCore: nlls_rows_and_jacobian, nlls_stop_reasons   # NLLSsolver's rows and termination bits (the record: nlls_termination)
+using VisualGeometryToolkitCore: nlls_rows_and_jacobian   # NLLSsolver's rows and their Jacobian (the record: nlls_termination)
 using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
 # fit_camera's spline families: the penalized normal equations (a sparse
@@ -249,7 +249,7 @@ import Graphs   # the view and observation graphs' algorithms (components, artic
 using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
-    mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization and an operator's rows as blocks (Core)
+    mean_positive_eigenvalue, penalty_scale   # the penalty weight's normalization (Core)
 using VisualGeometryToolkitCore: nearest_point, backproject_with_jacobian
 
 

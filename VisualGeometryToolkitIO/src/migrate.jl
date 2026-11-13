@@ -1959,7 +1959,7 @@ end
 _is_manifest(s) = (v = _split_schema(s); v !== nothing && v.kind == "calibration")
 # One listed file of a manifest in `mdir`, bound again if the tree rewrote it
 # (marked `_rebound`; a renamed path recorded in `renamed`), else as it stands.
-function _rebound_entry(e::AbstractDict, m::_TreeMap, dir, mdir, renamed::AbstractDict, dry_run::Bool)
+function _rebound_entry(e::AbstractDict, m::_TreeMap, dir::AbstractString, mdir::AbstractString, renamed::AbstractDict, dry_run::Bool)
     w = get(m.rewritten, relpath(normpath(joinpath(mdir, e["path"])), dir), nothing)
     (w === nothing || w["sha256"] != e["sha256"]) && return Dict{String, Any}(e)
     new = joinpath(dir, w["path"])
@@ -1979,7 +1979,7 @@ end
 # back, and checked as `load_manifest` checks it (every listed file's hash and
 # schema, its owner's reader, the observations' targets) before it is put in
 # place. A current manifest none of whose files moved is left as it is.
-function _migrate_tree_manifest(f, s, dir, m::_TreeMap; out, dry_run::Bool, io::IO)
+function _migrate_tree_manifest(f::AbstractString, s, dir::AbstractString, m::_TreeMap; out, dry_run::Bool, io::IO)
     if out != f && isfile(out) && (so = _try_schema(out); so isa String && _is_current(so))
         println(io, "current   ", f, ": already migrated to ", out)
         return nothing

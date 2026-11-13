@@ -18,7 +18,7 @@
     q(a, b, c, d) = (n = sqrt(a^2 + b^2 + c^2 + d^2); QuatRotation(a / n, b / n, c / n, d / n, false))
     R = Dict(1 => QuatRotation(1.0, 0.0, 0.0, 0.0, false), 2 => q(0.9, 0.1, -0.3, 0.05), 3 => q(0.7, -0.2, 0.6, 0.1))
     rots = Trajectory(CameraFrame, WorldFrame, Dict(k => EuclideanMap(r, z) for (k, r) in R);
-                      images = Dict(k => "DSC0000$(k).ARW" for k in 1:3), times = Dict(k => 0.5k for k in 1:3), time_origin = "2026-11-13T10:00:00")
+                      images = Dict(k => "DSC0000$(k).ARW" for k in 1:3), times = Dict(k => 0.5k for k in 1:3), time_origin = "2026-11-13T10:00:00+01:00")
     tv = with_control_points(TensorProductVignetting((5, 4), Rect(0.0, 0.0, 4240.0, 2832.0); degree = (2, 3)), [w(i, j) for i in 1:5, j in 1:4])
     rv = with_control_points(RadialVignetting(7, SVector(2120.3, 1416.7), 2551.25; chart = :projective), [w(i, 1) for i in 1:7])
     G = [1.0 1.0 1.0; 1.0213 0.9987 1.0441; 0.9712 0.9655 0.9801]

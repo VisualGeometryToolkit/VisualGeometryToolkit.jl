@@ -64,7 +64,7 @@ end
             end
         end
         # one detection type per file
-        @test_throws ArgumentError save(p, Dict("a" => [Attributed(frames[1], (; r = 1.0))], "b" => [Attributed(frames[2], (; r = 1.0))]))
+        @test_throws ArgumentError save(p, Dict{String, AbstractVector{<:AbstractDetection}}("a" => [Attributed(frames[1], (; r = 1.0))], "b" => [Attributed(frames[2], (; r = 1.0))]))
         # an attribute of a type the file cannot state
         @test_throws ArgumentError save(p, Dict("a" => [Attributed(frames[1], (; r = 1 // 2))]))
         # a covariance not over frame_dof (ASIFT's 3×3 on an EllipticFrame)

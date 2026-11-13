@@ -83,9 +83,9 @@ snap_integer(v) = v
 # plain number as it is (its tag `:plain`); a quantity by its dimension, which
 # the tag (when it states one) must match.
 function _number_json(s::VgioStyle, x, tags::NamedTuple)
-    q, role = _tag_quantity(tags)
     k = _quantity_of(x)
-    (haskey(tags, :quantity) || k === :plain) && k !== q && throw(
+    q, role = _tag_quantity(haskey(tags, :quantity) ? tags : merge(tags, (quantity = k,)))   # untagged: what the value is
+    k !== q && throw(
         ArgumentError("a field of $(repr(q)) holds $(x), a $(k) value: it would read back as something else")
     )
     k === :plain && return x isa AbstractFloat ? Float64(x) : x   # a Float32 exactly, as its Float64

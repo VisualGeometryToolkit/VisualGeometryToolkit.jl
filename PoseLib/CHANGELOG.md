@@ -1,7 +1,13 @@
 # PoseLib changelog
 
-## 0.2.1 (unreleased)
+## 0.3.0 (unreleased)
 
+The breaking wave 10, on VisualGeometryToolkitCore 0.10.
+
+### Breaking
+
+- **On VisualGeometryToolkitCore 0.10** (`[compat]` "0.10.0"): the refiners take Core's `Correspondence`/`Correspondences`
+  (the terminology ruling: the old pairing abbreviation is retired with every name built on it).
 - **Below the minimal sample a refiner returns `InitialFailure`**: fewer correspondences than the model's minimal
   sample (4 for `refine_homography`, 7 for `refine_fundamental`, 5 for `refine_relpose`, 3 for
   `refine_absolute_pose`) return the seed unrefined, `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as
@@ -10,6 +16,8 @@
 - **The retired keywords `loss`, `loss_width` and `local_optimization` are refused by VisualGeometryToolkitCore's
   `refuse_retired_keyword`** (its message: "the keyword `loss` is retired: give `optimization_strategy`"; `loss_width`
   names `width`). A keyword the refiners never had is Julia's `MethodError`, no longer an `ArgumentError`.
+
+## 0.2.1 (2026-11-13)
 
 - **Julia 1.13** (the owner's ruling of 2026-11-13: the whole stack requires 1.13): `[compat] julia = "1.13"` in the
   package and in every environment of its workspace; CI runs 1.13 only.

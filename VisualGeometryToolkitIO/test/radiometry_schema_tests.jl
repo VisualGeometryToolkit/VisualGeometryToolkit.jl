@@ -194,16 +194,21 @@ end
     @test has_units(q) && typeof(q) == typeof(p) && Tuple(cov(q)) == Tuple(cov(p))
     @test JSON.lower(s, p).frame == "target_plane" && JSON.lower(s, p).covariance["diagonal"] ≈ [0.02^2, 0.03^2]   # mm² in an mm record
     # an IO 0.9 blur body (`{"unit", "covariance"}`), as another package's record of an earlier version embeds it: read as
-    # the unlabeled blur it held; its unit "px^2" or a length squared, told apart by NAME (FlexUnits equates every
-    # dimensionless unit of scale 1, so px, px³ and pd² would pass a dimension check); a length is not an area
+    # the unlabeled blur it held; its unit "px^2" or a length squared, told apart by NAME (FlexUnits gives px, px³ and
+    # pd² one dimension, none, and one scale, so they would pass a dimension check); a length is not an area
     old(u, c) = JSON.parse(JSON.json(Dict("unit" => u, "covariance" => c)))
     b9 = JSON.lift(s, GaussianBlur, old("px^2", Dict("diagonal" => [0.25, 0.5])))
     @test !has_units(b9) && Tuple(cov(b9)) == (0.25, 0.0, 0.0, 0.5)
     m9 = JSON.lift(s, GaussianBlur, old("mm^2", Dict("isotropic" => 4.0e-4)))
     @test has_units(m9) && Tuple(cov(ustrip(m, m9))) == (4.0e-10, 0.0, 0.0, 4.0e-10)
-    for bad in ("px", "px^3", "pd^2", "mm", "mm^3", "mm*px", "furlong^2")
-        @test_throws ArgumentError JSON.lift(s, GaussianBlur, old(bad, Dict("isotropic" => 1.0)))
-    end
+    refused_unit(u) = try JSON.lift(s, GaussianBlur, old(u, Dict("isotropic" => 1.0))); false catch e; e isa ArgumentError end
+    @test refused_unit("px")
+    @test refused_unit("px^3")
+    @test refused_unit("pd^2")
+    @test refused_unit("mm")
+    @test refused_unit("mm^3")
+    @test refused_unit("mm*px")
+    @test refused_unit("furlong^2")
 end
 
 @testitem "radiometry kinds: the validator" setup = [VGIoFixtures] begin

@@ -70,6 +70,7 @@ const _LM_FTOL = toml_default(_CORE_DEFAULTS, "lm", "ftol")::Float64
 const _LM_XTOL = toml_default(_CORE_DEFAULTS, "lm", "xtol")::Float64
 const _LM_STATIONARITY_TOL = toml_default(_CORE_DEFAULTS, "lm", "stationarity_tol")::Float64
 const _STATIC_LM_MAX_ITER = toml_default(_CORE_DEFAULTS, "lm", "device_max_iter")::Int
+const _STATIC_LM_ACCEPTANCE = toml_default(_CORE_DEFAULTS, "lm", "device_acceptance")::Float64
 
 """
     LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing)
@@ -1014,15 +1015,17 @@ const _LM_AREA_UNITS = 1000
 # 4.5e-8 px (1.12) apart, 1.8e-6 px on the review's 20 000-problem probe,
 # converged flags identical; gated at 2e-6 px (pixel_lm_reference_tests.jl).
 """
-    StaticLmStops(scale::SVector{N, T}; acceptance, residual_scale = 1, cost_floor = 0, residual_resolution = 0, max_iter, stationarity_tol)
+    StaticLmStops(scale::SVector{N, T}; acceptance = Inf, residual_scale = 1, cost_floor = 0, residual_resolution = 0, max_iter, stationarity_tol)
 
 THE stop settings of the device LM [`static_lm`](@ref) (isbits: a kernel takes it as an argument), owned with the
-host LM's ([`LmStops`](@ref)): `max_iter` defaults to configs/default.toml `[lm] device_max_iter`, `stationarity_tol`
-to `[lm] stationarity_tol` — the ONE success rule's cosine, the host's.
+host LM's ([`LmStops`](@ref)): every keyword has a default of record — `max_iter` configs/default.toml
+`[lm] device_max_iter`, `acceptance` `[lm] device_acceptance`, `stationarity_tol` `[lm] stationarity_tol` (the ONE
+success rule's cosine, the host's), and the floors' neutral values.
 
 - `scale`: the problem's unit per coordinate, in which the step tolerance (`1e-10·(eps(T)/eps(Float64)) ./ scale`,
   RELATIVE to the coordinate) and the DᵀD clamp (`[1e-12, 1e16]·scale²`) are read.
-- `acceptance`: the cost a solution must be below, F < `acceptance` — a root-finding caller's residual bound.
+- `acceptance`: the cost a solution must be below, F < `acceptance` — a root-finding caller's residual bound; by
+  default `[lm] device_acceptance`, `Inf`: success by the stationarity rule alone.
 - `residual_scale`: the residual's scale `fs`, so the absolute cost and gradient floors are what `T` resolves of it,
   `(16 eps(T) fs)²`.
 - `cost_floor`: the absolute floor under those (`0`: resolved to rounding; the spline lenses' reference routine
@@ -1042,7 +1045,7 @@ struct StaticLmStops{N, T <: AbstractFloat}
     max_iter::Int
 end
 @inline StaticLmStops(
-    scale::SVector{N, T}; acceptance::Real, residual_scale::Real = one(T), cost_floor::Real = zero(T),
+    scale::SVector{N, T}; acceptance::Real = _STATIC_LM_ACCEPTANCE, residual_scale::Real = one(T), cost_floor::Real = zero(T),
     residual_resolution::Real = zero(T), max_iter::Integer = _STATIC_LM_MAX_ITER, stationarity_tol::Real = _LM_STATIONARITY_TOL
 ) where {N, T <: AbstractFloat} =
     StaticLmStops{N, T}(scale, T(acceptance), T(residual_scale), T(cost_floor), T(residual_resolution), T(stationarity_tol), Int(max_iter))

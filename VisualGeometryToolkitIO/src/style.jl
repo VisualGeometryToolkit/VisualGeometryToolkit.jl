@@ -60,11 +60,14 @@ declaration: a [`UnitContract`](@ref) (its `length` unit, every lengths in
 decimal-exact through [`write_length`](@ref) and [`read_length`](@ref), its
 further length roles and its density) and the `pixel_frame` its pixel
 coordinates are written in. The writer takes it as `JSON.json(x; style =
-VgioStyle(…))`; every file's `units` object is the style's
-(`JSON.lower(style, contract)` writes the length part of it).
+VgioStyle(…))`; every file's `units` object is the style's (`length` the
+contract's `world` unit, `length_roles` its further roles, `density`, and
+`pixel` the pixel frame), which [`write_record`](@ref) writes into the
+envelope.
 
 `VgioStyle(record)` is the style a parsed record's `units` object declares (the
-reader's: a record a package of its own reads with [`read_record`](@ref)).
+reader's: a record a package of its own reads with [`read_record`](@ref)), the
+record read by property access (a `JSON.Object` or a `NamedTuple`).
 
 A package serializing a kind of its own embeds VGC values the same way (a
 pose, a `CameraModel`, a target with its calibration, a layout, an

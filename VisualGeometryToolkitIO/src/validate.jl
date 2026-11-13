@@ -752,8 +752,9 @@ _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
 """
     validate(path) -> String
 
-Check a vgio v2 file — or a COLMAP model directory's `vgio_units.json`, when
-`path` is the directory — against its kind's table, the check every v2 reader
+Check a vgio file — or a COLMAP model directory's `vgio_units.json`, when
+`path` is the directory — against its kind's table (the envelope's `schema`,
+`generator`, `units` and `conventions`, then the body), the check every reader
 runs before using a field and every writer runs before writing, and return
 the kind (`"cameras"`, `"rig"`, …). An `ArgumentError` names the file, the
 offending key and the problem. A file of an earlier version is checked as

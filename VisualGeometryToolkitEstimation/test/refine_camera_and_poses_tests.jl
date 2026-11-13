@@ -141,9 +141,9 @@ end
     @test part.free == (:f, :cx, :cy) && parameter_vector(estimate(part).camera)[2] === parameter_vector(cam)[2]
     @test refine_camera_and_poses(cam, poses0, views; fixed = (), optimization_strategy = nothing).free ==
         refine_camera_and_poses(cam, poses0, views; optimization_strategy = nothing).free
-    # the other spellings are refused, naming `fixed`
+    # the other spellings are refused, naming `fixed`: Core's one refusal of a retired keyword
     for kw in (:free, :fix, :fixed_params, :hold)
-        @test_throws r"give `fixed`" refine_camera_and_poses(cam, poses0, views; (; kw => ())...)
+        @test_throws ArgumentError("the keyword `$kw` is retired: give `fixed`") refine_camera_and_poses(cam, poses0, views; (; kw => ())...)
     end
     @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-9
     # a dict keyed by view: the same estimate, keyed back; a Correspondences view is one too
@@ -432,12 +432,13 @@ end
 end
 
 # The held route on the SplineLens cameras fit_camera and the constructors make (non-unit controls): the poses of
-# exact data come back the truth's in the entry's frame, the camera as the entry gauged it.
+# exact data come back the truth's, the camera exactly as given (no turn of its frame: its controls are no variable,
+# so there is no gauge to fix).
 @testitem "refine_camera_and_poses: a held SplineLens camera of fit_camera and the constructors, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2,
-        backproject, imaged_region, estimate, rms, lens, calibration_matrix, parameter_vector
+        backproject, imaged_region, estimate, rms, lens
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, fit_camera
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
     bk = BoundedCamera(kb, Size2(1280, 960))
@@ -449,13 +450,13 @@ end
     for truth in (fitted, quasi, scaled)
         @test maximum(c -> abs(norm(c) - 1), lens(truth).backward.controls) > 1.0e-3
         views = spline_views(truth, Es, 1.1)
-        res = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))
+        bc = bounded(truth)
+        res = refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), optimization_strategy = nothing)
         est = estimate(res)
-        gt, Rt = entry_gauge(truth)
         @test retcode_symbol(res) === :converged && res.free == ()
-        @test calibration_matrix(model(est.camera)) == calibration_matrix(gt) && parameter_vector(model(est.camera)) == parameter_vector(gt)
+        @test est.camera === bc                                                                # the camera as given
         @test rms(res) < 1.0e-8 < spline_rms(truth, poses0, views)
-        @test maximum(maximum(abs, P.R - VC.axis_gauged(E, Rt).R) + maximum(abs, P.t - VC.axis_gauged(E, Rt).t) for (P, E) in zip(est.poses, Es)) < 1.0e-8
+        @test maximum(maximum(abs, P.R - E.R) + maximum(abs, P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-8
     end
 end
 
@@ -468,64 +469,63 @@ end
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, retcode_symbol, estimate, reprojection_error, model, lens, spline_window,
-        nlls_rows_and_jacobian, project
+        project
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, refine_camera_and_poses
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
-    gt, Rt = entry_gauge(truth)
-    turned = [VC.axis_gauged(P, Rt) for P in poses0]
-    # the held problem: one block per correspondence on its pose alone, the camera a constant (no window, no node)
-    p = VE._spline_problem(VE._without_forward(gt), turned, views)
-    @test all(c -> c isa VE._BoardViewResidual && length(c.varind) == 1, p.costs)
-    @test size(last(nlls_rows_and_jacobian(p.costs, p.variables)), 2) == 6 * 3
+    # the held problem's filter: every correspondence kept (a full lattice), each on its view and the one held board
+    p = VE._spline_problem(VE._without_forward(truth), poses0, views)
+    @test length(p.obs) == 360 && all(o -> o[2] == 1, p.obs) && p.dropped == 0 && p.unprojected == 0
     # many points change cells between the guess and the truth
-    b = lens(gt).backward
-    cell(P, X) = spline_window(b.area, size(b.controls), project(lens(gt), P.R * X + P.t))[1:2]
-    tt = [VC.axis_gauged(E, Rt) for E in Es]
-    crossed = sum(count(c -> cell(turned[v], first(c)) != cell(tt[v], first(c)), views[v]) for v in eachindex(views))
+    b = lens(truth).backward
+    cell(P, X) = spline_window(b.area, size(b.controls), project(lens(truth), P.R * X + P.t))[1:2]
+    crossed = sum(count(c -> cell(poses0[v], first(c)) != cell(Es[v], first(c)), views[v]) for v in eachindex(views))
     @test crossed > 20
-    held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))
+    held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,), optimization_strategy = nothing)
     est = estimate(held)
     @test retcode_symbol(held) === :converged && held.free == ()
+    @test held.ν == 2 * 360 - 6 * 3                                                         # the poses' columns alone: no node
     # the rows are the camera's own reprojection errors at the estimate, and the exact data's optimum is the truth
     own = reduce(vcat, [reduce(vcat, [Vector(reprojection_error(model(est.camera), est.poses[v], first(c), last(c))) for c in views[v]]) for v in eachindex(views)])
     @test maximum(abs, held.residuals - own) <= 1.0e-9
     @test maximum(abs, held.residuals) <= 1.0e-8
-    @test maximum(maximum(abs, P.R - E.R) + maximum(abs, P.t - E.t) for (P, E) in zip(est.poses, tt)) < 1.0e-9
+    @test maximum(maximum(abs, P.R - E.R) + maximum(abs, P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-9
 end
 
-@testitem "refine_camera_and_poses: a SplineLens camera's poses alone, a forward refitted, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+# The held SplineLens camera comes back AS GIVEN (VisualGeometryToolkitEstimation 0.11.0): its controls are no variable,
+# so there is no gauge to fix and no turn onto the optical axis; a forward spline it holds is kept, never refitted.
+@testitem "refine_camera_and_poses: a SplineLens camera's poses alone, the camera returned as given, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, estimate, retcode,
-        lens, model, parameter_vector, with_present, spline_window, imaged_region, calibration_matrix
-    using LinearAlgebra: norm
+        lens, model, with_present, spline_window, imaged_region
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, refine_camera_and_poses, fit_camera
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
-    # the poses alone: the camera comes back as the entry gauged it — the truth on its optical axis, its controls and K
-    # == (2026-11-11: no longer the given camera itself) — and the poses recovered in that frame
-    held = refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,))
-    gt, Rt = entry_gauge(truth)
+    # the poses alone: the camera comes back as given, the poses recovered in its own frame
+    bt = bounded(truth)
+    held = refine_camera_and_poses(bt, poses0, views; fixed = (:controls,), optimization_strategy = nothing)
     @test retcode_symbol(held) === :converged && held.free == ()
-    @test parameter_vector(model(estimate(held).camera)) == parameter_vector(gt) && calibration_matrix(model(estimate(held).camera)) == calibration_matrix(gt)
-    @test maximum(maximum(abs, P.t - VC.axis_gauged(E, Rt).t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-6
-    # a camera holding a forward spline: held without it, the forward refitted over the bounded camera's imaged region
-    # (the entry turned the frame: the given forward is stale)
+    @test estimate(held).camera === bt
+    @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(held).poses, Es)) < 1.0e-6
+    @test keys(held.spline) == (:n_dropped_window, :n_dropped_unprojected)
+    # a bare model needs no bound (no axis is fitted): returned as given too
+    bare = refine_camera_and_poses(truth, poses0, views; fixed = (:controls,), optimization_strategy = nothing)
+    @test estimate(bare).camera === truth && estimate(bare).poses == estimate(held).poses
+    # a camera holding a forward spline: the camera, its forward included, returned as given
     cam0 = perturbed_controls(truth, 0.01)
     bc = BoundedCamera(estimate(fit_camera(SplineLens, BoundedCamera(cam0, Size2(1280, 960)), imaged_region(BoundedCamera(cam0, Size2(1280, 960)));
         tolerance = 1.0e-3)), Size2(1280, 960))
     @test lens(model(bc)).forward isa ChartSpline{2}
-    rf = refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), forward_tolerance = 1.0e-3)
-    @test retcode_symbol(rf) === :converged && estimate(rf).camera isa BoundedCamera
-    @test lens(model(estimate(rf).camera)).forward isa ChartSpline{2} && rf.spline.forward === :refitted
-    @test rf.spline.forward_max_px <= 1.0e-3
-    @test calibration_matrix(model(estimate(rf).camera)) == calibration_matrix(first(entry_gauge(bc)))   # the entry's K, held
-    rd = refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), refit_forward = false)
-    @test lens(model(estimate(rd).camera)).forward === nothing && rd.spline.forward === :dropped
-    @test_throws r"BoundedCamera" refine_camera_and_poses(model(bc), poses0, views; fixed = (:controls,))   # a refit needs the image
+    rf = refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), optimization_strategy = nothing)
+    @test retcode_symbol(rf) === :converged && estimate(rf).camera === bc
+    # the forward refit's keywords are retired, naming why
+    @test_throws r"`refit_forward` is retired: give `fit_forward_spline" refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), refit_forward = false)
+    @test_throws r"`forward_tolerance` is retired: give `fit_forward_spline" refine_camera_and_poses(bc, poses0, views; fixed = (:controls,), forward_tolerance = 1.0e-3)
+    # the default strategy is the bundle's (Triggs{Welsch}): it needs a scale or a width
+    @test_throws r"scale = σ" refine_camera_and_poses(bt, poses0, views; fixed = (:controls,))
     # a masked lattice: the detections on an absent window are dropped and counted
     present = trues(10, 12); present[1:3, 9:12] .= false
     masked = with_present(cam0, present)
@@ -533,26 +533,50 @@ end
     absent(u) = (w = spline_window(b.area, size(b.controls), VC.normalized_point(masked.intrinsics, u)); !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
     n_absent = count(absent(last(x)) for cs in views for x in cs)
     @test n_absent > 0
-    rm = refine_camera_and_poses(bounded(masked), poses0, views; fixed = (:controls,))
+    rm = refine_camera_and_poses(bounded(masked), poses0, views; fixed = (:controls,), optimization_strategy = nothing)
     @test rm.spline.n_dropped_window == n_absent
     @test rm.n == 360 - n_absent - rm.spline.n_dropped_unprojected
     @test rm.spline.n_dropped_unprojected <= 10        # those the camera images onto an absent window, within a cell of one (the guess's taken back)
     @test lens(model(estimate(rm).camera)).present == present
-    # refusals: a box, a `fixed` other than (:controls,), a retired spelling (the free controls and a `penalty`: the
-    # refusal by name, its own item above)
-    @test_throws r"`box` has nothing to bound" refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:controls,), box = (; c_1_1_x = (0.0, 1.0)))
-    @test_throws r"is \(:controls,\)" refine_camera_and_poses(bounded(truth), poses0, views; fixed = (:c_1_1_x,))
-    @test_throws r"give `fixed`" refine_camera_and_poses(bounded(truth), poses0, views; free = ())
+    # refusals: a box, a `fixed` other than (:controls,), a retired spelling (Core's one refusal; the free controls and a
+    # `penalty`: the refusal by name, its own item above)
+    @test_throws r"`box` has nothing to bound" refine_camera_and_poses(bt, poses0, views; fixed = (:controls,), box = (; c_1_1_x = (0.0, 1.0)))
+    @test_throws r"is \(:controls,\)" refine_camera_and_poses(bt, poses0, views; fixed = (:c_1_1_x,))
+    @test_throws ArgumentError("the keyword `free` is retired: give `fixed`") refine_camera_and_poses(bt, poses0, views; free = ())
     # a lattice that folds where a point projects (every control ẑ: the backward's Jacobian exactly 0 there) is not
     # linearized: the error names the fold
-    # (2026-11-11: the refine's entry fits the optical axis first, and a lattice imaging ẑ everywhere has no field to
-    # fit — refused there; the fold refusal is the axis-gauged refine's own, checked on it directly)
     flat = CameraModel(truth.intrinsics, SplineLens(ChartSpline(b.area, fill(SVector(0.0, 0.0, 1.0), size(b.controls)))))
     P = poses0[1]
     one_point = [[P.R' * (SVector(0.0, 0.0, 2.0) - P.t) => SVector(640.0, 480.0)]]
-    @test_throws r"empty fit domain" refine_camera_and_poses(bounded(flat), [P], one_point; fixed = (:controls,))
-    np = VisualGeometryToolkitEstimation._refine_spline_axis_gauged(flat, [P], one_point, false)
-    @test occursin(r"lattice folds where the point .* projects at the guess", VisualGeometryToolkitEstimation._not_projected_message(np))
+    @test_throws r"lattice folds where the point .* projects at the guess" refine_camera_and_poses(bounded(flat), [P], one_point;
+                                                                                                  fixed = (:controls,), optimization_strategy = nothing)
+end
+
+# A robust refine of the poses through a held SplineLens camera: the bundle's one solve, its strategy included
+# (VisualGeometryToolkitEstimation 0.11.0; the route refused every strategy but least squares).
+@testitem "refine_camera_and_poses: a held SplineLens camera under a robust strategy — the outliers down-weighted" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    using VisualGeometryToolkitCore: retcode_symbol
+    using StaticArrays: SVector
+    using LinearAlgebra: normalize
+    using Random: Xoshiro
+    using VisualGeometryToolkitCore: estimate, Triggs, HuberShape, scale_source, ScaleGiven, metadata
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, CameraPosesRefineMetadata
+    truth = spline_truth(); Es = truth_poses(3)
+    views = spline_views(truth, Es, 1.1)
+    poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
+    rng = Xoshiro(5)
+    # σ = 0.2 px detections; of the inner 80 per view (θ ≤ 0.9 rad, every moved pixel still inside the lattice) about
+    # 8 % moved 20–60 px in a random direction
+    noisy = [[(k <= 80 && rand(rng) < 0.08) ? (X => u + 0.2 * SVector(randn(rng), randn(rng)) + (20 + 40rand(rng)) * normalize(SVector(randn(rng), randn(rng)))) :
+                                              (X => u + 0.2 * SVector(randn(rng), randn(rng)))
+              for (k, (X, u)) in enumerate(cs)] for cs in views]
+    perr(r) = maximum(maximum(abs, P.t - E.t) for (P, E) in zip(estimate(r).poses, Es))
+    ls = refine_camera_and_poses(bounded(truth), poses0, noisy; fixed = (:controls,), optimization_strategy = nothing)
+    rs = refine_camera_and_poses(bounded(truth), poses0, noisy; fixed = (:controls,), optimization_strategy = Triggs{HuberShape}(efficiency_constant = 1.345), scale = 0.2)
+    @test retcode_symbol(rs) === :converged && metadata(rs) isa CameraPosesRefineMetadata{<:Triggs{HuberShape}}
+    @test rs.scale == 0.2 && scale_source(rs) === ScaleGiven && rs.loss_width ≈ 1.345 * 0.2
+    @test count(<(0.5), rs.weights) >= 10 && length(rs.weights) == 360
+    @test perr(rs) < perr(ls) / 3
 end
 
 @testitem "gcv_curve, gcv_select: the stack's one GCV of a penalty weight" begin
@@ -622,7 +646,7 @@ end
     @test gcv_score(40, 2.0, 8.0) == 40 * 2.0 / 32^2
     @test check_penalty_weight(:gcv, "w") === :gcv && check_penalty_weight(0.5, "w") == 0.5
     @test_throws ArgumentError check_penalty_weight(nothing, "w")                              # RC's options: no `nothing`
-    @test check_penalty_weight(nothing, "w"; allow_nothing = true) === nothing
+    @test_throws r"`allow_nothing` is retired" check_penalty_weight(nothing, "w"; allow_nothing = true)   # an inert knob, no caller
     @test_throws ArgumentError check_penalty_weight(-1.0, "w")
     @test_throws ArgumentError check_penalty_weight(:aic, "w")
 end

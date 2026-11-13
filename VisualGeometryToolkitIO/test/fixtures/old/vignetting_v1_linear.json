@@ -1,0 +1,11 @@
+{
+    "schema": "vgio/vignetting/v1",
+    "pixel_frame": "colmap",
+    "vignetting": {
+        "type": "radial",
+        "degree": 3,
+        "center": [640.5, 480.25],
+        "radius": 820.0,
+        "control_points": [1.0, 0.98, 0.93, 0.85, 0.74, 0.6]
+    }
+}

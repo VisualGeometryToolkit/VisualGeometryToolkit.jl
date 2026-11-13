@@ -53,7 +53,7 @@ function new_paper_project(path::AbstractString; name::AbstractString = basename
         throw(ArgumentError("new_paper_project: name $(repr(name)) is not a Julia identifier (it names src/<name>.jl and the DrWatson project)"))
     path = abspath(path)
     figdirs = unique(paper_figures_dir(p; root = "") for p in papers)
-    template = Any[PAPER_PROJECT_TEMPLATE..., figdirs...]
+    template = vcat(Any[], PAPER_PROJECT_TEMPLATE, figdirs)
     prev = Base.active_project()
     try
         initialize_project(path, name; template, git, force, authors, readme = false,

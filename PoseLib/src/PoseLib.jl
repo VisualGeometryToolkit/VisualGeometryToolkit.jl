@@ -34,7 +34,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     Irls, Triggs, EfficiencyConstant, FitResult, AbstractOptimizationStrategy,
     HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
     EuclideanMap, UnlabeledFrame, UnitfulEuclideanMap, ustrip,
-    PoseLibSolver, Vec3, Point3, Correspondence, sources, targets, hasattr,
+    PoseLibSolver, Vec3, Point3, Correspondence, sources, targets, hasattr, RetiredKeyword,
+    Homography4pt, Fundamental7pt, Essential5pt, P3P,
     sign_normalize, is_valid_solution,
     homography_4pt, fundamental_7pt, p3p,
     essential_5pt, essential_dlt, motion
@@ -519,22 +520,16 @@ end
 public PoseLibRefineMetadata
 
 # A placeholder for a keyword that must be given: an `ArgumentError` naming it,
-# rather than an `UndefKeywordError` (a caller of the retired `loss` keyword is
-# told to give `optimization_strategy`).
+# rather than an `UndefKeywordError`, checked after the retired keywords (a caller
+# of the retired `loss` keyword is told to give `optimization_strategy`).
 struct _Required end
 
-# The keywords a refiner refuses, by name, and the required strategy.
-function _check_refine_keywords(fname::Symbol, lo, kw)
-    for k in keys(kw)
-        k === :loss && throw(ArgumentError(
-            "$fname: the `loss` keyword is retired; give the strategy as `optimization_strategy` " *
-                "(Irls{TLSShape}(), Irls{HuberShape}(), Irls{CauchyShape}(), LeZach(), or `nothing` for least squares)"))
-        k === :local_optimization && throw(ArgumentError(
-            "$fname: the `local_optimization` keyword is renamed; give the strategy as `optimization_strategy`"))
-        k === :loss_width && throw(ArgumentError(
-            "$fname: the `loss_width` keyword is retired; give `width = w` (or `scale = σ`)"))
-        throw(ArgumentError("$fname: unsupported keyword `$k`"))
-    end
+# The retired keywords, refused by Core's one refusal (`refuse_retired_keyword`),
+# then the required strategy.
+function _check_refine_keywords(fname::Symbol, lo, loss, loss_width, local_optimization)
+    VgtkCore.refuse_retired_keyword(loss, :loss, :optimization_strategy)
+    VgtkCore.refuse_retired_keyword(loss_width, :loss_width, :width)
+    VgtkCore.refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     lo isa _Required && throw(ArgumentError(
         "$fname needs `optimization_strategy`: Irls{TLSShape}(), Irls{HuberShape}(), Irls{CauchyShape}(), LeZach(), " *
             "or `nothing` for least squares"))
@@ -569,11 +564,23 @@ end
 # termination record: `(Success, NoRule)` before the cap (PoseLib reports no
 # stop rule, so none is claimed), `(MaxIters, IterationCap)` at it. PoseLib
 # reports no residual summary, so `rms` is `NaN`; `n` is the number of
-# correspondences refined over.
+# correspondences refined over (every one handed over: PoseLib reports no weights,
+# so it is not VisualGeometryToolkitEstimation's weighted support).
 _refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::PoseLibRefineMetadata) =
     FitResult(model, (iterations < max_iter ? (VgtkCore.ReturnCode.Success, VgtkCore.NoRule) :
                                               (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
               iterations, NaN, n, meta)
+
+# A seed pose in the type a refiner returns (Float64 matrix rotation and translation), so the result's type never
+# depends on the input's.
+_returned_pose(pose::Rigid3) = Rigid3(SMatrix{3, 3, Float64, 9}(pose.R), Vec3{Float64}(pose.t[1], pose.t[2], pose.t[3]))
+
+# Fewer correspondences than the model's minimal sample (`solver`'s `sample_size`): nothing to refine — the seed
+# `model`, unrefined, `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as VisualGeometryToolkitEstimation's
+# refines report it. `nothing` when there are enough.
+_below_minimal_sample(model, cs, solver, meta::PoseLibRefineMetadata) =
+    length(cs) >= VgtkCore.sample_size(solver) ? nothing :
+        FitResult(model, VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, 0, NaN, 0, meta)
 
 # Finite, unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
 # `_assert_unit_bearings` (`problems/correspondence.jl`) in its finite check, tolerance and in what the
@@ -713,9 +720,12 @@ It ends in the local minimum its seed leads to, as described for
 function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
                         cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
                         max_iter::Integer, optimization_strategy = _Required(),
-                        scale = nothing, width = nothing, kw...)
-    _check_refine_keywords(:refine_relpose, optimization_strategy, kw)
+                        scale = nothing, width = nothing,
+                        loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
+    _check_refine_keywords(:refine_relpose, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 1)
+    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
+    few === nothing || return few
     X1, X2 = _pack(cs)
     R0 = pose.R; t0 = pose.t
     Rin = Vector{Float64}(undef, 9)
@@ -781,8 +791,9 @@ It ends in the local minimum its seed leads to, as described for
 function refine_relpose(pose::Rigid3,
                         cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}};
                         max_iter::Integer, optimization_strategy = _Required(),
-                        scale = nothing, width = nothing, kw...)
-    _check_refine_keywords(:refine_relpose, optimization_strategy, kw)
+                        scale = nothing, width = nothing,
+                        loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
+    _check_refine_keywords(:refine_relpose, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 1)
     (hasattr(cs, :M₁) && hasattr(cs, :M₂)) || throw(ArgumentError(
         "refine_relpose on bearings needs the backprojection Jacobians as attribute " *
@@ -793,6 +804,8 @@ function refine_relpose(pose::Rigid3,
     # survive, just invisibly.
     _assert_unit_bearings(sources(cs), "source")
     _assert_unit_bearings(targets(cs), "target")
+    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
+    few === nothing || return few
     D1, D2 = _pack(cs)
     J1 = _pack_tangent(cs.M₁); J2 = _pack_tangent(cs.M₂)
     R0 = pose.R; t0 = pose.t
@@ -840,10 +853,13 @@ local minimum its seed leads to, as described for
 function refine_fundamental(F::AbstractMatrix,
                             cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
                             max_iter::Integer, optimization_strategy = _Required(),
-                            scale = nothing, width = nothing, kw...)
-    _check_refine_keywords(:refine_fundamental, optimization_strategy, kw)
+                            scale = nothing, width = nothing,
+                            loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
+    _check_refine_keywords(:refine_fundamental, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 1)
     _require_3x3(F, "F")
+    few = _below_minimal_sample(FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(F))), cs, Fundamental7pt(PoseLibSolver()), meta)
+    few === nothing || return few
     X1, X2 = _pack(cs)
     Fin = Vector{Float64}(undef, 9)
     @inbounds for j in 1:3, i in 1:3
@@ -926,10 +942,13 @@ It ends in the local minimum its seed leads to, as described for
 function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
                               cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{2}}};
                               max_iter::Integer, optimization_strategy = _Required(),
-                              scale = nothing, width = nothing, kw...)
-    _check_refine_keywords(:refine_absolute_pose, optimization_strategy, kw)
+                              scale = nothing, width = nothing,
+                              loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
+    _check_refine_keywords(:refine_absolute_pose, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 2)
     _require_3x3(K, "K")
+    few = _below_minimal_sample(_returned_pose(pose), cs, P3P(PoseLibSolver()), meta)
+    few === nothing || return few
     Xb, xb = _pack(cs)
     R0 = pose.R; t0 = pose.t
     Rin = Vector{Float64}(undef, 9)
@@ -1079,10 +1098,13 @@ julia> converged(r), iterations(r) < 25
 function refine_homography(H::AbstractMatrix,
                            cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
                            max_iter::Integer, optimization_strategy = _Required(),
-                           scale = nothing, width = nothing, kw...)
-    _check_refine_keywords(:refine_homography, optimization_strategy, kw)
+                           scale = nothing, width = nothing,
+                           loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
+    _check_refine_keywords(:refine_homography, optimization_strategy, loss, loss_width, local_optimization)
     w, meta = _refine_width(optimization_strategy, scale, width, 2)
     _require_3x3(H, "H")
+    few = _below_minimal_sample(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H))), cs, Homography4pt(PoseLibSolver()), meta)
+    few === nothing || return few
     X1, X2 = _pack(cs)
     Hin = Vector{Float64}(undef, 9)
     @inbounds for j in 1:3, i in 1:3

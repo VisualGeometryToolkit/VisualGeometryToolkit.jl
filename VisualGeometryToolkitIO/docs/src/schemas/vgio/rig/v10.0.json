@@ -1,0 +1,2396 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/rig/v10.0.json",
+    "title": "vgio/rig/v10.0",
+    "description": "A vgio/rig/v10.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. a rig has sensors, targets or both — an empty `sensors` or `targets` is omitted, not written — and member ids are unique",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "description": "vgio/rig/v10.0, or the same major version at any minor",
+            "pattern": "^vgio/rig/v10(\\.[0-9]+)?$"
+        },
+        "generator": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "version": {
+                    "type": "string",
+                    "description": "a version number"
+                },
+                "caller": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "a version number"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "version"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "version"
+            ],
+            "additionalProperties": false
+        },
+        "units": {
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "string",
+                    "description": "a registered length unit (mm, cm, m, um, inch)",
+                    "enum": [
+                        "cm",
+                        "ft",
+                        "in",
+                        "inch",
+                        "km",
+                        "m",
+                        "mm",
+                        "pt",
+                        "um",
+                        "μm"
+                    ]
+                },
+                "time": {
+                    "const": "s"
+                },
+                "angle": {
+                    "const": "rad"
+                },
+                "pixel": {
+                    "type": "string",
+                    "description": "a registered pixel frame (colmap, opencv, julia)",
+                    "enum": [
+                        "colmap",
+                        "julia",
+                        "opencv"
+                    ]
+                },
+                "density": {
+                    "type": "string",
+                    "description": "a registered density unit (dpi)",
+                    "enum": [
+                        "dpi"
+                    ]
+                },
+                "radiance": {
+                    "const": "relative"
+                },
+                "length_roles": {
+                    "type": "object",
+                    "description": "length role → its length unit, for the fields whose lengths are not in `length`",
+                    "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "not": {
+                            "enum": [
+                                "length",
+                                "world",
+                                "density"
+                            ]
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "description": "a registered length unit (mm, cm, m, um, inch)",
+                        "enum": [
+                            "cm",
+                            "ft",
+                            "in",
+                            "inch",
+                            "km",
+                            "m",
+                            "mm",
+                            "pt",
+                            "um",
+                            "μm"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "length",
+                "time",
+                "angle",
+                "pixel",
+                "density",
+                "radiance",
+                "length_roles"
+            ],
+            "additionalProperties": false
+        },
+        "conventions": {
+            "type": "object",
+            "properties": {
+                "rotation_encoding": {
+                    "const": "quaternion_wxyz_hamilton"
+                },
+                "transform_convention": {
+                    "const": "x_to = R * x_from + t"
+                },
+                "matrix_layout": {
+                    "const": "rows"
+                },
+                "grid_layout": {
+                    "const": "row_major"
+                },
+                "index_base": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "rotation_encoding",
+                "transform_convention",
+                "matrix_layout",
+                "grid_layout",
+                "index_base"
+            ],
+            "additionalProperties": false
+        },
+        "frame": {
+            "type": "string",
+            "description": "a frame name (\"world\", \"camera\", \"view:<id>\", \"target:<id>\", \"body:<id>\")",
+            "pattern": "^(world|camera|(view:|target:|body:).+)$"
+        },
+        "sensors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "camera": {
+                        "type": "object",
+                        "oneOf": [
+                            {
+                                "required": [
+                                    "lens"
+                                ]
+                            },
+                            {
+                                "required": [
+                                    "type"
+                                ]
+                            }
+                        ],
+                        "allOf": [
+                            {
+                                "if": {
+                                    "required": [
+                                        "lens"
+                                    ]
+                                },
+                                "then": {
+                                    "type": "object",
+                                    "properties": {
+                                        "image_size": {
+                                            "type": "object",
+                                            "properties": {
+                                                "width": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "height": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "width",
+                                                "height"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "K": {
+                                            "type": "object",
+                                            "properties": {
+                                                "fx": {
+                                                    "type": "number"
+                                                },
+                                                "fy": {
+                                                    "type": "number"
+                                                },
+                                                "cx": {
+                                                    "type": "number"
+                                                },
+                                                "cy": {
+                                                    "type": "number"
+                                                },
+                                                "skew": {
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": [
+                                                "fx",
+                                                "fy",
+                                                "cx",
+                                                "cy",
+                                                "skew"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "lens": {
+                                            "type": "object",
+                                            "description": "VisualGeometryToolkitCore's lens record (`lens_record`): every key a lens leaf's tag or a combinator (`add`, `lift`, `spline`), every value its coefficient array of the leaf's arity, as `lens_from_record` reads it"
+                                        },
+                                        "pitch": {
+                                            "type": "object",
+                                            "properties": {
+                                                "width": {
+                                                    "type": "number"
+                                                },
+                                                "height": {
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": [
+                                                "width",
+                                                "height"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "a pixel pitch is two positive lengths per pixel, in units.length",
+                                            "allOf": [
+                                                {
+                                                    "properties": {
+                                                        "height": {
+                                                            "exclusiveMinimum": 0
+                                                        },
+                                                        "width": {
+                                                            "exclusiveMinimum": 0
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        "lens_coverage": {
+                                            "type": "object",
+                                            "properties": {
+                                                "circle": {
+                                                    "type": "array",
+                                                    "description": "[cx, cy, r]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "cx",
+                                                            "description": "the centre's x",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "cy",
+                                                            "description": "the centre's y",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "r",
+                                                            "description": "the radius, > 0",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 3
+                                                },
+                                                "ellipse": {
+                                                    "type": "array",
+                                                    "description": "[cx, cy, a, b, theta]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "cx",
+                                                            "description": "the centre's x",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "cy",
+                                                            "description": "the centre's y",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "a",
+                                                            "description": "the major semi-axis, > 0",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "b",
+                                                            "description": "the minor semi-axis, 0 < b ≤ a",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "theta",
+                                                            "description": "the major axis's angle from +x, rad",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 5
+                                                },
+                                                "rect": {
+                                                    "type": "array",
+                                                    "description": "[x, y, width, height]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "x",
+                                                            "description": "the origin's x (the smallest x)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "y",
+                                                            "description": "the origin's y (the smallest y)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "width",
+                                                            "description": "the extent along x, > 0",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "height",
+                                                            "description": "the extent along y, > 0",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 4
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "required": [
+                                        "image_size",
+                                        "K",
+                                        "lens"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
+                                    "allOf": [
+                                        {
+                                            "properties": {
+                                                "lens_coverage": {
+                                                    "maxProperties": 1,
+                                                    "minProperties": 1,
+                                                    "properties": {
+                                                        "circle": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        },
+                                                        "ellipse": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                },
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        },
+                                                        "rect": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                },
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "if": {
+                                    "required": [
+                                        "type"
+                                    ]
+                                },
+                                "then": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "description": "\"noncentral_spline\" — a central grid camera is a camera with a spline lens (its `lens` the spline record)",
+                                            "const": "noncentral_spline"
+                                        },
+                                        "image_size": {
+                                            "type": "object",
+                                            "properties": {
+                                                "width": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "height": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "width",
+                                                "height"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "K": {
+                                            "type": "object",
+                                            "properties": {
+                                                "fx": {
+                                                    "type": "number"
+                                                },
+                                                "fy": {
+                                                    "type": "number"
+                                                },
+                                                "cx": {
+                                                    "type": "number"
+                                                },
+                                                "cy": {
+                                                    "type": "number"
+                                                },
+                                                "skew": {
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": [
+                                                "fx",
+                                                "fy",
+                                                "cx",
+                                                "cy",
+                                                "skew"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "spline": {
+                                            "type": "object",
+                                            "properties": {
+                                                "area": {
+                                                    "type": "array",
+                                                    "description": "[x, y, width, height]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "x",
+                                                            "description": "the origin's x (the smallest x)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "y",
+                                                            "description": "the origin's y (the smallest y)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "width",
+                                                            "description": "the extent along x, > 0",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "height",
+                                                            "description": "the extent along y, > 0",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 4
+                                                },
+                                                "grid_size": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "width": {
+                                                            "type": "integer",
+                                                            "minimum": 1
+                                                        },
+                                                        "height": {
+                                                            "type": "integer",
+                                                            "minimum": 1
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "width",
+                                                        "height"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "controls": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "direction": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 3,
+                                                                "maxItems": 3
+                                                            }
+                                                        },
+                                                        "point": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "minItems": 3,
+                                                                "maxItems": 3
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "direction",
+                                                        "point"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "present": {
+                                                    "type": "array",
+                                                    "description": "the present nodes as runs per row, [[row, [[col_lo, col_hi], …]], …], 1-based: each row once, rows increasing; a row's runs nonempty, col_lo ≤ col_hi, increasing and apart (a gap of at least one node)",
+                                                    "items": {
+                                                        "type": "array",
+                                                        "prefixItems": [
+                                                            {
+                                                                "type": "integer",
+                                                                "minimum": 1
+                                                            },
+                                                            {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "array",
+                                                                    "prefixItems": [
+                                                                        {
+                                                                            "type": "integer",
+                                                                            "minimum": 1
+                                                                        },
+                                                                        {
+                                                                            "type": "integer",
+                                                                            "minimum": 1
+                                                                        }
+                                                                    ],
+                                                                    "items": false,
+                                                                    "minItems": 2
+                                                                },
+                                                                "minItems": 1
+                                                            }
+                                                        ],
+                                                        "items": false,
+                                                        "minItems": 2
+                                                    }
+                                                }
+                                            },
+                                            "required": [
+                                                "area",
+                                                "grid_size",
+                                                "controls"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "the area's width and height are > 0; the lattice has at least 4 × 4 nodes; `present` names rows ≤ grid_size.height and columns ≤ grid_size.width; every control array has one entry per held node (grid_size.width × grid_size.height without `present`)",
+                                            "allOf": [
+                                                {
+                                                    "properties": {
+                                                        "area": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                },
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        },
+                                                        "grid_size": {
+                                                            "properties": {
+                                                                "height": {
+                                                                    "minimum": 4
+                                                                },
+                                                                "width": {
+                                                                    "minimum": 4
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        "pitch": {
+                                            "type": "object",
+                                            "properties": {
+                                                "width": {
+                                                    "type": "number"
+                                                },
+                                                "height": {
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": [
+                                                "width",
+                                                "height"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "a pixel pitch is two positive lengths per pixel, in units.length",
+                                            "allOf": [
+                                                {
+                                                    "properties": {
+                                                        "height": {
+                                                            "exclusiveMinimum": 0
+                                                        },
+                                                        "width": {
+                                                            "exclusiveMinimum": 0
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        "lens_coverage": {
+                                            "type": "object",
+                                            "properties": {
+                                                "circle": {
+                                                    "type": "array",
+                                                    "description": "[cx, cy, r]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "cx",
+                                                            "description": "the centre's x",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "cy",
+                                                            "description": "the centre's y",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "r",
+                                                            "description": "the radius, > 0",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 3
+                                                },
+                                                "ellipse": {
+                                                    "type": "array",
+                                                    "description": "[cx, cy, a, b, theta]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "cx",
+                                                            "description": "the centre's x",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "cy",
+                                                            "description": "the centre's y",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "a",
+                                                            "description": "the major semi-axis, > 0",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "b",
+                                                            "description": "the minor semi-axis, 0 < b ≤ a",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "theta",
+                                                            "description": "the major axis's angle from +x, rad",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 5
+                                                },
+                                                "rect": {
+                                                    "type": "array",
+                                                    "description": "[x, y, width, height]",
+                                                    "prefixItems": [
+                                                        {
+                                                            "title": "x",
+                                                            "description": "the origin's x (the smallest x)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "y",
+                                                            "description": "the origin's y (the smallest y)",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "width",
+                                                            "description": "the extent along x, > 0",
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "title": "height",
+                                                            "description": "the extent along y, > 0",
+                                                            "type": "number"
+                                                        }
+                                                    ],
+                                                    "items": false,
+                                                    "minItems": 4
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "required": [
+                                        "type",
+                                        "image_size",
+                                        "K",
+                                        "spline"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
+                                    "allOf": [
+                                        {
+                                            "properties": {
+                                                "lens_coverage": {
+                                                    "maxProperties": 1,
+                                                    "minProperties": 1,
+                                                    "properties": {
+                                                        "circle": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        },
+                                                        "ellipse": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                },
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        },
+                                                        "rect": {
+                                                            "prefixItems": [
+                                                                {},
+                                                                {},
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                },
+                                                                {
+                                                                    "exclusiveMinimum": 0
+                                                                }
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extrinsics": {
+                        "type": "object",
+                        "properties": {
+                            "rotation": {
+                                "type": "array",
+                                "description": "[w, x, y, z]",
+                                "prefixItems": [
+                                    {
+                                        "title": "w",
+                                        "description": "the scalar part, w ≥ 0",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "x",
+                                        "description": "the vector part's x",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "y",
+                                        "description": "the vector part's y",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "z",
+                                        "description": "the vector part's z",
+                                        "type": "number"
+                                    }
+                                ],
+                                "items": false,
+                                "minItems": 4
+                            },
+                            "translation": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                },
+                                "minItems": 3,
+                                "maxItems": 3
+                            }
+                        },
+                        "required": [
+                            "rotation",
+                            "translation"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "required": [
+                    "id",
+                    "camera",
+                    "extrinsics"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "targets": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "target": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "points": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "oneOf": [
+                                        {
+                                            "required": [
+                                                "xy"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "xyz"
+                                            ]
+                                        }
+                                    ],
+                                    "allOf": [
+                                        {
+                                            "if": {
+                                                "required": [
+                                                    "xy"
+                                                ]
+                                            },
+                                            "then": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "xy": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "number"
+                                                        },
+                                                        "minItems": 2,
+                                                        "maxItems": 2
+                                                    },
+                                                    "covariance": {
+                                                        "description": "a covariance in the storage it holds: 2 × 2 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                        "oneOf": [
+                                                            {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "minItems": 2,
+                                                                    "maxItems": 2
+                                                                },
+                                                                "minItems": 2,
+                                                                "maxItems": 2
+                                                            },
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "diagonal": {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        },
+                                                                        "minItems": 2,
+                                                                        "maxItems": 2
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "diagonal"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            },
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "isotropic": {
+                                                                        "type": "number"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "isotropic"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "xy"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        },
+                                        {
+                                            "if": {
+                                                "required": [
+                                                    "xyz"
+                                                ]
+                                            },
+                                            "then": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "xyz": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "number"
+                                                        },
+                                                        "minItems": 3,
+                                                        "maxItems": 3
+                                                    },
+                                                    "covariance": {
+                                                        "description": "a covariance in the storage it holds: 3 × 3 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                        "oneOf": [
+                                                            {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "minItems": 3,
+                                                                    "maxItems": 3
+                                                                },
+                                                                "minItems": 3,
+                                                                "maxItems": 3
+                                                            },
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "diagonal": {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        },
+                                                                        "minItems": 3,
+                                                                        "maxItems": 3
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "diagonal"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            },
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "isotropic": {
+                                                                        "type": "number"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "isotropic"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "xyz"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    ]
+                                },
+                                "description": "the points are all `xy` (a plane's) or all `xyz`; every point states its `covariance`, or none does",
+                                "allOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "required": [
+                                                        "xy"
+                                                    ]
+                                                }
+                                            },
+                                            {
+                                                "items": {
+                                                    "required": [
+                                                        "xyz"
+                                                    ]
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "required": [
+                                                        "covariance"
+                                                    ]
+                                                }
+                                            },
+                                            {
+                                                "items": {
+                                                    "not": {
+                                                        "required": [
+                                                            "covariance"
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            "reference": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "nominal": {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 2
+                                }
+                            },
+                            "layout": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "tag_rows": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "tag_cols": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "tag_size": {
+                                        "type": "number"
+                                    },
+                                    "tag_spacing": {
+                                        "type": "number"
+                                    },
+                                    "first_id": {
+                                        "type": "integer"
+                                    },
+                                    "squares_x": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "squares_y": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "square_length": {
+                                        "type": "number"
+                                    },
+                                    "star_segments": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "apriltags": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": {
+                                                    "type": "integer"
+                                                },
+                                                "y": {
+                                                    "type": "integer"
+                                                },
+                                                "width": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "height": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "id": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "required": [
+                                                "x",
+                                                "y",
+                                                "width",
+                                                "height",
+                                                "id"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "apriltag_family": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ],
+                                "additionalProperties": false,
+                                "description": "`type` is a layout's tag (VisualGeometryToolkitCore's TARGET_LAYOUT_TAGS), and the record states exactly that layout's keys",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "enum": [
+                                                    "april_grid",
+                                                    "schoeps_pattern"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "april_grid"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "propertyNames": {
+                                                "enum": [
+                                                    "type",
+                                                    "tag_rows",
+                                                    "tag_cols",
+                                                    "tag_size",
+                                                    "tag_spacing",
+                                                    "apriltag_family",
+                                                    "first_id"
+                                                ]
+                                            },
+                                            "required": [
+                                                "tag_rows",
+                                                "tag_cols",
+                                                "tag_size",
+                                                "tag_spacing",
+                                                "apriltag_family",
+                                                "first_id"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "schoeps_pattern"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "propertyNames": {
+                                                "enum": [
+                                                    "type",
+                                                    "squares_x",
+                                                    "squares_y",
+                                                    "square_length",
+                                                    "star_segments",
+                                                    "apriltag_family",
+                                                    "apriltags"
+                                                ]
+                                            },
+                                            "required": [
+                                                "squares_x",
+                                                "squares_y",
+                                                "square_length",
+                                                "star_segments",
+                                                "apriltag_family",
+                                                "apriltags"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "calibration": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "nodes": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "number"
+                                            },
+                                            "minItems": 2,
+                                            "maxItems": 2
+                                        }
+                                    },
+                                    "parameters": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "covariance": {
+                                        "description": "a covariance in the storage it holds: n × n rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                        "oneOf": [
+                                            {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "type": "object",
+                                                "properties": {
+                                                    "diagonal": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "number"
+                                                        }
+                                                    }
+                                                },
+                                                "required": [
+                                                    "diagonal"
+                                                ],
+                                                "additionalProperties": false
+                                            },
+                                            {
+                                                "type": "object",
+                                                "properties": {
+                                                    "isotropic": {
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "isotropic"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        ]
+                                    },
+                                    "compose": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "nodes": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "number"
+                                                        },
+                                                        "minItems": 2,
+                                                        "maxItems": 2
+                                                    }
+                                                },
+                                                "parameters": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "covariance": {
+                                                    "description": "a covariance in the storage it holds: n × n rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                }
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "diagonal": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "diagonal"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "isotropic": {
+                                                                    "type": "number"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "isotropic"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
+                                                },
+                                                "compose": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "members": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object"
+                                                    }
+                                                }
+                                            },
+                                            "required": [
+                                                "type"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "members": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ],
+                                "additionalProperties": false,
+                                "description": "`type` is a calibration kind's tag (VisualGeometryToolkitCore's TARGET_CALIBRATION_TAGS) or \"composition\". A kind states the keys its type takes (thin_plate_spline, height_field: `nodes`, at least one, and `parameters`; rigid: neither; any other: `parameters`), as many parameters as VisualGeometryToolkitCore's `length_mask` of the kind has, and a `covariance` over them (n × n, symmetric) only where it has parameters. A composition states `compose`: 2 to 6 kinds in the canonical order [height_field, thin_plate_spline, euclidean, scale, aspect, skew], each at most once, the outer map first, none a composition or carrying a covariance (the composition's covers every member's parameters).",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "enum": [
+                                                    "rigid",
+                                                    "euclidean",
+                                                    "scale",
+                                                    "aspect",
+                                                    "skew",
+                                                    "thin_plate_spline",
+                                                    "height_field",
+                                                    "composition"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "rigid"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "parameters"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "covariance"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "required": []
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "euclidean"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "properties": {
+                                                "parameters": {
+                                                    "maxItems": 3,
+                                                    "minItems": 3
+                                                }
+                                            },
+                                            "required": [
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "scale"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "properties": {
+                                                "parameters": {
+                                                    "maxItems": 1,
+                                                    "minItems": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "aspect"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "properties": {
+                                                "parameters": {
+                                                    "maxItems": 1,
+                                                    "minItems": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "skew"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "properties": {
+                                                "parameters": {
+                                                    "maxItems": 1,
+                                                    "minItems": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "thin_plate_spline"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "required": [
+                                                "nodes",
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "height_field"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "compose"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "required": [
+                                                "nodes",
+                                                "parameters"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "composition"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "not": {
+                                                "anyOf": [
+                                                    {
+                                                        "required": [
+                                                            "nodes"
+                                                        ]
+                                                    },
+                                                    {
+                                                        "required": [
+                                                            "parameters"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "properties": {
+                                                "compose": {
+                                                    "items": {
+                                                        "allOf": [
+                                                            {
+                                                                "properties": {
+                                                                    "type": {
+                                                                        "enum": [
+                                                                            "rigid",
+                                                                            "euclidean",
+                                                                            "scale",
+                                                                            "aspect",
+                                                                            "skew",
+                                                                            "thin_plate_spline",
+                                                                            "height_field"
+                                                                        ]
+                                                                    }
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "rigid"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "nodes"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "parameters"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "required": []
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "euclidean"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "nodes"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "properties": {
+                                                                        "parameters": {
+                                                                            "maxItems": 3,
+                                                                            "minItems": 3
+                                                                        }
+                                                                    },
+                                                                    "required": [
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "scale"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "nodes"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "properties": {
+                                                                        "parameters": {
+                                                                            "maxItems": 1,
+                                                                            "minItems": 1
+                                                                        }
+                                                                    },
+                                                                    "required": [
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "aspect"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "nodes"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "properties": {
+                                                                        "parameters": {
+                                                                            "maxItems": 1,
+                                                                            "minItems": 1
+                                                                        }
+                                                                    },
+                                                                    "required": [
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "skew"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "nodes"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "properties": {
+                                                                        "parameters": {
+                                                                            "maxItems": 1,
+                                                                            "minItems": 1
+                                                                        }
+                                                                    },
+                                                                    "required": [
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "thin_plate_spline"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "required": [
+                                                                        "nodes",
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "if": {
+                                                                    "properties": {
+                                                                        "type": {
+                                                                            "const": "height_field"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "then": {
+                                                                    "not": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "required": [
+                                                                                    "compose"
+                                                                                ]
+                                                                            },
+                                                                            {
+                                                                                "required": [
+                                                                                    "covariance"
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "required": [
+                                                                        "nodes",
+                                                                        "parameters"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    "maxItems": 6,
+                                                    "minItems": 2
+                                                }
+                                            },
+                                            "required": [
+                                                "compose"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "board": {
+                                "type": "object",
+                                "properties": {
+                                    "size": {
+                                        "type": "object",
+                                        "properties": {
+                                            "width": {
+                                                "type": "number"
+                                            },
+                                            "height": {
+                                                "type": "number"
+                                            }
+                                        },
+                                        "required": [
+                                            "width",
+                                            "height"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "a board's width and height are > 0",
+                                        "allOf": [
+                                            {
+                                                "properties": {
+                                                    "height": {
+                                                        "exclusiveMinimum": 0
+                                                    },
+                                                    "width": {
+                                                        "exclusiveMinimum": 0
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    "origin": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "minItems": 2,
+                                        "maxItems": 2
+                                    }
+                                },
+                                "required": [
+                                    "size",
+                                    "origin"
+                                ],
+                                "additionalProperties": false
+                            },
+                            "canvas": {
+                                "type": "object",
+                                "properties": {
+                                    "size": {
+                                        "type": "object",
+                                        "properties": {
+                                            "width": {
+                                                "type": "number"
+                                            },
+                                            "height": {
+                                                "type": "number"
+                                            }
+                                        },
+                                        "required": [
+                                            "width",
+                                            "height"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    "origin": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "minItems": 2,
+                                        "maxItems": 2
+                                    },
+                                    "texture": {
+                                        "type": "object",
+                                        "properties": {
+                                            "path": {
+                                                "type": "string",
+                                                "description": "a path relative to the file that names it"
+                                            },
+                                            "sha256": {
+                                                "type": "string",
+                                                "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                                                "pattern": "^[0-9a-f]{64}$"
+                                            },
+                                            "size": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "width": {
+                                                        "type": "number"
+                                                    },
+                                                    "height": {
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "width",
+                                                    "height"
+                                                ],
+                                                "additionalProperties": false
+                                            },
+                                            "origin": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 2,
+                                                "maxItems": 2
+                                            }
+                                        },
+                                        "required": [
+                                            "path",
+                                            "sha256",
+                                            "size",
+                                            "origin"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "a canvas texture's width and height are > 0",
+                                        "allOf": [
+                                            {
+                                                "properties": {
+                                                    "size": {
+                                                        "properties": {
+                                                            "height": {
+                                                                "exclusiveMinimum": 0
+                                                            },
+                                                            "width": {
+                                                                "exclusiveMinimum": 0
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "size",
+                                    "origin"
+                                ],
+                                "additionalProperties": false,
+                                "description": "a canvas's width and height are ≥ 0",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "size": {
+                                                "properties": {
+                                                    "height": {
+                                                        "minimum": 0
+                                                    },
+                                                    "width": {
+                                                        "minimum": 0
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                ]
+                            },
+                            "placement": {
+                                "type": "object",
+                                "properties": {
+                                    "origin": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "minItems": 2,
+                                        "maxItems": 2
+                                    },
+                                    "side": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": [
+                                    "origin",
+                                    "side"
+                                ],
+                                "additionalProperties": false,
+                                "description": "a chart placement's side is > 0",
+                                "allOf": [
+                                    {
+                                        "properties": {
+                                            "side": {
+                                                "exclusiveMinimum": 0
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ],
+                        "additionalProperties": false,
+                        "description": "a point_target states its `points` and nothing else; a planar_target states its `calibration` and its design by exactly one of `reference`, `nominal` or `layout`, and no `points`",
+                        "allOf": [
+                            {
+                                "properties": {
+                                    "type": {
+                                        "enum": [
+                                            "point_target",
+                                            "planar_target"
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                "else": {
+                                    "not": {
+                                        "required": [
+                                            "points"
+                                        ]
+                                    },
+                                    "oneOf": [
+                                        {
+                                            "required": [
+                                                "reference"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "nominal"
+                                            ]
+                                        },
+                                        {
+                                            "required": [
+                                                "layout"
+                                            ]
+                                        }
+                                    ],
+                                    "required": [
+                                        "calibration"
+                                    ]
+                                },
+                                "if": {
+                                    "properties": {
+                                        "type": {
+                                            "const": "point_target"
+                                        }
+                                    }
+                                },
+                                "then": {
+                                    "not": {
+                                        "anyOf": [
+                                            {
+                                                "required": [
+                                                    "reference"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "nominal"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "layout"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "calibration"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "board"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "canvas"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "placement"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "required": [
+                                        "points"
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "pose": {
+                        "type": "object",
+                        "properties": {
+                            "rotation": {
+                                "type": "array",
+                                "description": "[w, x, y, z]",
+                                "prefixItems": [
+                                    {
+                                        "title": "w",
+                                        "description": "the scalar part, w ≥ 0",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "x",
+                                        "description": "the vector part's x",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "y",
+                                        "description": "the vector part's y",
+                                        "type": "number"
+                                    },
+                                    {
+                                        "title": "z",
+                                        "description": "the vector part's z",
+                                        "type": "number"
+                                    }
+                                ],
+                                "items": false,
+                                "minItems": 4
+                            },
+                            "translation": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                },
+                                "minItems": 3,
+                                "maxItems": 3
+                            },
+                            "covariance": {
+                                "description": "a covariance in the storage it holds: 6 × 6 rows (symmetric), {\"diagonal\": [its diagonal]} or {\"isotropic\": λ} (λ·I); in the value's tangent order and the file's units",
+                                "oneOf": [
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "number"
+                                            },
+                                            "minItems": 6,
+                                            "maxItems": 6
+                                        },
+                                        "minItems": 6,
+                                        "maxItems": 6
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "diagonal": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 6,
+                                                "maxItems": 6
+                                            }
+                                        },
+                                        "required": [
+                                            "diagonal"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "isotropic": {
+                                                "type": "number"
+                                            }
+                                        },
+                                        "required": [
+                                            "isotropic"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "rotation",
+                            "translation"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "required": [
+                    "id",
+                    "target",
+                    "pose"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "provenance": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "units",
+        "conventions",
+        "frame"
+    ],
+    "additionalProperties": false,
+    "allOf": [
+        {
+            "anyOf": [
+                {
+                    "required": [
+                        "sensors"
+                    ]
+                },
+                {
+                    "required": [
+                        "targets"
+                    ]
+                }
+            ],
+            "properties": {
+                "sensors": {
+                    "minItems": 1
+                },
+                "targets": {
+                    "minItems": 1
+                }
+            }
+        }
+    ]
+}

@@ -130,8 +130,8 @@ function pt_scene_files(scene::AbstractString, trees::PtRawTrees)
     i = findfirst(p -> first(p) == scene, PT_SCENES)
     i === nothing && throw(ArgumentError("pt_scene_files: $(repr(scene)) is not one of PT_SCENES"))
     mdir, rdir = _scene_paths(scene, last(PT_SCENES[i]), trees)
-    return [joinpath(mdir, "matches.h5"), joinpath(mdir, "match_conf.h5"),
-            (joinpath(rdir, "$b.bin") for b in ("cameras", "images", "points3D"))...]
+    return vcat([joinpath(mdir, "matches.h5"), joinpath(mdir, "match_conf.h5")],
+                [joinpath(rdir, "$b.bin") for b in ("cameras", "images", "points3D")])
 end
 
 # =============================================================================

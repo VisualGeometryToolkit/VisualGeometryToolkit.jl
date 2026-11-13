@@ -338,5 +338,5 @@ function build_axis(style::PaperStyle, panel, data, tune::String, spec::PanelSpe
     # both the linear and log-y paths.
     y_unit_degree && (axopts["yticklabel"] =
         raw"$\pgfmathprintnumber{\tick}^\circ$")
-    return Axis(axopts, plots...)
+    return append!(Axis(axopts), plots)                    # the plots handed over whole (AxisLike's append!)
 end

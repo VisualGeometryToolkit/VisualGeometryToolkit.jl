@@ -29,6 +29,20 @@ struct EfficiencyConstantWindow
 end
 
 """
+    extend(w::EfficiencyConstantWindow, sides; factor) -> EfficiencyConstantWindow
+
+The expand-on-boundary widening of a window ([`WindowExtension`](@ref)): its
+`lo` divided by `factor` if `:lo in sides`, its `hi` multiplied if `:hi in
+sides` (`sides ⊆ (:lo, :hi)`, `factor > 1`); the grid's twin is
+`extend(::SpacedGrid, sides; npts)`.
+"""
+function extend(w::EfficiencyConstantWindow, sides; factor::Real)
+    factor > 1 || throw(ArgumentError("extend: factor = $factor must be > 1"))
+    issubset(sides, (:lo, :hi)) || throw(ArgumentError("extend: sides must be ⊆ (:lo, :hi), got $(collect(sides))"))
+    return EfficiencyConstantWindow(:lo in sides ? w.lo / factor : w.lo, :hi in sides ? w.hi * factor : w.hi)
+end
+
+"""
     WindowRule
 
 How an axis's window `(lo, hi)` is found: [`FixedWindow`](@ref),

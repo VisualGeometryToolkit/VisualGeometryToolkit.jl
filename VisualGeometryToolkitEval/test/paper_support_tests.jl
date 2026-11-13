@@ -37,6 +37,11 @@ end
     n(a) = only(filter(c -> c.angle == a, cells)).n
     @test (n(-40), n(-30), n(-20), n(-10), n(0)) == (1, 1, 0, 2, 2) && length(cells) == 17
     @test only(filter(c -> c.angle == -10, cells)).med == 4.0
+    # an attempt beyond the last station belongs to the last one (86° with -80:10:80: the 80° station, never a dropped 90°)
+    df = DataFrame(rig_distances_bin = [1000, 1000], rig_angles = deg2rad.([86.0, 80.0]),
+                   error_distances = [1.0, 3.0], abs_error_angles_deg = [0.1, 0.1])
+    cells = station_cells(df)
+    @test only(filter(c -> c.angle == 80, cells)).n == 2 && length(cells) == 17
 end
 
 @testitem "paper_support: save_hand_eye, load_hand_eye" begin
@@ -84,7 +89,7 @@ end
     out = joinpath(dir, "out", "hand_eye.json")
     mkpath(dirname(out))
     save_hand_eye(out, unlabel(geom(X)), Dict("aprilgrid" => unlabel(geom(pose(mount, :aprilgrid)))))
-    @test VgtkIO.read_record(out)["schema"] == "vgio/transforms/v4"          # only the current records
+    @test VgtkIO.read_record(out)["schema"] == VgtkIO.migrate_record(raw)["schema"]   # only the current record (the old one's migration target)
     @test startswith(VgtkIO.read_record(hand_eye_mount_file(out))["schema"], "vgio/rig/")
     X2, mount2 = load_hand_eye(out)
     @test unlabel(geom(X2)).t ≈ unlabel(geom(X)).t && unlabel(geom(pose(mount2, :aprilgrid))).t ≈ unlabel(geom(pose(mount, :aprilgrid))).t

@@ -22,9 +22,8 @@
 "The version of the consolidated correspondences record [`consolidate_correspondences`](@ref) writes."
 const CONSOLIDATED_FORMAT = 3   # 3: the pairs' key `correspondences` (the terminology ruling); 2: plain fields; 1: stack types
 
-# The pixel calibration of a camera (as stored by its model) and its extent.
+# The pixel calibration of a camera (as stored by its model); its image is Core's `extent`.
 _camera_K(cam) = SMatrix{3,3,Float64,9}(intrinsics(model(cam)).K)
-_pixel_size(cam) = (e = extent(cam); Size2(Int(e.width), Int(e.height)))
 
 # The record is plain data: the rig's pose stripped once, in metres (a plain
 # rig is refused by `ustrip`: a dataset's rig is physical).
@@ -33,7 +32,7 @@ function _consolidated_record(p, matches, inlier_mask::BitVector)
     return (; scene = p.scene, source_name = p.source_name, target_name = p.target_name,
             correspondences = StructArray(sources(matches) .=> targets(matches)), confidence = matches.confidence, inlier_mask,
             K1 = _camera_K(source(p.rig)), K2 = _camera_K(destination(p.rig)),
-            size1 = _pixel_size(source(p.rig)), size2 = _pixel_size(destination(p.rig)),
+            size1 = extent(source(p.rig)), size2 = extent(destination(p.rig)),
             R_gt = SMatrix{3,3,Float64,9}(E.R), t_gt = SVector{3,Float64}(E.t))
 end
 

@@ -153,14 +153,28 @@ _triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
 # `lmsolve_chart!` from `model` over every datum at unit weight, on the refit's
 # chart and state, in the chart-LM workspace `refine_ws` (the one reuse policy).
 function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss)
-    ch = _chart(problem, _as_model(problem, model))
-    rows, dof = _lm_size(problem)
-    ews = _lm_workspace(refine_ws, rows, dof)
-    fill!(sqrt_weights(ews), 1.0)
-    lm = _triggs_state(problem, ch, sqrt_weights(ews))
     robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    x, _, _, n_iter, (code, rule) = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
-        maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return lo_estimate(model, ReturnCode.Failure, NonFinite)
-    return lo_estimate(_model_at(problem, recenter(ch, x)), code, rule; iterations = n_iter)
+    m, (code, rule), n_iter = _chart_refit(refine_ws, problem, _chart(problem, _as_model(problem, model)), _triggs_state, nothing;
+                                           robustifier)
+    m === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
+    return lo_estimate(m, code, rule; iterations = n_iter)
+end
+
+# THE chart refit — every chart LM of a RANSAC problem's model (the LO's `refine!`, a refine's least squares and its
+# Triggs, above): from the chart `ch`, the rows `state(problem, ch, √w)` at √`weights` (`nothing`: unit weight) in the
+# chart-LM workspace from `ws` (the one reuse policy, `_lm_workspace`), ONE `lmsolve_chart!` at the `[chart_lm]` stop
+# settings, robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
+# `recenter` and read as a model (`_model_at`). Returns `(model, (code, rule), iterations)`, the model `nothing` when
+# the solve went non-finite.
+function _chart_refit(ws, problem, ch, state, weights; robustifier = nothing)
+    rows, dof = _lm_size(problem)
+    ews = _lm_workspace(ws, rows, dof)
+    weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
+        fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(problem), rows ÷ data_size(problem))
+    lm = state(problem, ch, sqrt_weights(ews))
+    stop = (; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
+    x, _, _, n_iter, record = robustifier === nothing ? lmsolve_chart!(ews, lm; stop...) :
+        lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem)); stop...)
+    any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), n_iter
+    return _model_at(problem, recenter(ch, x)), record, n_iter
 end

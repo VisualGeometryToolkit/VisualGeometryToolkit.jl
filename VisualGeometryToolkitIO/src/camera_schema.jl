@@ -207,7 +207,9 @@ function _lens_check(x)
     return nothing
 end
 
-const _LENS = _CheckedSpec(_Free(), _lens_check)
+const _LENS = _CheckedSpec(_Free(), _lens_check;
+    rule = "VisualGeometryToolkitCore's lens record (`lens_record`): every key a lens leaf's tag or a combinator (`add`, " *
+           "`lift`, `spline`), every value its coefficient array of the leaf's arity, as `lens_from_record` reads it")
 
 # -----------------------------------------------------------------------------
 # A bounded camera's body: its image size, K and lens (or a non-central model's
@@ -222,7 +224,9 @@ const _K_SPEC = _Obj(:fx => _Real(), :fy => _Real(), :cx => _Real(), :cy => _Rea
 # extent's. Written by the rig and the camera store; never dropped.
 const _PITCH = _CheckedSpec(
     _Obj(:width => _Real(), :height => _Real()),
-    x -> (x[:width] > 0 && x[:height] > 0) ? nothing : "a pixel pitch is {width, height}, two positive lengths per pixel in units.length",
+    x -> (x[:width] > 0 && x[:height] > 0) ? nothing : "a pixel pitch is {width, height}, two positive lengths per pixel in units.length";
+    rule = "a pixel pitch is two positive lengths per pixel, in units.length",
+    schema = ["properties" => Dict("width" => Dict("exclusiveMinimum" => 0), "height" => Dict("exclusiveMinimum" => 0))],
 )
 _with_pitch(body, ::Nothing, ::_LeafUnit) = body
 _with_pitch(body, s::Sensor, unit::_LeafUnit) =
@@ -239,7 +243,7 @@ end
 # {"circle": [cx, cy, r]}, {"ellipse": [cx, cy, a, b, θ]} (VGC's `Ellipse` numbers, the major semi-axis first) or
 # {"rect": [x, y, w, h]} (a letterboxed or padded image). The whole sensor covered writes nothing.
 const _LENS_COVERAGE = _Obj(Pair{Symbol, _Spec}[],
-                            Pair{Symbol, _Spec}[:circle => _Vec(_Real(), 3), :ellipse => _Vec(_Real(), 5), :rect => _Vec(_Real(), 4)])
+                            Pair{Symbol, _Spec}[:circle => _CIRCLE, :ellipse => _ELLIPSE, :rect => _AREA])
 _lens_coverage_tag(::Circle) = :circle
 _lens_coverage_tag(::Ellipse) = :ellipse
 _lens_coverage_tag(::Rect2) = :rect
@@ -278,14 +282,23 @@ const _NONCENTRAL_BODY_FIELDS = Pair{Symbol, _Spec}[
     :image_size => _SIZE_INT, :K => _K_SPEC, :spline => _NONCENTRAL_LATTICE,
 ]
 const _BOUND_FIELDS = Pair{Symbol, _Spec}[:pitch => _PITCH, :lens_coverage => _LENS_COVERAGE]
+# `_lens_coverage_problem` in words and in JSON Schema (the keywords json_schema.jl publishes)
+const _LENS_COVERAGE_RULE = (
+    rule = "`lens_coverage` is exactly one of `circle` (r > 0), `ellipse` (a ≥ b > 0) or `rect` (width, height > 0)",
+    schema = ["properties" => Dict("lens_coverage" => Dict(
+        "minProperties" => 1, "maxProperties" => 1,
+        "properties" => Dict("circle" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0)]),
+                             "ellipse" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0), Dict("exclusiveMinimum" => 0)]),
+                             "rect" => Dict("prefixItems" => [Dict(), Dict(), Dict("exclusiveMinimum" => 0), Dict("exclusiveMinimum" => 0)]))))],
+)
 # A bounded camera's body with the keys `extra` (required) and `extra_optional`
 # of its enclosing record (a store entry's `name` and `calibration_record`): a
 # camera body or a non-central one, told apart by `lens` / `type`.
 _bounded_body_spec(extra = Pair{Symbol, _Spec}[], extra_optional = Pair{Symbol, _Spec}[]) = _Either(Pair{Symbol, _Spec}[
     :lens => _CheckedSpec(_Obj(Pair{Symbol, _Spec}[extra..., _CAMERA_BODY_FIELDS...], Pair{Symbol, _Spec}[_BOUND_FIELDS..., extra_optional...]),
-                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body")),
+                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body"); _LENS_COVERAGE_RULE...),
     :type => _CheckedSpec(_Obj(Pair{Symbol, _Spec}[extra..., _NONCENTRAL_BODY_FIELDS...], Pair{Symbol, _Spec}[_BOUND_FIELDS..., extra_optional...]),
-                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera")),
+                          x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera"); _LENS_COVERAGE_RULE...),
 ])
 const _BOUNDED_CAMERA_BODY = _bounded_body_spec()
 
@@ -511,7 +524,9 @@ const _CALIBRATION = _CheckedSpec(
             :device => _Obj(:body => _DEVICE_IDENTITY, :lens => _DEVICE_IDENTITY),
         ],
     ),
-    _calibration_check,
+    _calibration_check;
+    rule = "a calibration block states at least one key",
+    schema = ["minProperties" => 1],
 )
 
 # The block as the value holds it: the stated keys in declaration order, typed.
@@ -547,6 +562,7 @@ const _CAMERAS_SPEC = _kind_spec(
     Pair{Symbol, _Spec}[:cameras => _Vec(_bounded_body_spec(Pair{Symbol, _Spec}[:name => _NonEmpty()],
                                                             Pair{Symbol, _Spec}[:calibration_record => _CALIBRATION]))];
     check = x -> allunique(c[:name] for c in x[:cameras]) ? nothing : "camera names must be unique — they are the identity configs refer to",
+    rule = "camera names are unique (the identity configs refer to)",
 )
 
 function _camera_entry(s::VgioStyle, name::Symbol, c::_StoredCamera)
@@ -615,8 +631,7 @@ load(::Type{Dict{Symbol, BoundedCamera}}, path::AbstractString; intrinsics::Unio
     _load_store(_with_given_intrinsics(_read_vgio_json(path), intrinsics, path), path)
 # The store of a parsed file (`d`, its JSON).
 function _load_store(d, path::AbstractString)
-    d = _one_camera_store(d, path)        # an old grid file or a noncentral_spline record: the store of its one camera
-    d = _checked_store(d, path, "cameras")
+    d = _checked_store(d, path, "cameras")   # (an old grid file or a noncentral_spline record: the store of its one camera)
     s = VgioStyle(d)
     out = Dict{Symbol, _StoredCamera}()
     for c in d.cameras::Vector{Any}
@@ -737,12 +752,23 @@ end
 # (`fisheye_14mm.json` → `fisheye_14mm`), the record through its version steps.
 function _one_camera_store(d, path)
     d isa AbstractDict || return d
-    s = get(d, :schema, nothing)
     _is_central_grid(d) && return _central_grid_store(d, path)
-    v = _split_schema(s)
+    v = _split_schema(get(d, :schema, nothing))
     (v !== nothing && v.kind in ("noncentral_spline", "generic_camera")) || return d
-    t = migrate_record(d)          # an old non-central grid file through its step to noncentral_spline/v1
-    t["schema"] == "vgio/noncentral_spline/v1" ||
-        throw(ArgumentError("$(path): a $(s) file, read through its migration, ends at $(repr(t["schema"])), not a non-central camera record"))
-    return _parse_vgio_text(JSON.json(_noncentral_store_v6(t, first(splitext(basename(path))))), path)
+    name = first(splitext(basename(path)))
+    t = _lower(d)
+    store = try
+        if v.kind == "generic_camera"          # a non-central old grid file: its 0.10 body built by the one old-grid conversion
+            t["schema"] == "vgio/generic_camera/v2" && (t = _generic_camera_v2_to_v3(t))
+            merge(migrate_envelope(_file_head(t), "vgio/cameras/v6.0"),
+                  Dict{String, Any}("cameras" => Any[merge(Dict{String, Any}("name" => name), _noncentral_grid_body(t))]))
+        else
+            v.major == 1 || return d           # (an unknown version: the boundary refuses it by name)
+            _noncentral_store_v6(t, name)
+        end
+    catch e
+        e isa Union{ArgumentError, KeyError} || rethrow()
+        throw(ArgumentError("$(path): a $(t["schema"]) non-central grid camera, read as the store of its one camera: $(sprint(showerror, e))"))
+    end
+    return _parse_vgio_text(JSON.json(store), path)
 end

@@ -11,7 +11,13 @@
     export old_fixture, old_versions, json_tree, write_tree
 
     old_fixture(name) = joinpath(@__DIR__, "fixtures", "old", name)
-    units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
+    # the IO 0.9 fixtures (test/fixtures/old/, the 0.9 current versions the
+    # suite's units fixtures held), by their 0.9 names
+    const _OLD09 = Dict("rig.json" => "rig_v9.json", "rig_targets.json" => "rig_v9_targets.json", "rig_pitch.json" => "rig_v9_pitch.json",
+        "target_planar.json" => "target_v5_planar.json", "target_points.json" => "target_v5_points.json",
+        "target_points2d.json" => "target_points2d_v2.json", "target_points3d.json" => "target_points3d_v2.json",
+        "target_poses.json" => "target_poses_v2.json", "trajectory.json" => "trajectory_v4.json", "transforms.json" => "transforms_v4.json")
+    units_fixture(name) = joinpath(@__DIR__, "fixtures", "old", _OLD09[name])
     json_tree(p) = JSON.parse(read(p, String); dicttype = Dict{String, Any})
     write_tree(p, t) = (write(p, JSON.json(t, 4)); p)
 
@@ -194,32 +200,33 @@ end
     end
 end
 
-@testitem "schema versions: measurements naming an old rig's identity resolve against its file" setup = [VGIoFixtures, OldVersions, MigrateFixtures] begin
+@testitem "schema versions: observations naming an old rig's identity resolve against its file" setup = [VGIoFixtures, OldVersions, MigrateFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: TargetPoints2D, PixelFrame
+    using VisualGeometryToolkitCore: TargetObservations, PixelFrame
     mktempdir() do dir
         rig = old_copy(dir, "rig_targets.json", as_v4_rig)
-        obs = load(TargetPoints2D, as_v4_measurements(dir))                       # naming the v4 identity
+        obs = load(TargetObservations, as_v4_observations(dir))                       # naming the v4 identity
         @test only(obs.targets) == V4_ID != VgtkIO.content_id(rig) == current_id()
         a = joinpath(dir, "a.json")
         save_correspondences(a, obs, rig)
         b = joinpath(dir, "b.json")
-        save_correspondences(b, load(TargetPoints2D, units_fixture("target_points2d.json")), units_fixture("rig_targets.json"))
+        save_correspondences(b, load(TargetObservations, units_fixture("target_points2d.json")), units_fixture("rig_targets.json"))
         @test read(a, String) == read(b, String)
-        @test_throws ArgumentError save_correspondences(joinpath(dir, "c.json"), obs, units_fixture("rig_targets.json"))   # the current file has no old identity
+        @test_throws ArgumentError save_correspondences(joinpath(dir, "c.json"), obs, units_fixture("rig_targets.json"))   # the 0.9 file was never named by the v4 identity
     end
 end
 
-@testitem "schema versions: a version no published file held, or one that lacks what the current one needs, is refused" setup = [VGIoFixtures] begin
+@testitem "schema versions: a version no published file held, or one that lacks what the current one needs, is refused" setup = [VGIoFixtures, OldVersions] begin
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: Rig, EuclideanMap
     mktempdir() do dir
         refusal(T, schema, file) = (p = joinpath(dir, file);
-            t = JSON.parse(read(joinpath(@__DIR__, "fixtures", "units", file), String); dicttype = Dict{String, Any});
+            t = JSON.parse(read(old_fixture(file), String); dicttype = Dict{String, Any});
             t["schema"] = schema; write(p, JSON.json(t)); e = try load(T, p); nothing catch e; e end; e isa ArgumentError ? e.msg : "")
-        @test occursin("free strings", refusal(Vector{EuclideanMap}, "vgio/transforms/v2", "transforms.json"))   # its frames' names are not the grammar's
-        @test occursin("rig/v9", refusal(Rig, "vgio/rig/v3", "rig.json"))                                # a retired kind
-        @test occursin("re-export", refusal(Rig, "vgio/rig/v2", "rig.json"))                                # no migration
+        @test occursin("free strings", refusal(Vector{EuclideanMap}, "vgio/transforms/v2", "transforms_v4.json"))   # its frames' names are not the grammar's
+        @test occursin("rig/v10.0", refusal(Rig, "vgio/rig/v3", "rig_v9.json"))                                # a retired kind
+        @test occursin("re-export", refusal(Rig, "vgio/rig/v2", "rig_v9.json"))
+        @test occursin("re-export", refusal(Dict{Symbol, VisualGeometryToolkitCore.GaussianBlur}, "vgio/blur/v1", "rig_v9.json"))   # blur v1: no published file                                # no migration
     end
 end
 

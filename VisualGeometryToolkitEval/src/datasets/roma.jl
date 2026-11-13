@@ -2,7 +2,7 @@
 # src/datasets/roma.jl — the RoMa / SP+LG consolidated-correspondences reader.
 #
 # Input: `<dir>/<scene>.jld2`, written by `consolidate_correspondences`
-# (src/datasets/consolidate.jl: plain pixel records, `format = 2`), or a file
+# (src/datasets/consolidate.jl: plain pixel records, format 3; format 2 is read too), or a file
 # of its first version, which serialized the pair's `rig::StereoRig`, the
 # matcher's own point types and the GT config (no `format` key; read through
 # the legacy typemap below). No SNN filter: a RoMa correspondence

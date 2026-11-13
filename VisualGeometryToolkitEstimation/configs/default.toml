@@ -199,9 +199,6 @@ max_iter = 100                   # the camera + poses LM's cap on ACCEPTED itera
 # experiments' camera + poses bundle ran with (RadiometricCamera, until 2026-10-28).
 ftol = 1.0e-12
 xtol = 1.0e-12
-# A SplineLens camera's forward spline, refitted after the refinement
-# (fit_forward_spline): its held-out round-trip tolerance, pixels.
-forward_tolerance = 1.0e-3
 [fit_rotation]
 # The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, max_iter —
 # the reweight-and-solve iterations at most), read by the one strategy reader.
@@ -248,7 +245,8 @@ efficiency_constant = 3.5322300675464233
 # `xtol = 1e-10`, not restated: NLLSsolver's `dstep`, absolute (max|pᵢ| < 1e-10,
 # chart units; a chart LM starts at x = 0).
 max_iter = 1000
-# The LO refit's relative cost tolerance (NLLSsolver's `reldcost`: stop once a
+# Every chart LM's relative cost tolerance — the LO refits and `refine_camera`'s
+# lens families (optical_axis, approximate_camera) — (NLLSsolver's `reldcost`: stop once a
 # step lowers the cost by less than ftol·F). eps runs every refit to its
 # rounding floor; 1e-10 stops it once the cost has settled (the timings
 # that set it: VisualGeometryToolkitCore's CHANGELOG.md, the LM driver). Also

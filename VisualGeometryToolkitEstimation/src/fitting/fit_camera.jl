@@ -192,7 +192,8 @@ over the region. The target type selects the family and the solve:
     `:image` (uniform on the image), `:solid_angle` (`sin θ`) or `:uniform` (in `θ`).
   - A GAUGE `K` (a `SplineLens` camera source, a `CameraModel` or a `BoundedCamera` of one)
     has no radial profile of its own lens. The samples are the CAMERA's rays on the image
-    over the region (the spline targets' quadrature, below), each pixel one sample of equal
+    over the region (the spline targets' quadrature, below, back-projected on the backend
+    `device`, `default_device()` by default), each pixel one sample of equal
     weight: the same image integral with the `:image` density (another `weight` is an
     `ArgumentError`). The linear fit reads their radii about the source's principal point
     and their angles about its ẑ; the principal point, the aspect and the axis are freed by
@@ -314,19 +315,19 @@ end
 _linear_form(::Type) = _NoLinearForm()
 
 function fit_camera(
-        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
+        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed)
+    return _fit_lens_linear(_checked_linear_form(L), _target_anchor(L), source, region, weight, fixed, device)
 end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function fit_camera(
-        target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (),
+        target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed)
+    return _fit_lens_linear(_checked_linear_form(typeof(target)), target, source, region, weight, fixed, device)
 end
 fit_camera(target::AbstractLensModel, source::BoundedCamera, region; kwargs...) = fit_camera(target, model(source), region; kwargs...)
 fit_camera(target::AbstractLensModel, source::NoncentralSplineModel, region; kwargs...) = fit_camera(typeof(target), source, region; kwargs...)
@@ -344,13 +345,13 @@ end
 
 # The one linear fit of the lens `target`'s family onto `source`: the coefficients and the focal rescale not `fixed`
 # (Core's `free_parameter_names` on the camera of the source's K and `target`: names and group stems), the `fixed`
-# ones at `target`'s values (its focal: the source's, `s = 1`).
-function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, region, weight::Symbol, fixed)
+# ones at `target`'s values (its focal: the source's, `s = 1`). A gauge-K source's rays are sampled on `device`.
+function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, region, weight::Symbol, fixed, device)
     L = typeof(target)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     moving = VgtkCore.free_parameter_names(_anchor_camera(target, source), fixed)
-    pr = _profile_samples(role, L, source, region, K0, weight)
+    pr = _profile_samples(role, L, source, region, K0, weight, device)
     s, fitted = _linear_lens(form, target, pr.rA, pr.angles, pr.w, moving)
     record = (ReturnCode.Success, ClosedForm)
     if !(isfinite(s) && s > 0)                       # a degenerate solve: reported, never a throw
@@ -558,7 +559,7 @@ end
 # A PHYSICAL K (a parametric lens): its principal point and its ẑ are data, so the samples are the lens's own radial
 # profile r(θ) — its radial part, decentering stripped — on the Clenshaw–Curtis nodes, the exact reduction of the
 # image integral to θ, each at azimuth 0: the ray `(sin θ, 0, cos θ)` and the point `(r(θ), 0)`.
-function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol) where {L}
+function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol, _device) where {L}
     src = lens(source)
     # Core's `RadialSymmetry` trait says whether anything is non-radial;
     # `_decentering` measures how much (a symmetric ∘ composition is not measured)
@@ -602,11 +603,11 @@ end
 # uniform on the image) and the region's coverage exactly; the refine frees the principal point and the axis
 # (refine_camera.jl's `_regression_manifold`), the linear fit reads the radii about the source's principal point and the
 # angles about its ẑ. The family's domain cap reads the view angle about the source's ẑ, the refine's start.
-function _profile_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol) where {L}
+function _profile_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol, device) where {L}
     weight === :image || throw(
         ArgumentError("fit_camera: a $(nameof(typeof(lens(source)))) source is sampled on the image, whose density is :image; got weight = :$weight")
     )
-    q = _image_quadrature(source, region)
+    q = _image_quadrature(source, region; device)   # the expensive step: every pixel back-projected, on `device`
     θ_all = map(r -> angle_between(r, SVector(0.0, 0.0, 1.0)), q.fit_rays)   # the ray's off-axis angle, the stack's one angle
     θ_source = maximum(θ_all)
     θ_max, clipped = _family_domain(L, θ_source)
@@ -983,8 +984,8 @@ end
 # lattice's K and normalized area (the same for every grid size: the image and
 # K are), the quadrature and its normalized points, the right-hand side and its
 # anchor, and the held-out check's source side (`_held_out`).
-function _grid_data(::Type{G}, source, region, device) where {G}
-    size = image_size(source)
+function _grid_data(::Type{G}, source::BoundedCamera, region, device) where {G}
+    size = extent(source)   # Core's: the bound's whole-pixel image
     cam = model(source)
     q = _image_quadrature(_grid_samples(G, device), cam, region)
     rhs, anchor = _grid_rhs(G, q)
@@ -1084,23 +1085,14 @@ end
 # `grid_size` (columns, rows).
 _lattice_grid_size(W::Integer, H::Integer, cells::Integer) = last(_knot_counts(W, H, cells))
 
-"""
-    image_size(camera::BoundedCamera) -> Size2{Int}
-
-The image of a bounded camera in whole pixels: its `extent`'s width and height as `Int`s — the image a
-spline target's lattice covers in [`fit_camera`](@ref) and
-[`pspline_grid`](@ref). Any other source has no image: an `ArgumentError`
-asking for a `BoundedCamera(model, sensor)`. Another package's bounded lens
-type adds its method (a declared extension point, `CONTRACT_GENERICS`).
-"""
-image_size(bc::BoundedCamera) = (e = extent(bc); VgtkCore.Size2(Int(e.width), Int(e.height)))
-image_size(source) = _no_image(source)
+# The refusal of a source without an image (not a BoundedCamera) for a spline target's full-image lattice.
 _no_image(source) = throw(
     ArgumentError(
         "fit_camera(<spline target>, …): a $(nameof(typeof(source))) source has no image for the lattice's full-image layout; " *
             "bound it by its sensor or extent, `BoundedCamera(model, sensor)`"
     )
 )
+_grid_data(::Type, source, region, device) = _no_image(source)   # any other source has no image for the lattice
 # A function of the pixel has neither an image nor a K: its route is the SplineLens
 # camera of the function (Core's source constructor, which gauges K), bounded.
 _no_image(::Function) = throw(
@@ -1252,7 +1244,7 @@ function fit_camera(
     )
     _check_tolerance(tolerance)
     back, code, family = _spline_backward(model(source), source, region, grid_size, tolerance, device)
-    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source)
+    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), back.camera, source, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the later on a tie
     cam = gauge.camera
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
@@ -1276,10 +1268,10 @@ end
 # lattice takes its K and its ẑ, the axis already: the identity. The axis is fitted over the source's bound (its
 # `imaged_region`), not the fit's region. The camera, the rotation, the symmetry residual and the optical axis fit's
 # retcode.
-_axis_gauge(::VgtkCore.Cameras.FreeIntrinsics, cam, source::BoundedCamera) =
+_axis_gauge(::VgtkCore.Cameras.FreeIntrinsics, cam, source::BoundedCamera, _device) =
     (; camera = cam, rotation = _source_to_fitted(nothing), symmetry_residual = NaN, code = (ReturnCode.Success, NoRule))
-function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, source::BoundedCamera)
-    r = optical_axis(VgtkCore.with_model(source, cam))
+function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, cam, source::BoundedCamera, device)
+    r = optical_axis(VgtkCore.with_model(source, cam); device)
     K = calibration_matrix(estimate(r))
     R = metadata(r).rotation
     camera = VgtkCore.axis_gauged(cam, rotation(R), K)
@@ -1318,12 +1310,6 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
     ArgumentError("fit_camera(SplineLens, …): the source must bound a central CameraModel, got a $(nameof(typeof(src))) (a non-central model fits `NoncentralSplineModel`)")
 )
 
-# The forward spline of the camera `cam` (its backward) over `region`: a
-# ChartSpline{2} from the equidistant chart about ẑ (the chart the
-# lens projects through) to the normalized point x, fitted to the camera's own
-# rays at the quadrature's pixels by linear least squares with the P-spline
-# penalty, its knot spacing by the spacing search to `tolerance` in pixels (the
-# held-out round trip `‖K·forward(chart(ray)) − u‖`).
 # The SplineLens camera `cam` with the forward spline `forward`: its K, backward and presence kept.
 _with_forward(cam, forward) = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward, present = cam.lens.present))
 
@@ -1338,8 +1324,7 @@ the equidistant chart about ẑ (Core's `forward_chart(SplineLens)`) to the
 normalized point, fitted to the camera's own rays over `region` (pixels) with the
 P-spline penalty, its knot spacing searched until the held-out round trip
 `‖K·forward(chart(ray)) − u‖` meets `tolerance` (pixels) — the one forward fit of
-the stack, `fit_camera(SplineLens, …; forward = true)`'s and the SplineLens
-`refine_camera_and_poses`' refit. With a forward, `project` evaluates it inside its
+the stack, `fit_camera(SplineLens, …; forward = true)`'s. With a forward, `project` evaluates it inside its
 fitted chart: no projection solve, no cold start.
 
 Unlike `fit_camera(SplineLens, camera, region)`, which turns a gauge-`K` camera onto
@@ -1362,8 +1347,17 @@ function fit_forward_spline(camera::BoundedCamera{<:CameraModel{<:VgtkCore.Abstr
 end
 fit_forward_spline(camera; kwargs...) = throw(ArgumentError(
     "fit_forward_spline: a SplineLens camera (a BoundedCamera of a CameraModel with a SplineLens) is given its forward spline, got a $(nameof(typeof(camera)))" *
-        (camera isa BoundedCamera ? " of a $(nameof(typeof(lens(model(camera))))) lens" : "")))
+        (camera isa BoundedCamera ? _bounded_what(model(camera)) : "")))
+# What a bounded camera bounds, for a refusal: a CameraModel's lens, or the model itself (a NoncentralSplineModel has no lens).
+_bounded_what(m::CameraModel) = " of a $(nameof(typeof(lens(m)))) lens"
+_bounded_what(m) = " of a $(nameof(typeof(m)))"
 
+# The forward spline of the camera `cam` (its backward) over `region`: a
+# ChartSpline{2} from the equidistant chart about ẑ (the chart the
+# lens projects through) to the normalized point x, fitted to the camera's own
+# rays at the quadrature's pixels by linear least squares with the P-spline
+# penalty, its knot spacing by the spacing search to `tolerance` in pixels (the
+# held-out round trip `‖K·forward(chart(ray)) − u‖`).
 function _forward_spline(cam, region, tolerance, device)
     q = _chart_quadrature(cam, region, device)
     r, code, n = _spacing_search(cells -> _forward_fit(q, cells), tolerance, _max_cells(q.extent, q.stride))

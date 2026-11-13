@@ -145,8 +145,6 @@ end
     @test reached && c > 1
     @test VgtkEstimation._adaptive_count(60, 100, 4, RansacConfig(max_trials = c, min_trials = 1)) == (c, true)
     @test VgtkEstimation._adaptive_count(60, 100, 4, RansacConfig(max_trials = c - 1, min_trials = 1)) == (c - 1, false)
-    @test first(VgtkEstimation._adaptive_count(60, 100, 4, RansacConfig(max_trials = c, min_trials = 1))) ==
-        VgtkEstimation._adaptive_trials(60, 100, 4, RansacConfig(max_trials = c, min_trials = 1))
 
     check_covered(seen, (Symbol.(:find_, first.(classes))..., Symbol.(:refine_, first.(classes))..., :ransac, :locally_optimize))
 end
@@ -325,7 +323,7 @@ end
     sviews = spline_views(truth, Es3, 1.1)
     record!(seen, :refine_camera_and_poses, refine_camera_and_poses(bounded(perturbed_controls(truth, 0.01)),
                                                                     [perturbed_pose(E, v) for (v, E) in enumerate(Es3)], sviews;
-                                                                    fixed = (:controls,)))
+                                                                    fixed = (:controls,), optimization_strategy = nothing))
     # the robot-world hand-eye bundle: markers' features from a seed near the truth
     rng = StableRNG(3)
     camera = CameraModel(; focal = 600.0, pp = (400.0, 300.0))

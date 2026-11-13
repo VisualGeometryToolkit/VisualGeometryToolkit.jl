@@ -393,6 +393,8 @@
         withenv("VGTK_SCRATCH" => "1") do
             @test E.scratch_run()
             @test_logs (:warn, r"scratch run records .* of uncommitted code") match_mode = :any E.write_provenance(out; driver = "d")
+            # never reused, not even by a scratch run of the same marked tree (other edits carry the same mark)
+            @test !(@test_logs (:info, r"its code changed") match_mode = :any E.run_complete(out; sidecar = "r.jld2"))
         end
         @test endswith(E.read_provenance(out)["code_trees"]["src"], "+uncommitted")
         rm(joinpath(repo, "src", "N.jl"))

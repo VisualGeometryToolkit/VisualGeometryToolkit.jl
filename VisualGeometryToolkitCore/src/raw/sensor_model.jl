@@ -373,14 +373,14 @@ Base.hash(c::SensorCharacterisation, h::UInt) = hash(c.entries, hash(c.body, has
 
 """
     SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent;
-                reason::ModelReason = Matched, overrides_measured::Bool = false)
+                reason::ModelReason = Matched, specified_override::Bool = false)
     SensorModel()
 
 The sensor model of ONE frame: the `black`, `noise` and `defects` components
 [`sensor_model`](@ref) picked for its ISO and exposure (a [`Dark`](@ref) only
 when its band serves the exposure, a [`DefectList`](@ref) holding only the
 sites whose onset is at most the exposure), `reason` why (a
-[`ModelReason`](@ref)) and `overrides_measured`, whether a specified component
+[`ModelReason`](@ref)) and `specified_override`, whether a specified component
 displaced a measured one (the run record notes the override).
 
 `SensorModel()` is the absent model, `SensorModel(FileBlack(), NoNoise(),
@@ -394,17 +394,17 @@ struct SensorModel{B <: BlackComponent, N <: NoiseComponent, D <: DefectComponen
     noise::N
     defects::D
     reason::ModelReason
-    overrides_measured::Bool
+    specified_override::Bool
 end
 SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent; reason::ModelReason = Matched,
-            overrides_measured::Bool = false) = SensorModel(black, noise, defects, reason, overrides_measured)
+            specified_override::Bool = false) = SensorModel(black, noise, defects, reason, specified_override)
 SensorModel() = SensorModel(FileBlack(), NoNoise(), NoDefects(); reason = NoCharacterisation)
-_sensor_fields(m::SensorModel) = (m.black, m.noise, m.defects, m.reason, m.overrides_measured)
+_sensor_fields(m::SensorModel) = (m.black, m.noise, m.defects, m.reason, m.specified_override)
 Base.:(==)(a::SensorModel, b::SensorModel) = _sensor_fields(a) == _sensor_fields(b)
 Base.isequal(a::SensorModel, b::SensorModel) = isequal(_sensor_fields(a), _sensor_fields(b))
 Base.hash(m::SensorModel, h::UInt) = hash(_sensor_fields(m), hash(:SensorModel, h))
 Adapt.adapt_structure(to, m::SensorModel) =
-    SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.overrides_measured)
+    SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.specified_override)
 
 # ------------------------------------------------------------------------------
 # The identity of a model (D9): the stack's one content-identity scheme, sha256_hex(canonical_json(tree))
@@ -441,13 +441,13 @@ canonical JSON ([`canonical_json`](@ref), the stack's one content-identity
 encoding) of a tree of its components — each component's type, values, standard
 errors and source, a map (a [`Dark`](@ref)'s offset and variance) by the
 SHA-256 of its Float32 values' bytes and its size, a [`DefectList`](@ref) by its
-sites — its `reason` and `overrides_measured`. Equal models have equal digests,
+sites — its `reason` and `specified_override`. Equal models have equal digests,
 on any device (a device map is read to the host); a cache keyed by a model
 (VisualGeometryToolkitFeatures' decode cache) keys on it.
 """
 content_digest(m::SensorModel) =
     sha256_hex(canonical_json(Dict{String, Any}("black" => _digest_tree(m.black), "noise" => _digest_tree(m.noise), "defects" => _digest_tree(m.defects),
-                                                 "reason" => string(m.reason), "overrides_measured" => m.overrides_measured)))
+                                                 "reason" => string(m.reason), "specified_override" => m.specified_override)))
 
 # ------------------------------------------------------------------------------
 # THE resolver (D1: a lookup, no mosaic; it never estimates)
@@ -505,7 +505,7 @@ exposure `capture[t].exposure`.
    (no extrapolation across ISO).
 2. Per slot, independently, the component those entries hold; where several
    hold one, the specified one over the measured over the estimated (D5), and
-   `overrides_measured` records a specified one displacing a measured one; two
+   `specified_override` records a specified one displacing a measured one; two
    of the same source are an `ArgumentError`, as are two different bodies
    matching a capture that states no serial.
 3. A [`Dark`](@ref) only when its exposure band serves the frame's exposure
@@ -540,7 +540,7 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
     noise, on = _pick([e.noise for e in entries], NoNoise(), :noise, ex.iso)
     defects, od = _pick([e.defects for e in entries], NoDefects(), :defects, ex.iso)
     return SensorModel(_frame_black(black, ex.exposure_time), noise, _frame_defects(defects, ex.exposure_time);
-                       reason = Matched, overrides_measured = ob || on || od)
+                       reason = Matched, specified_override = ob || on || od)
 end
 
 # ------------------------------------------------------------------------------

@@ -58,7 +58,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
-using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_symbol,
+using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symbol,
     worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
@@ -150,7 +150,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
 # so the RVG problem files' method definitions extend the VGC functions.
 import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinate_descent!, update_model!,
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
-    block_coordinate_result, current_cost, current_s2
+    block_coordinate_result, current_cost, current_s2, stop_rule   # stop_rule: the criteria's rules (local_optimization.jl)
 using VisualGeometryToolkitCore: StoppingCriterion
 # The EM fits' (fit_division_camera, fit_residual_mixture) scale source and weight kind: imported above.
 import VisualGeometryToolkitCore: weight_kind
@@ -367,7 +367,6 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
 public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
 public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
-public image_size   # a bounded camera's image in whole pixels (the spline fits' lattice image; extended by a downstream bounded lens)
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
@@ -486,10 +485,10 @@ table carries a key beyond the generic one), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`), the parameter-change stop's measure of a
 problem (`change_parameters`), the sampler / running-best
-protocol (`reset!`, `draw!`) and a bounded lens's image (`image_size`).
+protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_concrete, lo_resolve_efficiency_constant,
                            config_dict, scoring_from_toml, lo_placement,
-                           iterations_without_improvement, change_parameters, reset!, draw!, image_size)
+                           iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

@@ -112,7 +112,8 @@ squared residuals, as a sort-and-sweep scorer's are (VisualGeometryToolkitCore's
    scale prior — and the set's Student-t (ŝ² at the residual dof
    `(k* − model_dof)·d_g`) seeds the posterior (`PosteriorWeightState` on the
    weighting's `consensus_order`).
-2. EM with the model held — `config.model_update` must be [`KeepModel`](@ref) —
+2. EM with the model held — `config.model_update` must be [`KeepModel`](@ref) and
+   `config.stop` [`NoImprovementStop`](@ref) (a held model's parameters never move) —
    under VisualGeometryToolkitCore's `block_coordinate_descent!`: each iteration the
    nuisance parts (`config.nuisance`) then the E-step, until `config.stop` or
    `config.max_iter`.
@@ -140,6 +141,10 @@ function fit_residual_mixture(distances::AbstractVector{<:Real}; weighting::Abst
     config.model_update isa KeepModel || throw(ArgumentError(
         "fit_residual_mixture: the distances are a held model's, so the model update must be " *
             "KeepModel, got $(config.model_update)"))
+    # a held model never moves: a parameter-change stop would end the EM at iteration 1, the nuisance unconverged
+    config.stop isa NoImprovementStop || throw(ArgumentError(
+        "fit_residual_mixture: the distances are a held model's, whose parameters never move, so the EM stops on its " *
+            "cost: `stop` must be NoImprovementStop (`{ type = \"no_improvement\" }`), got $(config.stop)"))
     i = findfirst(<(0), distances)
     i === nothing || throw(ArgumentError(
         "fit_residual_mixture: distances[$i] = $(distances[i]) is negative — a signed residual, not a distance; " *

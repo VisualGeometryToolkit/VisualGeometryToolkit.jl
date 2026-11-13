@@ -194,7 +194,7 @@ specializations go in `problems/`.
 - **Types**: `CamelCase` (`HomographyProblem`, `RansacWorkspace`, `RansacEstimate`)
 - **Constants**: `UPPERCASE_SNAKE_CASE`
 - **Section dividers**: `# =============================================================================`
-- **Private helpers**: Prefix with `_` (`_try_model!`, `_adaptive_trials`, `_seed_posterior_state`)
+- **Private helpers**: Prefix with `_` (`_try_model!`, `_adaptive_count`, `_seed_posterior_state`)
 
 ## Function Signature Conventions
 

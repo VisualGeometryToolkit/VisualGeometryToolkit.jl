@@ -211,7 +211,7 @@ _asift_meta(f::ImasFeatureKA) = (
                  cutoff=3.0, intensity_thr=0.04, edge_thr=10.0,
                  polarity=:none, band_octaves=0.0, band_reach=1, boundary_K=3.0,
                  tilts=:imas25, exclusion_mask=nothing, upsample=true, seed_sigma=1.6,
-                 raw=false, uncertainty=nothing)
+                 raw=false, uncertainty=nothing, refinement=nothing)
 
 Run the IMAS-25 ASIFT detector on `img` (H×W; `Gray`, `UInt8`, or real-valued
 in [0,1]) and return `Vector{Detection{EllipticFrame}}` in COLMAP coords.
@@ -282,6 +282,15 @@ detection's frame as `Uncertain(frame, Σ̃)`, `Σ̃ = cov(d)` a 3×3 `CovMat` o
 [`FeatureCovariance`](@ref) for the model, the parameterization and the units.
 With `raw = true` the result is then `(; features, cov)`. The default `nothing`
 runs the detector without it, the kernels compiled exactly as before.
+
+**Continuous refinement (opt-in).** `refinement = ContinuousRefinement()` replaces each
+detection's one-step quadratic refinement, after it, by an iterative one on a continuous
+model of the DoG response (Core's device LM, in a kernel, on the CPU and any GPU): the same
+candidates, the half-sample jump of the one-step refinement gone, and with
+`uncertainty = FeatureCovariance()` each refined keypoint's covariance recomputed at its own
+point from that model's derivatives. A keypoint whose continuous refinement fails keeps
+today's. See [`ContinuousRefinement`](@ref) for the response models; the default
+`refinement = nothing` is the detector unchanged.
 
 The plan for `(size, device, tilts, upsample, seed_sigma)` is cached (see
 [`set_max_cached_plans!`](@ref)) and every call holds a process-wide lock, so

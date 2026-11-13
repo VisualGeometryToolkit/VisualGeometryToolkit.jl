@@ -97,6 +97,7 @@ include("asift/warp.jl")
 include("asift/backproject.jl")
 include("asift/crosswarp.jl")
 include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
+include("asift/continuous_refine.jl")   # ContinuousRefinement: the opt-in continuous DoG-extremum refinement (before driver.jl, whose asift_detect! takes it; its kernels launch through foerstner.jl's helper, bound at run time)
 include("asift/driver.jl")
 include("asift/api.jl")
 include("variance_stabilization.jl")   # variance_stabilize — a RAW's green cells with noise σ = 1 everywhere; ASIFT on it at k noise σ, saturation masked
@@ -159,6 +160,7 @@ export tilt_schedule             # ASIFT's tilts by name: :imas25 (the default),
 export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
 export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
+export ContinuousRefinement         # the opt-in continuous refinement: asift_detect(img; refinement = ContinuousRefinement())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
 export srgb_image               # the one display encoding: exposure, white balance, NaN → background, tone, clamp, sRGB, N0f8/N0f16

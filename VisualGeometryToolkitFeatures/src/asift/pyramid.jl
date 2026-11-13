@@ -77,6 +77,16 @@ end
 
 # ----- octave geometry -------------------------------------------------------
 
+# THE map from an octave's level coordinates to the warp canvas's reported ones, the
+# one spelling `_extract_at!` emits with and the continuous refinement
+# (continuous_refine.jl) reports through: a 0-based level coordinate `x` of the octave
+# of scale `sf = 2^octave` sits at canvas pixel `x·sf + (sf − 1)` (0-based; the 2×
+# downsamples keep even samples), and a 0-based DoG slice coordinate `s` has the σ
+# `seed_sigma·2^((s + ½)/S)·sf` (the geometric mean of the slice's two Gaussians).
+# Kernel-lawful, in the coordinates' own type.
+@inline _level_to_canvas(x, sf) = x * sf + (sf - one(sf))
+@inline _slice_sigma(s, seed_sigma, S, sf) = seed_sigma * exp2((s + oftype(s, 0.5)) / oftype(s, S)) * sf
+
 """
     sift_nb_octaves(W, H; upsample=false) -> Int
 

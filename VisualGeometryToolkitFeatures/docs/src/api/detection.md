@@ -20,3 +20,9 @@ Pages = ["detection_types.jl", "mser.jl", "foerstner.jl", "batching.jl", "asift/
          "asift/backproject.jl", "asift/uncertainty.jl", "asift/pyramid.jl", "asift/warp.jl",
          "asift/crosswarp.jl", "spread.jl", "image_circle.jl"]
 ```
+
+The opt-in continuous refinement (`asift_detect(img; refinement = ContinuousRefinement())`):
+
+```@docs
+ContinuousRefinement
+```

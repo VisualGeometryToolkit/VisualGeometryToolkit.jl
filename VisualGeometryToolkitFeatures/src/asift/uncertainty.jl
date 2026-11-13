@@ -150,8 +150,13 @@ end
 # level pixel `X` of octave `oi` (1 = the plan's finest), for the pyramid with
 # per-level taps `taps` (`taps[1]` the seed blur): `_bdown!` takes level S+1 of
 # the octave below, `_bupsample!` precedes the seed blur when upsampling.
-function _canvas_kernel(taps, S::Int, upsample::Bool, oi::Int, l::Int, X::Int)
-    v = _Line(X, [1.0])
+_canvas_kernel(taps, S::Int, upsample::Bool, oi::Int, l::Int, X::Int) = _canvas_response(taps, S, upsample, oi, l, _Line(X, [1.0]))
+
+# The canvas-space 1D response of a weighted sum of level `l`'s level pixels (the
+# weights `v`, a `_Line` over level pixels): the adjoint pipeline applied to `v`. A
+# delta gives `_canvas_kernel`; the continuous refinement's spline functionals
+# (continuous_refine.jl) give their own weights.
+function _canvas_response(taps, S::Int, upsample::Bool, oi::Int, l::Int, v::_Line)
     for o in oi:-1:1
         for lev in l:-1:2
             v = _blur_adj(v, taps[lev])

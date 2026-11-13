@@ -1,5 +1,28 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.8.3 (unreleased)
+
+A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; the detector's
+default is unchanged.
+
+- **New: `ContinuousRefinement`, exported, and `asift_detect(img; refinement = ContinuousRefinement())`** (also
+  `asift_detect!`): an opt-in second refinement of every detection on a continuous model of its DoG response — the
+  spatial gradient from Farid and Simoncelli's matched prefilter and first-derivative filters (IEEE TIP 2004), the scale
+  row from the cardinal cubic spline of the unfiltered slices, Lagrange in scale — iterated by Core's device LM
+  (`static_lm`) in a KernelAbstractions kernel on the CPU and any GPU, from the one-step refinement's point. The same
+  candidates; a keypoint whose continuous refinement fails keeps the one-step point. With
+  `uncertainty = FeatureCovariance()` the refined keypoints' covariances are recomputed at the refined points from the
+  model's own derivatives. Measured on noise-free synthetic blobs (benchmark/continuous_refine): the largest centre bias
+  over a sub-pixel period falls from 0.02–0.14 to 0.0001–0.0005 level pixels, the one-step refinement's half-sample jump
+  is gone, the scale error is the plain spline's (≤ 0.0041 in ln σ at octaves 1–3), and the covariance's NEES₂ is
+  1.94–2.09. Its bounds and tolerances: configs/continuous_refinement.toml. The default `refinement = nothing` is the
+  detector of 0.8.2.
+- **The one-step refinement's emission and the continuous one's share one map** (`_level_to_canvas`, `_slice_sigma`):
+  the same arithmetic, the same bits for `_extract_at!`.
+- The spline window sweep, the interpolation prefilter, the weight derivatives and the positive-definiteness test are
+  Core 0.9.5's (`spline_window_sums`, `cubic_bspline_prefilter_taps`, `cubic_bspline_weight_derivatives`,
+  `is_positive_definite`); nothing of them is restated here.
+
 ## 0.8.2 (2026-11-13)
 
 A patch: on VisualGeometryToolkitEstimation 0.10 (the weak dependency of `detect_image_circle`'s fit: `[compat]`

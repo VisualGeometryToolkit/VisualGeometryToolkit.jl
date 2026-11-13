@@ -134,6 +134,29 @@ and `benchmark/mc/zeisl_comparison.jl` compares it with the covariance of
 Zeisl et al. (BMVC 2009). The default, `uncertainty = nothing`, compiles the
 detector exactly as without the option.
 
+## Continuous refinement (opt-in)
+
+`asift_detect(img; refinement = ContinuousRefinement())` refines each detection again after the
+detector's one-step quadratic refinement. The detection candidates are the same. The second
+refinement is an iterative solve, Core's device Levenberg–Marquardt `static_lm`, run inside a
+kernel on the CPU and on a GPU, and it works on a continuous model of the DoG response in
+`(x, y, log σ)`. With `uncertainty = FeatureCovariance()`, each refined keypoint's covariance is
+recomputed at the refined point from that model's own derivatives. A keypoint whose continuous
+refinement fails keeps the one-step position. Without the keyword, the detector is unchanged.
+
+`ContinuousRefinement()` is one recipe. The spatial gradient comes from Farid and Simoncelli's
+matched prefilter and first-derivative filters (IEEE TIP 2004), interpolated. The scale row comes
+from the cardinal-spline interpolant of the unfiltered DoG, so the prefilter's blur does not bias
+the scale. Its keywords are the bounds and tolerances of the refinement, and their defaults come
+from `configs/continuous_refinement.toml`.
+
+On noise-free synthetic blobs (`benchmark/continuous_refine`), the largest centre bias over a
+full sub-pixel period drops from 0.02–0.14 level pixels (one-step) to 0.0001–0.0005. The
+half-sample jump of the one-step refinement disappears. The scale error matches the spline
+model's, at most 0.0041 in `log σ` at octaves 1–3. The covariance is calibrated, with NEES₂
+between 1.94 and 2.09. On a GPU the refinement costs about twice the detector's own time per
+keypoint; on the CPU it adds about 16 %.
+
 ## The image circle of a lens
 
 [`detect_image_circle`](@ref) measures where light falls on the sensor, the lit

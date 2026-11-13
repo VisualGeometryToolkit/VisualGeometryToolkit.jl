@@ -414,9 +414,9 @@ end
                     idx = Atomix.@atomic count[1] += Int32(1)
                     if idx <= capacity
                         sf = exp2(Float32(octave_idx))
-                        out[1, idx] = sx * sf + (sf - 1.0f0)
-                        out[2, idx] = sy * sf + (sf - 1.0f0)
-                        out[3, idx] = seed_sigma * exp2((ssv + 0.5f0) / Float32(nb_scales)) * sf
+                        out[1, idx] = _level_to_canvas(sx, sf)
+                        out[2, idx] = _level_to_canvas(sy, sf)
+                        out[3, idx] = _slice_sigma(ssv, seed_sigma, nb_scales, sf)
                         out[4, idx] = new_val
                         out[5, idx] = Float32(Lw)
                         if rawcov !== nothing
@@ -1061,7 +1061,8 @@ function asift_detect!(
         cutoff::Real = 3.0, polarity::Symbol = :none,
         band_octaves::Real = 0.0, band_reach::Integer = 1,
         intensity_thr::Real = 0.04, edge_thr::Real = 10.0,
-        boundary_K::Real = 3.0, uncertainty::Union{Nothing, FeatureCovariance} = nothing
+        boundary_K::Real = 3.0, uncertainty::Union{Nothing, FeatureCovariance} = nothing,
+        refinement::Union{Nothing, ContinuousRefinement} = nothing
     )
     polarity_sign = polarity === :none ? 0.0f0 : polarity === :dark ? 1.0f0 :
         polarity === :light ? -1.0f0 :
@@ -1098,6 +1099,7 @@ function asift_detect!(
         copyto!(plan.inp, on_device(Float32, dev, img_xy))   # Core's upload: dense Float32 on `dev` (its `DenseArray` rule)
     end
     uncertainty === nothing || _ensure_cov!(plan)
+    refinement === nothing || _ensure_cov_buffers!(plan)   # the refinement reads the extraction's state (`rawcov`)
     fill!(plan.count, Int32(0)); fill!(plan.counth, Int32(0))
     npooled = 0                              # `count` as read after each chunk
 
@@ -1181,7 +1183,7 @@ function asift_detect!(
                     plan.raw, plan.count, view(plan.dogs[o], :, :, :, 1:m), dog_thr,
                     Float32(edge_thr), Float32(plan.seed_sigma), Int32(o - 1 + plan.o_first),
                     Int32(S), Int32(_capacity(plan)), view(plan.awd[o], r),
-                    view(plan.ahd[o], r), _ext_cov_arg(plan, uncertainty), t, Val(Int(NS)),
+                    view(plan.ahd[o], r), refinement === nothing ? _ext_cov_arg(plan, uncertainty) : plan.rawcov, t, Val(Int(NS)),
                     Val(_TILE_NY); ndrange = (32, _TILE_NY * (length(t) ÷ 3))
                 )
             end
@@ -1196,7 +1198,16 @@ function asift_detect!(
         end
         nnew = npooled - nbefore
         if nnew > 0
-            _chunk_covs!(plan, uncertainty, r, nbefore, nnew)
+            # the opt-in continuous refinement (continuous_refine.jl) moves each converged keypoint before its covariance
+            # and back-projection; `_bcov!` still reads the extraction's state, and the refined keypoints' covariances
+            # then replace its
+            if refinement === nothing
+                _chunk_covs!(plan, uncertainty, r, nbefore, nnew)
+            else
+                refined = _refine_chunk!(plan, refinement, m, nbefore, nnew)
+                _chunk_covs!(plan, uncertainty, r, nbefore, nnew)
+                uncertainty === nothing || _refined_covs!(plan, refinement, refined, r, nbefore, nnew)
+            end
             sl = (nbefore + 1):npooled
             K.bp(
                 view(plan.feat, :, sl), view(plan.raw, :, sl), view(plan.wp, :, r),
@@ -1308,6 +1319,10 @@ _no_features(::FeatureCovariance) = (features = ImasFeatureKA[], cov = _FrameCov
 
 # The IFT tables (once per plan) and the pool's covariance buffers at its capacity.
 function _ensure_cov!(plan::AsiftPlan)
+    _ensure_cov_tables!(plan)
+    return _ensure_cov_buffers!(plan)
+end
+function _ensure_cov_tables!(plan::AsiftPlan)
     if isempty(plan.ctab)
         taps = [Array(t) for t in plan.pyr_taps]
         tabs = _cov_tables(
@@ -1317,6 +1332,11 @@ function _ensure_cov!(plan::AsiftPlan)
             push!(plan.ctab, ka_upload(Float32, plan.dev, t))
         end
     end
+    return plan
+end
+# The pool's two (6, capacity) covariance buffers: the extraction's refinement state (`rawcov`) and the covariances
+# (`featcov`); `_grow_pool!` grows them with the pool once they exist.
+function _ensure_cov_buffers!(plan::AsiftPlan)
     cap = _capacity(plan)
     if size(plan.featcov, 2) != cap
         _free_plan_buffers!(plan.rawcov)

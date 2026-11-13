@@ -7,7 +7,7 @@
 
 @testitem "photon_transfer on the FX3 E4 series (real data, opt-in)" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: master_dark, photon_transfer, PoissonGaussian, SensorModel, NoNoise, defect_onsets
+    using VisualGeometryToolkitCore: master_dark, photon_transfer, PoissonGaussian
     using LibRaw_jll: LibRaw_jll                               # the RAW decoder (Features' LibRaw extension)
     using Test
     tier = joinpath(get(ENV, "VGTK_DATA_ROOT", ""), "rc_sensor_characterisation_20261113")
@@ -19,14 +19,11 @@
         s = VgtkCore.parse_unit("s")
         exposure(name) = occursin('_', name) ? (p = split(name, '_'); parse(Float64, p[1]) / parse(Float64, p[2])) : parse(Float64, rstrip(name, 's'))
         arws(dir) = sort!(filter(endswith(".ARW"), readdir(dir; join = true)))
-        t8 = (1 / 8000) * s                                     # the black and its defects: the E1 1/8000 s master dark
-        md = master_dark([load_raw_mosaic(f) for f in arws(joinpath(tier, "E1_E2", "1_8000"))]; exposure_band = (t8, t8))
-        model = SensorModel(md.dark, NoNoise(), defect_onsets([t8 => md.defects]))
         dirs = sort(filter(d -> isdir(joinpath(tier, "E4", d)), readdir(joinpath(tier, "E4"))); by = exposure)
         darks = Dict(exposure(d) * s => master_dark([load_raw_mosaic(f) for f in arws(joinpath(tier, "E1_E2", d))];
                                                     exposure_band = (exposure(d) * s, exposure(d) * s)).read_noise for d in dirs)
         groups = Dict(exposure(d) * s => [load_raw_mosaic(f) for f in first(arws(joinpath(tier, "E4", d)), 5)] for d in dirs)
-        r = photon_transfer(groups, darks; sensor_model = model)
+        r = photon_transfer(groups, darks)                     # the intercept per exposure from its own darks
         K = VgtkCore.estimate(r)
         m = r.metadata
         @info "photon_transfer, FX3 E4 (recorded)" K = K.gain SE = K.std_error.gain birge_ratio = m.birge_ratio range_white = m.level_fraction

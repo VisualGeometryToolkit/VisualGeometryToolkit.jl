@@ -36,7 +36,7 @@
         @test 0.2 < noise_scale(r) < 1.5
         # the retired result properties
         @test !hasproperty(r, :sigma) && !hasproperty(r, :inlier_mask)
-        @test_throws ErrorException r.sigma
+        @test_throws FieldError r.sigma   # Julia 1.12+: a missing field is a FieldError (asserting ErrorException is deprecated)
     end
 
     # locally_optimize keeps the scorer: its result is of the scorer's kind too

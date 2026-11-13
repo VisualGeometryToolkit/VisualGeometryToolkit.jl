@@ -68,7 +68,7 @@ function _detection_header(::Type{D}) where {D}
     A <: NamedTuple || throw(ArgumentError("a detection's attributes are a NamedTuple, got $(A)"))
     F = V <: Uncertain ? fieldtype(V, :value) : V
     F <: FeatureFrame || throw(ArgumentError("a detection is an Attributed feature frame, plain or Uncertain; got $(V)"))
-    h = (frame = tag_of(_FRAME_TAGS, F), number_type = _type_name(_NUMBER_TYPES, eltype(F), "number type"))
+    h = (frame = tag_of(_FRAME_TAGS, F), number_type = _type_name(_NUMBER_TYPES, _frame_eltype(F, (;)), "number type"))
     if V <: Uncertain
         C = fieldtype(V, :attributes)
         h = merge(h, (covariance = (storage = _storage_name(C), number_type = _type_name(_NUMBER_TYPES, _cov_eltype(C), "covariance number type")),))
@@ -104,7 +104,7 @@ end
 function _detection_from(s::VgioStyle, ::Type{Attributed{V, A}}, x, offset) where {V, A}
     a = A(Tuple(_attribute_from(fieldtype(A, k), _get_key(x.attributes, String(k))) for k in fieldnames(A)))
     F = V <: Uncertain ? fieldtype(V, :value) : V
-    f = JSON.lift(s, F, x) + SVector{2, eltype(F)}(offset)
+    f = JSON.lift(s, F, x) + SVector{2, _frame_eltype(F, (;))}(offset)
     V <: Uncertain || return Attributed(f, a)
     C = fieldtype(V, :attributes)
     N, Tc = frame_dof(F), _cov_eltype(C)

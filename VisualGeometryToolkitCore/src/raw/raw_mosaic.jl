@@ -414,12 +414,16 @@ end
 @inline _quad_site(i, j) = mod(i - 1, 2) + 2mod(j - 1, 2) + 1
 
 """
-    LinearRawView{A} <: AbstractMatrix{Float64}
+    LinearRawView{T, A, D, L} <: AbstractMatrix{T}
 
 The lazy linear view of a mosaic's photosites on the raw grid,
 [`linearview`](@ref)`(m)`: element `(i, j)` is the linear value of the
 held array's code there, with its channel's black level and span, computed when
-read. It holds the photosites (`parent`, the mosaic's held array, a device array
+read. Under a sensor model whose noise has a variance law (`law`: a
+[`PoissonGaussian`](@ref) or a [`RelativeNoise`](@ref)) the element is an
+`Uncertain{Float64}`, the value with its scalar variance computed on the same
+read (owner ruling D14: the default uncertain image is this lazy one; `copy`
+materialises it as a `StructArray`); otherwise `T` is `Float64`. It holds the photosites (`parent`, the mosaic's held array, a device array
 too), the four channels' levels and, from a sensor model's [`Dark`](@ref), the
 offset map over the visible raw (`dark`, on the same device; `nothing` without one) read at
 the mosaic's `window_origin`; `similar`, a broadcast and `copy` are the
@@ -427,25 +431,32 @@ held array's kind (a broadcast over a device view runs on the device),
 `adapt` moves it, and a KernelAbstractions kernel reads it as it is (its
 indexing is two parities, the one black rule and one linearisation).
 """
-struct LinearRawView{A <: AbstractMatrix, D <: Union{Nothing, AbstractMatrix{Float32}}} <: AbstractMatrix{Float64}
+struct LinearRawView{T, A <: AbstractMatrix, D <: Union{Nothing, AbstractMatrix{Float32}}, L} <: AbstractMatrix{T}
     raw::A
     black::NTuple{4, Float64}
     span::NTuple{4, Float64}
     dark::D
     origin::NTuple{2, Int}
+    law::L                     # the noise slot's variance law (sensor_model.jl's `_VarianceLaw`), or nothing
 end
+LinearRawView(raw::A, black, span, dark::D, origin, law::L) where {A, D, L} =
+    LinearRawView{_view_eltype(law), A, D, L}(raw, black, span, dark, origin, law)
 Base.size(v::LinearRawView) = size(v.raw)
 Base.parent(v::LinearRawView) = v.raw
 Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
 Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
     k = _quad_site(i, j)
-    return _linear_value(v.raw[i, j], _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]), v.span[k])
+    x = _linear_value(v.raw[i, j], _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]), v.span[k])
+    return _with_variance(v.law, x, k, v.span, i, j, v.origin)
 end
 Base.similar(v::LinearRawView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
-Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{A}}) where {A} = Base.Broadcast.BroadcastStyle(A)
+Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{T, A}}) where {T, A} = Base.Broadcast.BroadcastStyle(A)
 Base.copy(v::LinearRawView) = identity.(v)
+# the materialised uncertain image (D14): a value plane and a variance plane, SoA, each a broadcast over the view on its device
+Base.copy(v::LinearRawView{<:Attributed}) = StructArrays.StructArray{eltype(v)}((value_of.(v), Statistics.cov.(v)))
 Adapt.adapt_structure(to, v::LinearRawView) =
-    LinearRawView(Adapt.adapt(to, v.raw), v.black, v.span, v.dark === nothing ? nothing : Adapt.adapt(to, v.dark), v.origin)
+    LinearRawView(Adapt.adapt(to, v.raw), v.black, v.span, v.dark === nothing ? nothing : Adapt.adapt(to, v.dark), v.origin,
+                  Adapt.adapt(to, v.law))
 ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
 
 """
@@ -474,12 +485,20 @@ sites' (`k = di + 2dj + 1`).
 [`LinearRaw`](@ref)'s, by the same resolution: its black slot's per-colour-index
 black (the span `white − black[c]`), and a [`Dark`](@ref)'s offset in place of
 the black per photosite. Its defects are not values: they join `LinearRaw`'s
-mask, not this view; nor is its noise. With the absent model, the default, the
-view is the mosaic's own levels.
+mask, not this view. Its noise is: under a [`PoissonGaussian`](@ref) or a
+[`RelativeNoise`](@ref) each element is an `Uncertain{Float64}`, the value and
+its scalar variance (`Statistics.var(x)`, computed on the read by the law
+`LinearRaw`'s kernel writes per plane, one site at gain 1: owner ruling D14,
+the default uncertain image), and `copy` of the view is the materialised form, a
+`StructArray` of a value plane and a variance plane (on the view's device). The
+layout is the raw grid, `H × W`; `channelview` of it is the `4 × H/2 × W/2`
+cells, uncertain alike. With the absent model, the default, the view is the
+mosaic's own levels, plain values.
 """
 function linearview(m::RawMosaic; sensor_model = SensorModel())   # (SensorModel is defined after this file: sensor_model.jl reads RawMosaic)
-    black, span, dark = _model_levels(m, sensor_model, KA.get_backend(parent(m)))
-    return LinearRawView(parent(m), black, span, dark, m.window_origin)
+    backend = KA.get_backend(parent(m))
+    black, span, dark = _model_levels(m, sensor_model, backend)
+    return LinearRawView(parent(m), black, span, dark, m.window_origin, _variance_law(sensor_model.noise, sensor_model.black, m, backend))
 end
 
 """

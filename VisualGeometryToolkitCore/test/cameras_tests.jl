@@ -203,8 +203,8 @@ end
         :ambient_coordinates => "the parameter protocol, as `parameter_vector`",
         :sample_p3p => "a synthetic-scene generator that takes its own `sensor_bounds`: call it on `model(bc)`",
     )
-    first_arg(m) = (sig = Base.unwrap_unionall(m.sig); length(sig.parameters) >= 2 ?
-        Base.rewrap_unionall(sig.parameters[2], m.sig) : Union{})
+    first_arg(m) = (sig = Base.unwrap_unionall(m.sig); length(sig.parameters) >= 2 && !(sig.parameters[2] isa Core.TypeofVararg) ?
+        Base.rewrap_unionall(sig.parameters[2], m.sig) : Union{})   # a Vararg first argument (`f(xs::T...)`) is no camera
     # a method for the CameraModel family (its first argument a CameraModel type), and one a
     # BoundedCamera reaches (its first argument a type a BoundedCamera is: the forwarder, or a
     # Union{PosedCamera, BoundedCamera} method of its own; never the untyped fallback)

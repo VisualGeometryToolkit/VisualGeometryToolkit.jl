@@ -324,6 +324,72 @@ end
     @test_throws ErrorException lmsolve_chart!(pe)
 end
 
+# A kept problem's repeated solve allocates O(1): the success rule's postcondition reads the problem's own scratch
+# (`p.offsets`, `p.g`, `p.w`, `p.free`, built once with it, as a chart run reads its workspace's), so neither it nor
+# the solve's count grows with the number of variables (VisualGeometryToolkitEstimation's relpose allocation gate).
+@testitem "lmsolve_chart!(::LmProblem): a repeated solve allocates O(1) in the number of variables" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: LmProblem, lmsolve_chart!, NLLSsolver, ReturnCode
+    # a line y = a + b·s (variable 1) and n offsets cₖ (variables 2…n+1), each seen as cₖ − a = zₖ: ONE concrete block
+    # type (a line row reads its line only: its offset column is zero), as a production bundle's blocks are
+    struct _AllocRow <: NLLSsolver.AbstractResidual
+        line::Bool; k::Int; s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_AllocRow) = NLLSsolver.static(2)
+    NLLSsolver.nres(::_AllocRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(r::_AllocRow) = SVector(1, r.k)
+    NLLSsolver.getvars(r::_AllocRow, vars::Vector) = (vars[1]::SVector{2, Float64}, vars[r.k]::SVector{1, Float64})
+    Base.eltype(::_AllocRow) = Float64
+    NLLSsolver.computeresidual(r::_AllocRow, ab, c) = SVector(r.line ? ab[1] + ab[2] * r.s - r.y : c[1] - ab[1] - r.y)
+    function problem(n)
+        vars = Union{SVector{2, Float64}, SVector{1, Float64}}[SVector(0.0, 0.0)]; append!(vars, (SVector(0.0) for _ in 1:n))
+        blocks = [[_AllocRow(true, 2, s, 0.5 + 2s + 0.01sin(5s)) for s in range(-1.0, 1.0; length = 21)];
+            [_AllocRow(false, k + 1, 0.0, 1.0 + 0.01cos(3k)) for k in 1:n]]
+        return LmProblem(vars, blocks)
+    end
+    # the same rows as TWO block types (the line's and the offsets'): the problem's blocks a Union, the postcondition
+    # one compiled loop per type
+    struct _AllocLine <: NLLSsolver.AbstractResidual
+        s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_AllocLine) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_AllocLine) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_AllocLine) = SVector(1)
+    NLLSsolver.getvars(::_AllocLine, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_AllocLine) = Float64
+    NLLSsolver.computeresidual(r::_AllocLine, ab) = SVector(ab[1] + ab[2] * r.s - r.y)
+    function two_types(n)
+        p = problem(n)
+        lines = [_AllocLine(b.s, b.y) for b in p.blocks if b.line]
+        return LmProblem(copy(p.variables), Union{_AllocLine, _AllocRow}[lines; filter(b -> !b.line, p.blocks)])
+    end
+    restart!(p) = (p.variables[1] = SVector(0.0, 0.0); for k in 2:length(p.variables); p.variables[k] = SVector(0.0); end; p)
+    postcondition(p) = VgtkCore._lm_problem_stationary!(p, 0.05, 1.0e-10)
+    function counts(n; build = problem)
+        p = build(n)
+        lmsolve_chart!(restart!(p)); lmsolve_chart!(restart!(p))     # compiled, the kept cache warm
+        restart!(p)
+        solve = @allocations lmsolve_chart!(p)
+        postcondition(p)
+        return (; solve, postcondition = (@allocations postcondition(p)), code = lmsolve_chart!(restart!(p)).code)
+    end
+    c = [counts(n) for n in (40, 400, 4000)]
+    @test all(x -> x.code === ReturnCode.Success, c)
+    @test all(x -> x.postcondition == 0, c)                  # the postcondition allocates nothing: its scratch is the problem's
+    # and a solve's count does not grow with n. NLLSsolver's own count is not monotone at small n (job 14072: 9, 12, 3, 3
+    # at n = 4, 40, 400, 4000, the postcondition 0 throughout), so the sizes compared are the two past it.
+    @test c[2].solve == c[3].solve
+    u = [counts(n; build = two_types) for n in (40, 400, 4000)]
+    @test all(x -> x.code === ReturnCode.Success && x.postcondition == 0, u)
+    # and the two-type solve does not grow from n = 400 to 4000 beyond NLLSsolver's own constant. Measured in job 14076:
+    # 35 and 37 allocations, with the postcondition at 0 in both. So the whole difference of 2 is NLLSsolver's, and
+    # NLLSSOLVER_GROWTH = 2 is that difference. A per-block or per-variable allocation in our code adds at least
+    # 3600 here (n grows by 3600).
+    NLLSSOLVER_GROWTH = 2
+    @test u[3].solve - u[2].solve <= NLLSSOLVER_GROWTH
+end
+
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
 # bits as the unpack VisualGeometryToolkitEstimation's lens regression wrote by hand until 0.10.1 (refine_camera.jl).
 @testitem "reduce_normal_equations and reduce_cost: a device state's reductions from its work items' partial sums" begin
@@ -402,4 +468,41 @@ end
     @test sym(1 << 6, r_opt) === :converged && sym((1 << 2) | (1 << 6), r_off) === :stalled
     @test sym(1 << 7, r_opt) === :converged && sym(1 << 7, r_off) === :stalled
     @test sym(1 << 8, r_off) === :max_iterations
+end
+
+# The launch-and-reduce forms (0.9.7): a row functor over the work items, one kernel on the scratch's backend, then the
+# reduction — the same bits as the launch (`_launch_rows!`) and the reduction called apart, the device states' copy
+# (Estimation's lens regression, RadiometricCamera's radiometry LM) folded here.
+@testitem "reduce_normal_equations and reduce_cost of a row functor: one launch, then the reduction" begin
+    using StaticArrays: SVector, SMatrix
+    using StableRNGs: StableRNG
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: reduce_normal_equations, reduce_cost
+    rng = StableRNG(20261113)
+    N, n, W = 3, 101, 7
+    r = [randn(rng, SVector{2, Float64}) for _ in 1:n]; J = [randn(rng, SMatrix{2, N, Float64}) for _ in 1:n]
+    # work item w's share over samples w, w + W, …: Σ‖rᵢ‖², Σ Jᵢᵀrᵢ, Σ JᵢᵀJᵢ (column-major) into column w
+    function normal_row!(out, w, r, J)
+        s = 0.0; g = zero(SVector{3, Float64}); H = zero(SMatrix{3, 3, Float64})
+        for i in w:size(out, 2):length(r)
+            s += r[i][1] * r[i][1] + r[i][2] * r[i][2]; g += J[i]' * r[i]; H += J[i]' * J[i]
+        end
+        out[1, w] = s
+        for a in 1:3; out[1 + a, w] = g[a]; end
+        for k in 1:9; out[4 + k, w] = H[k]; end
+        return nothing
+    end
+    function cost_row!(out, w, r)
+        s = 0.0
+        for i in w:size(out, 2):length(r); s += r[i][1] * r[i][1] + r[i][2] * r[i][2]; end
+        out[1, w] = s
+        return nothing
+    end
+    partials = zeros(1 + N + N * N, W)
+    got = reduce_normal_equations(normal_row!, Val(N), r, J; partials)
+    apart = zeros(1 + N + N * N, W)
+    VgtkCore._launch_rows!(normal_row!, apart, W, r, J)
+    @test got === reduce_normal_equations(apart, Val(N)) && partials == apart
+    @test reduce_cost(cost_row!, r; partials) === reduce_cost(apart) && got[1] ≈ reduce_cost(apart)
+    @test got[1] ≈ 0.5 * sum(x -> sum(abs2, x), r) && got[2] ≈ sum(i -> J[i]' * r[i], 1:n)
 end

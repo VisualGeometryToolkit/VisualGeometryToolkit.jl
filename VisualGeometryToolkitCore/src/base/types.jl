@@ -1300,6 +1300,16 @@ the inversion once at the boundary). Extends `Statistics.cov` for
 @inline cov(u::Uncertain{V, <:CovMat}) where {V} = getfield(u, :attributes)
 @inline cov(u::Uncertain{V, <:PrecMat}) where {V} = inv(getfield(u, :attributes))
 
+"""
+    var(u::Uncertain{<:Real}) -> Real
+
+THE variance of a scalar observation (a pixel of an uncertain image, owner
+ruling D14): the one entry of its 1×1 [`cov`](@ref). Extends `Statistics.var`
+for a scalar [`Uncertain`](@ref) only, as `cov` extends `Statistics.cov`; its
+value is [`value_of`](@ref)`(u)`.
+"""
+Statistics.var(u::Uncertain{<:Real}) = cov(u)[1, 1]
+
 # ========================================================================
 # BoundedRange - Parameter validation type
 # ========================================================================

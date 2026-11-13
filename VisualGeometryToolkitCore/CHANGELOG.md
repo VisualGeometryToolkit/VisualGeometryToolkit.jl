@@ -96,6 +96,11 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   (C12). `bending_rows` of a mask under 4 × 4 has no rows (C13). `map_estimate` is inferred (C14). The shell lexer reads
   `$#` (C15). The `:pool` exact selection launches once over all pairs (5–12× faster on a GPU) (C9).
 
+- **`linearview(m; sensor_model)` is the lazy uncertain image** (owner ruling D14): `LinearRawView{T, A, D, L} <:
+  AbstractMatrix{T}` (its element type now first) holds the noise slot's variance law. Under a `PoissonGaussian` or
+  `RelativeNoise` its elements are `Uncertain{Float64}`, each value with its scalar variance computed on the read by the
+  one law `LinearRaw`'s kernel writes per plane (`_value_variance`); `copy` of it is the materialised `StructArray`
+  (value and variance planes, on the view's device). Without a variance law, `Float64` as before, bit for bit.
 - **`block_coordinate_result` takes the stop's rule** (a trailing `stop_rule::StopRule`): `block_coordinate_descent!` records
   WHICH member of the `StopWhenAny` fired (the first whose `stop_reason` is not `:continue`) and hands on its
   `stop_rule(criterion, method)`. Every method of `block_coordinate_result` adds the argument; `initialize_solver!` and
@@ -117,7 +122,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   observation conversion, every frame type: the centre with the first 2×2 block of its covariance (storage kept; a
   precision's marginal). `frame_dof` (public) — a frame's degrees of freedom, its covariance's size, the centre first.
 - **`transfer(m, f::FeatureFrame)`** — a frame through any point map (a PointFrame exactly; a scaled frame to first
-  order, an `AffineFrame`; exact through a similarity; a `BoundedCamera` forwards to its camera). `propagate` of an `Uncertain{PointFrame}` through
+  order, an `AffineFrame`; exact through a similarity; a `BoundedCamera` refuses it, naming the plane maps: a camera images 3-D points). `propagate` of an `Uncertain{PointFrame}` through
   `HomographyMap` and `FramedAffine`; the similarity actions, `extrema`, `Rect2`, `bbox`, `ustrip`, `*`, `/` for every
   frame, PointFrame included; `shape_factor` of a `Disc` (`σI`) and an `OrientedDisc` (`σR(θ)`); the DOF trait
   `PointShape`.
@@ -147,11 +152,34 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `check_duplication` refuses a component built elsewhere (`:sensor_component`), a hand-written value variance
   (`:value_variance_law`) and a hand-indexed channel black (`:black_subtraction`). None of wave 10's earlier sensor-noise
   names (never released) remains; `check_naming` retires them with their replacements.
+- **`check_region_support(support, region; who)`** and its typed **`RegionBeyondSupport`** (public): THE refusal of a
+  fit over a region beyond the source's calibrated support. It reads the ONE region containment, `a ⊆ b`
+  (`Base.issubset`), over every pair of the regions a fit and a support take: a `Rect`, an `Ellipse` (an ellipse in an
+  ellipse by the 1-D grid–Brent minimizer), their `RegionIntersection`, `WholePlane`.
+- **`TargetPlaneFrame{id}`** (public): a target's plane named by its id, as `TargetFrame{id}` names its 3-D frame;
+  `TargetHomographies` mints `TargetPlaneFrame{id} → F`. The bare `TargetPlaneFrame` stays a plane the value does not name.
+- **`green_plane(L::LinearRaw)`** and **`poisson_slope(L, model::SensorModel)`** (public): the green plane of a `:bin2`
+  or `:green_cells` image, and each plane's Poisson slope α, the one expression the variance kernel writes with.
+  `LinearRaw`'s geometry holds `plane_sites` (each photosite's colour and span, every plane); the wave's interim
+  `green_dn`/`green_colors` fields are retired names.
+- **`iou_below(e1::Ellipse, e2::Ellipse, t)`** (public; hoisted from BlobBoards' `_iou_below`), and the README-test
+  helpers **`page_examples(examples, page; lang)`** and **`install_lines(root, page)`** (BlobBoards' and CaliBlobs'
+  restated copies). Retired names: `BoardDetection`, `load_cspond_sets`, `BlobBoards.write_tiff`, PanoramaStitching's
+  `MEASUREMENT_NOISES` and `measurement_noise`.
+- `configs/default.toml` `[lm] device_acceptance = inf`: `StaticLmStops`' default acceptance (success by the
+  stationarity rule alone; a root-finding caller states its bound).
+- **`Statistics.var(u::Uncertain{<:Real})`**: THE scalar variance of an uncertain value (a pixel of an uncertain image),
+  `cov(u)[1, 1]`; consumers read `value_of(x)` and `var(x)`, never `cov(x)[1]`.
+- **`poisson_slope(L, model, plane)`**: one plane's Poisson slope, by index or colour (`:R`, `:G`, `:B`; `:G` the green
+  plane), an `ArgumentError` for a colour the image does not hold.
 - **`refine_width(lo, scale, width, d)`** and **`assert_unit_bearings(fs, which, who; remedy)`**, public: the refine
   width rule and the unit-bearing check PoseLib and VisualGeometryToolkitEstimation each kept a copy of (review E11, E12).
 - **`BinnedRadialProfile`** (public) — a measured radial profile, binned in a chart's coordinate, and the `:equisolid` chart
   (`θ = 2 asin(d / 2f)`) in the one radial-chart registry `RADIAL_CHARTS` (a fitted `RadialVignetting` refuses it: not a
   normalized radius); `radial_coordinate(p, u)`. VisualGeometryToolkitIO's `radial_profile` kind serializes it.
+- From the 0.9.7 patch: `reduce_normal_equations(row!, Val(N), args...; partials)` and `reduce_cost(row!, args...; partials)`,
+  a device LM state's row launch and reduction in one call (VisualGeometryToolkitEstimation's lens regression and
+  RadiometricCamera's radiometry LM each kept the pair).
 - From the 0.9.6 patch: `reduce_normal_equations(partials, Val(N))`, `reduce_cost(partials)` (public), and the weak CUDA
   compat `"5.11 - 5"` with the cuDNN-1 resolve test.
 - **The GPU test tier** (hoisted from RadiometricCamera 0.8.0's test/gpu_decision.jl): `gpu_tier(prefix)`,

@@ -483,8 +483,8 @@ end
     PlannedStage
 
 One stage of a launch: its spec, its `items`, the selected stages it runs `after`, its run `key` (every file and
-option the stage's jobs read but its CPU count, and the keys of the stages it runs after, transitively: a stage rerun
-under a new key reruns every stage after it; never the code: a stage of the same key that finished before is reused while the code
+option the stage's jobs read, and the keys of the stages it runs after, their last completed runs' for those the
+launch does not run; never the code: a stage of the same key that finished before is reused while the code
 trees it recorded are the current ones, [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)), the
 environment its jobs get beyond the caller's (`env`), its `command` (on a Slurm site the sbatch argv without the
 dependency; on a local site the argv run once per item), its `--time` in minutes (`minutes`, 0 = the launcher's),
@@ -651,10 +651,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     isempty(results) || (roots_env[g.results_env] = results)
     site_env = merge(Dict{String, String}(k => string(v) for (k, v) in get(get(g.site_roots, site.name, Dict()), "env", Dict())), site.env)
     stages = PlannedStage[]
-    keys_of = Dict{String, String}()
-    # Every stage the selected ones run after, transitively, is keyed too (selected or not, in dependency order): a
-    # stage's key folds the keys of the stages it runs after, so a stage rerun under a new key reruns every stage after it.
-    for name in select_stages(g; only = names)
+    # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
+    # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
+    # output upstream of it was made under another key, whichever launch made it.
+    keys_of = isempty(results) ? Dict{String, String}() : _completed_keys(joinpath(results, g.manifest_dir))
+    for name in names
         s = g.stages[_stage(g, name)]
         items = stage_items(g, s; env)
         minutes = _array_minutes(g, s, items)
@@ -676,10 +677,11 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
         keyed = Dict{String, Any}("stage" => name, "files" => files, "items" => items,
                                   "env" => filter(p -> first(p) != "SLURM_CPUS_PER_TASK", e),
                                   "command" => filter(a -> !startswith(a, "--cpus-per-task="), cmd), "site" => site.name)
-        isempty(s.after) || (keyed["after"] = [keys_of[d.name] for d in g.stages if d.name in s.after])   # in dependency order
         scratch_run(env) && (keyed["scratch"] = true)     # a scratch launch never a run of record's key
+        # the upstream stages' keys (each folding its own upstream's; "" for one that never completed); absent for a
+        # stage with none, so its key is unchanged
+        isempty(s.after) || (keyed["after"] = Dict{String, Any}(d => get(keys_of, d, "") for d in s.after))
         key = keys_of[name] = _toml_hash(keyed)
-        name in names || continue
         isempty(prefix) || (cmd = _plan_command(g, site, s, items, minutes, manifest, env; prefix))
         push!(stages, PlannedStage(s, items, [d for d in s.after if d in names], key, e, cmd, minutes, "", "", ""))
     end
@@ -722,6 +724,16 @@ function _which(prog::AbstractString, env)
         isfile(p) && Sys.isexecutable(p) && return p
     end
     return nothing
+end
+
+# The run key of each stage's last completed run among the manifests under `dir`, by stage name ([`stage_run_state`](@ref):
+# every task's marker completed, or a local record completed or reused).
+function _completed_keys(dir::AbstractString)
+    out = Dict{String, String}()
+    for m in run_manifests(dir), (name, r) in get(TOML.parsefile(m), "stages", Dict{String, Any}())
+        haskey(r, "key") && stage_run_state(r).state == "completed" && (out[name] = r["key"])
+    end
+    return out
 end
 
 _job_states(job_states, ids, env) = job_states === nothing ? slurm_job_states(ids; env) : job_states(ids)
@@ -885,11 +897,12 @@ function stage_run_state(r::AbstractDict, queue::AbstractDict = Dict{String, Dic
     return (; state, tasks)
 end
 
-# A stage of the same key in an earlier launch: completed (every task's marker) → reused; in flight → depended on,
-# unless a stage it runs after is run again by this launch (the job waits on the old one); failed or unknown → run
-# again. Reused or depended on only while the code trees it recorded are the current ones (`code_tree_changes`, the
-# one rule): a completed stage whose code changed runs again, the change named; one still in flight under other code
-# stops the launch (a second job would write the same results).
+# A stage of the same key in an earlier launch: completed (every task's marker) → reused; in flight → depended on;
+# either only while no stage it runs after is run again by this launch (its input is rewritten: a completed run read
+# the old one, an in-flight job waits on the old one); failed or unknown → run again. Reused or depended on only while
+# the code trees it recorded are the current ones (`code_tree_changes`, the one rule): a completed stage whose code
+# changed runs again, the change named; one still in flight under other code stops the launch (a second job would
+# write the same results).
 function _mark_reuse!(plan::ReproducePlan, queue_states)
     isempty(plan.results_root) && return plan
     last = Dict{String, Dict{String, Any}}()
@@ -922,7 +935,7 @@ function _mark_reuse!(plan::ReproducePlan, queue_states)
     end
     rerun = Set(st.spec.name for st in plan.stages if isempty(st.reuse))     # in dependency order: a cleared stage clears those after it
     for st in plan.stages
-        if st.reuse != "completed" && !isempty(st.reuse) && any(in(rerun), st.after)
+        if !isempty(st.reuse) && any(in(rerun), st.after)
             st.reuse, st.reuse_markers = "", ""
             push!(rerun, st.spec.name)
         end

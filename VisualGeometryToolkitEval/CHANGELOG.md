@@ -22,6 +22,25 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
   And a stage's key folds the keys of the stages it runs after: a stage that reruns under a new key reruns every stage
   after it, where a downstream stage was reused on its predecessor's old output.
+- **`Render.station_cells` labels each attempt by the station nearest its angle** on the `stations` grid, not by rank:
+  a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
+  jittered angles changes.
+
+### Fixed
+
+- **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
+  two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
+  same bits at any thread count (a test at 2 and 8 threads).
+- **The runner honours `VGTK_SCRATCH`** beyond the key: a scratch launch reads another scratch run's output, and runs
+  uncommitted code with a warning (a run of record still refuses both); the dry run says so.
+- **A local launch keeps `results_branch`** in its manifest (the stage writes it atomically, and the runner keeps it when
+  it rewrites the manifest).
+- **`write_numbers(…; shared = true)` holds a pid lock** (`<path>.lock`) over its read-merge-rename: concurrent drivers no
+  longer drop each other's sections. `number_macros.jl` loads by path in a bare Julia with its own atomic write.
+- **`promote_run`** no longer takes two runs without a `run_key` for the same run unless their records are identical.
+- **`code_trees` runs git once per process** while nothing git reads has changed (a stat fingerprint of the code paths,
+  the path-loaded packages, the Manifest and each repository's HEAD, refs, index and ignore files).
+- Docstrings: a directory input's `sha256` is checked through `tree_sha256`.
 
 ## 0.7.2 (unreleased)
 

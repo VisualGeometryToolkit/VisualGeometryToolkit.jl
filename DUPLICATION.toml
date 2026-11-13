@@ -10,6 +10,11 @@
 # kernel holds just the norms (fit_rotation's angles, the radial-homography lift seed). There is no
 # public norms form, so a reader of `mad_scale` never wonders whether norms are re-centred.
 
+# Declared, not an entry (an entry the checker does not flag is itself a `:stale_exception`): VisualGeometryToolkitEval's
+# src/code_identity.jl hashes with SHA.sha256 directly (`file_sha256`, `tree_sha256`, `_toml_hash`), not through Core's
+# `sha256_hex`, because src/cli.jl includes it, and a project's runner launcher includes src/cli.jl by path from a bare
+# `julia` before the project's environment (and so VisualGeometryToolkitCore) exists; the digests are the same SHA-256.
+
 # Test-input fixtures (owner ruling 2026-11-13: they go here). Restored in wave 113: 12ab92d0 removed them because
 # the gate, which reads the stack repositories, did not match them while CI did; the idiom cap now counts this
 # repository's definitions only, so both find them.

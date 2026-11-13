@@ -121,6 +121,6 @@ end
         # the retired kind (never shipped, no migration): an unknown kind
         d = JSON.parse(good; dicttype = Dict{String, Any}); d["schema"] = "vgio/sensor_" * "noise/v1.0"; write(p, JSON.json(d))
         e = try validate(p); nothing catch e; e end
-        @test e isa ArgumentError && occursin("no vgio kind", e.msg)
+        @test e isa ArgumentError && occursin("not a vgio file", e.msg)
     end
 end

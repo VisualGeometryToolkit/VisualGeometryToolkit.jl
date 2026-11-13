@@ -170,7 +170,7 @@ interface with PointFrame first-class, sensor noise, and the conventions of the 
   `MEASUREMENT_NOISES` and `measurement_noise`.
 - `configs/default.toml` `[lm] device_acceptance = inf`: `StaticLmStops`' default acceptance (success by the
   stationarity rule alone; a root-finding caller states its bound).
-- **`sources(m::SensorModel)`** (public): the one provenance view of a frame's model — each slot's `SensorSource.T`
+- **`component_sources(m::SensorModel)`** (public): the one provenance view of a frame's model — each slot's `SensorSource.T`
   (`nothing` when absent), its `ModelReason` and `specified_override` — for a run record (ruling A).
 - **`Statistics.var(u::Uncertain{<:Real})`**: THE scalar variance of an uncertain value (a pixel of an uncertain image),
   `cov(u)[1, 1]`; consumers read `value_of(x)` and `var(x)`, never `cov(x)[1]`.

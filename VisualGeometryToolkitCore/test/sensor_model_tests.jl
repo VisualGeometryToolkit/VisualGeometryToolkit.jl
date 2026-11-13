@@ -249,13 +249,13 @@ end
         @test_throws "got source $(string(src))" sensor_fixture(; relative_noise = 0.05, source = src)
     end
     @test sensor_fixture(; relative_noise = 0.05).model.noise.source === SensorSource.specified
-    # sources: the one provenance view of a model — each slot's source, nothing for an absent one, the reason, the override
-    @test VisualGeometryToolkitCore.sources(SensorModel()) ==
+    # component_sources: the one provenance view of a model — each slot's source, nothing for an absent one, the reason, the override
+    @test VisualGeometryToolkitCore.component_sources(SensorModel()) ==
           (black = SensorSource.file, noise = nothing, defects = nothing, reason = VisualGeometryToolkitCore.NoCharacterisation,
            specified_override = false)
     est = sensor_fixture(; black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1),
                          source = (black = SensorSource.measured, noise = SensorSource.estimated)).model
-    @test VisualGeometryToolkitCore.sources(est) == (black = SensorSource.measured, noise = SensorSource.estimated, defects = nothing,
+    @test VisualGeometryToolkitCore.component_sources(est) == (black = SensorSource.measured, noise = SensorSource.estimated, defects = nothing,
                                                      reason = VisualGeometryToolkitCore.Matched, specified_override = false)
     @test_throws ArgumentError sensor_fixture(; black = (NaN, 0, 0, 0))
     @test_throws ArgumentError sensor_fixture(; black = (1, 1, 1, 1), source = SensorSource.file)   # the RAW's own is FileBlack

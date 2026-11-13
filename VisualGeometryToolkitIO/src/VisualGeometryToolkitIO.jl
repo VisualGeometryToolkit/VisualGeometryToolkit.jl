@@ -257,7 +257,7 @@ public pixel_frame_name, pixel_frame_from_name   # a pixel frame's serialized na
 public pose_json, pose_from_json, camera_json, camera_from_json,
     target_json, target_from_json     # building blocks for a package's own kind (a calibration pipeline's session)
 public n_images, image_names, image_id, image_name, # ColmapDatabase accessors
-    keypoints, descriptors, raw_matches, matched_pairs, verified_matches,
+    detections, descriptors, raw_matches, matched_pairs, verified_matches,
     pair_id, pair_image_ids
 
 """

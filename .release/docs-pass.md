@@ -1,3 +1,36 @@
+docs-pass: 436d22c6
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 14ee107 (no change: it names neither the refine nor the forward fit)
+
+# 0.9.2 docs pass (julia-docs-pass) — release-chrome-095 (VisualGeometryToolkitEstimation 0.9.2)
+
+The package released: VisualGeometryToolkitEstimation 0.9.2 alone, a patch. The others are unchanged (Core's tree is
+its registered 0.9.4's). The baseline is VisualGeometryToolkitEstimation-v0.9.1 (on main 540c2591 its tree differs from
+the tag by the CHANGELOG heading only).
+
+## 1. Public API since VisualGeometryToolkitEstimation-v0.9.1
+
+One public name added, not exported: `fit_forward_spline(camera::BoundedCamera; tolerance, region, device)`
+(fitting/fit_camera.jl; docstring on api/radial.md in its `@docs` block, beside `fit_camera`, and a paragraph of that
+page's prose). Nothing removed, renamed or re-signatured. Changed behaviour, no API change: a held SplineLens camera is
+projected whole (`refine_camera_and_poses` with `fixed = (:controls,)`).
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `fit_forward_spline`: a docstring (signature, what is kept, how it differs from `fit_camera(SplineLens, …)`, the result, the `ArgumentError`), on api/radial.md. `refine_camera_and_poses`: its "A SplineLens camera" section said the forward is refitted by `fit_camera(SplineLens, …)`; it now names `fit_forward_spline` (72085327). Its held-camera paragraph (no window, the whole camera through `project`) came with the fix. |
+| stale mentions | `fit_camera(SplineLens, …)` as a held camera's forward: none left in the monorepo. PanoramaStitching's rotation_bundle.jl docstring and sampling.jl comment named it: fixed on PS's ps-0.6.2. |
+| CHANGELOG | an Estimation 0.9.2 section above 0.9.1 |
+| versions | Estimation 0.9.2; no other package moves |
+| in-repo compat | none needs moving: Features (weak), Eval and their test environments declare Estimation "0.9" |
+| README / landing | no README or landing text names the refine's SplineLens route or the forward fit: unchanged |
+
+## 3. Executed on the final RC
+
+(Filled in by the final gate's records commit.)
+
+---
+
 # 0.9.4 docs pass (julia-docs-pass) — release-0.9.4
 
 The package released: VisualGeometryToolkitCore 0.9.4 alone, a patch (RadiometricCamera 0.8.0 waits for it). The others

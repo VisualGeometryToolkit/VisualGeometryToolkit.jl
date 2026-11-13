@@ -130,3 +130,14 @@ Downstream copies, outside this release (listed for their owners; not release it
 - [x] ONE record of that map: the private `_frame_map_record(S)`, which writes both `raw_provenance(LinearRaw{mode}).frame_map`
   and an image's `raw_provenance(L).frame_map`; an image's `mode` is the mode record's. With `raw_frame_map(LinearRaw{mode})`
   it lets RC delete `_CELL_PROBE` and `_FRAME_PROBE` entirely.
+
+## 0.9.2 (Estimation alone): the held SplineLens camera, fit_forward_spline
+
+- [x] ONE fixed-camera residual: a held SplineLens camera's rows (`fixed = (:controls,)`, and the poses-alone first stage
+  of a free refine) are the parametric route's `_BoardViewResidual{1, (false, true, false)}`, the whole camera a
+  constant through `project` (refine_spline_camera_and_poses.jl, `_spline_problem`'s `!free` branch). The held-window
+  block `_SplinePoseBlock` and `_SplineReprojection`'s held-window field are deleted, not kept beside it.
+- [x] ONE forward fit: `_forward_spline` (fit_camera.jl), run by `fit_camera(SplineLens, …; forward = true)`, by the
+  new public `fit_forward_spline` and, through it, by the SplineLens refine's refit (`_refit_forward`); no second fitter.
+  Downstream (for its owner; no box): PanoramaStitching's docs named `fit_camera(SplineLens, …)` for a held camera's
+  forward, fixed on its own branch (ps-0.6.2) to name `fit_forward_spline`.

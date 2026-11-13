@@ -227,6 +227,33 @@ end
     @test_throws ArgumentError extract_capture_settings(Dict{Int, NamedTuple}())
 end
 
+# A capture's identities merge field by field at any frame count. 0.8.3 splatted one tuple per frame into `zip`, so each
+# capture size compiled a zip of that arity (a 171-photo set: 518 s, ~90 % in LLVM). After a warm-up at another count,
+# merging 500 identities compiles nothing: its allocations are the per-identity field tuples and the three field columns
+# (6 words an identity, 96 bytes with the arrays' slack) and a constant, where a compile allocates megabytes.
+@testitem "raw: a capture's identities merge at any frame count, nothing compiled per count" begin
+    using Test
+    using VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitCore: DeviceIdentity
+    # agreeing identities, each field stated by some: the first to state it wins (frame order)
+    ids(n) = [DeviceIdentity(; make = isodd(i) ? "Sony" : "SONY", model = i % 3 == 0 ? "ILME-FX3" : nothing,
+                             serial = i == n ? "5123" : nothing) for i in 1:n]
+    @test VgtkFeatures._merged(ids(300)) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")   # warm-up
+    big = ids(500)
+    @test VgtkFeatures._merged(big) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
+    @test (@allocated VgtkFeatures._merged(big)) <= 96 * length(big) + 4096
+    @test (@elapsed VgtkFeatures._merged(big)) < 0.1      # a compile takes seconds; the merge, microseconds
+    # through the public entry: 500 frames, one body and one lens, the first stated field each
+    md = (; datetime_original = nothing, subsec = "", exposure_s = 0.01, fnumber = 4.0, focal_mm = 20.0, iso = 200,
+          model = "ILME-FX3", make = "Sony", body_serial = nothing, lens_make = nothing, lens_model = "DT 8mm F4 SAM",
+          lens_serial = nothing, focus_distance_m = nothing)
+    frames = Dict(t => merge(md, (make = isodd(t) ? "Sony" : "SONY", body_serial = t == 400 ? "5123" : nothing)) for t in 1:500)
+    cs = extract_capture_settings(frames)
+    @test cs.body == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123") && length(cs) == 500
+    @test_throws ArgumentError extract_capture_settings(merge(frames, Dict(501 => merge(md, (model = "ILCE-7M4",)))))
+end
+
 @testitem "raw: the metadata alone (LibRaw_jll)" begin
     using Test
     using VisualGeometryToolkitFeatures

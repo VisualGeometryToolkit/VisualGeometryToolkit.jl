@@ -26,8 +26,31 @@ function __init__()
         free = dev -> dev isa CUDABackend ? Base.invokelatest(_cuda_function(:free_memory)) : nothing,
         reclaim = dev -> (dev isa CUDABackend && Base.invokelatest(_cuda_function(:reclaim)); nothing),
         names = () -> CUDA.functional() ? String[string(CUDA.name(d)) for d in CUDA.devices()] : String[],
+        resident_threads = (kernel, args, ndrange) -> KA.backend(kernel) isa CUDABackend ? _resident_threads(kernel, args, ndrange) : nothing,
     )
     return nothing
+end
+
+# The threads of a KernelAbstractions kernel resident on the device at once: the kernel compiled as the CUDA backend
+# compiles it for this launch (CUDA's KernelAbstractions backend, `(::KA.Kernel{CUDABackend})(args...; ndrange)`: the
+# same context, `always_inline` and static `maxthreads`), its block size the launch's (static, or the occupancy
+# choice a dynamic workgroup takes, `prefer_blocks` included), then CUDA's occupancy of that function at that block
+# size — the registers and shared memory it uses — times the block size times the multiprocessors.
+function _resident_threads(obj::KA.Kernel{CUDABackend}, args, ndrange)
+    backend = KA.backend(obj)
+    nd, _, iterspace, _ = KA.launch_config(obj, ndrange, nothing)
+    ctx = KA.mkcontext(obj, nd, iterspace)
+    static = KA.workgroupsize(obj) <: KA.StaticSize
+    maxthreads = static ? prod(KA.get(KA.workgroupsize(obj))) : nothing
+    k = CUDA.@cuda launch = false always_inline = backend.always_inline maxthreads = maxthreads obj.f(ctx, args...)
+    threads = if static
+        maxthreads
+    else
+        config = CUDA.launch_configuration(k.fun; max_threads = prod(nd))
+        backend.prefer_blocks ? cld(prod(nd), max(cld(prod(nd), min(prod(nd), config.threads)), config.blocks)) : config.threads
+    end
+    sms = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+    return CUDA.active_blocks(k.fun, threads) * threads * sms
 end
 
 end # module

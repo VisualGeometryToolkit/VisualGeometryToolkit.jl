@@ -264,7 +264,7 @@ max_iter = 100
 [optical_axis]
 # The radial terms of the axis family (`optical_axis`: Fisheye624's form, Equidistant ∘ Radial{Even, n}, its
 # decentering held at zero; the radius θ·(1 + k₁θ² + … + kₙθ²ⁿ), terms θ³ … θ^(2n+1)). 4 (θ³…θ⁹), from the order
-# study of 2026-11-13 (~/logs/dgx-agent/wave10/optical-axis-order.md; n = 2, 3, 4, 6 on the test fixtures and RC's
+# study of 2026-11-13 (the wave-10 order study; n = 2, 3, 4, 6 on the test fixtures and RC's
 # spline-start cameras): the smallest n whose principal point lies within ½σ (its formal LS 1σ) of n = 6's on every
 # converging RC camera, its cond(J) 47–160× below n = 6's and 1–4 iterations fewer. n = 2 is 7σ off (RC's
 # radiometric_refinement start); n = 3 up to 1.2σ. Until 0.11.0 the family was Fisheye624's own, n = 6 (θ³…θ¹³).

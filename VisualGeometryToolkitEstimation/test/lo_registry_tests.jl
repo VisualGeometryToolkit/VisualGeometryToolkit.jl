@@ -1,5 +1,6 @@
 @testitem "lo_registry" begin
     import VisualGeometryToolkitCore as VgtkCore
+    import TOML
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
 # The local-optimization strategy machinery as a public, hook-driven API
@@ -106,7 +107,7 @@ end
         @test !isdefined(VisualGeometryToolkitEstimation, Symbol("LO" * "_TAGS"))       # renamed, no alias (retired in check_naming)
         @test OPTIMIZATION_STRATEGY_TAGS["none"] === nothing                                               # no local optimization
         @test_throws r"renamed \"none\"" OPTIMIZATION_STRATEGY_TAGS["no_local_optimization"]             # the retired tag names its successor
-        @test lo_defaults(Irls) === VgtkCore._CORE_DEFAULTS["optimization_strategy"]
+        @test lo_defaults(Irls) == TOML.parsefile(joinpath(pkgdir(VgtkCore), "configs", "default.toml"))["optimization_strategy"]   # Core's shipped table, read through public names only
         # The writer, recorded before the machinery went public (byte-identical tables).
         @test lo_config_dict(Irls{TLSShape}()) == Dict{String, Any}("type" => "irls", "loss" => "tls", "max_iter" => 25)
         @test lo_config_dict(Irls{WelschShape}(efficiency_constant = 2.0)) ==

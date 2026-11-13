@@ -15,13 +15,14 @@
 # A tree hash moves only when the files under it change, so a commit that touches the docs, the tests or the paper
 # leaves every tree, and with it every stored result, as it was.
 #
-# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and VisualGeometryToolkitCore's Base-only
-# src/base/canonical.jl, the content key's encoding, which a bare `julia` includes by path): src/cli.jl includes it, so
+# DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and `canonical_json`, VisualGeometryToolkitCore's
+# Base-only src/base/canonical.jl, which a bare `julia` includes by path before src/cli.jl): src/cli.jl includes it, so
 # the package has it (the Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl
 # and reproduce/runner.jl by path from a bare `julia` before the project's environment is instantiated.
 # =============================================================================
 using TOML: TOML
 using SHA: sha256
+import Pkg   # a registered install's tree hash, from the active environment (`Pkg.dependencies`)
 
 # (realpath, size, mtime) → sha256: a file is hashed once per process while it is unchanged.
 const _FILE_SHA256 = Dict{Tuple{String, Int64, Float64}, String}()
@@ -63,16 +64,15 @@ run of record ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.w
 """
 scratch_run(env = ENV) = get(env, "VGTK_SCRATCH", "") == "1"
 
-# `canonical_json`: VisualGeometryToolkitCore's one canonical encoding (its src/base/canonical.jl, Base only). The package
-# has Core's binding (the top module imports it before including src/cli.jl); a bare `julia` that includes this file by
-# path (a project's runner bootstrap) includes Core's file by path, found as a package is: one implementation.
-if !isdefined(@__MODULE__, :canonical_json)
-    let core = Base.find_package("VisualGeometryToolkitCore")
-        core === nothing && error("src/code_identity.jl: VisualGeometryToolkitCore is not in this environment, and its " *
-                                  "canonical_json (src/base/canonical.jl) is the content key's encoding")
-        include(joinpath(dirname(core), "base", "canonical.jl"))
-    end
-end
+# `canonical_json`: VisualGeometryToolkitCore's one canonical encoding (its src/base/canonical.jl, Base only), bound by
+# the includer: the package's top module imports Core's before including src/cli.jl; a bare `julia` (a project's runner
+# bootstrap, scripts/reproduce/reproduce.sh) includes Core's file by path first. A bootstrap generated before 0.8.0 does
+# not: it is told to regenerate itself, never left to fail on an undefined name.
+isdefined(@__MODULE__, :canonical_json) || error(
+    "src/code_identity.jl needs VisualGeometryToolkitCore's canonical_json, the run keys' encoding: a bare julia includes " *
+    "Core's src/base/canonical.jl before src/cli.jl. A project's scripts/reproduce/reproduce.sh from before " *
+    "VisualGeometryToolkitEval 0.8.0 does not: regenerate it with Reproduce.write_reproduce_script(<repository root>; " *
+    "julia_project = \"<project>\")")
 
 """
     _content_key(tree) -> String
@@ -149,6 +149,19 @@ end
 const _CODE_TREES = Dict{Tuple{String, Vector{String}, String}, Any}()
 const _CODE_TREES_LOCK = ReentrantLock()
 
+# A registered install: a package's source in a depot (no git checkout), content-addressed and immutable, so
+# committed code. The active environment's record of it (Pkg's, never the Manifest parsed by hand): its name, uuid,
+# version and tree hash. `nothing` for a git checkout or a directory the active environment does not install.
+function _registered_install(dir::AbstractString)
+    (isdir(dir) && _git_dirs(dir) === nothing) || return nothing
+    rd = realpath(dir)
+    for (uuid, info) in Pkg.dependencies()
+        (info.tree_hash === nothing || info.is_tracking_path || info.source === nothing || !isdir(info.source)) && continue
+        realpath(info.source) == rd && return (; info.name, uuid, info.version, tree = string(info.tree_hash))
+    end
+    return nothing
+end
+
 """
     code_trees(workdir; code = nothing, julia_project = workdir) -> (; trees, dirty, project_paths)
 
@@ -163,6 +176,12 @@ staged or deleted file, an untracked one), or that is in no git checkout: a run 
 recorded with it is never reused (the mark names HEAD, not the edits). `project_paths` lists the project's own paths recorded (none:
 nothing identifies the project's code).
 
+A `workdir` that is a REGISTERED install (a package's source in a depot, no git checkout: a registered package's
+example run with `gitpath = pkgdir(Pkg)`) is committed code, content-addressed and immutable: it is identified, by
+its name, by the tree hash the active environment records for it (`"<git-tree-sha1> <name> <version> <uuid>"`, from
+`Pkg.dependencies()`), and the environment searched for stack packages is the active project's. Only a git checkout
+with uncommitted changes, or a path that is neither, is refused.
+
 A tree moves only when a file under it changes: a commit that touches only docs, tests or the paper changes no tree.
 Compare two records with [`code_tree_changes`](@ref).
 
@@ -175,7 +194,12 @@ resolution with the same size and inode keeps the kept answer, as [`file_sha256`
 change to the index alone made while `code_trees` runs git (whose own status run rewrites the index).
 """
 function code_trees(workdir::AbstractString; code = nothing, julia_project::AbstractString = workdir)
-    paths = code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
+    reg = _registered_install(workdir)
+    if reg !== nothing                                     # committed code in a depot: its tree, never "no git checkout"
+        active = Base.active_project()                     # the environment that installed it
+        julia_project == workdir && active !== nothing && (julia_project = dirname(active))
+    end
+    paths = reg !== nothing ? String[] : code === nothing ? (isdir(joinpath(workdir, "src")) ? ["src"] : String[]) : String.(code)
     k = (abspath(workdir), paths, abspath(julia_project))
     seen = _code_state(workdir, paths, julia_project)
     hit = lock(() -> get(_CODE_TREES, k, nothing), _CODE_TREES_LOCK)
@@ -185,7 +209,7 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
         # Kept only when the state held while git ran, the index aside: `git status` itself rewrites the index
         # (refreshing its stat data, every time while an entry is as new as the index), so the answer is kept under
         # the state after it. A file edited meanwhile is a change: computed again.
-        r = _code_trees(workdir, paths, julia_project)
+        r = _code_trees(workdir, paths, julia_project, reg)
         after = _code_state(workdir, paths, julia_project)
         if _but_index(after) == _but_index(seen)
             lock(() -> (_CODE_TREES[k] = (after, r)), _CODE_TREES_LOCK)
@@ -283,8 +307,9 @@ function _code_state(workdir, paths, julia_project)
     return out
 end
 
-function _code_trees(workdir, paths, julia_project)
+function _code_trees(workdir, paths, julia_project, reg)
     trees, dirty = Dict{String, String}(), String[]
+    reg === nothing || (trees[reg.name] = "$(reg.tree) $(reg.name) $(reg.version) $(reg.uuid)")
     for c in paths
         t = _head_tree(workdir, c)
         if t === nothing
@@ -298,7 +323,7 @@ function _code_trees(workdir, paths, julia_project)
             trees[c] = t
         end
     end
-    project_paths = sort!(collect(keys(trees)))
+    project_paths = sort!(collect(keys(trees)))           # a registered install's: its name
     manifest = _find_manifest(julia_project)
     if manifest !== nothing
         for (name, e) in _loaded_entries(abspath(julia_project), manifest)
@@ -314,7 +339,7 @@ function _code_trees(workdir, paths, julia_project)
                 marked = [(s, t === nothing ? "uncommitted" : _uncommitted(dir, [s]) ? t * _DIRTY_MARK : t) for (s, t) in parts]
                 trees[name] = join(("$s:$t" for (s, t) in marked), " ")
                 any(p -> p[2] == "uncommitted" || endswith(p[2], _DIRTY_MARK), marked) && push!(dirty, name)
-            elseif name in _STACK_PACKAGES && haskey(e, "git-tree-sha1")
+            elseif name in _STACK_PACKAGES && haskey(e, "git-tree-sha1") && !haskey(trees, name)   # (a registered workdir: named above)
                 trees[name] = e["git-tree-sha1"]
             end
         end

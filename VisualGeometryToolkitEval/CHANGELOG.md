@@ -29,8 +29,10 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   sorted-TOML hash verified with that format's recipe and re-hashed; nothing new is written with the old recipe.
   A config (or tuning table) holding an integer beyond ±2^53, `Inf` or `NaN` has no canonical JSON and is now refused
   with an `ArgumentError` where it was keyed before.
-  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path
-  (`Base.find_package`), so Core must be findable there (it is wherever Eval is).
+  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path before
+  `src/cli.jl`: **a paper project regenerates its `scripts/reproduce/reproduce.sh`**
+  (`Reproduce.write_reproduce_script(<repository root>; julia_project)`); an older one stops at once with an error that
+  says so.
 - **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
   stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
   in its `[[stage]]`; the count keys no run.
@@ -41,6 +43,9 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 
 ### Added
 
+- **A stage after one item of an array stage**: `after = ["<stage>:<item>"]` waits on that array task alone
+  (`--dependency=afterok:<job>_<task>` on Slurm; a local site's order is unchanged). The key folds the upstream stage's
+  key, as a whole-stage edge does. An item the launch does not run, or an item of a stage that is no array, is refused.
 - **`Render.write_tsv(path, rows::AbstractVector{<:NamedTuple}; comments)`**: a table of named-tuple rows, its header
   their field names; an abstract element type (`NamedTuple[]`) is read from the rows, and an empty table writes the
   element type's fields as its header when it names them (else an empty header line; `read_tsv` reads either back as
@@ -56,19 +61,35 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
   task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
   of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
   no later value starts.
-- **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
-  held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
-  `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
-  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
-  never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
-  `precompile` must be `true` or `false`.
+- **Phases: a stage's CPU and GPU parts as separate jobs** (`[[stage]] phases = [{name, gpu, env, sbatch | command,
+  cpus_per_task, mem_per_cpu, gres, time, per_item}, …]`): run one after another, each with its own environment
+  (`VGTK_PHASE`), device and resources, task k after task k between arrays (`aftercorr`), so no GPU is held for CPU
+  work (cvpr2027's regenerate_paper: GPU drivers, then CPU numbers; chrome_index_grid: per set a CPU decode, then a GPU
+  detect). The last phase is the stage's job; an earlier one writes its markers under `<stage markers>/<phase>/`, and
+  `status` names a failed one (`failed (its <phase> phase, job <id>, failed …)`, with its log and error line). A
+  phase's command and environment key the stage. **A GPU stage on a Slurm site compiles first**: the runner's
+  `precompile` phase, a CPU-only job running `Pkg.precompile()` with the stage's `julia_flags` (new key: the flags its
+  jobs run julia with); `precompile = false` (a Bool) leaves it out. The precompile phase keys nothing: it is
+  environment state (the depot's compile cache), not a result. The manifest records `phases`, `phase_jobs` and the
+  site's `precompile_time` (a measurement, in no key).
 - **A site's `[slurm] precompile_time`**: the `--time` of a GPU stage's CPU-only precompile job, its measured time × 2
   (dgx01: `"0:30:00"`); a real limit lets the scheduler backfill the job.
 - **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
   jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
 
+- **A run record states its sensor model's provenance**: `write_provenance(…; sensor_model)` (a `SensorModel`, or one
+  per frame) records VisualGeometryToolkitCore's `component_sources` under `sensor_model` — the black's, noise's and
+  defects' sources (`"measured"`, `"estimated"`, `"specified"`, `"file"`, or `"absent"`), the model's reason and its
+  `specified_override`, one table per distinct model with its frame count — so a table can say "measured" or
+  "estimated" per run (the sensor-model spec, §5).
+
 ### Fixed
 
+- **A run of record of a REGISTERED package's code is no longer refused** (0.7.4's fix). A registered install (the
+  package's source in the depot: no git checkout) is committed code, content-addressed and immutable; `code_trees`
+  now identifies it by the tree hash the active environment records for it (`Pkg.dependencies()`: name, version, uuid,
+  git-tree-sha1), and searches the active project's environment for the stack packages. Still refused: a git checkout
+  with uncommitted changes, and a path that is neither a git checkout nor a registered install.
 - **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
   two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
   same bits at any thread count (a test at 2 and 8 threads).

@@ -7,6 +7,7 @@
     using Test, TOML
     using DrWatson: gitdescribe, produce_or_load
     using Pkg.Artifacts: create_artifact, bind_artifact!
+    import Pkg, StableRNGs   # a registered install (code_trees of a depot package)
     using VisualGeometryToolkitEval
     const E = VgtkEval.Experiments
 
@@ -249,6 +250,17 @@
             @test E.provenance_inputs(E.read_provenance(out)) ==
                   [joinpath(data, "pools", "P"), joinpath(res, "cv", "op.jld2"), "/elsewhere/f"]
             @test_throws ArgumentError E.write_provenance(out, Dict("gitcommit" => "x"); driver = "d")
+            # the sensor model's provenance (spec §5): Core's component_sources, per distinct model with its frame count
+            recorded = VgtkCore.sensor_fixture(; black = (512.0, 512.0, 512.0, 512.0), gain = 2.0, read_noise = (1.5, 1.5, 1.5, 1.5),
+                                               source = VgtkCore.SensorSource.measured).model
+            raw = TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = [recorded, recorded, VgtkCore.SensorModel()]))
+            sm = raw["sensor_model"]
+            @test length(sm) == 2
+            m1 = only(filter(r -> r["frames"] == 2, sm)); m0 = only(filter(r -> r["frames"] == 1, sm))
+            @test (m1["black"], m1["noise"], m1["defects"], m1["reason"], m1["specified_override"]) == ("measured", "measured", "absent", "Matched", false)
+            @test (m0["black"], m0["noise"], m0["defects"], m0["reason"]) == ("file", "absent", "absent", "NoCharacterisation")
+            @test only(TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = recorded))["sensor_model"])["frames"] == 1
+            @test_throws ArgumentError E.write_provenance(out, Dict("sensor_model" => "x"); driver = "d")   # the writer's own
             # a dirty tree: gitcommit suffixed, the patch inline under DrWatson's name
             write(joinpath(repo, "a.txt"), "changed\n")
             raw = TOML.parsefile(E.write_provenance(out; driver = "d"))
@@ -407,6 +419,17 @@
             @test_logs (:warn, r"scratch run") match_mode = :any E.write_provenance(joinpath(loose, "run"); driver = "d")
         end
         @test E.read_provenance(joinpath(loose, "run"))["code_trees"]["src"] == "uncommitted"
+        # a REGISTERED install (a package's source in the depot: no git checkout, content-addressed, immutable) is
+        # committed code — a registered package's example records a run of record by its tree hash, never refused
+        rng_dir = pkgdir(StableRNGs)
+        info = Pkg.dependencies()[Base.PkgId(StableRNGs).uuid]
+        id = VgtkEval.code_trees(rng_dir)
+        @test isempty(id.dirty) && id.project_paths == ["StableRNGs"]
+        @test id.trees["StableRNGs"] == "$(info.tree_hash) StableRNGs $(info.version) $(Base.PkgId(StableRNGs).uuid)"
+        @test VgtkEval.refuse_uncommitted_code(id) === nothing
+        reg_run = joinpath(mktempdir(), "run")
+        E.write_provenance(reg_run; driver = "d", gitpath = rng_dir)                               # accepted, its tree recorded
+        @test startswith(E.read_provenance(reg_run)["code_trees"]["StableRNGs"], string(info.tree_hash))
         # no src: the record names none of the project's own code, which is warned
         E.set_project_root!(gitrepo())
         @test_logs (:warn, r"records no tree of the project's own code") match_mode = :any E.write_provenance(mktempdir(); driver = "d")

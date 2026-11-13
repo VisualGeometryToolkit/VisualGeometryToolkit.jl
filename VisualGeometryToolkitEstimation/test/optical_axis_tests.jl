@@ -251,7 +251,7 @@ end
 end
 
 # The axis family's radial order is a configurable literal (configs/default.toml [optical_axis] radial_terms, read once):
-# 4 terms, θ³…θ⁹, the owner's ruling of 2026-11-13 from the order study (~/logs/dgx-agent/wave10/optical-axis-order.md:
+# 4 terms, θ³…θ⁹, the owner's ruling of 2026-11-13 from the wave-10 order study (
 # the smallest order whose principal point is within ½σ of 6 terms' on every converging RC camera, cond(J) 47–160×
 # lower). Until 0.11.0 it was Fisheye624's 6 (θ³…θ¹³).
 @testitem "optical_axis: the axis family's radial order is the config's (4 terms)" setup = [OffAxisSpline] begin

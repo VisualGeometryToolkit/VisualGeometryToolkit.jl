@@ -52,6 +52,7 @@ constants.
 module Experiments
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
+using VisualGeometryToolkitCore: SensorModel, component_sources   # a run record's sensor provenance (provenance.jl)
 using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it

@@ -50,7 +50,22 @@ end
 
 # Keys the writer owns; a caller field of the same name is refused.
 const _PROVENANCE_RESERVED = ("driver", "timestamp", "hostname", "julia", "gitcommit", "gitpatch", "uncommitted_files", "inputs",
-                              "code_trees", "scratch")
+                              "code_trees", "scratch", "sensor_model")
+
+# The sensor model's provenance in a run record (the sensor-model spec §5: the tables say per run where the black, the
+# noise and the defects came from): Core's ONE view of it, `component_sources`, rendered for TOML — a source by its tag
+# ("measured", "estimated", "specified", "file"), an absent slot "absent", the reason by its name. A run over several
+# frames records each distinct model's sources once, with the number of frames that had it.
+_source_tag(s) = s === nothing ? "absent" : string(s)
+function _sensor_record(m::SensorModel)
+    c = component_sources(m)
+    return Dict{String,Any}("black" => _source_tag(c.black), "noise" => _source_tag(c.noise), "defects" => _source_tag(c.defects),
+                            "reason" => string(c.reason), "specified_override" => c.specified_override)
+end
+function _sensor_records(models::AbstractVector{<:SensorModel})
+    records = _sensor_record.(models)
+    return [merge(r, Dict{String,Any}("frames" => count(==(r), records))) for r in unique(records)]
+end
 
 """
     current_code_trees(gitpath = project_root()) -> Dict{String,String}
@@ -116,7 +131,7 @@ function _relative_inputs(inputs)
 end
 
 """
-    write_provenance(dir, fields = Dict(); driver, inputs = nothing,
+    write_provenance(dir, fields = Dict(); driver, inputs = nothing, sensor_model = nothing,
                      gitpath = project_root(), producer = false) -> String
 
 Write `<dir>/_provenance.toml`: `fields` (the caller's record — run key,
@@ -133,10 +148,15 @@ run's output, and a directory already holding a record with the other flag is
 refused), and refuses a run of record of uncommitted code (`refuse_uncommitted_code`, the runner's refusal: an edited,
 staged, deleted or untracked file in the project's `src` or a package it loads
 from a path, or code in no git checkout); a [`scratch_run`](@ref) records it
-with a warning, its trees marked `+uncommitted`. Returns the record's path.
+with a warning, its trees marked `+uncommitted`. `sensor_model` (a run's
+`SensorModel`, or one per frame) records where its black, noise and defects came
+from — VisualGeometryToolkitCore's `component_sources`, one table per distinct
+model with its frame count, under `sensor_model` — so a table can state
+"measured" or "estimated" per run. Returns the record's path.
 """
 function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{String,Any}();
                           driver::AbstractString, inputs = nothing,
+                          sensor_model::Union{Nothing, SensorModel, AbstractVector{<:SensorModel}} = nothing,
                           gitpath::AbstractString = project_root(), producer::Bool = false)
     assert_not_input(dir; producer)
     clash = intersect(String.(collect(keys(fields))), _PROVENANCE_RESERVED)
@@ -146,6 +166,7 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     prov["timestamp"] = string(Dates.now())
     prov["hostname"] = gethostname()
     prov["julia"] = string(VERSION)
+    sensor_model === nothing || (prov["sensor_model"] = _sensor_records(sensor_model isa SensorModel ? [sensor_model] : sensor_model))
     if inputs !== nothing
         scratch_in = filter(scratch_record, String.(inputs))
         scratch_run() || isempty(scratch_in) ||

@@ -8,7 +8,7 @@
 # a calibrated camera, on rays rather than on the z = 1 chart, so the whole
 # field of a fisheye takes part (past 90°). Its construction, minimal solve
 # (VGC `Rotation2pt`: `kabsch` on two pairs), sampler and RANSAC wiring are the
-# family's (cspond.jl), patterned on the essential problem: the data are unit
+# family's (correspondence.jl), patterned on the essential problem: the data are unit
 # bearings from the cameras' own back-projection carrying their per-view
 # back-projection Jacobians as the `M₁`/`M₂` attribute columns, which put every
 # residual and threshold in PIXELS.
@@ -16,11 +16,11 @@
 # ONE Sampson machinery. The constraint is the homography's transfer form on
 # bearings — VGC's `constraint_with_jacobians(TransferForm(H), f₁, f₂; M₁, M₂)`
 # with `H = R`: the transferred ray in `f₂`'s tangent plane, `G_x` the 2×4
-# Jacobian of the joint measurement (both images' pixels): the residual is the
-# Sampson distance of that measurement to the constraint variety at the pixels'
+# Jacobian of the joint observation (both images' pixels): the residual is the
+# Sampson distance of that observation to the constraint variety at the pixels'
 # noise Σ_x = blockdiag(Σ₁, Σ₂) — `I` for plain pixels (Σ_g = P(R M₁M₁ᵀRᵀ + M₂M₂ᵀ)Pᵀ),
-# the keypoints' own covariances for `Uncertain` pixels (the `Σ₁`/`Σ₂` columns,
-# `measurement_covariance`), so every route is Mahalanobis. Scoring
+# the detections' own covariances for `Uncertain` pixels (the `Σ₁`/`Σ₂` columns,
+# `observation_covariance`), so every route is Mahalanobis. Scoring
 # whitens it through VGC's Sampson layer (the default `whitened_residual`, behind a
 # hemisphere gate), and the chart LM and the lifts descend the same residual
 # through the Sampson-constraint problems' one chart-rows method (sampson_lm.jl:
@@ -49,7 +49,7 @@ construction (as [`EssentialProblem`](@ref)`(camera1, camera2, pixel_cs)`). The
 attribute columns of `pixel_cs` (the `:score` prior) travel along.
 
 The pixels may be VisualGeometryToolkitCore `Uncertain` (or `exact` on one side):
-each keypoint's 2×2 covariance becomes the problem's `Σ₁`/`Σ₂` column (Core's
+each detection's 2×2 covariance becomes the problem's `Σ₁`/`Σ₂` column (Core's
 `noise_columns`), and the residual of scoring, the local optimization's chart LM
 and `solver_covariance` is whitened by `blockdiag(Σ₁ᵢ, Σ₂ᵢ)` through Core's
 Sampson layer: a Mahalanobis residual, so a scorer's threshold and scale are in
@@ -60,23 +60,23 @@ function RotationProblem(camera1, camera2, pixel_cs; kw...)
     fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, VgtkCore.geom(u)), s)
     fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, VgtkCore.geom(u)), t)
     cols = merge(VgtkCore.attrs_of(pixel_cs), VgtkCore.noise_columns(s, t), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
-    return RotationProblem(VgtkCore.Csponds(first.(fm₁), first.(fm₂), cols); kw...)
+    return RotationProblem(VgtkCore.Correspondences(first.(fm₁), first.(fm₂), cols); kw...)
 end
 
 """
-    RotationProblem(bearings::Csponds; sampler = nothing, coincident_tol = COINCIDENT_PX)
+    RotationProblem(bearings::Correspondences; sampler = nothing, coincident_tol = COINCIDENT_PX)
 
 A `RotationProblem` from UNIT-BEARING correspondences `f₁ => f₂` (3-vectors from
 the cameras' back-projection) carrying their 3×2 back-projection Jacobians as
 the attribute columns `M₁`/`M₂` (`withattrs(cs; M₁, M₂)`), which put the
 residual, the threshold and the sample gate's `coincident_tol` in PIXELS — so,
 as for the essential problem, there is no default for them. A `:score` column
-is the PROSAC prior. The keypoints' measurement noise, when not unit isotropic,
+is the PROSAC prior. The detections' observation noise, when not unit isotropic,
 is two more columns, `Σ₁`/`Σ₂` (2×2 covariances in PIXELS, the space `M₁`/`M₂`
 map from: VisualGeometryToolkitCore's `noise_columns` of the `Uncertain` pixels,
 as the pixel constructor builds them). Unit norm and finiteness are checked once, here.
 """
-function RotationProblem(bearings::VgtkCore.Csponds; sampler::Union{Nothing, AbstractSampler} = nothing,
+function RotationProblem(bearings::VgtkCore.Correspondences; sampler::Union{Nothing, AbstractSampler} = nothing,
                          coincident_tol::Real = VgtkCore.COINCIDENT_PX)
     (eltype(sources(bearings)) <: StaticArrays.StaticVector{3} && eltype(targets(bearings)) <: StaticArrays.StaticVector{3}) ||
         throw(ArgumentError("RotationProblem takes unit BEARINGS (3-vectors), got $(eltype(sources(bearings))) => " *
@@ -97,7 +97,7 @@ end
 # A Pair vector cannot carry the Jacobian columns: refused as the essential problem refuses it.
 RotationProblem(::AbstractVector{<:Pair{<:StaticArrays.StaticVector{3}, <:StaticArrays.StaticVector{3}}}; kw...) =
     throw(ArgumentError("RotationProblem needs the back-projection Jacobians, which a vector of Pairs cannot carry: " *
-                        "`withattrs(Csponds(f₁, f₂); M₁, M₂)`, from `backproject_with_jacobian(camera, u)`"))
+                        "`withattrs(Correspondences(f₁, f₂); M₁, M₂)`, from `backproject_with_jacobian(camera, u)`"))
 
 # The sample gate: the bearing coincidence gate of VGC (a sample's two bearings
 # the same detection in either view, the angle converted to pixels through M —
@@ -171,16 +171,16 @@ in the so(3) chart of `R` (left exp, `R → exp(δ)·R`; `J` the chart's
 `retract_jacobian`, whose columns are orthogonal of norm √2), radians². The
 covariance is the implicit-function covariance of the problem's own
 whitened-constraint estimator over the result's inliers (`solver_covariance`),
-so it carries every keypoint's covariance when the pixels are `Uncertain`
+so it carries every detection's covariance when the pixels are `Uncertain`
 (`RotationProblem(camera1, camera2, pixel_cs)`), and is in whitened units:
 `scale` is the variance factor of those units — the scale input of the
 robust-estimation contract: by default the result's own `noise_scale`, the
 scale its scorer estimated on the consensus set (`ScaleEstimated`, in whitened
-units: ≈ 1 when the keypoints' covariances are right); or `scale = σ`, or
+units: ≈ 1 when the detections' covariances are right); or `scale = σ`, or
 another upstream result. A result that recorded no scale (`ScaleNone`) is
 refused. An edge covariance is absolute, so the averaging takes no further scale.
 
-Pairs that share a keypoint across edges make their edges' errors correlated;
+Pairs that share a detection across edges make their edges' errors correlated;
 the averaging treats the edges as independent, the first-order approximation.
 
 An `ArgumentError` for a result with no estimate, or a singular sandwich (too

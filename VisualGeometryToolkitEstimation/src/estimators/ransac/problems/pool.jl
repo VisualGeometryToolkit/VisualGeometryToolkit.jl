@@ -55,7 +55,7 @@ A pool's `Kc` is a matrix, so this problem is pinhole by construction.
 function EssentialProblem(pair::PoolPair{<:FundMat}; kw...)
     tol = _pool_coincident_tol(pair, kw)
     Kc1, Kc2 = pool_frame_calibrations(pair)
-    return EssentialProblem(CameraModel(Kc1), CameraModel(Kc2), pair.csponds; coincident_tol = tol, kw...)
+    return EssentialProblem(CameraModel(Kc1), CameraModel(Kc2), pair.correspondences; coincident_tol = tol, kw...)
 end
 
 """
@@ -66,17 +66,17 @@ The pool-frame fundamental problem of a pool record: its correspondences
 tolerance on its normalized view, so it takes no `coincident_tol`. `kw` go to
 `FundMatProblem`.
 """
-FundMatProblem(pair::PoolPair{<:FundMat}; kw...) = FundMatProblem(pair.csponds; kw...)
+FundMatProblem(pair::PoolPair{<:FundMat}; kw...) = FundMatProblem(pair.correspondences; kw...)
 
 """
     HomographyProblem(pair::PoolPair{<:HomographyMat}; kw...) -> HomographyProblem
 
 The pool-frame homography problem of a pool record: its correspondences
-(`NormalizedImageFrame`) verbatim, no measurement maps. Its sample gate reads
+(`NormalizedImageFrame`) verbatim, no observation maps. Its sample gate reads
 the scale-free tolerance on its normalized view, so it takes no
 `coincident_tol`. `kw` go to `HomographyProblem`.
 """
-HomographyProblem(pair::PoolPair{<:HomographyMat}; kw...) = HomographyProblem(pair.csponds; kw...)
+HomographyProblem(pair::PoolPair{<:HomographyMat}; kw...) = HomographyProblem(pair.correspondences; kw...)
 
 # -----------------------------------------------------------------------------
 # σ̂² of a pool record: how the GT noise variance is measured
@@ -91,7 +91,7 @@ fact, chosen by the pool's producer:
 - [`InlierVariance`](@ref)`(; min_inliers)`: over the raw pair's GT-inlier
   correspondences;
 - [`TrackVariance`](@ref)`(source, target)`: over separate pixel point pairs
-  (SfM-track keypoints), under the oracle model.
+  (SfM-track observations), under the oracle model.
 """
 abstract type PoolVariance end
 
@@ -115,7 +115,7 @@ InlierVariance(; min_inliers::Integer) = InlierVariance(Int(min_inliers))
     TrackVariance(source, target)
 
 σ̂² over separate pixel point pairs `source[i] => target[i]` (e.g. SfM-track
-keypoints, independent of the matcher's correspondences), carried into the pool
+detections, independent of the matcher's correspondences), carried into the pool
 frame by the raw pair's normalization: the RSS of the ORACLE model (the GT pose)
 in the family's own residual, over the ORACLE DOF ([`oracle_residual_dof`](@ref),
 `n·d_g`: nothing is fitted). E and F only. A minimum point count is the reader's
@@ -135,7 +135,7 @@ end
 _rss_variance(rss::Float64, dof::Integer) = dof > 0 ? rss / dof : NaN
 
 # The oracle F from the GT pose, in pixels and in the pool frame.
-function _oracle_fundmat(raw::StereoRawPair, N::CspondNormalization)
+function _oracle_fundmat(raw::StereoRawPair, N::CorrespondenceNormalization)
     F_px = FundMat(EssentialMat(pair_R_gt(raw), pair_t_gt(raw)), pair_K1(raw), pair_K2(raw))
     return destination_map(N) ∘ F_px ∘ inv(source_map(N))
 end
@@ -160,7 +160,7 @@ _oracle_rss(::FundMatProblem, raw::StereoRawPair, draft, src, dst, mask...) =
 function _oracle_rss(::EssentialProblem, raw::StereoRawPair, draft, src, dst, mask...)
     Kc1, Kc2 = pool_frame_calibrations(draft)
     ep = EssentialProblem(CameraModel(Kc1), CameraModel(Kc2),
-                          VgtkCore.Csponds(Point2{Float64}.(src), Point2{Float64}.(dst)))
+                          VgtkCore.Correspondences(Point2{Float64}.(src), Point2{Float64}.(dst)))
     r = mahalanobis_distances!(Vector{Float64}(undef, data_size(ep)), ep, EssentialMat(pair_R_gt(raw), pair_t_gt(raw)))
     return isempty(mask) ? sum(abs2, r) : sum(abs2, view(r, only(mask)))
 end
@@ -169,7 +169,7 @@ function _pool_variance(v::InlierVariance, problem::Union{EssentialProblem, Fund
     mask = draft.gt_inliers
     n_in = count(mask)
     n_in < v.min_inliers && return NaN
-    cs = draft.csponds
+    cs = draft.correspondences
     return _rss_variance(_oracle_rss(problem, raw, draft, sources(cs), targets(cs), mask),
                          residual_dof(problem, n_in))
 end
@@ -196,7 +196,7 @@ function _pool_variance(v::InlierVariance, problem::HomographyProblem, raw::Ster
     mask = draft.gt_inliers
     n_in = count(mask)
     n_in < v.min_inliers && return NaN
-    cs = draft.csponds
+    cs = draft.correspondences
     ws = SvdWorkspace{Float64}(2 * length(cs), 9)
     H = homography_dlt(cs; mask, svd_ws = ws)
     (H === nothing || !test_dlt_conditioning(ws)) && return NaN
@@ -230,24 +230,24 @@ function _pose_errors(p::HomographyProblem, H, raw)
                                  pair_K1(raw), pair_K2(raw), pair_R_gt(raw), pair_t_gt(raw))
 end
 
-_to_pool_frame(::EssentialProblem, E, raw, N::CspondNormalization) =
+_to_pool_frame(::EssentialProblem, E, raw, N::CorrespondenceNormalization) =
     destination_map(N) ∘ FundMat(E, pair_K1(raw), pair_K2(raw)) ∘ inv(source_map(N))
-_to_pool_frame(::FundMatProblem, F, raw, N::CspondNormalization) =
+_to_pool_frame(::FundMatProblem, F, raw, N::CorrespondenceNormalization) =
     destination_map(N) ∘ FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(F))) ∘ inv(source_map(N))
-function _to_pool_frame(p::HomographyProblem, H, raw, N::CspondNormalization)
+function _to_pool_frame(p::HomographyProblem, H, raw, N::CorrespondenceNormalization)
     Hd = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H)))
     _homography_model_calibrated(p) || return destination_map(N) ∘ Hd ∘ inv(source_map(N))
-    # the calibrated H back to pixels through the problem's own measurement maps
+    # the calibrated H back to pixels through the problem's own observation maps
     return destination_map(N) ∘ inv(p.dst_frame_map) ∘ Hd ∘ p.src_frame_map ∘ inv(source_map(N))
 end
 
 # The model frame of a homography problem: the data (pixel) frame when it
-# carries no measurement maps; the calibrated chart when its maps are declared
+# carries no observation maps; the calibrated chart when its maps are declared
 # into `GnomonicFrame`. A mapped problem whose maps declare anything else names
 # no frame a pose error can be read in, so it is refused.
 _map_target(::HomographyMap{N, T, M, S, D}) where {N, T, M, S, D} = D
 function _homography_model_calibrated(p::HomographyProblem)
-    _has_measurement_maps(p) || return false
+    _has_observation_maps(p) || return false
     (_map_target(p.src_frame_map) <: GnomonicFrame && _map_target(p.dst_frame_map) <: GnomonicFrame) &&
         return true
     throw(ArgumentError(
@@ -268,7 +268,7 @@ end
 # bitwise equality with pools already written. Stored as `Float32(|r|)`.
 
 _pool_residuals!(R::AbstractMatrix{Float32}, ::Union{FundMatProblem, HomographyProblem}, pair::PoolPair) =
-    sampson_distances!(R, pair.models, pair.csponds)
+    sampson_distances!(R, pair.models, pair.correspondences)
 function _pool_residuals!(R::AbstractMatrix{Float32}, ::EssentialProblem, pair::PoolPair)
     ep = EssentialProblem(pair)
     Kc1, Kc2 = pool_frame_calibrations(pair)
@@ -323,14 +323,14 @@ function PoolPair(rng::Random.AbstractRNG, problem::RelativeProblem, raw::Stereo
 end
 
 function PoolPair(hyps::Hypotheses, problem::RelativeProblem, raw::StereoRawPair; variance::PoolVariance)
-    cs_px = pair_csponds(raw)
+    cs_px = pair_correspondences(raw)
     data_size(problem) == length(cs_px) || throw(DimensionMismatch(
         "PoolPair: the problem holds $(data_size(problem)) correspondences, the raw pair $(length(cs_px))"))
     size(hyps.sample_indices, 2) == length(hyps.models) || throw(DimensionMismatch(
         "PoolPair: $(size(hyps.sample_indices, 2)) sample-index columns for $(length(hyps.models)) hypotheses"))
     N = pool_normalization(raw)
     cs_n = normalize(N, cs_px)
-    cs_pool = VgtkCore.csponds(sources(cs_n), targets(cs_n))
+    cs_pool = VgtkCore.correspondences(sources(cs_n), targets(cs_n))
 
     errs = [_pose_errors(problem, m, raw) for m in hyps.models]
     keep = findall(e -> first(e) < 180.0, errs)       # drop pose-decomposition failures
@@ -344,9 +344,9 @@ function PoolPair(hyps::Hypotheses, problem::RelativeProblem, raw::StereoRawPair
     R_gt = SMatrix{3, 3, Float64, 9}(pair_R_gt(raw)); t_gt = SVector{3, Float64}(pair_t_gt(raw))
     gt_inliers = BitVector(pair_gt_inliers(raw))
     snn = Vector{Float32}(pair_snn(raw))
-    # σ̂² is read off a DRAFT of the record (its own pool-frame csponds and Kc),
+    # σ̂² is read off a DRAFT of the record (its own pool-frame correspondences and Kc),
     # then the record is sealed with it.
-    fields = (; csponds = cs_pool, K1, K2, R_gt, t_gt, models, sample_indices = sidx,
+    fields = (; correspondences = cs_pool, K1, K2, R_gt, t_gt, models, sample_indices = sidx,
               errors_r, errors_t, gt_inliers, normalization = N, snn)
     draft = PoolPair{Mc}(; fields..., gt_variance = NaN)
     σ² = _pool_variance(variance, problem, raw, draft)

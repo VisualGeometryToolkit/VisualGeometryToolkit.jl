@@ -1,7 +1,7 @@
 # =============================================================================
 # src/datasets/stereo_datasets.jl — the depth-validated stereo datasets: the
 # pair enumeration, ground-truth depth and GT-validation tolerances behind
-# `consolidate_csponds`, which writes the consolidated csponds files that
+# `consolidate_correspondences`, which writes the consolidated correspondences files that
 # `load_roma_pairs` reads.
 #
 #   ETH3D        co-visible undistorted DSLR pairs; laser depth
@@ -81,7 +81,7 @@ GTConfig(table::AbstractString) =
 
 A depth-validated stereo benchmark: a value carrying its on-disk root, on
 which [`stereo_pairs`](@ref), [`load_validation_data`](@ref) and
-[`gt_config`](@ref) dispatch, and which [`consolidate_csponds`](@ref) drives.
+[`gt_config`](@ref) dispatch, and which [`consolidate_correspondences`](@ref) drives.
 """
 abstract type AbstractStereoDataset end
 
@@ -144,14 +144,14 @@ Every evaluation pair of the dataset, by the dataset's own pair rule.
 function stereo_pairs end
 
 """
-    load_validation_data(ds::AbstractStereoDataset, p::StereoPair, csponds)
-        -> (; rig, csponds, depth_src, depth_tgt)
+    load_validation_data(ds::AbstractStereoDataset, p::StereoPair, correspondences)
+        -> (; rig, correspondences, depth_src, depth_tgt)
 
-What GT validation of `csponds` (pixels of the images `p` names) needs: the rig
+What GT validation of `correspondences` (pixels of the images `p` names) needs: the rig
 and correspondences in the frame of the depth maps, and the two depth maps
 (metres, NaN invalid). Only ETH3D changes frame — its laser depth lives in the
 distorted DSLR images, its matches in the undistorted ones; every other dataset
-returns `p.rig` and `csponds` unchanged.
+returns `p.rig` and `correspondences` unchanged.
 """
 function load_validation_data end
 

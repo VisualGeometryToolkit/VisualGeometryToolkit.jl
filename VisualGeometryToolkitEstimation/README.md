@@ -44,13 +44,13 @@ for i in 1:8                                                # replace 8 with out
     dst[i] = Point2(640rand(rng), 480rand(rng))
 end
 
-result = find_homography(csponds(src, dst))   # MSAC at 3 px, the default
+result = find_homography(correspondences(src, dst))   # MSAC at 3 px, the default
 count(inlier_mask(result))                    # 32, the true correspondences
 
 H = Matrix(estimate(result))
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true
 
-result_2px = find_homography(csponds(src, dst);   # a scorer overrides the class's
+result_2px = find_homography(correspondences(src, dst);   # a scorer overrides the class's
                            scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0))
 ```
 

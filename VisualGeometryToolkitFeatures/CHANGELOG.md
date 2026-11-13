@@ -1,5 +1,82 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.0 (unreleased)
+
+A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 (`[compat]` "0.10.0").
+
+### Breaking
+- **`detect_foerstner`'s rows carry `covariance_status`** (their attributes are `(; label, window, F,
+  covariance_status)`): how the frame's covariance was obtained or why there is none — `:propagated`,
+  `:propagated_measured` / `:propagated_estimated` / `:propagated_specified`, `:a_posteriori`, or `:unclassified` on an
+  `:unknown` row (a NaN covariance). The producer states its covariance policy; no consumer substitutes one.
+- **`detect_foerstner(...; noise)`: the covariance propagated from the image noise.** With `noise = σn` (iid pixel
+  noise, grey levels of an 8-bit image) the covariance is `σn² J Jᵀ`, `J` the exact first-order (implicit-function)
+  derivative of the estimate with respect to every input pixel, through the detector's own doubling, derivative taps,
+  squared gradient and window estimate, exact at the image borders; one KernelAbstractions kernel on the CPU and any
+  GPU. Its Monte Carlo calibration (NEES₂ ≈ 2, χ²₂ 95 % coverage) is a test. `noise = nothing` (the default) keeps the
+  reference's a-posteriori `Ω/redundancy · N⁻¹`, marked `:a_posteriori`; it is not calibrated (Förstner study:
+  NEES 0.01–25). `noise_sigma`, the precision test's level, defaults to `noise` when that is given (else the
+  reference's 2).
+- **The sensor model (VisualGeometryToolkitCore 0.10's `SensorModel`, owner rulings A and D1–D13):**
+  - `load_raw(...; sensor_model)` hands the frame's model to Core's `LinearRaw`, the one black subtraction (its black,
+    its defects, and under a Poisson–Gaussian or relative noise each value's variance); refused with the display
+    demosaic. A cached decode is keyed by Core's `content_digest(model)`; the absent model keeps the plain key.
+  - `detect_foerstner(L::LinearRaw; sensor_model)`: fed only under a gain (Poisson–Gaussian): `J diag(var) Jᵀ` from
+    the uncertain image's variances; read noise alone, relative noise or none → `:a_posteriori`.
+  - `variance_stabilize(L, sensor_model)` (was the keywords `electrons_per_dn`, `read_noise`, retired with a pointed
+    refusal): the variance plane and Core's `poisson_slope`; a model without a gain is an `ArgumentError` naming the
+    missing gain.
+- **The continuous refinement's LM stop settings are Core's** (`StaticLmStops`, `[lm]`, the one owner): the
+  `ContinuousRefinement` keywords and TOML keys `max_iter`, `converged_tol2` and `cost_floor` are retired (a pointed
+  refusal); success is Core's one rule (the point is stationary).
+- **`CspondSet` is `CorrespondenceSet`** (VisualGeometryToolkitCore 0.10's terminology: `Cspond` → `Correspondence`,
+  `csponds` → `correspondences`); the old name is refused by Core's naming check, with no alias.
+- **A detection's `propagate(m, d)` is Core's one conversion carried through `m`**, `propagate(m, center(d))`: the
+  centre is now a `Point2` (was an `SVector{2}`), the covariance the frame's position block as before.
+- **A Förstner point's error ellipse is `Ellipse(d.value; sigma)`** (Core 0.10 deleted the detection forwarders; a
+  `PointFrame` detection has no region, so `Ellipse(d)` is a MethodError naming why).
+- **Terminology** (the owner's ruling of 2026-11-13): "keypoint" and "measurement" are out of every name, docstring
+  and page — a keypoint is a detection. Internal names renamed: `_keypoint_cov` → `_detection_cov`,
+  `_loma_keypoints` → `_loma_points`; the benchmark `benchmark/mc/keypoint_uncertainty_mc.jl` →
+  `benchmark/mc/detection_uncertainty_mc.jl`; the test items "keypoint covariance: …" → "detection covariance: …".
+
+### New
+- **`onnx_run(session, inputs)` / `onnx_run(f, session)`**, public: a run of an `onnx_session` whose CUDA arena growth
+  is measured around it and charged to the session, so the ASIFT detector's device plans leave exactly the room the
+  arena may still take (was the private `_onnx_run`, LoMa's runs only). The `f` form takes any call that runs the
+  session (a device-tensor `CAPI.Run`), for BlobBoards' descriptor runs.
+
+### Fixed
+- **`extract_capture_settings` no longer compiles per frame count** (patch 0.8.4's fix, carried): a capture's identities
+  merge field by field (StructArrays' `components`), not by splatting one tuple per frame into `zip` (a 171-photo set
+  took 518 s, ~90 % LLVM). The other splats of a data-length collection go too: `detect_foerstner` collects its rows,
+  `_score_eltype` takes a collection, `compare_images` links its axes through Makie's vector method.
+- **`detect_foerstner(Float64, img)` computes in `Float64` from the input on**: a `Float64` image was rounded to
+  `Float32` before the upload, so the `Float64` path ran on `Float32` grey values.
+- **The continuous refinement stays inside the level** (`refinement = ContinuousRefinement()`): its LM box is also
+  bounded by the level's extent, the detector's keep test; a point whose extremum lies beyond the level's edge ends
+  `LeftBasin` with its start, never outside the canvas.
+- **A continuous refinement held on its box is `LeftBasin`, the start returned** (the refinement's basin policy):
+  Core's stationarity rule counts a point a bound holds as stationary, so a solve whose extremum lies beyond the
+  displacement bound or the level's edge would end Success at the box, a biased point; any point on the box is now
+  `LeftBasin` with its start, whatever the LM's verdict (as it was when the box-held solve did not converge).
+- **`detect_image_circle` checks `smoothing_weight` before it reads a frame**, with its other keywords.
+- **`variance_stabilize` reads Core's `green_plane(L)`**: it no longer searches the planes for the green one by comparing
+  frame maps with `===`.
+- **The RAW decoder's fallbacks are Core's `require_extension`**: without the decoder's extension they name the
+  package to load; with it loaded, a call it has no method for raises that MethodError (it said the extension was
+  missing).
+
+### Internal
+- The continuous refinement hands its scale to Core's `static_lm` (its `s`), solving for the displacement, instead of
+  rescaling the coordinates itself (the owner's no-duplication ruling): the damping floors are the same; the step stop
+  reads the displacement in level units.
+- The detection covariance of a continuously refined point builds the refinement's field taps once per chunk, not per
+  detection. A non-CPU backend builds each ASIFT kernel once (only the CPU has a static form).
+- The Förstner propagation's one-axis pipeline columns are the adjoints ASIFT's covariance already has
+  (`_correlate_adj`, the zero-padded correlation's, of which the symmetric blur's `_blur_adj` is now the special case,
+  bit for bit; `_up_adj` with an optional bounded edge).
+
 ## 0.8.3 (unreleased)
 
 A patch, on VisualGeometryToolkitCore 0.9.5 (`[compat]` VisualGeometryToolkitCore "0.9.5"). Additive; the detector's

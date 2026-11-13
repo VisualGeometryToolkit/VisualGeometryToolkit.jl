@@ -56,19 +56,8 @@ follows the scorer's decision point, and an explicit `efficiency_constant` or
 """
 _dflt(table::AbstractString, key::AbstractString) = toml_default(_TOML_DEFAULTS, table, key)
 
-# The chart LM's iteration cap, stall tolerance and cost tolerance
-# (configs/default.toml [chart_lm]), read once: the refit runs per LO
-# iteration, so it does not look the file up per call. The stall tolerance is
-# every chart LM's (the LO refit, `refine_camera`'s lens families) and the stall postcondition of
-# `refine_robot_world_hand_eye`'s NLLSsolver LM (`is_stationary`); the cost
-# tolerance `ftol` is the LO refit's alone.
-const _CHART_LM_MAX_ITER = _dflt("chart_lm", "max_iter")::Int
-const _CHART_LM_STATIONARITY_TOL = _dflt("chart_lm", "stationarity_tol")::Float64
-const _CHART_LM_FTOL = _dflt("chart_lm", "ftol")::Float64
-
-# The relative-pose bundle's iteration cap, stall tolerance and cost tolerance
-# (configs/default.toml [relpose_bundle]), read once: a lookup per call cost the
+# The relative-pose bundle's iteration cap and cost tolerance (configs/default.toml [relpose_bundle]; its stall
+# tolerance is Core's one, `[lm] stationarity_tol`), read once: a lookup per call cost the
 # bundle 1–2 allocations each (it runs per LO refit).
 const _RELPOSE_BUNDLE_MAX_ITER = _dflt("relpose_bundle", "max_iter")::Int
-const _RELPOSE_BUNDLE_STATIONARITY_TOL = _dflt("relpose_bundle", "stationarity_tol")::Float64
 const _RELPOSE_BUNDLE_FTOL = _dflt("relpose_bundle", "ftol")::Float64

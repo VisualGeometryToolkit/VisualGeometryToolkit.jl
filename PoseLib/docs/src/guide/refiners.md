@@ -72,14 +72,17 @@ Every refiner returns a VisualGeometryToolkitCore `FitResult`:
   (with `stop_rule(result) == NoRule`: PoseLib states no rule) when PoseLib stopped
   on its own tolerances, `ReturnCode.MaxIters` when it used the whole budget, and
   `iterations(result)`,
-  the iterations PoseLib took;
+  the iterations PoseLib took. Fewer correspondences than the model's minimal
+  sample (4 for a homography, 7 for a fundamental matrix, 5 for a relative pose,
+  3 for an absolute pose) is `ReturnCode.InitialFailure`: the seed comes back
+  unrefined after 0 iterations, and PoseLib is not called;
+- `result.n`, the number of correspondences refined over (all of them: PoseLib
+  reports no weights, so this is not a weighted support), 0 below the minimal
+  sample; `rms(result)` is `NaN` (PoseLib reports no residual summary);
 - the scale record in its metadata ([`PoseLibRefineMetadata`](@ref PoseLib.PoseLibRefineMetadata)): the
   `scale` it was given and its `scale_source`, and the `width` PoseLib ran at.
   `noise_scale(result)` hands a given scale to the next stage; a result run at
   a width or by least squares records none (`ScaleNone`) and refuses it.
-
-PoseLib reports no residuals, weights or cost, so `rms` is `NaN` and `n` is the
-number of correspondences.
 
 ## Frames and units
 
@@ -112,7 +115,7 @@ using VisualGeometryToolkitCore: backproject_with_jacobian
 
 b1 = backproject_with_jacobian.(Ref(camera1), u1)   # (bearing, Jacobian) per point
 b2 = backproject_with_jacobian.(Ref(camera2), u2)
-cs = withattrs(Csponds(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
+cs = withattrs(Correspondences(first.(b1), first.(b2)); M₁ = last.(b1), M₂ = last.(b2))
 refine_relpose(pose, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)
 ```
 

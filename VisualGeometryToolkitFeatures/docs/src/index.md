@@ -17,7 +17,7 @@ them.
 - **Detection.** ASIFT (IMAS-25) on KernelAbstractions: [`asift_detect`](@ref)
   runs on the CPU or any KernelAbstractions GPU backend and returns
   [`Detection`](@ref)s (a feature frame plus the detector's metadata),
-  optionally with each keypoint's covariance ([`FeatureCovariance`](@ref)).
+  optionally with each detection's covariance ([`FeatureCovariance`](@ref)).
   Beside it: MSER ([`detect_mser`](@ref)) and the Förstner operator
   ([`detect_foerstner`](@ref)). See [Detection](guide/detection.md) and
   [The Förstner operator](guide/foerstner.md).
@@ -143,7 +143,7 @@ Cite also the papers behind the methods you use, listed on
 Georg Bökman, Jonathan Astermark, Anders Heyden, Viktor Larsson, Mårten
 Wadenbäck, Michael Felsberg and Fredrik Kahl. The architectures, the trained
 weights and the ONNX exports are theirs, downloaded from the authors' release;
-this package only feeds them keypoints and reads their matches back. The
+this package only feeds them detections and reads their matches back. The
 descriptors are [DeDoDe](https://github.com/Parskatt/DeDoDe)'s (Edstedt
 *et al.*). If you use them in published work, cite both:
 

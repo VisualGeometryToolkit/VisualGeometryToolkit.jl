@@ -96,6 +96,16 @@
     end
 end
 
+@testitem "quality: no data-length splat" begin
+    # No call splats a collection whose length is data (VisualGeometryToolkitCore's check_splat: the callee is
+    # compiled once per length); the inherent ones are DUPLICATION.toml [[splat]] entries.
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test
+    import VisualGeometryToolkitEval as VgtkEval
+    found = VgtkCore.test_splat(VgtkEval)
+    @info "check_splat(VisualGeometryToolkitEval): $(length(found)) finding(s)"
+end
+
 @testitem "quality: calling conventions" begin
     using Test
     using VisualGeometryToolkitEval

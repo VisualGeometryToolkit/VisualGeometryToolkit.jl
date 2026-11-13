@@ -14,7 +14,7 @@
     using VisualGeometryToolkitCore: RadialCamera, radial_rows, center, HomographyMat, radial_camera_5pt, constraint_with_jacobians, estimate, retcode, iterations, rms
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Synthetic: projective_distance
-    using VisualGeometryToolkitCore: Csponds
+    using VisualGeometryToolkitCore: Correspondences
     using VisualGeometryToolkitEstimation: fit_radial_camera, RadialLift
 
     @testset "fit_radial_camera recovers the radial camera" begin
@@ -63,12 +63,12 @@
         # weighted to zero leaves the noise-free camera exact
         bad = copy(pts); bad[3] = bad[3][1] => bad[3][2] + SVector(40.0, -25.0)
         w = ones(length(bad)); w[3] = 0.0
-        Pw = estimate(fit_radial_camera(Csponds(first.(bad), last.(bad); weights = w); center = o))
+        Pw = estimate(fit_radial_camera(Correspondences(first.(bad), last.(bad); weights = w); center = o))
         @test projective_distance(radial_rows(Pw), a) < sqrt(2.0e-9)
         Pb = estimate(fit_radial_camera(bad; center = o))
         @test projective_distance(radial_rows(Pb), a) > sqrt(2.0e-6)   # unweighted, it moves
         # a unit column is the unweighted fit
-        P1 = estimate(fit_radial_camera(Csponds(first.(pts), last.(pts); weights = ones(length(pts))); center = o))
+        P1 = estimate(fit_radial_camera(Correspondences(first.(pts), last.(pts); weights = ones(length(pts))); center = o))
         @test radial_rows(P1) ≈ radial_rows(Pc) rtol = 1.0e-12
     end
 

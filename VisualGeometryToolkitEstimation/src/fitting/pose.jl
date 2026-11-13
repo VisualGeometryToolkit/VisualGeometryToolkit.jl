@@ -38,8 +38,8 @@ Plain points give a plain pose in their own unit, as before. The residuals,
 points (a plain one with plain points).
 
 # Arguments
-- `correspondences`: `X => u` pairs (world point => raw pixel) — `Csponds`,
-  `StructArray{<:Pair}` or a Pair vector; a `Csponds` `:score` column is the
+- `correspondences`: `X => u` pairs (world point => raw pixel) — `Correspondences`,
+  `StructArray{<:Pair}` or a Pair vector; a `Correspondences` `:score` column is the
   per-match prior (PROSAC; uniform otherwise).
 - `scoring`: the scorer, its width **in PIXELS** (the reprojection residual's unit), as [`find_homography`](@ref); default `[pipelines.absolute_pose] scoring`.
 - `extent`: as [`find_homography`](@ref); the pose's `_check_extent` rejects
@@ -72,7 +72,7 @@ function find_absolute_pose(
         extent::Union{Nothing, HyperRectangle{2, <:Quantity}} = nothing,
         kwargs...
     )
-    plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    plain = _map_correspondences(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
     return _attach_metres(find_absolute_pose(camera_model, plain; extent = extent === nothing ? nothing : _plain_metres(extent), kwargs...))
 end
 
@@ -134,7 +134,7 @@ function refine_absolute_pose(
         pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
         kwargs...
     )
-    plain = _map_csponds(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    plain = _map_correspondences(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
     return _attach_metres(refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, camera_model, plain; kwargs...))
 end
 
@@ -161,8 +161,8 @@ end
 function refine_absolute_pose(
         pose::_PhysicalPose3, cs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{3, <:Real}}}; kwargs...
     )
-    plain = _map_csponds(_plain_metres, identity, cs)
-    if plain isa VgtkCore.Csponds && VgtkCore.hasattr(plain, :origins)
+    plain = _map_correspondences(_plain_metres, identity, cs)
+    if plain isa VgtkCore.Correspondences && VgtkCore.hasattr(plain, :origins)
         plain = withattrs(plain; origins = map(_plain_metres, plain.origins))
     end
     return _attach_metres(refine_absolute_pose(_plain_metres(pose)::PlainEuclideanMap{3}, plain; kwargs...))

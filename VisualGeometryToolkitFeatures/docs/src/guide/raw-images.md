@@ -35,7 +35,13 @@ What stays here is what needs LibRaw:
   photosite (vignetting applied, say) is displayed through the one demosaic,
   never a second one. LibRaw holds whole levels, so a mosaic whose black or
   white level is not a whole code is refused.
-- **The detection image.** [`variance_stabilize`](@ref) of the green cells.
+- **The sensor model.** The frame's `SensorModel` (VisualGeometryToolkitCore's
+  `sensor_model`, a lookup in the body's characterisation) goes to
+  [`load_raw`](@ref)'s `sensor_model`: Core's one black subtraction reads its
+  black, joins its defects to `saturated`, and under a Poisson–Gaussian noise
+  returns each value with its variance.
+- **The detection image.** [`variance_stabilize`](@ref)`(L, sensor_model)` of
+  the green cells, which needs the model's gain.
 
 ## How detectors report positions
 

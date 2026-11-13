@@ -10,8 +10,8 @@
     using Rotations: RotMatrix, RotXYZ, rotation_angle
     export contract_linear, contract_rotation, contract_averaging, contract_points, contract_handeye, CONTRACT_FITS
     export Xoshiro, normalize, norm, SVector, SMatrix, RotMatrix, RotXYZ, rotation_angle,
-        Csponds, EuclideanMap, rotation, translation, estimate, VgtkCore, VgtkEstimation
-    using VisualGeometryToolkitCore: Csponds, EuclideanMap, rotation, translation, estimate
+        Correspondences, EuclideanMap, rotation, translation, estimate, VgtkCore, VgtkEstimation
+    using VisualGeometryToolkitCore: Correspondences, EuclideanMap, rotation, translation, estimate
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 
@@ -24,7 +24,7 @@
         rng = Xoshiro(seed)
         R = RotMatrix(RotXYZ(0.2, -0.4, 0.9))
         as = [normalize(randn(rng, SVector{3, Float64})) for _ in 1:40]
-        return Csponds(as, [R * a for a in as])
+        return Correspondences(as, [R * a for a in as])
     end
     function contract_averaging()
         R = Dict(k => RotMatrix(RotXYZ(0.3k, -0.2k, 0.1k^2)) for k in 1:6)
@@ -34,7 +34,7 @@
         rng = Xoshiro(seed)
         R = RotMatrix(RotXYZ(0.1, 0.5, -0.3)); t = SVector(0.4, -1.0, 2.0)
         as = [SVector{3, Float64}(4 .* randn(rng, 3)) for _ in 1:n]
-        return Csponds(as, [R * a + t for a in as]), R, t
+        return Correspondences(as, [R * a + t for a in as]), R, t
     end
     # robot-world hand-eye: N frames × M markers, a little pose noise (1e-4 rad / 1e-4); its robust fit whitens by the
     # given σ_rot = σ_trans = σ (1e-2), so scale and width are in whitened units and the clean residuals sit well inside
@@ -175,11 +175,11 @@ end
     for (i, d) in zip(bad, (0.9, 1.6, 2.2, 2.2, 2.4))
         gt[i] += d .* normalize(randn(rng, SVector{3, Float64}))
     end
-    cs = Csponds(walk, gt)
+    cs = Correspondences(walk, gt)
     err(fit) = (rotation_angle(RotMatrix{3, Float64}(rotation(estimate(fit)) * R')), norm(translation(estimate(fit)) - t))
     l2 = fit_rigid_alignment(cs)
     @test retcode_symbol(l2) === :solved
-    clean = fit_rigid_alignment(Csponds(walk[setdiff(1:150, bad)], gt[setdiff(1:150, bad)]))
+    clean = fit_rigid_alignment(Correspondences(walk[setdiff(1:150, bad)], gt[setdiff(1:150, bad)]))
     e_clean = err(clean)
     e_l2 = err(l2)
     @test e_l2[1] > 10 * max(e_clean[1], 1.0e-4) || e_l2[2] > 10 * max(e_clean[2], 1.0e-3)   # the L2 alignment moves
@@ -192,9 +192,9 @@ end
         @test rob.n == (K === WelschShape ? count(>(0), weights(rob)) : 150)
     end
     # prior weights drop pairs; fewer than three, or collinear, is refused
-    @test_throws ArgumentError fit_rigid_alignment(Csponds(walk[1:2], gt[1:2]))
+    @test_throws ArgumentError fit_rigid_alignment(Correspondences(walk[1:2], gt[1:2]))
     line = [SVector(Float64(k), 0.0, 0.0) for k in 1:5]
-    @test_throws ArgumentError fit_rigid_alignment(Csponds(line, line))
+    @test_throws ArgumentError fit_rigid_alignment(Correspondences(line, line))
     p = ones(150); p[bad] .= 0
     @test err(fit_rigid_alignment(withattrs(cs; weights = p)))[1] ≈ e_clean[1] atol = 1.0e-12
 end

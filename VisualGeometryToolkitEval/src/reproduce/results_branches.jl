@@ -47,7 +47,8 @@ const _BASE_FIGURES = joinpath("comparison", "base")     # the base's copy of ea
 
 # git in `dir`, reading `input`; its stdout (raw bytes with `bytes = true`, else stripped text).
 # A failure is an error naming the command and git's own message.
-function _git(dir::AbstractString, args...; bytes::Bool = false, input = devnull)
+_git(dir::AbstractString, args...; kw...) = _git(dir, String[string(a) for a in args]; kw...)
+function _git(dir::AbstractString, args::AbstractVector{<:AbstractString}; bytes::Bool = false, input = devnull)
     out, err = IOBuffer(), IOBuffer()
     ok = success(pipeline(`git -C $dir $args`; stdin = input, stdout = out, stderr = err))
     ok || error("git $(join(args, ' ')) (in $dir): $(strip(String(take!(err))))")
@@ -394,7 +395,7 @@ function _fill_results_branch(top::AbstractString, prefix::AbstractString, workt
     _write_comparison(joinpath(proj, RESULTS_COMPARISON), run, rows, numbers, pngs)
 
     counts = join(("$(count(r -> r.verdict == v, numbers)) $(lowercase(v))" for v in _VERDICT_ORDER[1:3]), ", ")
-    _git(worktree, "add", "-f", "--", (_in_project(prefix, p) for p in [paths; RESULTS_MANIFEST; RESULTS_COMPARISON])...)
+    _git(worktree, vcat(["add", "-f", "--"], [_in_project(prefix, p) for p in [paths; RESULTS_MANIFEST; RESULTS_COMPARISON]]))
     isempty(pngs) || _git(worktree, "add", "-f", "--", _in_project(prefix, _BASE_FIGURES))
     _git(worktree, _commit_identity(worktree)..., "commit", "-q", "--no-verify", "-m",
                 "Results $(run.stamp) of $(run.commit[1:7]) against $(run.base): $counts\n\n" *
@@ -442,7 +443,7 @@ function accept_results(dir::AbstractString, branch::AbstractString;
     old = _git(top, "rev-parse", "--verify", "refs/heads/" * base)
     assets = String.(manifest["assets"])
     if old != manifest["base_commit"]
-        changed = split(_git(top, "diff", "--name-only", manifest["base_commit"], old, "--", assets...), '\n'; keepempty = false)
+        changed = split(_git(top, vcat(["diff", "--name-only", manifest["base_commit"], old, "--"], assets)), '\n'; keepempty = false)
         @warn "accept_results: $base moved since the run ($(manifest["base_commit"][1:7]) to $(old[1:7])); the comparison " *
               "on $branch is against the older base; the base changed " * (isempty(changed) ? "no accepted asset" : join(changed, ", "))
     end
@@ -469,7 +470,7 @@ function accept_results(dir::AbstractString, branch::AbstractString;
                 push!(deployed, joinpath(d, n))
             end
         end
-        _git(merging, "add", "-f", "--", assets...)
+        _git(merging, vcat(["add", "-f", "--"], assets))
         _git(merging, committer..., "commit", "-q", "--no-verify", "-m",
                     "Accept $branch into $base\n\nThe results of $(manifest["commit"][1:7]) at $(manifest["stamp"]) " *
                     "($(_in_project(prefix, RESULTS_COMPARISON)) on the branch).")

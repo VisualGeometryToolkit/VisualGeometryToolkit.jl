@@ -4,9 +4,9 @@
 # LocalOptimizationDoneRight's engine, K+ 2026-10-09).
 #
 # The pool stores everything in the pool frame (`NormalizedImageFrame`: image centre, half diagonal):
-# csponds, per-model fundamentals, Sampson distances (so validated loss widths
+# correspondences, per-model fundamentals, Sampson distances (so validated loss widths
 # are pool-frame quantities), plus the per-image pool-frame maps T. The LO
-# therefore SCORES in pool-frame space: E on the pool-frame csponds back-projected
+# therefore SCORES in pool-frame space: E on the pool-frame correspondences back-projected
 # to unit bearings by the pool-frame camera Kc = T·K (VisualGeometryToolkitEstimation's
 # `EssentialProblem(pair)`). The refined E is metric → pose error is read off
 # directly. A pool record is VisualGeometryToolkitCore's light `PoolPair`: the LO
@@ -18,15 +18,15 @@
 
 Per-pair calibration and ground truth, the context that scores a pool model's pose error.
 It scores any stored pool-frame fundamental's coherent imc pose error and holds
-the pool-frame csponds `cs` (`x1 => x2`) as a concretely typed `Csponds`.
+the pool-frame correspondences `cs` (`x1 => x2`) as a concretely typed `Correspondences`.
 """
 struct PairGeom
     Kc1::SMatrix{3,3,Float64,9}
     Kc2::SMatrix{3,3,Float64,9}
     R_gt::SMatrix{3,3,Float64,9}
     t_gt::SVector{3,Float64}
-    cs::Csponds{Point2{Float64}, Point2{Float64}, Vector{Point2{Float64}},
-                Vector{Point2{Float64}}, @NamedTuple{}}   # pool-frame csponds
+    cs::Correspondences{Point2{Float64}, Point2{Float64}, Vector{Point2{Float64}},
+                Vector{Point2{Float64}}, @NamedTuple{}}   # pool-frame correspondences
 end
 
 """
@@ -47,18 +47,18 @@ problem_type(::Val{p}) where {p} =
     throw(ArgumentError("no two-view RANSAC problem type for :$p (expected :E, :F or :H)"))
 
 # The pool-frame problem of each family on a pool record: VisualGeometryToolkitEstimation's
-# constructors on VisualGeometryToolkitCore's `PoolPair` (E: the csponds back-projected
-# to unit bearings by the pool-frame cameras `Kc = T·K`; F and H: the csponds
+# constructors on VisualGeometryToolkitCore's `PoolPair` (E: the correspondences back-projected
+# to unit bearings by the pool-frame cameras `Kc = T·K`; F and H: the correspondences
 # verbatim), with the pool-frame calibrations `(Kc₁, Kc₂)` that serve the pose
 # metrics (the F pose upgrade, the calibrated-H decomposition of `model_imc`).
 _pair_problems(P::Type{<:Union{EssentialProblem,FundMatProblem,HomographyProblem}}, pair::PoolPair) =
     (P(pair), pool_frame_calibrations(pair)...)
 
-# The stored pool-frame csponds as a concretely typed `Point2{Float64}` Csponds
+# The stored pool-frame correspondences as a concretely typed `Point2{Float64}` Correspondences
 # (the form PoseLib's refine_* and, through its columns, `cheiral_pose_fast`
 # consume).
-_pair_csponds(pair) = Csponds(Point2{Float64}.(sources(pair.csponds)),
-                              Point2{Float64}.(targets(pair.csponds)))
+_pair_correspondences(pair) = Correspondences(Point2{Float64}.(sources(pair.correspondences)),
+                              Point2{Float64}.(targets(pair.correspondences)))
 
 # -----------------------------------------------------------------------------
 # The imc of a model against the pair's GT, dispatched on the model's type — one
@@ -158,8 +158,8 @@ function build_pair_ctx(problem_type::Type, pair::PoolPair;
     ep, Kc1, Kc2 = _pair_problems(problem_type, pair)
     R_gt, t_gt = gt_pose(pair)
     geom = PairGeom(Kc1, Kc2, SMatrix{3,3,Float64,9}(R_gt), SVector{3,Float64}(t_gt),
-                    _pair_csponds(pair))
-    bp = bundle ? RelposeBundleProblem(Kc1, Kc2, pair.csponds) : nothing
+                    _pair_correspondences(pair))
+    bp = bundle ? RelposeBundleProblem(Kc1, Kc2, pair.correspondences) : nothing
     return PairCtx(pair, ep, bp, geom, problem_type, scoring, solo_scoring, Dict{Symbol,Any}())
 end
 
@@ -169,7 +169,7 @@ model_imc(model, ctx::PairCtx) = model_imc(model, ctx.geom)
     essential_bearings(ctx::PairCtx) -> (f₁, f₂)
 
 The unit bearings of an E context's problem (what a cheirality vote reads). Read from `ctx.ep`, which already
-back-projected every cspond through the pool camera, rather than re-derived.
+back-projected every correspondence through the pool camera, rather than re-derived.
 Only an E context has bearings: on an F or H context `ctx.ep` holds pool
 pixels, so this refuses rather than hand 2-vectors to a ray test.
 """

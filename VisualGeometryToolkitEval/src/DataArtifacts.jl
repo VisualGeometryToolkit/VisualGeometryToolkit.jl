@@ -55,6 +55,12 @@
 #                        artifact view, byte for byte. The rule, not a list:
 #                        the author's file sizes derive the parts; a consumer
 #                        reads them from the bindings.
+#   published_name = "…" (optional) the name the record's host publishes the
+#                        entry's tarball(s) under, when it differs from the
+#                        binding name `<name>`: a name published before the
+#                        stack's terminology rules (Zenodo files cannot be
+#                        renamed). The URL's file is `<published_name>.tar.gz`,
+#                        and a split entry's parts replace `<name>` by it.
 #
 # Every artifact tree holds paths RELATIVE TO ITS MOUNT ROOT — `data` is
 # data_root(), `results` is results_root() — so the author's tree, a packed
@@ -87,13 +93,14 @@ using ..Datasets: PtRawTrees, pt_scene_files
 using ..VisualGeometryToolkitEval: cli_option
 
 export DataCatalog, load_catalog, project_catalog, required_artifacts, split_scenes, artifact_files, artifact_parts,
-    mount_dir, catalog_view, fetch_artifacts!, fetch_data!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations
+    mount_dir, catalog_view, fetch_artifacts!, fetch_data!, pack_artifacts, download_url, zenodo_url, huggingface_url, catalog_violations,
+    published_name
 
 const HOSTS = ("zenodo", "huggingface")
 
 const KINDS = ("pool_sources", "pools", "stored", "tree")
 const MOUNTS = ("data", "results")
-const ENTRY_KEYS = ("kind", "mount", "record", "required", "what", "provenance")
+const ENTRY_KEYS = ("kind", "mount", "record", "required", "what", "provenance")   # every entry's; `published_name` is optional
 const SPLIT_KINDS = ("pool_sources", "pools")
 const META_PART = "meta"
 const SUBPART = "_part"
@@ -589,24 +596,40 @@ end
 _record_of(cat::DataCatalog, name::AbstractString) = (g = cat.artifacts[first(_entry_of(cat, name))]["record"]; (g, cat.records[g]))
 
 """
+    published_name(cat, name) -> String
+
+The file name (without `.tar.gz`) under which the record's host publishes the
+bound artifact `name` (an entry or one part of a split entry): `name` itself,
+or, when its entry declares `published_name`, `name` with the entry's name
+replaced by it (a name published before the stack's terminology rules: the
+binding is renamed, the published file cannot be).
+"""
+function published_name(cat::DataCatalog, name::AbstractString)
+    n = first(_entry_of(cat, name))
+    return String(get(cat.artifacts[n], "published_name", n)) * name[nextind(name, lastindex(n)):end]
+end
+
+"""
     zenodo_url(cat, name; record_ids = Dict()) -> String
 
 The Zenodo URL of artifact `name`:
-`https://zenodo.org/records/<id>/files/<name>.tar.gz?download=1`, with the id
+`https://zenodo.org/records/<id>/files/<file>.tar.gz?download=1` (`<file>` its
+[`published_name`](@ref)), with the id
 `record_ids` gives the entry's record group, else the group's `id`, else its
 `placeholder`.
 """
 function zenodo_url(cat::DataCatalog, name::AbstractString; record_ids::AbstractDict = Dict{String,String}())
     g, r = _record_of(cat, name)
     id = get(record_ids, g, get(r, "id", r["placeholder"]))
-    return "https://zenodo.org/records/$id/files/$name.tar.gz?download=1"
+    return "https://zenodo.org/records/$id/files/$(published_name(cat, name)).tar.gz?download=1"
 end
 
 """
     huggingface_url(cat, name; record_ids = Dict()) -> String
 
 The Hugging Face URL of artifact `name` in its record's dataset repo `repo`:
-`https://huggingface.co/datasets/<repo>/resolve/<revision>/<name>.tar.gz`, with
+`https://huggingface.co/datasets/<repo>/resolve/<revision>/<file>.tar.gz` (`<file>`
+its [`published_name`](@ref)), with
 the revision `record_ids` gives the entry's record group, else the group's
 `revision`, else its `placeholder`. The revision is a commit, never a branch: a
 binding pins its bytes (its sha256), and a branch moves while the data is edited.
@@ -615,7 +638,7 @@ function huggingface_url(cat::DataCatalog, name::AbstractString; record_ids::Abs
     g, r = _record_of(cat, name)
     haskey(r, "repo") || throw(ArgumentError("record $g: a huggingface record needs `repo` (the dataset repo, \"<owner>/<name>\")"))
     rev = get(record_ids, g, get(r, "revision", r["placeholder"]))
-    return "https://huggingface.co/datasets/$(r["repo"])/resolve/$rev/$name.tar.gz"
+    return "https://huggingface.co/datasets/$(r["repo"])/resolve/$rev/$(published_name(cat, name)).tar.gz"
 end
 
 _listing(root, pieces) = join(("$(p.dst)\t$(p.src)\t$(p.offset)\t$(p.len)\t$(filesize(joinpath(root, p.src)))\t$(mtime(joinpath(root, p.src)))"
@@ -648,7 +671,7 @@ end
 function _pack(cat, name, stage, kinds)
     (; root, pieces) = artifact_files(cat, name; kinds)
     mkpath(joinpath(stage, "tarballs"))
-    tarball = joinpath(stage, "tarballs", "$name.tar.gz")
+    tarball = joinpath(stage, "tarballs", "$(published_name(cat, name)).tar.gz")   # the host's file name
     listing = _listing(root, pieces)
     sidecar, treefile = tarball * ".files", tarball * ".tree"
     if isfile(tarball) && isfile(sidecar) && isfile(treefile) && read(sidecar, String) == listing
@@ -718,7 +741,7 @@ function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(k
     if !isempty(local_toml)
         meta = TOML.parsefile(cat.artifacts_toml)
         for (n, m) in meta
-            t = joinpath(stage, "tarballs", "$n.tar.gz")
+            t = joinpath(stage, "tarballs", "$(published_name(cat, n)).tar.gz")
             isfile(t) && (m["download"][1]["url"] = "file://" * abspath(t))
         end
         open(io -> TOML.print(io, meta; sorted = true), local_toml, "w")
@@ -737,7 +760,10 @@ placeholder (`A_TOKEN_LIKE_THIS`), a known `host` and its keys — on Zenodo, on
 exists, a numeric `id`; on Hugging Face a `repo` and, once uploaded, a 40-hex commit
 `revision`; each binding is lazy, hash-pinned and downloads from its record's
 host ([`download_url`](@ref)) — the record's id or revision when it has one,
-else its placeholder; never a local path.
+else its placeholder; never a local path — under its [`published_name`](@ref):
+an entry's `published_name`, when present, is a file name (no `/`, not the
+binding's own name, no other entry's name or published name), and the URL's
+file is checked against it instead of the binding name.
 """
 function catalog_violations(cat::DataCatalog; kinds = String[])
     v = String[]
@@ -788,6 +814,16 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
                 push!(v, "$n: filter must be a non-empty list of globs (a `!` glob excludes)")
         end
         haskey(a, "max_part_bytes") && !_is_split(a) && push!(v, "$n: max_part_bytes needs split_by")
+        if haskey(a, "published_name")
+            pn = a["published_name"]
+            if !(pn isa AbstractString && occursin(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", pn))
+                push!(v, "$n: published_name $(repr(pn)) is not a file name (letters, digits, `.`, `_`, `-`)")
+            elseif pn == n
+                push!(v, "$n: published_name is its own name (drop the key)")
+            elseif any(m != n && (m == pn || get(b, "published_name", nothing) == pn) for (m, b) in cat.artifacts)
+                push!(v, "$n: published_name $(repr(pn)) is another entry's name or published name")
+            end
+        end
         get(a, "mount", "") in MOUNTS || push!(v, "$n: mount must be data | results")
         haskey(a, "config") && !isfile(joinpath(cat.configs, a["config"] * ".toml")) &&
             push!(v, "$n: no config $(a["config"]).toml")
@@ -804,7 +840,8 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
             else
                 occursin(r"^[0-9a-f]{64}$", get(dl[1], "sha256", "")) || push!(v, "$p: no sha256")
                 want = try download_url(cat, p) catch e; sprint(showerror, e) end
-                get(dl[1], "url", "") == want || push!(v, "$p: download URL $(repr(get(dl[1], "url", ""))) is not its record's ($want)")
+                get(dl[1], "url", "") == want ||
+                    push!(v, "$p: download URL $(repr(get(dl[1], "url", ""))) is not its record's ($want, published as $(published_name(cat, p)).tar.gz)")
             end
         end
     end

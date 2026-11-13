@@ -12,7 +12,7 @@
 #   Triggs{K}  ONE robustified chart LM (Core's `loss_robustifier` handed to
 #              NLLSsolver) — the default, `[refine.<class>]`, and the ONE
 #              fixed-scale robust path: no reweighting loop, the termination
-#              record NLLSsolver's (Core's `nlls_termination`)
+#              record Core's one LM's (`lmsolve_chart!`)
 #   nothing    plain least squares over every datum (one chart LM), no scale
 #
 # An `Irls{K}` is refused, naming `Triggs{K}`: a refine runs one LM, and an
@@ -207,6 +207,17 @@ function bundle_loss(lo; scale = nothing, width = nothing, codimension::Integer 
     return (; strategy = lo, input, loss = _refine_loss(lo, input, codimension))
 end
 
+# The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word), naming the
+# exceptions; its other spellings, `free`, `fix`, `fixed_params` and `hold`, are refused by Core's one refusal of a
+# retired keyword (`refuse_retired_keyword`), never aliased. Every `fit_*` and `refine_*` that takes `fixed` calls it.
+function _refuse_held_spellings(free, fix, fixed_params, hold)
+    refuse_retired_keyword(free, :free, :fixed)
+    refuse_retired_keyword(fix, :fix, :fixed)
+    refuse_retired_keyword(fixed_params, :fixed_params, :fixed)
+    refuse_retired_keyword(hold, :hold, :fixed)
+    return nothing
+end
+
 # The strategy of record of a refine class (or bundle): configs/default.toml
 # [refine.<class>] `optimization_strategy`, or the bundle's own table. Read once,
 # into the constant `_REFINE_STRATEGY_DEFAULTS` (after config_toml.jl), and
@@ -296,15 +307,8 @@ _refine_lm_ws(ws) = ws
 # (`_triggs_state`, manifold_providers.jl: the residual's own unit, a pinhole PnP's pixels), so L2 and Triggs at an
 # unbounded width minimise the same cost.
 function _refine_run(::Nothing, problem, θ, spec::_RefineSpec)
-    ch = _chart(problem, _as_model(problem, θ))
-    rows, dof = _lm_size(problem)
-    ews = _lm_workspace(_refine_lm_ws(spec.workspace), rows, dof)
-    fill!(sqrt_weights(ews), 1.0)
-    lm = _triggs_state(problem, ch, sqrt_weights(ews))
-    x, _, _, n_iter, record = lmsolve_chart!(ews, lm; maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL,
-                                             ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return θ, (ReturnCode.Failure, NonFinite), n_iter
-    return _model_at(problem, recenter(ch, x)), record, n_iter
+    m, record, n_iter = _chart_refit(_refine_lm_ws(spec.workspace), problem, _chart(problem, _as_model(problem, θ)), _triggs_state, nothing)
+    return something(m, θ), record, n_iter        # the one chart refit (manifold_providers.jl); θ back on a non-finite solve
 end
 
 # Triggs: ONE robustified chart LM at the frozen width (`_triggs_lm`, the RANSAC

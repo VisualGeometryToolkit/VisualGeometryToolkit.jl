@@ -127,7 +127,7 @@ The key design invariant is the **whitening contract**: every `mahalanobis_dista
 implementation must return distances ``r_i \ge 0`` (the norms of the whitened
 residuals) such that ``r_i^2`` equals the
 squared Mahalanobis distance ``g_i^\top \tilde\Sigma_{g_i}^{-1} g_i``. Whether the
-problem has isotropic or heteroscedastic measurement noise is the problem's
+problem has isotropic or heteroscedastic observation noise is the problem's
 responsibility — it handles the whitening inside `mahalanobis_distances!`. For example:
 
 - **Isotropic** (``\tilde\Sigma_{x_i} = I``): the Sampson distance
@@ -138,7 +138,7 @@ responsibility — it handles the whitening inside `mahalanobis_distances!`. For
 Because `mahalanobis_distances!` handles whitening, a scorer only needs to square the
 residuals (model-certain path) or additionally inflate by the predictive
 variance (model-uncertain path). For the Student-t + uniform marginal the
-measurement-space covariance penalty is zero on both paths (whitened outlier
+observation-space covariance penalty is zero on both paths (whitened outlier
 formulation — the ``|\tilde\Sigma_{g_i}|^{-1/2}`` factors cancel between the
 inlier Gaussian and the outlier uniform density in the whitened space); the
 model-uncertain path adds only the model-uncertainty penalty

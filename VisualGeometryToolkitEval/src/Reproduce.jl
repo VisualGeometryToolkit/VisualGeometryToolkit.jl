@@ -47,9 +47,10 @@ using Dates: Dates, DateTime, UTC, now
 using TOML: TOML
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, sha256_hex     # results_branches.jl: a data tier's hash, the GPUs' names
 import ..cli_option                             # src/cli.jl: runner.jl reads its options through it
-import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, .._toml_hash, .._git_line, ..scratch_run   # src/code_identity.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
+import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, .._content_key, .._git_line, ..scratch_run, .._write_atomic   # src/code_identity.jl, src/write_atomic.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
 using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
 using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
+using ..Render: write_tsv                       # paper_assets.jl: the verification report
 
 include("reproduce/reproduce_index.jl")
 include("reproduce/number_macros.jl")
@@ -69,7 +70,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     checkout_commit, number_provenance, provenance_token, project_relative_path,
     results_branch, accept_results, remove_results_worktree,
     Site, StageSpec, StageGraph, PlannedStage, ReproducePlan, load_site, shipped_sites, load_stage_graph, select_stages,
-    stage_items, missing_inputs, resolve_roots, plan_reproduction, print_plan, print_missing, run_manifests,
+    stage_items, stage_each, missing_inputs, resolve_roots, plan_reproduction, print_plan, print_missing, run_manifests,
     slurm_job_states, slurm_queue_states, stage_markers_dir, stage_markers, stage_run_state, submit_slurm!, run_local!, reproduce_status, reproduce_main, results_branch_assets,
     results_branch_of_run, reproduce_script, write_reproduce_script
 

@@ -15,7 +15,7 @@ using Rotations: AngleAxis, RotMatrix
 using StaticArrays: SVector, SMatrix
 using PoseLib
 using PoseLib: LeZach, PoseLibRefineMetadata
-using VisualGeometryToolkitCore: Csponds, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
+using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
     CameraCalibrationMat, Pinhole, Vec3, TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape,
     Irls, Triggs, EfficiencyConstant, LossWidth, FitResult, estimate, retcode, iterations, noise_scale, scale_source,
     ScaleGiven, ScaleUpstream, ScaleNone, efficiency_constant
@@ -38,7 +38,7 @@ function _baseline_data()
     x1 = [_proj(K1, Y) for Y in X]
     x2 = [_proj(K2, R * Y + t) for Y in X]
     x2[1:nout] .= [out2() for _ in 1:nout]
-    rel = Csponds(x1, x2)
+    rel = Correspondences(x1, x2)
     tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)
     F = inv(K2)' * tx * R * inv(K1)
     F0 = F .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(r2, 9)))
@@ -51,13 +51,13 @@ function _baseline_data()
     cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K2)), Pinhole())
     bm1 = backproject_with_jacobian.(Ref(cam1), x1)
     bm2 = backproject_with_jacobian.(Ref(cam2), x2)
-    bear = withattrs(Csponds(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))
+    bear = withattrs(Correspondences(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))
     f = 800.0
     xa = [_nrm(R * Y + t) for Y in X]
     xa[1:nout] .= [SVector(randn(r2), randn(r2)) for _ in 1:nout]
     ua = [SVector(f * c[1] + K1[1, 3], f * c[2] + K1[2, 3]) for c in xa]
-    abs_cs = Csponds(X, ua)
-    return (; seed, K1, K2, rel, F0, H0, hom = Csponds(h1, h2), bear, abs_cs)
+    abs_cs = Correspondences(X, ua)
+    return (; seed, K1, K2, rel, F0, H0, hom = Correspondences(h1, h2), bear, abs_cs)
 end
 
 # The refined models of PoseLib 0.1.9 (VisualGeometryToolkit robust-core 3eabba46), captured with
@@ -149,11 +149,30 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         # the physical absolute pose keeps the plain refinement's record
         Xm = [Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)]
         seedm = VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m)
-        rp = refine_absolute_pose(seedm, d.K1, Csponds(Xm, VgtkCore.targets(d.abs_cs)); max_iter = 25,
+        rp = refine_absolute_pose(seedm, d.K1, Correspondences(Xm, VgtkCore.targets(d.abs_cs)); max_iter = 25,
                                   optimization_strategy = Irls{TLSShape}(), width = 40.0)
         ra = calls.absolute_pose((; optimization_strategy = Irls{TLSShape}(), width = 40.0))
         @test VgtkCore.ustrip(VgtkCore.m, estimate(rp)).R == estimate(ra).R
         @test (retcode(rp), iterations(rp), rp.width) == (retcode(ra), iterations(ra), ra.width)
+    end
+
+    # Below the minimal sample there is nothing to refine: the seed back, unrefined, InitialFailure after 0
+    # iterations and `n = 0` (as VisualGeometryToolkitEstimation's refines; until 0.2.1 `(Success, NoRule)`)
+    @testset "below the minimal sample: InitialFailure, the seed, n = 0" begin
+        few = (relpose_cam = (d.seed, () -> refine_relpose(d.seed, d.K1, d.K2, d.rel[1:4]; max_iter = 25, optimization_strategy = nothing)),
+               relpose_bearing = (d.seed, () -> refine_relpose(d.seed, d.bear[1:4]; max_iter = 25, optimization_strategy = nothing)),
+               fundamental = (d.F0, () -> refine_fundamental(d.F0, d.rel[1:6]; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)),
+               homography = (d.H0, () -> refine_homography(d.H0, d.hom[1:3]; max_iter = 25, optimization_strategy = nothing)),
+               absolute_pose = (d.seed, () -> refine_absolute_pose(d.seed, d.K1, d.abs_cs[1:2]; max_iter = 25, optimization_strategy = nothing)))
+        for (seed, call) in values(few)
+            r = call()
+            @test retcode(r) == VgtkCore.ReturnCode.InitialFailure && VgtkCore.stop_rule(r) == VgtkCore.NoRule
+            @test iterations(r) == 0 && r.n == 0 && estimate(r) == seed
+            VgtkCore.test_termination_record(r)
+        end
+        @test retcode(refine_homography(d.H0, d.hom[1:0]; max_iter = 25, optimization_strategy = nothing)) == VgtkCore.ReturnCode.InitialFailure
+        # at the minimal sample it runs
+        @test retcode(refine_homography(d.H0, d.hom[1:4]; max_iter = 25, optimization_strategy = nothing)) != VgtkCore.ReturnCode.InitialFailure
     end
 
     @testset "every refiner records its termination (converged == successful_retcode)" begin
@@ -164,7 +183,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         end
         VgtkCore.test_termination_record(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
         rp = refine_absolute_pose(VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m), d.K1,
-                                  Csponds([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
+                                  Correspondences([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
                                   optimization_strategy = nothing)
         VgtkCore.test_termination_record(rp)
     end
@@ -186,15 +205,16 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     @testset "refusals" begin
         # the retired keywords, by name
+        # the retired keywords, by name: Core's one refusal (`refuse_retired_keyword`)
         for call in values(calls)
-            @test_throws ArgumentError call((; loss = TLSShape(), loss_width = 2.0))
-            @test occursin("optimization_strategy", msg(() -> call((; loss = TLSShape(), loss_width = 2.0))))
-            @test occursin("`width", msg(() -> call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))))
+            @test_throws ArgumentError("the keyword `loss` is retired: give `optimization_strategy`") call((; loss = TLSShape(), loss_width = 2.0))
+            @test_throws ArgumentError("the keyword `loss_width` is retired: give `width`") call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))
             # the strategy is required, like max_iter
             @test occursin("needs `optimization_strategy`", msg(() -> call((; width = 2.0))))
         end
-        @test occursin("optimization_strategy", msg(() -> H((; local_optimization = Irls{TLSShape}(), width = 2.0))))
-        @test_throws ArgumentError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
+        @test_throws ArgumentError("the keyword `local_optimization` is retired: give `optimization_strategy`") H((; local_optimization = Irls{TLSShape}(), width = 2.0))
+        # a keyword the refiners never had is Julia's own error
+        @test_throws MethodError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
         # exactly one of scale and width for a robust strategy; neither for least squares
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}()))
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}(), scale = 1.0, width = 2.0))

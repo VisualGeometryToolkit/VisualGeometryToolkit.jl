@@ -102,8 +102,8 @@ consensus_s2!
 
 Every reweighted fit (`fit_linear`, `fit_rotation`, `fit_rigid_alignment`,
 `fit_rotation_averaging`, `fit_robot_world_hand_eye`) records its stop through
-one function, as an LM does through VisualGeometryToolkitCore's
-[`nlls_termination`](@extref VisualGeometryToolkitCore.nlls_termination); a
+one function, as an LM does through VisualGeometryToolkitCore's one LM,
+`lmsolve_chart!`; a
 downstream reweighted loop calls it too.
 
 ```@docs

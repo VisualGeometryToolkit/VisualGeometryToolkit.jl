@@ -33,7 +33,7 @@
 # the given k — weights only) and robustly unweighted; its solution seeds everything.
 #
 # The stack is conditioned by ONE normalization, built once from the views —
-# `CspondNormalization(DivisionCameraState, views; center)`: Hartley at the
+# `CorrespondenceNormalization(DivisionCameraState, views; center)`: Hartley at the
 # plane points' centroid, Hartley ABOUT the principal point every radial camera
 # shares on the image side — which every iteration applies inside, composing
 # its solution back into pixels. The IRLS, its posterior, the seed and the scorer's
@@ -60,7 +60,7 @@ struct DivisionCameraProblem <: AbstractConstraintProblem
     prior::Union{Nothing, Vector{Vector{Float64}}}   # the views' `weights` columns (row priors), in `ids` order
     ncoef::Int
     k::Union{Nothing, Float64}                        # pixels
-    normalization::CspondNormalization                # the stack's one normalization (every iteration applies it)
+    normalization::CorrespondenceNormalization                # the stack's one normalization (every iteration applies it)
     n::Int                                            # correspondences over every view
     verbose::Bool
 end
@@ -254,8 +254,8 @@ end
 weight_kind(::Type{<:DivisionCameraMetadata}) = PosteriorWeights()
 
 # A view with its weights as the `weights` column (its other columns kept).
-_with_weights(cs::VgtkCore.Csponds, w) = withattrs(cs; weights = w)
-_with_weights(cs, w) = VgtkCore.Csponds(sources(cs), targets(cs); weights = w)
+_with_weights(cs::VgtkCore.Correspondences, w) = withattrs(cs; weights = w)
+_with_weights(cs, w) = VgtkCore.Correspondences(sources(cs), targets(cs); weights = w)
 
 """
     fit_division_camera(radial_cameras::AbstractDict{K}, views::AbstractDict{K};
@@ -329,7 +329,7 @@ residuals calibrated against ŝ²·I₂ in the tail as well as the bulk
 
 Inputs, `k`, the scorer's `outlier_halfwidth`, `focal_seed` and every output are in pixels;
 the stack is conditioned inside by one normalization
-(`CspondNormalization(DivisionCameraState, views; center)` — Hartley about the
+(`CorrespondenceNormalization(DivisionCameraState, views; center)` — Hartley about the
 radial cameras' shared centre), built once. `image_size = (width, height)`
 (pixels) of the image the views were measured in is REQUIRED for the default
 seed only (`ArgumentError` when both it and `focal_seed` are missing): its
@@ -361,12 +361,12 @@ Jeffreys sweep 3.5 %, a per-board sweep 5.1 %, frozen Welsch 28 %, Welsch with a
 adaptive scale 85 % (no uniform component ⇒ the scale update has no fixed point
 and ran to ŝ = 29). This estimator lands at 1.25 %. A sweep seed needs residuals
 that are already bimodal; iteration 0 here is one linear solve of an uncalibrated
-stack (whitened at a seed, not at a fit), so they are not. (Those measurements
+stack (whitened at a seed, not at a fit), so they are not. (Those numbers
 predate the seeded iteration 0.)
 
 Iteration 0 alone — whitened at the seed and robustly unweighted — is the step
 
-    N = CspondNormalization(DivisionCameraState, views; center)   # center: the cameras' shared centre
+    N = CorrespondenceNormalization(DivisionCameraState, views; center)   # center: the cameras' shared centre
     CameraModel(division_camera_step(N, radial_cameras, views; ncoef, k, whiten_at = focal_seed))
 
 (with `focal_seed` the half-diagonal by default); this function always runs at
@@ -413,7 +413,7 @@ boundaries strip in metres, `ustrip.(m, X)`).
 """
 function fit_division_camera(
         radial_cameras::AbstractDict{K, <:Union{HomographyMat, RadialCamera}},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond}};
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence}};
         image_size = nothing,
         focal_seed::Union{Nothing, Real} = nothing,
         ncoef::Int = _dflt("fit_division_camera", "ncoef"), k::Union{Nothing, Real} = nothing,
@@ -435,7 +435,7 @@ function fit_division_camera(
     ids, Hs, boards = _keyed_views(radial_cameras, views)
     c = _shared_center(Hs)                                    # checked, exact
     prior = _point_weights(boards)
-    # THE NORMALIZATION, once — `CspondNormalization(DivisionCameraState, views;
+    # THE NORMALIZATION, once — `CorrespondenceNormalization(DivisionCameraState, views;
     # center)`; every iteration applies it inside and returns pixels.
     N = _division_normalization(boards, c, prior)
     kk = k === nothing ? nothing : Float64(k)

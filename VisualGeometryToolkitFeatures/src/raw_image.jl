@@ -45,19 +45,21 @@ layout of every structure it reads against LibRaw's own accessors, and refuses
 struct LibRawDecoder <: RawDecoder end
 
 _decoder_trigger(::LibRawDecoder) = "LibRaw_jll"
+_decoder_extension(::LibRawDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
 
-# The decode hooks: an extension adds the methods for its decoder. Without the
-# extension loaded these fallbacks name the package to load.
-_missing_decoder(decoder::RawDecoder) = throw(ArgumentError(
-    "load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $(_decoder_trigger(decoder))` (its package extension is not loaded)"
-))
-_decode_raw(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
+# The decode hooks: an extension adds the methods for its decoder. These fallbacks are Core's `require_extension`'s:
+# without the extension loaded they name the package to load; with it loaded, the MethodError the call raises.
+_require_decoder(f, decoder::RawDecoder, args::Tuple) =
+    require_extension(f, args, @__MODULE__, _decoder_extension(decoder)) do
+        ArgumentError("load_raw: decoding with $(nameof(typeof(decoder)))() needs `using $(_decoder_trigger(decoder))` (its package extension is not loaded)")
+    end
+_decode_raw(decoder::RawDecoder, path::AbstractString) = _require_decoder(_decode_raw, decoder, (decoder, path))
 # The display demosaic: LibRaw's interpolated, linear, 16-bit camera-RGB image of
 # the visible area in the sensor's orientation, and the file's metadata — of a
 # file, or of a mosaic in memory (its photosites, colour phase and levels handed
 # to LibRaw, its own metadata kept).
-_decode_demosaic(decoder::RawDecoder, path::AbstractString) = _missing_decoder(decoder)
-_decode_demosaic(decoder::RawDecoder, mosaic::RawMosaic) = _missing_decoder(decoder)
+_decode_demosaic(decoder::RawDecoder, path::AbstractString) = _require_decoder(_decode_demosaic, decoder, (decoder, path))
+_decode_demosaic(decoder::RawDecoder, mosaic::RawMosaic) = _require_decoder(_decode_demosaic, decoder, (decoder, mosaic))
 # The decoder library's version, part of `load_raw`'s cache key (a library upgrade can move the black levels, the white
 # level or the crop): the extension's (LibRaw's `libraw_version()`); `nothing` for a decoder that states none.
 _decoder_version(::RawDecoder) = nothing
@@ -141,9 +143,9 @@ function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecod
 end
 
 """
-    load_raw(path; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder(),
-             cache = nothing) -> LinearRaw
-    load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, white_balance = nothing,
+    load_raw(path; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
+             decoder::RawDecoder = LibRawDecoder(), cache = nothing) -> LinearRaw
+    load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
              decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
 
 A camera RAW file — or a mosaic already in memory, decoded or corrected
@@ -153,7 +155,7 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
 `mode`:
 
 - `:green_cells` or `:bin2` — exact: [`load_raw_mosaic`](@ref) (for a file),
-  then Core's `LinearRaw(mosaic; mode, gain)`, on the half-resolution cell grid
+  then Core's `LinearRaw(mosaic; mode, gain, sensor_model)`, on the half-resolution cell grid
   that `raw_frame_map` maps onto the raw. `:green_cells` is THE image
   for geometry and radiometry. Rounded to 16 bits
   (`round(UInt16, clamp(x, 0, 1) * 65535)`), `:bin2` equals the linear PNG of
@@ -162,7 +164,7 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
   level.
 - `:demosaic` — FOR DISPLAY FIGURES ONLY. LibRaw's demosaic (AHD) of the
   visible area at full resolution: it INTERPOLATES the two colours each
-  photosite did not record, so its values are not measurements and its
+  photosite did not record, so its values are not measured and its
   pixels carry no exact geometry. Evaluation code must not read it; it has no
   frame map (`raw_frame_map` and `green_cell_sites` refuse it).
   LibRaw's output is linear (gamma 1, no auto-brightening, no maximum
@@ -178,36 +180,58 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
 `white_balance` is accepted with `:demosaic` only: the exact modes are camera
 raw colour, white balance 1.
 
+`sensor_model` (the exact modes only): the frame's resolved
+VisualGeometryToolkitCore `SensorModel` (from `sensor_model`), handed to Core's
+`LinearRaw`, the stack's one black subtraction: the model's black (the file's,
+per channel, or a dark frame's per photosite), its defects joined to
+`saturated`, and under a Poisson–Gaussian or relative noise each value's
+variance (an uncertain image). The absent model, `SensorModel()` (the
+default), is the file's black, bit for bit. The display demosaic is LibRaw's
+own and takes none.
+
 `cache` (a file only; a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
 decoded once per content and settings — the entry is keyed by the file's
 SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
 version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
 another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
-default) decodes every call.
+default) decodes every call. A sensor model other than the absent one is part of
+the key by its content (Core's `content_digest`), so an entry is never served
+for another model; the absent model keeps the plain key.
 """
-function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder(),
-                  cache = nothing)
-    mode === :demosaic || white_balance === nothing ||
-        throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
-    cache === nothing && return _load_raw(path, mode, gain, white_balance, decoder)
+function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
+                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder(), cache = nothing)
+    _check_raw_options(mode, white_balance, sensor_model)
+    cache === nothing && return _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
-                    _decoder_version(decoder))
-    return get!(() -> _load_raw(path, mode, gain, white_balance, decoder), cache, key)
+                    _decoder_version(decoder), (_absent(sensor_model) ? () : (content_digest(sensor_model),))...)
+    return get!(() -> _load_raw(path, mode, gain, sensor_model, white_balance, decoder), cache, key)
 end
 
-function _load_raw(path, mode, gain, white_balance, decoder)
-    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain)
+# The absent sensor model (the file's black, no noise, no defects): today's image, bit for bit, whatever its reason.
+_absent(m::SensorModel) = m.black isa FileBlack && m.noise isa NoNoise && m.defects isa NoDefects
+
+# The options' rules: the white balance is the display demosaic's, the sensor model the exact modes'.
+function _check_raw_options(mode, white_balance, sensor_model)
+    mode === :demosaic || white_balance === nothing ||
+        throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
+    mode === :demosaic && !_absent(sensor_model) &&
+        throw(ArgumentError("load_raw: the display demosaic is LibRaw's, black level and all; a `sensor_model` applies to :green_cells and :bin2"))
+    return nothing
+end
+
+function _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
+    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain, sensor_model)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     rgb, metadata = _decode_demosaic(decoder, String(path))
     return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
 end
 
-function load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
-    mode === :demosaic || white_balance === nothing ||
-        throw(ArgumentError("load_raw: `white_balance` applies to the display demosaic alone; :$mode is camera raw colour, white balance 1"))
-    mode === :demosaic || return LinearRaw(mosaic; mode, gain)
+function load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
+                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
+    _check_raw_options(mode, white_balance, sensor_model)
+    mode === :demosaic || return LinearRaw(mosaic; mode, gain, sensor_model)
     rgb, metadata = _decode_demosaic(decoder, mosaic)
     return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
 end
@@ -333,13 +357,18 @@ end
 _identity_fields(d::DeviceIdentity) = (d.make, d.model, d.serial)
 _agrees(a::DeviceIdentity, b::DeviceIdentity) =
     all(((x, y),) -> x === nothing || y === nothing || lowercase(x) == lowercase(y), zip(_identity_fields(a), _identity_fields(b)))
-# Identities that agree pairwise, as one: each field the first that states it.
+# Identities that agree pairwise, as one: each field the first that states it. The identities' fields as columns
+# (StructArrays' `components`: a vector of tuples as a tuple of vectors), so only the identity's fixed field count is
+# splatted, never the identities: their number is the capture's frame count, data (a splat into `zip` compiled one
+# zip per count, minutes of LLVM at a few hundred frames).
 _first_stated(xs) = (i = findfirst(!isnothing, xs); i === nothing ? nothing : xs[i])
-_merged(ids) = DeviceIdentity((_first_stated(xs) for xs in zip(map(_identity_fields, ids)...))...)
+_merged(ids) = DeviceIdentity(map(_first_stated, components(StructArray(map(_identity_fields, ids))))...)
+# The frames' identities as one: the distinct ones (in frame order, so the first stated field is kept) must agree.
 function _one_identity(ids, what)
-    all(a -> all(b -> _agrees(a, b), ids), ids) ||
-        throw(ArgumentError("extract_capture_settings: the frames name $(length(unique(ids))) $(what)s, $(unique(ids)); a capture has one"))
-    return _merged(ids)
+    distinct = unique(ids)
+    all(a -> all(b -> _agrees(a, b), distinct), distinct) ||
+        throw(ArgumentError("extract_capture_settings: the frames name $(length(distinct)) $(what)s, $(distinct); a capture has one"))
+    return _merged(distinct)
 end
 
 """

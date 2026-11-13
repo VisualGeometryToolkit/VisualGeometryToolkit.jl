@@ -126,7 +126,7 @@ end
 """
     NNMatch
 
-A nearest-neighbor match: `Attributed{Cspond{Int,Int}, NNMatchMeta}`.
+A nearest-neighbor match: `Attributed{Correspondence{Int,Int}, NNMatchMeta}`.
 
 Property forwarding gives direct access:
 - `m.first` — index into desc1
@@ -134,10 +134,10 @@ Property forwarding gives direct access:
 - `m.score` — match quality (similarity or distance, depending on metric)
 - `m.ratio` — Lowe's SNN ratio
 """
-const NNMatch = Attributed{Cspond{Int, Int}, NNMatchMeta}
+const NNMatch = Attributed{Correspondence{Int, Int}, NNMatchMeta}
 
 NNMatch(i::Int, j::Int, score::Float32, ratio::Float32) =
-    Attributed(Cspond{Int, Int}(i, j), NNMatchMeta(score, ratio))
+    Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))
 
 # =============================================================================
 # Internal Helpers
@@ -234,11 +234,11 @@ end
 # =============================================================================
 
 """
-    csponds(features1, features2, matches::AbstractVector{NNMatch})
+    correspondences(features1, features2, matches::AbstractVector{NNMatch})
 
 Convert index-based NN matches to geometric correspondences.
 
-Returns a columnar `Csponds` whose endpoints are the matched features and
+Returns a columnar `Correspondences` whose endpoints are the matched features and
 whose attribute columns carry BOTH match statistics:
 
 - `score::Vector{Float64}` — higher-is-better sampling prior
@@ -251,7 +251,7 @@ whose attribute columns carry BOTH match statistics:
 Access endpoints via `sources`/`targets`, attributes via `cs.score` /
 `cs.ratio`; subsetting keeps all columns aligned.
 """
-function csponds(
+function correspondences(
         features1::AbstractVector, features2::AbstractVector,
         matches::AbstractVector{NNMatch};
         metric::DescriptorMetric = CosineSimilarity()
@@ -269,7 +269,7 @@ function csponds(
         scores[i] = _score(m)
         ratios[i] = m.ratio
     end
-    return Csponds(firsts, seconds; score = scores, ratio = ratios)
+    return Correspondences(firsts, seconds; score = scores, ratio = ratios)
 end
 
 # =============================================================================

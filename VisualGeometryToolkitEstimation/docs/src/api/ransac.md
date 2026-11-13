@@ -16,7 +16,7 @@ locally_optimize
 
 ```@docs
 AbstractRansacProblem
-AbstractCspondProblem
+AbstractCorrespondenceProblem
 MinimalSolveProblem
 PoseContext
 minimal_sample_size

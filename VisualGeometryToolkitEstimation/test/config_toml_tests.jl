@@ -39,8 +39,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         @test rc.max_trials == _dflt("ransac", "max_trials")
         @test rc.min_trials == _dflt("ransac", "min_trials") == 100
         # The core strategy's keyword defaults ARE its table.
-        @test Irls{WelschShape}(efficiency_constant = 1.0).max_iter == VgtkCore.toml_default(VgtkCore._STRATEGY_DEFAULTS, "optimization_strategy.irls", "max_iter")
-        @test Irls{TLSShape}().max_iter == VgtkCore.toml_default(VgtkCore._STRATEGY_DEFAULTS, "optimization_strategy.irls", "max_iter")
+        @test Irls{WelschShape}(efficiency_constant = 1.0).max_iter == VgtkCore.toml_default(VgtkCore._CORE_DEFAULTS, "optimization_strategy.irls", "max_iter")
+        @test Irls{TLSShape}().max_iter == VgtkCore.toml_default(VgtkCore._CORE_DEFAULTS, "optimization_strategy.irls", "max_iter")
         # Every pipeline deploys the file's strategy: the core's TLS IRLS,
         # following the scorer — the circle and the ellipse the robustified LM
         # at its stated multiple. (The strategies' tables and their cross-validated operating
@@ -159,7 +159,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             h = optimization_strategy_from_toml(pipes["homography"]["local_optimization_strategy"]; class = :homography)
             @test h isa Irls{HuberShape}
             @test sm(h) == 2.0
-            @test h.max_iter == VgtkCore.toml_default(VgtkCore._STRATEGY_DEFAULTS, "optimization_strategy.irls", "max_iter")   # inherited
+            @test h.max_iter == VgtkCore.toml_default(VgtkCore._CORE_DEFAULTS, "optimization_strategy.irls", "max_iter")   # inherited
 
             e = optimization_strategy_from_toml(pipes["essential"]["local_optimization_strategy"]; class = :essential)
             @test e isa Irls{WelschShape}

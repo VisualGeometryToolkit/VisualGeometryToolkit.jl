@@ -199,7 +199,7 @@ end
     @test ran == [:dynamic]
     # any other error propagates
     @test_throws ArgumentError _ScheduledKernel(() -> throw(ArgumentError("x")), () -> nothing)()
-    # the detector launched both ways: asift_detection_tests.jl ("the same keypoints in the same order")
+    # the detector launched both ways: asift_detection_tests.jl ("the same detections in the same order")
 end
 
 @testitem "pyramid tile lists: active and masked tiles partition each level" setup = [Fixtures] begin
@@ -569,7 +569,7 @@ end
     @test all(nm -> isempty(getfield(small, nm)), pool_names)
     @test sort(key.(asift_detect!(small, img; nms = :none, intensity_thr = 0.01))) ==
         sort(key.(pool_big))
-    # the pool buffers and the keypoint-covariance buffers (grown alongside them
+    # the pool buffers and the detection-covariance buffers (grown alongside them
     # when in use) are exactly the plan's non-const fields but the last call's
     # count of failed refinements: `_grow_pool!` can replace every one of them,
     # and nothing else
@@ -647,7 +647,9 @@ end
     unit(n) = permutedims(reduce(hcat, [Float32.(normalize(randn(rng, 32))) for _ in 1:n]))
     d1 = unit(40); d2 = unit(55)
     for (metric, similarity) in ((CosineSimilarity(), true), (L2(), false))
-        dm = VGF.pairwise_matrix(metric, d1, d2)
+        # on the CPU, as `match`: the default device is a GPU once CUDA is loaded in the process (another item's), and
+        # a GPU's Float32 dot products may differ from the CPU's in the last bit
+        dm = VGF.pairwise_matrix(metric, d1, d2, KA.CPU())
         for strat in (NN(), MutualNN(), KnnMatch(1), KnnMatch(3), KnnMatch(7)),
                 kw in (
                     (;), (; min_similarity = 0.2), (; max_distance = 1.1), (; ratio_threshold = 0.9),
@@ -671,7 +673,7 @@ end
     r = VGF.match(d1, d2, NN())[1].ratio
     at_r = VGF.match(d1, d2, NN(); ratio_threshold = r)
     @test all(m -> m.ratio < r, at_r)
-    @test match_key(at_r) == ref_match(VGF.pairwise_matrix(CosineSimilarity(), d1, d2), NN(); ratio_threshold = r)
+    @test match_key(at_r) == ref_match(VGF.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU()), NN(); ratio_threshold = r)
     # one gallery row: no second neighbour, so ratio Inf32 and any ratio test
     # rejects (the device path once reported −Inf32 and kept every match)
     one = unit(1)
@@ -688,8 +690,11 @@ end
     rng = MersenneTwister(3)
     a = 3.0f0 .* randn(rng, Float32, 20, 16)   # deliberately not normalized
     b = randn(rng, Float32, 25, 16)
-    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b)
-    @test l2 == VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    l2 = VgtkFeatures.pairwise_matrix(L2(), a, b, KA.CPU())
+    # on the default device (a GPU once CUDA is loaded in the process) the same kernel: its sum of 16 squared
+    # differences and square root may round each step differently from the CPU's (fused multiply-adds, its own
+    # sqrt), at most one Float32 ulp per step of the 16-term sum and the root, so 17 ulps relative
+    @test isapprox(VgtkFeatures.pairwise_matrix(L2(), a, b), l2; rtol = 17 * eps(Float32))
     exact = [sqrt(sum(abs2, a[i, :] .- b[j, :])) for i in 1:20, j in 1:25]
     @test isapprox(l2, exact; rtol = 1.0e-3)
     # Float32 stays Float32 and Float64 stays Float64 — never narrowed
@@ -792,14 +797,14 @@ end
     cs = [Point2(1.0 + i, 2.0) => Point2(3.0, 4.0 + i) for i in 1:10]
     fig, (a, b) = matches(rand(Gray{N0f8}, 20, 30), rand(Gray{N0f8}, 20, 30), cs)
     @test fig isa Figure && !isempty(a.scene.plots) && !isempty(b.scene.plots)
-    # a cspond carries its weight: the markers' alpha (a bare cspond is opaque)
+    # a correspondence carries its weight: the markers' alpha (a bare correspondence is opaque)
     wcs = [Attributed(c, (; weight = i / 10)) for (i, c) in enumerate(cs)]
     fig3 = Figure(); a3 = Axis(fig3[1, 1]); b3 = Axis(fig3[1, 2])
     matches!(a3, b3, wcs)
     @test [Makie.to_color(c).alpha for c in only(a3.scene.plots).color[]] ≈ (1:10) ./ 10
     matches!(a3, b3, cs)
     @test all(c -> Makie.to_color(c).alpha == 1, last(a3.scene.plots).color[])
-    # stochastic endpoints: one σ-ellipse per drawn cspond, at most max_display
+    # stochastic endpoints: one σ-ellipse per drawn correspondence, at most max_display
     Λ = PrecMat{2, Float64}(2.0, 0.1, 0.1, 3.0)
     scs = [Attributed(Point2(5.0 + i, 5.0), Λ) => Attributed(Point2(6.0, 7.0 + i), Λ) for i in 1:40]
     fig2 = Figure()

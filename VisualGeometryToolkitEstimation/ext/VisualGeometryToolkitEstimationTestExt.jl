@@ -86,7 +86,7 @@ module TestScenes
     using LinearAlgebra: normalize
     using StaticArrays: SA, SMatrix, SVector
     using Rotations: RotXYZ, RotZ
-    using VisualGeometryToolkitCore: CameraModel, EssentialMat, Pinhole, Point2, TLSShape, cost, csponds, project, px,
+    using VisualGeometryToolkitCore: CameraModel, EssentialMat, Pinhole, Point2, TLSShape, cost, correspondences, project, px,
         sampson_residual
     using VisualGeometryToolkitEstimation: EssentialProblem
 
@@ -97,7 +97,7 @@ module TestScenes
     const PIXEL_PAIRS_K = SA[800.0 0 320; 0 820.0 240; 0 0 1]
 
     """
-        contaminated_pixel_pairs(rng, n; planar) -> Csponds
+        contaminated_pixel_pairs(rng, n; planar) -> Correspondences
 
     `n` pixel pairs of two `PIXEL_PAIRS_K` views, view 2 at `x₂ = R·x₁ + t` (a fixed
     small rotation, `t = (1, 0.1, 0.05)`): points uniform in `[-1, 1] × [-0.75, 0.75]`
@@ -116,7 +116,7 @@ module TestScenes
             push!(u2, rand(rng) < 0.4 ? Point2{Float64}(640 * rand(rng), 480 * rand(rng)) :
                       Point2{Float64}(p2[1] / p2[3] + 0.5 * randn(rng), p2[2] / p2[3] + 0.5 * randn(rng)))
         end
-        return csponds(u1, u2)
+        return correspondences(u1, u2)
     end
 
     """
@@ -211,7 +211,7 @@ module TestScenes
     # A calibrated point imaged by ECAM.
     topx(u) = Point2{Float64}(project(ECAM, SA[u[1], u[2], 1.0]))
 
-    essential_problem(camera, a, b) = EssentialProblem(camera, camera, csponds(a, b))
+    essential_problem(camera, a, b) = EssentialProblem(camera, camera, correspondences(a, b))
     # Calibrated pairs as ECAM's pixels.
     ecs(a, b) = essential_problem(ECAM, topx.(a), topx.(b))
     end
@@ -403,7 +403,7 @@ module TestScenes
     """
     board_camera(R, t; f = F0, ks = (K0,), center = (0.0, 0.0)) = PosedCamera(
         CameraModel(; focal = f, pp = (Float64(center[1]), Float64(center[2])),
-            lens = Division((k * f^(2p) for (p, k) in enumerate(ks))...)),
+            lens = Division(ntuple(p -> ks[p] * f^(2p), length(ks))...)),   # a Tuple of the lens's fixed order
         EuclideanMap(RotMatrix{3, Float64}(R), SVector{3, Float64}(t))
     )
 

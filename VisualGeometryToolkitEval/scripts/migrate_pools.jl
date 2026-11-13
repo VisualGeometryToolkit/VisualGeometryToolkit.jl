@@ -1,22 +1,22 @@
 #!/usr/bin/env julia
 # =============================================================================
-# migrate_pools.jl — every format-4 light pool under a directory tree, carried
-# to format 5 IN PLACE, each by `Pools.migrate_pool`'s guarded pattern
+# migrate_pools.jl — every format-4 or -5 light pool under a directory tree,
+# carried to the current format IN PLACE, each by `Pools.migrate_pool`'s guarded pattern
 # =============================================================================
 #
 #     julia --project=<VisualGeometryToolkitEval> scripts/migrate_pools.jl DIR            # dry run
 #     julia --project=<VisualGeometryToolkitEval> scripts/migrate_pools.jl DIR --apply    # migrate
 #
-# A DRY RUN unless --apply: every format-4 pool is migrated to a temporary
+# A DRY RUN unless --apply: every older pool is migrated to a temporary
 # directory, read back through `load_pool` and compared bit for bit with the
 # original (`migrate_pool`), and nothing is written. With --apply each verified
-# format-5 file is staged in a fresh directory beside the original (the same
+# current-format file is staged in a fresh directory beside the original (the same
 # filesystem; VisualGeometryToolkitIO's `write_staged`) and renamed over it; the
 # original is replaced only once its migration is verified, and only by that
 # rename. A pool's residuals file is left as it is: it is bound by `pool_key`,
 # which the migration keeps.
 #
-# One line per file: `verified`, `migrated`, `current` (already format 5),
+# One line per file: `verified`, `migrated`, `current` (already the current format),
 # `skipped` (a file that opens and is not a light pool: a residuals file, a
 # sample-starts file, another artifact) or `FAILED` with the reason (a file
 # that does not open is FAILED, not skipped); a failure does not stop the others,
@@ -25,6 +25,7 @@
 # needs room for the largest pool.
 
 using JLD2: JLD2
+using VisualGeometryToolkitEval: ARTIFACT_FORMATS
 using VisualGeometryToolkitEval.Pools: migrate_pool
 using VisualGeometryToolkitIO: write_staged
 
@@ -39,9 +40,9 @@ end
 """
     migrate_pools(root; apply = false, io = stdout) -> NamedTuple
 
-Every `.jld2` light pool under `root`: a format-4 one migrated to format 5 in
-place (verified first, by `migrate_pool`; with `apply` the verified file is
-renamed over the original), a format-5 one left as it is. Logs one line per
+Every `.jld2` light pool under `root`: a format-4 or -5 one migrated to the
+current format in place (verified first, by `migrate_pool`; with `apply` the verified file is
+renamed over the original), a current one left as it is. Logs one line per
 file to `io`; returns the counts `(; migrated, verified, current, skipped, failed)`.
 """
 function migrate_pools(root::AbstractString; apply::Bool = false, io::IO = stdout)
@@ -62,19 +63,19 @@ function migrate_pools(root::AbstractString; apply::Bool = false, io::IO = stdou
             println(io, "skipped   ", path, ": not a light pool")
             n = bump(n, :skipped)
             continue
-        elseif v == 5
+        elseif v == ARTIFACT_FORMATS.pool.version
             println(io, "current   ", path)
             n = bump(n, :current)
             continue
         end
         try
             # migrated into a staging directory beside the original, and the
-            # verified format-5 file renamed over it (the staged residuals copy
+            # verified current-format file renamed over it (the staged residuals copy
             # goes with the staging directory)
             r = write_staged(path => basename(path); dry_run = !apply) do staged
                 migrate_pool(path; out = dirname(staged), dry_run = !apply)
             end
-            println(io, apply ? "migrated  " : "verified  ", path, ": format $v → 5, ", r.n_pairs, " pairs",
+            println(io, apply ? "migrated  " : "verified  ", path, ": format $v → $(ARTIFACT_FORMATS.pool.version), ", r.n_pairs, " pairs",
                 apply ? "" : " (dry run; --apply to migrate)")
             n = bump(n, apply ? :migrated : :verified)
         catch e

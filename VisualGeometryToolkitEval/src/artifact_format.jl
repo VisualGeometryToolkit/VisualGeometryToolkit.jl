@@ -26,6 +26,9 @@
 #               the format spec is Pools `save_pool`)
 #           5 — the destination map's pair key, `destination_map` (2026-10-26;
 #               `Pools.migrate_pool` carries a format-4 file over)
+#           6 — the correspondences' pair key, `correspondences` (the
+#               terminology ruling, 2026-11-13; `Pools.migrate_pool` carries a
+#               format-4 or -5 file over)
 #   pool_residuals
 #           1 — the residual matrices of a v4 pool, with `pool_key` and
 #               `residual_kind` (2026-10-05)
@@ -62,6 +65,12 @@
 #               efficiency constants are read through each arm's own
 #               `format6_constant` hook (`tuned_width`, the identity unless
 #               the roster declares one)
+#           8 — the tuning hash, the stack's content key: the SHA-256 of the
+#               scheme table's canonical JSON (VisualGeometryToolkitCore's
+#               canonical_json), no longer of its sorted TOML (2026-11-13). A
+#               v7 file is read through its version step ("vgtk_eval/tuning/v7",
+#               persist.jl): its stored hash verified with the v7 recipe, then
+#               re-hashed; a v6 file through both steps
 # =============================================================================
 
 """
@@ -76,9 +85,9 @@ an even older file is refused). The file key is `"<kind>_format"`; an absent
 key is version 1.
 """
 const ARTIFACT_FORMATS = (
-    pool = (version = 5,
-            change = "the destination map's pair key, destination_map",
-            remedy = "migrate a format-4 pool with Pools.migrate_pool; convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
+    pool = (version = 6,
+            change = "the correspondences' pair key, correspondences",
+            remedy = "migrate a format-4 or -5 pool with Pools.migrate_pool (a tree: scripts/migrate_pools.jl); convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
     pool_residuals = (version = 1,
             change = "the residual matrices of a v4 pool",
             remedy = "convert its pool with accv2026 scripts/tools/convert_pools_v4.jl"),
@@ -88,8 +97,8 @@ const ARTIFACT_FORMATS = (
     pnp_pool = (version = 2,
             change = "the per-query pseudo-GT gt_variance",
             remedy = "rebuild it with its accv2026 pool builder"),
-    tuning = (version = 7,
-            change = "the efficiency-constant names (`efficiency_constant`, `efficiency_constant_window`)",
+    tuning = (version = 8,
+            change = "the tuning hash, the stack's content key (SHA-256 of canonical JSON) in place of the sorted TOML's",
             remedy = "regenerate it by re-running its tuning",
             read_from = 6,
             read_from_change = "the tuned point as a NATIVE VALUE (`tuned_selection`/`tuned_width`) rather than a grid index"),

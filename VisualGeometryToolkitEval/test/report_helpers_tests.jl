@@ -28,7 +28,7 @@
     using VisualGeometryToolkitEval.Pools: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
         load_pool
     using VisualGeometryToolkitCore: FundMat, sources, targets
-    using VisualGeometryToolkitCore.Pools: PoolPair, pixel_csponds
+    using VisualGeometryToolkitCore.Pools: PoolPair, pixel_correspondences
 
     # ---- the originals, verbatim ------------------------------------------------
     ut_q(v, p) = isempty(v) ? NaN : quantile(v, p)
@@ -134,6 +134,26 @@
             txt = join(["# c", join(["metric", "ours"], '\t'), join(["m", ut_fmt(NaN)], '\t')], '\n') * "\n"
             write(joinpath(dir, "ut.tsv"), txt)
             @test read(write_tsv(joinpath(dir, "new.tsv"), ["metric", "ours"], [["m", fmt3(NaN)]]; comments = ["c"]), String) == txt
+        end
+    end
+
+    @testset "write_tsv of named-tuple rows: the header from their fields" begin
+        mktempdir() do dir
+            # an abstract element type, as a table built with push! has
+            rows = NamedTuple[]
+            push!(rows, (arm = "a", x = 1.5, y = 2)); push!(rows, (arm = "b", x = "", y = 3))
+            p = write_tsv(joinpath(dir, "nt.tsv"), rows; comments = ["first"])
+            @test read(p, String) == "# first\narm\tx\ty\na\t1.5\t2\nb\t\t3\n"
+            @test read_tsv(p)[2] == Dict("arm" => "b", "x" => "", "y" => "3")
+            # the same bytes as the header-and-rows form
+            @test read(p, String) == read(write_tsv(joinpath(dir, "hr.tsv"), ["arm", "x", "y"], [["a", 1.5, 2], ["b", "", 3]]; comments = ["first"]), String)
+            # empty: a concrete element type writes its header; an abstract one an empty header line; both read as no rows
+            e1 = write_tsv(joinpath(dir, "e1.tsv"), @NamedTuple{a::Int, b::Float64}[])
+            @test read(e1, String) == "a\tb\n" && read_tsv(e1) == Dict{String,String}[]
+            e2 = write_tsv(joinpath(dir, "e2.tsv"), NamedTuple[]; comments = ["none"])
+            @test read(e2, String) == "# none\n\n" && read_tsv(e2) == Dict{String,String}[]
+            # one header per table
+            @test_throws r"row 2 has the fields \(:a, :c\)" write_tsv(joinpath(dir, "x.tsv"), NamedTuple[(a = 1, b = 2), (a = 1, c = 2)])
         end
     end
 
@@ -307,11 +327,11 @@
             mkpath(dirname(path))
             jldsave(path; scene = String(scene), n_pairs = length(ps), pair_indices = collect(Int, idx),
                     pool_key = pool.pool_key,
-                    matches = [Matrix{Float64}(match_matrix(pixel_csponds(p))) for p in ps],
+                    matches = [Matrix{Float64}(match_matrix(pixel_correspondences(p))) for p in ps],
                     snn = [Float64.(p.snn) for p in ps],
                     K1 = [Matrix{Float64}(p.K1) for p in ps], K2 = [Matrix{Float64}(p.K2) for p in ps],
                     R_gt = [Matrix{Float64}(p.R_gt) for p in ps], t_gt = [Vector{Float64}(p.t_gt) for p in ps],
-                    provenance = "load_pool($(scene)) pool_key $(pool.pool_key); pixel_csponds + snn + K/R/t " *
+                    provenance = "load_pool($(scene)) pool_key $(pool.pool_key); pixel_correspondences + snn + K/R/t " *
                                  "as stored; pool pairs $(collect(idx)); julia $(VERSION)",
                     created = "FIXED")
             return path
@@ -339,7 +359,7 @@
             @test isfile(export_pixel_inputs(joinpath(dir, "skip.jld2"), bare, [1, 3]))
         end
         # a pair without correspondences is the layout's empty matrix
-        empty_cs = VgtkCore.csponds(SVector{2, Float64}[], SVector{2, Float64}[])
+        empty_cs = VgtkCore.correspondences(SVector{2, Float64}[], SVector{2, Float64}[])
         m0 = VgtkEval.Pools._match_matrix(empty_cs)
         @test m0 isa Matrix{Float64} && size(m0) == (0, 4)
     end

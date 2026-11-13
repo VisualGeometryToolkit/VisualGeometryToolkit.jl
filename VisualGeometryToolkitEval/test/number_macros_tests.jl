@@ -282,6 +282,7 @@ end
     # driver's entries are its own section, rewritten whole when it reruns, the
     # others' left as they are, the sections ordered by driver.
     using Test
+    using FileWatching.Pidfile: mkpidlock
     using VisualGeometryToolkitEval.Reproduce
     path = joinpath(mktempdir(), "trajectory.tex")
     nums(driver, pairs...; order = :name) = (n = PaperNumbers(; driver, config = "configs/c.toml", run_key = "k1", commit = "c1");
@@ -304,6 +305,33 @@ end
     @test Dict(tex_macro_values(path)) == Dict("aX" => "5.0", "bTwo" => "2.5")
     write_numbers(path, nums("scripts/a.jl", "aX" => 5.0))
     @test tex_macro_values(path) == ["aX" => "5.0"]
+    # drivers finishing at once take turns: a driver waits while another holds the file's lock (read, merge, rename),
+    # so neither renames over a section the other wrote after it read
+    held = mkpidlock(path * ".lock")
+    t = @async write_numbers(path, nums("scripts/d.jl", "dOne" => 4.0); shared = true)
+    sleep(2)
+    @test !istaskdone(t) && tex_macro_values(path) == ["aX" => "5.0"]
+    close(held)
+    @test fetch(t) == path && Dict(tex_macro_values(path)) == Dict("aX" => "5.0", "dOne" => "4.0") && !ispath(path * ".lock")
+end
+
+# The writer is dependency-free (Base and the stdlib FileWatching): a bare julia includes reproduce_index.jl,
+# number_macros.jl and paper_assets.jl by path, in that order, and writes a shared file.
+@testitem "number_macros: by path, from a bare julia" begin
+    using Test
+    using VisualGeometryToolkitEval: VisualGeometryToolkitEval
+    dir = pkgdir(VisualGeometryToolkitEval, "src", "reproduce")
+    out = joinpath(mktempdir(), "numbers.tex")
+    code = """
+        foreach(include, ARGS[1:3])
+        n = PaperNumbers(; driver = "scripts/a.jl", config = "c.toml", run_key = "k", commit = "c")
+        add_number!(n, "aX", 5.0; digits = 1)
+        write_numbers(ARGS[4], n; shared = true)
+        print(tex_macro_values(ARGS[4]))
+        """
+    cmd = `$(Base.julia_cmd()) --startup-file=no -e $code $(joinpath(dir, "reproduce_index.jl")) $(joinpath(dir, "number_macros.jl"))
+           $(joinpath(dir, "paper_assets.jl")) $out`
+    @test read(addenv(cmd, "JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => ""), String) == string(["aX" => "5.0"])
 end
 
 # A TeX length is not a re-typed number: a number directly followed by a TeX unit, or with a space where TeX reads a

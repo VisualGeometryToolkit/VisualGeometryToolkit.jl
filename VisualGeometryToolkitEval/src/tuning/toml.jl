@@ -98,7 +98,7 @@ _tag_defaults(fam::String, tag::String) = get(get(get(TUNING_DEFAULTS, "tags", D
 
 # The untagged strategy types and their `[types.<key>]` default tables.
 const _TYPE_KEYS = Dict{Type,String}(
-    EfficiencyConstantWindow => "efficiency_constant_window", GridExtension => "grid_extension",
+    EfficiencyConstantWindow => "efficiency_constant_window", GridExtension => "grid_extension", WindowExtension => "window_extension",
     CoarseFineAxis => "coarse_fine_axis", Incumbent => "incumbent", CrossValidation => "cross_validation", BudgetSampling => "budget_sampling",
 )
 _type_defaults(::Type{T}) where {T} =
@@ -112,7 +112,7 @@ _type_defaults(::Type{T}) where {T} =
 # The spec types: every strategy, scheme and grid spec (the objectives
 # included) is written as a table.
 const _TABLE_TYPES = Union{GridSpacing, WindowRule, TuningAxis, GridSpec, TuningScheme,
-                           SceneSplit, UnitSampling, EfficiencyConstantWindow, GridExtension,
+                           SceneSplit, UnitSampling, EfficiencyConstantWindow, GridExtension, WindowExtension,
                            CoarseFineAxis, Incumbent, CrossValidation, BudgetSampling}
 
 _table_value(x::Union{_TABLE_TYPES,TuningCriterion}) = tuning_table(x)
@@ -149,11 +149,12 @@ tuning_toml(specs::TuningSpec...) = Dict{String,Any}("tuning" => Dict{String,Any
     tuning_hash(spec) -> String
 
 The identity of a tuning protocol: the SHA-256 (hex, first 16) of its
-complete scheme table printed as sorted TOML. Two specs with equal parameters
+complete scheme table's canonical JSON (`_content_key`). Two specs with equal parameters
 hash equal whatever their names or how their configs spelled them; any
 parameter change moves it.
 """
-tuning_hash(x::Union{TuningSpec,TuningScheme}) = _toml_hash(Dict{String,Any}("scheme" => tuning_table(x)))
+tuning_hash(x::Union{TuningSpec,TuningScheme}) = _tuning_table_hash(tuning_table(x))
+_tuning_table_hash(t::AbstractDict) = _content_key(Dict{String,Any}("scheme" => t))
 
 
 # -----------------------------------------------------------------------------

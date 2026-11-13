@@ -58,17 +58,16 @@ by default, run from the start with no least-squares stage, at the caller's
 `scale = σ` (a refine estimates no scale) or `width = w`; `nothing` is plain least
 squares. A
 SplineLens camera is refined only by back-projection (`fit_camera(SplineLens, …)`,
-`pspline_grid`), or held: here it takes `fixed = (:controls,)`, the camera held
-on its optical axis and the poses refined through its whole `project`; the
-image-space refine of its controls was retired in 0.10.0 (the default `fixed = ()`
-and a `penalty` are refused, naming it). A forward spline is refitted after
-(`fit_forward_spline`). With several rigid boards,
+`pspline_grid`), or held: here it takes `fixed = (:controls,)`, the poses refined
+through its whole `project` under the bundle's strategy and the camera returned as
+given (its forward spline kept); the image-space refine of its controls was retired
+in 0.10.0 (the default `fixed = ()` and a `penalty` are refused, naming it). With several rigid boards,
 `refine_camera_and_poses(camera, poses, board_poses, views)` adds one pose per
 board (board → world) to the same bundle, the correspondences keyed by
 `(view, board)`; each connected group of views and boards keeps its gauge by a
 held pose (its first board by default, `held_boards`/`held_views`), exactly.
 
-`refine_camera_and_poses(camera, views::RotationCenterViews, csponds)` refines
+`refine_camera_and_poses(camera, views::RotationCenterViews, correspondences)` refines
 the views of a camera turned about one fixed point (a tripod head) under one
 rigid motion model, one rotation per view and a shared centre and offset, the
 camera held. Its residual is each dot's BEARING for every camera: the dot
@@ -135,12 +134,14 @@ Three verbs regress one camera model onto a source camera over a region of its s
 - `refine_camera(guess, source, region; …)` is the chart LM from a guess to the exact pixel least-squares minimum of
   the guess's family (for a SplineLens source also its principal point, aspect and axis).
 - `approximate_camera(L, source, region; …)` is the two: `refine_camera(estimate(fit_camera(L, source, region)), source, region)`,
-  a family with no linear form starting from its anchor.
+  a family with no linear form starting from its anchor. A bounded source is fitted over `region ∩ imaged_region(source)`:
+  no sample where the camera images nothing.
 
 A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
-`optical_axis(camera::BoundedCamera)` is the one `approximate_camera` call that finds the lens's optical axis: the closest
-radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out), with its
-principal point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
+`optical_axis(camera::BoundedCamera[, region])` is the one `approximate_camera` call that finds the lens's optical axis: the
+closest radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out),
+or over a given image region within it (a target's rectangle: the pixels whose rays are measured), with its principal
+point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
 `fit_forward_spline(camera; tolerance)` gives a SplineLens camera its forward spline and keeps everything else — its
@@ -155,7 +156,6 @@ refine_camera
 approximate_camera
 optical_axis
 pspline_grid
-image_size
 CameraFitMetadata
 ViewAngleLimitError
 ```

@@ -59,7 +59,7 @@ point `X` and its RAW centered pixel `x` the constraint is
     g = x·(Z + t₃) − X_c·(f + Σₚ λₚ ρ²ᵖ)   (two rows; X_c = camera-frame point at t₃ = 0)
 
 which is LINEAR in θ: `g = G_θ·θ + c₀`, `c₀ = x·Z`. [`constraint_with_jacobians`](@ref)
-returns `g`, the measurement Jacobian `G_x = ∂g/∂x` (2×2) and `G_θ` (2×(N+2)),
+returns `g`, the observation Jacobian `G_x = ∂g/∂x` (2×2) and `G_θ` (2×(N+2)),
 and its frozen whitening factor ([`whitening_factor`](@extref VisualGeometryToolkitCore.whitening_factor), `L⁻¹` of
 `G_x·G_xᵀ`) turns them into pixel-currency rows. A KNOWN k folds `λ₁ = k·f`
 into the f column (chain rule) — see `_lift_columns`.
@@ -512,7 +512,7 @@ function _arrow_solve(
 end
 
 function _division_camera_solve(
-        Hs, boards, k, normalization::CspondNormalization;
+        Hs, boards, k, normalization::CorrespondenceNormalization;
         # No defaults: the one caller (`_division_camera_step`) supplies every one, and
         # a default here would be a second authority for its keywords'.
         center::Point2{Float64}, point_weights, whiten_at::Union{Nothing, _PositionalDivisionState, Float64},
@@ -742,7 +742,7 @@ const _RadialCameras = AbstractVector{<:Union{HomographyMat, RadialCamera}}
 # The lift and the pose candidates are written about the ORIGIN of the
 # normalized coordinates the stack is solved in. Each `RadialCamera` carries the centre; the stack's
 # normalization is Hartley ABOUT it on the image side
-# (`CspondNormalization(DivisionCameraState, views; center)`), so the
+# (`CorrespondenceNormalization(DivisionCameraState, views; center)`), so the
 # normalized pixels and the composed cameras are centred by the one map, and
 # `_check_division_normalization` holds the normalization to that. A bare
 # `HomographyMat` means the origin, which is what it has always meant.
@@ -773,31 +773,31 @@ end
 
 # THE division-camera stack's normalization — which both the step's callers and
 # `fit_division_camera` build — is the RADIAL CAMERA's strategy
-# (`CspondNormalization(RadialCamera, cs; center)`, VisualGeometryToolkitCore) over the
+# (`CorrespondenceNormalization(RadialCamera, cs; center)`, VisualGeometryToolkitCore) over the
 # views pooled: the stack shares one pencil, so one camera's strategy serves
 # it. Hartley at the plane points' centroid, Hartley ABOUT `c` on the image
 # side, each point weighed by its `weights` column when the views carry one.
 function _division_normalization(boards::AbstractVector, c, w = _point_weights(boards))
     plane = [SVector{2, Float64}(pd[1]) for pts in boards for pd in pts]
     image = [SVector{2, Float64}(pd[2]) for pts in boards for pd in pts]
-    pooled = w === nothing ? VgtkCore.Csponds(plane, image) :
-        VgtkCore.Csponds(plane, image; weights = reduce(vcat, w))
-    return CspondNormalization(RadialCamera, pooled; center = SVector{2, Float64}(c[1], c[2]))
+    pooled = w === nothing ? VgtkCore.Correspondences(plane, image) :
+        VgtkCore.Correspondences(plane, image; weights = reduce(vcat, w))
+    return CorrespondenceNormalization(RadialCamera, pooled; center = SVector{2, Float64}(c[1], c[2]))
 end
 
 """
-    CspondNormalization(::Type{DivisionCameraState}, views::AbstractDict; center)
+    CorrespondenceNormalization(::Type{DivisionCameraState}, views::AbstractDict; center)
 
 The normalization the division-camera stack is solved in — the `N` that
 `division_camera_step` takes — pooled over every view's
 `plane_point => raw_pixel` correspondences — the radial camera's strategy,
-`CspondNormalization(RadialCamera, cs; center)`, over the pooled views: Hartley
+`CorrespondenceNormalization(RadialCamera, cs; center)`, over the pooled views: Hartley
 at the plane points' centroid, and Hartley about `center` (pixels; the radial
 cameras' shared centre, the principal point) on the image side. A view's
 `weights` column weighs its points. `fit_division_camera` builds the same.
 """
-VgtkCore.CspondNormalization(
-    ::Type{<:DivisionCameraState}, views::AbstractDict{K, <:AbstractVector{<:Cspond}}; center
+VgtkCore.CorrespondenceNormalization(
+    ::Type{<:DivisionCameraState}, views::AbstractDict{K, <:AbstractVector{<:Correspondence}}; center
 ) where {K} = _division_normalization([views[id] for id in block_order(views)], center)
 
 # The positional form — views in a fixed order, the row weights as
@@ -805,7 +805,7 @@ VgtkCore.CspondNormalization(
 # that the keyed `division_camera_step` and the IRLS of `fit_division_camera`
 # run on. Pixels in, pixels out; `N` is applied inside, never built.
 function _division_camera_step(
-        N::CspondNormalization, Hs::_RadialCameras, boards::AbstractVector;
+        N::CorrespondenceNormalization, Hs::_RadialCameras, boards::AbstractVector;
         ncoef::Int = 1, k::Union{Nothing, Real} = nothing,
         point_weights = nothing, whiten_at::Union{Nothing, _PositionalDivisionState, Real} = nothing,
         audit::Bool = false
@@ -882,7 +882,7 @@ end
 
 A declared INNER-LOOP piece (public, not exported): it takes the estimator's
 normalization `N` and pixel data, and returns pixel state. `N` is REQUIRED —
-`CspondNormalization(DivisionCameraState, views; center)`, the one strategy
+`CorrespondenceNormalization(DivisionCameraState, views; center)`, the one strategy
 [`fit_division_camera`](@ref) builds — applied to the data inside, never built
 here; there is no fallback.
 
@@ -902,7 +902,7 @@ candidates; the remaining unknowns are LINEAR in the division-model lift
 `(x, y, 1 + Σₚ kₚ r²ᵖ) ∝ (X, Y, Z + t₃)` ([`RadialLift`](@ref)). The candidate
 is chosen by cheirality and residual, and every board is stacked into one
 least-squares system with the shared unknowns and one `t₃` per board.
-A view's `weights` column (a `Csponds` attribute, e.g. `withattrs(cs; weights)`)
+A view's `weights` column (a `Correspondences` attribute, e.g. `withattrs(cs; weights)`)
 weighs its rows — a board-level vote folds into it losslessly, the row weight
 being √w; views with no admissible candidate are
 dropped, and a [`DivisionCameraError`](@ref) is thrown if none survive or the
@@ -937,7 +937,7 @@ at, so the SOLVE is plain algebraic least squares; the returned `sq_distances`,
 which the robust driver reweights by, are the Sampson residuals at the solution.
 The robust driver's iteration 0 is this step at its seed,
 
-    N = CspondNormalization(DivisionCameraState, views; center)
+    N = CorrespondenceNormalization(DivisionCameraState, views; center)
     CameraModel(division_camera_step(N, radial_cameras, views; ncoef, whiten_at = focal_seed))
 
 (`fit_division_camera` builds the same normalization). For a converged estimate
@@ -950,9 +950,9 @@ them in the unit the radial cameras were fit in (the stack's own
 boundaries strip in metres, `ustrip.(m, X)`).
 """
 function division_camera_step(
-        N::CspondNormalization,
+        N::CorrespondenceNormalization,
         radial_cameras::AbstractDict{K, <:Union{HomographyMat, RadialCamera}},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond}};
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence}};
         ncoef::Int = 1, k::Union{Nothing, Real} = nothing,
         whiten_at::Union{Nothing, DivisionCameraState{K}, Real} = nothing
     ) where {K}
@@ -989,14 +989,14 @@ _rescaled_coeffs(k, s) = [rescale_radial_coeff(k[p], s, p) for p in eachindex(k)
 # point there would silently move it (a centroid Hartley map, say). The plane
 # side is an isotropic scale too (with any translation). Returns the image- and
 # plane-side scales (σ, S).
-function _check_division_normalization(N::CspondNormalization, c)
+function _check_division_normalization(N::CorrespondenceNormalization, c)
     Dm, Sm = destination_map(N), source_map(N)
     σ = _normalization_scale(Dm, "image")
     oc = Dm(SVector{2, Float64}(c[1], c[2]))
     abs(oc[1]) + abs(oc[2]) <= 1.0e-9 || throw(
         ArgumentError(
             "division_camera_step: the normalization's image side must be about the radial cameras' centre " *
-                "$(Tuple(c)) — build it with CspondNormalization(DivisionCameraState, views; center)"
+                "$(Tuple(c)) — build it with CorrespondenceNormalization(DivisionCameraState, views; center)"
         )
     )
     return σ, _normalization_scale(Sm, "plane")

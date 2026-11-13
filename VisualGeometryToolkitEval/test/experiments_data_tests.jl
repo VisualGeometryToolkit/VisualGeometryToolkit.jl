@@ -393,6 +393,8 @@
         withenv("VGTK_SCRATCH" => "1") do
             @test E.scratch_run()
             @test_logs (:warn, r"scratch run records .* of uncommitted code") match_mode = :any E.write_provenance(out; driver = "d")
+            # never reused, not even by a scratch run of the same marked tree (other edits carry the same mark)
+            @test !(@test_logs (:info, r"its code changed") match_mode = :any E.run_complete(out; sidecar = "r.jld2"))
         end
         @test endswith(E.read_provenance(out)["code_trees"]["src"], "+uncommitted")
         rm(joinpath(repo, "src", "N.jl"))
@@ -466,6 +468,12 @@
             @test E.promote_run(run, "runs_of_record") == dst                                       # the same run: left as it is
             other = joinpath(res, "x", "run-" * k0); mkpath(other); E.write_provenance(other, Dict("run_key" => "other"); driver = "d")
             @test_throws r"holds another run" E.promote_run(other, "runs_of_record")
+            # runs without a run_key: the same run again is left as it is; another run of that name is refused
+            nokey = joinpath(res, "fig", "nokey"); mkpath(nokey); E.write_provenance(nokey, Dict("what" => "a"); driver = "d")
+            dst2 = E.promote_run(nokey, "runs_of_record")
+            @test E.promote_run(nokey, "runs_of_record") == dst2
+            nokey2 = joinpath(res, "x", "nokey"); mkpath(nokey2); E.write_provenance(nokey2, Dict("what" => "b"); driver = "d")
+            @test_throws r"holds another run \(another record; this run has no run_key\)" E.promote_run(nokey2, "runs_of_record")
             # the inputs of a config, verified as the runner verifies them
             h = first(split(read(`sha256sum $f`, String)))
             c2 = merge(cfg, Dict{String,Any}("inputs" => Dict{String,Any}(

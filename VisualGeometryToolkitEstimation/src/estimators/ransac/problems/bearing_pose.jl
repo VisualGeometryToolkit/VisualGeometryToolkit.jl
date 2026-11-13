@@ -69,7 +69,7 @@ end
     BearingPoseProblem(cs; sampler = nothing)
 
 The absolute-pose problem on unit BEARINGS: `cs` pairs world points with the
-camera-frame unit bearings observing them, `X => f` (a `Csponds`, a
+camera-frame unit bearings observing them, `X => f` (a `Correspondences`, a
 `StructArray` or a Pair vector), for a camera the caller back-projects itself.
 The model is the camera extrinsics (world → camera, `x_c = R·X + t`, the
 `Extrinsics3` of [`AbsolutePoseProblem`](@ref)); the residual is the tangent-
@@ -121,7 +121,7 @@ function BearingPoseProblem(
     Bs = map(f -> VgtkCore.s2_tangent_basis_matrix(Float64, f), fs)   # the residual's coordinates
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
     ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing)
-    data = VgtkCore.Csponds(Xs, fs)
+    data = VgtkCore.Correspondences(Xs, fs)
     return MinimalSolveProblem{Extrinsics3, 3}(data, nothing, data, nothing, VgtkCore.P3P(), ctx, smplr)
 end
 
@@ -159,26 +159,32 @@ pixel_whitening_defect(normalize(f), M) === nothing || continue   # a dot this c
 """
 function pixel_whitening_defect(f::StaticVector{3}, M::AbstractMatrix)
     fu = SVector{3, Float64}(f)
-    Ms = SMatrix{3, 2, Float64, 6}(M)
-    all(isfinite, Ms) || return :nonfinite
-    for k in 1:2
-        abs(dot(fu, Ms[:, k])) <= _UNIT_BEARING_TOL * norm(Ms[:, k]) || return :not_tangent
-    end
-    A = VgtkCore.s2_tangent_basis_matrix(Float64, fu)' * Ms
-    d = A[1, 1] * A[2, 2] - A[1, 2] * A[2, 1]
-    (isfinite(d) && !iszero(d)) || return :singular
-    return nothing
+    return first(_whitening_defect(fu, VgtkCore.s2_tangent_basis_matrix(Float64, fu), SMatrix{3, 2, Float64, 6}(M)))
 end
 
-# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from; refused where `pixel_whitening_defect` finds one.
+# The defect of `M` at the unit bearing `f` with its tangent basis `B` (the one test, `pixel_whitening_defect`'s), and
+# `BᵀM`, formed once (read only when there is no defect).
+function _whitening_defect(f::SVector{3, Float64}, B, M::SMatrix{3, 2, Float64, 6})
+    A = SMatrix{2, 2, Float64, 4}(B' * M)
+    all(isfinite, M) || return :nonfinite, A
+    for k in 1:2
+        abs(dot(f, M[:, k])) <= _UNIT_BEARING_TOL * norm(M[:, k]) || return :not_tangent, A
+    end
+    d = A[1, 1] * A[2, 2] - A[1, 2] * A[2, 1]
+    (isfinite(d) && !iszero(d)) || return :singular, A
+    return nothing, A
+end
+
+# (BᵀM)⁻¹: the tangent residual at f mapped to the pixel it came from, `B` the problem's basis at f (its `BᵀM` formed
+# once, by the defect test); refused where `pixel_whitening_defect` finds a defect.
 function _pixel_whitening(f, B, M, i)
-    defect = pixel_whitening_defect(f, M)
+    defect, A = _whitening_defect(SVector{3, Float64}(f), B, SMatrix{3, 2, Float64, 6}(M))
     defect === :nonfinite && throw(ArgumentError("BearingPoseProblem: M[$i] is not finite"))
     defect === :not_tangent && throw(ArgumentError(
         "BearingPoseProblem: M[$i] is not tangent to its bearing (fᵀM ≠ 0): it is not this bearing's " *
             "back-projection Jacobian (`backproject_with_jacobian(camera, u)` returns the pair)"))
     defect === :singular && throw(ArgumentError("BearingPoseProblem: M[$i] is singular on the tangent plane"))
-    return SMatrix{2, 2, Float64, 4}(inv(B' * SMatrix{3, 2, Float64, 6}(M)))
+    return SMatrix{2, 2, Float64, 4}(inv(A))
 end
 
 # log_f(p) in the basis B: the tangent vector at f pointing to p, of norm ∠(f, p).

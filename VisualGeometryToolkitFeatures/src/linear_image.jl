@@ -56,7 +56,7 @@ fixed-point type (`N0f8`, `N0f16`). Each value is multiplied by the `exposure`
 and by its plane's `white_balance` factor (one per plane, `nothing`: none),
 then mapped by the `tone` curve (a function of a linear value, `nothing`:
 none), clamped to `[0, 1]`, encoded by [`linear_to_srgb`](@ref) and rounded
-to `T`. A NaN value (no measurement: a panorama pixel no frame sees) is the
+to `T`. A NaN value (no measured value: a panorama pixel no frame sees) is the
 `background`, a display-linear value in `[0, 1]`, encoded alike. The exposure
 and the factors are positive and finite (`ArgumentError` otherwise).
 

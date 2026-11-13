@@ -30,7 +30,7 @@ AbstractRansacProblem{K}                     RANSAC problem interface, K = minim
 ├── LineFittingProblem
 ├── InhomLineFittingProblem
 ├── HandEyeProblem, RadialCameraProblem, RelposeBundleProblem
-└── AbstractCspondProblem{K}                 Correspondence-based problems
+└── AbstractCorrespondenceProblem{K}                 Correspondence-based problems
     └── MinimalSolveProblem{M, K, T, ...}    the one parametric problem struct
         ├── HomographyProblem{T, ...}        alias: M = HomographyMat{T}, K = 4
         ├── FundMatProblem{T, ...}           alias: M = FundMat{T},       K = 7
@@ -42,7 +42,7 @@ AbstractRansacProblem{K}                     RANSAC problem interface, K = minim
 `HomographyProblem`, `FundMatProblem`, `EssentialProblem`,
 `AbsolutePoseProblem` and `RadialHomographyProblem` are exported `const`
 aliases of the single parametric `MinimalSolveProblem{M, K, T, ...}` struct
-(defined in `src/estimators/ransac/problems/cspond.jl`). The model matrix type `M`
+(defined in `src/estimators/ransac/problems/correspondence.jl`). The model matrix type `M`
 selects per-model behaviour (codimension, minimal solver, Sampson whitening)
 via Holy traits like `_model_codim(::Type{<:HomographyMat}) = 2`.
 

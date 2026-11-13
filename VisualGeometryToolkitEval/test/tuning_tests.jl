@@ -126,6 +126,14 @@
         @test occursin("needs `s2`", thrown_message(() -> window_bounds(CoverageWindow(0.1, 0.9, 0.0, 0.0); efficiency_constant_window = w, native = loss_width_map); shown = true))
         @test occursin("needs `center`", thrown_message(() -> window_bounds(CenteredWindow(2.0)); shown = true))
         @test_throws ArgumentError EfficiencyConstantWindow(3.3, 1.0)
+        # a window's expand-on-boundary (WindowExtension, the grid's GridExtension twin): widened by its factor per side
+        @test extend(w, (:lo,); factor = 2.0) == EfficiencyConstantWindow(0.5, 3.3)
+        @test extend(w, (:lo, :hi); factor = 2.0) == EfficiencyConstantWindow(0.5, 6.6)
+        @test extend(w, (); factor = 2.0) == w
+        @test_throws ArgumentError extend(w, (:hi,); factor = 1.0)
+        @test_throws ArgumentError extend(w, (:mid,); factor = 2.0)
+        @test_throws ArgumentError WindowExtension(1.0, 3)
+        @test_throws ArgumentError WindowExtension(2.0, -1)
         @test_throws ArgumentError CoverageWindow(0.9, 0.1, 0.0, 0.0)
         @test_throws ArgumentError CenteredWindow(1.0)
         @test_throws ArgumentError scale_bounds(fill(NaN, 3), (0.1, 0.9))
@@ -155,7 +163,7 @@
         "unit_sampling" => [ExhaustiveSampling(), StratifiedSampling(0.5, 3, 11, "StableRNG"),
                             UniformSampling(0.25, 7, 5, "StableRNG")],
     )
-    untagged = Any[EfficiencyConstantWindow(0.5, 2.0), GridExtension(3, 4),
+    untagged = Any[EfficiencyConstantWindow(0.5, 2.0), GridExtension(3, 4), WindowExtension(2.0, 8),
                    CoarseFineAxis(SpacedAxis(FixedWindow(1, 2), LogCount(3)), GridExtension(2, 1), LinearCount(4), false),
                    Incumbent(Dict("a" => 1.5), 0.9, 200, 3),
                    CrossValidation(RegisteredSceneSplit("x", ["a"], ["c", "b"]), StratifiedSampling(0.5, 3, 11, "StableRNG"),
@@ -519,7 +527,7 @@
             p = joinpath(dir, "run.jld2")
             save_tuning_artifact(p, spec; grids = gs, unit = PairUnit(), code = (VisualGeometryToolkitCore,),
                                  mode = "miscal", note = "x")
-            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 7
+            @test JLD2.load(p, "tuning_format") == VgtkEval.ARTIFACT_FORMATS.tuning.version == 8
             art = load_tuning_artifact(p)
             @test art.spec == spec && art.hash == tuning_hash(spec) && art.unit === PairUnit()
             # the scene lists the run used are persisted with the spec

@@ -8,9 +8,11 @@
 
 The cells of a floorplan fan from `df`, one row per (frame, marker) attempt with
 `rig_distances_bin` (mm), `rig_angles` (rad, the frame's), `error_distances`
-(mm, `missing` where nothing was placed) and `abs_error_angles_deg`. The
-attempts at one distance are numbered into stations by their rig angle, 10°
-apart from the first angle rounded to 10°; per (station, distance) a cell
+(mm, `missing` where nothing was placed) and `abs_error_angles_deg`. Each
+attempt belongs to the member of `stations` nearest its rig angle (an angle
+beyond either end at that end; never numbered by rank: a station with no
+capture shifts no other, and per-frame jitter stays in its station); per
+(station, distance) a cell
 `(; angle, dist, n, rate, med, medr)`: the station's angle (degrees), the
 distance, the placed count, the placed fraction, the median distance error and
 the median |angle error| (`NaN` with nothing placed). The ±90° stations are
@@ -19,15 +21,9 @@ edge-on (a plane presenting no area) and are dropped; every station angle of
 hole in the fan always means no detection, never missing data.
 """
 function station_cells(df::AbstractDataFrame; stations::AbstractRange = -80:10:80)
-    station = Dict{Tuple{Float64, Int}, Int}()
-    for spot in unique(df.rig_distances_bin)
-        angs = sort(unique(df.rig_angles[df.rig_distances_bin .== spot]))
-        anchor = round(Int, rad2deg(first(angs)) / 10) * 10
-        for (k, a) in enumerate(angs)
-            station[(a, spot)] = anchor + 10 * (k - 1)
-        end
-    end
-    d = transform(df, [:rig_angles, :rig_distances_bin] => ByRow((a, s) -> station[(a, s)]) => :station)
+    a0, h, n = first(stations), step(stations), length(stations)
+    station(a) = Float64(stations[clamp(round(Int, (rad2deg(a) - a0) / h) + 1, 1, n)])   # the nearest member of `stations`
+    d = transform(df, :rig_angles => ByRow(station) => :station)
     med(e) = (v = collect(skipmissing(e)); isempty(v) ? NaN : median(v))
     g = combine(
         groupby(d, [:station, :rig_distances_bin]),
@@ -36,7 +32,7 @@ function station_cells(df::AbstractDataFrame; stations::AbstractRange = -80:10:8
         :error_distances => med => :med,
         :abs_error_angles_deg => (e -> med(abs.(e))) => :medr
     )
-    cells = [(angle = Float64(r.station), dist = Float64(r.rig_distances_bin), n = r.n, rate = r.n / r.ntot,
+    cells = [(angle = r.station, dist = Float64(r.rig_distances_bin), n = r.n, rate = r.n / r.ntot,
               med = r.med, medr = r.medr) for r in eachrow(g)]
     filter!(c -> abs(c.angle) < 90, cells)
     have = Set((c.angle, c.dist) for c in cells)

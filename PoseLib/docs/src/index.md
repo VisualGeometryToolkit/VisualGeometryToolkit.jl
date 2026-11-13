@@ -60,12 +60,12 @@ u = pixel.(X)
 
 # PoseLib's P3P solver on three of the points and their bearings (unit rays).
 f = [Vec3(x / sqrt(sum(abs2, x))) for x in X]
-poses = solve(P3P(PoseLibSolver()), Csponds(X, f), [1, 13, 25])
+poses = solve(P3P(PoseLibSolver()), Correspondences(X, f), [1, 13, 25])
 
 # Keep the solution that reprojects all 25 points best, then refine it.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-result = refine_absolute_pose(unlabel(best), K, Csponds(X, u); max_iter = 50,
+result = refine_absolute_pose(unlabel(best), K, Correspondences(X, u); max_iter = 50,
                               optimization_strategy = Irls{TLSShape}(), width = 2.0)
 pose = estimate(result)
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin

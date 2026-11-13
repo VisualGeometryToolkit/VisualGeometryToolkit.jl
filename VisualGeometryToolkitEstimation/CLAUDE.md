@@ -128,7 +128,7 @@ src/
 │   ├── hypotheses.jl          # draw_hypotheses: the RANSAC trial, repeated, no scoring
 │   ├── extent_traits.jl       # ExtentTrait / BoundedProblem validity-region wrapper
 │   ├── problems/
-│   │   ├── cspond.jl              # AbstractCspondProblem, MinimalSolveProblem + its aliases (Homography/FundMat/Essential/AbsolutePoseProblem)
+│   │   ├── correspondence.jl              # AbstractCorrespondenceProblem, MinimalSolveProblem + its aliases (Homography/FundMat/Essential/AbsolutePoseProblem)
 │   │   ├── p3p.jl                 # AbsolutePoseProblem gates, residuals, PnP chart-LM refit
 │   │   ├── bearing_pose.jl        # BearingPoseProblem: pose from unit bearings (+ ray origins, pixel whitening), refine-only if non-central
 │   │   ├── homography.jl          # HomographyProblem
@@ -172,7 +172,7 @@ Include order in `src/VisualGeometryToolkitEstimation.jl` is dependency-aware:
 2. **config_defaults.jl** — parses configs/default.toml; every keyword default reads it
 3. **estimators/ransac/** — framework (types → samplers → interface →
    scoring_glue → loop → local_optimization → hypotheses → extent_traits)
-4. **estimators/ransac/problems/** — RANSAC problem implementations (cspond →
+4. **estimators/ransac/problems/** — RANSAC problem implementations (correspondence →
    p3p → homography → radial_homography → radial_camera → fundmat →
    essential → circle → ellipse → rotation → sampson_lm → relpose_bundle →
    line → hand_eye → pool), then
@@ -194,7 +194,7 @@ specializations go in `problems/`.
 - **Types**: `CamelCase` (`HomographyProblem`, `RansacWorkspace`, `RansacEstimate`)
 - **Constants**: `UPPERCASE_SNAKE_CASE`
 - **Section dividers**: `# =============================================================================`
-- **Private helpers**: Prefix with `_` (`_try_model!`, `_adaptive_trials`, `_seed_posterior_state`)
+- **Private helpers**: Prefix with `_` (`_try_model!`, `_adaptive_count`, `_seed_posterior_state`)
 
 ## Function Signature Conventions
 
@@ -282,7 +282,7 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 **In this package:**
 
 A RANSAC problem owns its normalization. It is built once at construction
-(`CspondNormalization(M, cs)`), the gates and the minimal solves run on the
+(`CorrespondenceNormalization(M, cs)`), the gates and the minimal solves run on the
 normalized view, and `refine!(ws, problem, θ, w)` uses the problem's
 normalization. It never calls a public estimator, or a one-step form that
 normalizes again. `find_*` returns residuals, scales, inlier sets and

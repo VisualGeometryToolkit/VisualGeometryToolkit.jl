@@ -1,9 +1,9 @@
 # =============================================================================
-# Keypoint uncertainty — the implicit-function-theorem covariance of a DoG
-# keypoint, optional per call (`asift_detect(img; uncertainty = FeatureCovariance())`).
+# Detection uncertainty — the implicit-function-theorem covariance of a DoG
+# detection, optional per call (`asift_detect(img; uncertainty = FeatureCovariance())`).
 # =============================================================================
 #
-# A refined DoG keypoint is a stationary point of the detector's local
+# A refined DoG detection is a stationary point of the detector's local
 # quadratic model of the DoG response in v = (s, x, y) (slice, level pixels):
 #
 #     g(v; I) = ĝ(I) + Ĥ(I)·(v − v₀) = 0,
@@ -21,7 +21,7 @@
 # M depends only on the detector configuration — warp, octave, slice and, at
 # the upsampled octave, the pixel parity — never on the image, so it is
 # tabulated once per plan (`_cov_tables`), exactly for the discrete pipeline
-# (`_canvas_kernel` runs the adjoint of every stage); the per-keypoint work is
+# (`_canvas_kernel` runs the adjoint of every stage); the per-detection work is
 # `_bcov!` (driver.jl), from the refinement state `_bextract!` stores. The δĤ·off term is the
 # implicit function theorem applied to the function the detector actually
 # zeroes; dropping it (P = [I₃ | 0]) is the "gradient-only" middle term.
@@ -35,7 +35,7 @@
 """
     FeatureCovariance()
 
-Ask `asift_detect` for each keypoint's 3×3 covariance over `(x, y, log σ)`, by the implicit function theorem, for iid unit pixel noise.
+Ask `asift_detect` for each detection's 3×3 covariance over `(x, y, log σ)`, by the implicit function theorem, for iid unit pixel noise.
 
 `asift_detect(img; uncertainty = FeatureCovariance())` returns detections whose
 frame is VisualGeometryToolkitCore's `Uncertain(frame, Σ̃)`; the default
@@ -43,10 +43,10 @@ frame is VisualGeometryToolkitCore's `Uncertain(frame, Σ̃)`; the default
 `feature_frame(d)` the frame, and `d.center`, `d.σ` and the metadata read as on
 any detection.
 
-**Model.** A refined DoG keypoint is a stationary point of the detector's local
+**Model.** A refined DoG detection is a stationary point of the detector's local
 quadratic model of the DoG in (slice, x, y). With `Ĥ` its finite-difference
 Hessian and `C` the covariance, under unit iid pixel noise, of that model's
-gradient at the keypoint, `Σ̃ = J·Ĥ⁻¹·C·Ĥ⁻¹·Jᵀ`: `C` is tabulated exactly for
+gradient at the detection, `Σ̃ = J·Ĥ⁻¹·C·Ĥ⁻¹·Jᵀ`: `C` is tabulated exactly for
 the discrete pyramid (warp, upsample, blurs, octave downsamples) once per plan,
 and `J` maps to the reported coordinates, then through the ASIFT back-projection.
 
@@ -66,11 +66,11 @@ interior scale slices only and drops an extremum whose sub-pixel refinement
 fails, and with `FeatureCovariance` it drops, exactly so, a detection whose
 covariance is singular or NaN (the implicit-function system singular: not
 finite and positive definite), before the cross-warp NMS; `plan.refine_dropped`
-counts both. Every returned keypoint's `Σ̃` is finite and positive definite.
+counts both. Every returned detection's `Σ̃` is finite and positive definite.
 
 Extension point (not implemented): an intensity-dependent noise model, e.g.
 `FeatureCovariance(noise = ShotNoise(a, b))`, makes the middle term
-`K·diag(σ²(I))·Kᵀ`, gathered from the pyramid per keypoint instead of tabulated.
+`K·diag(σ²(I))·Kᵀ`, gathered from the pyramid per detection instead of tabulated.
 """
 struct FeatureCovariance end
 
@@ -106,18 +106,26 @@ struct _Line
 end
 @inline _line_at(l::_Line, i::Int) = (k = i - l.i0 + 1; 1 <= k <= length(l.v) ? l.v[k] : 0.0)
 
-# The separable blur y[i] = Σₜ k[|t|+1]·x[i+t] is its own adjoint (symmetric taps).
-function _blur_adj(l::_Line, taps::AbstractVector)
-    r = length(taps) - 1
+# Adjoint of the correlation y[i] = Σₜ k[t + r + 1]·x[i + t] (`k` the full, odd-length taps, radius r), over
+# x[1 … n] with zero padding (`imfilter`'s, `detect_foerstner`'s correlations) — entries outside 1 … n dropped — or,
+# with `n = nothing`, over an unbounded line.
+function _correlate_adj(l::_Line, taps::AbstractVector, n::Union{Nothing, Integer} = nothing)
+    r = length(taps) ÷ 2
     out = zeros(length(l.v) + 2r)
     for (j, a) in enumerate(l.v)
         a == 0 && continue
         for t in -r:r
-            out[j + r + t] += Float64(taps[abs(t) + 1]) * a
+            out[j + r + t] += Float64(taps[t + r + 1]) * a
         end
     end
-    return _Line(l.i0 - r, out)
+    i0 = l.i0 - r
+    n === nothing && return _Line(i0, out)
+    lo, hi = max(i0, 1), min(i0 + length(out) - 1, n)
+    return _Line(lo, out[(lo - i0 + 1):(hi - i0 + 1)])
 end
+
+# The separable blur y[i] = Σₜ k[|t|+1]·x[i+t] is its own adjoint (symmetric taps, given as their half).
+_blur_adj(l::_Line, taps::AbstractVector) = _correlate_adj(l, [reverse(taps[2:end]); taps])
 
 # Adjoint of `_bdown!`: dst[i] = src[2i].
 function _down_adj(l::_Line)
@@ -128,15 +136,18 @@ function _down_adj(l::_Line)
     return _Line(2l.i0, out)
 end
 
-# Adjoint of `_bupsample!` away from its clamped edge: dst[2k] = src[k],
-# dst[2k+1] = (src[k] + src[k+1]) / 2.
-function _up_adj(l::_Line)
+# Adjoint of `_bupsample!` (`_upsample_sample`, the package's one 2× upsampling): dst[2k] = src[k],
+# dst[2k+1] = (src[k] + src[k+1]) / 2 — on the unbounded line, or, given the input length `n`, over dst[1 … 2n] with
+# its clamped edge dst[1] = src[1] (`l` then lies in 1 … 2n).
+function _up_adj(l::_Line, n::Union{Nothing, Integer} = nothing)
     lo = fld(l.i0 - 1, 2)
     out = zeros(cld(l.i0 + length(l.v), 2) - lo + 2)
     for (j, a) in enumerate(l.v)
         I = l.i0 + j - 1
         if iseven(I)
             out[I ÷ 2 - lo + 1] += a
+        elseif n !== nothing && I == 1
+            out[1 - lo + 1] += a
         else
             k = fld(I - 1, 2)
             out[k - lo + 1] += 0.5a
@@ -361,9 +372,9 @@ function _unpack_M(tab::AbstractArray, sl, pc, w)
     return M
 end
 
-# ----- per keypoint (device and host) -----------------------------------------
+# ----- per detection (device and host) -----------------------------------------
 
-# The keypoint covariance in the warp canvas' reported coordinates (x, y, log σ),
+# The detection covariance in the warp canvas' reported coordinates (x, y, log σ),
 # packed (xx, xy, xℓ, yy, yℓ, ℓℓ): Ĥ⁻¹·P(off)·M·P(off)ᵀ·Ĥ⁻¹ (in s, x, y), then
 # J = diag(sf, sf, ln2/S). `h` = (h11, h22, h33, h12, h13, h23).
 @inline function _ift_cov(tab, sl, pc, w, h, oS::Float32, oX::Float32, oY::Float32, sf::Float32, S::Int32)
@@ -395,7 +406,7 @@ end
 end
 
 # Host: the packed (xx, xy, xℓ, yy, yℓ, ℓℓ) column as a _FrameCov.
-@inline _keypoint_cov(c) = _FrameCov(
+@inline _detection_cov(c) = _FrameCov(
     Float64(c[1]), Float64(c[2]), Float64(c[3]),
     Float64(c[2]), Float64(c[4]), Float64(c[5]),
     Float64(c[3]), Float64(c[5]), Float64(c[6]),

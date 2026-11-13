@@ -20,7 +20,7 @@ is the calibration goal.
 - ``P`` – pattern frame (rigidly attached to ``R``)
 - ``C`` – camera frame (fixed in ``W``)
 
-**Per-frame measurements.** At time ``i = 1, \ldots, N``:
+**Per-frame observations.** At time ``i = 1, \ldots, N``:
 
 ```math
 A_i \;:=\; T_{WR}^{(i)} \;\in\; \mathrm{SE}(3) \quad \text{(rig in world, from mocap)}
@@ -619,10 +619,10 @@ pure-rotation calibration — clamp required.
 
 ### [7.3 Variant B: per-pair heteroscedastic Mahalanobis](@id handeye-variant-b)
 
-Pair-specific noise covariance derived from explicit measurement-noise models
+Pair-specific noise covariance derived from explicit observation-noise models
 for ``A_{ij}`` (mocap, depending on inter-frame motion) and ``B_{ij}`` (PnP,
 depending on pattern distance, foreshortening, image-area, etc.). With
-``\boldsymbol{x}_i = (A_i, B_i)`` jointly the noisy measurement and
+``\boldsymbol{x}_i = (A_i, B_i)`` jointly the noisy observation and
 ``\Sigma_{x_i} = \mathrm{block\text{-}diag}(\Sigma_{A_i}, \Sigma_{B_i}) \in \mathbb{R}^{12\times12}``:
 
 ```math
@@ -635,7 +635,7 @@ depending on pattern distance, foreshortening, image-area, etc.). With
 ```
 
 The framework supports this directly: return ``\Sigma_{x_i}`` from the problem's
-`measurement_covariance(problem, i)` beside its `constraint_with_jacobians`, and
+`observation_covariance(problem, i)` beside its `constraint_with_jacobians`, and
 the default `mahalanobis_distances!` computes
 ``\sqrt{\boldsymbol{g}_i^{\!\top}\,\tilde\Sigma_{g,i}^{-1}\,\boldsymbol{g}_i}``.
 

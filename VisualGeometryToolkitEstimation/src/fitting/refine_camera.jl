@@ -177,12 +177,11 @@ end
 
 function residual_cost!(_, lm::_LensRegressionLm, x)
     VgtkCore._launch_rows!(_cost_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    return 0.5 * sum(view(lm.partials, 1, :))
+    return VgtkCore.reduce_cost(lm.partials)
 end
 function residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64}) where {N}
     VgtkCore._launch_rows!(_normal_row!, lm.partials, size(lm.partials, 2), lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-    t = Array(sum(lm.partials; dims = 2))                       # the work items' columns summed where they are
-    return 0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N)))
+    return VgtkCore.reduce_normal_equations(lm.partials, Val(N))
 end
 
 # Each sample's round-trip error at the solution `x`, in pixels / fx₀: the forward form, a lift's radius capped at
@@ -201,10 +200,11 @@ end
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
 # zero), its termination record `(code, rule)` and its iterations — a function barrier static in the N
 # coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
-# device (one placeholder row, NLLSsolver's problem needs one).
-function _regress_lens(lm::_LensRegressionLm, ::Val{N}, max_iter::Int) where {N}
+# device (one placeholder row, NLLSsolver's problem needs one). `stops` are Core's stop settings (`LmStops`, its
+# `[lm]` table), the caller overriding a field only from its own table (`refine_camera`: the cap, `[refine_camera]`).
+function _regress_lens(lm::_LensRegressionLm, ::Val{N}, stops::LmStops) where {N}
     ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
-    x, _, _, iterations, record = lmsolve_chart!(ews, lm; maxit = max_iter, stationarity_tol = _CHART_LM_STATIONARITY_TOL)
+    x, _, _, iterations, record = lmsolve_chart!(ews, lm, stops)
     return x, record, iterations
 end
 
@@ -214,13 +214,17 @@ end
 
 """
     refine_camera(guess::CameraModel, source, region; fixed = (), weight = :image, max_iter, device = default_device(),
-                  optimization_strategy = nothing) -> FitResult{<:CameraModel, CameraFitMetadata}
+                  optimization_strategy = nothing, support = valid_domain(source)) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The camera of `guess`'s lens family polished onto `source` over `region` (a region of the source's sensor in its pixel
 frame, as [`fit_camera`](@ref) takes it): the exact minimizer of the integrated squared pixel error of the round trip,
 `∫ ‖π(π⁻¹_source(u)) − u‖² du`, by the stack's chart LM from `guess`. It is a `refine`: it needs the guess, and it
 converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where the family has a linear form;
 [`approximate_camera`](@ref) is the two in one call.
+
+**The region's support.** The `region` must lie inside the source's calibrated support — `support`, the source's
+`valid_domain` by default, or the support of the camera it was re-gridded from — or the fit is refused with Core's
+`RegionBeyondSupport` (`check_region_support`, at entry): a fit never reads a model where it is extrapolated.
 
 - **What moves: everything but `fixed`**, the guess's parameters held by name (`parameter_names(guess)`: the
   intrinsics' `:f`, `:aspect`, `:cx`, `:cy`, then the lens's) or by group (a coefficient family's stem: `:k` the radial
@@ -240,7 +244,7 @@ converges to the minimum nearest it. [`fit_camera`](@ref) gives a guess where th
   camera's own rays on the image over the region, each pixel one sample of equal weight (the `:image` density; another
   `weight` is an `ArgumentError`). The fitted camera's principal point is the axis's pixel, and `metadata.rotation` is
   the turn from the source's frame to the fitted one; `metadata.symmetry_residual` (px) is the azimuthal misfit no
-  radially symmetric camera represents. [`optical_axis`](@ref) is this refine of the Fisheye624 family.
+  radially symmetric camera represents. [`optical_axis`](@ref) is this refine of the Fisheye624 form (4 radial terms).
 - **The residual** is one 2-D residual per sample: a forward lens's is its pixel minus the sample's
   (`projected_radius` along the ray's azimuth, finite past a fold of its profile); a lift's is angle-style, in the
   equidistant chart about ẑ, scaled by the sample's normalized radius.
@@ -265,7 +269,12 @@ kb = refine_camera(start, camera, region)                              # its exa
 kb = approximate_camera(KannalaBrandt{4}, camera, region)              # the same two steps
 ```
 """
-function refine_camera(
+function refine_camera(guess::CameraModel, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...)
+    VgtkCore.check_region_support(support, region; who = "refine_camera")   # Core's one guard: no fit over an extrapolated model
+    return _refine_camera(guess, source, region; kwargs...)
+end
+# The refine itself, its region checked by the caller (`refine_camera`, `approximate_camera`, `optical_axis`).
+function _refine_camera(
         guess::CameraModel, source::CameraModel, region;
         fixed::Tuple{Vararg{Symbol}} = (),
         weight::Symbol = :image, max_iter::Int = _dflt("refine_camera", "max_iter"), device = default_device(),
@@ -284,7 +293,7 @@ function refine_camera(
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
     M = _offset_matrix(K0)   # K₀₂ / fx₀ (fit_camera.jl)
     start = _refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = _profile_samples(role, L, source, region, K0, weight)
+    pr = _profile_samples(role, L, source, region, K0, weight, device)
     P = _regression_manifold(role, _lens_family_manifold(role, gl, moving), start, moving)
     # a forward guess that folds before the domain's edge (a linear fit over a field its family cannot image) images
     # no radius past its fold: its residual there is capped at the fold, as the reported errors are
@@ -293,7 +302,7 @@ function refine_camera(
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     # nothing free (a physical K with `free = ()`; a gauge K's axis is always free): the guess itself, no LM
     p, record, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0) :
-        _regress_lens(lm, Val(tangent_size(P)), max_iter)
+        _regress_lens(lm, Val(tangent_size(P)), LmStops(; max_iter))
 
     fit = _regression_parts(retract(P, p))
     # a regression that ends non-finite did not converge: its FitResult reports it
@@ -302,8 +311,9 @@ function refine_camera(
     e = K0[1, 1] .* _sample_errors(lm, p, _domain_cap(L, fit.lens, isfinite(fit.s), pr.θ_max))   # (fit_camera.jl)
     return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
 end
-# A bounded camera's model is the source (its image does not enter: the region bounds the fit).
-refine_camera(guess::CameraModel, source::BoundedCamera, region; kwargs...) = refine_camera(guess, model(source), region; kwargs...)
+# A bounded camera's model is the source, over the part of the region it images (`_imaged_part`).
+refine_camera(guess::CameraModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
+    refine_camera(guess, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "refine_camera")); kwargs...)
 refine_camera(guess::CameraModel, source::NoncentralSplineModel, region; kwargs...) = throw(
     ArgumentError("refine_camera: a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
@@ -349,13 +359,15 @@ _checked_start(st) = (isfinite(st.s) && st.s > 0 && isfinite(st.a) && st.a > 0 &
 # ==============================================================================
 
 """
-    approximate_camera(::Type{L}, source, region; weight = :image, max_iter, device = default_device())
+    approximate_camera(::Type{L}, source, region; weight = :image, max_iter, device = default_device(), support = valid_domain(source))
         -> FitResult{<:CameraModel, CameraFitMetadata}
 
-The camera of lens family `L` closest to `source` over `region`, from no guess:
+The camera of lens family `L` closest to `source` over `region` (a bounded source: `region ∩ imaged_region(source)`, no
+sample where it images nothing), from no guess:
 `refine_camera(estimate(fit_camera(L, source, region)), source, region)` — the linear fit's camera is the refine's
 start ([`fit_camera`](@ref), [`refine_camera`](@ref)). The keywords split to their stages: `weight` and `fixed` to
-both (the held coefficients keep the family's anchor values through both), `max_iter` and `device` to the refine. The result is the refine's.
+both (the held coefficients keep the family's anchor values through both), `device` to both (a gauge-K source's rays are
+sampled on it), `max_iter` to the refine. The result is the refine's.
 
 A family with no linear form (a projection with a shape parameter — `DoubleSphere`, `Unified`, `ExtendedUnified` —
 or a `Tilt` or `FieldOfView` term) starts from its anchor instead: the family's zero lens (the double sphere at
@@ -367,12 +379,27 @@ kb = approximate_camera(KannalaBrandt{4}, camera, region)     # a SplineLens cam
 ```
 """
 function approximate_camera(
-        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), kwargs...
+        ::Type{L}, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...
     ) where {L <: AbstractLensModel}
-    start = _approximation_start(_linear_form(L), L, source, region, weight, fixed)
-    return refine_camera(start, source, region; weight, fixed, kwargs...)
+    VgtkCore.check_region_support(support, region; who = "approximate_camera")   # Core's one guard
+    return _approximate_camera(L, source, region; kwargs...)
 end
-approximate_camera(::Type{L}, source::BoundedCamera, region; kwargs...) where {L <: AbstractLensModel} = approximate_camera(L, model(source), region; kwargs...)
+# The linear fit's start, then the refine, the region checked by the caller (`approximate_camera`, `optical_axis`).
+function _approximate_camera(
+        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        kwargs...
+    ) where {L <: AbstractLensModel}
+    start = _approximation_start(_linear_form(L), L, source, region, weight, fixed, device)
+    return _refine_camera(start, source, region; weight, fixed, device, kwargs...)
+end
+approximate_camera(::Type{L}, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) where {L <: AbstractLensModel} =
+    approximate_camera(L, model(source), _imaged_part(source, VgtkCore.check_region_support(support, region; who = "approximate_camera")); kwargs...)
+# The part of `region` a bounded camera images: `region ∩ imaged_region(camera)` (Core's intersection), so no sample
+# lies where the camera images nothing; its own imaged region as it is (the same region value, the same samples).
+function _imaged_part(camera::BoundedCamera, region)
+    imaged = VgtkCore.imaged_region(camera)
+    return region == imaged ? imaged : region ∩ imaged
+end
 approximate_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L <: AbstractLensModel} = throw(
     ArgumentError("approximate_camera($L, …): a non-central source (NoncentralSplineModel) is not supported yet: a radially symmetric central camera fits a central source")
 )
@@ -380,11 +407,11 @@ approximate_camera(::Type{Division}, source::CameraModel, region; kwargs...) = a
 
 # The refine's start: the linear fit's camera, or the family's anchor at the source's K (no linear form, or a failed
 # linear fit).
-function _approximation_start(form, ::Type{L}, source, region, weight, fixed) where {L}
-    r = fit_camera(L, source, region; weight, fixed)
+function _approximation_start(form, ::Type{L}, source, region, weight, fixed, device) where {L}
+    r = _fit_lens_linear(form, _target_anchor(L), source, region, weight, fixed, device)
     return converged(r) ? estimate(r) : _anchor_camera(L, source)     # a failed linear solve: the anchor
 end
-_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed) where {L} = _anchor_camera(L, source)
+_approximation_start(::_NoLinearForm, ::Type{L}, source, region, weight, fixed, _device) where {L} = _anchor_camera(L, source)
 # The camera of the source's K with the family's anchor lens, or with a given lens.
 _anchor_camera(::Type{L}, source) where {L} = _anchor_camera(_target_anchor(L), source)
 _anchor_camera(a::AbstractLensModel, source) =
@@ -395,15 +422,21 @@ _anchor_camera(a::AbstractLensModel, source) =
 # ==============================================================================
 
 """
-    optical_axis(camera::BoundedCamera) -> FitResult{<:CameraModel, CameraFitMetadata}
+    optical_axis(camera::BoundedCamera, region = imaged_region(camera); support = valid_domain(camera), device = default_device())
+        -> FitResult{<:CameraModel, CameraFitMetadata}
 
-The radially symmetric camera closest to `camera` over the camera's own bound, its `imaged_region` (the sensor ∩ its
-lens coverage ∩ the model's valid domain). It is [`approximate_camera`](@ref) of the stack's Fisheye624 family
-(COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, 6})`,
+The radially symmetric camera closest to `camera` over `region ∩ imaged_region(camera)`: by default the camera's own
+bound, its `imaged_region` (the sensor ∩ its lens coverage ∩ the model's valid domain); given a `region` (a `Rect2`, an
+`Ellipse`, or their `∩`, in the camera's pixel frame), its part the camera images — a target's rectangle, where the rays
+are measured, keeps out a lattice's unconstrained edge (RadiometricCamera's siemens start camera stalls over its whole
+image and converges over its board). It is [`approximate_camera`](@ref) of the Fisheye624 form
+(COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, n})`, with
+`n = 4` radial terms, θ³…θ⁹: configs/default.toml `[optical_axis] radial_terms`, the smallest order that locates the axis
+as well as 6 terms do on the cameras studied, and far better conditioned;
 its decentering held at zero) onto `camera`, that one call, nothing more: the linear fit of its radial coefficients
 and focal, then the refine with the principal point and the axis free.
-- The region is the bound, never a default. A circular fisheye's lens coverage (its image circle) keeps the corners
-  out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
+- The region is the bound or a part of it, never more. A circular fisheye's lens coverage (its image circle) keeps the
+  corners out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
 - A bare model has no bound: an `ArgumentError`. Wrap it in `BoundedCamera(model, size; lens_coverage)`.
 - For a SplineLens camera (a gauge `K`), the principal point and the axis are free. Read them from the result.
   - The optical axis in the camera's frame is `rotation(metadata(r).rotation)' * ẑ`.
@@ -412,20 +445,34 @@ and focal, then the refine with the principal point and the axis free.
     decentred lens reports it.
 - A physical `K` is its own axis: the identity rotation and the source's principal point.
 
+`device` is the backend the camera's rays are sampled and the regression reduced on (`approximate_camera`'s).
+`support` bounds the region (`region` must lie inside it, else Core's `RegionBeyondSupport`; never clipped): the
+camera's `valid_domain` by default; for a camera re-gridded from a calibration (a whole-sensor lattice extrapolated past
+the board), the calibration's support — RadiometricCamera's siemens start camera, refused over its whole sensor, fits
+over its Schöps support.
+
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
-axis. `fit_camera(SplineLens, …)` and the SplineLens `refine_camera_and_poses` do this first, always.
+axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
+it returns the camera as given).
 """
-optical_axis(camera::BoundedCamera) = approximate_camera(_AXIS_FAMILY, camera, VgtkCore.imaged_region(camera); fixed = _AXIS_FIXED)
-optical_axis(camera::VgtkCore.AbstractCamera) = throw(
+function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(camera); support = VgtkCore.valid_domain(camera),
+                      device = default_device())
+    # Core's one guard on the caller's region (never clipped past the support), then its part the camera images
+    part = _imaged_part(camera, VgtkCore.check_region_support(support, region; who = "optical_axis"))
+    return _approximate_camera(_AXIS_FAMILY, model(camera), part; fixed = _AXIS_FIXED, device)
+end
+optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = throw(
     ArgumentError(
         "optical_axis: a $(nameof(typeof(camera))) has no bound — the axis is fitted over the camera's own region; " *
             "wrap it, `BoundedCamera(camera, Size2(width, height); lens_coverage = <its image circle>)`"
     )
 )
-# The radially symmetric family of the optical axis: Fisheye624 (COLMAP RAD_TAN_THIN_PRISM_FISHEYE), its six radial
-# coefficients fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the focal,
-# aspect, principal point, radial coefficients and the axis free).
+# The radially symmetric family of the optical axis: Fisheye624's form (COLMAP RAD_TAN_THIN_PRISM_FISHEYE) with
+# `[optical_axis] radial_terms` radial coefficients (configs/default.toml, read once: 4, θ³…θ⁹; the derivation is
+# beside the key) fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the
+# focal, aspect, principal point, radial coefficients and the axis free).
 const _AXIS_FAMILY = typeof(
-    VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ VgtkCore.Radial(ntuple(_ -> 0.0, 6)))
+    VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘
+                  VgtkCore.Radial(ntuple(_ -> 0.0, _dflt("optical_axis", "radial_terms")::Int)))
 )
 const _AXIS_FIXED = (:p, :sx, :sy)

@@ -8,13 +8,13 @@
 # runs them; the README's Citing section has both BibTeX entries.
 #
 # The descriptor returns a StructArray{DescribedFeature}; the matcher returns
-# the stack's match type, Vector{NNMatch}, so `csponds(fa, fb, matches)` and
+# the stack's match type, Vector{NNMatch}, so `correspondences(fa, fb, matches)` and
 # everything downstream of `match` take LoMa output unchanged.
 #
 # ONNXRunTime.jl reverses dims at the boundary, so a Julia array's size IS the
-# ONNX shape: the image goes in as (1, 3, H, W), keypoints as (1, N, 2).
+# ONNX shape: the image goes in as (1, 3, H, W), detection points as (1, N, 2).
 #
-# Keypoints cross into the networks' [-1, 1] chart here and nowhere else: the
+# Detection points cross into the networks' [-1, 1] chart here and nowhere else: the
 # detectors' COLMAP pixel centres (image corners at 0 and (w, h)) map to
 # 2x/w - 1, DeDoDe's `to_normalized_coords`. Nothing normalized leaves this file.
 #
@@ -115,14 +115,14 @@ file) and its `sha256`, the `execution_provider` actually used (`:cpu` or
 loma_provenance(l) = l.provenance
 
 # =============================================================================
-# Keypoints and detections
+# Detection points
 # =============================================================================
 
 # (h, w) from an image size: (H, W) or a channelview's (C, H, W)
 _image_hw(sz) = (sz[end - 1], sz[end])
 
-# 1×N×2 Float32 keypoints in the networks' [-1, 1] chart
-function _loma_keypoints(features, sz)
+# 1×N×2 Float32 detection points in the networks' [-1, 1] chart
+function _loma_points(features, sz)
     h, w = _image_hw(sz)
     kpts = Array{Float32}(undef, 1, length(features), 2)
     for (i, f) in enumerate(features)
@@ -172,7 +172,7 @@ in its COLMAP pixel frame. The exported graph's input is fixed at
 normalization: an image of another size is resampled to it per channel by
 VisualGeometryToolkitCore's bilinear `image_warp!` (the COLMAP scaling
 `x ↦ (W, H) / 784 ⊙ x`, no prefilter), and a `(3, 784, 784)` image is taken as
-it is. The keypoints enter the network's [-1, 1] chart from the image's own
+it is. The detection points enter the network's [-1, 1] chart from the image's own
 size, so the detections are never rescaled, and the described features carry
 them as given (frame in = frame out). Do not ImageNet-normalize the image: on
 LoMa's toronto pair that drops the matches from 166 to 14 (and none above
@@ -246,9 +246,9 @@ function (l::LoMaDescriptor)(img::AbstractArray{<:Real, 3}, detections)
     detections = spread_strongest(detections, size(img), l.max_detections)
     descriptor_inputs = l.descriptor_model.input_names
 
-    descriptors = _onnx_run(l.descriptor_model, Dict(
+    descriptors = onnx_run(l.descriptor_model, Dict(
         descriptor_inputs[1] => insertdims(input, dims=1),
-        descriptor_inputs[2] => _loma_keypoints(detections, size(img))
+        descriptor_inputs[2] => _loma_points(detections, size(img))
     ))["descriptions"]
     described_features(detections, dropdims(descriptors, dims=1))
 end
@@ -296,7 +296,7 @@ image sizes, `(H, W)` or a channelview's `(C, H, W)`.
 Returns the same type as [`match`](@ref): `m.first` indexes `features_a`,
 `m.second` indexes `features_b`, sorted best-first. `m.score` is the network's
 match probability (higher is better, a similarity, so the default
-`csponds(features_a, features_b, matches)` reads it correctly); `m.ratio` is
+`correspondences(features_a, features_b, matches)` reads it correctly); `m.ratio` is
 `Inf32`, since the network has no second neighbour. Matches scoring below
 `min_score` are dropped.
 """
@@ -312,9 +312,9 @@ function (l::LoMaMatcher)(features_a, features_b, size_a, size_b; min_score::Rea
     desc_a = insertdims(Float32.(stack(map(feat -> feat.descriptor, features_a), dims=1)), dims=1)
     desc_b = insertdims(Float32.(stack(map(feat -> feat.descriptor, features_b), dims=1)), dims=1)
 
-    out = _onnx_run(l.matcher_model, Dict(
-        matcher_inputs[1] => _loma_keypoints(features_a, size_a),
-        matcher_inputs[2] => _loma_keypoints(features_b, size_b),
+    out = onnx_run(l.matcher_model, Dict(
+        matcher_inputs[1] => _loma_points(features_a, size_a),
+        matcher_inputs[2] => _loma_points(features_b, size_b),
         matcher_inputs[3] => desc_a,
         matcher_inputs[4] => desc_b
     ))

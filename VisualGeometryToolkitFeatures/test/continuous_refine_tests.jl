@@ -44,6 +44,20 @@
     # the covariance at C's point is finite and positive definite
     Σ = VgtkFeatures._continuous_covariance(plan, e.oi, 1, wins[1], r, cfg)
     @test all(isfinite, Σ) && all(>(0), eigvals(Symmetric(Matrix(Σ))))
+    # the level's extent bounds the solve as the detector's keep test does (1 ≤ x ≤ W): from a start 0.6 px left of
+    # the extremum the refinement reaches it inside the level, but with the level's last column at x = 128 (the
+    # extremum at 128.45 beyond it) it ends on that edge — LeftBasin, the start returned — never outside the level
+    v3 = SVector(vA[1] - 0.6, vA[2], vA[3])
+    S = plan.nb_scales
+    inside = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (W, H))
+    @test VgtkCore.successful_retcode(inside[4]) && abs(inside[1][1] - truth[1]) < 2.0e-3
+    cut = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (128, H))
+    @test cut[5] == VgtkCore.LeftBasin && cut[1] == v3
+    # the LM's stop settings are Core's (StaticLmStops, [lm]): the refinement's own are retired, refused by name
+    for kw in ((; max_iter = 10), (; converged_tol2 = 1.0e-12), (; cost_floor = 0.0))
+        err = try VgtkFeatures.ContinuousRefinement(; kw...) catch e; e end
+        @test err isa ArgumentError && occursin("is retired", err.msg)
+    end
 end
 
 @testitem "continuous refinement: CPU = GPU on one DoG — the same §14 records, points within the derived tolerance" setup = [UncFixtures] begin
@@ -66,7 +80,7 @@ end
             eg, _, _ = VgtkFeatures._refine_dog_extrema(CUDA.CUDABackend(), plan.dogs[oi], st; kw...)
             ec, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), Array(plan.dogs[oi]), st; kw...)
             # the same verdict on both backends; the stop RULE may differ between two converged solves at a tie of their
-            # stops (measured: 2 of 386 dense-scene keypoints, both converged), so it is not compared
+            # stops (measured: 2 of 386 dense-scene detections, both converged), so it is not compared
             @test all(a.retcode == b.retcode for (a, b) in zip(eg, ec))
             @test maximum(maximum(abs, a.v - b.v) for (a, b) in zip(eg, ec)) <= tol
         end

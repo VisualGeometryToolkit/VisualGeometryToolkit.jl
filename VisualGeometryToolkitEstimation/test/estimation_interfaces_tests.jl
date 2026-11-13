@@ -21,7 +21,7 @@
 using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: csponds,
+using VisualGeometryToolkitCore: correspondences,
     AbstractWeightPolicy, NormalizedWeightPolicy,
     RefitFamily, NativeRefit, ExternalRefit,
     ConsensusSet, is_fresh, inlier_count, consensus_set, score_model!, MsacScoring,
@@ -44,7 +44,7 @@ VgtkCore.RefitFamily(::_ContractTestLO) = ExternalRefit()
 
 # Small clean-ish homography problem (the HomographyScenes scene).
 _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
-    HomographyProblem(csponds(homography_pairs(StableRNG(seed), H_TRUE; n_in, n_out, σ = noise)...))
+    HomographyProblem(correspondences(homography_pairs(StableRNG(seed), H_TRUE; n_in, n_out, σ = noise)...))
 
 @testset "ConsensusSet epoch freshness + cached k*" begin
     problem = _contract_problem()

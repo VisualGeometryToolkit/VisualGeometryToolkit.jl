@@ -202,8 +202,11 @@ A driver defines top-level constants meant for a process of its own;
 script can run every driver in one warm session.
 
 `src/reproduce/reproduce_index.jl`, `src/reproduce/number_macros.jl` and
-`src/reproduce/paper_assets.jl` depend on Base only, so an environment that
-cannot load this package can include them by path, in that order
+`src/reproduce/paper_assets.jl` depend on Base only (and the stdlib
+FileWatching, whose pid lock serializes the writers of a shared numbers file;
+`number_macros.jl` brings the package's one atomic write, `src/write_atomic.jl`,
+with it), so an environment that cannot load this package can include them by
+path, in that order
 (`src/reproduce/results_branches.jl` is not among them: it runs git and reads
 TOML).
 
@@ -269,7 +272,8 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
 - **Inputs first.** Every `[inputs.<id>]` (`tier`, `path` under the data root)
   of every selected stage's configs is checked before anything runs; a missing
   one is a row `path  tier  used by`, the launch runs nothing and exits 3
-  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file) must
+  ([`missing_inputs`](@ref)). An input that carries `sha256` (of a file, or a directory's
+  [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) must
   have that content: another one is refused, naming the input, the expected
   and the actual hash (exit 2, the dry run too); without it the input is only
   checked to be there. Hashing streams the file and is cached by path, size
@@ -318,9 +322,28 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   `scratch = true` and keys apart from the runs of record; its output is
   refused as an input of record, an upstream run of record and a promoted
   run.
+- **Arrays.** `array = { items = [...] }` or `array = { from = "<dotted key>" }`
+  makes a stage an array, one task per item: the listed items, or the values at
+  that key of the stage's config — a table's keys sorted by name (`from =
+  "cases"`, `--time` from each case's `max_time`), a list of strings in its order
+  (`from = "grid.sets"`). `select_env` names the variable that selects a subset
+  and that the launcher reads. `each = { from, env }` loops inside each task: the
+  task runs its command once per value at `from` of its item's config, in order,
+  with `env` set to the value, and fails at the first value that fails (the same
+  variable set in the launch's environment selects values). A grid of sets ×
+  variants is one task per set, each running every variant:
+
+  ```toml
+  [[stage]]
+  name = "chrome_index_grid_index"
+  sbatch = "cvpr2027/scripts/slurm/chrome_index_grid_index.sbatch"
+  config = "cvpr2027/configs/experiments/chrome_index_grid.toml"
+  array = { from = "grid.sets", select_env = "SETS", each = { from = "variants", env = "VARIANT" } }
+  ```
+
+  The values are part of the stage's key, so another selection is another run.
 - **Backends.** `slurm`: each stage is one `sbatch` of the project's launcher
-  (an array over its items, sized from the config's cases or a list, `--time`
-  from the cases' `max_time`), after the jobs of the stages it depends on
+  (an array over its items, `--time` from the cases' `max_time`), after the jobs of the stages it depends on
   (`--dependency=afterok`), with the site's options over the launcher's
   `#SBATCH` lines; a `command` stage is wrapped. Every Slurm stage is
   submitted through a wrapper the runner writes (with the launcher's `#SBATCH`
@@ -339,9 +362,18 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   configs (sha256), the data and results roots, the site, the code trees
   (below), and per stage its run key, command, job id, state and code trees.
   A stage's run key hashes its launcher, driver and configs, its items,
-  environment and command, never the code; a later launch reuses a stage of
-  the same key that completed (and depends on one still in flight, by its job
-  id) instead of running it again, while its code trees are the current ones.
+  environment and command, and the run keys of the stages it runs after (of
+  their last completed runs, for those a `--no-deps` launch does not run: the
+  project's own launches, in the order of the launch stamps that name their
+  manifests, never by modification time),
+  never the code and never its CPU count (`--cpus-per-task`,
+  `SLURM_CPUS_PER_TASK`: the results are the same bits at any thread count, so
+  a stage run at 8 CPUs is reused by a launch at 2; its device, `gres` and
+  `CUDA_VISIBLE_DEVICES`, is keyed); a later launch reuses a
+  stage of the same key that completed (and depends on one still in flight, by
+  its job id) instead of running it again, while its code trees are the
+  current ones and no stage it runs after is run again by that launch. A
+  changed upstream stage thus reruns every stage downstream of it.
 - **Completion markers.** Each task writes
   `<manifest without .toml>/<stage>/task-<t>.toml` when it ends — its state
   (`completed` or `failed`), exit status, start and end, job id, commit and run
@@ -416,7 +448,7 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
   `VGTK_SCRATCH=1`
   ([`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)):
   its results are recorded with a warning, their trees marked `+uncommitted`,
-  and never reused for committed code. A dirty paper or docs tree is no code
+  and never reused (the mark names HEAD, not the edits). A dirty paper or docs tree is no code
   and is not refused. A launch that identifies none of the project's own code
   (no `src`, no `[project] code`) is refused.
 - **Results from before the trees were kept** record none, and run once more;
@@ -434,6 +466,21 @@ project's own code. List the code a stage runs there, not the docs: a path in
 
 A stage may set its own resources over the site's: `cpus_per_task`,
 `mem_per_cpu` and `gres` in its `[[stage]]` (a `gres` makes it a GPU stage).
+`nice = <n>` is its Slurm `--nice`, so a research stage yields to a release
+gate's jobs; like the CPU count and a job-name prefix it is a label for the
+scheduler and keys no run (the local backend runs every stage alike).
+
+On a Slurm site a GPU stage compiles before its GPU job starts, so a GPU is
+never held while code compiles: a CPU-only job (no `--gres`; the stage's CPUs,
+memory and `nice`, `JULIA_NUM_PRECOMPILE_TASKS` its CPUs) runs
+`julia --project=<julia_project> <julia_flags> -e 'using Pkg; Pkg.precompile()'`
+after the stages the GPU job runs after, and the GPU job runs after it
+(`afterok`); the GPU task then only loads and runs. `julia_flags` are the
+flags the stage's jobs run julia with (`julia_flags = ["--depwarn=error"]`):
+a cache compiled under other flags is compiled again. `precompile = false`
+leaves the job out (a GPU stage whose launcher runs no julia). The dry run
+prints it (`compile`); the manifest records its job id
+(`precompile_job_id`); it keys no run.
 
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:
@@ -446,7 +493,8 @@ A driver reads an input of its config with
 [`input_path`](@ref VisualGeometryToolkitEval.Experiments.input_path)`(cfg, id)`
 (its tier's root, its `sha256` checked).
 
-`src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; and
+`src/reproduce/runner.jl` depends on the stdlibs only (TOML, SHA, Dates; VisualGeometryToolkitCore's Base-only
+`src/base/canonical.jl`, the run keys' encoding, included by path where the package cannot load; and
 `src/cli.jl`, included before it, which brings `src/code_identity.jl`), so a launcher runs it by path from a bare
 `julia` before the project's environment exists; the setup stage then
 instantiates the environment inside the scheduler.
@@ -454,7 +502,8 @@ instantiates the environment inside the scheduler.
 ### Adding your machine
 
 The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
-partition `gpu`, 28 CPUs and one GPU per task) and `configs/sites/desktop.toml`
+partition `gpu`, 2 CPUs per task unless a stage declares its own
+`cpus_per_task`, 8480M per CPU, one GPU per GPU task) and `configs/sites/desktop.toml`
 (one RTX 4090, no scheduler, device 0). For another machine:
 
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`

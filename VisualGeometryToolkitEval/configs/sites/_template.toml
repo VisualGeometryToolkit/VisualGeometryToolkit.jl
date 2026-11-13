@@ -18,9 +18,10 @@ setup = ""                  # a shell snippet run before every stage (and before
 [slurm]                     # backend = "slurm" only: options given to every sbatch, over the launcher's #SBATCH lines
 partition = "gpu"           # --partition; empty: the cluster's default
 gres = "gpu:1"              # --gres of a GPU stage (one GPU per array task); e.g. "gpu:a100:1"; empty: the launcher's
-cpus_per_task = 28          # --cpus-per-task; 0: the launcher's. The drivers' thread count is the CPUs, and it keys
-                            # their runs: keep one count for every stage of a launch.
-mem_per_cpu = "8G"          # --mem-per-cpu; empty: the launcher's. Prefer the node's ratio (memory / CPUs).
+cpus_per_task = 2           # --cpus-per-task of a stage that declares none (a stage's own `cpus_per_task` sizes a
+                            # threaded one); 0: the launcher's. Small: a task gets the CPUs it uses. The count keys
+                            # no run (results are the same bits at any thread count).
+mem_per_cpu = "8480M"       # --mem-per-cpu; empty: the launcher's. Prefer the node's ratio (memory / CPUs).
 gpu_limit = 0               # at most this many GPU array tasks at a time (a shared node); each GPU array then also
                             # starts after the one before it (afterany). 0: no limit.
 extra = []                  # any other sbatch options, e.g. ["--account=myproj", "--qos=normal"]
@@ -28,6 +29,8 @@ job_name_prefix = ""        # put before every job's name (the stage's job_name,
                             # --job-name, else <project>-<stage>): a label for the scheduler, e.g. "release-" for
                             # a watcher that prioritizes release runs; never part of a run key. --job-name-prefix=
                             # overrides it for one launch. Empty: the names as they are.
+precompile_time = "0:20:00" # --time of a GPU stage's CPU-only precompile job: its MEASURED time × 2 (a real limit lets
+                            # the scheduler backfill it); empty: the partition's default limit
 
 [local]                     # backend = "local" only
 cuda_visible_devices = "0"  # CUDA_VISIBLE_DEVICES of a GPU stage (CPU stages get ""): the device indices to use, e.g.

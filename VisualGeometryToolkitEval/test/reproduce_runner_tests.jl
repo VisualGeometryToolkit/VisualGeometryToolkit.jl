@@ -3,7 +3,8 @@
 # selects a subset with its prerequisites (or alone); array stages take their items from the config's cases or a
 # list, sized and timed from it; the inputs are checked first and reported as data; the dry run prints the job
 # graph for a Slurm and a local site; the local backend runs a project's sbatch launchers under bash, records a
-# manifest and reuses a finished stage by its run key; the Slurm backend submits each stage through its marker
+# manifest and reuses a finished stage by its run key, which folds in its upstream stages' keys (an upstream stage
+# keyed anew reruns every stage after it); the Slurm backend submits each stage through its marker
 # wrapper and chains its jobs with afterok (through a stand-in sbatch); reuse and status read the completion markers
 # and the queue (stand-in squeue), never accounting (a stand-in sacct that fails as on a cluster without it); the
 # job-name prefix labels every job and keys nothing; markers are written atomically; the results-branch stage makes
@@ -66,6 +67,7 @@
             what = "the environment"
             sbatch = "slurm/setup.sbatch"
             gpu = true
+            precompile = false      # its launcher runs no julia
 
             [[stage]]
             name = "chrome_prepare"
@@ -82,6 +84,7 @@
             driver = "scripts/chrome.jl"
             config = "configs/experiments/chrome.toml"
             gpu = true
+            precompile = false      # its launcher runs no julia
             array = { from = "cases", select_env = "CASES", max_time = "pipeline.lm.max_time", time_margin_s = 600 }
 
             [[stage]]
@@ -90,6 +93,7 @@
             sbatch = "slurm/texture.sbatch"
             config = "configs/experiments/texture_{item}.toml"
             gpu = true
+            precompile = false      # its launcher runs no julia
             array = { items = ["small", "large"], select_env = "SETS" }
 
             [[stage]]
@@ -165,11 +169,11 @@ end
     @testset "the shipped sites and the template" begin
         @test shipped_sites() == ["desktop", "dgx01"]
         dgx = load_site("dgx01")
-        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 28 && dgx.mem_per_cpu == "8G"
+        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M" && dgx.precompile_time == "0:30:00"
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
-        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == ""
+        @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == "" && tpl.precompile_time == "0:20:00"
         @test_throws r"unknown site \"nowhere\".*desktop, dgx01" load_site("nowhere")
         d = mktempdir()
         write(joinpath(d, "mine.toml"), "[site]\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"1\"\n")
@@ -207,7 +211,7 @@ end
         chrome, texture = g.stages[3], g.stages[4]
         @test stage_items(g, chrome; env = env0) == ["alpha", "mid", "zeta"]
         @test stage_items(g, chrome; env = merge(env0, Dict("CASES" => "zeta,alpha"))) == ["alpha", "zeta"]
-        @test_throws r"unknown case\(s\) omega" stage_items(g, chrome; env = merge(env0, Dict("CASES" => "omega")))
+        @test_throws r"CASES names unknown value\(s\) omega" stage_items(g, chrome; env = merge(env0, Dict("CASES" => "omega")))
         @test stage_items(g, texture; env = env0) == ["small", "large"]
         @test stage_items(g, texture; env = merge(env0, Dict("SETS" => "large"))) == ["large"]
         @test stage_items(g, g.stages[1]; env = env0) == [""]
@@ -348,18 +352,113 @@ end
     @testset "per-stage resources: a stage's cpus_per_task, mem_per_cpu and gres over the site's" begin
         f = runner_project()
         text = read(f.graph, String)
-        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 2\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
+        write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 6\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
                                count = 1) |> t -> replace(t, "name = \"pdf\"\n" => "name = \"pdf\"\ngres = \"gpu:1\"\n"))
         g = load_stage_graph(f.graph)
         plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
         cmd(n) = plan.stages[findfirst(st -> st.spec.name == n, plan.stages)].command
-        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=2 --mem-per-cpu=4G", join(cmd("setup"), " "))
-        @test occursin("--gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("pdf"), " "))      # gres: a GPU stage
-        @test occursin("--partition=gpu --cpus-per-task=28 --mem-per-cpu=8G", join(cmd("chrome_prepare"), " "))   # the site's
+        @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=6 --mem-per-cpu=4G", join(cmd("setup"), " "))
+        @test occursin("--gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M", join(cmd("pdf"), " "))      # gres: a GPU stage
+        @test occursin("--partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M", join(cmd("chrome_prepare"), " "))   # the site's
         local_plan = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
-        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "2" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
+        @test local_plan.stages[1].env["SLURM_CPUS_PER_TASK"] == "6" && local_plan.stages[1].env["CUDA_VISIBLE_DEVICES"] == "0"
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = \"many\"\n"; count = 1))
         @test_throws r"cpus_per_task = \"many\" is not a count" load_stage_graph(f.graph)
+    end
+
+    @testset "a stage's key holds its device, never its CPU count" begin
+        f = runner_project()
+        d = mktempdir()
+        key(g, site, name) = (p = plan_reproduction(g, load_site(site; dirs = [d]); env = env0, queue_states = noqueue, only = [name]);
+                              p.stages[findfirst(st -> st.spec.name == name, p.stages)].key)
+        for c in (2, 8)
+            write(joinpath(d, "slurm$c.toml"), "[site]\nname = \"s\"\nbackend = \"slurm\"\n[slurm]\npartition = \"gpu\"\ngres = \"gpu:1\"\ncpus_per_task = $c\n")
+            write(joinpath(d, "local$c.toml"), "[site]\nname = \"l\"\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"0\"\ncpus_per_task = $c\n")
+        end
+        g = load_stage_graph(f.graph)
+        for st in ("setup", "chrome")                                              # a GPU stage, a GPU array
+            @test key(g, "slurm2", st) == key(g, "slurm8", st) && key(g, "local2", st) == key(g, "local8", st)
+        end
+        text = read(f.graph, String)                                               # setup on the CPU: another key
+        write(f.graph, replace(text, "sbatch = \"slurm/setup.sbatch\"\ngpu = true\n" => "sbatch = \"slurm/setup.sbatch\"\n"; count = 1))
+        cpu = load_stage_graph(f.graph)
+        @test !cpu.stages[1].gpu
+        @test key(cpu, "slurm2", "setup") != key(g, "slurm2", "setup") && key(cpu, "local2", "setup") != key(g, "local2", "setup")
+        # a stage's `nice`: its Slurm priority, a label for the scheduler like the CPU count, keying no run
+        write(f.graph, replace(text, "name = \"chrome\"\n" => "name = \"chrome\"\nnice = 100\n"; count = 1))
+        niced = load_stage_graph(f.graph)
+        p = plan_reproduction(niced, load_site("slurm2"; dirs = [d]); env = env0, queue_states = noqueue, only = ["chrome"])
+        @test any(==("--nice=100"), p.stages[end].command) && !any(a -> startswith(a, "--nice"), p.stages[end - 1].command)
+        @test key(niced, "slurm2", "chrome") == key(g, "slurm2", "chrome") && key(niced, "local2", "chrome") == key(g, "local2", "chrome")
+        write(f.graph, replace(text, "name = \"chrome\"\n" => "name = \"chrome\"\nnice = -5\n"; count = 1))
+        @test_throws r"nice = -5 is not a count" load_stage_graph(f.graph)
+    end
+
+    @testset "the last completed run of an upstream stage: this project's, by launch stamp, never by mtime" begin
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        manifest(dir, stamp, project, key) = (mkpath(dir); p = joinpath(dir, "$stamp-abc1234.toml");
+            open(io -> TOML.print(io, Dict("project" => project, "stamp" => stamp, "stages" => Dict("setup" =>
+                Dict{String, Any}("key" => key, "items" => [""], "job_id" => "", "state" => "completed")))), p, "w"); p)
+        k(results) = only(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["chrome_prepare"],
+                                            deps = false, results_root = results).stages).key
+        root = mktempdir()                                        # one root: the stage's environment names it
+        dir = joinpath(root, "_reproduce")
+        old = manifest(dir, "20260101_000000_000", "paper", "old")
+        k_old = k(root)
+        manifest(dir, "20260102_000000_000", "paper", "new")
+        k_new = k(root)
+        manifest(dir, "20260103_000000_000", "another", "foreign")             # a project sharing the root
+        touch(old)                                                             # rewritten last: the newest mtime
+        @test basename.(run_manifests(dir)) ==
+              ["20260101_000000_000-abc1234.toml", "20260102_000000_000-abc1234.toml", "20260103_000000_000-abc1234.toml"]
+        @test [x.record["key"] for x in Reproduce._stage_records(dir, "paper")] == ["old", "new"]
+        @test k_new != k_old && k(root) == k_new
+    end
+
+    @testset "a GPU stage on Slurm compiles first, in a CPU-only job its GPU job runs after" begin
+        f = runner_project()
+        text = read(f.graph, String)
+        write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
+                                     "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))     # setup compiles
+        g = load_stage_graph(f.graph)
+        @test g.stages[1].precompile && g.stages[1].julia_flags == ["--depwarn=error"] && !g.stages[3].precompile
+        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
+        pre = join(p.stages[1].precompile, " ")
+        @test startswith(pre, "sbatch --parsable --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --time=0:30:00 --job-name=paper-setup-precompile")   # the site's precompile_time: a real limit
+        @test !occursin("--gres", pre) && occursin("--depwarn=error -e", pre) && occursin("Pkg.precompile()", pre)
+        @test isempty(p.stages[2].precompile)                                       # a CPU stage: none
+        @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].precompile)
+        # not keyed: the same key with or without it
+        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
+        kon = k(g)
+        write(f.graph, text)
+        @test k(load_stage_graph(f.graph)) == kon
+        write(f.graph, replace(text, "gpu = true\nprecompile = false      # its launcher runs no julia\n" =>
+                                     "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))
+        # the dry run shows it, and the GPU job after it
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test code == 0 && occursin("compile  sbatch --parsable --partition=gpu --cpus-per-task=2", out)
+        @test occursin("sbatch --parsable --dependency=afterok:\$setup_precompile --partition=gpu --gres=gpu:1", out)
+        # submitted: the compile first, the GPU job after it (afterok), its id recorded
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        run(pipeline(`git -C $(f.repo) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam precompile`; stdout = devnull))
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0 && occursin(r"setup\s+101  \(precompile, CPU only\)", out)
+        l = readlines(sb)
+        @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1]) && occursin("Pkg.precompile()", l[1])
+        @test startswith(l[2], "102 --parsable --dependency=afterok:101 ") && occursin("--gres=gpu:1", l[2])
+        m = TOML.parsefile(last(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test m["stages"]["setup"]["precompile_job_id"] == "101" && m["stages"]["setup"]["job_id"] == "102"
+        # the compile failed: the GPU job never starts, and status names the precompile job as the cause
+        mkpath(joinpath(f.proj, "logs"))
+        write(joinpath(f.proj, "logs", "paper_setup_precompile_101.log"), "Precompiling\nERROR: LoadError: no CUDA extension\n")
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01", "--results-root=$(f.results)"]; env)
+        @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile job 101 failed", out) && occursin("ERROR: LoadError: no CUDA extension", out)
+        # precompile is true or false
+        write(f.graph, replace(text, "gpu = true\nprecompile = false" => "gpu = true\nprecompile = \"false\""; count = 1))
+        @test_throws r"precompile = \"false\" is not true or false" load_stage_graph(f.graph)
     end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
@@ -402,11 +501,13 @@ end
         # a scratch run's output is no input of record
         write(joinpath(f.data, "captures", "2026-09", "_provenance.toml"), "scratch = true\n")
         @test_throws r"input capture of .*a scratch run's output" missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop")
+        # ... but it is an input of a scratch launch, as of a scratch driver (`verify_inputs`)
+        @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = merge(env0, Dict("VGTK_SCRATCH" => "1")), site = "desktop"))
         # a distributed stage: ntasks and nodes; resources validated
         text = read(f.graph, String)
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
         plan = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"])
-        @test occursin("--mem-per-cpu=8G --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
+        @test occursin("--mem-per-cpu=8480M --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
         for (k, v) in (("gres", "\"gpu 4\""), ("mem_per_cpu", "\"lots\""), ("mem_per_cpu", "8"), ("ntasks", "-1"))
             write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\n$k = $v\n"; count = 1))
             @test_throws ArgumentError load_stage_graph(f.graph)
@@ -424,9 +525,9 @@ end
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out)
         @test occursin("[1] setup\n", out) && occursin("[3] chrome  array of 3: alpha mid zeta", out)
         # each stage's own launcher, the site's options, the dependencies on this launch's stages
-        @test occursin("submit   sbatch --parsable --partition=gpu --gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G slurm/setup.sbatch", out)
-        @test occursin("EXPERIMENT=chrome sbatch --parsable --dependency=afterok:\$setup --partition=gpu --cpus-per-task=28 --mem-per-cpu=8G --job-name=paper-prepare-chrome slurm/prepare.sbatch", out)
-        @test occursin("CASES=alpha,mid,zeta sbatch --parsable --dependency=afterok:\$chrome_prepare --partition=gpu --gres=gpu:1 --cpus-per-task=28 --mem-per-cpu=8G --array=0-2 --time=130 slurm/chrome.sbatch", out)
+        @test occursin("submit   sbatch --parsable --partition=gpu --gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M slurm/setup.sbatch", out)
+        @test occursin("EXPERIMENT=chrome sbatch --parsable --dependency=afterok:\$setup --partition=gpu --cpus-per-task=2 --mem-per-cpu=8480M --job-name=paper-prepare-chrome slurm/prepare.sbatch", out)
+        @test occursin("CASES=alpha,mid,zeta sbatch --parsable --dependency=afterok:\$chrome_prepare --partition=gpu --gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M --array=0-2 --time=130 slurm/chrome.sbatch", out)
         @test occursin("SETS=small,large sbatch --parsable --dependency=afterok:\$chrome", out) && occursin("--array=0-1 slurm/texture.sbatch", out)
         @test occursin("--job-name=paper-pdf --time=00:30:00 --output=logs/paper_pdf_%j.log '--wrap=make -C paper'", out)
         @test occursin("results_branch_of_run(ARGS[1])'", out)
@@ -465,6 +566,109 @@ end
         @test occursin("chrome.sbatch task=2 cases=alpha,mid,zeta", ran[5])                  # an array's own task ids
     end
 
+    @testset "arrays: over a list or a table of the config, and a loop over values inside each task" begin
+        # chrome_index_grid's shape: one task per chrome set (a list of the config), each running every variant (a
+        # table of the config) in turn, the variant in VARIANT
+        f = runner_project()
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), """
+            [grid]
+            sets = ["s2", "s1", "s3"]
+            [variants.b]
+            x = 1
+            [variants.a]
+            x = 2
+            """)
+        write(joinpath(f.proj, "slurm", "grid.sbatch"), raw"""#!/bin/bash
+            echo "grid task=${SLURM_ARRAY_TASK_ID:-} variant=${VARIANT:-} sets=${SETS:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${VARIANT:-}" != "fail" ]
+            """)
+        write(f.graph, read(f.graph, String) * """
+
+            [[stage]]
+            name = "grid"
+            after = ["setup"]
+            sbatch = "slurm/grid.sbatch"
+            config = "configs/experiments/grid.toml"
+            array = { from = "grid.sets", select_env = "SETS", each = { from = "variants", env = "VARIANT" } }
+            default = false
+            """)
+        git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "grid")
+        _stage_index(g, n) = findfirst(st -> st.name == n, g.stages)
+        g = load_stage_graph(f.graph)
+        s = g.stages[_stage_index(g, "grid")]
+        @test stage_items(g, s; env = env0) == ["s2", "s1", "s3"]                                  # a list: in its order
+        @test stage_items(g, s; env = merge(env0, Dict("SETS" => "s3,s2"))) == ["s3", "s2"]
+        @test_throws r"SETS names unknown value\(s\) s9" stage_items(g, s; env = merge(env0, Dict("SETS" => "s9")))
+        @test stage_each(g, s, "s1"; env = env0) == ["a", "b"]                                     # a table: sorted
+        @test stage_each(g, s, "s1"; env = merge(env0, Dict("VARIANT" => "b"))) == ["b"]
+        @test stage_each(g, g.stages[1], ""; env = env0) == String[]
+        # the local backend: each task runs every value in turn
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = env0)
+        @test code == 0
+        ran = readlines(joinpath(f.results, "ran.txt"))
+        @test ran[2:end] == ["grid task=$t variant=$v sets=s2,s1,s3" for t in 0:2 for v in ("a", "b")]
+        # the values are keyed: another selection is another run
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = env0)
+        @test occursin(r"grid\s+reused", out)
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = merge(env0, Dict("VARIANT" => "b")))
+        @test code == 0 && !occursin(r"grid\s+reused", out) && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=2 variant=b sets=s2,s1,s3"
+        # the dry run names the loop
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        @test occursin("[2] grid  array of 3: s2 s1 s3", out) && occursin("each     VARIANT over variants: a b (every task)", out)
+        @test occursin("--array=0-2", out)
+        # on Slurm the marker wrapper loops: run here as the job of task 1, it runs both values and writes the marker
+        bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
+        env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
+        n = length(readlines(joinpath(f.results, "ran.txt")))
+        job = Dict("SLURM_ARRAY_TASK_ID" => "1", "SLURM_JOB_ID" => "7", "VGTK_RESULTS_ROOT" => f.results, "PATH" => ENV["PATH"])
+        @test success(Cmd(`bash $wrapper`; env = job, dir = f.proj))
+        @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets=", "grid task=1 variant=b sets="]
+        @test stage_markers(dirname(wrapper))[1]["state"] == "completed"
+        # a TERM (scancel, the time limit) stops the loop: the run in progress gets it, and no later value starts
+        write(joinpath(f.proj, "slurm", "grid.sbatch"), raw"""#!/bin/bash
+            echo "grid task=${SLURM_ARRAY_TASK_ID:-} variant=${VARIANT:-} sets=${SETS:-}" >> "$VGTK_RESULTS_ROOT/ran.txt"
+            [ "${VARIANT:-}" != "a" ] || exec sleep 60
+            [ "${VARIANT:-}" != "fail" ]
+            """)
+        git!(f.repo, "commit", "-qam", "slow")
+        write(sb, "")
+        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        @test code == 0
+        wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
+        n = length(readlines(joinpath(f.results, "ran.txt")))
+        proc = run(pipeline(Cmd(`bash $wrapper`; env = job, dir = f.proj); stdout = devnull, stderr = devnull); wait = false)
+        t0 = time()
+        while length(readlines(joinpath(f.results, "ran.txt"))) == n && time() - t0 < 30
+            sleep(0.2)
+        end
+        sleep(0.5)
+        kill(proc, Base.SIGTERM); wait(proc)
+        @test readlines(joinpath(f.results, "ran.txt"))[(n + 1):end] == ["grid task=1 variant=a sets="]       # b never ran
+        mk = stage_markers(dirname(wrapper))[1]
+        @test mk["state"] == "failed" && mk["signal"] == "TERM"
+        # a failing value fails the task, and stops it
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants.fail]\n[variants.z]\n")
+        git!(f.repo, "commit", "-qam", "fail")
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid", "--no-deps"]; env = env0)
+        @test code == 4 && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=0 variant=fail sets=s1"
+        # the declaration is checked
+        bad(a) = (write(f.graph, replace(read(f.graph, String), r"^array = \{ from = \"grid\.[a-z]+\".*$"m => a)); f.graph)
+        @test_throws r"array.each takes" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\" } }"))
+        @test_throws r"array.each.env = \"1x\" is no variable" load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"1x\" } }"))
+        @test_throws r"items = \[...\] or from" load_stage_graph(bad("array = { from = \"grid.sets\", items = [\"a\"] }"))
+        g3 = load_stage_graph(bad("array = { from = \"grid.sets\", each = { from = \"variants\", env = \"VARIANT\" } }"))
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = []\n[variants]\n")
+        @test_throws r"stage grid: `grid.sets` of the config holds no value" stage_items(g3, g3.stages[_stage_index(g3, "grid")]; env = env0)
+        write(joinpath(f.proj, "configs", "experiments", "grid.toml"), "[grid]\nsets = [\"s1\"]\n[variants]\n")
+        @test_throws r"stage grid: `variants` of the config holds no value" stage_each(g3, g3.stages[_stage_index(g3, "grid")], "s1"; env = env0)
+        g2 = load_stage_graph(bad("array = { from = \"grid.nope\" }"))
+        @test_throws r"the config has no `grid.nope`" stage_items(g2, g2.stages[_stage_index(g2, "grid")]; env = env0)
+        @test_throws r"array.items = \[\] is an array of no task" load_stage_graph(bad("array = { items = [] }"))
+    end
+
     @testset "the local backend: runs the launchers, writes the manifest, reuses a finished stage" begin
         f = runner_project()
         mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
@@ -501,6 +705,36 @@ end
         code, out = run_main(["status", "--graph=$(f.graph)", "--site=desktop"]; env = env0)
         @test code == 0 && occursin(r"broken\s+failed", out) && occursin("error ERROR: no such input photos/x", out)
         @test occursin("logs/paper_broken.log", out)
+    end
+
+    @testset "an upstream stage keyed anew reruns every stage after it, in one launch or in launches of their own" begin
+        f = runner_project()
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
+        nran() = (p = joinpath(f.results, "ran.txt"); isfile(p) ? length(readlines(p)) : 0)
+        # a launch: its exit code, its output and how many tasks it ran (setup 1, chrome_prepare 1, chrome 3, texture 2)
+        launch(only; deps = true) = (n = nran(); (c, o) = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=$only",
+                                     (deps ? () : ("--no-deps",))...]; env = env0); (c, o, nran() - n))
+        chrome_changed() = open(io -> println(io, "# changed"), joinpath(f.proj, "configs", "experiments", "chrome.toml"), "a")
+        code, _, ran = launch("texture")
+        @test code == 0 && ran == 1 + 1 + 3 + 2
+        # chrome's config changed: chrome_prepare and chrome read it and rerun; texture reads neither file, but its
+        # input is chrome's output, so it reruns too (it was reused, on chrome's old output); setup is reused
+        chrome_changed()
+        code, out, ran = launch("texture")
+        @test code == 0 && count("reused", out) == 1 && occursin(r"setup\s+reused", out) && ran == 1 + 3 + 2
+        # the same across launches of one stage each (`--no-deps`): texture's key folds the key of chrome's last completed
+        # run, whose output it reads. Before chrome reruns, that output is unchanged: texture is reused
+        chrome_changed()
+        code, out, ran = launch("texture"; deps = false)
+        @test code == 0 && occursin(r"texture\s+reused", out) && ran == 0
+        @test launch("chrome_prepare"; deps = false)[[1, 3]] == (0, 1)
+        @test launch("chrome"; deps = false)[[1, 3]] == (0, 3)
+        code, out, ran = launch("texture"; deps = false)
+        @test code == 0 && !occursin("reused", out) && ran == 2
+        # and unchanged, everything is reused again
+        code, out, ran = launch("texture")
+        @test code == 0 && count("reused", out) == 4 && ran == 0
     end
 
     @testset "the Slurm backend: through the marker wrapper, chained with afterok; reuse and status from the markers, never sacct" begin
@@ -842,12 +1076,32 @@ end
         @test code == 0 && occursin("rerun: code changed: no code trees recorded", out) && ran() == 4
         code, out = run_main(args; env = env0)
         @test code == 0 && occursin(r"setup\s+reused", out) && ran() == 4
+        # a scratch launch runs uncommitted code with a warning (docs/src/reproduce.md), under a key of its own
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 3\nend\n")
+        scratch = merge(env0, Dict("VGTK_SCRATCH" => "1"))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--dry-run", "--only=setup"]; env = scratch)
+        @test code == 0 && occursin("DIRTY: StackPkg (a scratch launch: run with a warning)", out)
+        code, out = @test_logs (:warn, r"a scratch launch runs uncommitted code") match_mode = :any run_main(args; env = scratch)
+        @test code == 0 && ran() == 5
+        # ... and never reuses a scratch run of uncommitted code: other edits carry the same marked tree
+        write(joinpath(pkg, "src", "StackPkg.jl"), "module StackPkg\nf() = 4\nend\n")
+        code, out = run_main(args; env = scratch)
+        @test code == 0 && ran() == 6 && occursin("StackPkg: uncommitted when recorded", out)
+        @test occursin("src:", rec()["stages"]["setup"]["code_trees"]["StackPkg"]) && occursin("+uncommitted", rec()["stages"]["setup"]["code_trees"]["StackPkg"])
+        code, out = run_main(args; env = env0)                                      # a run of record still refuses it
+        @test code == 2 && occursin("StackPkg has uncommitted changes", out) && ran() == 6
+        p!("checkout", "-q", "--", "src/StackPkg.jl")
         # the rule itself
         changes = VisualGeometryToolkitEval.code_tree_changes
         @test isempty(changes(Dict("a" => "x"), Dict("a" => "x"))) && isempty(changes(Dict{String, Any}(), Dict{String, String}()))
         @test changes(Dict("a" => "x", "b" => "y"), Dict("a" => "x", "c" => "z")) == ["b: no longer loaded", "c: new"]
         @test changes(Dict("P" => "src:1 Project.toml:2"), Dict("P" => "src:1 Project.toml:3 ext:4")) ==
               ["P: Project.toml 2 → 3", "P: ext none → 4"]
+        for dirty in ("ab12+uncommitted", "uncommitted", "src:ab12+uncommitted Project.toml:9", "src:uncommitted Project.toml:9",
+                      "not in git: /x")                                          # the same marked value: still a change
+            @test changes(Dict("a" => dirty), Dict("a" => dirty)) == ["a: uncommitted when recorded"]
+        end
+        @test isempty(changes(Dict("uncommitted_name" => "ab12"), Dict("uncommitted_name" => "ab12")))
         # the registered stack packages are the published rows of the stack's allow-list
         allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
         @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))
@@ -908,29 +1162,86 @@ end
         boot = "include(ARGS[1]); include(ARGS[2]); exit(reproduce_main(ARGS[3:end]))"
         cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
                --graph=$(f.graph) --site=dgx01 --dry-run --results-root=$(f.results)`
-        out = read(addenv(cmd, "JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => ""), String)
+        # the content key's encoding is Core's canonical.jl, found as a package is (here: Core's own project)
+        out = read(addenv(cmd, "JULIA_LOAD_PATH" => "@:@stdlib", "JULIA_PROJECT" => pkgdir(VisualGeometryToolkitCore)), String)
         @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
+        # one implementation: the bare process keys every stage as the package does
+        p = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, results_root = f.results)
+        @test all(st -> occursin("key      $(st.key)", out), p.stages)
     end
 
-    @testset "the results-branch stage: the renders of the graph's assets on a results branch" begin
+    @testset "the results-branch stage: the renders of the graph's assets on a results branch, named in the launch's manifest" begin
         f = runner_project()
         git!(f.repo, "checkout", "-q", "-b", "main")
         mkpath(joinpath(f.proj, "paper", "fig")); write(joinpath(f.proj, "paper", "fig", "a.png"), UInt8[1, 2, 3])
         git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "submitted")
         mkpath(joinpath(f.proj, "plots")); write(joinpath(f.proj, "plots", "a.png"), UInt8[1, 2, 4]); write(joinpath(f.proj, "plots", "a.txt"), "x")
+        mkpath(joinpath(f.data, "boards")); write(joinpath(f.data, "boards", "a4.toml"), "")
+        mkpath(joinpath(f.data, "photos", "sheet_small")); mkpath(joinpath(f.data, "photos", "sheet_large"))
         g = load_stage_graph(f.graph)
         @test results_branch_assets(g) == [joinpath(f.proj, "plots", "a.png") => "paper/fig/a.png"]
-        p = plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"])
-        recs = Dict{String, Any}("setup" => Dict{String, Any}("key" => p.stages[1].key, "job_id" => "", "state" => "completed"))
-        mkpath(dirname(p.manifest))
-        open(io -> TOML.print(io, Dict{String, Any}("workdir" => g.workdir, "graph" => relpath(g.path, g.workdir), "commit" => p.commit,
-                                                   "dirty" => false, "site" => "desktop", "stages" => recs)), p.manifest, "w")
-        r = redirect_stdout(devnull) do
-            results_branch_of_run(p.manifest; scratch_root = joinpath(mktempdir(), "wt"))
-        end
-        @test startswith(r.branch, "results/") && TOML.parsefile(p.manifest)["results_branch"] == r.branch
-        run_toml = TOML.parsefile(joinpath(r.worktree, "proj", "RUN.toml"))
-        @test run_toml["run_keys"] == [p.stages[1].key] && run_toml["machine"] == "desktop" && run_toml["assets"] == ["proj/paper/fig/a.png"]
-        @test read(joinpath(r.worktree, "proj", "paper", "fig", "a.png")) == UInt8[1, 2, 4]
+        # a local launch: the results-branch stage runs in a julia that loads this package (this suite's environment),
+        # writes the branch name into the launch's manifest, and the runner's own later rewrites keep it
+        wt = mktempdir()
+        env = merge(env0, Dict("JULIA" => joinpath(Sys.BINDIR, Base.julia_exename()),
+                               "JULIA_LOAD_PATH" => join(["@"; Base.load_path(); "@stdlib"], Sys.iswindows() ? ';' : ':'),
+                               "VGTK_RESULTS_WORKTREES" => wt))
+        code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=results"]; env)
+        @test code == 0
+        m = TOML.parsefile(only(run_manifests(joinpath(f.results, "_reproduce"))))
+        @test m["stages"]["results"]["state"] == "completed"
+        branch = get(m, "results_branch", "")
+        @test startswith(branch, "results/") && !isempty(readchomp(`git -C $(f.repo) branch --list $branch`))
+        tree = joinpath(wt, only(filter(d -> isfile(joinpath(wt, d, "proj", "RUN.toml")), readdir(wt))))
+        run_toml = TOML.parsefile(joinpath(tree, "proj", "RUN.toml"))
+        @test run_toml["run_keys"] == sort([String(r["key"]) for (n, r) in m["stages"] if n != "results"])   # the stages before it
+        @test run_toml["machine"] == "desktop" && run_toml["assets"] == ["proj/paper/fig/a.png"]
+        @test read(joinpath(tree, "proj", "paper", "fig", "a.png")) == UInt8[1, 2, 4]
+    end
+end
+
+# `code_trees` runs git several times per path; a driver asks before every cell. It answers once per process while
+# nothing git reads changed, and a change — an edit, an untracked or deleted file, a commit, a staging, in the project
+# or in a package it loads from a path — is seen at once.
+@testitem "code_trees: once per process while nothing changed, every change seen" begin
+    using Test
+    using VisualGeometryToolkitEval: code_trees
+    git(dir, args...) = run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+    pkg = mktempdir(); git(pkg, "init", "-q")
+    mkpath(joinpath(pkg, "src")); write(joinpath(pkg, "src", "P.jl"), "module P end\n")
+    write(joinpath(pkg, "Project.toml"), "name = \"P\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+    git(pkg, "add", "-A"); git(pkg, "commit", "-q", "-m", "p")
+    repo = mktempdir(); git(repo, "init", "-q")
+    mkpath(joinpath(repo, "src")); write(joinpath(repo, "src", "a.jl"), "a\n")
+    write(joinpath(repo, "Project.toml"), "[deps]\nP = \"00000000-0000-0000-0000-000000000001\"\n")
+    write(joinpath(repo, "Manifest.toml"), "manifest_format = \"2.0\"\n[[deps.P]]\npath = \"$pkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "r")
+    # a git that counts its runs, first on PATH
+    bin = mktempdir(); calls = joinpath(bin, "calls")
+    write(joinpath(bin, "git"), "#!/bin/sh\necho x >> '$calls'\nexec '$(Sys.which("git"))' \"\$@\"\n"); chmod(joinpath(bin, "git"), 0o755)
+    ran() = isfile(calls) ? countlines(calls) : 0
+    withenv("PATH" => bin * ":" * ENV["PATH"]) do
+        a = code_trees(repo)
+        @test ran() > 0 && isempty(a.dirty) && sort(collect(keys(a.trees))) == ["P", "src"]
+        n = ran()
+        @test code_trees(repo) == a && ran() == n                                   # nothing changed: no git
+        write(joinpath(repo, "src", "a.jl"), "b\n")                                 # an edit
+        @test code_trees(repo).dirty == ["src"] && ran() > n
+        n = ran(); @test code_trees(repo).dirty == ["src"] && ran() == n
+        git(repo, "commit", "-qam", "edit")                                         # committed: clean, another tree
+        c = code_trees(repo)
+        @test isempty(c.dirty) && c.trees["src"] != a.trees["src"]
+        write(joinpath(pkg, "src", "new.jl"), "x\n")                                # untracked, in a package's src
+        @test code_trees(repo).dirty == ["P"]
+        rm(joinpath(pkg, "src", "new.jl"))
+        @test code_trees(repo) == c
+        git(pkg, "rm", "-q", "--cached", "src/P.jl")                                # the index alone changes
+        @test code_trees(repo).dirty == ["P"]
+        git(pkg, "add", "src/P.jl")
+        @test code_trees(repo) == c
+        write(joinpath(pkg, "src", "P.jl"), "module P\nf() = 1\nend\n"); git(pkg, "commit", "-qam", "f")
+        @test isempty(code_trees(repo).dirty) && code_trees(repo).trees["P"] != c.trees["P"]
+        git(repo, "checkout", "-q", "HEAD~1")                                       # a checkout
+        @test code_trees(repo).trees["src"] == a.trees["src"]
     end
 end

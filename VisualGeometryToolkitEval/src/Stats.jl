@@ -2,7 +2,7 @@
 # Stats — the shared summary statistics: the finite median and its lower-order
 # variant, the validation reference scale and its robust extremes, the eligibility-ruled mAA with its
 # outcome counts, the BCa bootstrap CI, the mean-of-scene-median row
-# emitter, VgtkCore's `stable_seed` (re-exported) and `POOL_RNG`,
+# emitter, VgtkCore's `stable_seed` (re-exported),
 # the stream algorithm of every pool. mAA itself is VgtkCore's
 # `Synthetic.mean_average_accuracy`, called directly. Loaded FIRST: every other
 # module (Evaluation's tuner included) takes its statistics from here.
@@ -18,7 +18,7 @@ bias-corrected and accelerated (BCa) bootstrap intervals
 ([`bootstrap_ci`](@ref)), means of per-scene medians
 ([`scene_mean_median`](@ref), [`scene_mean_median_rows!`](@ref)) and the seed
 derivation of every random sample (`stable_seed`, VisualGeometryToolkitCore's,
-re-exported; [`POOL_RNG`](@ref)),
+re-exported; every stream is StableRNGs' `StableRNG`),
 the quantile of a possibly empty sample ([`quantile_or`](@ref)) and the replay
 of persisted improvement traces ([`ImprovementTrace`](@ref),
 [`trace_error_at`](@ref), [`anytime_curve`](@ref)).
@@ -39,8 +39,6 @@ using VisualGeometryToolkitCore: stable_seed
 export finite_median, lower_median, reference_scale, maa_threshold, eligible_maa, pair_outcomes,
        bootstrap_ci, scene_mean, scene_mean_median, scene_mean_median_rows!, scene_ranges,
        scale_bounds, stable_seed, quantile_or, ImprovementTrace, trace_error_at, anytime_curve
-
-public POOL_RNG
 
 include("stats/stats.jl")
 

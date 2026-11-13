@@ -40,7 +40,7 @@ end
 The results branch of the launch a run manifest records ([`results_branch`](@ref)): the renders of the graph's
 `[results_branch] assets` ([`results_branch_assets`](@ref)), the commit the launch ran (`-dirty` when it was), every
 stage's run key, the data tiers (the git-tree-sha1 of each entry of `[results_branch] artifacts`, an Artifacts.toml),
-the site as the machine, the GPUs this job sees, and every Slurm job of the launch. The branch name is added to the manifest (`results_branch`).
+the site as the machine, the GPUs this job sees, and every Slurm job of the launch. The branch name is added to the manifest (`results_branch`), which the runner keeps when it rewrites it.
 """
 function results_branch_of_run(manifest::AbstractString; scratch_root = nothing)
     m = TOML.parsefile(manifest)
@@ -61,7 +61,7 @@ function results_branch_of_run(manifest::AbstractString; scratch_root = nothing)
     r = results_branch(proj, assets; commit, run_keys = sort([String(rec["key"]) for (_, rec) in recs]), tiers,
                        machine = m["site"], slurm_jobs = jobs, scratch_root)
     m["results_branch"] = r.branch
-    open(io -> TOML.print(io, m; sorted = true), manifest, "w")
+    _write_atomic(io -> TOML.print(io, m; sorted = true), manifest)      # as the runner writes its manifests
     println("results branch ", r.branch, " (worktree ", r.worktree, ")")
     return r
 end

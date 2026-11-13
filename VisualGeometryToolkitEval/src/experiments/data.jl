@@ -241,7 +241,7 @@ function _resolved_path(p::AbstractString)
         pushfirst!(rest, basename(p))
         p = dirname(p)
     end
-    return joinpath(ispath(p) ? realpath(p) : p, rest...)
+    return foldl(joinpath, rest; init = ispath(p) ? realpath(p) : p)
 end
 
 _is_under(p, root) = (c = _resolved_path(p); r = _resolved_path(root); c == r || startswith(c, rstrip(r, '/') * "/"))

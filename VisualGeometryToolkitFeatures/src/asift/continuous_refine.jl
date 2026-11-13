@@ -14,10 +14,10 @@
 #     cubic spline of the slice's samples, C² in (x, y), and across slices the degree-4
 #     Lagrange polynomial through five slices, C^∞ in s. Its local B-spline
 #     coefficients come from ONE KernelAbstractions kernel (`_dog_spline_coefficients!`,
-#     CPU and GPU alike) for all of an octave's keypoints;
+#     CPU and GPU alike) for all of an octave's detections;
 #   • the iteration — Core's ONE device-side LM (`static_lm`, the spline lenses'
 #     inverse at N = 3: Marquardt-scaled, bounded, explicit fused products), IN the
-#     kernel (`_dog_extrema_kernel!`, one keypoint per work item), on the rows
+#     kernel (`_dog_extrema_kernel!`, one detection per work item), on the rows
 #     r(θ) = ∇_θ D/|D(v₀)|, θ the scale-normalised displacement, with Jacobian
 #     ∇²_θ D/|D(v₀)|: the undamped step is Newton's, the LM safeguards it, and the
 #     response, gradient and Hessian are re-evaluated at every trial;
@@ -34,33 +34,31 @@
 # =============================================================================
 
 using VisualGeometryToolkitCore: ReturnCode, StopRule, successful_retcode, LeftBasin, ShapeGate, NonFinite,
-    static_lm, static_lm_termination, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
+    static_lm, static_lm_termination, StaticLmStops, RetiredKeyword, refuse_retired_keyword, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
     spline_window_sums, is_positive_definite, parse_defaults, toml_default
 
 const _CR_DEFAULTS = parse_defaults(joinpath(dirname(dirname(@__DIR__)), "configs", "continuous_refinement.toml"))
 _cr(key) = toml_default(_CR_DEFAULTS, "continuous_refinement", key)
 
 """
-    ContinuousRefinement(; prefilter_halfwidth, spatial_bound, scale_bound, min_curvature, max_iter,
-                           converged_tol2, cost_floor)
+    ContinuousRefinement(; prefilter_halfwidth, spatial_bound, scale_bound, min_curvature)
 
 The continuous DoG-extremum refinement, opt-in: `asift_detect(img; refinement = ContinuousRefinement())`
 (the detector's default, `refinement = nothing`, is today's one-step refinement). One recipe: the
 spatial gradient is Farid and Simoncelli's matched first-derivative filters on the prefiltered slices
 (IEEE TIP 2004), interpolated by the cardinal cubic spline; the scale row is the cardinal spline of the
 UNFILTERED slices, Lagrange in scale — so the prefilter sharpens the position and leaves the scale
-unbiased; the LM's Jacobian is the exact derivative of that gradient. The keywords are the bounds and
-tolerances of `_refine_dog_extremum`; every default is configs/continuous_refinement.toml's (its
-comments give each derivation). An isbits value, so a kernel takes it.
+unbiased; the LM's Jacobian is the exact derivative of that gradient. The keywords are the bounds of
+`_refine_dog_extremum`; every default is configs/continuous_refinement.toml's (its comments give each
+derivation). The LM's stop settings are VisualGeometryToolkitCore's, the stack's one owner (`StaticLmStops`,
+its `[lm]` table); `max_iter`, `converged_tol2` and `cost_floor` are retired here. An isbits value, so a
+kernel takes it.
 """
 struct ContinuousRefinement{M}
     prefilter_halfwidth::Int
     spatial_bound::Float64
     scale_bound::Float64
     min_curvature::Float64
-    max_iter::Int
-    converged_tol2::Float64
-    cost_floor::Float64
 end
 ContinuousRefinement(; kw...) = _continuous_refinement(:farid_simoncelli_spatial; kw...)
 # The refinement on response `M`: the recipe (`:farid_simoncelli_spatial`), or the plain spline response (`:spline`,
@@ -68,12 +66,14 @@ ContinuousRefinement(; kw...) = _continuous_refinement(:farid_simoncelli_spatial
 function _continuous_refinement(
         M::Symbol; prefilter_halfwidth::Integer = _cr("prefilter_halfwidth"),
         spatial_bound::Real = _cr("spatial_bound"), scale_bound::Real = _cr("scale_bound"), min_curvature::Real = _cr("min_curvature"),
-        max_iter::Integer = _cr("max_iter"), converged_tol2::Real = _cr("converged_tol2"), cost_floor::Real = _cr("cost_floor")
+        max_iter = RetiredKeyword(), converged_tol2 = RetiredKeyword(), cost_floor = RetiredKeyword()
     )
+    for (value, name) in ((max_iter, :max_iter), (converged_tol2, :converged_tol2), (cost_floor, :cost_floor))
+        refuse_retired_keyword(value, name, "VisualGeometryToolkitCore's LM stop settings, the stack's one owner (`StaticLmStops`, `[lm]`)")
+    end
     M in (:spline, :farid_simoncelli_spatial) || throw(ArgumentError("the continuous refinement's response is :farid_simoncelli_spatial or :spline, got :$M"))
     return ContinuousRefinement{M}(
-        Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature), Int(max_iter),
-        Float64(converged_tol2), Float64(cost_floor)
+        Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature)
     )
 end
 _response(::ContinuousRefinement{M}) where {M} = M
@@ -90,7 +90,7 @@ _slice_window(NS::Integer) = min(5, Int(NS))
 """
     _DogSplineWindow
 
-The product response model of one keypoint: the B-spline coefficients `coef[i, j, t, f]`
+The product response model of one detection: the B-spline coefficients `coef[i, j, t, f]`
 of the cardinal cubic spline of field `f` of DoG slices `s0 … s0 + NSW − 1` at level
 pixels `(X0 + i, Y0 + j)` (1-based), combined across slices by the Lagrange polynomial
 through them. `_dog_response(m, v)` gives D, ∇D and ∇²D at v = (x, y, s). Its fields
@@ -196,8 +196,8 @@ end
 
 # ----- the coefficient kernel ------------------------------------------------
 
-# The B-spline coefficients of every keypoint's window and field, one work item per
-# (column i, slice·field, keypoint): coef[i, j, t, f, k] = Σ_{a,b} fx[a, f]·fy[b, f]·dog[X + a, Y + b, s, w] (a
+# The B-spline coefficients of every detection's window and field, one work item per
+# (column i, slice·field, detection): coef[i, j, t, f, k] = Σ_{a,b} fx[a, f]·fy[b, f]·dog[X + a, Y + b, s, w] (a
 # correlation; a, b centred), X = Xc − RC − 1 + i, Y likewise, s = s0 + t − 1, the borders mirrored as the pyramid's
 # blur does (`_mirror_idx`). `fx`/`fy` columns are each field's composite taps: the cardinal prefilter, convolved with
 # the field's own filter along that axis (none for the spline response; a Farid–Simoncelli prefilter or derivative
@@ -277,44 +277,50 @@ struct _DogExtremum
 end
 
 """
-    _refine_dog_extremum(model, v0, σ, S, cfg) -> (v, D, H, code::ReturnCode.T, rule::StopRule)
+    _refine_dog_extremum(model, v0, σ, S, cfg, extent) -> (v, D, H, code::ReturnCode.T, rule::StopRule)
 
 Refine the DoG extremum near `v0` = (x, y, s) (1-based level coordinates) on the
 continuous response `model` (`_dog_response`) with Core's device LM
-(`static_lm`) on the rows r(θ) = ∇_θ D/|D(v₀)|, θ = ((x − x₀)/σ, (y − y₀)/σ,
-(s − s₀)·ln2/S), σ the start's scale in level pixels, its box the displacement
+(`static_lm`) on the rows r = ∇_θ D/|D(v₀)|, θ = t ⊙ (v − v₀) with the scale
+t = (1/σ, 1/σ, ln2/S) (σ the start's scale in level pixels), solved for the
+displacement v − v₀ with `t` as `static_lm`'s per-coordinate scale; its box the displacement
 bound (|Δx|, |Δy| ≤ `spatial_bound`, |Δs| ≤ `scale_bound`) within the model's
-domain. The §14 record: the LM's (`static_lm_termination`); a solve that did not
+domain and the level's extent `(W, H)` (1 ≤ x ≤ W, 1 ≤ y ≤ H: the detector's keep
+test, so a refined point never leaves the level; the window's mirrored border
+samples are no image). The §14 record: the LM's (`static_lm_termination`); a solve that did not
 converge with the point on the box is `LeftBasin`; a converged point that is not
 an extremum of the start's type, or whose curvature −sign(D)·H_θ/|D| has an
 eigenvalue below `min_curvature`, is `ShapeGate`. Every failure returns the start
 (the last valid estimate). Kernel-lawful: `_dog_extrema_kernel!` calls it per
-keypoint on the CPU and any GPU.
+detection on the CPU and any GPU.
 """
-@inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement)
+@inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement, extent::NTuple{2, Int})
     D0, _, H0 = _dog_response(model, v0)
     H0d = SMatrix{3, 3, Float64}(H0)
     (isfinite(D0) && D0 != 0) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, NonFinite
     t = SVector(1 / σ, 1 / σ, 0.6931471805599453 / S)
     mlo, mhi = _model_box(model)
     b = SVector(cfg.spatial_bound, cfg.spatial_bound, cfg.scale_bound)
-    lo = max.(mlo, v0 - b); hi = min.(mhi, v0 + b)
+    lo = max.(mlo, v0 - b, SVector(1.0, 1.0, -Inf)); hi = min.(mhi, v0 + b, SVector(Float64(extent[1]), Float64(extent[2]), Inf))
     all(lo .<= v0 .<= hi) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin
     ia = 1 / abs(Float64(D0))
-    # the closure's locals are its own (Dθ, gθ, Hθ): reusing D or H, assigned below, would box them (inference: Any)
-    fj = θ -> begin
-        Dθ, gθ, Hθ = _dog_response(model, v0 + θ ./ t)
-        (SVector{3, Float64}(gθ) ./ t .* ia, SMatrix{3, 3, Float64}(Hθ) ./ (t * t') .* ia, Float64(Dθ), SMatrix{3, 3, Float64}(Hθ))
+    # The LM runs on the displacement u = v − v₀ (level px, level px, slices), its scale `t` handed to static_lm as
+    # its per-coordinate scale `s` (its step and damping floors read there): the rows are r = ∇_θ D/|D(v₀)|, the
+    # gradient in the scaled coordinates θ = t ⊙ u, so ∂r/∂u = H ./ t (row i by tᵢ) /|D(v₀)|. The closure's locals
+    # are its own (Du, gu, Hu): reusing D or H, assigned below, would box them (inference: Any).
+    fj = u -> begin
+        Du, gu, Hu = _dog_response(model, v0 + u)
+        (SVector{3, Float64}(gu) ./ t .* ia, SMatrix{3, 3, Float64}(Hu) ./ t .* ia, Float64(Du), SMatrix{3, 3, Float64}(Hu))
     end
-    lb = (lo - v0) .* t; ub = (hi - v0) .* t
-    θ, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, SVector(1.0, 1.0, 1.0), cfg.max_iter, cfg.converged_tol2, 1.0, nothing, cfg.cost_floor)
+    lb = lo - v0; ub = hi - v0
+    u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, StaticLmStops(t))   # Core's stop settings, `t` the scale
     code, rule = static_lm_termination(ok, rule)
-    if !successful_retcode(code)
-        onbox = any(θ .<= lb) || any(θ .>= ub)
-        onbox && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
-        return v0, Float64(D0), H0d, code, rule
-    end
-    v = v0 + θ ./ t
+    # a point on the box is no extremum of the response, whatever the LM's verdict: Core's success rule counts a
+    # point a bound holds as stationary (its descent leaves the box), but the extremum lies beyond the box — outside
+    # the displacement bound or the level — so the start is returned, LeftBasin
+    (any(u .<= lb) || any(u .>= ub)) && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
+    successful_retcode(code) || return v0, Float64(D0), H0d, code, rule
+    v = v0 + u
     D = e[3]; H = e[4]
     sgn = D0 > 0 ? 1.0 : -1.0
     (D > 0) == (D0 > 0) || return v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate
@@ -323,17 +329,17 @@ keypoint on the CPU and any GPU.
     return v, D, H, code, rule
 end
 
-# One keypoint per work item: its window (coefficients `coef[:, :, :, k]`, origin
+# One detection per work item: its window (coefficients `coef[:, :, :, k]`, origin
 # `org[:, k]` = (X0, Y0, s0)), its start `starts[:, k]` = (x, y, s, σ), refined;
 # `out[:, k]` = (x, y, s, D, H[:] (column-major, 9), code, rule): H in full — the recipe's Jacobian is not
 # symmetric.
-@kernel function _dog_extrema_kernel!(out, @Const(coef), @Const(org), @Const(starts), S::Int, cfg::ContinuousRefinement, ::Val{N}, ::Val{F}) where {N, F}
+@kernel function _dog_extrema_kernel!(out, @Const(coef), @Const(org), @Const(starts), S::Int, cfg::ContinuousRefinement, extent::NTuple{2, Int}, ::Val{N}, ::Val{F}) where {N, F}
     k = @index(Global)
     @inbounds if k <= size(out, 2)
         c = view(coef, :, :, :, :, k)
         m = _DogSplineWindow{N, F, typeof(c)}(c, Int(org[1, k]), Int(org[2, k]), Int(org[3, k]))
         v0 = SVector{3, Float64}(starts[1, k], starts[2, k], starts[3, k])
-        v, D, H, code, rule = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg)
+        v, D, H, code, rule = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg, extent)
         out[1, k] = v[1]; out[2, k] = v[2]; out[3, k] = v[3]; out[4, k] = D
         for q in 1:9
             out[4 + q, k] = H[q]
@@ -384,7 +390,7 @@ function _refine_dog_extrema(
         else
             copyto!(coef_d, coefficients)       # another run's windows (the CPU = GPU attribution: one set of coefficients, two LMs)
         end
-        t2 = @elapsed _launch!(_dog_extrema_kernel!, dev, out_d, coef_d, org_d, st_d, Int(S), cfg, Val(NSW), Val(F); ndrange = n)
+        t2 = @elapsed _launch!(_dog_extrema_kernel!, dev, out_d, coef_d, org_d, st_d, Int(S), cfg, (size(dog, 1), size(dog, 2)), Val(NSW), Val(F); ndrange = n)
     end
     coef = Array(coef_d); out = Array(out_d)
     windows = [_DogSplineWindow(view(coef, :, :, :, :, k), org[1, k], org[2, k], org[3, k]) for k in 1:n]
@@ -428,7 +434,8 @@ through the pyramid's adjoint — the same estimator and map as the refinement.
 function _continuous_covariance(
         plan, oi::Integer, w::Integer, m::_DogSplineWindow, e::_DogExtremum, cfg::ContinuousRefinement = ContinuousRefinement();
         taps = [Array(t) for t in plan.pyr_taps],
-        autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H)
+        autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H),
+        fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
     )
     S = plan.nb_scales
     upsample = plan.o_first < 0
@@ -440,7 +447,7 @@ function _continuous_covariance(
     lev(c) = (λ = zeros(N + 1); for q in 1:N; λ[q + 1] += c[q]; λ[q] -= c[q]; end; λ)
     λL = lev(L); λdL = lev(dL)
     # the gradient functionals (gx, gy, gs) of the window's response: per axis (spline order, composite taps)
-    fx, fy = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
+    fx, fy = fields
     size(fx, 2) == size(m.coef, 4) || throw(ArgumentError("_continuous_covariance: the window has $(size(m.coef, 4)) fields, the refinement's response $(size(fx, 2))"))
     spec = size(m.coef, 4) == 1 ?
         (((1, fx[:, 1]), (0, fy[:, 1]), λL), ((0, fx[:, 1]), (1, fy[:, 1]), λL), ((0, fx[:, 1]), (0, fy[:, 1]), λdL)) :
@@ -476,7 +483,7 @@ end
 
 # Stage C/B over one tilt chunk's new pool entries `nbefore+1 … nbefore+nnew`: their integer extrema and offsets (the
 # refinement state `_bextract!` stored in `rawcov`) are the starts, refined per octave on the chunk's resident DoG, and
-# each converged keypoint's (x, y, σ, response) overwrites its `raw` column in the warp canvas's reported coordinates (a
+# each converged detection's (x, y, σ, response) overwrites its `raw` column in the warp canvas's reported coordinates (a
 # failure keeps today's, its start). Returns the refined entries for `_refined_covs!`.
 function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, nnew::Int)
     sl = (nbefore + 1):(nbefore + nnew)
@@ -509,17 +516,18 @@ function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, n
     return refined
 end
 
-# The refined keypoints' covariances, over the ones `_bcov!` left in `featcov` (the canvas frame, packed
+# The refined detections' covariances, over the ones `_bcov!` left in `featcov` (the canvas frame, packed
 # (xx, xy, xℓ, yy, yℓ, ℓℓ)), before the back-projection maps them: `_continuous_covariance` at each refined point — the
-# refinement's own derivatives. Threaded over the keypoints.
+# refinement's own derivatives. Threaded over the detections.
 function _refined_covs!(plan, cfg::ContinuousRefinement, refined, r, nbefore::Int, nnew::Int)
     isempty(refined) && return nothing
     sl = (nbefore + 1):(nbefore + nnew)
     fc = Array(view(plan.featcov, :, sl))
     taps = [Array(t) for t in plan.pyr_taps]
     ac = Dict(w => _canvas_autocov(plan.geo[r[w]], plan.W, plan.H) for w in unique(x[3] for x in refined))
+    fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)   # the configuration's, once for every detection
     Threads.@threads :dynamic for (col, oi, w, win, e) in refined
-        Σ = _continuous_covariance(plan, oi, r[w], win, e, cfg; taps, autocov = ac[w])
+        Σ = _continuous_covariance(plan, oi, r[w], win, e, cfg; taps, autocov = ac[w], fields)
         i = col - nbefore
         fc[1, i] = Σ[1, 1]; fc[2, i] = Σ[1, 2]; fc[3, i] = Σ[1, 3]
         fc[4, i] = Σ[2, 2]; fc[5, i] = Σ[2, 3]; fc[6, i] = Σ[3, 3]

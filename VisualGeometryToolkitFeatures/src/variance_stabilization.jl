@@ -9,7 +9,8 @@
 #
 #     α  = gain / (4K) · (1/d₁ + 1/d₂),     σ² = gain² σ_r² / 4 · (1/d₁² + 1/d₂²),
 #
-# d_k = white − black[c_k] the two greens' code spans (`L.geometry.green_dn`).
+# d_k = white − black[c_k] the two greens' code spans (`L.geometry.plane_sites`). Core's sensor model makes the
+# variance plane and `poisson_slope` gives α.
 # The generalized Anscombe transform (Starck, Murtagh and Bijaoui 1998; Mäkitalo
 # and Foi 2013)
 #
@@ -44,45 +45,48 @@ struct StabilizedImage
 end
 
 """
-    variance_stabilize(L::LinearRaw; electrons_per_dn, read_noise) -> StabilizedImage
+    variance_stabilize(L::LinearRaw, sensor_model::SensorModel) -> StabilizedImage
 
 The generalized Anscombe transform of the green cells of `L` (`:green_cells`,
 or `:bin2`'s G plane, the same values) for Poisson–Gaussian noise: after it the
 noise has σ ≈ 1 at every level, from a few electrons to the white level.
 
-- `electrons_per_dn` — the sensor's conversion gain at the frame's ISO,
-  electrons per raw code (> 0).
-- `read_noise` — the read noise in raw codes (≥ 0), the codes' rounding
-  included.
-
-Neither is in a RAW file's metadata (LibRaw reports neither): they are the
-camera's, at the frame's ISO, measured once (e.g. from the variance of the two
-greens' difference against their mean on a flat scene). The code spans are the
-photosites' own (`L.geometry.green_dn`, each green's `white − black`), and `L.gain`
-scales the photon and the read noise alike. A green cell whose value is
-`x = (x₁ + x₂)/2` is `α·P + N` with
-`α = gain/(4K)·(1/d₁ + 1/d₂)`, `σ² = gain²σ_r²/4·(1/d₁² + 1/d₂²)`, and its
-transform is `(2/α)·√(max(α x + 3α²/8 + σ², 0))`.
+`sensor_model` is the frame's resolved VisualGeometryToolkitCore `SensorModel`
+(`sensor_model`, a lookup in the body's characterisation), the one `L` was
+linearised with (`LinearRaw(mosaic; mode, sensor_model)`, or [`load_raw`](@ref)'s
+`sensor_model`): under its Poisson–Gaussian noise (a gain) `L` carries each green
+value's variance `v(x)`, Core's one law. A model without a gain is an
+`ArgumentError` naming the missing gain; there is no fallback. The transform
+reads the variance plane and the green plane's Poisson slope α (Core's
+`poisson_slope`): a value `x` whose variance is `α·max(x, 0) + σ²` (σ² its
+Gaussian part, a dark frame's per photosite when the model holds one) maps to
+`(2/α)·√(max(α x + 3α²/8 + σ², 0))`. `white` is the transform at the white
+level, `L.gain`, with the plane's mean Gaussian variance.
 
 `L.saturated` is carried over: [`asift_detect`](@ref) masks those pixels
 rather than reading the clipped values. The transform is pixel-wise, so the
 detections' positions are the cell grid's, as on any rendering of `L` (a
 display rendering for a descriptor among them).
 """
-function variance_stabilize(L::LinearRaw; electrons_per_dn::Real, read_noise::Real)
-    isfinite(electrons_per_dn) && electrons_per_dn > 0 ||
-        throw(ArgumentError("variance_stabilize: electrons_per_dn must be positive and finite, got $electrons_per_dn"))
-    isfinite(read_noise) && read_noise >= 0 ||
-        throw(ArgumentError("variance_stabilize: the read noise must be nonnegative and finite, got $read_noise"))
-    # the green-cell plane: the one whose frame IS the cell grid (Core's raw_frame_map; the display image refused there)
-    S = raw_frame_map(L)
-    G = view(L.image, :, :, findfirst(c -> bayer_plane_map(L, c) === S, 1:size(L.image, 3)))
-    d1, d2 = L.geometry.green_dn
-    g = L.gain
-    α = g / (4 * electrons_per_dn) * (1 / d1 + 1 / d2)
-    σ² = g^2 * read_noise^2 / 4 * (1 / d1^2 + 1 / d2^2)
-    f(x) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
-    return StabilizedImage(f.(G), L.saturated, f(g))
+function variance_stabilize(L::LinearRaw, sensor_model::SensorModel)
+    sensor_model.noise isa PoissonGaussian || throw(ArgumentError(
+        "variance_stabilize: the sensor model has no gain (its noise is $(nameof(typeof(sensor_model.noise)))): the transform needs a Poisson–Gaussian noise: a characterisation entry with a gain, from photon_transfer or a record"))
+    G = green_plane(L)                       # Core's: the plane whose frame IS the cell grid (the display image refused)
+    G isa AbstractMatrix{<:Uncertain} || throw(ArgumentError(
+        "variance_stabilize: L holds no variances: linearise it with the same sensor model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
+    α = poisson_slope(L, sensor_model, :G)                    # the green plane's Poisson slope (Core's)
+    gaussian(u) = var(u) - α * max(value_of(u), 0.0)        # a value's variance less its Poisson part
+    f(x, σ²) = 2 / α * sqrt(max(α * x + 3α^2 / 8 + σ², 0.0))
+    σ²_mean = sum(gaussian, G) / length(G)
+    return StabilizedImage(map(u -> f(value_of(u), gaussian(u)), G), L.saturated, f(L.gain, σ²_mean))
+end
+
+# The 0.8 keywords, retired: the noise is the frame's sensor model, the argument.
+function variance_stabilize(L::LinearRaw; electrons_per_dn = RetiredKeyword(), read_noise = RetiredKeyword())
+    successor = "the frame's sensor model, variance_stabilize(L, sensor_model::SensorModel)"
+    refuse_retired_keyword(electrons_per_dn, :electrons_per_dn, successor)
+    refuse_retired_keyword(read_noise, :read_noise, successor)
+    throw(ArgumentError("variance_stabilize: give $successor (VisualGeometryToolkitCore's sensor_model)"))
 end
 
 # The `intensity_thr` of `asift_detect` that is one noise σ of unit iid input noise in its noisiest searched DoG slice
@@ -124,7 +128,7 @@ contrast: on pure noise, extrema above it are rare.
 
 The saturated pixels are the `exclusion_mask` ([`asift_detect`](@ref)'s rule: a
 detection whose centre lies within three of its scales, the DoG's support, of a
-masked pixel is dropped): a clipped value is no measurement. A caller's `exclusion_mask`
+masked pixel is dropped): a clipped value is not a measured one. A caller's `exclusion_mask`
 joins them. The image is scaled by `1 / s.white` into `[0, 1]` for the
 detector (the warps' fill is mid-grey), the threshold with it. `kwargs` are
 [`asift_detect`](@ref)'s but `intensity_thr` (the threshold is `noise_sigmas`).

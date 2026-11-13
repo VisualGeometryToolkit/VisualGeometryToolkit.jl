@@ -4,7 +4,7 @@
 #
 # `EssentialProblem` is the `MinimalSolveProblem{EssentialMat}` alias; its
 # construction, minimal solve (VGC `Essential5pt` on the unit bearings) and
-# sample gate are the family's (cspond.jl). `cs` holds genuine rays — 3-vector
+# sample gate are the family's (correspondence.jl). `cs` holds genuine rays — 3-vector
 # unit bearings from the camera's own back-projection — carrying their
 # per-view back-projection Jacobians as the `M₁`/`M₂` attribute columns.
 #
@@ -119,7 +119,7 @@ end
 # residual's unit, across a repo boundary, so a silent rescale would have
 # invalidated every one of them with no test able to see it.
 #
-# The measurement-map conjugation that stood here is gone with E's maps: a
+# The observation-map conjugation that stood here is gone with E's maps: a
 # matrix can only reach the z = 1 chart, so the camera's own back-projection
 # replaces it.
 #

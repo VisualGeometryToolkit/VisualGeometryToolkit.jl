@@ -24,8 +24,8 @@
 # accepted step; each correspondence is one residual block of 2 rows, depending
 # on the camera and its view's pose (on the pose alone with nothing free in the
 # camera), differentiated by NLLSsolver (ForwardDiff through the retractions and
-# the lens). The driver is VGC's `nlls_options` (Marquardt's DᵀD damping); the
-# stop is recorded by VGC's `nlls_termination`, under the stall postcondition on the rows and
+# the lens). The driver is Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`, Marquardt's DᵀD damping, its
+# stop settings `LmStops`); the stop is recorded under its one success rule, the stall postcondition on the rows and
 # their Jacobian at the estimate.
 #
 # Hoisted from RadiometricCamera's experiments (`refine_lens_and_poses`,
@@ -44,13 +44,9 @@ variance `Σ‖rᵢ‖² / ν` (px²); `ν = 2n − p`, its degrees of freedom (
 free camera parameters plus 6 per view); `free`, the names of the camera
 parameters refined (`()` for a SplineLens camera, which is held); and `spline`,
 `nothing` for a parametric camera, for a SplineLens camera `(; n_dropped_window,
-n_dropped_unprojected, forward, forward_max_px, axis_rotation, symmetry_residual)`: the correspondences detected on an absent window, and those
+n_dropped_unprojected)`: the correspondences detected on an absent window, and those
 the camera does not project when detected within a cell of one (they can be
-inliers); what became of a forward spline (`:none` without one, `:refitted` or
-`:dropped`: the entry's turn of the frame leaves it stale, so it is never kept)
-and the refit's held-out maximum (pixels, or `nothing`); then the entry's optical-axis gauge: the
-frame-labelled rotation from the given camera's frame to the returned one's
-(`optical_axis`, the poses turned by it) and the axis fit's symmetry residual (px).
+inliers).
 For a SplineLens camera `p = 6·views` (the camera is held). Then the robust record: `residual_norms` (one per correspondence,
 pixels), `weights` (the loss's ρ′/ρ′(0) at the estimate under a robust strategy, all
 ones — lazily — under least squares), and the scale the loss ran at, `scale` and
@@ -145,7 +141,7 @@ NLLSsolver.computecost(vars::AbstractVector, r::_BoardViewResidual) =
     refine_camera_and_poses(camera, poses, views; fixed = (), box = nothing, optimization_strategy, scale | width,
                             max_iter, ftol, xtol, max_time = nothing)   # defaults: configs/default.toml [refine_camera_and_poses]
     refine_camera_and_poses(spline_camera, poses, views; fixed = (:controls,),   # required: a SplineLens camera is held
-                            refit_forward = true, forward_tolerance, max_iter, ftol, xtol, max_time = nothing)
+                            optimization_strategy, scale | width, max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :poses)}, CameraPosesRefineMetadata}
     refine_camera_and_poses(camera, poses, board_poses, views; held_boards, held_views = (), fixed = (), box,
                             optimization_strategy, scale | width, max_iter, ftol, xtol, max_time = nothing)
@@ -167,7 +163,7 @@ scratch and the camera keeps its family (its lens type).
   in the target's frame), keyed like `views`.
 - `views` — per view, its correspondences `cs = [X => u, …]`: `X` a target
   point (3-vector), `u` the pixel it is detected at (2-vector). Grouped data:
-  an `AbstractDict{K, <:AbstractVector{<:Cspond}}` keyed by the view, with
+  an `AbstractDict{K, <:AbstractVector{<:Correspondence}}` keyed by the view, with
   `poses::AbstractDict{K}` of the same keys (block order: the sorted keys; an
   `ArgumentError` when the key sets differ), or a vector of views with a vector
   of poses of the same length. Every point must project at the guess (in front
@@ -216,7 +212,7 @@ scratch and the camera keeps its family (its lens type).
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
 each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
-VisualGeometryToolkitCore's `nlls_termination`: `ReturnCode.Success` only at a stationary point, else `MaxIters`
+VisualGeometryToolkitCore's one LM (`lmsolve_chart!`): `ReturnCode.Success` only at a stationary point, else `MaxIters`
 (the iteration cap), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
 `Stalled`; `rms` is
 `√(Σ‖rᵢ‖² / n)` over the `n` correspondences (pixels). The metadata
@@ -267,20 +263,16 @@ its backward is fitted on back-projected rays (`fit_camera(SplineLens, …)`,
   `result.spline.n_dropped_unprojected`: it can be an inlier); every other one
   must project at the guess (an `ArgumentError` names the first that does not,
   or where the lattice folds).
-- First, always, the optical axis. The camera is turned so ẑ is its optical axis and its principal point is that
-  axis's pixel, and the guess poses are turned with it, so every image is kept:
-  [`optical_axis`](@ref), then Core's `axis_gauged`. The axis is fitted over the camera's own bound, so the camera
-  must be a `BoundedCamera`; a bare model is an `ArgumentError`. The poses are refined from there and the camera
-  comes back as the entry gauged it (K bit-identical to the gauged guess's). `result.spline.axis_rotation` is the
-  turn, from the given camera's frame to the returned one's.
-- A forward spline is dropped for the refinement and, with `refit_forward`
-  (the default), refitted over `imaged_region(camera)` by
-  [`fit_forward_spline`](@ref)`(…; tolerance = forward_tolerance)` (pixels: the
-  returned camera's backward, K and frame kept), which needs a `BoundedCamera` (an
-  `ArgumentError` for a bare camera model). It is never kept: the entry's turn of
-  the frame leaves it stale.
-- Least squares only (`optimization_strategy = nothing`, no `scale` or `width`).
-  `max_time` caps the solve (the record `(ReturnCode.MaxTime, TimeCap)`).
+- The camera comes back AS GIVEN, its forward spline included (none is refitted): its
+  controls are no variable, so there is no gauge to fix and no frame to turn, and the
+  poses come back in the camera's own frame. A bare model or a `BoundedCamera` alike. Each
+  row is the backward's own projection solve (a forward the camera holds is not used
+  in the solve: it is the backward's approximation). The keywords `refit_forward` and
+  `forward_tolerance` of the retired forward refit are refused by name (0.11.0); give a
+  camera its forward with [`fit_forward_spline`](@ref).
+- The strategy is the bundle's (`optimization_strategy`, its `scale` or `width`: the
+  default Triggs{Welsch} needs one; `nothing` is least squares). `max_time` caps the
+  solve (the record `(ReturnCode.MaxTime, TimeCap)`).
 - Device: the projections that check the guess run batched on the device
   (Core's `default_device()`); the LM is NLLSsolver's, on the CPU.
 
@@ -291,7 +283,7 @@ metres. The residuals are pixels either way.
 """
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{K, <:PlainEuclideanMap{3}},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     ) where {K}
     ids = block_order(views, poses)
@@ -300,7 +292,7 @@ function refine_camera_and_poses(
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:PlainEuclideanMap{3}},
-        views::AbstractVector{<:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractVector{<:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         kwargs...
     )
     length(poses) == length(views) || throw(ArgumentError("refine_camera_and_poses: $(length(poses)) poses for $(length(views)) views"))
@@ -311,7 +303,7 @@ end
 # by (view, board). Each connected component of the view–board graph has a held pose: its gauge.
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{V, <:PlainEuclideanMap{3}}, board_poses::AbstractDict{B, <:PlainEuclideanMap{3}},
-        views::AbstractDict{<:Tuple{V, B}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        views::AbstractDict{<:Tuple{V, B}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
         held_boards = nothing, held_views = (), kwargs...
     ) where {V, B}
     VgtkCore.Cameras.IntrinsicsRole(_camera_model(camera).lens) isa VgtkCore.Cameras.FreeIntrinsics || throw(ArgumentError(
@@ -370,19 +362,19 @@ end
 # refinement, the poses read back in metres once.
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractDict{K, <:_PhysicalPose3},
-        views::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
+        views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     ) where {K}
     r = refine_camera_and_poses(
-        camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_csponds(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
+        camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_correspondences(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
     est = estimate(r)
     return FitResult((; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
 function refine_camera_and_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
-        views::AbstractVector{<:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
+        views::AbstractVector{<:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     )
-    r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_csponds(_plain_metres, identity, cs) for cs in views]; kwargs...)
+    r = refine_camera_and_poses(camera, map(_plain_metres, poses), [_map_correspondences(_plain_metres, identity, cs) for cs in views]; kwargs...)
     est = estimate(r)
     return FitResult((; camera = est.camera, poses = map(_attach_metres, est.poses)), retcode(r), stop_rule(r), iterations(r), rms(r), r.n, metadata(r))
 end
@@ -411,15 +403,23 @@ _plain_pose(P::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotati
 _relabelled(inputs::AbstractVector, outs::AbstractVector{<:PlainEuclideanMap{3}}) =
     [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(inputs, outs)]
 
-# Without boards: every correspondence's point in the world, one held identity board.
+# Without boards: every correspondence's point in the world, one held identity board (`_refine_views`).
 function _refine_camera_and_poses(
         ::VgtkCore.Cameras.FreeIntrinsics, bounded::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...
     )
-    V = length(views)
-    V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
+    kw = _bundle_keywords(; kwargs...)
+    camera = _camera_model(bounded)
     obs = [(v, 1, _correspondence(v, j, c)...) for (v, cs) in enumerate(views) for (j, c) in enumerate(cs)]
+    return _refine_views(kw, bounded, camera, poses, obs, _camera_chart(camera, kw.fixed, kw.box))
+end
+
+# The views' poses (and the camera's `chart`, `(free, chart)`) refined against `obs`, `(view, 1, X, u)` each, every
+# point in the world: one held identity board. Both routes' (the SplineLens one with nothing of the camera free).
+function _refine_views(kw, bounded::_RefinedCamera, camera, poses::AbstractVector, obs::AbstractVector, chart; spline = nothing)
+    V = length(poses)
+    V >= 1 || throw(ArgumentError("refine_camera_and_poses: no views"))
     world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))
-    est, rest... = _refine_bundle(bounded, poses, [world], obs, falses(V), trues(1); kwargs...)
+    est, rest... = _refine_bundle(kw, bounded, camera, chart, poses, [world], obs, falses(V), trues(1); spline)
     return (; camera = est.camera, poses = est.poses), rest...
 end
 
@@ -458,15 +458,23 @@ end
 # The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
 # (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
 # problem: the camera's chart (when anything is free), a pose chart per free view and per free board, one residual
-# block per correspondence; solved by `_solve_bundle`.
+# block per correspondence; solved by `_solve_bundle`. The keyword form parses the bundle's keywords and the camera's
+# chart; the parsed form takes them (`kw`, `(free, chart)`: `((), nothing)` holds the camera), projects through
+# `camera` (the bounded camera's model, or the SplineLens route's camera without its forward) and returns `bounded`
+# itself when nothing of the camera is free; `spline` is the SplineLens route's record (`CameraPosesRefineMetadata`).
 function _refine_bundle(
         bounded::_RefinedCamera, poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
         held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool}; kwargs...
     )
     kw = _bundle_keywords(; kwargs...)
     camera = _camera_model(bounded)
+    return _refine_bundle(kw, bounded, camera, _camera_chart(camera, kw.fixed, kw.box), poses, boards, obs, held_views, held_boards)
+end
+function _refine_bundle(
+        kw, bounded::_RefinedCamera, camera, (free, chc), poses::AbstractVector, boards::AbstractVector, obs::AbstractVector,
+        held_views::AbstractVector{Bool}, held_boards::AbstractVector{Bool}; spline = nothing
+    )
     V, B = length(poses), length(boards)
-    free, chc = _camera_chart(camera, kw.fixed, kw.box)
     nd = chc === nothing ? 0 : tangent_size(chc)
     view_charts = _pose_charts(poses); board_charts = _pose_charts(boards)
     # the variables: the camera's chart, then the free views', then the free boards'
@@ -509,7 +517,7 @@ function _refine_bundle(
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
     camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
     return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code, sol.rule,
-        sol.iterations, sol.rms, sol.n, _bundle_metadata(sol, free, kw)
+        sol.iterations, sol.rms, sol.n, _bundle_metadata(sol, free, kw; spline)
 end
 
 # The shared solve of every parametrization: the residual blocks `blocks` (2 rows each, one per correspondence, each
@@ -521,38 +529,27 @@ end
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
 # loop.jl: under least squares every correspondence and √(S/n)).
 function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer, kw)
-    lo, loss, ftol = kw.lo, kw.loss, kw.ftol
+    lo, loss = kw.lo, kw.loss
     RT = Union{unique(typeof.(blocks))...}
     costs = convert(Vector{RT}, blocks)
     n = length(costs)
-    VT = eltype(vars0)
-    options = nlls_options(; max_iter = kw.max_iter, ftol, xtol = kw.xtol, max_time = kw.max_time)
-    function solve(blocks, start)
-        RTb = Union{unique(typeof.(blocks))...}
-        pr = NLLSsolver.NLLSProblem(VT, RTb)
-        foreach(x -> NLLSsolver.addvariable!(pr, x), start)
-        foreach(c -> NLLSsolver.addcost!(pr, c), blocks)
-        return pr, NLLSsolver.optimize!(pr, options)
-    end
-    stationarity_blocks = costs
+    # Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`) at the bundle's own stop settings (its keywords, read from
+    # [refine_camera_and_poses]); its record is Core's one success rule (the √ρ′-weighted stationarity postcondition)
+    stops = LmStops(; max_iter = kw.max_iter, ftol = kw.ftol, xtol = kw.xtol, max_time = kw.max_time)
     if lo === nothing
-        problem, result = solve(costs, vars0)
-        weights = unit_weights(Float64, n)
+        lp = LmProblem(copy(vars0), costs)
     else
         shape = strategy_loss(lo)(); sq = _sq_loss_width(loss)
-        sqnorms(vars) = (r = first(nlls_rows_and_jacobian(costs, vars)); [r[2k - 1]^2 + r[2k]^2 for k in 1:n])
-        problem, result = solve([_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs], copy(vars0))
-        weights = _loss_weights(shape, sq, sqnorms(problem.variables))   # ρ′/ρ′(0) (exactly as the stationarity rows read it)
-        # stationarity of the robust cost: Σ ρ′ Jᵀr = 0, the rows and Jacobian scaled by √ρ′
-        stationarity_blocks = [_with_robust(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
+        lp = LmProblem(copy(vars0), [_with_robust(c, 1.0, loss_robustifier(shape, sqrt(sq))) for c in costs])
     end
-    r, J = nlls_rows_and_jacobian(stationarity_blocks, problem.variables)
-    # the termination record: NLLSsolver's bits under the stall postcondition at the returned point
-    code, rule = nlls_termination(result, () -> VgtkCore.is_stationary(J, r; tol = _CHART_LM_STATIONARITY_TOL, ftol))
-    lo === nothing || (r = first(nlls_rows_and_jacobian(costs, problem.variables)))   # the reprojection rows themselves
+    sol = lmsolve_chart!(lp, stops)
+    variables = lp.variables
+    r = first(nlls_rows_and_jacobian(costs, variables))   # the reprojection rows themselves
+    weights = lo === nothing ? unit_weights(Float64, n) :
+        _loss_weights(shape, sq, [r[2k - 1]^2 + r[2k]^2 for k in 1:n])   # ρ′/ρ′(0) at the estimate
     S = sum(abs2, r)
     support, rms = _weighted_support_rms(weights, (r[2k - 1]^2 + r[2k]^2 for k in 1:n))
-    return (; variables = problem.variables, code, rule, iterations = result.niterations, residuals = r, S, ν = 2n - p, rms, n = support, weights)
+    return (; variables, sol.code, sol.rule, sol.iterations, residuals = r, S, ν = 2n - p, rms, n = support, weights)
 end
 _bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
     _row_norms(sol.residuals), sol.weights, _recorded_scale(kw.input), VgtkCore.scale_source(kw.input),

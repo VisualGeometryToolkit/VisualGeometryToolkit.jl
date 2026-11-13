@@ -273,7 +273,7 @@ function _pool_covs(ch::AbstractMatrix{Float32}, n::Int, flags, on)
     sizehint!(out, n)
     for i in 1:n
         flags[i] == on || continue
-        push!(out, _keypoint_cov(view(ch, :, i)))
+        push!(out, _detection_cov(view(ch, :, i)))
     end
     return out
 end

@@ -49,7 +49,7 @@ using Rotations: RotMatrix
     include("test_p3p.jl")
     include("test_p3p_poselib.jl")
 
-    # Truncated-loss refinement wrappers + essential_dlt: Cspond input.
+    # Truncated-loss refinement wrappers + essential_dlt: Correspondence input.
     include("test_refine.jl")
 
     # The robust-estimation contract (optimization_strategy, scale/width, FitResult) and the bit-identical baselines.

@@ -286,28 +286,26 @@ function post_iteration!(state::PosteriorIrlsState{M}, method::PosteriorIrlsMeth
     state.best = _with_cost(M, θ, nll)
     return nothing
 end
-stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel}) = StopWhenNoImprovement(1, 1)
+# (the incumbent's rule: a parameter change, held model or not, is the method below — one method each, no ambiguity)
+stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel, NoImprovementStop}) = StopWhenNoImprovement(1, 1)
 
-# The termination record's rule (§14) of a run its stop rule ended `:converged`, by the
-# configured stop and model update — the ONE map: the parameter change; the incumbent's
-# cost not falling under a refit; the mixture NLL falling by ≤ `tol` under a held model
-# (its `StopWhenNoImprovement` is a cost-decrease test). The run's Symbol reason becomes
-# its record through `retcode_from_symbol` (`lo_estimate`'s Symbol form).
-_stop_rule(::ParameterChangeStop, _model_update) = ParameterChange
-_stop_rule(::NoImprovementStop, ::WeightedRefine) = NoImprovement
-_stop_rule(::NoImprovementStop, ::KeepModel) = CostDecrease
-_stop_rule(m::PosteriorIrlsMethod) = _stop_rule(m.stop, m.model_update)
+# The termination record's rule (§14) of the criterion that fired — Core's `stop_rule` generic, the ONE map
+# (`block_coordinate_descent!` hands the fired `StopWhenAny` member's rule to `block_coordinate_result`): the
+# parameter change; the incumbent's cost not falling under a refit; the mixture NLL falling by ≤ `tol` under a held
+# model (its `StopWhenNoImprovement` is a cost-decrease test). The run's Symbol reason becomes its record through
+# `retcode_from_symbol` (`lo_estimate`'s Symbol form).
+stop_rule(::StopWhenParameterChangeLess, _method) = ParameterChange
+stop_rule(::StopWhenNoImprovement, _method) = NoImprovement
+stop_rule(::StopWhenNoImprovement, ::PosteriorIrlsMethod{<:Any, KeepModel}) = CostDecrease
 
-function block_coordinate_result(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter) where {M, T}
-    return lo_estimate(state.best.value, stop_reason, _stop_rule(method); iterations = final_iter)
-end
+block_coordinate_result(state::PosteriorIrlsState, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter, rule) =
+    lo_estimate(state.best.value, stop_reason, rule; iterations = final_iter)
 
 # The parameter-change rule: its criterion, and the LAST iterate as the result (on
 # `:solve_failed`, the last model the model block produced).
 stopping_criterion(m::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
-stopping_criterion(m::PosteriorIrlsMethod{<:Any, KeepModel, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
-block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter) =
-    lo_estimate(θ, stop_reason, _stop_rule(method); iterations = final_iter)
+block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter, rule) =
+    lo_estimate(θ, stop_reason, rule; iterations = final_iter)
 
 """
     posterior_irls!(likelihood, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
@@ -399,7 +397,7 @@ not configuration. A counter is shared by every run that is handed the same
 wrapper — the counters are `Threads.Atomic{Int}` and `call_records` is appended
 under a lock, so runs on several threads (a threaded sweep over pairs) add up
 exactly (the records then in the threads' order); build a fresh one per
-measurement, and read `call_records` once its runs have returned.
+experiment, and read `call_records` once its runs have returned.
 """
 struct CountedLO{L <: Union{Nothing, AbstractOptimizationStrategy}} <: AbstractOptimizationStrategy
     inner::L

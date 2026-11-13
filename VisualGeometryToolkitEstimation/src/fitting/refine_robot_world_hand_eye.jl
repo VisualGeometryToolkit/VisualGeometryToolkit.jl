@@ -2,7 +2,7 @@
 # refine_robot_world_hand_eye — reprojection-error refinement of a robot-world calibration
 # =============================================================================
 #
-# The measurement-level upgrade `fit_robot_world_hand_eye`'s header names: refine the
+# The observation-level upgrade `fit_robot_world_hand_eye`'s header names: refine the
 # M + 1 transforms of A_i X_m = Y B_i^m against the FEATURES — the marker
 # points' reprojection error — rather than against per-frame PnP poses. With
 # the camera and the rig poses A_i fixed, marker m's point X seen in frame i
@@ -55,7 +55,7 @@ camera at frame i). Function names do not encode frames.
 - `guess::RobotWorldHandEyeCalibration{K}` — the starting `Y` and the keyed `X`
 - `camera::CameraModel` — the (fixed) camera; `project(camera, X_C)` maps a
   camera-frame point to pixels
-- `markers::AbstractDict{K, <:AbstractVector{<:Cspond}}` — per marker id, one
+- `markers::AbstractDict{K, <:AbstractVector{<:Correspondence}}` — per marker id, one
   element per frame it is seen in: that frame's rig pose `A_i = T_WR`
   (`unlabel`ed at the boundary) paired with the features seen with it,
   `A_i => [X => u, …]` — `X` a point in the marker's frame, `u` its measured
@@ -86,7 +86,7 @@ residual block per point, with nothing compiled per marker count. It is the
 camera-and-poses bundle's one solve at its settings ([`refine_camera_and_poses`](@ref)'s
 `max_iter`, `ftol`, `xtol` of `configs/default.toml [refine_camera_and_poses]`,
 Marquardt's DᵀD damping): this refine has no LM settings of its own. Its termination
-record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's `nlls_termination`) is
+record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's one LM, `lmsolve_chart!`) is
 `ReturnCode.Success` only when the estimate is stationary, `MaxIters` at the
 iteration cap (no time cap: it runs without `max_time`), `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
 failed (the estimate is then the last accepted one) and `Stalled` otherwise
@@ -111,7 +111,7 @@ inputs. Plain inputs give a plain calibration in their own unit, as before.
 function refine_robot_world_hand_eye(
         guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}}, camera::CameraModel,
         markers::AbstractDict{
-            K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
+            K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
         };
         max_iter::Int = _dflt("refine_camera_and_poses", "max_iter"),
         optimization_strategy = _refine_default(Val(:refine_robot_world_hand_eye)),
@@ -149,13 +149,13 @@ end
 function refine_robot_world_hand_eye(
         guess::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}, camera::CameraModel,
         markers::AbstractDict{
-            K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:AbstractVector{<:Cspond{<:_PhysicalPoint3, <:StaticVector{2}}}}},
+            K, <:AbstractVector{<:Correspondence{<:_PhysicalPose3, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}},
         };
         kwargs...
     ) where {K}
-    features(fs) = _map_csponds(_plain_metres, identity, fs)
-    plain = Dict(id => _map_csponds(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
-        K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
+    features(fs) = _map_correspondences(_plain_metres, identity, fs)
+    plain = Dict(id => _map_correspondences(_plain_metres, features, els) for (id, els) in markers)::AbstractDict{
+        K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}}},
     }
     return _attach_metres(refine_robot_world_hand_eye(_plain_metres(guess), camera, plain; kwargs...))
 end
@@ -262,7 +262,7 @@ function _refine_robot_world_hand_eye(
     termination = (sol.code, sol.rule)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
-    # of its rows of J with measurement Jacobian −I: the same (JᵀJ)⁻¹ as per-
+    # of its rows of J with observation Jacobian −I: the same (JᵀJ)⁻¹ as per-
     # point blocks, without a static 2 × N block and an N × N static product
     # per point. Measured 2026-10-01 at M = 20 (N = 126, 6000 points): the
     # per-point form took 370 ms and 2.2 GB per call, 4× the LM itself.

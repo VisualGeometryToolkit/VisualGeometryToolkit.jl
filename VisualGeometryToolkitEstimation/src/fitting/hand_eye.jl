@@ -84,7 +84,7 @@ X = estimate(result)                # T_RP, the calibration
 ```
 """
 function find_hand_eye(
-        cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
+        cs::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
         motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
         char_length::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
@@ -97,10 +97,10 @@ end
 # Physical poses: stripped in metres once (with the lengths beside them), the
 # plain search, `X` read back in metres once.
 function find_hand_eye(
-        cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
+        cs::AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}};
         char_length = nothing, kwargs...
     )
-    plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    plain = _map_correspondences(_plain_metres, _plain_metres, cs)::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
     return _attach_metres(find_hand_eye(plain; char_length = _metres(char_length), kwargs...))
 end
 
@@ -125,7 +125,7 @@ physical ones are read in metres and `X` comes back in metres, a supplied
 `char_length` then a length and a `scale` or `width` a plain number in metres.
 """
 function refine_hand_eye(
-        X::PlainEuclideanMap{3}, cs::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
+        X::PlainEuclideanMap{3}, cs::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
         motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
         char_length::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
@@ -138,9 +138,9 @@ end
 # Physical poses: stripped in metres once (with the lengths beside them), the
 # plain refinement, `X` read back in metres once.
 function refine_hand_eye(
-        X::_PhysicalPose3, cs::AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}};
+        X::_PhysicalPose3, cs::AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}};
         char_length = nothing, kwargs...
     )
-    plain = _map_csponds(_plain_metres, _plain_metres, cs)::AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    plain = _map_correspondences(_plain_metres, _plain_metres, cs)::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
     return _attach_metres(refine_hand_eye(_plain_metres(X)::PlainEuclideanMap{3}, plain; char_length = _metres(char_length), kwargs...))
 end

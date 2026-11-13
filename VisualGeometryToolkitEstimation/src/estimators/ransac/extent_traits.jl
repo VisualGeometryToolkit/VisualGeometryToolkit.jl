@@ -135,7 +135,7 @@ end
 # per family.
 #
 # Type parameter `K` is forwarded from `inner` so this struct sits in
-# the right `AbstractCspondProblem{K}` / `AbstractRansacProblem{K}`
+# the right `AbstractCorrespondenceProblem{K}` / `AbstractRansacProblem{K}`
 # bucket for trait dispatch (sample size, etc.).
 
 """
@@ -204,4 +204,4 @@ solver_covariance(p::BoundedProblem, model, idx::AbstractVector{Int}) =
 constraint_with_jacobians(p::BoundedProblem, model, i::Int) =
     constraint_with_jacobians(p.inner, model, i)
 constraint_rounding_scale(p::BoundedProblem, model, i::Int) = constraint_rounding_scale(p.inner, model, i)
-measurement_covariance(p::BoundedProblem, i::Int) = measurement_covariance(p.inner, i)
+observation_covariance(p::BoundedProblem, i::Int) = observation_covariance(p.inner, i)

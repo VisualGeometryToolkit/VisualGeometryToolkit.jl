@@ -22,7 +22,7 @@
 end
 
 @testitem "raw: the display demosaic keeps the sensor orientation (LibRaw_jll)" begin
-    using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance
+    using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance, linearview, photosite_colors
     using VisualGeometryToolkitFeatures
     using LibRaw_jll: LibRaw_jll, libraw
     VGF = VisualGeometryToolkitFeatures
@@ -77,7 +77,8 @@ end
         @test maximum(g[q...]) < minimum(g[1:20, 37:end])     # and bright top-right: no mirror either
         @test maximum(g[q...]) < minimum(g[29:end, 1:28])     # nor bright bottom-left
         # linear: the flat bright part reads its level, (raw − black) / (white − black) to LibRaw's 16 bits
-        @test isapprox(g[40, 50], (30000 - m.black[2]) / (m.white - m.black[2]); rtol = 1e-3)
+        (i, j) = first(Tuple(q) for q in CartesianIndices((39:41, 49:51)) if photosite_colors(m)[q] in (1, 3))   # a green photosite there
+        @test isapprox(g[40, 50], linearview(m)[i, j]; rtol = 1e-3)
     end
     m, rgb, md = demosaic_with_flip(0)
     L = VGF._demosaic_image(rgb, md, 1.0, nothing)
@@ -113,10 +114,12 @@ end
 end
 
 @testitem "raw: the display image has no green cells to stabilize" begin
-    using VisualGeometryToolkitCore: LinearRaw
+    using VisualGeometryToolkitCore: LinearRaw, sensor_fixture
     using VisualGeometryToolkitFeatures: variance_stabilize
+    using Test
     display_image = LinearRaw{:demosaic}(zeros(4, 4, 3), falses(4, 4), nothing, 1.0, (;))
-    @test_throws ArgumentError variance_stabilize(display_image; electrons_per_dn = 2.5, read_noise = 3.0)
+    model = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0)).model
+    @test_throws ArgumentError variance_stabilize(display_image, model)
 end
 
 @testitem "raw: LibRaw_jll decoder" begin
@@ -225,6 +228,38 @@ end
     @test_throws ArgumentError extract_capture_settings(Dict{Int, NamedTuple}())
 end
 
+# A capture's identities merge field by field at any frame count. 0.8.3 splatted one tuple per frame into `zip`, so each
+# capture size compiled a zip of that arity (a 171-photo set: 518 s, ~90 % in LLVM). After a warm-up at another count,
+# merging 500 identities compiles nothing: its allocations are the per-identity field tuples and the three field columns
+# (6 words an identity, 96 bytes with the arrays' slack) and a constant, where a compile allocates megabytes.
+@testitem "raw: a capture's identities merge at any frame count, nothing compiled per count" begin
+    using Test
+    using VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitCore: DeviceIdentity
+    # agreeing identities, each field stated by some: the first to state it wins (frame order)
+    ids(n) = [DeviceIdentity(; make = isodd(i) ? "Sony" : "SONY", model = i % 3 == 0 ? "ILME-FX3" : nothing,
+                             serial = i == n ? "5123" : nothing) for i in 1:n]
+    @test VgtkFeatures._merged(ids(300)) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")   # warm-up
+    big = ids(500)
+    @test VgtkFeatures._merged(big) == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123")
+    # allocations linear in the frame count, nothing per count beyond: the merge's arrays (its field tuples and their
+    # columns) are sized exactly, so a(n) = a₀ + c·n and a(1000) − a(500) − 2(a(500) − a(250)) = 0 but for the
+    # allocator's size-class rounding of those ≤ 8 arrays in each of the four calls (≤ 32 bytes each): ≤ 4 · 8 · 32
+    # bytes; a compile per count would add megabytes
+    alloc(n) = (x = ids(n); VgtkFeatures._merged(x); @allocated VgtkFeatures._merged(x))
+    @test abs((alloc(1000) - alloc(500)) - 2 * (alloc(500) - alloc(250))) <= 4 * 8 * 32
+    @test (@elapsed VgtkFeatures._merged(big)) < 0.1      # a compile takes seconds; the merge, microseconds
+    # through the public entry: 500 frames, one body and one lens, the first stated field each
+    md = (; datetime_original = nothing, subsec = "", exposure_s = 0.01, fnumber = 4.0, focal_mm = 20.0, iso = 200,
+          model = "ILME-FX3", make = "Sony", body_serial = nothing, lens_make = nothing, lens_model = "DT 8mm F4 SAM",
+          lens_serial = nothing, focus_distance_m = nothing)
+    frames = Dict(t => merge(md, (make = isodd(t) ? "Sony" : "SONY", body_serial = t == 400 ? "5123" : nothing)) for t in 1:500)
+    cs = extract_capture_settings(frames)
+    @test cs.body == DeviceIdentity(; make = "Sony", model = "ILME-FX3", serial = "5123") && length(cs) == 500
+    @test_throws ArgumentError extract_capture_settings(merge(frames, Dict(501 => merge(md, (model = "ILCE-7M4",)))))
+end
+
 @testitem "raw: the metadata alone (LibRaw_jll)" begin
     using Test
     using VisualGeometryToolkitFeatures
@@ -310,4 +345,71 @@ end
     finally
         close_cache(cache)
     end
+end
+
+# The decode hooks' fallbacks are Core's `require_extension`: a decoder whose extension is not loaded names the package
+# to load; a decoder whose extension is loaded but has no method for the arguments raises the call's MethodError.
+@testitem "raw: a decoder without its extension names the package; with it, the call's MethodError" begin
+    using VisualGeometryToolkitFeatures
+    const VGF = VisualGeometryToolkitFeatures
+    struct UnloadedDecoder <: VGF.RawDecoder end
+    VGF._decoder_trigger(::UnloadedDecoder) = "SomeDecoder_jll"
+    VGF._decoder_extension(::UnloadedDecoder) = :VisualGeometryToolkitFeaturesSomeDecoderExt
+    err = try
+        load_raw_mosaic(@__FILE__; decoder = UnloadedDecoder())
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("needs `using SomeDecoder_jll`", err.msg)
+    @test_throws ArgumentError VGF._decode_demosaic(UnloadedDecoder(), @__FILE__)
+    struct LoadedDecoder <: VGF.RawDecoder end                           # its extension (LibRaw's) is loaded below
+    VGF._decoder_extension(::LoadedDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
+    using LibRaw_jll
+    @test Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) !== nothing
+    @test_throws MethodError Base.invokelatest(VGF._decode_raw, LoadedDecoder(), @__FILE__)
+end
+
+# load_raw forwards the frame's sensor model to Core's LinearRaw, the one black subtraction; the display demosaic
+# (LibRaw's own black) refuses one; a cached decode is keyed by the model's content (Core's content_digest), the absent
+# model by the plain key.
+@testitem "raw: load_raw forwards the sensor model to LinearRaw" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorModel, sensor_fixture
+    using VisualGeometryToolkitFeatures: load_raw
+    using Random: Xoshiro
+    using Test
+    m = noisy_mosaic(Xoshiro(6), (i, j) -> 200.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
+    model = sensor_fixture(; black = (500.0, 490.0, 510.0, 495.0)).model
+    for mode in (:green_cells, :bin2)
+        @test load_raw(m; mode, sensor_model = model).image == LinearRaw(m; mode, sensor_model = model).image
+        @test load_raw(m; mode, sensor_model = model).image != load_raw(m; mode).image          # the model's black, not the file's
+        @test load_raw(m; mode, sensor_model = SensorModel()).image == load_raw(m; mode).image  # the absent model: the file's, bit for bit
+    end
+    @test_throws ArgumentError load_raw(m; mode = :demosaic, sensor_model = model)
+end
+
+@testitem "raw: a cached decode is keyed by the sensor model" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorModel, sensor_fixture
+    using VisualGeometryToolkitFeatures: load_raw
+    using Random: Xoshiro
+    using Test
+    const VGF = VisualGeometryToolkitFeatures
+    # a decoder that "decodes" any file to one synthetic mosaic, counting its calls
+    struct SyntheticDecoder <: VGF.RawDecoder end
+    const DECODES = Ref(0)
+    const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
+    VGF._decode_raw(::SyntheticDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
+    m1 = sensor_fixture(; black = (512.0, 500.0, 520.0, 508.0)).model
+    m2 = sensor_fixture(; black = (520.0, 508.0, 528.0, 516.0)).model
+    cache = Dict{String, Any}()
+    a = load_raw(@__FILE__; mode = :green_cells, sensor_model = m1, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 1 && DECODES[] == 1
+    @test load_raw(@__FILE__; mode = :green_cells, sensor_model = deepcopy(m1), decoder = SyntheticDecoder(), cache) === a   # the same model: a hit
+    @test DECODES[] == 1
+    b = load_raw(@__FILE__; mode = :green_cells, sensor_model = m2, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 2 && DECODES[] == 2 && b.image != a.image                                            # another model: another entry
+    c = load_raw(@__FILE__; mode = :green_cells, decoder = SyntheticDecoder(), cache)
+    @test length(cache) == 3 && c.image == LinearRaw(MOSAIC; mode = :green_cells).image                            # no model: its own entry
+    @test load_raw(@__FILE__; mode = :green_cells, sensor_model = SensorModel(), decoder = SyntheticDecoder(), cache) === c   # the absent model: that key
+    @test length(cache) == 3 && DECODES[] == 3
+    @test a.image == LinearRaw(MOSAIC; mode = :green_cells, sensor_model = m1).image
 end

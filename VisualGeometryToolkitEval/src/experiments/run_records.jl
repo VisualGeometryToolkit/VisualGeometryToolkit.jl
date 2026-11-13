@@ -13,7 +13,7 @@
 #                            <project>/data/exp_raw | data/exp_pro (DrWatson's
 #                            datadir) → the project's fallback / artifact view
 #   load_run_config(path)    TOML.parsefile + [experiment] table sanity
-#   run_key(cfg)             the SHA-256 content hash (`_toml_hash`) of the
+#   run_key(cfg)             the SHA-256 content key (`_content_key`: canonical JSON) of the
 #                            EFFECTIVE config minus RUN_KEY_EXCLUDED, its [tuning.<name>] entries resolved
 #                            to their COMPLETE tables (`resolve_tuning!`), so
 #                            every tuning parameter keys the run, inherited
@@ -35,7 +35,7 @@
 #                            config source, run key, host, julia, timestamp and
 #                            the declared inputs relative to their roots)
 #
-# Justified extension of DrWatson: run_key is a SHA-256 of the sorted TOML, not
+# Justified extension of DrWatson: run_key is a SHA-256 of the canonical JSON, not
 # `savename`, because run configs are NESTED (savename drops every non-scalar
 # value, so two configs differing only inside a table would share a name).
 # =============================================================================
@@ -199,14 +199,14 @@ const RUN_KEY_EXCLUDED = ("render",)
 """
     run_key(cfg; files = nothing, upstream = nothing, parts = nothing) -> String
 
-The run identity: the SHA-256 (hex, first 16) of the effective config printed
-as sorted TOML (Tuning `_toml_hash`, the one content hash behind
-`tuning_hash` too), with the [`RUN_KEY_EXCLUDED`](@ref) sections removed
+The run identity: the SHA-256 (hex, first 16) of the effective config's
+canonical JSON (`_content_key`: VisualGeometryToolkitCore's `canonical_json`,
+the one content key behind `tuning_hash` and the runner's stage key too), with the [`RUN_KEY_EXCLUDED`](@ref) sections removed
 (`[render]` holds panel knobs of record, not experiment inputs) and every
 `[tuning.<name>]` entry resolved to its COMPLETE table (`resolve_tuning!`: a
 default of this package's configs/tuning.toml that the config inherits keys
-the run like a stated one). Key order does not move it, the Julia version does
-not move it, and a TOML round trip of the effective config reproduces it, so
+the run like a stated one). Key order does not move it, nor a number's
+spelling (`3` and `3.0` key alike), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
 `run_key(TOML.parsefile("_config.toml"))` names the directory that holds it.
 
 What a run depends on beyond its config is folded in by name, so a project
@@ -235,7 +235,7 @@ function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts =
     scratch_run() && (folded["scratch"] = true)          # a scratch run never shares a run of record's key
     parts === nothing || (folded["parts"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(parts)))
     isempty(folded) || (d["keyed_with"] = folded)
-    return _toml_hash(d)
+    return _content_key(d)
 end
 
 # An upstream run as a key: a key as given, or a run directory, read for its recorded `run_key`; a scratch run's
@@ -332,7 +332,8 @@ a data artifact of that tier publishes it (an [`ArtifactView`](@ref) installs it
 like any tier). A run read by another run belongs there, not in the results
 root and not in a directory named by a date. Refuses a run without its record,
 and a destination that holds a different run (another `run_key` in its
-record), and a scratch run's output; the same run again is left as it is.
+record; for a run without a `run_key`, another record), and a scratch run's
+output; the same run again is left as it is.
 Returns the destination.
 """
 function promote_run(run_dir::AbstractString, tier::AbstractString; name::AbstractString = basename(rstrip(run_dir, '/')))
@@ -343,9 +344,14 @@ function promote_run(run_dir::AbstractString, tier::AbstractString; name::Abstra
     key = get(read_provenance(run_dir), "run_key", "")
     dst = joinpath(_tier_root(tier; write = true), tier, name)
     if isdir(dst)
-        had = isfile(joinpath(dst, PROVENANCE_FILE)) ? get(read_provenance(dst), "run_key", "") : ""
-        had == key && return dst
-        throw(ArgumentError("promote_run: $dst holds another run (run_key \"$had\", this one \"$key\"): name it otherwise"))
+        rec = joinpath(dst, PROVENANCE_FILE)
+        had = isfile(rec) ? get(read_provenance(dst), "run_key", "") : ""
+        # without a run key, only the run's own record (its time, host, commit) says it is the same run
+        same = isempty(key) ? isfile(rec) && read(rec) == read(joinpath(run_dir, PROVENANCE_FILE)) : had == key
+        same && return dst
+        throw(ArgumentError("promote_run: $dst holds another run (" *
+                            (isempty(key) ? "another record; this run has no run_key" : "run_key \"$had\", this one \"$key\"") *
+                            "): name it otherwise"))
     end
     assert_not_input(dst; producer = true)
     mkpath(dirname(dst))

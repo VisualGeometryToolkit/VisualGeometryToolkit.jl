@@ -5,7 +5,7 @@
 # is the first-order, structure-marginalized approximation of the reprojection
 # error this problem optimizes exactly.
 #
-# Reprojection is done THROUGH THE CAMERA INTRINSICS (K₁, K₂) in the measurement
+# Reprojection is done THROUGH THE CAMERA INTRINSICS (K₁, K₂) in the observation
 # frame — `π(Kᵢ·X)` — so the residual lives where the noise lives
 # (the same frame the scoring's outlier half-width and σ̂² are calibrated in, and the same frame the
 # MSAC LO `refine_relpose` uses with Kc as cameras).  All geometry is carried as
@@ -28,7 +28,7 @@
 #     LocalOptimizationDoneRight src/engines/refit.jl): POSE-ONLY refinement of the TRUNCATED Sampson
 #     loss — the LO-RANSAC standard (+PoseLib(TLS)/(LZ)). First-order,
 #     structure-free, hard-thresholded; a comparison baseline, not a bundle.
-# Both use Kc as cameras in the same measurement frame; the objective (exact
+# Both use Kc as cameras in the same observation frame; the objective (exact
 # reprojection bundle vs truncated Sampson) and the variable set (structure vs
 # pose-only) are what differ.
 #
@@ -50,7 +50,7 @@
 # back-substitute δXᵢ. The bundle is an NLLSsolver problem — the pose and the
 # N points its variables, one 4-row residual block per point with its
 # closed-form 4 × 8 Jacobian — and NLLSsolver owns the LM (Marquardt's DᵀD
-# damping, step accept/reject, convergence: VGC `nlls_options`) and, where the
+# damping, step accept/reject, convergence: Core's one LM, `LmProblem` + `lmsolve_chart!`) and, where the
 # loaded NLLSsolver has it (upstream #60, still open: the stack's fork has it;
 # VGC `nlls_features`), the Schur complement: its `MultiVariateLSschur`
 # eliminates every point (`iseliminable`). Without it the same problem runs on
@@ -147,39 +147,34 @@ end
 # uncached time below). Its
 # residual blocks read the call's data through `data` (owned buffers), its
 # variables are reset per call, and NLLSsolver's internal data (the Schur
-# system's layout) is kept in `cache`, built for the one options type the
-# bundle calls with (`nlls_options`'s). Without it a call would rebuild them
+# system's layout) is kept in Core's `LmProblem` (its typed cache), built once
+# for this structure. Without it a call would rebuild them
 # (measured 2026-10-27: 2.0 / 1.4 / 1.4× the cached call's time at N = 100 /
 # 1000 / 10000).
 #
 # NOT REENTRANT: a bundle started from inside the NLLSsolver `callback` of a
 # bundle on the same task overwrites the running problem's data and
 # variables (the internal `callback` keyword; no production caller supplies one).
-struct _BundleRun{E, D}
+struct _BundleRun{E, D, P <: LmProblem}
     data::D
-    problem::NLLSsolver.NLLSProblem{Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D}}
-    # NLLSsolver's TYPED OptimizeCache built for this problem (upstream #62).
-    # Its concrete type depends on which linear system the problem's structure selects (Schur,
-    # sparse or dense), a run-time choice, so the field holds it abstractly: one dynamic call per
-    # bundle, the solver's loop inside it static.
-    cache::NLLSsolver.OptimizeCache
+    # Core's one multi-block LM problem (`LmProblem`): the pose and the N points, one `_BundleRows` block per point,
+    # with NLLSsolver's typed cache built for its structure (Schur, sparse or dense, a run-time choice).
+    lm::P
 end
 function _BundleRun{E}(N::Int, data::D) where {E, D}
-    problem = NLLSsolver.NLLSProblem(Union{_BundlePose, _BundlePoint{E}}, _BundleRows{E, D})
-    NLLSsolver.addvariable!(problem, EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose)
+    vars = Union{_BundlePose, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose]
     for i in 1:N
-        NLLSsolver.addvariable!(problem, _BundlePoint{E}(zero(SVector{3, Float64})))
-        NLLSsolver.addcost!(problem, _BundleRows{E, D}(data, i, SVector(1, i + 1)))
+        push!(vars, _BundlePoint{E}(zero(SVector{3, Float64})))
     end
-    # the internal data (the Schur system's layout) are built now, for this problem's structure
-    cache = NLLSsolver.OptimizeCache(problem, nlls_options(; max_iter = 1, ftol = 1.0, xtol = 1.0), nothing)
-    return _BundleRun{E, D}(data, problem, cache)
+    blocks = [_BundleRows{E, D}(data, i, SVector(1, i + 1)) for i in 1:N]
+    lm = LmProblem(vars, blocks)
+    return _BundleRun{E, D, typeof(lm)}(data, lm)
 end
 # The task's slot for its one run of point type `E`.
 mutable struct _BundleSlot{E}
     run::Union{Nothing, _BundleRun{E, _BundleOwnedData}}
 end
-_bundle_size(run::_BundleRun) = length(run.problem.variables) - 1
+_bundle_size(run::_BundleRun) = length(run.lm.variables) - 1
 function _bundle_run(::Val{E}, N::Int) where {E}
     slot = task_buffers(_BundleSlot{E}, () -> _BundleSlot{E}(nothing), ())
     run = slot.run
@@ -188,27 +183,6 @@ function _bundle_run(::Val{E}, N::Int) where {E}
     new = _BundleRun{E}(N, _BundleOwnedData(N))
     slot.run = new
     return new
-end
-
-# The stacked 4N × (5 + 3N) Jacobian and residual of the problem at its current
-# variables (the stall postcondition's input; sparse, the arrowhead pattern).
-function _bundle_jacobian(run::_BundleRun{E}) where {E}
-    problem = run.problem
-    N = length(problem.variables) - 1
-    pose = problem.variables[1]::_BundlePose
-    Is = Int[]; Js = Int[]; Vs = Float64[]
-    f = zeros(4N)
-    for i in 1:N
-        rows = _BundleRows{E, typeof(run.data)}(run.data, i, SVector(1, i + 1))
-        e, Ji = NLLSsolver.computeresjac(NLLSsolver.static(3), rows, pose, problem.variables[i + 1]::_BundlePoint{E})
-        f[(4i - 3):(4i)] = e
-        for a in 1:4, b in 1:(_POSE_DOF + 3)
-            push!(Is, 4i - 4 + a)
-            push!(Js, b <= _POSE_DOF ? b : _POSE_DOF + 3(i - 1) + b - _POSE_DOF)
-            push!(Vs, Ji[a, b])
-        end
-    end
-    return sparse(Is, Js, Vs, 4N, _POSE_DOF + 3N), f
 end
 
 # -----------------------------------------------------------------------------
@@ -351,12 +325,12 @@ end
 # -----------------------------------------------------------------------------
 # Core routine: robust full-3D two-view BA (camera-aware).  Seed pose (R₀,t₀) +
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
-# per-point √weights → `(; R, t, result, retcode)`: the refined (R, t) (‖t‖=1),
-# NLLSsolver's result, and its termination record `(ReturnCode.T, StopRule)` (VGC
-# `nlls_termination`, the stall postcondition at `stationarity_tol`) when `retcode = true` — `nothing`
-# otherwise: no production caller reads it (a `:stalled` bundle's pose is still
-# scored by the caller, the LO's acceptance, as a converged one is), and it
-# costs a sweep over the rows. `nothing` on failure. Positional and
+# per-point √weights → `(; R, t, sol)`: the refined (R, t) (‖t‖=1) and Core's
+# solve record `sol = (; code, rule, iterations, cost)` (`lmsolve_chart!`: its one
+# success rule, the stationarity postcondition at the returned point; a `:stalled`
+# bundle's pose is still scored by the caller, the LO's acceptance, as a converged
+# one is). `nothing` on failure: a singular system (Core's `Failure`) or a
+# non-finite pose. Positional and
 # allocation-lean: the RANSAC refit (`refine!` below) calls it with the
 # problem's stored K⁻¹ and the √weights it builds. `schur = false` takes
 # NLLSsolver's sparse LDL where the Schur system (upstream #60) is loaded (the
@@ -369,8 +343,7 @@ function _refine_relative_pose(
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
         sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
-        ftol::Float64 = _RELPOSE_BUNDLE_FTOL, retcode::Bool = false,
-        stationarity_tol::Float64 = _RELPOSE_BUNDLE_STATIONARITY_TOL,
+        ftol::Float64 = _RELPOSE_BUNDLE_FTOL,
         schur::Bool = _BUNDLE_SCHUR, callback::F = NLLSsolver.nullcallback
     ) where {F}
     # (`::F`: a Function-typed argument only handed on is not specialized,
@@ -379,12 +352,12 @@ function _refine_relative_pose(
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
     E = schur && _BUNDLE_SCHUR
-    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback) :
-        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback)
+    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback) :
+        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback)
 end
 
 function _bundle_optimize(
-        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, retcode, stationarity_tol, callback
+        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback
     ) where {E}
     run = _bundle_run(v, N)
     d = run.data
@@ -393,32 +366,19 @@ function _bundle_optimize(
         d.u1[i] = SVector{2, Float64}(u1[i][1], u1[i][2]); d.u2[i] = SVector{2, Float64}(u2[i][1], u2[i][2])
         d.sqrtw[i] = sqrtw[i]
     end
-    problem = run.problem
-    problem.variables[1] = EssentialManifold5(Rb, tb)::_BundlePose
+    vars = run.lm.variables                   # the start, set in place
+    vars[1] = EssentialManifold5(Rb, tb)::_BundlePose
     @inbounds for i in 1:N
         X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
-        problem.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
+        vars[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
     end
-    # The stack's knob map (VGC `nlls_options`): Marquardt's DᵀD damping; `xtol`
-    # the chart LM's default.
-    options = nlls_options(; max_iter, ftol, xtol = 1.0e-10)
-    result = try
-        NLLSsolver.optimize!(problem, options, nothing, callback, run.cache)
-    catch
-        return nothing
-    end
-    pose = problem.variables[1]::_BundlePose
+    # Core's one LM at the bundle's own stop settings ([relpose_bundle] max_iter, ftol; the rest Core's [lm])
+    sol = lmsolve_chart!(run.lm, LmStops(; max_iter, ftol); callback)
+    sol.code === ReturnCode.Failure && return nothing                    # a singular system: no solution
+    pose = run.lm.variables[1]::_BundlePose
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)
     (all(isfinite, R) && all(isfinite, t)) || return nothing
-    code = retcode ? _bundle_retcode(run, result, stationarity_tol) : nothing
-    return (; R, t, result, retcode = code)
-end
-
-# The bundle's termination record: NLLSsolver's termination bits and the stall
-# postcondition on the stacked rows (`nlls_termination`; its exact-fit test at
-# eps), evaluated only for a stop that needs it.
-function _bundle_retcode(run::_BundleRun, result, tol)
-    return nlls_termination(result, () -> ((J, f) = _bundle_jacobian(run); VgtkCore.is_stationary(J, f; tol, ftol = eps())))
+    return (; R, t, sol)
 end
 
 # =============================================================================
@@ -432,7 +392,7 @@ end
     RelposeBundleProblem(K1, K2, cs)
 
 Two-view relative pose scored by exact reprojection (full-3D bundle), refit by
-robust Schur-reduced BA.  `K1`,`K2` are the intrinsics of the measurement frame
+robust Schur-reduced BA.  `K1`,`K2` are the intrinsics of the observation frame
 (`π(Kᵢ·X)`), given models first; `cs` the `u₁ => u₂` correspondences in that
 frame (canonical image points), any `sources`/`targets` container.
 Same model/constraint as `EssentialProblem` (epipolar, codimension 1).

@@ -48,23 +48,14 @@ _lift_aux(::Any) = nothing
 # facts, not restated for the lift.
 _lift_dims(problem) = (Val(chart_dof(problem)), Val(codimension(problem)))
 
-# The problems with a lift — the chart problems whose codimension the lift core
-# supports (1 and 2): exactly the `MinimalSolveProblem` family, whose every
+# The problems with a lift: the chart problems whose codimension the lift core
+# supports (1 and 2), exactly the `MinimalSolveProblem` family, whose every
 # instantiation carries a minimal chart of its model and a codimension-1 or -2
 # constraint. The lifts' `locally_optimize!` methods (LocalOptimizationDoneRight)
-# are typed on it, so the contract's refusal keeps guarding every other problem.
-"""
-    LiftableProblem
+# are typed on `MinimalSolveProblem`, so the contract's refusal keeps guarding
+# every other problem.
 
-The problems that provide VisualGeometryToolkitCore's chart-rows contract to a
-lifted local optimizer: the [`MinimalSolveProblem`](@ref) family, whose every
-instance has a minimal chart of its model and a codimension-1 or -2
-constraint. A lifted strategy's `locally_optimize!` methods dispatch on it,
-so the contract still refuses every other problem.
-"""
-const LiftableProblem = MinimalSolveProblem
-
-function rows_provider(problem::LiftableProblem)
+function rows_provider(problem::MinimalSolveProblem)
     n = data_size(problem)
     D, C = _lift_dims(problem)
     return ManifoldLiftProvider(problem, rows_workspace(D, C, n), n, _lift_aux(problem))
@@ -134,19 +125,19 @@ end
 # =============================================================================
 
 """
-    locally_optimize!(L, lo::Triggs, problem::LiftableProblem, model, cs, buf, scoring) -> FitResult
+    locally_optimize!(L, lo::Triggs, problem::MinimalSolveProblem, model, cs, buf, scoring) -> FitResult
 
 The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 `efficiency_constant·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
 `loss_robustifier`, and ONE `lmsolve_chart!` from `model` over every datum at
 unit weight, on the chart-LM refit's own chart and state (`_chart`,
 `_refit_state`: the rows `refine!` descends) in its workspace (`L.refine`, the
-one reuse policy) at its LM settings (`[chart_lm]`). NLLSsolver's Triggs
+one reuse policy) at Core's LM stop settings (`LmStops`, `[lm]`). NLLSsolver's Triggs
 correction carries the loss; nothing is reweighted here and no inlier set is
 formed. The model comes back through the chart's `recenter` and `_model_at`,
 as from `refine!`.
 """
-locally_optimize!(L::LoBuffers, lo::Triggs, problem::LiftableProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
+locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
     _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, lo_loss(lo, cs, scoring, buf))
 
 # The rows the robustified LM robustifies, and a refine's plain least squares
@@ -162,14 +153,27 @@ _triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
 # `lmsolve_chart!` from `model` over every datum at unit weight, on the refit's
 # chart and state, in the chart-LM workspace `refine_ws` (the one reuse policy).
 function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss)
-    ch = _chart(problem, _as_model(problem, model))
-    rows, dof = _lm_size(problem)
-    ews = _lm_workspace(refine_ws, rows, dof)
-    fill!(sqrt_weights(ews), 1.0)
-    lm = _triggs_state(problem, ch, sqrt_weights(ews))
     robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    x, _, _, n_iter, (code, rule) = lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem));
-        maxit = _CHART_LM_MAX_ITER, stationarity_tol = _CHART_LM_STATIONARITY_TOL, ftol = _CHART_LM_FTOL)
-    any(isnan, x) && return lo_estimate(model, ReturnCode.Failure, NonFinite)
-    return lo_estimate(_model_at(problem, recenter(ch, x)), code, rule; iterations = n_iter)
+    m, (code, rule), n_iter = _chart_refit(refine_ws, problem, _chart(problem, _as_model(problem, model)), _triggs_state, nothing;
+                                           robustifier)
+    m === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
+    return lo_estimate(m, code, rule; iterations = n_iter)
+end
+
+# THE chart refit — every chart LM of a RANSAC problem's model (the LO's `refine!`, a refine's least squares and its
+# Triggs, above): from the chart `ch`, the rows `state(problem, ch, √w)` at √`weights` (`nothing`: unit weight) in the
+# chart-LM workspace from `ws` (the one reuse policy, `_lm_workspace`), ONE `lmsolve_chart!` at Core's stop settings
+# (`LmStops()`, its `[lm]` table), robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
+# `recenter` and read as a model (`_model_at`). Returns `(model, (code, rule), iterations)`, the model `nothing` when
+# the solve went non-finite.
+function _chart_refit(ws, problem, ch, state, weights; robustifier = nothing, stops::LmStops = LmStops())
+    rows, dof = _lm_size(problem)
+    ews = _lm_workspace(ws, rows, dof)
+    weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
+        fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(problem), rows ÷ data_size(problem))
+    lm = state(problem, ch, sqrt_weights(ews))
+    x, _, _, n_iter, record = robustifier === nothing ? lmsolve_chart!(ews, lm, stops) :
+        lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem)), stops)
+    any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), n_iter
+    return _model_at(problem, recenter(ch, x)), record, n_iter
 end

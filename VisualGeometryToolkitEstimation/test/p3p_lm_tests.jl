@@ -31,7 +31,7 @@
 using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!
+using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, LmProblem, LmStops
 using VisualGeometryToolkitCore: sqrt_weights   # VGC accessor (public)
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: LeftRigidManifold6   # the PnP refit chart (public)
@@ -52,16 +52,14 @@ NLLSsolver.getvars(::_RefRows, vars::Vector) = (vars[1]::SVector{6, Float64},)
 Base.eltype(::_RefRows) = Float64
 NLLSsolver.computeresidual(c::_RefRows, x) = residual_rows!(c.r, c.lm, x)
 NLLSsolver.computeresjac(_vf, c::_RefRows, x) = (residual_rows!(c.r, c.lm, x), residual_jacobian_rows!(c.J, c.lm, x))
-function _reference_run(lm, n, stationarity_tol)
-    problem = NLLSsolver.NLLSProblem(SVector{6, Float64}, _RefRows{typeof(lm)})
-    NLLSsolver.addvariable!(problem, zero(SVector{6, Float64}))
-    NLLSsolver.addcost!(problem, _RefRows(lm, zeros(2n), zeros(2n, 6)))
-    result = NLLSsolver.optimize!(problem, VgtkCore.nlls_options(; max_iter = 1000, ftol = eps(), xtol = 1.0e-10), 1)
-    return problem.variables[1], result.niterations
+# NLLSsolver's own layout through Core's multi-block form (`LmProblem`), at the same stop settings as the chart LM
+function _reference_run(lm, n)
+    p = LmProblem([zero(SVector{6, Float64})], [_RefRows(lm, zeros(2n), zeros(2n, 6))])
+    sol = lmsolve_chart!(p, LmStops())
+    return p.variables[1], sol.iterations
 end
 
 @testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
-    stationarity_tol = VgtkEstimation._CHART_LM_STATIONARITY_TOL   # configs/default.toml [chart_lm]
     ALLOCS_BOUND = 0    # NLLSsolver's TYPED OptimizeCache (upstream #62): 0 at every n, Julia 1.13 and 1.12
     allocs = Int[]
     for (n, seed) in ((8, 1), (20, 13), (100, 7), (400, 99))
@@ -73,10 +71,10 @@ end
         ews = ManifoldLmWorkspace(2n, 6)
         copyto!(sqrt_weights(ews), sw)
         lm = _lm_state(prob, ch, sqrt_weights(ews))
-        x_b, _, _, iters = lmsolve_chart!(ews, lm; stationarity_tol)
+        x_b, _, _, iters = lmsolve_chart!(ews, lm)                  # Core's [lm] stop settings, as `_chart_refit`'s
 
         # reference: NLLSsolver's own layout on a fresh problem
-        x_a, iters_a = _reference_run(_lm_state(prob, ch, copy(sw)), n, stationarity_tol)
+        x_a, iters_a = _reference_run(_lm_state(prob, ch, copy(sw)), n)
 
         # conditioning guard: a crawling fit would amplify compiler-level ulp
         # variation into visible drift and gate nothing meaningful
@@ -86,8 +84,8 @@ end
         @test isapprox(x_b, x_a; rtol = 1.0e-8, atol = 1.0e-8)
 
         # (2) the run's allocations do not grow with n
-        lmsolve_chart!(ews, lm; stationarity_tol)                 # warm
-        push!(allocs, @allocations lmsolve_chart!(ews, lm; stationarity_tol))
+        lmsolve_chart!(ews, lm)                 # warm
+        push!(allocs, @allocations lmsolve_chart!(ews, lm))
     end
     @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n
     @test maximum(allocs) - minimum(allocs) <= 4   # flat in n

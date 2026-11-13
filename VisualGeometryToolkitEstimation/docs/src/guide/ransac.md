@@ -9,12 +9,12 @@ another package composes with every problem here.
 
 ```julia
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: csponds, SA, estimate, iterations, MsacScoring, TLSShape
+using VisualGeometryToolkitCore: correspondences, SA, estimate, iterations, MsacScoring, TLSShape
 
 src = [SA[100.0, 200.0], SA[300.0, 150.0], ...]
 dst = [SA[112.0, 195.0], SA[310.0, 148.0], ...]
 
-problem = HomographyProblem(csponds(src, dst))
+problem = HomographyProblem(correspondences(src, dst))
 scoring = MsacScoring(problem; threshold = 2.0)    # pixels
 result  = ransac(problem, scoring; local_optimization_strategy = Irls{TLSShape}())
 ```
@@ -91,9 +91,9 @@ problem's `refit_kind` trait (`NonlinLsq` for every problem below) to its
 `_refine!` method — there is no fit-strategy marker. Each IRLS iteration runs one
 full Levenberg–Marquardt solve, anchored at the incoming ``\theta``, at that
 iteration's weights ``w_i``. The driver of every one is NLLSsolver, through
-VisualGeometryToolkitCore's chart-LM adapter (`lmsolve_chart!`, its knobs in
-`configs/default.toml` `[chart_lm]`); the relative-pose bundle runs NLLSsolver
-too, with the structure eliminated by the Schur complement where the loaded
+VisualGeometryToolkitCore's one LM adapter (`lmsolve_chart!`, its stop settings
+`LmStops`, Core's `configs/default.toml` `[lm]`); the relative-pose bundle runs
+it too (`LmProblem`), with the structure eliminated by the Schur complement where the loaded
 NLLSsolver has it.
 
 | Problem | M-step body | Notes |

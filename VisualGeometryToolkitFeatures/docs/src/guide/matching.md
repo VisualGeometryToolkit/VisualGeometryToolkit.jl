@@ -43,7 +43,7 @@ julia> length(nn_match(D1, D2, NN()))    # row 3 matches too, one way
 
 ## Matches as correspondences
 
-An [`NNMatch`](@ref) holds indices. VisualGeometryToolkitCore's `csponds(features1, features2, matches)`
+An [`NNMatch`](@ref) holds indices. VisualGeometryToolkitCore's `correspondences(features1, features2, matches)`
 turns them into VisualGeometryToolkitCore correspondences between the matched
 features, with each match's score and ratio as attribute columns, ready for a
 robust estimator.
@@ -51,7 +51,7 @@ robust estimator.
 [`DescribedFeature`](@ref) pairs a detection with its descriptor.
 [`described_features`](@ref) builds a `StructArray` of them from detections and
 a descriptor matrix, and [`descriptor_matrix`](@ref) returns the descriptors as
-a matrix without copying; `match` and `csponds` accept the `StructArray`
+a matrix without copying; `match` and `correspondences` accept the `StructArray`
 directly.
 
 ## Many galleries at once
@@ -104,7 +104,10 @@ Another package's ONNX network runs on the same runtime through
 [`onnx_session`](@ref)`(path; execution_provider, threads, gpu_mem_limit)`:
 the provider resolved as above, the thread pool the caller's, and on CUDA the
 session's device arena capped at `gpu_mem_limit` bytes (8 GiB by default),
-which the ASIFT detector's device plans leave free.
+which the ASIFT detector's device plans leave free. Run it through
+[`onnx_run`](@ref)`(session, inputs)` (or `onnx_run(f, session)` for any call
+that runs it, a device-tensor run among them): the arena's growth is then
+measured and the detector's budget counts it.
 
 The package's `examples/loma.jl` runs this on a pair of downloaded images and
 draws the matches. Cite the LoMa and DeDoDe papers when you use these networks

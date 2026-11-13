@@ -12,10 +12,15 @@
 # `macro_literal_violations`' re-typed literals, `uncited_macros`), and the
 # prose cites a table's number by the same macro the table prints.
 #
-# Dependency-free by contract (Base only), like reproduce_index.jl, which it
+# Dependency-free by contract (Base and the stdlib FileWatching, whose pid lock
+# serializes a shared file's writers), like reproduce_index.jl, which it
 # follows; paper_assets.jl follows it (`gather_numbers` keeps the provenance
-# comments `write_numbers` writes).
+# comments `write_numbers` writes). Its atomic write is src/write_atomic.jl,
+# included here when the includer has none (a bare `julia` including this file
+# by path).
 # =============================================================================
+using FileWatching.Pidfile: mkpidlock
+isdefined(@__MODULE__, :_write_atomic) || include("../write_atomic.jl")   # a literal path: ExplicitImports analyses Reproduce
 
 # ---------------------------------------------------------------------------
 # Typesetting a number
@@ -474,24 +479,29 @@ renamed into place).
 trajectory macros). Each driver's entries are its own section, under its
 header; this call rewrites the driver's section alone and keeps every other
 section as it is, the sections ordered by driver, so the file is the same
-whatever order the drivers ran in. A macro another section defines is an
+whatever order the drivers ran in; drivers that finish at once take turns
+(the read, the merge and the rename hold a pid lock, `<path>.lock`), so none
+drops another's section. A macro another section defines is an
 `ArgumentError` (nothing is written). [`gather_numbers`](@ref) gathers the
 fragments, comments included, into the paper's numbers file;
 [`tex_macro_values`](@ref) reads the macros back.
 """
 function write_numbers(path::AbstractString, nums::PaperNumbers; shared::Bool = false, order::Symbol = :name)
+    isdir(path) && throw(ArgumentError("write_numbers: $path is a directory"))   # mv(…; force) would delete it
     mine = sprint(io -> write_numbers(io, nums; order))
-    text = mine
-    if shared && isfile(path)
-        sections = filter(p -> first(p) != nums.provenance.driver, _sections(read(path, String), path))
+    shared || (_write_atomic(io -> write(io, mine), abspath(path)); return path)   # written whole, then renamed: never a fragment
+    # Several drivers (array tasks, stages with no order between them) rewrite one shared file: the read, the merge and
+    # the rename hold its pid lock, so a driver never renames over a section another wrote after this one read.
+    mkpath(dirname(abspath(path)))
+    mkpidlock(abspath(path) * ".lock"; wait = true, stale_age = 600) do
+        sections = isfile(path) ? filter(p -> first(p) != nums.provenance.driver, _sections(read(path, String), path)) :
+                                  Pair{String, String}[]
         for (driver, other) in sections, (name, _) in _macro_definitions(other)
             haskey(nums.macros, name) && throw(ArgumentError(
                 "write_numbers: \\$name of $(nums.provenance.driver) is defined by $driver's section of $path"))
         end
         push!(sections, nums.provenance.driver => mine)
-        text = join(last.(sort!(sections; by = first)))
+        _write_atomic(io -> write(io, join(last.(sort!(sections; by = first)))), abspath(path))
     end
-    isdir(path) && throw(ArgumentError("write_numbers: $path is a directory"))   # mv(…; force) would delete it
-    _write_atomic(io -> write(io, text), abspath(path))   # written whole, then renamed: never a fragment
     return path
 end

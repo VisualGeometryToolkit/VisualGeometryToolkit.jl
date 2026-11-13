@@ -1,5 +1,96 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.8.0 (unreleased)
+
+The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO 0.10 and VisualGeometryToolkitEstimation 0.11.
+
+### Breaking
+
+- **`Stats.POOL_RNG` is retired, with no alias**: it was a second name for StableRNGs' `StableRNG`, which every pool
+  stream uses directly. A pool's `pool_rng` stamp is unchanged. Core's `check_naming` refuses the old name.
+- **The terminology ruling (2026-11-13).** `Datasets.consolidate_csponds` is `consolidate_correspondences`, and the
+  readers' `min_csponds` keyword is `min_correspondences` (`load_heb_pairs`, `load_pt_pairs`, the pool configs' TOML key).
+- **Pool files are format 6**: a pair's correspondences are stored under `correspondences`. `load_pool` refuses a
+  format-5 file, naming the remedy: `Pools.migrate_pool` carries a format-4 or -5 file over (verified, the original
+  untouched), and `scripts/migrate_pools.jl DIR --apply` a whole tree in place. The `pool_key` is unchanged, so a
+  pool's residuals and sample-starts files stay bound to it.
+- **Consolidated matches files are format 3** (`CONSOLIDATED_FORMAT`): the pairs' correspondences under
+  `correspondences`. `load_roma_pairs` still reads formats 1 and 2.
+- **The Seven-Scenes image size** (`configs/default.toml`) is a `{width, height}` table, the IO wave's one `Size2` layout.
+- **The runner's stage keys change; earlier runs are not reused** (each stage runs once more). A stage's key no longer
+  holds its CPU count (`--cpus-per-task`, `SLURM_CPUS_PER_TASK`): the results are the same bits at any thread count,
+  so a stage run at 8 CPUs is reused by a launch at 2 (its device, `gres` and `CUDA_VISIBLE_DEVICES`, stays keyed).
+  (The fold of the upstream stages' keys is 0.7.3's.)
+- **Every content key is the stack's canonical JSON; runs re-key once.** `run_key`, `tuning_hash` and the runner's
+  stage key are the SHA-256 (16 hex) of VisualGeometryToolkitCore's `canonical_json` of the tree, no longer of its
+  sorted TOML (the second encoding, `_toml_hash`, is deleted). Key order still does not move a key, and now neither does
+  a number's spelling: an integral float is the integer (`3` and `3.0` key alike). Every keyed run directory, cache
+  file and stage reruns under its new key once. Tuning artifacts are format 8: a v7 (or v6) file reads, its stored
+  sorted-TOML hash verified with that format's recipe and re-hashed; nothing new is written with the old recipe.
+  A config (or tuning table) holding an integer beyond ±2^53, `Inf` or `NaN` has no canonical JSON and is now refused
+  with an `ArgumentError` where it was keyed before.
+  The runner bootstrap, in a bare `julia`, includes Core's Base-only `src/base/canonical.jl` by path
+  (`Base.find_package`), so Core must be findable there (it is wherever Eval is).
+- **The dgx01 site profile sizes tasks small**: `cpus_per_task = 2` for a stage that declares none (was 28 for every
+  stage), and `mem_per_cpu = "8480M"`, the node rule (was `"8G"`). A threaded stage declares its own `cpus_per_task`
+  in its `[[stage]]`; the count keys no run.
+- **`Render.station_cells` labels each attempt by the member of `stations` nearest its angle** (an angle beyond either
+  end at that end), not by rank:
+  a station without a capture is a hole, and a jittered angle stays in its station. A panel with a missing station or
+  jittered angles changes.
+
+### Added
+
+- **`Render.write_tsv(path, rows::AbstractVector{<:NamedTuple}; comments)`**: a table of named-tuple rows, its header
+  their field names; an abstract element type (`NamedTuple[]`) is read from the rows, and an empty table writes the
+  element type's fields as its header when it names them (else an empty header line; `read_tsv` reads either back as
+  no rows). `verify_assets` writes its report through it.
+
+- **`Tuning.WindowExtension(factor, max_rounds)`** and **`extend(::EfficiencyConstantWindow, sides; factor)`**: the
+  expand-on-boundary rule of a search window, `GridExtension`'s twin (TOML `[types.window_extension]`, defaults
+  factor 2, 8 rounds): the one owner of CaliBlobs icra2026's `WindowWidening`.
+- **Runner arrays over any list or table of a stage's config, and a loop inside each task.** `array.from` is a dotted
+  key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
+  and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
+  set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
+  task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
+  of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
+  no later value starts.
+- **A GPU stage on a Slurm site compiles first, in a CPU-only job** that its GPU job runs after (`afterok`): no GPU is
+  held while code compiles. The job runs `Pkg.precompile()` in the project's environment with the stage's
+  `julia_flags` (new `[[stage]]` key: the flags its jobs run julia with), without `--gres`; `precompile = false` leaves
+  it out. The dry run prints it, the manifest records `precompile_job_id`; it keys no run. When it fails, the GPU job
+  never starts, and `status` says so (`failed (its precompile job <id> failed …)`, with its log and error line).
+  `precompile` must be `true` or `false`.
+- **A site's `[slurm] precompile_time`**: the `--time` of a GPU stage's CPU-only precompile job, its measured time × 2
+  (dgx01: `"0:30:00"`); a real limit lets the scheduler backfill the job.
+- **A stage's `nice`** (`[[stage]] nice = <n>`): its Slurm `--nice`, so a research stage yields to a release gate's
+  jobs. A label for the scheduler like the CPU count and the job-name prefix: it keys no run.
+
+### Fixed
+
+- **`evaluate_sample_budget`** took each pair's selectors by `Threads.threadid()` under a dynamic `@threads` loop, so
+  two tasks could share one (a migrating task): each pair now takes its selectors from a pool. The results are the
+  same bits at any thread count (a test at 2 and 8 threads).
+- **A result of uncommitted code is never reused** (`code_tree_changes`, the one reuse rule of the runner,
+  `run_complete` and `cached_result`): its tree's `+uncommitted` mark names HEAD, not the edits, so a scratch run under
+  other edits carried the same value and was reused. Each such tree is a change, `"<name>: uncommitted when recorded"`;
+  a scratch job of uncommitted code still in flight is not depended on.
+- **The runner reads only its own project's earlier launches, in launch order**: a results root shared by several
+  projects no longer lends one project's stage records to another, and `run_manifests` orders by the launch stamp
+  that names each manifest, not by modification time (the results-branch stage rewrites its manifest, which made an
+  older launch the "last completed" upstream run). Each record's state is read once from its markers.
+- **The runner honours `VGTK_SCRATCH`** beyond the key: a scratch launch reads another scratch run's output, and runs
+  uncommitted code with a warning (a run of record still refuses both); the dry run says so.
+- **A local launch keeps `results_branch`** in its manifest (the stage writes it atomically, and the runner keeps it when
+  it rewrites the manifest).
+- **`write_numbers(…; shared = true)` holds a pid lock** (`<path>.lock`) over its read-merge-rename: concurrent drivers no
+  longer drop each other's sections. `number_macros.jl` loads by path in a bare Julia with its own atomic write.
+- **`promote_run`** no longer takes two runs without a `run_key` for the same run unless their records are identical.
+- **`code_trees` runs git once per process** while nothing git reads has changed (a stat fingerprint of the code paths,
+  the path-loaded packages, the Manifest and each repository's HEAD, refs, index and ignore files).
+- Docstrings: a directory input's `sha256` is checked through `tree_sha256`.
+
 ## 0.7.2 (unreleased)
 
 A patch: no API change.

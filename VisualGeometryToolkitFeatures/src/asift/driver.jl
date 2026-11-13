@@ -308,7 +308,7 @@ end
 #   • edge test tr²/det < (r+1)²/r on the spatial Hessian, r = edge_thr, det > 0
 #   • emission (0-indexed subpixel): sf = 2^octave_idx,
 #       sigma = seed_sigma·2^((s + 0.5)/S)·sf,  x = x·sf + (sf − 1)
-#   • keypoint covariance (`uncertainty = FeatureCovariance()`, uncertainty.jl):
+#   • detection covariance (`uncertainty = FeatureCovariance()`, uncertainty.jl):
 #     `rawcov` a (6, capacity) buffer, or `nothing` — a separate specialization,
 #     so the default compiles to the kernel without it. Only the refinement's
 #     state is stored here, `(xi, yi, code, offS, offX, offY)` with code =
@@ -376,7 +376,7 @@ end
                         # InexactError INSIDE the kernel — a KernelException that
                         # takes down the whole detect call. A non-finite refinement
                         # offset means the quadratic interpolation failed, so the
-                        # candidate is simply not a keypoint.
+                        # candidate is simply not a detection.
                         if !(isfinite(offS) && isfinite(offX) && isfinite(offY))
                             valid = false; break
                         end
@@ -497,12 +497,12 @@ end
     end
 end
 
-# The covariances of a tilt chunk's keypoints, the pooled entries `n0+1 …
+# The covariances of a tilt chunk's detections, the pooled entries `n0+1 …
 # n0+n`, into `cov` from the refinement state `_bextract!` stored in `rawcov`
-# (see there): the IFT covariance (uncertainty.jl); every pooled keypoint is
+# (see there): the IFT covariance (uncertainty.jl); every pooled detection is
 # refined (a failed refinement is dropped). One launch for all octaves:
 # `dogs`/`ctabs` are tuples of the octaves' chunk views (one array type), the
-# keypoint's octave decoded from its code. `raw[5, i]` is the chunk-local warp.
+# detection's octave decoded from its code. `raw[5, i]` is the chunk-local warp.
 @kernel function _bcov!(
         cov, @Const(rawcov), @Const(raw), dogs, ctabs, n0::Int32, n::Int32,
         o_first::Int32, nb_scales::Int32
@@ -523,7 +523,7 @@ end
     end
 end
 
-# The IFT covariance of a refined keypoint at the integer extremum (xi, yi, sl)
+# The IFT covariance of a refined detection at the integer extremum (xi, yi, sl)
 # of warp Lw, from the DoG Hessian there and the refinement offset.
 @inline function _ift_cov_at(dog, xi, yi, sl, Lw, ctab, oS, oX, oY, sf, S)
     @inbounds begin
@@ -606,11 +606,11 @@ end
 # safe. Both paths compute every work item identically: the results do not
 # depend on the scheduling.
 #
-# One launch path for every backend (the owner's one-kernel policy): each kernel
-# is built twice, on the device's static form and on the device itself, and
-# launched through `_ScheduledKernel`. Only KernelAbstractions' CPU backend has
-# a static form (`_static_form`); on any other backend the two are the same
-# kernel and the launch is that kernel's.
+# One kernel for every backend (the owner's one-kernel policy). On the CPU it is
+# built twice, on the backend's static form and on the backend itself, and
+# launched through `_ScheduledKernel`; only KernelAbstractions' CPU backend has
+# a static form, so on any other backend the kernel is built once and launched
+# as built.
 struct _ScheduledKernel{S, D}
     static::S
     dynamic::D
@@ -631,10 +631,10 @@ end
 _in_threaded_region() = ccall(:jl_in_threaded_region, Cint, ()) != 0
 _static_conflict(e) = e isa ErrorException && occursin("@threads :static", e.msg)
 
-# The kernels `build(dev)` returns, launched as above: statically where the device has a static form, else as built.
-_scheduled(build, dev) = map(_ScheduledKernel, build(_static_form(dev)), build(dev))
-_static_form(dev) = dev
-_static_form(dev::KA.CPU) = KA.CPU(static = true)   # a backend parameter: the same kernels, spread by `@threads :static`
+# The kernels `build(dev)` returns, launched as above on the CPU (its static form: a backend parameter, the same
+# kernels spread by `@threads :static`); any other backend has no static form and launches them as built.
+_scheduled(build, dev) = build(dev)
+_scheduled(build, dev::KA.CPU) = map(_ScheduledKernel, build(KA.CPU(static = true)), build(dev))
 
 # ----- plan ------------------------------------------------------------------
 
@@ -730,7 +730,7 @@ mutable struct AsiftPlan{D, A1, A2, A3, A4, AI, AU, AU8, GT, KN}
     refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed, or whose covariance was singular or NaN (dropped)
     const kern::KN
     const seed_sigma::Float64            # the pyramid's seed blur, and the σ the extractor reports
-    # keypoint covariance (uncertainty.jl), built on the first call that asks for
+    # detection covariance (uncertainty.jl), built on the first call that asks for
     # it: per octave the (45, NS, 4, nw) IFT tables, and two (6, capacity) pool
     # buffers — or (6, 0) — that `_grow_pool!` grows with the pool
     const ctab::Vector{A4}
@@ -1005,7 +1005,7 @@ function _grow_pool!(plan::AsiftPlan, n::Integer, keep::Integer)
     for (name, buf) in Base.pairs(_pool_buffers(dev, cap; feat))
         setfield!(plan, name, buf)
     end
-    # the keypoint covariances, when in use, grow alongside (the first `keep`
+    # the detection covariances, when in use, grow alongside (the first `keep`
     # columns are the earlier chunks' back-projected covariances)
     if size(plan.featcov, 2) > 0
         fc_old = plan.featcov
@@ -1198,8 +1198,8 @@ function asift_detect!(
         end
         nnew = npooled - nbefore
         if nnew > 0
-            # the opt-in continuous refinement (continuous_refine.jl) moves each converged keypoint before its covariance
-            # and back-projection; `_bcov!` still reads the extraction's state, and the refined keypoints' covariances
+            # the opt-in continuous refinement (continuous_refine.jl) moves each converged detection before its covariance
+            # and back-projection; `_bcov!` still reads the extraction's state, and the refined detections' covariances
             # then replace its
             if refinement === nothing
                 _chunk_covs!(plan, uncertainty, r, nbefore, nnew)
@@ -1275,7 +1275,7 @@ end
 _ext_cov_arg(plan, ::Nothing) = nothing
 _ext_cov_arg(plan, ::FeatureCovariance) = plan.rawcov
 
-# The covariances of a tilt chunk's `nnew` new keypoints (after `nbefore`),
+# The covariances of a tilt chunk's `nnew` new detections (after `nbefore`),
 # one `_bcov!` launch while the chunk's DoG stacks are resident.
 _chunk_covs!(plan, ::Nothing, r, nbefore, nnew) = nothing
 function _chunk_covs!(plan, ::FeatureCovariance, r, nbefore, nnew)
@@ -1308,7 +1308,7 @@ function _drop_singular_covs!(fh, ch, n)
     for i in 1:n
         fh[9, i] == 1.0f0 || continue
         c = view(ch, :, i)
-        all(isfinite, c) && isposdef(parent(_keypoint_cov(c))) && continue
+        all(isfinite, c) && isposdef(parent(_detection_cov(c))) && continue
         fh[9, i] = 0.0f0; dropped += 1
     end
     return dropped

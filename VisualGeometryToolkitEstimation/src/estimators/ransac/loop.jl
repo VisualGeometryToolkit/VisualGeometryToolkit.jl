@@ -22,15 +22,6 @@
 # A retired strategy keyword (the owner's ruling, 2026-11-11): `find_*`, `ransac` and
 # `locally_optimize` take `local_optimization_strategy`, every `refine_*` and `fit_*`
 # `optimization_strategy`; refused through Core's `RetiredKeyword`, never aliased.
-# The one parameter-holding keyword is `fixed` (the owner's ruling, 2026-11-11: NLLSsolver's word),
-# naming the exceptions; the other spellings are refused, never aliased.
-function _refuse_held_spellings(free, fix, fixed_params, hold)
-    for (v, name) in ((free, :free), (fix, :fix), (fixed_params, :fixed_params), (hold, :hold))
-        v isa RetiredKeyword || throw(ArgumentError(
-            "the keyword `$name` is retired: give `fixed`, the parameters held (every other one is refined)"))
-    end
-    return nothing
-end
 
 """
     ransac(problem, scoring; local_optimization_strategy, config, workspace, rng) -> RansacEstimate
@@ -227,7 +218,7 @@ function _ransac_loop(
     _prepare!(problem, config.max_trials)
 
     # `needed` is initialized to the budget and, for an adaptive sampler,
-    # clamped at `max_trials` by `_adaptive_trials`, so a separate
+    # clamped at `max_trials` by `_adaptive_count`, so a separate
     # `trial < max_trials` guard would be dead. The single bound is sufficient.
     while trial < needed
         trial += 1
@@ -833,5 +824,3 @@ function _adaptive_count(n_inliers::Int, n_total::Int, k::Int, config::RansacCon
     0 <= trials <= config.max_trials || return (config.max_trials, false)
     return (clamp(ceil(Int, trials), config.min_trials, config.max_trials), true)
 end
-_adaptive_trials(n_inliers::Int, n_total::Int, k::Int, config::RansacConfig) =
-    first(_adaptive_count(n_inliers, n_total, k, config))

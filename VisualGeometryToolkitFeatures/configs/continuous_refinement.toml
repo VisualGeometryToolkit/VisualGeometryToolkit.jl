@@ -4,9 +4,9 @@
 # the refinement is read from here (Core's parse_defaults/toml_default); there is no
 # second set of Julia literals.
 #
-# Units. `v = (x, y, s)` are a keypoint's octave-level coordinates (level pixels, and
+# Units. `v = (x, y, s)` are a detection's octave-level coordinates (level pixels, and
 # the DoG slice index). The LM iterates on the scale-normalised displacement
-# θ = (Δx/σ, Δy/σ, Δℓ), σ the keypoint's scale in level pixels at the start and
+# θ = (Δx/σ, Δy/σ, Δℓ), σ the detection's scale in level pixels at the start and
 # ℓ = ln σ (Δℓ = Δs·ln2/S): Gaussian scale space is invariant under (x, σ) ↦ (λx, λσ),
 # so a unit step in x/σ and a unit step in ln σ move the response comparably.
 # =============================================================================
@@ -29,7 +29,7 @@
 # renormalised to sum to 1, so a constant is reproduced exactly.
 prefilter_halfwidth = 10
 
-# The displacement box from the start (today's refined keypoint), per axis: |Δx|, |Δy|
+# The displacement box from the start (today's refined detection), per axis: |Δx|, |Δy|
 # ≤ spatial_bound level px and |Δs| ≤ scale_bound slices. Two distinct 26-neighbour
 # extrema are at least 2 samples apart on some axis, so a box of half-width 1 can
 # hold the refined point of at most the start's own extremum; the disagreement it
@@ -50,26 +50,17 @@ scale_bound = 1.0
 # amplify the response's own interpolation error (≤ 1e-4 relative) past 0.1 level px.
 min_curvature = 1.0e-3
 
-# Core's device LM (`static_lm`, the spline lenses' inverse at N = 3) on the rows
-# r(θ) = ∇_θ D/|D(start)| with Jacobian ∇²_θ D/|D(start)|: an undamped step is
-# Newton's, the Marquardt damping and the box safeguard it. Newton converges
-# quadratically from today's start (≤ 0.2 level px from the root), so 50 iterations
-# is a cap that never fires on a converging start.
-max_iter = 50
-# Converged iff ‖r‖² < converged_tol2: |r| < 1e-7 of the response, which with the
-# θ-curvature ≥ 0.05 (the edge-test bound above) puts the point within 2e-6·σ of the
-# model's root — 1e-5 level px, two orders below today's bias.
-converged_tol2 = 1.0e-14
-# The LM's absolute cost floor (static_lm's `cost_floor`): a solve whose ‖r‖² falls below it stops (ExactFit).
-# static_lm's own default, eps(Float64) = 2.2e-16: |r| < 1.5e-8 of the response, below converged_tol2's 1e-7.
-cost_floor = 2.220446049250313e-16
+# Core's device LM (`static_lm`) on the rows r(θ) = ∇_θ D/|D(start)| with Jacobian ∇²_θ D/|D(start)|: an
+# undamped step is Newton's, the Marquardt damping and the box safeguard it. Its stop settings are Core's, the
+# stack's one owner (`StaticLmStops`, configs/default.toml `[lm]`): no key here (`max_iter`, `converged_tol2` and
+# `cost_floor` are retired). Success is Core's one rule: the point is stationary.
 
 # CPU = GPU (the test's tolerance on the refined point, per coordinate in level units — level px and slices):
 # the two backends contract the Float32 coefficient sums differently (NVPTX fuses a multiply-add, the host
 # does not), so each solves for the root of a model perturbed by δg ≲ √n·eps(Float32)·Σ|w| relative to |D|:
 # n = 441 products of a 21 × 21 prefilter whose |taps| sum to 1.73² ≈ 3, so δg ≲ 21 · 6e-8 · 3 = 3.8e-6.
 # The root moves by δθ ≤ δg / λ_min with λ_min ≥ 0.05 (the edge test's bound on the θ-curvature): 7.6e-5,
-# and each solve stops within √converged_tol2 / λ_min = 2e-6 of its own root: δθ ≤ 8e-5 in all. In level
+# and each solve stops at its own root to Core's step tolerance (1e-10 relative): δθ ≤ 8e-5 in all. In level
 # units that is ×σ ≤ 3.6 spatially and ×S/ln2 = 4.3 in the slice: 3.5e-4.
 cpu_gpu_tolerance = 3.5e-4
 

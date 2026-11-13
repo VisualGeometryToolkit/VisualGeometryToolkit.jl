@@ -26,10 +26,10 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     Extrinsics3, UnlabeledFrame, unlabel, relabel, Vec2, Vec3,
     Uncertain, CovMat,
     # Slot-labeled epipolar forms + per-view frame tags (VGC 0.9): the
-    # measurement-frame bookkeeping of the 2D-2D RANSAC problems is
-    # declared through these at the construction boundary (cspond.jl
-    # `_measurement_map`/`_check_measurement_frames`/
-    # `_measurement_epipolar`); the @inbounds Sampson kernels and scoring
+    # observation-frame bookkeeping of the 2D-2D RANSAC problems is
+    # declared through these at the construction boundary (correspondence.jl
+    # `_observation_map`/`_check_observation_frames`/
+    # `_observation_epipolar`); the @inbounds Sampson kernels and scoring
     # conjugations keep the raw matrices (bit-pinned inline products).
     EpipolarForm, EpipolarMap, to_homogeneous, GnomonicFrame, ImageFrame,
 
@@ -58,8 +58,8 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
-using VisualGeometryToolkitCore: ReturnCode, StopRule, stop_rule, found_model, retcode_symbol,
-    worst_retcode, nlls_termination, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
+using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symbol,
+    worst_retcode, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
 # robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
@@ -72,13 +72,13 @@ using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleIn
 using FlexUnits: Quantity
 using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
 using VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (Core base/utils.jl)
-using VisualGeometryToolkitCore: CspondNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
+using VisualGeometryToolkitCore: CorrespondenceNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
 # The benchmark pool record and the raw-pair interface (VGC Pools): RVG writes
 # the record (`PoolPair(rng, problem, raw)`, a constructor method on VGC's type
 # whose problem argument is RVG's) and builds its pool-frame problems.
 import VisualGeometryToolkitCore.Pools: PoolPair
-using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_csponds, pair_snn, pair_K1, pair_K2,
+using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_correspondences, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale,
     pixel_residuals, best_model_index   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
 using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, homography_dlt, test_dlt_conditioning
@@ -150,7 +150,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
 # so the RVG problem files' method definitions extend the VGC functions.
 import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinate_descent!, update_model!,
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
-    block_coordinate_result, current_cost, current_s2
+    block_coordinate_result, current_cost, current_s2, stop_rule   # stop_rule: the criteria's rules (local_optimization.jl)
 using VisualGeometryToolkitCore: StoppingCriterion
 # The EM fits' (fit_division_camera, fit_residual_mixture) scale source and weight kind: imported above.
 import VisualGeometryToolkitCore: weight_kind
@@ -215,14 +215,14 @@ import VisualGeometryToolkitCore:
     test_consensus, # RANSAC problems extend; delegate to VGC model-class methods
     constraint_with_jacobians, # RANSAC problems add (problem, model, i) methods
     constraint_rounding_scale, # ... and their rounding scales (problem, model, i)
-    measurement_covariance,    # ... and their points' noise (problem, i)
+    observation_covariance,    # ... and their points' noise (problem, i)
     solve, model_type        # #21 solver-layer verbs — problems add `solve`/`model_type` methods
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
 # built on VGC's correspondence protocol (solver instances carry the
-# NativeSolver/PoseLibSolver backend). The `CspondNormalization`/`MinimalSolver`
+# NativeSolver/PoseLibSolver backend). The `CorrespondenceNormalization`/`MinimalSolver`
 # machinery and the solver tags (Homography4pt/Fundamental7pt/Essential5pt/
 # P3P) are reached through the solver objects themselves, not by name here.
-using VisualGeometryToolkitCore: sources, targets, unit_normalize, Cspond, withattrs
+using VisualGeometryToolkitCore: sources, targets, unit_normalize, Correspondence, withattrs
 # The perspective division's Jacobian — VGC's single definition, used for the
 # homography dehomogenization (`_dpi`) and the relpose bundle's `_Dproj`.
 using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
@@ -237,10 +237,11 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # 2026-09-21, where its VGC compat could make the test env unresolvable), so the
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
-import NLLSsolver   # the block-structured LMs (the relpose bundle, refine_robot_world_hand_eye): qualified NLLSProblem/optimize! and its residual protocol
-using VisualGeometryToolkitCore: nlls_rows_and_jacobian   # NLLSsolver's rows and their Jacobian (the record: nlls_termination)
-using VisualGeometryToolkitCore: nlls_options, nlls_features, finite_cost, Eliminable   # the stack's one LM knob map; the Schur system (upstream #60), detected
-using SparseArrays: sparse   # the relpose bundle's stacked Jacobian (its stall postcondition); the rotation averaging's update
+import NLLSsolver   # the block-structured LMs' residual protocol (the relpose bundle, the camera-and-poses bundles)
+using VisualGeometryToolkitCore: nlls_rows_and_jacobian   # NLLSsolver's rows and their Jacobian (a bundle's residual statistics)
+using VisualGeometryToolkitCore: LmStops, LmProblem   # Core's one LM: its stop settings and its multi-block problem
+using VisualGeometryToolkitCore: nlls_features, finite_cost, Eliminable   # the Schur system (upstream #60), detected
+using SparseArrays: sparse   # the rotation averaging's update
 # fit_camera's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
 using SparseArrays: SparseMatrixCSC, nzrange, rowvals, nonzeros   # (gcv.jl: the Hutchinson path's pattern)
@@ -333,7 +334,7 @@ public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of
 # unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
 # PoseLib has its own). The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
-public AbstractRansacProblem, AbstractCspondProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
+public AbstractRansacProblem, AbstractCorrespondenceProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
     fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
@@ -356,10 +357,10 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
     StopWhenNoImprovement, iterations_without_improvement,
     MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata,
     NoImprovementStop, ParameterChangeStop, StopWhenParameterChangeLess, change_parameters, STOP_TAGS
-# The chart problems' rows provider and the problem family a lift runs on. (The
-# local-optimization extension point — `locally_optimize!`, `strategy_loss`,
+# The chart problems' rows provider (a lift runs on the `MinimalSolveProblem`
+# family). (The local-optimization extension point — `locally_optimize!`, `strategy_loss`,
 # `lo_loss` — is VisualGeometryToolkitCore's.)
-public ManifoldLiftProvider, LiftableProblem
+public ManifoldLiftProvider
 # Relative-pose bundle and robot-world calibration.
 # The division-camera step, its state, the lift constraint and fit_camera's metadata.
 public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
@@ -367,7 +368,6 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
 public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
 public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
-public image_size   # a bounded camera's image in whole pixels (the spline fits' lattice image; extended by a downstream bounded lens)
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
@@ -410,7 +410,7 @@ include("estimators/ransac/hypotheses.jl")   # draw_hypotheses: the RANSAC trial
 include("estimators/ransac/extent_traits.jl")
 
 # RANSAC problem implementations
-include("estimators/ransac/problems/cspond.jl")
+include("estimators/ransac/problems/correspondence.jl")
 include("estimators/ransac/problems/p3p.jl")
 include("estimators/ransac/problems/bearing_pose.jl")   # the absolute pose on caller-supplied bearings (central or generalized): the tangent-plane rows
 include("estimators/ransac/problems/homography.jl")
@@ -486,10 +486,10 @@ table carries a key beyond the generic one), a wrapper's placement
 (`lo_placement`), the posterior-weight stop rule's
 counter (`iterations_without_improvement`), the parameter-change stop's measure of a
 problem (`change_parameters`), the sampler / running-best
-protocol (`reset!`, `draw!`) and a bounded lens's image (`image_size`).
+protocol (`reset!`, `draw!`).
 """
 const CONTRACT_GENERICS = (lo_concrete, lo_resolve_efficiency_constant,
                            config_dict, scoring_from_toml, lo_placement,
-                           iterations_without_improvement, change_parameters, reset!, draw!, image_size)
+                           iterations_without_improvement, change_parameters, reset!, draw!)
 
 end # module VisualGeometryToolkitEstimation

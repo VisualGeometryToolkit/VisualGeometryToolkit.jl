@@ -75,7 +75,7 @@ function _recorded_code_trees(gitpath::AbstractString, what::AbstractString)
     ident = _code_identity(gitpath)
     if !isempty(ident.dirty)
         scratch_run() || refuse_uncommitted_code(ident; what = "a run of record")
-        @warn "a scratch run records $what of uncommitted code (VGTK_SCRATCH=1): it is never reused for committed code" uncommitted = join(ident.dirty, ", ") maxlog = 1
+        @warn "a scratch run records $what of uncommitted code (VGTK_SCRATCH=1): it is never reused (the mark names HEAD, not the edits)" uncommitted = join(ident.dirty, ", ") maxlog = 1
     end
     isempty(gitpath) || !isempty(ident.project_paths) ||
         @warn "$what records no tree of the project's own code (no src under $gitpath): only the packages it loads identify its code" maxlog = 1
@@ -303,7 +303,7 @@ end
 LEGACY, version-UNSTABLE key: `string(hash(x))`. It names the existing caches of
 bmvc2026 and other paper projects (`<prefix>_<hash(cfg)>.jld2`, bmvc2026's detection
 `run_key`), which must not move before their next full regeneration — that one
-re-keys them to [`run_key`](@ref) (SHA-256 of the sorted TOML). Never use it
+re-keys them to [`run_key`](@ref) (SHA-256 of the canonical JSON). Never use it
 for a new key.
 """
 legacy_hash_key(x) = string(hash(x))

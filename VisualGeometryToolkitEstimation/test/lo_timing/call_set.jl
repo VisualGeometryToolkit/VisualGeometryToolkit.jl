@@ -7,7 +7,7 @@
 # like VisualGeometryToolkitCore's bench record. The includer has loaded
 # VisualGeometryToolkitCore and StaticArrays.
 # =============================================================================
-using VisualGeometryToolkitCore: CameraModel, Csponds, EssentialMat, Point2
+using VisualGeometryToolkitCore: CameraModel, Correspondences, EssentialMat, Point2
 using VisualGeometryToolkitEstimation: EssentialProblem
 using StaticArrays: SMatrix
 
@@ -35,11 +35,11 @@ end
 
 # The pair's pool-frame correspondences, and its E problem (their bearings
 # through the pool-frame cameras).
-function pool_csponds(pr)
+function pool_correspondences(pr)
     P2 = Point2{Float64}
-    return Csponds([P2(pr.x1[1, i], pr.x1[2, i]) for i in 1:pr.n], [P2(pr.x2[1, i], pr.x2[2, i]) for i in 1:pr.n])
+    return Correspondences([P2(pr.x1[1, i], pr.x1[2, i]) for i in 1:pr.n], [P2(pr.x2[1, i], pr.x2[2, i]) for i in 1:pr.n])
 end
-problem_of(pr) = EssentialProblem(CameraModel(pr.Kc1), CameraModel(pr.Kc2), pool_csponds(pr))
+problem_of(pr) = EssentialProblem(CameraModel(pr.Kc1), CameraModel(pr.Kc2), pool_correspondences(pr))
 
 # The number of recorded calls: every pair's seeds.
 call_set_size(pairs) = sum(length(pr.seeds) for pr in pairs)

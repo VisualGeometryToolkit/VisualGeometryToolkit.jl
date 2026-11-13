@@ -374,7 +374,7 @@ function _onnx_device_free()
 end
 
 # `f()` with the device's free memory (`free`: bytes, or nothing without a query) read around it: its value and the
-# drop in free memory, `nothing` without a query. The one arena-growth measurement (a run's, a session's creation).
+# drop in free memory, `nothing` without a query. The one measured arena growth (a run's, a session's creation).
 function _measure_growth(f, free::Function)
     before = free()
     out = f()
@@ -382,11 +382,28 @@ function _measure_growth(f, free::Function)
     return out, (after === nothing ? nothing : before - after)
 end
 
-# A run of the session `s` on `inputs`; on a tracked CUDA session the arena's growth is measured around it (`free`, the
-# device's free memory or nothing).
-function _onnx_run(s::ORT.InferenceSession, inputs, free::Function = _onnx_device_free)
-    s.execution_provider === :cuda || return s(inputs)
-    out, grown = _measure_growth(() -> s(inputs), free)
+"""
+    onnx_run(session, inputs) -> outputs
+    onnx_run(f, session) -> f()
+
+A run of an [`onnx_session`](@ref) the ASIFT detector's device budget counts: on
+a CUDA session the arena's growth is measured around the run (the drop in the
+device's free memory) and charged to that session's arena, so the detector's
+plans leave free only the room the arena may still take. `onnx_run(session,
+inputs)` runs `session(inputs)`; `onnx_run(f, session)` runs `f()`, any call
+that runs `session` (a device-tensor `ONNXRunTime.CAPI.Run` on
+`session.session`, say), and returns its value. A CPU session's run is not
+measured. Every run of a package-built session goes through it; a run outside
+it leaves the arena's growth uncounted, and the detector's plans too large for
+the memory left.
+"""
+onnx_run(f::Function, s::ORT.InferenceSession) = _onnx_run(f, s, _onnx_device_free)
+onnx_run(s::ORT.InferenceSession, inputs) = onnx_run(() -> s(inputs), s)
+
+# `onnx_run`, the device's free memory read by `free` (bytes, or nothing without a query).
+function _onnx_run(f::Function, s::ORT.InferenceSession, free::Function)
+    s.execution_provider === :cuda || return f()
+    out, grown = _measure_growth(f, free)
     grown === nothing || _arena_grew!(s.session, grown)
     return out
 end

@@ -21,7 +21,7 @@
 # REMOVED (2026-08): on the motivating 260527 data the pose-residual MLE
 # absorbed an unmodeled systematic (~0.17°, ≈17σ) along a weakly constrained
 # direction and extrapolated WORSE than this initializer (3.3/6.3/10.4 vs
-# 2.8/4.2/6.7 mm across the range sweep). A measurement-level (reprojection)
+# 2.8/4.2/6.7 mm across the range sweep). An observation-level (reprojection)
 # refinement is the sound upgrade path; a pose-residual NLLS is not.
 #
 # The covariance is the first-order (delta-method) covariance of THIS staged
@@ -118,7 +118,8 @@ the reprojection error per point in pixels). Here:
   `X => u` in order)
 - `s2::Float64` — the variance factor `RSS/dof` (≈1 for the fit when
   `σ_rot`/`σ_trans` match the data; the pixel variance for the refinement);
-  `dof::Int` — the rows minus `6(M + 1)`
+  `dof::Int` — the rows minus `6(M + 1)` (a robust estimate's: the weighted rows; with
+  none left, `dof = 0`, `s2 = NaN` and `cov` unbounded)
 - `cov::Matrix{Float64}` — the joint covariance of the estimate in (rad,
   translation-unit) tangent coordinates at it, block order `[Y | X_{ids…}]`,
   each block `(δω, δt)` in the left-perturbation chart `exp(δω)·R, t + δt` (VGC
@@ -208,11 +209,15 @@ function _robot_world_hand_eye_result(
         dof_w = w * sum_w - N
         round(Int, dof_w), rss_w, sqrt(rss_w / (sum_w * rms_rows / n)), used
     end
-    s2 = strategy === nothing ? RSS / dof : RSS / max(w * sum(weights) - N, eps())
+    # no degrees of freedom left (a redescending loss that zeroes most rows: 6Σw ≤ N): no variance factor, no covariance
+    dof_eff = strategy === nothing ? dof : w * sum(weights) - N      # the robust fit's effective dof: real, not rounded
+    dof_left = dof_eff > 0
+    s2 = dof_left ? RSS / dof_eff : NaN
+    dof = dof_left ? dof : 0
     λ_min, v_min, cov = if all(isfinite, J)
         F = svd(J)                                    # singular values descending: JᵀJ's eigenpairs
         λ = F.S .^ 2
-        C = λ[end] > _ROBOT_WORLD_HAND_EYE_RANK_RTOL * λ[1] ? covariance(s2) : nothing
+        C = dof_left && λ[end] > _ROBOT_WORLD_HAND_EYE_RANK_RTOL * λ[1] ? covariance(s2) : nothing
         λ[end], Vector(F.V[:, end]), (C !== nothing && all(isfinite, C) ? C : fill(Inf, N, N))
     else
         NaN, fill(NaN, N), fill(Inf, N, N)
@@ -307,7 +312,7 @@ function _robot_world_hand_eye_init(
         count(>(0), pw) >= 2 || throw(ArgumentError(
             "fit_robot_world_hand_eye: the loss leaves fewer than 2 relative motions of positive weight; a " *
             "redescending loss needs a seed inside its width: use a monotone one (Irls{HuberShape}) or a wider `width`"))
-        RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = pw))')
+        RotMatrix{3, Float64}(kabsch(VgtkCore.Correspondences(as, bs; weights = pw))')
     end
 
     # 2. R_X per marker: R_B = R_Yᵀ R_A R_X  ⇒  R_X = R_Aᵀ R_Y R_B, chordal mean (weighted: Σ wₖRₖ projected)
@@ -496,11 +501,11 @@ translations given the rotations. A pose-residual NLLS refinement was
 deliberately removed: on real single-distance calibration data it absorbed
 an unmodeled systematic along a weakly constrained direction and
 extrapolated worse than this solution (see the documentation's
-"Robot–World Hand–Eye Calibration" page). Measurement-level (reprojection)
+"Robot–World Hand–Eye Calibration" page). Observation-level (reprojection)
 refinement is the sound upgrade path.
 
 # Arguments
-- `markers::AbstractDict{K, <:AbstractVector{<:Cspond}}` — per marker id, the
+- `markers::AbstractDict{K, <:AbstractVector{<:Correspondence}}` — per marker id, the
   correspondences between rigid transforms `A_i => B_i^m` of every frame it is
   seen in: the rig pose `T_WR` (e.g. mocap) and the marker-in-camera pose
   `T_CPm` (e.g. PnP); any frame labels accepted, `unlabel`ed at the boundary.
@@ -579,7 +584,7 @@ See also [`find_hand_eye`](@ref) for the ratio form `A_ij X = X B_ij` (no
 pose prior, RANSAC) which eliminates `Y` instead of estimating it.
 """
 function fit_robot_world_hand_eye(
-        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
+        markers::AbstractDict{K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}};
         σ_rot::Union{Nothing, Real} = nothing,
         σ_trans::Union{Nothing, Real} = nothing,
         min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")),
@@ -677,11 +682,11 @@ end
 # Physical poses: stripped in metres once (with σ_trans), the plain fit, the
 # calibration read back in metres once.
 function fit_robot_world_hand_eye(
-        markers::AbstractDict{K, <:AbstractVector{<:Cspond{<:_PhysicalPose3, <:_PhysicalPose3}}};
+        markers::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}}};
         σ_trans = nothing, kwargs...
     ) where {K}
-    plain = Dict(id => _map_csponds(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
-        AbstractDict{K, <:AbstractVector{<:Cspond{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
+    plain = Dict(id => _map_correspondences(_plain_metres, _plain_metres, cs) for (id, cs) in markers)::
+        AbstractDict{K, <:AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}}
     return _attach_metres(fit_robot_world_hand_eye(plain; σ_trans = _metres(σ_trans), kwargs...))
 end
 

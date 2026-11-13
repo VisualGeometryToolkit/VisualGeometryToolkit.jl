@@ -57,7 +57,7 @@ Properties are forwarded from frame and metadata:
 - `d.metadata`, `d.attributes` → the metadata
 - `d.center` → `frame.center`
 - `d.σ` → scale from frame (exact for Disc, characteristic_scale for anisotropic)
-- `d.Σ` → shape matrix (blob shape, not measurement covariance)
+- `d.Σ` → shape matrix (blob shape, not the position covariance)
 - `d.response`, `d.edge_score`, etc. → forwarded from metadata
 
 # Example
@@ -161,15 +161,11 @@ centroid(d::Attributed{<:_UncertainFrame}) = feature_frame(d).center
     propagate(m, d::Detection{<:Uncertain}) -> Uncertain
 
 The uncertain centre of a detection through the map `m` (a frame map onto a
-camera's pixels, say): its centre with the position block — the top-left 2 × 2,
-(x, y) — of its frame's `(x, y, log σ)` covariance ([`FeatureCovariance`](@ref)),
-carried through `m` by VisualGeometryToolkitCore's `propagate(m, ::Uncertain)`.
+camera's pixels, say): VisualGeometryToolkitCore's one detection → point
+observation conversion `center(d)` (its centre with the position block of its
+frame's covariance), carried through `m` by Core's `propagate(m, ::Uncertain)`.
 """
-function propagate(m, d::Attributed{<:_UncertainFrame, <:NamedTuple})
-    Σ = cov(d)
-    return propagate(m, Uncertain(SVector{2, Float64}(d.center[1], d.center[2]),
-                                  CovMat(SMatrix{2, 2, Float64, 4}(Σ[1, 1], Σ[2, 1], Σ[1, 2], Σ[2, 2]))))
-end
+propagate(m, d::Attributed{<:_UncertainFrame, <:NamedTuple}) = propagate(m, center(d))
 
 # Region forwarding — converts Detection to its supported k·σ primitive (Circle/Ellipse)
 region(d::Attributed{<:FeatureFrame}, args...) = region(getfield(d, :value), args...)

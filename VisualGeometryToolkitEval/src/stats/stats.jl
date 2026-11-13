@@ -175,16 +175,6 @@ function scene_ranges(sizes)
 end
 
 """
-    POOL_RNG
-
-The RNG algorithm of every pool stream (a reader's per-scene pair subsample
-and the per-pair minimal-sample draws of `write_scene_pool`): StableRNGs'
-`StableRNG`, whose streams are fixed across Julia versions, seeded by
-VisualGeometryToolkitCore's `stable_seed`. Recorded in each pool file (`pool_rng`).
-"""
-const POOL_RNG = StableRNG
-
-"""
     scene_mean_median_rows!(rows, method, xs, cols, scene_ranges; seed, ci_min = [metrics] ci_min_scenes)
 
 Shekhovtsov's "Mean median": per `x`, split the per-pair error view `cols[j]`

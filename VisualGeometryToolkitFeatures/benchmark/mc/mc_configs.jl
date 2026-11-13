@@ -1,5 +1,5 @@
 # The calibration configurations shared by the Monte Carlo scripts in benchmark/mc
-# (keypoint_uncertainty_mc.jl, zeisl_comparison.jl). Needs the UncFixtures
+# (detection_uncertainty_mc.jl, zeisl_comparison.jl). Needs the UncFixtures
 # helpers (blob_image, gauss_field) and Printf in scope.
 
 function configs()

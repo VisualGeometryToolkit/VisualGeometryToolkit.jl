@@ -5,10 +5,10 @@ module VisualGeometryToolkitFeaturesMakieExt
 # Makie extension: correspondence visualization
 # =============================================================================
 #
-# Extends VGC's canonical `matches!`/`matches` for Cspond-typed inputs and
+# Extends VGC's canonical `matches!`/`matches` for Correspondence-typed inputs and
 # existing Makie infrastructure (`imshow!`, `poly!`).
 #
-# Both functions dispatch on cspond endpoint type:
+# Both functions dispatch on correspondence endpoint type:
 #   - plain `Pair{<:AbstractVector, <:AbstractVector}` — color-coded markers.
 #   - stochastic `Pair{<:Uncertain{<:Any,<:PrecMat{2}}, …}` — markers plus
 #     `sigma`-σ confidence ellipses (one per endpoint), color-coded so the
@@ -20,7 +20,7 @@ module VisualGeometryToolkitFeaturesMakieExt
 # which delegates to `Ellipse(center, Σ::Symmetric)` with `Σ = inv(Λ)`.
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, Uncertain, PrecMat, CovMat,
-    Point2, Ellipse, Cspond, sources, targets, feature_frame, Attributed, weight_of, value_of
+    Point2, Ellipse, Correspondence, sources, targets, feature_frame, Attributed, weight_of, value_of
 import VisualGeometryToolkitFeatures: detections!
 using VisualGeometryToolkitCore: AbstractDetection   # a detection of a frame or of an uncertain frame
 import VisualGeometryToolkitCore: matches, matches!, ellipses!
@@ -34,21 +34,21 @@ using Makie: Makie, Figure, Axis, cgrad,
 const _PlainEndpoint = AbstractVector
 
 # -----------------------------------------------------------------------------
-# matches! (two-axis Cspond forms) — color-coded endpoint primitives
+# matches! (two-axis Correspondence forms) — color-coded endpoint primitives
 # -----------------------------------------------------------------------------
 
-#     matches!(ax_A, ax_B, cs::AbstractVector{<:Cspond{<:AbstractVector,<:AbstractVector}};
+#     matches!(ax_A, ax_B, cs::AbstractVector{<:Correspondence{<:AbstractVector,<:AbstractVector}};
 #             colormap=:hsv, markersize=4.0, marker=:cross)
 #
 # Plain-point overload: scatter color-coded endpoints on each axis.  `cs` may
-# be a `StructArray{Cspond{S,T}}` (built via `csponds(src, tgt)`) — its
-# `first`/`second` columns are accessed directly. A cspond may carry its
+# be a `StructArray{Correspondence{S,T}}` (built via `correspondences(src, tgt)`) — its
+# `first`/`second` columns are accessed directly. A correspondence may carry its
 # weight, `Attributed(src => tgt, (; weight))`: the weight (`weight_of`, in
-# [0, 1]) is its markers' alpha; a bare cspond is drawn opaque.
-const _PlainCspond = Cspond{<:_PlainEndpoint, <:_PlainEndpoint}
+# [0, 1]) is its markers' alpha; a bare correspondence is drawn opaque.
+const _PlainCorrespondence = Correspondence{<:_PlainEndpoint, <:_PlainEndpoint}
 function matches!(
         ax_A, ax_B,
-        cs::AbstractVector{<:Union{_PlainCspond, Attributed{<:_PlainCspond}}};
+        cs::AbstractVector{<:Union{_PlainCorrespondence, Attributed{<:_PlainCorrespondence}}};
         colormap = :hsv,
         markersize::Real = 4.0,
         marker = :cross
@@ -63,7 +63,7 @@ function matches!(
     return nothing
 end
 
-#     matches!(ax_A, ax_B, cs::AbstractVector{<:Cspond{<:StochasticEndpoint, ...}};
+#     matches!(ax_A, ax_B, cs::AbstractVector{<:Correspondence{<:StochasticEndpoint, ...}};
 #             sigma=3.0, colormap=:hsv, max_display=500,
 #             ellipse_strokewidth=1.0, markersize=3.0, alpha=0.6)
 #
@@ -72,11 +72,11 @@ end
 # `Ellipse(d; sigma)`.  Endpoint attributes may be `PrecMat{2}` (precision)
 # or `CovMat{2}` (covariance) — VGC's `Ellipse` handles both.
 #
-# `max_display` caps the number of csponds drawn (subsamples evenly).
+# `max_display` caps the number of correspondences drawn (subsamples evenly).
 function matches!(
         ax_A, ax_B,
         cs::AbstractVector{
-            <:Cspond{
+            <:Correspondence{
                 <:Uncertain{<:AbstractVector, <:Union{PrecMat{2}, CovMat{2}}},
                 <:Uncertain{<:AbstractVector, <:Union{PrecMat{2}, CovMat{2}}},
             },
@@ -138,7 +138,7 @@ end
 #         -> (Figure, (axis_A, axis_B))
 #
 # Build a Figure with two axes side-by-side, `imshow!` each image, then call
-# `matches!` (which dispatches on cspond endpoint type).  Trailing kwargs are
+# `matches!` (which dispatches on correspondence endpoint type).  Trailing kwargs are
 # forwarded to `matches!`.
 function matches(
         img_A, img_B,
@@ -214,7 +214,7 @@ function compare_images(entries::AbstractVector{<:Pair}; titles = nothing, defau
         hidedecorations!(ax)
         VgtkCore.imshow!(ax, img)                 # Core's orientation rule
     end
-    n > 1 && linkaxes!(axes...)
+    n > 1 && linkaxes!(axes)                      # Makie's vector method: the image count is data
     on(menu.selection) do name
         next = _entry_images(lookup[name])
         length(next) == n || throw(ArgumentError("compare_images: entry $(repr(name)) has $(length(next)) images, the others $n"))

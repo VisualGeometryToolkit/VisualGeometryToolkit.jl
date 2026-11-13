@@ -13,7 +13,7 @@
 #   the chart            `CircleManifold` (`minimal_manifold(c)`): the centre
 #                        and log r, 3 dof.
 #
-# Its construction, sampler and RANSAC wiring are the family's (cspond.jl). The
+# Its construction, sampler and RANSAC wiring are the family's (correspondence.jl). The
 # residual is VGC's default `mahalanobis_distances!` — the Sampson distance g/‖G_x‖ of the
 # constraint (VGC's Sampson layer), (d² − r²)/(2d) for a point at distance d
 # from the centre: the geometric distance d − r to first order, in PIXELS. The
@@ -28,7 +28,7 @@
 # `direct_ellipse(points)` take them, and the minimal solver reads the same
 # vector (`solve(Circle3pt(), points, idx)`). The only shared change this
 # needed is the problem scalar read off a point vector (`_problem_scalar`,
-# cspond.jl). The points are plain (unit isotropic noise); no normalization —
+# correspondence.jl). The points are plain (unit isotropic noise); no normalization —
 # the minimal solve is computed about the sample's first point and the chart is
 # translation-covariant.
 # =============================================================================

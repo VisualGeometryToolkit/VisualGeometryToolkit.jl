@@ -175,7 +175,7 @@ end
         # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs
         @test_throws r"Triggs\{HuberShape\}" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(),
                                                                      scale = 0.5)
-        # the LM's own iteration cap is the record's (NLLSsolver's bits, Core's nlls_termination)
+        # the LM's own iteration cap is the record's (NLLSsolver's bits under Core's one success rule)
         @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5, max_iter = 1)) === :max_iterations
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword

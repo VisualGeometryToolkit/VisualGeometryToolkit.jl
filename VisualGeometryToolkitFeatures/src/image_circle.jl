@@ -120,11 +120,12 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
         throw(ArgumentError("detect_image_circle: outlier_halfwidth must be > 0 px, got $outlier_halfwidth"))
     (isfinite(min_hole_area) && min_hole_area >= 0) ||
         throw(ArgumentError("detect_image_circle: min_hole_area must be ≥ 0 px², got $min_hole_area"))
+    smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
                       @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
     upper, S = nothing, nothing                                       # 1. the per-pixel maximum, one frame at a time
     for f in frames
-        plane, Sf = _measured_plane(f)
+        plane, Sf = _detection_plane(f)
         if upper === nothing
             upper, S = Float32.(gray.(plane)), Sf
         else
@@ -136,7 +137,6 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; smoothing_weig
     end
     upper === nothing && throw(ArgumentError("detect_image_circle: no frames"))
     H, W = size(upper)
-    smoothing_weight >= 0 || throw(ArgumentError("detect_image_circle: smoothing_weight must be ≥ 0, got $smoothing_weight"))
     levels = Matrix{Gray{N0f8}}(undef, H, W)                          # 2. VLFeat's 8 bits (after an L0 smoothing only when asked)
     if smoothing_weight > 0
         require_extension(() -> _missing_extension("ImageSmooth", "the L0 smoothing (smoothing_weight > 0)"), @__MODULE__, :VisualGeometryToolkitFeaturesImageSmoothExt)
@@ -172,13 +172,13 @@ end
 # The plane a frame is measured on, and the map of its pixels onto the returned ones (`nothing`: its own). A RAW image:
 # the green-cell image, `LinearRaw(m; mode = :green_cells)` (the stack's one public path to it), read to the host, and
 # its raw_frame_map. A cell image of another mode (`:bin2`, the display `:demosaic`) is refused, never re-read.
-_measured_plane(f::AbstractMatrix) = (f, nothing)
-_measured_plane(m::RawMosaic) = _measured_plane(LinearRaw(m; mode = :green_cells))
-_measured_plane(L::LinearRaw{:green_cells}) = (Array(view(L.image, :, :, 1)), unlabel(raw_frame_map(L)))
-_measured_plane(::LinearRaw{M}) where {M} = throw(ArgumentError(
+_detection_plane(f::AbstractMatrix) = (f, nothing)
+_detection_plane(m::RawMosaic) = _detection_plane(LinearRaw(m; mode = :green_cells))
+_detection_plane(L::LinearRaw{:green_cells}) = (Array(green_plane(L)), unlabel(raw_frame_map(L)))
+_detection_plane(::LinearRaw{M}) where {M} = throw(ArgumentError(
     "detect_image_circle: a RAW frame is measured on its green cells: give the mosaic or LinearRaw(mosaic; mode = :green_cells), got LinearRaw{:$M}"
 ))
-_measured_plane(f) = throw(ArgumentError("detect_image_circle: a frame is a gray image, a LinearRaw or a RawMosaic, got $(typeof(f))"))
+_detection_plane(f) = throw(ArgumentError("detect_image_circle: a frame is a gray image, a LinearRaw or a RawMosaic, got $(typeof(f))"))
 
 # The largest angle between consecutive points around the model's centre, radians (2π for fewer than two points).
 function _rim_gap(model, points)

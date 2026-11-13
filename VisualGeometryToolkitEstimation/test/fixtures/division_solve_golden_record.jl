@@ -6,7 +6,7 @@
 using StableRNGs: StableRNG
 using StaticArrays: SVector
 using Rotations: RotXYZ
-using VisualGeometryToolkitCore: RadialCamera, CameraModel, CspondNormalization, Csponds, intrinsics, lens,
+using VisualGeometryToolkitCore: RadialCamera, CameraModel, CorrespondenceNormalization, Correspondences, intrinsics, lens,
     focal_length, parameter_vector, iterations, estimate, rotation, translation, noise_scale
 using VisualGeometryToolkitEstimation: DivisionCameraState, fit_division_camera, division_camera_step
 
@@ -52,10 +52,10 @@ function golden_record()
     # known k
     _golden_fit!(out, "known_k", fit_division_camera(rc, vdirty; image_size = sz, k = K0))
     # one step: plain rows, and whitened at a seed under prior weights
-    N = CspondNormalization(DivisionCameraState, vdirty; center = SVector(0.0, 0.0))
+    N = CorrespondenceNormalization(DivisionCameraState, vdirty; center = SVector(0.0, 0.0))
     _golden_state!(out, "step_plain", division_camera_step(N, rc, vdirty))
-    wv = Dict(i => Csponds(first.(b), last.(b); weights = fill(Float64(i), length(b))) for (i, b) in enumerate(dirty))
-    Nw = CspondNormalization(DivisionCameraState, wv; center = SVector(0.0, 0.0))
+    wv = Dict(i => Correspondences(first.(b), last.(b); weights = fill(Float64(i), length(b))) for (i, b) in enumerate(dirty))
+    Nw = CorrespondenceNormalization(DivisionCameraState, wv; center = SVector(0.0, 0.0))
     _golden_state!(out, "step_seeded", division_camera_step(Nw, rc, wv; whiten_at = 2500.0))
     return out
 end

@@ -46,11 +46,11 @@
     @test up[1, 2:(n - 1), 2:(n - 1)] ≈ inner[2:(n - 1), 2:(n - 1)] rtol = 1.0f-5
     @test minimum(inner[end, :]) < 0.5f0                                       # the old path did blend the fill there
     @test_throws ArgumentError VgtkFeatures._loma_input(rand(Float32, 1, n, n))
-    # the keypoint chart reads the image's own size: a detection needs no rescaling
+    # the detection chart reads the image's own size: a detection needs no rescaling
     using VisualGeometryToolkitFeatures: Detection
     using VisualGeometryToolkitCore: Disc, Point2
     d = [Detection(Disc(Point2(750.25, 333.5), 2.0), (response = 1.0,))]
     sx, sy = n / Wf, n / Hf
     ds = [Detection(Disc(Point2(sx * 750.25, sy * 333.5), 2.0), (response = 1.0,))]
-    @test VgtkFeatures._loma_keypoints(d, (3, Hf, Wf)) ≈ VgtkFeatures._loma_keypoints(ds, (3, n, n))
+    @test VgtkFeatures._loma_points(d, (3, Hf, Wf)) ≈ VgtkFeatures._loma_points(ds, (3, n, n))
 end

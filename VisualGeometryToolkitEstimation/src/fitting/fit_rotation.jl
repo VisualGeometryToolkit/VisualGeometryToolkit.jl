@@ -70,7 +70,7 @@ outliers among 200 pairs at σ = 1e-3 rad to within 5e-4 rad, where the plain
 Kabsch is off by over 1e-2.
 """
 function fit_rotation(
-        cs::AbstractVector{<:Cspond{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
+        cs::AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
         optimization_strategy::Union{Nothing, AbstractOptimizationStrategy} = _fit_strategy_default("fit_rotation"),
         local_optimization = RetiredKeyword(),   # refused, naming its successor
         scale = nothing, width::Union{Nothing, Real} = nothing,
@@ -87,7 +87,7 @@ function fit_rotation(
     w = _fit_weights_storage(f, n)
     # VGC's weighted `kabsch` (Σ wᵢbᵢaᵢᵀ); fewer than two pairs of positive weight leave a one-parameter family
     count(>(0), prior) >= 2 || return _rotation_degenerate(optimization_strategy, f, n, w)
-    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = prior)))
+    R = RotMatrix{3, Float64}(kabsch(VgtkCore.Correspondences(as, bs; weights = prior)))
     r = _rotation_residuals(R, as, bs)
     tol_met = false
     iter = 0
@@ -96,7 +96,7 @@ function fit_rotation(
         _irls_weights!(w, f, r)
         sw = _solve_weights(prior, w)
         count(>(0), sw) >= 2 || return _rotation_degenerate(optimization_strategy, f, n, w, irls_termination(false, false; solve_failed = true))
-        R_new = RotMatrix{3, Float64}(kabsch(VgtkCore.Csponds(as, bs; weights = sw)))
+        R_new = RotMatrix{3, Float64}(kabsch(VgtkCore.Correspondences(as, bs; weights = sw)))
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
         r = _rotation_residuals(R, as, bs)

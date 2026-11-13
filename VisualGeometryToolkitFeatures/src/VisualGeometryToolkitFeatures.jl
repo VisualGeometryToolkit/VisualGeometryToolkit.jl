@@ -29,7 +29,8 @@ module VisualGeometryToolkitFeatures
 
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
-using StructArrays: StructArray
+using StructArrays: StructArray, components
+using Statistics: var   # an Uncertain pixel's scalar variance (VisualGeometryToolkitCore extends it)
 using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
@@ -41,7 +42,7 @@ using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-en
 # VisualGeometryToolkitCore (geometry primitives, units, the correspondence layer)
 import KernelAbstractions as KA   # KA devices are the backend dispatch tokens
 using VisualGeometryToolkitCore: Point2
-using VisualGeometryToolkitCore: Csponds  # #21 correspondence layer
+using VisualGeometryToolkitCore: Correspondences  # #21 correspondence layer
 using VisualGeometryToolkitCore: default_device   # the family's one KA backend resolver — never a hardcoded KA.CPU()
 using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!, free_device_buffers!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
 using VisualGeometryToolkitCore: ka_upload, on_device, device_zeros   # the family's one upload to a device (base/device.jl)
@@ -51,9 +52,11 @@ using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
-using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map, bayer_plane_map
+using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
+using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, poisson_slope, value_of, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
 using LinearAlgebra: isposdef
-using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # keypoint uncertainty
+using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
+using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame
 # Extended here with Detection methods:
 import VisualGeometryToolkitCore: Attributed, Disc, EllipticFrame, Ellipse
@@ -72,12 +75,12 @@ import VisualGeometryToolkitCore: propagate   # a detection's uncertain centre t
 #   batching.jl         batched_rows chunking for the describe backends
 #   asift/              KernelAbstractions ASIFT (IMAS-25) — THE detector.
 #                       Identity-only tilt schedule ≡ plain DoG-SIFT.
-#   matching.jl         CspondSet (Cspond and csponds come from VGC)
+#   matching.jl         CorrespondenceSet (Correspondence and correspondences come from VGC)
 #   nn_match.jl         NN/MutualNN/KnnMatch strategies, metrics, match
 #   matching_ka.jl      the one matcher (KernelAbstractions) behind match and nn_match; pairwise_matrix
 #   matching_stacked_ka.jl  nn_match_stacked over many galleries
 #   described_feature.jl  DescribedFeature, descriptor_matrix
-#   visualization_stubs.jl  detections! stub; matches!/matches Cspond overloads live in the Makie ext
+#   visualization_stubs.jl  detections! stub; matches!/matches Correspondence overloads live in the Makie ext
 #   cache.jl            FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)
 #
 # REMOVED 2026-07: the legacy scale-space detection stack (scalespace.jl,
@@ -96,7 +99,7 @@ include("asift/pyramid.jl")
 include("asift/warp.jl")
 include("asift/backproject.jl")
 include("asift/crosswarp.jl")
-include("asift/uncertainty.jl")   # FeatureCovariance: the keypoint covariance tables and per-keypoint math
+include("asift/uncertainty.jl")   # FeatureCovariance: the detection covariance tables and per-detection math
 include("asift/continuous_refine.jl")   # ContinuousRefinement: the opt-in continuous DoG-extremum refinement (before driver.jl, whose asift_detect! takes it; its kernels launch through foerstner.jl's helper, bound at run time)
 include("asift/driver.jl")
 include("asift/api.jl")
@@ -159,7 +162,7 @@ export asift_detect, asift_detect!, asift_detections
 export tilt_schedule             # ASIFT's tilts by name: :imas25 (the default), :untilted (the identity alone)
 export AsiftPlan, ImasFeatureKA
 export clear_asift_plans!, set_max_cached_plans!
-export FeatureCovariance            # keypoint uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
+export FeatureCovariance            # detection uncertainty: asift_detect(img; uncertainty = FeatureCovariance())
 export ContinuousRefinement         # the opt-in continuous refinement: asift_detect(img; refinement = ContinuousRefinement())
 export gray_f32, gray_u8        # the input ladders every detector-side entry point uses
 export load_linear_image        # a PNG as linear radiance: no gamma re-encoding, optional sRGB decode, box downsample
@@ -192,9 +195,8 @@ export nn_match, pairwise_matrix
 public match
 export resolve_one_to_one, resolve_one_to_one!
 export StackedDescriptorIndex, nn_match_stacked
-# Cspond, csponds: VGC's pair alias and builder (the NNMatch method is added here), exported by VGC only (0.8.0)
-export CspondSet                # N-way correspondence
-# point_csponds deleted (#21) — use VGC points/planar_lift/lift
+# Correspondence, correspondences: VGC's pair alias and builder (the NNMatch method is added here), exported by VGC only (0.8.0)
+export CorrespondenceSet                # N-way correspondence
 
 # -----------------------------------------------------------------------------
 # 4. DESCRIBED FEATURES - Detection + descriptor, StructArray-backed
@@ -206,6 +208,7 @@ export spread_strongest             # about n of the strongest detections spread
 public loma_provenance              # the model, the execution provider used and the threads, as plain data
 public onnx_cuda_status, OnnxCudaStatus, resolve_execution_provider   # whether ONNX Runtime's CUDA provider runs here (why not); :auto's answer
 public onnx_session                 # an ONNX Runtime session as the package builds its own: provider, threads, CUDA arena cap
+public onnx_run                     # a run of such a session, its CUDA arena growth counted in the detector's device budget
 
 # -----------------------------------------------------------------------------
 # 5. PERSISTENT CACHE - FileCache (JLD2 backend in VisualGeometryToolkitFeaturesJLD2Ext)

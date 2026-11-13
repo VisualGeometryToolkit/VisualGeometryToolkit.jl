@@ -28,11 +28,11 @@ Returns a `RansacEstimate`, the `:no_model` result (`iterations` 0) for fewer th
 `found_model(result)` before reading the model (see [`RansacEstimate`](@ref)).
 
 # Arguments
-- `correspondences`: 2D-2D correspondences — `Csponds`, `StructArray{<:Pair}` or a
-  Pair vector (`Point2` storage canonicalized internally). A `Csponds` `:score`
+- `correspondences`: 2D-2D correspondences — `Correspondences`, `StructArray{<:Pair}` or a
+  Pair vector (`Point2` storage canonicalized internally). A `Correspondences` `:score`
   attribute column is the per-match prior (PROSAC, descending score); uniform
-  otherwise. Endpoints carry their MEASUREMENT NOISE (VisualGeometryToolkitCore
-  `conventions/measurement-noise.md`): a plain point is unit isotropic noise in
+  otherwise. Endpoints carry their OBSERVATION NOISE (VisualGeometryToolkitCore
+  `conventions/observation-noise.md`): a plain point is unit isotropic noise in
   its own frame, `Uncertain(p, CovMat(Σ))` its own covariance, `exact(p)` none.
   Image↔image matches stay plain; a board, model or world plane is `exact` —
   `find_homography(exact.(board) .=> pixels)` scores the transfer error in
@@ -67,9 +67,9 @@ theirs by reference to this list, stating only their class's defaults.
 result = find_homography(pairs)
 
 # Descriptor-similarity prior as a `:score` column (PROSAC sampling) — the
-# matcher's `Csponds(...; score, ratio)` output carries it already; from bare
-# pairs, build the columnar container (`withattrs` takes a `Csponds`)
-result = find_homography(Csponds(sources(pairs), targets(pairs); score = similarities))
+# matcher's `Correspondences(...; score, ratio)` output carries it already; from bare
+# pairs, build the columnar container (`withattrs` takes a `Correspondences`)
+result = find_homography(Correspondences(sources(pairs), targets(pairs); score = similarities))
 ```
 
 Units: the source points are plain numbers. A homography maps from the source
@@ -84,7 +84,7 @@ function find_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "find_homography")
-    return _guarded_ransac(() -> with_extent(HomographyProblem(pairs), extent), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), :homography; kwargs...)
+    return _guarded_ransac(() -> with_extent(HomographyProblem(pairs), extent), HomographyProblem{_correspondence_scalar(pairs)}, length(pairs), :homography; kwargs...)
 end
 
 """
@@ -146,5 +146,5 @@ function refine_homography(
         kwargs...
     )
     _refuse_physical_plane(pairs, "refine_homography")
-    return _guarded_refine(() -> HomographyProblem(pairs), HomographyProblem{_cspond_scalar(pairs)}, length(pairs), Val(:homography), H; kwargs...)
+    return _guarded_refine(() -> HomographyProblem(pairs), HomographyProblem{_correspondence_scalar(pairs)}, length(pairs), Val(:homography), H; kwargs...)
 end

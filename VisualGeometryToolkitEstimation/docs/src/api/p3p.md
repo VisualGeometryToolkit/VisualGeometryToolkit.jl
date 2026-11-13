@@ -45,5 +45,5 @@ closed-form `action_jacobian`), running VisualGeometryToolkitCore's chart LM
 
 ## Correspondence Infrastructure
 
-`AbstractCspondProblem` is the abstract supertype for RANSAC problems based on
+`AbstractCorrespondenceProblem` is the abstract supertype for RANSAC problems based on
 point correspondences (homographies, fundamental matrices, P3P).

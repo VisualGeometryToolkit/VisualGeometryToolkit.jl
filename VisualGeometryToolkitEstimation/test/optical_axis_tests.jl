@@ -111,20 +111,18 @@ end
     @test calibration_matrix(estimate(rp)) == calibration_matrix(FISHEYE)
 end
 
-@testitem "optical_axis: a bounded camera only — its region is the camera's own bound; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
+@testitem "optical_axis: a bounded camera only — its region is the camera's own bound or a given region within it; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, dot, normalize, I
     using Rotations: RotMatrix, AngleAxis
     using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, Rect, KannalaBrandt, backproject, px,
-        estimate, metadata, retcode, rotation, calibration_matrix, EuclideanMap
-    using VisualGeometryToolkitEstimation: optical_axis, refine_camera_and_poses
+        estimate, metadata, retcode, rotation, calibration_matrix, imaged_region
+    using VisualGeometryToolkitEstimation: optical_axis
 
     # a bare model has no bound: refused, with the route (the region is the camera's bound, never a default)
     @test_throws r"BoundedCamera" optical_axis(OFF_AXIS)
-    @test_throws r"BoundedCamera" refine_camera_and_poses(OFF_AXIS, [EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))], [[SVector(0.0, 0.0, 2.0) => SVector(500.0, 500.0)]];
-                                                     fixed = (:controls,))
     # a circular fisheye (an equidistant f = 250 px lens imaging to 100°, its circle r ≈ 436 px on a 1400 × 1000 sensor;
     # its frame turned 3° off its axis): its spline images nothing past the circle, so its corners are the lattice's
     # extrapolation (as the RC golden siemens grid's). Over its image-circle bound the axis is found; over the whole
@@ -144,30 +142,161 @@ end
     @test metadata(r).symmetry_residual < 0.05
     whole = optical_axis(BoundedCamera(spl, Size2(1400, 1000)))
     @test metadata(whole).symmetry_residual > 10 * metadata(r).symmetry_residual
+    # an explicit region (0.10.2): the fit over `region ∩ imaged_region(camera)`. The whole-sensor camera over the image
+    # circle finds the axis its coverage-bound twin finds (RadiometricCamera's siemens start camera stalled over its
+    # whole image and converges over its board's rectangle: the same case on a real lattice)
+    rc = optical_axis(BoundedCamera(spl, Size2(1400, 1000)), circle)
+    @test retcode_symbol(rc) === :converged
+    @test acosd(min(1.0, dot(rotation(metadata(rc).rotation)' * SVector(0.0, 0.0, 1.0), Q3 * SVector(0.0, 0.0, 1.0)))) < 0.01
+    @test metadata(rc).symmetry_residual < 0.05
+    # a region past the camera's image is clipped to it: the sensor rectangle on the coverage-bound camera is its bound
+    bounded = BoundedCamera(spl, Size2(1400, 1000); lens_coverage = circle)
+    rr = optical_axis(bounded, Rect(0, 0, 1400, 1000))
+    @test retcode_symbol(rr) === :converged && length(metadata(rr).residuals) == length(metadata(r).residuals)
+    @test calibration_matrix(estimate(rr)) == K       # the same pixels, in the same order: the same problem, the same bits
+    # no region: the camera's own imaged region, the one path, the same bits
+    @test metadata(optical_axis(bounded, imaged_region(bounded))).residuals == metadata(r).residuals
+end
+
+# optical_axis's LM takes every chart LM's stop settings (Core's [lm] ftol = 1e-10, Estimation 0.10.2; until 0.10.1 it ran at
+# lmsolve_chart!'s eps): on the whole sensor of the 5°-off-axis spline the default family's cost settles before its
+# steps reach the increment floor, so it stops on the relative cost decrease (at eps: IncrementSize, one iteration
+# later; the principal point moves by < 1e-6 px; wave10/optical-axis-order.md)
+@testitem "optical_axis: the chart LM's cost tolerance ends a settled regression (CostDecrease)" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: retcode_symbol, stop_rule, iterations, CostDecrease
+    using VisualGeometryToolkitEstimation: optical_axis
+    r = optical_axis(OFF_BOUNDED)
+    @test retcode_symbol(r) === :converged
+    @test stop_rule(r) === CostDecrease
 end
 
 @testitem "refine_camera's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [OffAxisSpline] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using Test
     using CUDA: CUDA
+    using StaticArrays: SMatrix
+    using LinearAlgebra: norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, metadata, retcode, iterations, rotation,
-        calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, approximate_camera, optical_axis
+        calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, rms, model, free_parameter_names,
+        tangent_size, view_angle_limit
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, approximate_camera
     # the reduction kernel (each sample's 2-D residual and Jacobian rows, Σ‖r‖², Jᵀr, JᵀJ) is the same KernelAbstractions
-    # kernel on every backend: the CPU's and the GPU's fits agree to the reduction's rounding (the work items' sums in
-    # another order), with the same steps
+    # kernel on every backend: on the SAME samples the CPU's and the GPU's regressions agree to the reduction's rounding
+    # (the work items' sums in another order), with the same steps. Since 0.11.0 `device` also draws a gauge-K source's
+    # samples (its rays back-projected on that device, E6), so the public calls no longer share them; the kernel alone
+    # is compared on the host's samples, and the public call on a physical K, whose samples are its host-side profile.
     cpu = VC.KA.CPU()
+    # a physical K: the samples are the lens's radial profile, on the host whatever the device
+    rc = approximate_camera(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)
+    @test retcode_symbol(rc) === :converged
+    # a gauge K (the off-axis spline over its disc): the regression state built as refine_camera builds it, its samples
+    # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    fits = [(VE._AXIS_FAMILY, b, imaged_region(b), VE._AXIS_FIXED), (KannalaBrandt{4}, FISHEYE, REGION, ())]   # a gauge K, a physical K
-    for (L, src, region, fixed) in fits
-        rc = approximate_camera(L, src, region; fixed, device = cpu)
-        @test retcode_symbol(rc) === :converged
-        CUDA.functional() || continue
-        rg = approximate_camera(L, src, region; fixed, device = VC.default_device())
+    src = model(b); region = imaged_region(b); L = VE._AXIS_FAMILY; fixed = VE._AXIS_FIXED
+    role = VC.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VE._offset_matrix(K0)
+    guess = VE._approximation_start(VE._linear_form(L), L, src, region, :image, fixed, cpu)
+    gl = lens(guess); moving = free_parameter_names(guess, fixed)
+    start = VE._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
+    pr = VE._profile_samples(role, L, src, region, K0, :image, cpu)
+    P = VE._regression_manifold(role, VE._lens_family_manifold(role, gl, moving), start, moving)
+    N = tangent_size(P)
+    θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
+    function regress(dev)
+        lm = VE._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+        x, record, its = VE._regress_lens(lm, Val(N), VC.LmStops(; max_iter = VE._dflt("refine_camera", "max_iter")))
+        e = K0[1, 1] .* VE._sample_errors(lm, x, θcap)                                    # px
+        return (; x, record, its, rms = sqrt(sum(i -> pr.w[i] * sum(abs2, e[i]), eachindex(e)) / sum(pr.w)), max_px = maximum(norm, e))
+    end
+    c = regress(cpu)
+    @test c.record[1] == VC.ReturnCode.Success
+    if CUDA.functional()
+        gpu = VC.default_device()
+        g = regress(gpu)
+        @test g.record == c.record && g.its == c.its
+        @test maximum(abs, g.x - c.x) < 1.0e-9                                                  # chart coordinates
+        @test abs(g.rms - c.rms) < 1.0e-12 && abs(g.max_px - c.max_px) < 1.0e-12                 # px
+        # the physical K's public call: the same samples on both backends, so the same comparison end to end
+        rg = approximate_camera(KannalaBrandt{4}, FISHEYE, REGION; device = gpu)
         @test retcode_symbol(rg) === :converged && iterations(rg) == iterations(rc)
         @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(estimate(rg)))) - collect(parameter_vector(lens(estimate(rc))))) < 1.0e-9
-        @test maximum(abs, rotation(metadata(rg).rotation) - rotation(metadata(rc).rotation)) < 1.0e-12
         @test abs(rms(rg) - rms(rc)) < 1.0e-12 && abs(metadata(rg).max_px - metadata(rc).max_px) < 1.0e-12   # px
     end
+end
+
+# The caller's `device` reaches a SplineLens source's ray sampling — the expensive step: with the default device's
+# resolution made to throw, every camera verb given `device` still runs (until 0.11.0 `optical_axis` took none, and
+# the samples of a gauge-K source were drawn on the default device whatever the caller gave).
+@testitem "device: a SplineLens source's rays are sampled on the caller's device — the default is never resolved" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, imaged_region, KannalaBrandt, SplineLens
+    using VisualGeometryToolkitEstimation: optical_axis, refine_camera, fit_camera, approximate_camera
+    cpu = VC.KA.CPU()
+    region = imaged_region(OFF_BOUNDED)
+    resolver = VC._DEVICE_RESOLVER[]
+    VC._DEVICE_RESOLVER[] = () -> error("default_device() resolved: the caller's `device` did not reach this call")
+    VC.reset_default_device!()
+    try
+        r = optical_axis(OFF_BOUNDED; device = cpu)
+        @test VC.converged(r)
+        @test VC.converged(fit_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
+        @test VC.converged(approximate_camera(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
+        @test estimate(refine_camera(estimate(r), OFF_AXIS, region; device = cpu)) isa VC.CameraModel   # from its own optimum: runs on `cpu`
+        @test VC.converged(fit_camera(SplineLens, OFF_BOUNDED, region; tolerance = 1.0e-2, device = cpu))   # its optical axis first
+    finally
+        VC._DEVICE_RESOLVER[] = resolver
+        VC.reset_default_device!()
+    end
+end
+
+# The axis family's radial order is a configurable literal (configs/default.toml [optical_axis] radial_terms, read once):
+# 4 terms, θ³…θ⁹, the owner's ruling of 2026-11-13 from the order study (~/logs/dgx-agent/wave10/optical-axis-order.md:
+# the smallest order whose principal point is within ½σ of 6 terms' on every converging RC camera, cond(J) 47–160×
+# lower). Until 0.11.0 it was Fisheye624's 6 (θ³…θ¹³).
+@testitem "optical_axis: the axis family's radial order is the config's (4 terms)" setup = [OffAxisSpline] begin
+    using Test
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, Lens, Equidistant, Additive, Tangential, ThinPrism, Radial, estimate,
+        lens, parameter_names, with_lens_coverage
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, optical_axis
+    n = VE._dflt("optical_axis", "radial_terms")
+    @test n == 4
+    @test VE._AXIS_FAMILY === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
+    names = parameter_names(lens(estimate(optical_axis(with_lens_coverage(OFF_BOUNDED, DISC)))))
+    @test :k4 in names && !(:k5 in names)
+end
+
+# The region-support guard (Core's `check_region_support`, the owner's ruling of 2026-11-13): a fit over a region that
+# reaches beyond the source camera's calibrated support is REFUSED (`RegionBeyondSupport`), never fitted over the model's
+# extrapolation. RadiometricCamera's siemens start camera is a re-gridded copy of a Schöps calibration whose support is
+# Rect(1616, 593, 2159, 2321): over its whole sensor (corners extrapolated to 179.8°) the axis fit stalled at every
+# radial order (wave10/optical-axis-order.md); over the support it converges.
+@testitem "region support: a fit beyond the source's calibrated support is refused; inside it, the axis converges" begin
+    using Test
+    using StaticArrays: SVector, SMatrix
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect,
+        LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, retcode_symbol, imaged_region, estimate, model, KannalaBrandt
+    using VisualGeometryToolkitEstimation: optical_axis, approximate_camera, refine_camera, fit_camera
+    c = include(joinpath(@__DIR__, "fixtures", "rc_siemens_start_camera.jl"))
+    C = [SVector{3, Float64}(c.controls[(i - 1) * c.gw + j]) for i in 1:c.gh, j in 1:c.gw]
+    K = SMatrix{3, 3, Float64}(c.fx, 0.0, 0.0, c.skew, c.fy, 0.0, c.cx, c.cy, 1.0)
+    cam = BoundedCamera(CameraModel(LogicalIntrinsics(CameraCalibrationMat(K; check = false)), SplineLens(ChartSpline(Rect(c.area...), C))),
+                        Size2(c.width, c.height))
+    support = Rect(1616.0, 593.0, 2159.0, 2321.0)   # the Schöps source's valid_domain
+    # the whole sensor: refused by each fit at its entry, naming the fit
+    for (who, f) in (("optical_axis", () -> optical_axis(cam; support)),
+                     ("approximate_camera", () -> approximate_camera(KannalaBrandt{4}, cam, imaged_region(cam); support)),
+                     ("fit_camera", () -> fit_camera(KannalaBrandt{4}, cam, imaged_region(cam); support)))
+        e = try f(); nothing catch err; err end
+        @test e isa RegionBeyondSupport && e.who == who && e.support == support
+    end
+    # the support itself: the axis converges
+    r = optical_axis(cam, support; support)
+    @test retcode_symbol(r) === :converged
+    # refine_camera refuses the whole sensor too, and fits inside
+    @test_throws RegionBeyondSupport refine_camera(estimate(r), cam, imaged_region(cam); support)
+    @test retcode_symbol(refine_camera(estimate(r), cam, support; support)) in (:converged, :solved)
+    # without `support`, a camera's own valid_domain bounds it: a region past a lens's injectivity disc is refused
+    kb = CameraModel(SMatrix{3, 3, Float64}(300, 0, 0, 0, 300, 0, 320, 240, 1); lens = KannalaBrandt(-0.135))
+    @test_throws RegionBeyondSupport fit_camera(KannalaBrandt{4}, kb, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5))
 end

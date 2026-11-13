@@ -57,7 +57,7 @@ definition, and a signature line no method accepts.
 ## Benchmarks and examples
 
 `benchmark/mc` holds the Monte Carlo studies of the detector, which are not
-part of the test suite: `keypoint_uncertainty_mc.jl` calibrates the keypoint
+part of the test suite: `detection_uncertainty_mc.jl` calibrates the detection
 covariance, and `zeisl_comparison.jl` compares it with Zeisl et al. (BMVC 2009).
 Both write their results to `benchmark/mc/results/`, which is not tracked.
 

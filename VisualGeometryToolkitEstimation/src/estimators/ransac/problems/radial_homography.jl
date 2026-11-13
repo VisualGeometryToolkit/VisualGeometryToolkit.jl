@@ -17,20 +17,20 @@
 #      The target frame is Hartley ABOUT THE CENTER (translate the
 #      distortion center to the origin, scale to mean distance √2 from it);
 #      sources keep the ordinary centroid Hartley frame
-#      (`CspondNormalization(RadialHomography, cs; center)`). The center is
+#      (`CorrespondenceNormalization(RadialHomography, cs; center)`). The center is
 #      problem DATA (like the camera of `AbsolutePoseProblem`): the
 #      constructor requires it.
 #   2. THE MINIMAL SOLVE RUNS IN THE NORMALIZED FRAME (the 5-pt kernel's
 #      division model is origin-centered) and every candidate is
 #      composed back out of it, so problem-level models live in the DATA frame
 #      with center and k in pixel units — self-contained for consumers.
-#   3. RESIDUALS ARE MEASUREMENT-SPACE REPROJECTIONS `‖dᵢ − transfer(m, sᵢ)‖`
+#   3. RESIDUALS ARE OBSERVATION-SPACE REPROJECTIONS `‖dᵢ − transfer(m, sᵢ)‖`
 #      in pixels (`radial_transfer` is ray-based, so predictions survive the
 #      hemisphere boundary for k < 0); a ray outside a k > 0 model's
 #      representable field gets a large finite sentinel residual.
 #
 # LO support: the 4-arg `refine!(lo_ws, p, θ, w)` is a JOINT 9-dof chart LM —
-# sl(3) ⊕ k about the seed — on the weighted measurement-space reprojection
+# sl(3) ⊕ k about the seed — on the weighted observation-space reprojection
 # (see the fit section below), driven by the posterior-weight IRLS outer
 # loops (`Irls`, LocalOptimizationDoneRight's `StudentTUniform`) with their best-cost tracking; the chart-lift family
 # (HQ/GNC) rides the same kernels through its `ManifoldLiftProvider`.
@@ -51,13 +51,13 @@
 
 # `K` is the minimal sample size — 5 for the radial 5-point kernel, 4 for
 # plain-homography hypotheses (`minimal = :homography`, below). A partial
-# application, as the cspond.jl aliases.
+# application, as the correspondence.jl aliases.
 const RadialHomographyProblem = MinimalSolveProblem{VgtkCore.RadialHomography{T, 1}, K, T} where {T <: AbstractFloat, K}
 
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialHomography}}) = 2  # d_g = 2: reprojection pair
 
 # The fixed-center normalization for RadialHomography is VisualGeometryToolkitCore's
-# `CspondNormalization(RadialHomography, cs; center)`.
+# `CorrespondenceNormalization(RadialHomography, cs; center)`.
 
 # The minimal sample size of each hypothesis path — the one statement of it
 # (the constructor's `K` and `find_radial_homography`'s early exit).
@@ -114,18 +114,18 @@ end
 
 # The model class of a hypothesis: a plain-homography hypothesis (the 4-point
 # path) is a radial homography with no distortion term, in the solver's
-# origin-centred frame like the kernel's own output; `solve` (cspond.jl
+# origin-centred frame like the kernel's own output; `solve` (correspondence.jl
 # `_candidate`) composes it back into the data frame.
 _model_class(::RadialHomographyProblem, m::VgtkCore.RadialHomography) = m
 _model_class(::RadialHomographyProblem{T}, H::HomographyMat) where {T <: AbstractFloat} =
     VgtkCore.RadialHomography{T}(HomographyMat{T}(Tuple(H)), zero(T))
 
 # The sample gate on the normalized view, SCALE-FREE as H's and F's
-# (`_COINCIDENT_NORMALIZED`, cspond.jl): the target distinctness at the same
+# (`_COINCIDENT_NORMALIZED`, correspondence.jl): the target distinctness at the same
 # constant in the fixed-centre normalized frame (VGC's source separation is that
 # constant already). Until 2026-09-30 it was 1 px carried in by the
 # normalization's scale — a claim about the caller's units the H/F gate stopped
-# making. The model gate is the family's (cspond.jl `test_model`).
+# making. The model gate is the family's (correspondence.jl `test_model`).
 test_sample(p::RadialHomographyProblem, idx::AbstractVector{Int}) =
     VgtkCore.test_sample(model_type(p), p.cs_hartley, idx; target_tol = _COINCIDENT_NORMALIZED)
 
@@ -151,7 +151,7 @@ test_consensus(
 end
 
 # =============================================================================
-# The scoring residual — measurement-space reprojection distance (pixels)
+# The scoring residual — observation-space reprojection distance (pixels)
 # =============================================================================
 
 # The reprojection residual of correspondence `i`, Jacobian-free: the predicted
@@ -168,7 +168,7 @@ end
 # IS the whitened residual, because the problem admits only exact (or plain)
 # sources and plain targets (`_exact_source_only` refuses a target covariance
 # and drops the source's): an exact source with a plain target is the
-# measurement-noise rule's plain pixel case on one side, `Σ̃ = I`, so the
+# observation-noise rule's plain pixel case on one side, `Σ̃ = I`, so the
 # transfer error needs no whitening. The chart LM's rows
 # (`radial_transfer_rows!`) are in the same pixels. Admitting a target
 # covariance means whitening here, in the distance below and in those rows
@@ -203,14 +203,14 @@ end
 end
 
 # =============================================================================
-# The chart — sl(3) ⊕ k (9 dof, codim 2), measurement-space reprojection rows
+# The chart — sl(3) ⊕ k (9 dof, codim 2), observation-space reprojection rows
 # =============================================================================
 #
 # The house chart shape (H: sl(3)), extended by one Euclidean dimension for k:
 # VGC's `minimal_manifold(::RadialHomography)`, the product of
 # HomographyManifold8 about H₀ and the additive k, embedded back into a
 # RadialHomography with its fixed distortion centre. The weighted objective is
-# the TRUE measurement-space reprojection
+# the TRUE observation-space reprojection
 #
 #   Σᵢ wᵢ ‖dᵢ − project(m, T₋c·H(a)·s̃ᵢ)‖²,  H(a) = H₀(I + Σ aᵩGᵩ),  k = k₀ + a₉
 #

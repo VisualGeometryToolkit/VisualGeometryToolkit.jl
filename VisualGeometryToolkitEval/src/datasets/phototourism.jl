@@ -10,10 +10,10 @@
 # entries).
 #
 # Per pair:
-#   - Read pixel csps + SNN (matches.h5 + match_conf.h5).
-#   - Filter csps with `match_conf < snn_threshold`
+#   - Read pixel correspondences + SNN (matches.h5 + match_conf.h5).
+#   - Filter correspondences with `match_conf < snn_threshold`
 #     (PT inverts SNN — 0 good, 1 bad — so we keep LOW values).
-#   - Drop the pair if kept csps < `min_csponds`.
+#   - Drop the pair if kept correspondences < `min_correspondences`.
 #   - Read the GT relative pose from the scene's COLMAP recon
 #     (`<recon_dir>/{cameras,images,points3D}.bin`):
 #       - K from `cameras.bin` per-image cam_id (PINHOLE: fx, fy, cx, cy).
@@ -29,7 +29,7 @@
 #     parameter block). They are the σ̂²_p noise-scale source of a pool,
 #     decoupled from matches.h5 RootSIFT (a different detector pipeline).
 #   - The `gt_inliers` mask (a pair-eligibility gate downstream): matches.h5
-#     csps with pixel Sampson under the GT F below `gt_inlier_sampson_px`.
+#     correspondences with pixel Sampson under the GT F below `gt_inlier_sampson_px`.
 # =============================================================================
 
 """
@@ -130,8 +130,8 @@ function pt_scene_files(scene::AbstractString, trees::PtRawTrees)
     i = findfirst(p -> first(p) == scene, PT_SCENES)
     i === nothing && throw(ArgumentError("pt_scene_files: $(repr(scene)) is not one of PT_SCENES"))
     mdir, rdir = _scene_paths(scene, last(PT_SCENES[i]), trees)
-    return [joinpath(mdir, "matches.h5"), joinpath(mdir, "match_conf.h5"),
-            (joinpath(rdir, "$b.bin") for b in ("cameras", "images", "points3D"))...]
+    return vcat([joinpath(mdir, "matches.h5"), joinpath(mdir, "match_conf.h5")],
+                [joinpath(rdir, "$b.bin") for b in ("cameras", "images", "points3D")])
 end
 
 # =============================================================================
@@ -181,14 +181,14 @@ end
 # normalizes, so a slightly off-unit stored quaternion still gives SO(3)).
 _colmap_R(im) = SMatrix{3,3,Float64,9}(QuatRotation(im.qvec[1], im.qvec[2], im.qvec[3], im.qvec[4]))
 
-# Pair-eligibility mask: matches.h5 csps with pixel Sampson < threshold under
+# Pair-eligibility mask: matches.h5 correspondences with pixel Sampson < threshold under
 # the GT F (the oracle fundamental of the COLMAP pose). Used downstream only as
 # an eligibility gate; NOT the σ̂²_p source.
-function _sampson_px_inlier_mask(F_px, csponds; threshold_px::Float64)
-    N = length(csponds)
+function _sampson_px_inlier_mask(F_px, correspondences; threshold_px::Float64)
+    N = length(correspondences)
     mask = BitVector(undef, N)
     @inbounds for i in 1:N
-        d = sampson_distance(F_px, csponds.first[i], csponds.second[i])
+        d = sampson_distance(F_px, correspondences.first[i], correspondences.second[i])
         mask[i] = isfinite(d) && d < threshold_px
     end
     return mask
@@ -197,14 +197,14 @@ end
 """
     PtPair <: StereoRawPair
 
-Raw PhotoTourism pair data (post-SNN filter), in pixels: csps from matches.h5,
+Raw PhotoTourism pair data (post-SNN filter), in pixels: correspondences from matches.h5,
 COLMAP intrinsics, the composed relative pose, the GT-inlier mask (pixel
 Sampson under the GT F), and the SfM-track-paired SIFT detections (from
 points3D.bin) — the σ̂²_p noise-scale source.
 """
 struct PtPair <: StereoRawPair
     pair_key::String
-    csponds::StructArray                       # matches.h5 RootSIFT csps (RANSAC test set)
+    correspondences::StructArray                       # matches.h5 RootSIFT correspondences (RANSAC test set)
     snn::Vector{Float32}                       # SNN ratio (Lowe's d_NN/d_2NN; low = good)
     gt_inliers::BitVector                      # pixel Sampson under the GT F < gt_inlier_sampson_px
     K1::SMatrix{3,3,Float64,9}
@@ -223,7 +223,7 @@ function _split_pair_key(key::AbstractString)
 end
 
 """
-    _load_pt_pair(matches_f, conf_f, recon, pair_key; snn_threshold, min_csponds,
+    _load_pt_pair(matches_f, conf_f, recon, pair_key; snn_threshold, min_correspondences,
                  gt_inlier_sampson_px = [pool.phototourism] gt_inlier_sampson_px)
         -> PtPair | nothing
 
@@ -237,7 +237,7 @@ F below `gt_inlier_sampson_px`).
 function _load_pt_pair(matches_f::HDF5.File, conf_f::HDF5.File,
                       recon::NamedTuple, pair_key::String;
                       snn_threshold::Real,
-                      min_csponds::Integer,
+                      min_correspondences::Integer,
                       gt_inlier_sampson_px::Real = _config_default("pool.phototourism", "gt_inlier_sampson_px"))
     img1, img2 = _split_pair_key(pair_key)
     haskey(recon.images, img1) || return nothing
@@ -250,7 +250,7 @@ function _load_pt_pair(matches_f::HDF5.File, conf_f::HDF5.File,
     snn_all = Float32.(read(conf_f[pair_key]::HDF5.Dataset))
     size(m, 2) == length(snn_all) || return nothing
     cs, snn_kept, _ = _snn_filtered_matches(m, snn_all, snn_threshold)
-    length(cs) < min_csponds && return nothing
+    length(cs) < min_correspondences && return nothing
 
     # SfM-track-paired SIFT detections for σ̂²_p: walk the precomputed
     # track index for this image pair.  Track index is keyed by canonical
@@ -289,7 +289,7 @@ function _load_pt_pair(matches_f::HDF5.File, conf_f::HDF5.File,
 end
 
 """
-    load_pt_pairs(scene, source; trees::PtRawTrees, min_csponds, max_pairs_per_scene,
+    load_pt_pairs(scene, source; trees::PtRawTrees, min_correspondences, max_pairs_per_scene,
                   subsample_overdraw, subsample_seed,
                   snn_threshold = [pool.phototourism] snn_threshold,
                   min_track_pairs = [pool.phototourism] min_track_pairs,
@@ -305,7 +305,7 @@ thresholds default to configs/default.toml `[pool.phototourism]`.
 """
 function load_pt_pairs(scene::AbstractString, source::Symbol;
                        trees::PtRawTrees,
-                       min_csponds::Integer,
+                       min_correspondences::Integer,
                        max_pairs_per_scene::Integer,
                        subsample_overdraw::Integer,
                        subsample_seed::Integer,
@@ -336,7 +336,7 @@ function load_pt_pairs(scene::AbstractString, source::Symbol;
             sizehint!(pairs, min(max_pairs_per_scene, length(want_keys)))
             for k in want_keys
                 p = _load_pt_pair(matches_f, conf_f, recon, k;
-                                  snn_threshold, min_csponds, gt_inlier_sampson_px)
+                                  snn_threshold, min_correspondences, gt_inlier_sampson_px)
                 p === nothing && continue
                 length(p.track_kpts_A) >= min_track_pairs || continue
                 push!(pairs, p)

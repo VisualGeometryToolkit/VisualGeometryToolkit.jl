@@ -15,9 +15,9 @@ using Test, Random, LinearAlgebra, StaticArrays, StructArrays
 using StableRNGs
 using Rotations: RotY, RotXYZ, RotMatrix
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: EuclideanMap, Csponds
+using VisualGeometryToolkitCore: EuclideanMap, Correspondences
 using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract,
-    MsacScoring, RansacScoring, estimate, converged, csponds, model_type, RadialCamera, RadialHomography,
+    MsacScoring, RansacScoring, estimate, converged, correspondences, model_type, RadialCamera, RadialHomography,
     radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     residual_context, whitened_residual, rotation, translation, radial_rows, homography, division_coeff
 using VisualGeometryToolkitEstimation
@@ -37,7 +37,7 @@ end
 
 # --- the scenes --------------------------------------------------------------
 function h_scene()
-    p = HomographyProblem(csponds(homography_pairs(StableRNG(7), H_TRUE; n_in = 80, n_out = 20, σ = 0.5)...))
+    p = HomographyProblem(correspondences(homography_pairs(StableRNG(7), H_TRUE; n_in = 80, n_out = 20, σ = 0.5)...))
     return p, fitted(p, 3.0)
 end
 function epipolar_scenes()
@@ -133,7 +133,7 @@ function relpose_bundle_scene()
     px(X) = (x = K * X; SVector(x[1] / x[3], x[2] / x[3]))
     u1 = [px(X) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
     u2 = [px(R * X + t) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
-    return RelposeBundleProblem(K, K, csponds(u1, u2)), VgtkCore.EssentialMat(R, t)
+    return RelposeBundleProblem(K, K, correspondences(u1, u2)), VgtkCore.EssentialMat(R, t)
 end
 # The bearing pose problem (central bearings, a 2-component tangent residual),
 # at the true pose, with noisy bearings.
@@ -142,7 +142,7 @@ function bearing_pose_scene()
     E = EuclideanMap(RotMatrix(RotXYZ(0.1, -0.2, 0.3)), SVector(0.1, -0.2, 3.0))
     Xs = [SVector(2rand(rng) - 1, 2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:50]
     fs = [normalize(E.R * X + E.t + 0.003 * randn(rng, SVector{3, Float64})) for X in Xs]
-    return BearingPoseProblem(Csponds(Xs, fs)), E
+    return BearingPoseProblem(Correspondences(Xs, fs)), E
 end
 
 @testset "constraint-problem protocol: every problem with a scene" begin
@@ -280,6 +280,8 @@ function check_rows_provider(p, θ; inliers = trues(data_size(p)), currency_tol 
 end
 
 @testset "chart-rows contract: every chart problem's provider" begin
+    # a lift runs on the MinimalSolveProblem family under its own name: the alias is retired (check_naming), no alias
+    @test !isdefined(VisualGeometryToolkitEstimation, Symbol("Liftable" * "Problem"))
     (pe, θe), (pf, θf) = epipolar_scenes()
     ph, θh = h_scene()
     for (name, (p, θ)) in (

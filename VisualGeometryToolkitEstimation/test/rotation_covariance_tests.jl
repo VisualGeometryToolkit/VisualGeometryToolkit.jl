@@ -1,16 +1,16 @@
 # The per-edge covariance of a relative rotation (the owner's ruling): a
-# RotationProblem whose pixels carry their keypoints' covariances (Uncertain),
+# RotationProblem whose pixels carry their detections' covariances (Uncertain),
 # whitened through Core's Sampson layer on every route; `uncertain_rotation`,
 # its fit's rotation with the absolute covariance noise_scale² × solver_covariance
 # in the so(3) chart, against a Monte Carlo of the pipeline under ANISOTROPIC
-# keypoint noise; the chart the averaging reads it in; and fit_rotation_averaging
+# detection noise; the chart the averaging reads it in; and fit_rotation_averaging
 # whitening each Uncertain edge by it (scale upstream, a weak edge down-weighted).
 
 @testsetup module RotationEdgeScenes
     using Random, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: CameraModel, px, Uncertain, CovMat, csponds
+    using VisualGeometryToolkitCore: CameraModel, px, Uncertain, CovMat, correspondences
     export edge_camera, edge_scene, anisotropic_covariances, jitter, uncertain_pixels
 
     edge_camera() = CameraModel(800.0px, SA[320.0px, 240.0px])
@@ -19,7 +19,7 @@
         dirs = [normalize(SVector(0.7 * (rand(rng) - 0.5), 0.5 * (rand(rng) - 0.5), 1.0)) for _ in 1:n]
         return [VgtkCore.project(cam, d) for d in dirs], [VgtkCore.project(cam, R * d) for d in dirs]
     end
-    # one anisotropic 2×2 covariance per keypoint (px²): σ_major/σ_minor up to 4, at a random angle, times s²
+    # one anisotropic 2×2 covariance per detection (px²): σ_major/σ_minor up to 4, at a random angle, times s²
     function anisotropic_covariances(rng, n; s = 0.5)
         map(1:n) do _
             θ = π * rand(rng); a = 1 + 3 * rand(rng)
@@ -37,39 +37,39 @@ end
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: csponds, whitened_residual, exact
-    using VisualGeometryToolkitCore: measurement_covariance
+    using VisualGeometryToolkitCore: correspondences, whitened_residual, exact
+    using VisualGeometryToolkitCore: observation_covariance
     using VisualGeometryToolkitEstimation: RotationProblem, solver_covariance
 
     rng = Xoshiro(4)
     cam = edge_camera(); R = RotMatrix(RotXYZ(0.02, -0.15, 0.01))
     u1, u2 = edge_scene(rng, cam, R; n = 12)
     Σ1 = anisotropic_covariances(rng, 12); Σ2 = anisotropic_covariances(rng, 12)
-    pu = RotationProblem(cam, cam, csponds(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
-    pp = RotationProblem(cam, cam, csponds(u1, u2))
-    @test pu.cs.Σ₁ == Σ1 && pu.cs.Σ₂ == Σ2                                     # the keypoints' covariances, Core's noise columns
-    @test measurement_covariance(pu, 3) == VgtkCore.pair_covariance(Σ1[3], Σ2[3])
-    @test measurement_covariance(pp, 3) === I
+    pu = RotationProblem(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
+    pp = RotationProblem(cam, cam, correspondences(u1, u2))
+    @test pu.cs.Σ₁ == Σ1 && pu.cs.Σ₂ == Σ2                                     # the detections' covariances, Core's noise columns
+    @test observation_covariance(pu, 3) == VgtkCore.pair_covariance(Σ1[3], Σ2[3])
+    @test observation_covariance(pp, 3) === I
     # the whitened residual at a perturbed rotation is the Mahalanobis one: g over G_x·Σ_x·G_xᵀ
     Q = RotMatrix(RotXYZ(0.021, -0.149, 0.0102))
     for i in (1, 5, 9)
         g, Gx, _ = VgtkEstimation.constraint_with_jacobians(pu, Q, i)
-        S = Gx * measurement_covariance(pu, i) * Gx'
+        S = Gx * observation_covariance(pu, i) * Gx'
         @test norm(whitened_residual(pu, Q, i)) ≈ sqrt(dot(g, S \ g)) rtol = 1.0e-10
     end
     # plain pixels: no noise columns, the problem it always was
     @test !VgtkCore.hasattr(pp.cs, :Σ₁) && !VgtkCore.hasattr(pp.cs, :Σ₂)
     @test solver_covariance(pu, R, collect(1:12)) != solver_covariance(pp, R, collect(1:12))
     # an exact side is allowed (the other carries the noise); both exact is refused (Core's rule)
-    @test RotationProblem(cam, cam, csponds(exact.(u1), uncertain_pixels(u2, Σ2))) isa RotationProblem
-    @test_throws ArgumentError RotationProblem(cam, cam, csponds(exact.(u1), exact.(u2)))
+    @test RotationProblem(cam, cam, correspondences(exact.(u1), uncertain_pixels(u2, Σ2))) isa RotationProblem
+    @test_throws ArgumentError RotationProblem(cam, cam, correspondences(exact.(u1), exact.(u2)))
 end
 
-@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of find_rotation under anisotropic keypoint noise" setup = [RotationEdgeScenes] begin
+@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of find_rotation under anisotropic detection noise" setup = [RotationEdgeScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: csponds, log_so3, estimate, value_of, MsacScoring, Uncertain, CovMat,
+    using VisualGeometryToolkitCore: correspondences, log_so3, estimate, value_of, MsacScoring, Uncertain, CovMat,
         noise_scale, scale_source, ScaleEstimated
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, solver_covariance
     using StableRNGs: StableRNG
@@ -80,19 +80,19 @@ end
     u1, u2 = edge_scene(rng, cam, R; n)
     Σ1 = anisotropic_covariances(rng, n); Σ2 = anisotropic_covariances(rng, n)
     # the covariance at the truth, unit variance factor (the covariances are the noise)
-    p0 = RotationProblem(cam, cam, csponds(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
-    exact_fit = find_rotation(cam, cam, csponds(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)); rng = StableRNG(1))
+    p0 = RotationProblem(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
+    exact_fit = find_rotation(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)); rng = StableRNG(1))
     e0 = uncertain_rotation(p0, exact_fit; scale = 1.0)
     @test e0 isa Uncertain
     @test SMatrix{3, 3}(value_of(e0)) ≈ SMatrix{3, 3}(R) atol = 1.0e-10
     ΣR = SMatrix{3, 3}(cov(e0))
     @test ΣR ≈ ΣR' && all(>(0), eigvals(Symmetric(Matrix(ΣR))))
     @test @inferred(uncertain_rotation(p0, exact_fit; scale = 1.0)) isa Uncertain
-    # Monte Carlo of the pipeline: keypoints drawn from their covariances, find_rotation (its scorer's threshold in
+    # Monte Carlo of the pipeline: detections drawn from their covariances, find_rotation (its scorer's threshold in
     # whitened units; its LO the whitened chart LM), the error in the left chart log(R̂·Rᵀ)
     trials = 300
     runs = map(1:trials) do t
-        cs = csponds(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
+        cs = correspondences(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
                      uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u2, Σ2)], Σ2))
         p = RotationProblem(cam, cam, cs)
         res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(t))
@@ -112,9 +112,9 @@ end
     # 300 trials: a sample covariance entry within ~3·√(2/300) ≈ 25 % of the diagonal scale
     @test rel(ΣR) < 0.25
     @test all(0.7 .< diag(C) ./ diag(ΣR) .< 1.4)
-    # the covariances matter: the isotropic model (each keypoint's mean variance) misses the Monte Carlo by more
+    # the covariances matter: the isotropic model (each detection's mean variance) misses the Monte Carlo by more
     iso(Σs) = [SMatrix{2, 2}(tr(Σ) / 2 * I) for Σ in Σs]
-    piso = RotationProblem(cam, cam, csponds(uncertain_pixels(u1, iso(Σ1)), uncertain_pixels(u2, iso(Σ2))))
+    piso = RotationProblem(cam, cam, correspondences(uncertain_pixels(u1, iso(Σ1)), uncertain_pixels(u2, iso(Σ2))))
     Σiso = SMatrix{3, 3}(cov(uncertain_rotation(piso, exact_fit; scale = 1.0)))
     @test rel(ΣR) < rel(Σiso)
     # the scale is the variance factor: Σ_R scales by its square; a width is no scale
@@ -157,7 +157,7 @@ end
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ, QuatRotation, rotation_angle
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: csponds, estimate, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
+    using VisualGeometryToolkitCore: correspondences, estimate, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
         noise_scale, scale_source, ScaleUpstream, ScaleGiven, ScaleNone, ScaleEstimated
     using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, fit_rotation_averaging
     using VisualGeometryToolkitCore: Irls
@@ -167,7 +167,7 @@ end
     nf = 5
     edges = [(i, j) for i in 1:nf for j in (i + 1):min(nf, i + 2)]
     weak = (2, 3)
-    # pixel noise per edge: the weak edge's keypoints 8× noisier (its Σ says so)
+    # pixel noise per edge: the weak edge's detections 8× noisier (its Σ says so)
     s(e) = e == weak ? 4.0 : 0.5
     err(est, R) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(est[k])' * R[k])), 1:nf)
     function trial(seed)
@@ -179,7 +179,7 @@ end
             Rij = R[j]' * R[i]                                                 # f_j = R_ij·f_i
             u1, u2 = edge_scene(rng, cam, RotMatrix{3}(Rij); n = 30)
             Σ1 = anisotropic_covariances(rng, 30; s = s((i, j))); Σ2 = anisotropic_covariances(rng, 30; s = s((i, j)))
-            cs = csponds(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
+            cs = correspondences(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
                          uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u2, Σ2)], Σ2))
             p = RotationProblem(cam, cam, cs)
             res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(seed))

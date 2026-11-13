@@ -759,9 +759,21 @@ function _covariance_v2_to_v3(rows, parts)
     Σ = [Float64(rows[i][j]) for i in eachindex(rows), j in eachindex(rows)]
     perm = _block_reverse_perm([p.n for p in parts])
     all(p -> p.J == I, parts) && return Any[Any[Σ[perm[i], perm[j]] for j in eachindex(perm)] for i in eachindex(perm)]
-    J = cat((p.J for p in parts)...; dims = (1, 2))[perm, :]
+    J = _block_diagonal([p.J for p in parts])[perm, :]
     S = J * Σ * J'
     return Any[Any[i <= j ? S[i, j] : S[j, i] for j in axes(S, 2)] for i in axes(S, 1)]   # exactly symmetric
+end
+# The block-diagonal matrix of the square blocks `Js`, in order (a fill: no splat of a data-length list).
+function _block_diagonal(Js::AbstractVector)
+    n = sum(size(J, 1) for J in Js; init = 0)
+    B = zeros(Float64, n, n)
+    o = 0
+    for J in Js
+        k = size(J, 1)
+        B[(o + 1):(o + k), (o + 1):(o + k)] = J
+        o += k
+    end
+    return B
 end
 # The permutation that lists consecutive blocks of `sizes` entries in reverse
 # block order, each block's entries kept in order.

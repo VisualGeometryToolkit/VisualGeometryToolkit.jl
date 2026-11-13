@@ -118,9 +118,9 @@ end
     using VisualGeometryToolkitCore: GaussianBlur, has_units, with_unit, μm, CovMat, relabel, TargetPlaneFrame, ScaledIdentity
     using Statistics: cov
     on(F, Σ) = GaussianBlur(relabel(F, CovMat(Σ)))
-    print_blur = with_unit(on(TargetPlaneFrame, SDiagonal(7.84e-10, 1.8225e-10)), m)          # Σ in m², decimal (σ = 0.028, 0.0135 mm)
-    print_full = with_unit(on(TargetPlaneFrame, @SMatrix([7.84e-10 1.0e-11; 1.0e-11 1.8225e-10])), m)
-    print_iso = with_unit(on(TargetPlaneFrame, ScaledIdentity{2}(4.0e-10)), m)
+    print_blur = with_unit(on(TargetPlaneFrame{:board}, SDiagonal(7.84e-10, 1.8225e-10)), m)          # Σ in m², decimal (σ = 0.028, 0.0135 mm)
+    print_full = with_unit(on(TargetPlaneFrame{:board}, @SMatrix([7.84e-10 1.0e-11; 1.0e-11 1.8225e-10])), m)
+    print_iso = with_unit(on(TargetPlaneFrame{:board}, ScaledIdentity{2}(4.0e-10)), m)
     camera = on(PixelFrame{:colmap}, SDiagonal(0.6^2, 0.45^2))
     B = Dict(:print => print_blur, :print_full => print_full, :print_iso => print_iso, :camera => camera)
     mktempdir() do dir
@@ -134,7 +134,7 @@ end
         @test d["units"]["length"] == "mm"
         t = Dict(b["name"] => b for b in d["blurs"])
         @test t["camera"]["pixel_frame"] == "colmap" && t["camera"]["covariance"]["diagonal"] == [0.6^2, 0.45^2]   # px² as they are
-        @test t["print"]["frame"] == "target_plane" && t["print"]["covariance"]["diagonal"] == [7.84e-4, 1.8225e-4]  # m² → mm², a shift
+        @test t["print"]["frame"] == "target:board" && t["print"]["covariance"]["diagonal"] == [7.84e-4, 1.8225e-4]  # m² → mm², a shift
         @test t["print_full"]["covariance"][1][2] == 1.0e-5 && t["print_iso"]["covariance"]["isotropic"] == 4.0e-4
         save(p, B; length_unit = μm)
         d = JSON.parse(read(p, String))
@@ -150,8 +150,9 @@ end
         @test cov(load(Dict{Symbol, GaussianBlur}, p)[:q]) == SDiagonal(0.25, 0.5)
         q = joinpath(dir, "refused.json")
         @test_throws ArgumentError save(q, Dict(:u => GaussianBlur(0.6)))                                    # unlabeled
-        @test_throws ArgumentError save(q, Dict(:t => on(TargetPlaneFrame, SDiagonal(0.25, 0.5))))           # plain on a print
-        @test_throws ArgumentError save(q, Dict(:t => on(TargetPlaneFrame, SDiagonal(1.0m, 2.0m))))          # a length, not an area
+        @test_throws ArgumentError save(q, Dict(:t => on(TargetPlaneFrame{:board}, SDiagonal(0.25, 0.5))))           # plain on a print
+        @test_throws ArgumentError save(q, Dict(:t => with_unit(on(TargetPlaneFrame, SDiagonal(7.84e-10, 1.8225e-10)), m)))   # the bare plane names no target
+        @test_throws ArgumentError save(q, Dict(:t => on(TargetPlaneFrame{:board}, SDiagonal(1.0m, 2.0m))))          # a length, not an area
         @test_throws ArgumentError save(q, Dict(:c => on(PixelFrame{:colmap}, SDiagonal(VisualGeometryToolkitCore.base_quantity(1.0m^2), VisualGeometryToolkitCore.base_quantity(2.0m^2)))))   # an area on a sensor
         @test !isfile(q)
         # on read: a plane of the kind's, stated once
@@ -163,9 +164,9 @@ end
         end
         @test !refused(identity)
         @test refused(b -> delete!(b, "pixel_frame"))                                        # no plane
-        @test refused(b -> b["frame"] = "target_plane")                                      # two planes
+        @test refused(b -> b["frame"] = "target:board")                                      # two planes
         @test refused(b -> b["pixel_frame"] = "lower_left")                                  # not a registered pixel frame
-        @test refused(b -> (delete!(b, "pixel_frame"); b["frame"] = "target:a1f2"))           # not a blur's plane
+        @test refused(b -> (delete!(b, "pixel_frame"); b["frame"] = "view:a1f2"))             # not a blur's plane (a 3-D frame)
         @test refused(b -> (delete!(b, "pixel_frame"); b["frame"] = "image:"))
         @test refused(b -> b["unit"] = "px^2")                                               # IO 0.9's per-blur unit
     end
@@ -189,10 +190,10 @@ end
     @test JSON.lower(s, L).radius == 1500.0                                       # in the style's unit
     g = GaussianBlur(relabel(PixelFrame{:colmap}, CovMat(@SMatrix [0.5 0.1; 0.1 0.4])))
     @test cov(roundtrip(GaussianBlur, g)) == cov(g) && keys(JSON.lower(s, g)) == (:pixel_frame, :covariance) && JSON.lower(s, g).pixel_frame == "colmap"
-    p = with_unit(GaussianBlur(relabel(TargetPlaneFrame, CovMat(SDiagonal(4.0e-10, 9.0e-10)))), m)      # a print's blur, m² (σ = 0.02, 0.03 mm)
+    p = with_unit(GaussianBlur(relabel(TargetPlaneFrame{:board}, CovMat(SDiagonal(4.0e-10, 9.0e-10)))), m)      # a print's blur, m² (σ = 0.02, 0.03 mm)
     q = roundtrip(GaussianBlur, p)
     @test has_units(q) && typeof(q) == typeof(p) && Tuple(cov(q)) == Tuple(cov(p))
-    @test JSON.lower(s, p).frame == "target_plane" && JSON.lower(s, p).covariance["diagonal"] ≈ [0.02^2, 0.03^2]   # mm² in an mm record
+    @test JSON.lower(s, p).frame == "target:board" && JSON.lower(s, p).covariance["diagonal"] ≈ [0.02^2, 0.03^2]   # mm² in an mm record
     # an IO 0.9 blur body (`{"unit", "covariance"}`), as another package's record of an earlier version embeds it: read as
     # the unlabeled blur it held; its unit "px^2" or a length squared, told apart by NAME (to FlexUnits px, px³ and pd²
     # are all the same unitless scale-1 unit, so a dimension check accepts them all); a length is not an area

@@ -109,7 +109,7 @@ end
             written("blur.json") do p
                 camera = GaussianBlur(0.6, 0.45)
                 save(p, Dict(:camera => GaussianBlur(relabel(PixelFrame{:colmap}, cov(camera))),
-                             :print => with_unit(GaussianBlur(relabel(TargetPlaneFrame, cov(GaussianBlur(SDiagonal(7.84e-10, 1.8225e-10))))), m)))
+                             :print => with_unit(GaussianBlur(relabel(TargetPlaneFrame{:board}, cov(GaussianBlur(SDiagonal(7.84e-10, 1.8225e-10))))), m)))
             end
             written(p -> (mkpath(p); VgtkIO.save_units_sidecar(p, MM_PX)), "units_sidecar")
             written(p -> save(p, PointTarget([mm_lengths(SVector(1.0, 2.0, 3.0)), mm_lengths(SVector(4.0, 5.0, 6.5))])), "target.json")

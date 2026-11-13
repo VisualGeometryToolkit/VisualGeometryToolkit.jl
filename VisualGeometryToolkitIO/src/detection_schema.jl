@@ -150,7 +150,7 @@ function _detection_record_spec(h)
     attrs = _Obj(Pair{Symbol, _Spec}[Symbol(k) => _attribute_spec(v) for (k, v) in h[:attributes]], Pair{Symbol, _Spec}[])
     dof = frame_dof(_FRAME_TAGS[h[:frame]])
     cov = haskey(h, :covariance) ? Pair{Symbol, _Spec}[:covariance => _cov_spec(dof)] : Pair{Symbol, _Spec}[]
-    return _Obj(Pair{Symbol, _Spec}[:center => _XY, shape..., :attributes => attrs], cov)
+    return _Obj(_spec_table(Pair{Symbol, _Spec}[:center => _XY], shape, Pair{Symbol, _Spec}[:attributes => attrs]), cov)
 end
 
 # The file's table: the envelope and the declaration, then every detection by the declaration.

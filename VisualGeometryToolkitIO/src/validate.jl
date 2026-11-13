@@ -67,6 +67,9 @@ struct _Obj <: _Spec
     optional::Vector{Pair{Symbol, _Spec}}
 end
 _Obj(required::Pair{Symbol}...) = _Obj(collect(Pair{Symbol, _Spec}, required), Pair{Symbol, _Spec}[])
+# Spec tables (`name => spec` vectors) concatenated in order, as one `Vector{Pair{Symbol, _Spec}}`: never a splat of a
+# table into a literal (its length is data: check_splat).
+_spec_table(tables::AbstractVector...) = collect(Pair{Symbol, _Spec}, Iterators.flatten(tables))
 struct _Either <: _Spec
     alts::Vector{Pair{Symbol, _Spec}}
 end
@@ -434,9 +437,9 @@ _fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, S
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
                     check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT)
     o = _Obj(
-        Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
-                            :conventions => _CONVENTIONS_OBJECT, required...],
-        Pair{Symbol, _Spec}[optional..., _PROVENANCE...],
+        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
+                                        :conventions => _CONVENTIONS_OBJECT], required),
+        _spec_table(optional, _PROVENANCE),
     )
     return check === nothing ? o : _CheckedSpec(o, check; rule, schema)
 end

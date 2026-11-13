@@ -294,7 +294,7 @@ function _calibration_kind_schema(member::Bool)
                                 "then" => Dict("required" => [_COMPOSE_KEY], "not" => Dict("anyOf" => [Dict("required" => ["nodes"]), Dict("required" => ["parameters"])]),
                                                "properties" => Dict(_COMPOSE_KEY => Dict("minItems" => 2, "maxItems" => length(TARGET_CALIBRATION_ORDER),
                                                                                          "items" => Dict("allOf" => _calibration_kind_schema(true)))))))
-    return Any[Dict("properties" => Dict("type" => Dict("enum" => member ? tags : [tags; _COMPOSITION_TYPE]))), cases...]
+    return vcat(Any[Dict("properties" => Dict("type" => Dict("enum" => member ? tags : [tags; _COMPOSITION_TYPE])))], cases)
 end
 const _TARGET_CALIBRATION = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:type => _NonEmpty()], vcat(_CALIBRATION_FIELDS, Pair{Symbol, _Spec}[:compose => _Vec(_TARGET_CALIBRATION_MEMBER), :members => _Vec(_Free())])),
@@ -1044,7 +1044,7 @@ function _rig_from_record(d; resolve = nothing)
         Symbol(t.id::String) => PosedTarget(JSON.lift(s, AbstractTarget, t.target::Record; resolve), JSON.lift(s, EuclideanMap{3}, t.pose::Record))
             for t in d.targets::Vector{Any}
     )
-    targets = Dict{Symbol, typejoin(map(typeof, values(members))...)}(members)
+    targets = Dict{Symbol, mapreduce(typeof, typejoin, values(members))}(members)
     haskey(d, :sensors) || return Rig{F}(targets)
     return Rig{F}((_load_sensors(d, F, s)...,), targets)
 end

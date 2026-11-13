@@ -90,7 +90,7 @@ flipped silently).
 pose_from_json(p, unit::AbstractString) = JSON.lift(VgioStyle(; length_unit = parse_unit(unit)), EuclideanMap{3}, p::Record)
 
 function JSON.lift(s::VgioStyle, ::Type{EuclideanMap{3}}, p::Record)
-    q = SVector{4, Float64}(Float64.(p.rotation::Vector{Any})...)
+    q = SVector{4, Float64}(Float64[Float64(x::Real) for x in p.rotation::Vector{Any}])
     abs(norm(q) - 1) < 1.0e-6 || throw(
         ArgumentError("quaternion is not unit-norm (|q| = $(norm(q))); refusing to normalize silently")
     )

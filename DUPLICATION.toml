@@ -79,3 +79,14 @@ reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no
 file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreTestExt/contracts.jl"
 function = "test_scoring_contract"
 reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"
+
+[[splat]]
+file = "VisualGeometryToolkitIO/src/migrate.jl"
+function = "write_staged"
+reason = "the public API's callback receives one staged path per output it names, `f(staged...)`: its arity is the caller's written number of outputs (1 or 2 at every call site, a fixed arity per call), and the outputs are varargs Pairs by design"
+
+[[splat]]
+file = "VisualGeometryToolkitIO/src/rig_schema.jl"
+function = "_rig_from_record"
+reason = "VisualGeometryToolkitCore's `Rig` holds its sensors as a Tuple (each sensor's type in the rig's type), so a rig read from a file is built from a tuple of its sensors: one length per rig layout, the length the type itself carries"
+

@@ -134,7 +134,7 @@ _json_schema(s::_IfKey, defs) = _jobj(
 function _json_schema(s::_CheckedSpec, defs)
     o = _json_schema(s.inner, defs)
     isempty(s.rule) || (o["description"] = haskey(o, "description") ? "$(o["description"]) $(s.rule)" : s.rule)
-    isempty(s.schema) || (o["allOf"] = [get(o, "allOf", Any[])..., s.schema...])
+    isempty(s.schema) || (o["allOf"] = vcat(Any[], get(o, "allOf", Any[]), s.schema))
     return o
 end
 function _json_schema(s::_SchemaTok, defs)
@@ -190,14 +190,14 @@ _json_schema(::_Bool, defs) = _jobj("type" => "boolean")
 # `attributes` an object of the declared types' values (which names, the validator checks against the header).
 function _json_schema(s::_DetectionSpec, defs)
     o = _json_schema(s.outer, defs)
-    attribute = _jobj("anyOf" => Any[(_jobj("type" => t) for t in ("number", "boolean", "string"))..., _json_schema(_XY, defs)])
+    attribute = _jobj("anyOf" => Any[_jobj("type" => "number"), _jobj("type" => "boolean"), _jobj("type" => "string"), _json_schema(_XY, defs)])
     cases = map(collect(String, keys(_FRAME_TAGS))) do tag
         rec = _json_schema(_detection_record_spec(Dict{Symbol, Any}(:frame => tag, :attributes => Dict{String, Any}(), :covariance => true)), defs)
         rec["properties"]["attributes"] = _jobj("type" => "object", "additionalProperties" => attribute)
         _jobj("if" => _jobj("properties" => _jobj("detection" => _jobj("properties" => _jobj("frame" => _jobj("const" => tag))))),
               "then" => _jobj("properties" => _jobj("images" => _jobj("items" => _jobj("properties" => _jobj("detections" => _jobj("items" => rec)))))))
     end
-    o["allOf"] = [get(o, "allOf", Any[])..., cases...]
+    o["allOf"] = vcat(Any[], get(o, "allOf", Any[]), cases)
     rule = "Each detection is the record of the header's `frame` type: its `center`, its shape parameters, its `attributes` " *
            "(exactly the header's, each of its declared type) and, iff the header declares a `covariance`, a covariance " *
            "over the frame's parameters in the declared storage; a detection without one carries the attribute `covariance_status`."

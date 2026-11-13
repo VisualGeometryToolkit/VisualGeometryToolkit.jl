@@ -288,9 +288,9 @@ const _LENS_COVERAGE_RULE = (
 # of its enclosing record (a store entry's `name` and `calibration_record`): a
 # camera body or a non-central one, told apart by `lens` / `type`.
 _bounded_body_spec(extra = Pair{Symbol, _Spec}[], extra_optional = Pair{Symbol, _Spec}[]) = _Either(Pair{Symbol, _Spec}[
-    :lens => _CheckedSpec(_Obj(Pair{Symbol, _Spec}[extra..., _CAMERA_BODY_FIELDS...], Pair{Symbol, _Spec}[_BOUND_FIELDS..., extra_optional...]),
+    :lens => _CheckedSpec(_Obj(_spec_table(extra, _CAMERA_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
                           x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "a camera body"); _LENS_COVERAGE_RULE...),
-    :type => _CheckedSpec(_Obj(Pair{Symbol, _Spec}[extra..., _NONCENTRAL_BODY_FIELDS...], Pair{Symbol, _Spec}[_BOUND_FIELDS..., extra_optional...]),
+    :type => _CheckedSpec(_Obj(_spec_table(extra, _NONCENTRAL_BODY_FIELDS), _spec_table(_BOUND_FIELDS, extra_optional)),
                           x -> _lens_coverage_problem(get(x, :lens_coverage, nothing), "the non-central camera"); _LENS_COVERAGE_RULE...),
 ])
 const _BOUNDED_CAMERA_BODY = _bounded_body_spec()

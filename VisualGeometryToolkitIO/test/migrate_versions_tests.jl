@@ -7,7 +7,13 @@
     import VisualGeometryToolkitIO
     export units_fixture, as_v1_target, as_v1_points2d, as_v4_rig, old_copy, as_v4_measurements, V4_ID, current_id
 
-    units_fixture(name) = joinpath(@__DIR__, "fixtures", "units", name)
+    # the IO 0.9 fixtures (test/fixtures/old/, the 0.9 current versions the
+    # suite's units fixtures held), by their 0.9 names
+    const _OLD09 = Dict("rig.json" => "rig_v9.json", "rig_targets.json" => "rig_v9_targets.json", "rig_pitch.json" => "rig_v9_pitch.json",
+        "target_planar.json" => "target_v5_planar.json", "target_points.json" => "target_v5_points.json",
+        "target_points2d.json" => "target_points2d_v2.json", "target_points3d.json" => "target_points3d_v2.json",
+        "target_poses.json" => "target_poses_v2.json", "trajectory.json" => "trajectory_v4.json", "transforms.json" => "transforms_v4.json")
+    units_fixture(name) = joinpath(@__DIR__, "fixtures", "old", _OLD09[name])
 
     # The fixtures ARE the migration of the files they were (git history before
     # the target record v2): the v1/v4 text is the current (v4/v7) text with the renamed

@@ -22,6 +22,7 @@ StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitIO = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
 
 [sources]
 VisualGeometryToolkitEstimation = {path = ".."}
@@ -48,3 +49,4 @@ StructArrays = "0.7.4"
 Test = "1"
 TOML = "1"
 VisualGeometryToolkitCore = "0.10.6"
+VisualGeometryToolkitIO = "0.10.3"

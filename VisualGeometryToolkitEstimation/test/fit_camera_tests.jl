@@ -225,8 +225,83 @@ end
     @test maximum(abs, R2 - one(R2)) < 1.0e-8
     @test maximum(norm.(lens(estimate(r2)).forward.controls .- lens(cam).forward.controls)) < 1.0e-6
     @test retcode_symbol(r2) === :converged && metadata(r2).family.λ === nothing && metadata(r2).family.forward.max_px <= 1.0e-3
-    # a kept backward has no lattice to choose
-    @test_throws r"kept as it is" fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40))
+    # its own lattice given is the kept backward (0.11.6: a SplineLens source's `grid_size` was an ArgumentError; another
+    # lattice resamples it, the next item)
+    rk = fit_camera(SplineLens, GRID_BOUNDED, REGION; tolerance = 1.0e-3, grid_size = (40, 40), forward = false)
+    @test lens(estimate(rk)).backward.controls == lens(estimate(rb)).backward.controls && metadata(rk).family == metadata(rb).family
+end
+
+# 0.11.6: a SplineLens source resampled onto another lattice. The source is GRID re-gauged to a K whose principal point
+# is off its axis by (20, −10) px (any skew-0 K is an exact gauge of the lattice: the same rays), so the axis turn is
+# exercised. Measured 2026-11-14 over REGION (the disc of 480 px, to ~97° off axis), the held-out direction error
+# against the source, max (all in the 100 px edge band) / rms: 25 × 25 1.2e-3 / 1.9e-4 px, 30 × 30 1.7e-3 / 1.5e-4,
+# 35 × 35 1.0e-3 / 1.1e-4, 50 × 50 4.3e-4 / 4.2e-5. A cubic lattice finer than the source's 40 × 40 represents its
+# piecewise cubic field to well under the 1e-3 px tolerance of the SplineLens items above, so 50 × 50 is asserted
+# `:converged` at 1e-3 px; the fresh-point check below is in the interior (ρ ≤ 400 px, θ ≤ 77°), where the direction
+# error maps to at most θ/sin θ · f ≤ 1.4 · 300 px per radian (the equidistant-like profile), measured f·max angle = 3.3e-5 px.
+@testitem "fit_camera(SplineLens): a SplineLens source resampled onto another lattice, on its optical axis" setup = [FitCameraFisheye] begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore: estimate, metadata, retcode_symbol, rms, SplineLens, CameraModel, BoundedCamera, Size2,
+        CameraCalibrationMat, Ellipse, ChartSpline, backproject, project, calibration_matrix, lens, rotation, grid_size, model, with_model,
+        imaged_region, angle_between
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitEstimation: fit_camera, optical_axis
+    K0 = calibration_matrix(GRID)
+    src = BoundedCamera(CameraModel(GRID, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 520.0, 490.0, 1))), Size2(1000, 1000))
+
+    # 1. resampled to 50 × 50: converged, its rays the source's turned by the axis rotation, its K the axis fit's
+    r = fit_camera(SplineLens, src, REGION; tolerance = 1.0e-3, grid_size = (50, 50))
+    cam = estimate(r)
+    md = metadata(r)
+    @test retcode_symbol(r) === :converged
+    @test grid_size(cam) == md.family.grid_size == (50, 50) && md.family.λ isa Float64 && md.family.outer_iterations == 0
+    # its fidelity to the source: the held-out direction error over the region (where the source images rays)
+    @test md.max_px <= 1.0e-3 && md.max_px_edge <= 1.0e-3 && rms(r) < 1.0e-4 && md.family.n_held_out_dropped == 0
+    # the share of the image the penalty alone holds: outside the disc, 1 − π·480²/1000² (to the quadrature's stride)
+    @test abs(md.family.extrapolated_fraction - (1 - π * 480^2 / 1000^2)) < 0.01
+    axis = optical_axis(src)
+    @test md.rotation == metadata(axis).rotation && md.symmetry_residual == metadata(axis).symmetry_residual
+    @test calibration_matrix(cam) == calibration_matrix(estimate(axis))
+    @test maximum(abs, calibration_matrix(cam)[1:2, 3] - SVector(500.0, 500.0)) < 1.0e-3   # the axis's pixel, not (520, 490)
+    R = rotation(md.rotation)
+    pts = [SVector(500.0 + ρ * cos(a), 500.0 + ρ * sin(a)) for ρ in (0.0, 120.0, 300.0, 400.0) for a in range(0, 2π; length = 13)]
+    @test 1.4 * K0[1, 1] * maximum(p -> angle_between(R * backproject(src, p), backproject(cam, p)), pts) < 1.0e-3
+    # the forward as for every source: its held-out round trip to the tolerance
+    @test lens(cam).forward isa ChartSpline{2} && md.family.forward.max_px <= 1.0e-3
+    @test maximum(p -> norm(project(cam, backproject(cam, p)) - p), pts) < 1.0e-3
+
+    # 2. the source's own lattice given: kept exactly, as `grid_size = nothing`
+    rk = fit_camera(SplineLens, src, REGION; tolerance = 1.0e-3, forward = false)
+    rs = fit_camera(SplineLens, src, REGION; tolerance = 1.0e-3, grid_size = (40, 40), forward = false)
+    @test lens(estimate(rs)).backward.controls == lens(estimate(rk)).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
+    @test metadata(rs).family.λ === nothing && retcode_symbol(rs) === :converged
+
+    # 3. a source whose lens coverage (300 px) is far smaller than the full-image lattice: the nodes whose support misses
+    # it are held by the penalty, finite; the fit converges (measured 2026-11-14 at 30 × 30: 1.2e-4 px)
+    small = BoundedCamera(model(src), Size2(1000, 1000); lens_coverage = Ellipse(SVector(500.0, 500.0), 300.0, 300.0, 0.0))
+    r3 = fit_camera(SplineLens, small, imaged_region(small); tolerance = 1.0e-3, grid_size = (30, 30), forward = false)
+    C3 = lens(estimate(r3)).backward.controls
+    @test retcode_symbol(r3) === :converged && metadata(r3).max_px <= 1.0e-3
+    @test size(C3) == (30, 30) && all(c -> all(isfinite, c), C3)
+    h = 1000 / 27                                                                # the lattice's cell (27 cells, 30 nodes)
+    @test count(I -> norm(SVector((I[2] - 2) * h, (I[1] - 2) * h) - SVector(500.0, 500.0)) > 300 + 2 * sqrt(2) * h, CartesianIndices(C3)) > 0
+    @test abs(metadata(r3).family.extrapolated_fraction - (1 - π * 300^2 / 1000^2)) < 0.01
+
+    # 4. the resampled cameras through VisualGeometryToolkitIO's camera store, bounded as their sources. A SplineLens
+    # lens has no structural `==` (Core's ChartSpline defines none), so the fields are compared.
+    for bc in (with_model(src, cam), with_model(small, estimate(r3)))
+        path = joinpath(mktempdir(), "resampled.json")
+        VgtkIO.save(path, bc; name = :resampled)
+        back = VgtkIO.load(BoundedCamera, path)
+        a, b = lens(model(back)), lens(model(bc))
+        @test typeof(back) == typeof(bc) && back.bound == bc.bound && back.lens_coverage == bc.lens_coverage
+        @test calibration_matrix(back) == calibration_matrix(bc) && a.present == b.present
+        @test a.backward.area == b.backward.area && a.backward.controls == b.backward.controls
+        @test (a.forward === b.forward === nothing) || (a.forward.area == b.forward.area && a.forward.controls == b.forward.controls)
+        @test all(p -> isequal(backproject(back, p), backproject(bc, p)), pts)
+    end
 end
 
 @testitem "fit_camera: the forward spline's error is non-increasing in its size" setup = [FitCameraFisheye] begin

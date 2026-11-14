@@ -1,5 +1,30 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.6
+
+A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source onto another lattice. No other result changes.
+
+### Added
+
+- **A SplineLens source resampled by `grid_size`.** `fit_camera(SplineLens, source::BoundedCamera, region; grid_size,
+  tolerance, forward)` with a SplineLens camera source and a `grid_size` other than its own lattice's (it was an
+  `ArgumentError`) turns the source onto its optical axis first, always (`optical_axis`, Core's `axis_gauged`: K's
+  principal point at the axis's pixel, the metadata's `rotation` and `symmetry_residual`), then fits its backward on
+  Core's full-image lattice of `grid_size` to the turned source's rays over the region by the same penalized solve
+  as `pspline_grid` (the region restricts the quadrature; nodes whose support misses it are held by the penalty),
+  then the forward per `forward`. `:converged` when the held-out direction error meets `tolerance`. `grid_size =
+  nothing` or the source's own lattice keeps its backward exactly, as before.
+- **`extrapolated_fraction`** in the SplineLens target's family record: the share of the image's area (the full-image
+  lattice's) where the fit has no source ray — outside the region, or where the source images none — so the penalty
+  alone holds the lattice there. With the held-out direction error against the source (`max_px`, `max_px_edge`,
+  `rms`), it states a resample's fidelity to its source.
+
+### Changed
+
+- The SplineLens target turns a gauge-`K` source onto its axis before its backward is kept or fitted (it turned the
+  kept backward after): the same camera, rotation and metadata for every source it accepted before.
+- Test environment: VisualGeometryToolkitIO (`"0.10.3"`), for the resampled camera's store round trip.
+
 ## 0.11.5
 
 A patch: the posterior's non-finite rule is VisualGeometryToolkitCore's. No API change; this package's code changes no

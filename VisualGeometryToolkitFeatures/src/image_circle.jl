@@ -53,13 +53,17 @@ the measuring:
    textured scene, the scene's edges among the candidates;
 3. per angle, the CANDIDATES: every EDGE of the profile's OUTER ENVELOPE — the brightest it gets at or beyond each
    radius: where the light ends it does not come back, while a scene edge or a dark object inside the disc is followed
-   by light again and leaves the envelope alone. An edge is a maximal run of significant drops across 2 px (the bilinear
-   taps' support); its candidate is the steepest drop in LOG brightness per pixel from the run's start to the next
-   edge's (the log floored at the angle's darkest level or its noise), at that 2 px span's middle refined to the
-   sub-sample peak. A log drop is a ratio, independent of the exposure: a blurred sharp stop's steepest log drop is at
-   the stop, a soft ramp's at its foot, where it meets the floor; a rim that falls in two steps (lit, a dim band, the
-   floor) gives both (owner ruling 2026-11-14). A drop is significant when it exceeds its noise √2·σ (σ the angle's
-   noise: the sensor model's, or the data's) by z = Φ⁻¹(1 − α/m), `α = significance` the family-wise level over the
+   by light again and leaves the envelope alone. Every radius is in pixels through the log-polar map, its differential
+   and its inverse (Core's `transform_deriv`, `inv`): the drop at a radius r is across exactly 2 px about it (the
+   bilinear taps' support; its ends r ± 1 px through the inverse map, the profile interpolated between columns), so it
+   is continuous in r. An edge is a maximal run of significant drops; its candidate is the steepest drop in LOG
+   brightness per pixel from the run's start to the next edge's (the log floored at the angle's darkest level or its
+   noise), at its sub-sample peak in the grid coordinate taken to pixels by the map. A log drop is a ratio, independent
+   of the exposure: a blurred sharp stop's steepest log drop is at the stop, a soft ramp's at its foot, where it meets
+   the floor; a rim that falls in two steps (lit, a dim band, the
+   floor) gives both (owner ruling 2026-11-14). A drop is significant when it exceeds its noise √(σ(r − 1)² + σ(r + 1)²)
+   (σ each bin's noise at its pixels, rows × arc from the map's differential: the sensor model's, or
+   the data's) by z = Φ⁻¹(1 − α/m), `α = significance` the family-wise level over the
    angle's m drops: the floor's noise alone makes an edge in an angle with probability at most α;
 4. the model: `find_ellipse(candidates; scoring, rng)` for `Ellipse`, `find_circle(…)` for `Circle` — RANSAC with the
    robustified-LM local optimization, scored by the Student-t + uniform marginal (the inlier scale marginalized; the

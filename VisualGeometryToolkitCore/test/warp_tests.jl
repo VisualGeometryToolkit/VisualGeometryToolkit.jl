@@ -225,6 +225,67 @@
     end
 end
 
+@testitem "log-polar map: its differential and its inverse (ForwardDiff, the composed map, the device)" begin
+    using Test, StaticArrays, Random, LinearAlgebra
+    using GeometryBasics: Point2, Rect
+    import ForwardDiff
+    using CoordinateTransformations: transform_deriv
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: LogPolarToCartesian, CartesianToLogPolar, Ellipse, Circle
+    rng = Xoshiro(11)
+    jac(f, x) = ForwardDiff.jacobian(q -> SVector(f(q)...), SVector(x...))
+    t = logpolar_to_cartesian(0.05)
+    ti = inv(t)
+    @test ti isa CartesianToLogPolar && inv(ti) isa LogPolarToCartesian
+    @test isbitstype(typeof(t)) && isbitstype(typeof(ti))
+    for _ in 1:50
+        p = SVector(2rand(rng) - 1, 1.98rand(rng) - 0.99)            # θ off the 0 / 2π seam
+        @test transform_deriv(t, p) ≈ jac(t, p) rtol = 1e-12
+        @test ti(t(p)) ≈ p atol = 1e-12
+        x = t(p)
+        @test transform_deriv(ti, x) ≈ jac(ti, x) rtol = 1e-12
+        @test transform_deriv(ti, x) * transform_deriv(t, p) ≈ I atol = 1e-12
+        r = norm(x)                                                  # the area element π·L·r²/2
+        @test abs(det(transform_deriv(t, p))) ≈ π * -log(0.05) * r^2 / 2 rtol = 1e-12
+    end
+    # through the composed patch map of a circle and an ellipse: the chain rule and inv ∘ map = id
+    for g in (Circle(Point2(310.0, 205.0), 180.0), Ellipse(Point2(300.0, 200.0), 190.0, 150.0, 0.4))
+        m = logpolar_map(g, Rect(0, 0, 400, 1200), 0.2)
+        mi = inv(m)
+        for _ in 1:20
+            p = SVector(400rand(rng), 1190rand(rng) + 5)
+            @test transform_deriv(m, p) ≈ jac(m, p) rtol = 1e-10
+            @test mi(m(p)) ≈ p atol = 1e-9
+            @test transform_deriv(mi, m(p)) ≈ jac(mi, m(p)) rtol = 1e-10
+        end
+    end
+    # on the device (isbits, GPU-compilable): both maps and the differential in a broadcast kernel, and the inverse
+    # inside Core's warp kernel (m ∘ inv(m) ∘ m resamples as m does)
+    lpm = logpolar_map(Circle(Point2(310.0, 205.0), 180.0), Rect(0, 0, 400, 1200), 0.2)
+    ps = [SVector(400rand(rng), 1190rand(rng) + 5) for _ in 1:64]
+    lp(m, mi, p) = (q = mi(m(p)); J = transform_deriv(m, p); SVector(q[1] - p[1], q[2] - p[2], abs(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1])))
+    host = lp.(Ref(lpm), Ref(inv(lpm)), ps)
+    @test maximum(x -> max(abs(x[1]), abs(x[2])), host) < 1e-9
+    img = rand(rng, Float32, 600, 700)
+    out(math, src) = (bm = image_warp(Float32, math, Rect(0, 0, 400, 1200)); d = similar(src, Float32, 1200, 400);
+                      image_warp!(d, bm, src; fillvalue = NaN32); Array(d))
+    @test maximum(filter(isfinite, abs.(out(lpm ∘ inv(lpm) ∘ lpm, img) .- out(lpm, img)))) < 1e-4
+    cuda = try
+        mod = Base.require(Main, :CUDA)
+        (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing      # no functional GPU here: recorded as Broken, not as a success
+    else
+        CuArray = Base.invokelatest(getproperty, cuda, :CuArray)
+        dev = Base.invokelatest(broadcast, lp, Ref(lpm), Ref(inv(lpm)), Base.invokelatest(CuArray, ps))
+        @test Base.invokelatest(Array, dev) ≈ host
+        @test maximum(filter(isfinite, abs.(Base.invokelatest(out, lpm ∘ inv(lpm) ∘ lpm, Base.invokelatest(CuArray, img)) .- out(lpm, img)))) < 1e-3
+    end
+end
+
 @testitem "undistort and rectify of a Gray{N0f8} image under the GPU default (availability-gated)" begin
     using Test, StaticArrays, ImageCore, FixedPointNumbers, Random
     using Rotations: RotMatrix, RotXYZ

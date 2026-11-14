@@ -1,5 +1,25 @@
 # VisualGeometryToolkitFeatures changelog
 
+## Unreleased
+
+### Changed
+- **`detect_image_circle`'s rim radii are in pixels through the log-polar map's differential and inverse** (Core's new
+  `transform_deriv(::LogPolarToCartesian, p)` and `inv(::LogPolarToCartesian)`; needs that Core release). 0.9.2 measured
+  an edge's drop over "the samples to ≥ 2 px": on the log grid that span's sample count steps where the radial spacing
+  crosses 2/n px, and 0.9.2 corrected it by hand, dividing each log drop by its span's length. Now:
+  - the drop at radius r is across exactly 2 px about it, its ends r ± 1 px found through the inverse map and the profile
+    interpolated between columns: continuous in r, no span-length step; the per-span normalisation is gone;
+  - the edge is the log slope's sub-sample peak in the grid coordinate, taken to pixels by the forward map;
+  - each bin's noise is scaled by its own pixel count, rows × arc from the map's differential (each column is at most a
+    pixel thick): before, the empirical noise was one per angle, so the significance test and the bin rule's edge
+    uncertainties now use each bin's pixels. `RimProfile.noise` is now each angle's noise PER PIXEL (a bin of m pixels
+    has `noise/√m`).
+  The return type and every keyword are unchanged. Real-data coverages (raw px) move within their σ on the 14 mm, f/4
+  and f/22 sets; the start invariance holds (14 mm: sub-pixel and ±25 px starts within 0.25 px); the f/32 set's bottom
+  inlier set changes (its reference check is marked broken: the RANSAC counts mount/scene edges as inliers); the
+  synthetic field stop is at 1310.29 (truth 1309.6, a binary disc: the lit pixels' outer boundary is within √2/2 px).
+  Needs Core's release with the log-polar differential and inverse (a compat floor on it at release).
+
 ## 0.9.2 (unreleased)
 
 A patch, additive (owner rulings 2026-11-14: the lens coverage is the rim's outer edge; no rim margin).

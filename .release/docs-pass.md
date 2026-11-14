@@ -1,4 +1,4 @@
-docs-pass: 343a062d
+docs-pass: 6ae7230c
 
 # VisualGeometryToolkitIO 0.10.1 docs pass (julia-docs-pass) — branch patch-io0101
 
@@ -17,6 +17,8 @@ schema or version of any kind changes. 343a062d is patch-io0101 merged with GitH
   number reads back to; the last-resort case is IO's and documented here (no Core change in an IO patch).
 - CHANGELOG: 0.10.1 (Fixed; the tests added and the three restated, each by name); 0.10.0 dated.
 - Docs build, docs item, quality and naming: run by the gate on the merged sha.
+- Re-recorded at 6ae7230c: an internal helper renamed (`_fixed_point` → `_rewrite_number`: the gate's check_duplication
+  found `_fixed_point` owned by VisualGeometryToolkitCore.Cameras); no docs change.
 
 ---
 

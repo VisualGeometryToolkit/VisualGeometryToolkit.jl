@@ -74,9 +74,6 @@ each point at full resolution in its own window.
   paper's eq. (8) with its defaults (fp = 1, fs = ½, T_r = 1) as footprint
   overlap: a footprint of radius `σ/√2` and half-octave scale bands, ± 1 band.
 """
-# A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid.
-detect_sfop(L::LinearRaw; kw...) = detect_sfop(_green_values(green_plane(L)); kw...)
-
 function detect_sfop(
         img::AbstractMatrix; device::KA.Backend = default_device(),
         noise_sigma::Real = 2.0, significance_level::Real = 0.999, precision_threshold::Real = 0.5,
@@ -117,6 +114,9 @@ function detect_sfop(
         return _sfop_detections(device, space, Array(view(pool, :, 1:n)), ends, W, H, 1 / precision_threshold^2)
     end
 end
+
+# A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid.
+detect_sfop(L::LinearRaw; kw...) = detect_sfop(_green_values(green_plane(L)); kw...)
 
 # The extracted maxima (`raw`, ASIFT's 5 × n rows: 0-based input x, y, the slice σ, w, slot; octave o's rows end at
 # `ends[o]`) as detections: the level's blur from the slice σ (`_slice_sigma` reports the geometric mean of a DoG

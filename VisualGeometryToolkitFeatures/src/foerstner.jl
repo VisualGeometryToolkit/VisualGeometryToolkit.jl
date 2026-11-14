@@ -222,12 +222,15 @@ detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detecti
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); seeds, kw...)
 
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
-    _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
+    _detect_foerstner(T, _raw_inputs(L, sensor_model)...; kw...)
 
 # The seeded windows on a RAW's green cells (positions on the cell grid), under the frame's sensor model as the image-wide call.
 detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
                  kw...) where {T <: AbstractFloat} =
-    _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); seeds, kw...)
+    _detect_foerstner(T, _raw_inputs(L, sensor_model)...; seeds, kw...)
+
+# A RAW's green cells as the detector reads them: their values and the pixel noise its sensor model gives (`_pixel_noise`).
+_raw_inputs(L::LinearRaw, sensor_model::SensorModel) = (_green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)))
 
 # The values of a green plane: the plane itself, or each uncertain element's value (Core's `value_of`), whatever its
 # storage (a lazy view or a materialised one).
@@ -441,13 +444,8 @@ end
 # 0 unknown (the reference's noclass). The F distribution's degrees of freedom are the two residual sums' effective
 # ones (`_residual_dof`, one per window half-width ρ), not the reference's pixel count `(2ρ + 1)² − 2`.
 function _foerstner_classes(found, significance_level)
-    dof = Dict(ρ => _residual_dof(found.taps, ρ) for ρ in unique(found.ρ))
-    function critical(ρ)
-        d = dof[ρ]
-        fdist = FDist(d.corner.ν, d.circular.ν)
-        return quantile(fdist, significance_level), quantile(fdist, 1 - significance_level)
-    end
-    tests = Dict(ρ => critical(ρ) for ρ in keys(dof))
+    tests = Dict(ρ => (d = _residual_dof(found.taps, ρ); f = FDist(d.corner.ν, d.circular.ν);
+                       (quantile(f, significance_level), quantile(f, 1 - significance_level))) for ρ in unique(found.ρ))
     function class(k, e)
         corner_critical, circular_critical = tests[_per_window(found.ρ, k)]
         return (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
@@ -481,18 +479,17 @@ function _residual_dof(taps::AbstractMatrix, ρ::Integer)
     end
     Kr = kernels(_pipeline_bands(Float64.(taps), n))
     Kc = kernels(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
-    xi, xj = x, x'                                          # the factor's row and column coordinate
-    # aₚᵀ K aₚ′ = Σ_t f_t(r, r′) g_t(c, c′); circular a = (−c, r), corner a = (r, c) on (∂/∂row, ∂/∂column)
-    circular = ((Kr[1, 1], xi .* xj .* Kc[1, 1]), (-xj .* Kr[1, 2], xi .* Kc[1, 2]),
-                (-xi .* Kr[2, 1], xj .* Kc[2, 1]), (xi .* xj .* Kr[2, 2], Kc[2, 2]))
-    corner = ((xi .* xj .* Kr[1, 1], Kc[1, 1]), (xi .* Kr[1, 2], xj .* Kc[1, 2]),
-              (xj .* Kr[2, 1], xi .* Kc[2, 1]), (Kr[2, 2], xi .* xj .* Kc[2, 2]))
-    function moments(terms)
+    # aₚᵀ K aₚ′ = Σ_ss′ f_ss′(r, r′) g_ss′(c, c′) for `a` = (sign, axis) of each gradient component (∂/∂row, ∂/∂column), axis
+    # 1 the row offset, 2 the column offset: the corner a = (r, c), the circular point a = (−c, r)
+    function moments(a)
+        on(axis, along) = axis == along ? x : ones(length(x))
+        terms = [(a[s][1] * a[s2][1] .* on(a[s][2], 1) .* on(a[s2][2], 1)' .* Kr[s, s2], on(a[s][2], 2) .* on(a[s2][2], 2)' .* Kc[s, s2])
+                 for s in 1:2 for s2 in 1:2]
         E = sum(tr(f) * tr(g) for (f, g) in terms)
-        V = sum(sum(f .* f2) * sum(g .* g2) for (f, g) in terms, (f2, g2) in terms)
+        V = sum(dot(f, f2) * dot(g, g2) for (f, g) in terms, (f2, g2) in terms)
         return (; ν = E^2 / V, E)
     end
-    return (; corner = moments(corner), circular = moments(circular))
+    return (; corner = moments(((1, 1), (1, 2))), circular = moments(((-1, 2), (1, 1))))
 end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is

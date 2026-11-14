@@ -55,7 +55,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
 using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, poisson_slope, value_of, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
-using LinearAlgebra: isposdef, tr   # tr: the residual sums' effective degrees of freedom (foerstner.jl _residual_dof)
+using LinearAlgebra: isposdef, tr, dot   # tr, dot: the residual sums' effective degrees of freedom (foerstner.jl _residual_dof)
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
 using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame

@@ -172,19 +172,21 @@ their light.
    `initial` model of yours) by VisualGeometryToolkitCore's warp, at most 1 px
    apart in radius and in arc.
 2. Each (angle bin, radius) is reduced to its median.
-3. In each angle bin, the largest significant drops in the LOG of the
-   profile's outer envelope (the brightest it gets at or beyond each radius)
-   are the rim's candidates. Where the light ends it does not come back; a
-   scene edge inside the disc is followed by light again. A log drop is a
-   ratio, so it does not depend on the exposure.
-4. The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit through
-   every angle's candidates, scored by the Student-t + uniform marginal at the
-   caller's `outlier_halfwidth`. The scene's own edges are candidates too, and
-   they lose the vote.
+3. In each angle bin, every edge of the profile's outer envelope (the
+   brightest it gets at or beyond each radius) is a rim candidate: a run of
+   drops significant against the angle's noise, placed at its steepest drop in
+   LOG brightness. Where the light ends it does not come back; a scene edge
+   inside the disc is followed by light again. A log drop is a ratio, so it
+   does not depend on the exposure.
+4. The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit on one
+   candidate per angle, scored by the Student-t + uniform marginal at the
+   caller's `outlier_halfwidth`: first each angle's outermost edge, then each
+   angle's edge nearest that model, fitted again. The scene's own edges are
+   candidates too, and they lose the vote.
 
-On a sharp stop the coverage is within half a pixel of the stop. On a soft rim
-(an APS-C lens on a full-frame sensor: a ramp of a couple of hundred pixels) it
-is at the ramp's foot.
+On a sharp stop the coverage is within a pixel of the stop. On a soft rim (an
+APS-C lens on a full-frame sensor: a ramp of a couple of hundred pixels) it is
+at the ramp's foot.
 
 The detection is this package's, and the warp and the bin medians run on
 `device`. The fit and its covariance are VisualGeometryToolkitEstimation's,

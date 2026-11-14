@@ -21,8 +21,9 @@ them.
   Beside it: MSER ([`detect_mser`](@ref)), the Förstner operator
   ([`detect_foerstner`](@ref)) and SFOP's scale selection for circular points
   ([`detect_sfop`](@ref)), on the image's Gaussian scale space
-  ([`gaussian_scale_space`](@ref)) and gradient ([`gaussian_gradient`](@ref)).
-  See [Detection](guide/detection.md) and
+  ([`gaussian_scale_space`](@ref)) and gradient ([`gaussian_gradient`](@ref)),
+  and a lens's image circle measured from photographs
+  ([`detect_image_circle`](@ref)). See [Detection](guide/detection.md) and
   [The Förstner operator](guide/foerstner.md).
 - **Image input.** The grayscale ladders ([`gray_f32`](@ref),
   [`gray_u8`](@ref)), a PNG as linear radiance ([`load_linear_image`](@ref))

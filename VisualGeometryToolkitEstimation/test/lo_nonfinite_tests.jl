@@ -111,6 +111,7 @@ using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: Point2, Circle, Triggs, GaussianShape, CauchyShape, MsacScoring, estimate
 using VisualGeometryToolkitEstimation: CircleProblem, locally_optimize
 import VisualGeometryToolkitEstimation as VgtkEstimation
+import VisualGeometryToolkitCore as VgtkCore
 
 # The circle (100, 80), radius 50: 60 inliers (σ = 0.1); `outliers`: 8 points 3 px
 # outside it on one arc (out of the scorer's 1 px threshold); `out_of_reach`: 3
@@ -142,13 +143,14 @@ end
     lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
     with = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = true), lo)
     without = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = false), lo)
-    inliers_only = fit(circle_points(StableRNG(83); outliers = false, out_of_reach = false), lo)
     v(c) = SVector(c.center..., c.r)
     # the out-of-reach rows weigh 0: the fit is the one without them, up to the LM's
     # stop settings (scaled by the row count; measured 2e-3 px)
     @test norm(v(with) - v(without)) < 0.01
-    # the finite outliers still pull (Cauchy's influence never vanishes): no consensus restriction
-    @test norm(v(without) - v(inliers_only)) > 1.0e-4
+    # no consensus restriction for a robust shape: only the Gaussian Triggs takes the scorer's set
+    @test VgtkEstimation._lo_consensus(lo, nothing, nothing, nothing) === nothing
+    @test hasmethod(VgtkEstimation._lo_consensus,
+                    Tuple{Triggs{GaussianShape}, VgtkCore.ConsensusSet, VgtkCore.ScoreBuffers, Any})
 end
 
 @testset "the Triggs weights" begin

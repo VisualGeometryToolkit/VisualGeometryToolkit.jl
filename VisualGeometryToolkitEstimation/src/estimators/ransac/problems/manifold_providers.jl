@@ -142,7 +142,12 @@ per-datum weights, 0 or 1 (unit weight on every row when neither excludes a
 datum): a datum whose residual at `model` (`buf.residuals` on entry) is not
 finite weighs 0 under every shape — its row would make the LM's cost infinite
 at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
-the scorer's consensus set `cs`.
+the scorer's consensus set `cs`. The weights are fixed at the seed for the whole
+LM (a datum a trial step puts out of reach keeps its weight; that trial's cost is
+non-finite and it is rejected). A zero weight gives a zero row wherever the
+problem's row is finite (Core's Sampson rows give a degenerate element a zero
+row); a row that is itself non-finite in Float64 stays non-finite at weight 0
+(`0·Inf`), as for every chart refit.
 """
 function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     check_fresh(cs, buf)
@@ -153,7 +158,9 @@ end
 
 # The Triggs LO's per-datum weights, 0 or 1 (`_weighs`: a finite seed residual,
 # inside the consensus set when one is given), in the buffer `w`; `nothing` — unit
-# weight on every row, the LM as before — when no datum is excluded.
+# weight on every row, the LM as before — when no datum is excluded. `w` is the
+# LO workspace's `posterior_w` (the posterior iteration's weight buffer, which
+# every posterior seeding rewrites): it holds these weights after a Triggs LO.
 function _triggs_weights!(w::AbstractVector{Float64}, consensus, r::AbstractVector, n::Int)
     consensus === nothing && all(i -> @inbounds(isfinite(r[i])), 1:n) && return nothing
     @inbounds for i in 1:n

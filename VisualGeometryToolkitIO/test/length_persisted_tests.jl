@@ -6,12 +6,13 @@
 # significant digits, hashed as JCS; spec §5: a value built in code and the
 # value loaded from the file written from it hash the same) holds only if a
 # file written from a computed, full-precision length reads back as that
-# length's PERSISTED value (`_persisted`, content_id's length leaf). In 0.10.0
-# the writer wrote the file number that read back nearest the unrounded value,
-# so about one full-precision metre value in eight did not round-trip, and one
-# in ninety (probe 15472: 2 300 of 200 000) read back on the other side of a
-# 15th-digit rounding boundary: the rig, the file written from it and the rig
-# loaded back had two identities.
+# length's PERSISTED value (`_persisted`, content_id's length leaf) when it
+# cannot read back as the length itself. In 0.10.0
+# the writer's last resort, for a value no file number reads back to (about one
+# full-precision metre value in eight in mm), was the nearest file number, and
+# for one in ninety (probe 15472: 2 300 of 200 000) that read back on the other
+# side of a 15th-digit rounding boundary: the rig, the file written from it and
+# the rig loaded back had two identities.
 
 @testitem "lengths: a written length reads back as its persisted value" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
@@ -35,9 +36,11 @@
             repr(VgtkIO.write_length(VgtkIO.read_length(c, u), u)) != repr(c)
         end == 0
     end
-    for u in (mm, cm, μm, m, km)                               # a decimal unit: the persisted value itself
-        @test count(t -> back(t, u) !== VgtkIO._persisted(t), ts) == 0
+    for u in (mm, cm, μm, m, km)
+        # a decimal unit: the value itself whenever a file number reads back to it, else its persisted value
+        @test count(t -> !(back(t, u) === t || back(t, u) === VgtkIO._persisted(t)), ts) == 0
     end
+    @test count(t -> back(t, mm) !== t, ts) > 0                 # the batch holds values no mm number reads back to
 end
 
 @testitem "content_id: a rig of computed lengths, its file and the rig loaded back have one identity" setup = [VGIoFixtures] begin

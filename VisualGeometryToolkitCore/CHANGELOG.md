@@ -63,6 +63,14 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
   per-sample `linear_quantum` q). `is_stationary`'s `ftol` is unchanged: the caller's stated threshold.
 
 
+### Behaviour changes of earlier patches (recorded here; each was released as a patch)
+- **0.10.1:** the single-frame `photon_transfer(mosaic)` throws `NoiseEstimateFailed` when its points need a μ² term
+  (a bright flat field), where 0.10.0 returned an estimate; callers catch the type and fall back.
+- **0.10.2:** `sensor_model` reports `DarkOutOfBand`, where it reported `Matched`, when the entry's Dark does not serve
+  the frame's exposure (a caller matching `ModelReason` exhaustively meets a new value); a low-cost stop short of
+  stationarity is `Stalled` where it was a `Success`; and a restart at an exact fit was `Stalled` (0.10.4 makes it a
+  `Success` again, above).
+
 ## 0.10.3
 
 A patch, additive: darks at several exposures in one characterisation entry, the defect mask and a linear view's

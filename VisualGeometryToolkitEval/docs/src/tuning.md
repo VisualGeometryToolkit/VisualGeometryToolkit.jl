@@ -110,7 +110,7 @@ window-matched grid.
 | `listed` | `ListedGrid` | `values` |
 
 `grid(spec)` rebuilds the realized grid: one range over the base window's
-step continued `n_lo` products below `lo` and `n_hi` above `hi` (a log step is a
+step continued `n_lo` grid points below `lo` and `n_hi` above `hi` (a log step is a
 ratio). `extend(spec, sides; npts) -> (spec′, n_lo)` is the one extension:
 every point of `grid(spec)` reappears, to rounding, at index `+ n_lo`, so
 computed values stay valid by index. `extension_offset(base, sup)` compares specs, never realized values:
@@ -244,7 +244,7 @@ test = { type = "exhaustive" }
 ### `joint_coarse_fine`: `JointCoarseFine` (Evaluation `coarse_fine_search`)
 
 The coarse-to-fine search over the product of named axes. It runs in four
-products:
+phases:
 
 1. the coarse product grid, every cell scored;
 2. while the joint argmin lies within `edge_margin` points of a face, that

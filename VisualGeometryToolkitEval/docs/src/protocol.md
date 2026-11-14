@@ -101,7 +101,7 @@ hold. `d_g` has no default anywhere, and every tuning artifact persists it as
 
 Every hyperparameter is cross-validated by one discipline, the coarse-to-fine
 search ([`coarse_fine_search`](@ref), with a `[tuning.<name>]` spec of scheme
-`joint_coarse_fine`, or `coarse_fine` for one scalar). It runs in three products:
+`joint_coarse_fine`, or `coarse_fine` for one scalar). It runs in three phases:
 
 1. It evaluates a coarse product grid. Whenever the joint argmin lies within
    `edge_margin` points of a face, the grid extends that axis.

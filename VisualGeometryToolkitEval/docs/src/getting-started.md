@@ -97,7 +97,7 @@ readers of tuned values refuse it:
 result[:boundary_hit]
 ```
 
-## Next products
+## Where to go next
 
 - [The experimental protocol](@ref) states how the stack's papers tune,
   evaluate and report.

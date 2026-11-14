@@ -361,7 +361,8 @@ config_of_record(name::AbstractString; root::AbstractString = project_root()) =
     load_run_config(joinpath(root, "configs", name * ".toml"))
 
 """
-    write_run_records(outdir, cfg; driver, config_source, key, inputs = String[], producer = false, fields = Dict())
+    write_run_records(outdir, cfg; driver, config_source, key, inputs = String[], producer = false, fields = Dict(),
+                      gitpath = project_root())
 
 Write the run's `_config.toml` (the effective config, its tuning specs
 resolved to their complete tables) and its provenance record
@@ -370,13 +371,13 @@ relative to their roots, and DrWatson's git record). `producer = true` is a
 pool generator's declaration that `outdir` is a NEW tree under the data root.
 `fields` is a further payload of the record (a replay's own counts, a detection
 CV's folds): written beside `config_source` and `run_key`, which it may not
-name.
+name. `gitpath` is the repository whose code the provenance records (DrWatson's `tag!` and the code trees).
 """
 function write_run_records(outdir::AbstractString, cfg::AbstractDict;
                            driver::AbstractString, config_source::AbstractString,
                            key::AbstractString,
                            inputs::Vector{String} = String[], producer::Bool = false,
-                           fields::AbstractDict = Dict{String,Any}())
+                           fields::AbstractDict = Dict{String,Any}(), gitpath::AbstractString = project_root())
     clash = intersect(String.(collect(keys(fields))), ("config_source", "run_key"))
     isempty(clash) || throw(ArgumentError("write_run_records: field(s) $(sort(clash)) are the records' own"))
     assert_not_input(outdir; producer)
@@ -388,6 +389,6 @@ function write_run_records(outdir::AbstractString, cfg::AbstractDict;
     end
     write_provenance(outdir, merge(Dict{String,Any}(String(k) => v for (k, v) in fields),
                                    Dict{String,Any}("config_source" => abspath(config_source), "run_key" => key));
-                     driver, inputs, producer)
+                     driver, inputs, producer, gitpath)
     return outdir
 end

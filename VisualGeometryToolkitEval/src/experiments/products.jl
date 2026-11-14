@@ -153,7 +153,8 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
     end
     reuse && return dir
     isfile(product_output(s)) || error("$(s.experiment)/$(s.name): $(product_output(s)) was not saved (the error is printed above)")
-    write_run_records(dir, s.record; driver, config_source, key = s.key, inputs = String[String.(inputs); read], producer, fields)
+    write_run_records(dir, s.record; driver, config_source, key = s.key, inputs = String[String.(inputs); read], producer, fields,
+                      gitpath)
     return dir
 end
 

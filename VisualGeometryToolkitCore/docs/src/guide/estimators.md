@@ -237,15 +237,19 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   their Jacobian and per-point norms. The lifts and their continuation
   schedules are LocalOptimizationDoneRight's.
 - **The one LM** (`lmsolve_chart!`, `LmStops`; `static_lm`, `StaticLmStops`) — the
-  stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) through ONE
+  stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping by default, `LevenbergDamping` opt-in) through ONE
   adapter, `lmsolve_chart!`, on a linearization state's `residual_rows!` /
   `residual_jacobian_rows!` (a `ManifoldLmWorkspace` keeps the problem and the
   solver's internal data), the same robustified per datum, or a multi-block
   `LmProblem` (the bundles: heterogeneous variables and residual blocks, each with
   its own robustifier). Its stop settings have ONE owner, `LmStops`
-  (configs/default.toml `[lm]`), and every solve ONE success rule: the
+  (configs/default.toml `[lm]`); an `LmProblem`'s damping is the problem's own
+  (its kept cache is built for it: the default stops take it, explicit stops of
+  another damping are refused). Every solve has ONE success rule: the
   stationarity postcondition at the returned point (`is_stationary`), at every
-  stop that is not a failure or a cap. A kernel's fixed-N solve is the one device
+  stop that is not a failure or a cap, a cost below the final point's rounding
+  ((16ε)²·Σᵢ sᵢ² over the residuals' operand scales, floored by the data's
+  `residual_resolution`²) an exact fit. A kernel's fixed-N solve is the one device
   LM, `static_lm`, under `StaticLmStops` and the same rule. No package calls
   NLLSsolver's solver API directly: `check_duplication` fails it. The Schur
   complement (NLLSsolver pull request #60, still

@@ -15,6 +15,9 @@ A patch, additive, on VisualGeometryToolkitCore 0.10.
   upsampled first octave), level for level what `asift_detect` builds for the untilted warp. ASIFT now holds its
   levels in one (`AsiftPlan.space`, replacing the fields `gauss`, `dims`, `pyr_taps`, `pyr_r`, `nb_octaves`,
   `nb_scales`, `o_first`, `seed_sigma`); its detections are unchanged, bit for bit (pinned by a test).
+- **`AsiftPlan`'s type parameters and fields** (`AsiftPlan{D, A2, A3, A4, AI, AU, AU8, GT, KN, SP}`, was `{D, A1, A2,
+  …, KN}`: the blur taps' `A1` is gone, the scale space's `SP` is new; the 8 fields above are now `plan.space`): not
+  breaking: the moved fields were never documented API; owner ruling 2026-11-14.
 - **New: `detect_sfop(img; noise_sigma, significance_level, precision_threshold, …)`**, exported: SFOP scale selection
   (Förstner, Dickscheid & Schindler 2009) for circular points (α = 90°) on that scale space — the precision
   `(N(σ) − 2)·λ₂/Ω` per level, its 3-D maxima (ASIFT's extraction), the λ₂ significance test derived from the image

@@ -265,8 +265,8 @@ photographs the windows between dots, on line artefacts and on letter strokes
 (`F` ≈ 1–3) were labelled circular at the pixel count; with `ν` they are
 unknown. The a-posteriori covariance keeps the reference's `Ω/redundancy · N⁻¹`.
 
-The image-wide search's default window (ρ = 6, `integration_sigma` 1.41) has
-`ν` ≈ 12, so a corner at 0.999 needs `F` < 0.143: a sharp, noise-free
+At ρ = 6 (the first row; also the image-wide search's default window,
+`integration_sigma` 1.41) a corner at 0.999 needs `F` < 0.143: a sharp, noise-free
 checkerboard X-junction (`F` ≈ 0.16) is unknown there, a corner at 0.99
 (`F` < 0.253). An unknown row keeps its window centre and a NaN covariance.
 

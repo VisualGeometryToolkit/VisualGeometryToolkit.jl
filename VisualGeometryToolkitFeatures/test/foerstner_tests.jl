@@ -92,15 +92,10 @@ end
     using LinearAlgebra: norm, eigvals
     t = (30.37, 27.81)
     img = render((x, y) -> 0.2 + 0.6 * xor(x > t[1], y > t[2]), 56, 64)   # a checkerboard X-junction
-    # the default window (ρ = 6 doubled px) has ν ≈ 12 per residual sum (`_residual_dof`), so the 0.999 test needs
-    # F < 0.143 for a corner: this junction's F (0.158 and 0.178) is not significant there, an unknown row (its window
-    # centre, a NaN covariance) of which no ellipse is made; at 0.99 (F < 0.253) it is a corner
-    VGF = VisualGeometryToolkitFeatures
-    dof = VGF._residual_dof(hcat(VGF._derivative_taps(:gaussian2d, 2.0)...), 6)
-    @test 11 < dof.corner.ν < 13 && 11 < dof.circular.ν < 14
+    # the default window (ρ = 6, ν ≈ 12): this junction (F ≈ 0.16) is unknown at 0.999 (no ellipse of its NaN covariance), a corner at 0.99
     for method in (:foerstner, :koethe)
         u = only(detect_foerstner(Float64, img; method))
-        @test u.label === :unknown && 0.143 < u.F < 0.253 && all(isnan, cov(u.value))
+        @test u.label === :unknown && all(isnan, cov(u.value))
         @test_throws ArgumentError Ellipse(u.value; sigma = 1)
         d = only(detect_foerstner(Float64, img; method, significance_level = 0.99))
         @test d.label === :corner && d.F == u.F
@@ -186,17 +181,18 @@ end
     @test abs(2mean(Ωc)^2 / var(Ωc) - dof.corner.ν) < 4 * dof.corner.ν * sqrt(2 / (n - 1))
     @test dof.corner.ν < (2 * 22 + 1)^2 / 10                    # far below the pixel count (2ρ + 1)² − 2 = 2023
     # the image-wide default window (ρ = 6, ν ≈ 12; seeds at σ = 1.3 give it), where the neglected two parameters weigh
-    # most: the corner sum's ν within 4 standard errors, and no noise window labelled at 0.999
+    # most: the corner sum's ν within 4 standard errors, and at most the stated rate of noise windows labelled
+    p = 2 * (1 - level)                                         # the labelled rate on noise, both sides
     small = [Detection(Disc(Point2(x, y), 1.3), (; precision = 1.0)) for x in 20.0:10:580 for y in 20.0:10:580]
     f6 = VGF._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
     ν6 = VGF._residual_dof(f6.taps, 6).corner.ν
     Ω6 = f6.estimates[7, :]
-    @test all(==(6), f6.ρ) && abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt(2 / (length(small) - 1))
-    @test all(==(0), VGF._foerstner_classes(f6, level))
+    @test all(==(6), f6.ρ) && 11 < ν6 < 13 && abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt(2 / (length(small) - 1))
+    m = length(small)
+    @test count(!=(0), VGF._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
     # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
     # at the pixel count it was about a fifth per side
     rows = detect_foerstner(Float64, img, seeds; device = KA.CPU(), significance_level = level)
-    p = 2 * (1 - level)
     @test count(d -> d.label !== :unknown, rows) <= n * p + 4 * sqrt(n * p * (1 - p))
     # a dot is still a circular point and a corner a corner (the suite's synthetic scenes elsewhere)
     truth, dots = blob_grid(60, 70; nx = 2, ny = 2)

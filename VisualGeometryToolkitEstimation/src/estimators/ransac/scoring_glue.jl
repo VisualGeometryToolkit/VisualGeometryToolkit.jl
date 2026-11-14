@@ -175,7 +175,7 @@ function update_nuisance!(lh::PosteriorLikelihood)
     return lh
 end
 # The E-step is VisualGeometryToolkitCore's: a datum whose squared residual is not finite
-# (Inf or NaN) gets robust weight and inlier posterior 0 there (`_posterior_pair`, Core 0.10.6).
+# (Inf or NaN) gets robust weight and inlier posterior 0 there (`_posterior_pair`).
 update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
 

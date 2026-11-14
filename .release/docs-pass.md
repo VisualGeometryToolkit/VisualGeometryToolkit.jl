@@ -1,3 +1,67 @@
+docs-pass: e20a176e
+
+# VisualGeometryToolkitEstimation 0.11.2 docs pass (julia-docs-pass) — branch patch-est0112
+
+Baseline: GitHub main aaf389a5 (Core 0.10.4 records; Estimation 0.11.1 as registered). e20a176e is patch-est0112: the
+red tests (4160619d), the fix (7002873d), version and docs (9e2161cb), the /simplify (5d43e2ef) and /code-review
+(e20a176e) fixes. The bug (RadiometricCamera's board-space index): `Irls{GaussianShape}` weighed every datum 1, so one
+non-finite residual made Σwᵢrᵢ² infinite at the seed and every refit and the local optimization returned its seed.
+
+## 1. Public API since 0.11.1
+
+- **Added:** `LossPlainWeights(rws, n, loss, consensus)` (a fourth field, `consensus::Union{Nothing, BitVector}`; the
+  3-argument form is `consensus = nothing`). Exports: unchanged. Removed: nothing.
+- **Behaviour:** a datum whose squared residual is not finite weighs 0 in `LossPlainWeights`, in `PosteriorLikelihood`'s
+  E-step and in the LO's posterior seeding (`consensus_posterior`), and is no inlier (`is_inlier`);
+  `Irls{GaussianShape}` refits the scorer's consensus set only (`consensus_mask!`). Robust shapes: only a NaN residual
+  changes (its weight was NaN).
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` item green (gate CPU group 2, depwarn=yes group 12); `LossPlainWeights`'s two forms in its docstring |
+| `checkdocs = :public`, doctests, cross-references | Estimation docs 17190: strict build green |
+| README and landing page | unchanged: nothing they show moved (no Gaussian LO example) |
+| guides | ransac.md, Strategy `Irls{K}`: the two weight rules (a non-finite residual weighs 0; the Gaussian shape refits the consensus set) |
+| docstrings | `LossPlainWeights` (both rules, the 4-argument form), `locally_optimize!(::Irls)` (both rules), `posterior_irls!` (the non-finite rule as it holds), `consensus_posterior`; `configs/default.toml` `[pipelines.bearing_pose]` comment |
+| check_naming | 0 in the prep (17186) |
+| CHANGELOG | Estimation `## 0.11.2`: Fixed (the non-finite rule; the Gaussian consensus rule; bearing_pose unchanged at its default scorer); the 0.11.1 heading's "(unreleased)" dropped (registered) |
+| version | Estimation 0.11.2; Core compat unchanged ("0.10.0", the registered 0.11.1's) |
+
+Review (/simplify, /code-review high) findings recorded, not fixed (Core's, routed to Core 0.10.5, or outside this
+patch): the root of the non-finite rule is Core's mixture kernel (`_posterior_pair` gives NaN for a NaN residual), so
+the `fit_*` seeds built outside `consensus_posterior` (`median_seeded_posterior`, `fit_residual_mixture`'s seed) and a
+residual that turns NaN between an E-step and the scale update still read it; Core's `Irls{GaussianShape}` docstring
+("plain least squares over all points") is now the consensus set's; `Triggs{GaussianShape}` (Estimation's chart LM over
+every datum, as Core's docstring states) keeps outliers and non-finite rows — a separate decision; the extra O(n)
+pass after each posterior E-step (fused into Core's kernel with the root fix); the seed zeroing that the frozen
+policies overwrite; the second (identical) refit `StopWhenNoImprovement(1, 2)` runs under fixed Gaussian weights.
+
+## 3. Executed on e20a176e
+
+Julia 1.13.3, fresh clones, nice 0, the per-agent depot (General a GitHub clone, `JULIA_PKG_SERVER=""`):
+
+| gate | job | result |
+|---|---|---|
+| prep | 17186 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 |
+| CPU (--depwarn=error) | 17187 | groups 1–10 green: 8,874 pass, 2 broken, 8,876 total |
+| CPU (--depwarn=yes) | 17188 | groups 11–20 green: 8,874 pass, 2 broken, 8,876 total |
+| GPU | 17189 | group 21 green: 66 pass |
+| docs | 17190 | green |
+
+Red → green: 17124 (4160619d, the tests on 0.11.1's code: 6 failed, 1 errored — the Gaussian LO threw on the
+out-of-reach points and fitted the outliers 0.0486 off; NaN weights) → 17127 (7002873d, 409 pass) → 17172
+(e20a176e, 365 pass, 2 broken).
+
+"Nothing else moved" (instrumented scratch clones, every posterior-IRLS LO call logged; the suite and the LO timing
+bench): old aaf389a5 (17128/17129, again 17165/17166) vs new e20a176e (17191/17192). 8,194 calls identical
+(TLS 7,510, Welsch 540, GM 144); the GM/Welsch bench call set identical, bytes per call identical. The only new
+outcomes are lo_nonfinite's own 3 calls. A TLS group (test group 9: currency_migration, fit_linear, line_fitting,
+pool, ransac_homography, refine_robot_world_hand_eye, triggs) is not run-to-run deterministic on the baseline itself
+(old vs old: 61 unmatched calls); old vs new there: 53 and 34, none with a non-finite seed or a Gaussian shape.
+Outside the LO, no weight refresh met a non-finite residual in the old suite.
+
 docs-pass: eb5efb43
 
 # VisualGeometryToolkitCore 0.10.4 docs pass (julia-docs-pass) — branch patch-core0104

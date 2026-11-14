@@ -57,7 +57,8 @@ SFOP's λ₂ test, and the detectors on a RAW mosaic at the raw resolution (the 
   assigned, 0 mislabels; every RC-registered dot of DSC06825 (166 with a saturated photosite near the core) and
   DSC06837 found again; per set, assigned dots (dustbin): fisheye_10cm_ag 41 943 (1 433) → 44 284 (5 553),
   fisheye_2710_si 26 457 (2 608; 21 photographs refused) → 33 283 (4 817; none refused), tamron_17cm_si 32 368 (691) →
-  32 368 (1 416), tamron_20261108_ag 40 187 (107) → 40 999 (6 816); no mislabel refusal in either. The dustbin (detections
+  32 368 (1 416), tamron_20261108_ag 40 187 (107) → 40 999 (6 816), tamron_largeaperture 54 908 (778) →
+  54 910 (1 459), 14mm_central30cm 39 993 (263) → 40 744 (3 692); no mislabel refusal in either. The dustbin (detections
   left unassigned, the consumer's to drop) grows with the raw grid's finer windows.
 - **Investigated, not changed:** the three dim top-rim dots on DSC06962 with no SFOP candidate are not dropped by the
   significance test or the NMS: no candidate exists before the NMS. The squashed rim dots (≈ 4 × 1.5 cells) have a

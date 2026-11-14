@@ -54,10 +54,11 @@ module Experiments
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using VisualGeometryToolkitCore: SensorModel, component_sources   # a run record's sensor provenance (provenance.jl)
 import VisualGeometryToolkitIO as VgtkIO   # a product's record saved and loaded (products.jl)
+using SHA: sha256   # a product's outputs hashed (products.jl)
 using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
-import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tree_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
+import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        contract_violations,

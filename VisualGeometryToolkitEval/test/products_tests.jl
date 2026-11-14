@@ -61,11 +61,12 @@
             @test refine(a, 24).key != refine(a, 50).key && start([35, 25]).key == a.key
             # a start change: the refinement re-keys with it
             @test refine(start([36, 25]), 24).key != refine(a, 24).key
-            # an upstream given by its key is the same fold
+            # an upstream given by its key is the same fold while it is not produced (a bare key folds no output hash)
             @test E.Product("calibrate", "refine", Dict("lm" => Dict("max_iter" => 24)); output = "r.json", upstream = ("start" => a.key,)).key == refine(a, 24).key
             @test_throws ArgumentError E.Product("calibrate", "re/fine", Dict(); output = "r.json")
             @test_throws ArgumentError E.Product("../x", "refine", Dict(); output = "r.json")
             @test_throws ArgumentError E.Product("x", "refine", Dict(); output = "../r.json")
+            @test_throws ArgumentError E.Product("x", "refine", Dict(); output = ".")      # never the product's whole directory
             @test E.product_dir(E.Product("ETH/sift/H/fig4", "cv", Dict(); output = "r.json")) ==
                   joinpath(E.results_root(), "ETH", "sift", "H", "fig4", "cv", E.run_key(Dict(); code = E.current_code_trees(E.project_root())))   # a deeper layout
         end
@@ -158,6 +159,10 @@
             @test n[] == 2
             E.produce(samples("1\n5\n"), up; args..., force = true)                    # produced again, the same output
             @test fit().key == f2.key && E.produced(fit())
+            # a consumer built BEFORE its upstream is produced again: `produced` checks the upstream's outputs as it read them
+            f3 = fit()
+            E.produce(samples("9\n9\n"), up; args..., force = true)
+            @test !E.produced(f3)
         end
         E.set_project_root!("")
     end
@@ -184,6 +189,11 @@
             t = E.Product("x", "cv", Dict("k" => 2); output = "r.jld2")
             E.produce(d -> dy, t; args...)
             @test E.load_output(Dict{Symbol, Int}, t) == dy
+            # a concrete Dict reads back as the Dict{String, Any} a cached_result caller expects
+            dv = Dict("err" => [0.1, 0.2])
+            u = E.Product("x", "cv", Dict("k" => 3); output = "r.jld2")
+            E.produce(d -> dv, u; args...)
+            @test E.load_output(Dict{String, Any}, u) == Dict{String, Any}("err" => [0.1, 0.2])
         end
         E.set_project_root!("")
     end

@@ -225,6 +225,7 @@ end
 @testitem "detect_sfop and detect_foerstner on a RawMosaic: the keywords, the sensor model, the image-wide search refused" setup = [NoisyMosaic, BayerDots] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitCore: SensorModel, sensor_fixture
+    import VisualGeometryToolkitCore
     using Statistics: cov
     using Random: Xoshiro
     centres = dot_centres(3)
@@ -247,6 +248,9 @@ end
     @test_throws ArgumentError detect_foerstner(m; sensor_model = model)
     @test_throws ArgumentError detect_foerstner(Float64, m; sensor_model = model)
     @test_throws ArgumentError detect_foerstner(m, seeds; sensor_model = model, device = KA.CPU(), integration_sigma = 2.0)
+    # a cell whose greens share a row is no quincunx: refused (the cross, the blur and the F-test assume one)
+    rows_green = VisualGeometryToolkitCore.RawMosaic(parent(m), UInt8[1 3; 0 2], m.black, m.white, (0, 0), size(m), (;))
+    @test_throws ArgumentError detect_sfop(rows_green; device = KA.CPU())
 end
 
 # GPU: the same rows as the CPU, within Float32 rounding. Runs only with a functional CUDA device.

@@ -32,7 +32,7 @@
 # =============================================================================
 
 using KernelAbstractions: @kernel, @index, @Const
-using VisualGeometryToolkitCore: photosite_colors, saturationview, defect_mask, value_variance, Adapt
+using VisualGeometryToolkitCore: photosite_colors, saturationview, defect_mask, value_variance, bayer_channels, Adapt
 
 # The bilinear green image's blur, raw pixels (per axis, by its second moment): the photosite's box integration,
 # variance 1/12, plus the interpolation's — a green site is its own value (variance 0), a red or blue site the mean of
@@ -106,9 +106,20 @@ end
     end
 end
 
+# The image's derivations (the cross, its 1/√3 blur, the 2σ² density, the F-test's checkerboard) hold on a 2×2 Bayer
+# pattern only, its two greens on a diagonal (the quincunx): Core's `bayer_channels` refuses any other pattern, and a cell
+# whose greens share a row or a column is refused here.
+function _check_quincunx(m::RawMosaic)
+    g = findall(c -> c in (:G1, :G2), bayer_channels(m))   # cell sites, column-major: (0,0), (1,0), (0,1), (1,1)
+    g in ([1, 4], [2, 3]) || throw(ArgumentError(
+        "the bilinear green image needs the greens of each 2×2 cell on a diagonal (a Bayer quincunx), got the cell $(bayer_channels(m))"))
+    return nothing
+end
+
 # The bilinear green image of `m` on `device`, values in `T`, under the frame's `model`: `(; value, support, density,
 # photosite, saturated)` (H × W device arrays, `_bilinear_green!`'s planes).
 function _bilinear_green(::Type{T}, device, m::RawMosaic, model::SensorModel) where {T}
+    _check_quincunx(m)
     md = Adapt.adapt(device, m)                             # Core's device form of a mosaic: its photosites moved, the rest kept
     H, W = size(md)
     value = KA.allocate(device, T, H, W)

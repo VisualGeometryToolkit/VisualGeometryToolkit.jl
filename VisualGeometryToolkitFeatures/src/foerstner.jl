@@ -582,8 +582,13 @@ end
 # the one pair (I, I) (`_WhiteNoise`); the bilinear green image's photosite noise four (`_BilinearGreenStructure`), at
 # each lattice phase, the smaller ν kept (the conservative test).
 function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise = _WhiteNoise())
+    d = [_residual_dof(taps, ρ, noise, c, ε) for c in _noise_centres(noise) for ε in _noise_phases(noise)]
+    return (; corner = argmin(c -> c.ν, getproperty.(d, :corner)), circular = argmin(c -> c.ν, getproperty.(d, :circular)))
+end
+# One window centre (`c` shifts it by a doubled pixel: on an input pixel or between two) and one lattice phase ε.
+function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise, c::Integer, ε)
     r = size(taps, 1) ÷ 2
-    n = ρ + r + 4 + _noise_reach(noise)                     # input pixels: the window, the taps' and the noise's reach, interior
+    n = ρ + r + 4 + _noise_reach(noise) + c                 # input pixels: the window, the taps' and the noise's reach, interior
     span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
     x = Float64.(collect(span) .- n)                        # e along that axis
     function bands(B)                                       # Dₛ[q, i], the weight of input q at span[i]
@@ -610,28 +615,27 @@ function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise = _WhiteNoise())
         V = sum((F' * F) .* (G' * G))
         return (; ν = E^2 / V, E)
     end
-    d = map(_noise_phases(noise)) do ε
-        pairs = _noise_factors(noise, n, ε)
-        Kr, Kc, J = grams(Dr, first.(pairs)), grams(Dc, last.(pairs)), eachindex(pairs)
-        (; corner = moments(((1, 1), (1, 2)), Kr, Kc, J), circular = moments(((-1, 2), (1, 1)), Kr, Kc, J))
-    end
-    return (; corner = argmin(c -> c.ν, getproperty.(d, :corner)), circular = argmin(c -> c.ν, getproperty.(d, :circular)))
+    pairs = _noise_factors(noise, n, ε)
+    Kr, Kc, J = grams(Dr, first.(pairs)), grams(Dc, last.(pairs)), eachindex(pairs)
+    return (; corner = moments(((1, 1), (1, 2)), Kr, Kc, J), circular = moments(((-1, 2), (1, 1)), Kr, Kc, J))
 end
 
 # White input noise: one pair, the identity along both axes, one phase.
 struct _WhiteNoise end
 _noise_reach(::_WhiteNoise) = 0
 _noise_phases(::_WhiteNoise) = (1,)
+_noise_centres(::_WhiteNoise) = (0,)                       # the doubling's centre parity changes ν by < 1e-5 under white noise
 _noise_factors(::_WhiteNoise, n, ε) = [(I, I)]
 
 # The bilinear green image's noise (raw_green.jl) from white photosite noise n (unit variance; masked to the green
 # sites): `Ī = M_g n + M_rb X M_g n`, M_g = ½(1⊗1 + ε P⊗P) the green sites (P = diag((−1)^i), ε = ±1 the lattice's
 # phase), M_rb = 1 − M_g, X = ¼(S⊗1 + 1⊗S) the cross's neighbours (S the ±1 shift); with PSP = −S and SP = −PS it is
 # `(½ + ⅛S)⊗1 + ε(½P + ⅛SP)⊗P + 1⊗⅛S + εP⊗⅛SP`: four pairs, reach 1. Both phases (a window centred on a green or on a
-# red or blue site), the smaller ν kept.
+# red or blue site) at both doubled centre parities (on an input pixel or between two), the smallest ν kept.
 struct _BilinearGreenStructure end
 _noise_reach(::_BilinearGreenStructure) = 1
 _noise_phases(::_BilinearGreenStructure) = (1, -1)
+_noise_centres(::_BilinearGreenStructure) = (0, 1)         # the checkerboard makes ν depend on the centre's parity too
 function _noise_factors(::_BilinearGreenStructure, n, ε)
     P = Diagonal([(-1.0)^i for i in 1:n])
     S = diagm(1 => ones(n - 1), -1 => ones(n - 1))

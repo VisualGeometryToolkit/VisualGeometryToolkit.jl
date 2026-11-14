@@ -768,9 +768,7 @@ end
 # variance; each computed in Float64 and rounded once, to T and to the variance plane's `_variance_eltype(T)`.
 @inline _with_variance(::Type{T}, ::Nothing, x, k, span, i, j, origin) where {T} = T(x)
 @inline _with_variance(::Type{T}, law::_VarianceLaw, x, k, span, i, j, origin) where {T} =
-    Uncertain(T(x), _value_covariance(_variance_eltype(T),
-                                      _value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin) +
-                                      _storage_variance(T, x)))
+    Uncertain(T(x), _value_covariance(_variance_eltype(T), _law_variance(law, i, j, x, span, origin) + _storage_variance(T, x)))
 """
     value_variance(v::LinearRawView, i::Integer, j::Integer, x::Real) -> Float64
 

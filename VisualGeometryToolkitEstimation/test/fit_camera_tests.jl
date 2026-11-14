@@ -750,3 +750,34 @@ end
     # a parametric camera has no forward spline to fit
     @test_throws ArgumentError fit_forward_spline(BoundedCamera(kb, Size2(1280, 960)); tolerance = 1.0e-3)
 end
+
+# 0.11.6: the held-out direction error is the ANGLE to the source's ray, f·angle in pixels — never a pixel mapping
+# through the source's back-projection Jacobian, whose pseudo-inverse blows up where the source's ray field degenerates
+# (a Schöps source's domain edge reported 10⁵ px for a 17 px angle). The source here is GRID with its three left
+# control columns set to the fourth: its rays stop varying along x at the left edge, so ∂d/∂u is singular there.
+@testitem "fit_camera(SplineLens): the held-out error is the direct angle, also where the source's Jacobian degenerates" setup = [FitCameraFisheye] begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    using LinearAlgebra: normalize, dot, norm, cross, svdvals
+    using VisualGeometryToolkitCore: estimate, metadata, SplineLens, BoundedCamera, Size2, backproject, backproject_with_jacobian,
+        calibration_matrix, lens, rotation, with_directions
+    using VisualGeometryToolkitEstimation: fit_camera
+    C = copy(lens(GRID).backward.controls)
+    for c in 1:3
+        C[:, c] .= C[:, 4]
+    end
+    src = BoundedCamera(with_directions(GRID, C), Size2(1000, 1000))
+    # the degeneracy: the source's Jacobian has a (near) zero singular value at the left edge of the region
+    _, J = backproject_with_jacobian(src, SVector(30.0, 500.0))
+    @test minimum(svdvals(Matrix(J))) < 1.0e-3 * maximum(svdvals(Matrix(J)))
+    r = fit_camera(SplineLens, src, REGION; tolerance = 1.0e-3, grid_size = (30, 30), forward = false)
+    md = metadata(r); cam = estimate(r); R = SMatrix{3, 3, Float64}(rotation(md.rotation))
+    f = calibration_matrix(GRID)[1, 1]
+    angle(a, b) = atan(norm(cross(a, b)), dot(a, b))
+    direct = [f * angle(SVector{3, Float64}(backproject(cam, p)), R * normalize(SVector{3, Float64}(backproject(src, p))))
+              for p in (SVector(x, y) for x in 1.0:4.0:999.0, y in 1.0:4.0:999.0) if p ∈ REGION]
+    filter!(isfinite, direct)
+    # the reported maximum is the direct error's (at the held-out pixels, a subset of the region): never a Jacobian blow-up
+    @test md.max_px <= 1.5 * maximum(direct) + 1.0e-9
+    @test md.max_px >= 0.1 * maximum(direct)
+end

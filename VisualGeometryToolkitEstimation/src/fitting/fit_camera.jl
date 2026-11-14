@@ -107,9 +107,9 @@ The family records:
   `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
   `forward` is `nothing` with `forward = false`. The result's errors
   (`residuals`, `max_px`, `max_px_edge`, `rms`) are the backward's held-out direction error,
-  as the non-central target's (below), over the held-out pixels where the
-  source's back-projection Jacobian is finite — `n_held_out_dropped` counts the
-  others;
+  as the non-central target's (below): the angle to the source's ray, `f·angle` in
+  pixels, over the held-out pixels where the source images a ray
+  (`n_held_out_dropped` is 0: no pixel is dropped from them since 0.11.6);
 - `NoncentralSplineModel`: `(; λ, grid_size, stride, tolerance,
   outer_iterations, center, max_offset, rms_offset, max_offset_edge,
   n_held_out_dropped)` —
@@ -117,8 +117,8 @@ The family records:
   least-squares point nearest to the source's quadrature lines, in the
   source's frame, plain metres as the model's points), and the held-out line
   offset `‖(I − ddᵀ)(o_fit − o_src)‖` (plain metres); the pixel errors are the
-  held-out DIRECTION error, mapped to pixels through the source's
-  back-projection Jacobian.
+  held-out DIRECTION error, the angle to the source's ray scaled by the lattice
+  K's focal length (`f·angle`).
 """
 struct CameraFitMetadata{R, F <: NamedTuple}
     region::R
@@ -270,10 +270,9 @@ over the region. The target type selects the family and the solve:
   bounded for rays at and past 90°, where a plane anchor (the pupil plane) runs
   off. The points are in the source's frame (frame in = frame out; plain
   metres, the model's unit), c* in the metadata; a central source's are all
-  c*. The tolerance bounds the held-out DIRECTION error in pixels: the
-  direction's deviation mapped through the source's back-projection Jacobian
-  (the round trip through the source to first order); the line offset is
-  reported beside it, in metres.
+  c*. The tolerance bounds the held-out DIRECTION error in pixels: the angle
+  to the source's ray scaled by the lattice K's focal length (`f·angle`, where
+  the source images a ray); the line offset is reported beside it, in metres.
 
 The spline targets' `source` is a [`BoundedCamera`](@extref
 VisualGeometryToolkitCore.Cameras.BoundedCamera) — the lattice is laid over its
@@ -1197,42 +1196,42 @@ _fitted_direction(cam::CameraModel, x) = cam.lens.backward(x)
 _fitted_direction(m::NoncentralSplineModel, x) = m.directions(x)
 
 # The held-out DIRECTION error of a fitted lattice (either target) in pixels: at
-# each held-out pixel the fitted direction's tangent deviation from the source's
-# unit direction `d`, mapped back through the source's back-projection Jacobian
-# `J = ∂d/∂u` (its `backproject_with_jacobian`), `‖J⁺δ‖` — the round trip
-# through the source to first order. Evaluated directly through the fitted
-# spline at x = K⁻¹u (continued past the calibrated area as the fit's design
-# is): no projection, no seed, so no solver tolerance floors it.
+# each held-out pixel the ANGLE between the fitted direction and the source's
+# unit direction `d`, scaled to pixels by the lattice K's focal length (`f·angle`,
+# `_focal_px`). Evaluated directly through the fitted spline at x = K⁻¹u
+# (continued past the calibrated area as the fit's design is): no projection, no
+# seed, so no solver tolerance floors it; and no pixel mapping through the
+# source's back-projection Jacobian, whose pseudo-inverse blows up where the
+# source's ray field degenerates (near a Schöps source's domain edge it reported
+# 10⁵ px for a 17 px angle).
 #
-# Everything of the check but the fitted spline is the source's and is
-# computed ONCE per fit (`_held_out`), not per spacing: the source's
-# back-projection Jacobian at each held-out pixel and its pseudo-inverse
-# `J⁺ = (JᵀJ)⁻¹Jᵀ` (2 × 3), the unit directions, the normalized points and the
-# one mask of the pixels kept. A held-out pixel where the source's Jacobian is
-# not finite (a source that images the ray but cannot differentiate there) has
-# no pixel error: it is dropped from every held-out error — the direction's and
-# the line offset's — as a non-finite sample is from the quadrature, and
-# counted (`n_dropped`). Each spacing then evaluates the fitted direction and
-# one 2 × 3 product per kept pixel (`pointwise!`).
+# Everything of the check but the fitted spline is the source's and is computed
+# ONCE per fit (`_held_out`), not per spacing: the unit directions at the held-out
+# pixels (only where the source images a finite ray: the quadrature drops the
+# others), their normalized points and the edge band. Each spacing then
+# evaluates the fitted direction per held-out pixel (`pointwise!`).
 function _held_out(source, q, K, directions, origins, device)
-    J = map(last, backproject_with_jacobian(source, q.held_px; device))   # Core's batched form on `device`
-    kept = map(j -> all(isfinite, j), J)
-    any(kept) || throw(ArgumentError("fit_camera: the source's back-projection Jacobian is not finite at any held-out pixel"))
-    pinv = map(j -> SMatrix{2, 3, Float64}((transpose(j) * j) \ transpose(j)), J[kept])
-    px = q.held_px[kept]
+    px = q.held_px
     return (;
-        px, xs = _normalized_points(K, px), directions = directions[kept], origins = origins === nothing ? nothing : origins[kept],
-        pinv, edge = q.edge[kept], n_dropped = count(!, kept),
+        px, xs = _normalized_points(K, px), directions, origins, f = _focal_px(K),
+        edge = q.edge, n_dropped = 0,
     )
 end
 _direction_errors(fitted, held) = pointwise!(
-    (x, d, P) -> _direction_error(fitted, x, d, P), Vector{Float64}(undef, length(held.px)), held.xs, held.directions, held.pinv
+    (x, d) -> held.f * _direction_angle(fitted, x, d), Vector{Float64}(undef, length(held.px)), held.xs, held.directions
 )
-@inline function _direction_error(fitted, x, d, P)
-    f = normalize(SVector{3, Float64}(_fitted_direction(fitted, x)))
-    δ = f - d
-    δ -= dot(δ, d) * d
-    return norm(P * δ)
+# The angle (radians) between the fitted direction at `x` and the unit direction `d`, `atan(‖f × d‖, f·d)` (exact at
+# small and large angles alike).
+@inline function _direction_angle(fitted, x, d)
+    f = SVector{3, Float64}(_fitted_direction(fitted, x))
+    return atan(norm(cross(f, d)), dot(f, d))
+end
+# The focal length (px) of a calibration `K`: the mean of its two axes' pixels per normalized unit.
+function _focal_px(K)
+    x0 = VgtkCore.normalized_point(K, SVector(0.0, 0.0))
+    fx = 1 / (VgtkCore.normalized_point(K, SVector(1.0, 0.0)) - x0)[1]
+    fy = 1 / (VgtkCore.normalized_point(K, SVector(0.0, 1.0)) - x0)[2]
+    return (fx + fy) / 2
 end
 
 # The held-out errors of a fitted non-central model against the source's lines,

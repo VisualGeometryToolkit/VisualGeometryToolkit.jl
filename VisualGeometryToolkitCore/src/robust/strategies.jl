@@ -96,7 +96,10 @@ Irls{K}(max_iter::Integer, width::W) where {K, W} = Irls{K, W}(Int(max_iter), wi
 
 The ROBUSTIFIED LEVENBERG–MARQUARDT strategy: from a guess θ, ONE
 NLLSsolver.jl LM over all the data minimizing `Σᵢ ρ(‖rᵢ‖²)`, robustified per
-datum by loss `K` through [`loss_robustifier`](@ref). `Triggs{K}` is a
+datum by loss `K` through [`loss_robustifier`](@ref) (`Triggs{GaussianShape}`
+in a RANSAC's local optimization: over the scorer's consensus set, below). A datum
+whose residual at the hypothesis is not finite weighs 0 under every shape, and
+the weights are fixed at the hypothesis for the one LM. `Triggs{K}` is a
 strategy (configuration) type only: it selects the loss shape and its width;
 how the robustified LM is formed is NLLSsolver's. There is no reweighting loop
 and no inlier set inside the solve: θ is the initial guess and the loss decides
@@ -121,8 +124,10 @@ would deploy at ŝ² = `s2` (the role-isolated controls).
 `K` is any shape [`Irls`](@ref) admits — the zero-argument shape tags: Welsch
 (the pipelines' default), Geman–McClure, Cauchy, smooth TLS, TLS, Huber and
 Gaussian; Barron, whose shape carries its α, is refused by both.
-`Triggs{GaussianShape}` is the plain chart LM over every datum: like
-`Irls{GaussianShape}` it has no width and takes no `efficiency_constant`.
+`Triggs{GaussianShape}` is the plain chart LM: like `Irls{GaussianShape}` it has
+no width and takes no `efficiency_constant`. As a RANSAC's local optimization
+(VisualGeometryToolkitEstimation 0.11.3 on) it refits the scorer's consensus set
+at the hypothesis, not every datum; in a refine, every datum the caller gives.
 
 # Fields
 - `width`: the width mode, set by `efficiency_constant = c` (`EfficiencyConstant`), or

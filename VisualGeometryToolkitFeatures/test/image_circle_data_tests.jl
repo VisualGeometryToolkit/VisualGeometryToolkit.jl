@@ -81,3 +81,43 @@ end
         end
     end
 end
+
+# The same sets read under the FX3's sensor model (Uncertain cells, SensorModelNoise: the rim's noise the larger of the model's and the data's),
+# Float64 and Float16 storage: the model path must find the coverage the default path finds, each within the default's
+# stated tolerance (3σ of its fit plus one green cell, per axis). Before 0.9.5 the model's exact photon noise made the
+# faint light beyond the coverage significant (the barrel's reflections, a halo at 0.2–1 % of white) and each angle's
+# outermost edge, the first fit's, lay out there: a = 1328.6, 1366.2, 1481.8 raw px on f/4, f/22, f/32 against 1086.5,
+# 1340.4, 1333.8. The sensor model is the FX3's photon-transfer fit (dgx01, 2026-11-14, Core 0.10.5's measurement:
+# K = 11.2988 e⁻/code, σ_r = 1.1441 codes, the file's black).
+@testitem "detect_image_circle under the sensor model finds the default's coverage, Float64 and Float16 (real data, opt-in)" begin
+    using Random: Xoshiro
+    using LibRaw_jll: LibRaw_jll
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
+    using VisualGeometryToolkitCore: sensor_fixture, SensorSource
+    using Test
+    pd = joinpath(get(ENV, "VGTK_DATA_ROOT", ""), "paper-data")
+    sets = (("fisheye f/4", [joinpath(pd, "defocus/fisheye/siemens-stars/$n.ARW") for n in ("DSC04845", "DSC04846", "DSC04847", "DSC04848", "DSC04853")]),
+            ("fisheye f/22", [joinpath(pd, "geometric-accuracy/fisheye/april-grid/$n.ARW") for n in ("DSC06999", "DSC07081", "DSC07182", "DSC07283", "DSC07365")]),
+            ("fisheye f/32", [joinpath(pd, "geometric-accuracy/fisheye/siemens-stars/$n.ARW") for n in ("DSC03644", "DSC03674", "DSC03704", "DSC03734", "DSC03764")]),
+            ("14 mm", [joinpath(pd, "vignetting/14mm/diffuser/DSC04161.ARW")]))
+    if !all(s -> all(isfile, s[2]), sets)
+        @test_skip "the paper-data tier is not under VGTK_DATA_ROOT ($(repr(get(ENV, "VGTK_DATA_ROOT", ""))))"
+    else
+        model = sensor_fixture(; gain = 11.2988, read_noise = ntuple(_ -> 1.1441, 4), source = SensorSource.measured).model   # the file's black
+        for (name, files) in sets
+            mosaics = load_raw_mosaic.(files)                       # decoded once: the default and both model reads
+            d = detect_image_circle(Xoshiro(1), [load_raw(x; mode = :green_cells) for x in mosaics]; outlier_halfwidth = 500)
+            σx, σy = d.center_scale
+            σa = maximum(d.axes_scale)
+            A, B = max(d.circle.a, d.circle.b), min(d.circle.a, d.circle.b)
+            for T in (Float64, Float16)
+                m = detect_image_circle(Xoshiro(1), [load_raw(T, x; mode = :green_cells, sensor_model = model) for x in mosaics]; outlier_halfwidth = 500)
+                c = m.circle
+                @info "detect_image_circle under the sensor model (real data)" name T c d.circle
+                @test m.rim.statistics === VisualGeometryToolkitFeatures.SensorModelNoise()
+                @test abs(c.center[1] - d.circle.center[1]) <= 3σx + 2 && abs(c.center[2] - d.circle.center[2]) <= 3σy + 2
+                @test abs(max(c.a, c.b) - A) <= 3σa + 2 && abs(min(c.a, c.b) - B) <= 3σa + 2
+            end
+        end
+    end
+end

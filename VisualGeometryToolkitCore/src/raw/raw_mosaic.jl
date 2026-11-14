@@ -458,9 +458,12 @@ Base.parent(v::LinearRawView) = v.raw
 Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
 Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
     k = _quad_site(i, j)
-    x = _linear_value(v.raw[i, j], _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]), v.span[k])
-    return _with_variance(_value_eltype(v), v.law, x, k, v.span, i, j, v.origin)
+    return _with_variance(_value_eltype(v), v.law, _photosite_value(v, i, j, k), k, v.span, i, j, v.origin)
 end
+# THE Float64 value of photosite (i, j) (cell site k) of a view: its code less its black (the dark map's offset, else the
+# channel's), over its span. getindex and linear_quantum read it.
+Base.@propagate_inbounds _photosite_value(v::LinearRawView, i, j, k) =
+    _linear_value(v.raw[i, j], _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]), v.span[k])
 Base.similar(v::LinearRawView, ::Type{T}, dims::Dims) where {T} = similar(v.raw, T, dims)
 Base.Broadcast.BroadcastStyle(::Type{<:LinearRawView{T, A}}) where {T, A} = Base.Broadcast.BroadcastStyle(A)
 Base.copy(v::LinearRawView) = identity.(v)
@@ -480,7 +483,7 @@ value in linear units, for a caller that derives a resolution from it (an LM's
 colour, the step between two adjacent codes of [`linearview`](@ref)'s value
 there (the channel's span; a [`Dark`](@ref) replaces the black per photosite
 but not the span), or the spacing of the view's element type at the value,
-`eps(v[i, j])`, where that is coarser: a `Float16` view near the white level
+`eps(value_of(v[i, j]))`, where that is coarser: a `Float16` view near the white level
 steps by `2⁻¹¹`, `span/2048` codes (≈ 7.75 on a 14-bit span). For the Float64
 default the spacing is always finer (`eps(x) < 1/65535` for every value), and
 the quantum is the code's, as before.
@@ -491,11 +494,14 @@ function linear_quantum(v::LinearRawView, i::Integer, j::Integer)
 end
 # One code, or the stored value's spacing where that is coarser: read from the value alone (no variance), and for the
 # Float64 default not at all (its spacing is always finer than a code: the quantum is the span's, bit for bit as before).
-_stored_quantum(::Type{Float64}, v::LinearRawView, i, j, k) = 1 / v.span[k]
+# A view's value is at most 65535/span (a UInt16 code, no gain), whose spacing in T is at most 65535/span·2^(1 − p), p
+# = precision(T): below one code, 1/span, whenever p ≥ 17. So Float32 and Float64 never read the value (the quantum is the
+# span's, bit for bit as 0.10.4); Float16 (p = 11) reads the one photosite, on a device view too.
 function _stored_quantum(::Type{T}, v::LinearRawView, i, j, k) where {T}
-    # one photosite (and its dark offset) of a possibly device-held view, read to the host: the one black rule
-    code, b = GPUArrays.@allowscalar (@inbounds(v.raw[i, j]), _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]))
-    return max(1 / v.span[k], Float64(eps(T(_linear_value(code, b, v.span[k])))))
+    q = 1 / v.span[k]
+    precision(T) >= 17 && return q
+    x = GPUArrays.@allowscalar @inbounds _photosite_value(v, i, j, k)
+    return max(q, Float64(eps(T(x))))
 end
 
 """

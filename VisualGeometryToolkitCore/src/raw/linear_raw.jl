@@ -67,7 +67,8 @@ above 1) or below 0 (noise under the black level) is kept.
 `_LINEAR_RAW_ELTYPE`), `Float32` or `Float16`. Each value is computed in
 Float64 (the black subtraction, the cell's mean, the gain) and rounded ONCE, to
 nearest, when it is stored, and its variance is computed from the unrounded
-value; so `LinearRaw(Float16, m; mode).image == Float16.(LinearRaw(m; mode).image)`,
+value, plus the variance the store adds, `spacing²/12` at the value (0 for
+Float64: the stored value's variance, see the bright end below); so `LinearRaw(Float16, m; mode).image == Float16.(LinearRaw(m; mode).image)`,
 bit for bit, and each value is within `eps(Float16)·|x|/2` of the Float64 one
 (half the subnormal step, 2⁻²⁵, below 2⁻¹⁴). The mosaic stays its `UInt16`
 codes. Why Float16 holds a RAW's values (the Sony FX3: white 16383, black 512,
@@ -78,7 +79,12 @@ so the span is `d = 15871` codes, and K = 11.33 e⁻/code):
   step is `2⁻¹¹·d = d/2048 ≈ 7.75` codes, about 8. The shot noise there is
   `σ = √(μ/K)` codes: `√(16000/11.33) ≈ 37.6` at 16k codes and
   `√(7936/11.33) ≈ 26.5` at the binade's bottom. The rounding adds its
-  variance, `step²/12 ≈ 5.0` codes² per value. Against the shot variance `μ/K`
+  variance, `step²/12 ≈ 5.0` codes² per value, which an uncertain image's
+  variance plane includes (a consumer that pools the stored values' spread,
+  a photon-transfer fit over Float16 values, sees it: on the FX3 it lowers K
+  from 11.30 to 11.18 e⁻/code, about 22 times K's counts standard error, the
+  added variance per point measured over `step²/12` 0.98 to 1.03, and 11.297
+  with it subtracted). Against the shot variance `μ/K`
   that is largest at the bottom of the binade, `μ = d/2`:
   `(d/2048)²·K/(12·d/2) = d·K/(6·2048²) ≈ 0.71%` of the variance (0.36% of
   σ). Each binade below halves it: the step halves, so its square quarters,
@@ -96,6 +102,9 @@ so the span is `d = 15871` codes, and K = 11.33 e⁻/code):
   to about 2% (its spacing 6.0e-8). Float32's smallest normal is 1.2e-38.
 
 A Float16 image takes 2 bytes per value (6 with its variance) against 8 (16).
+A value must be finite in `T`: a gain at which a code could exceed
+`floatmax(T)` (65504 for Float16: a gain past ≈ 16000 on a 14-bit span) is
+refused (`ArgumentError`).
 **Reduce it in Float64**: `sum(Float64, A)`, `mean(Float64, A)`. A Float16
 accumulation overflows past 65504 (a million green cells near the white level
 sum to ≈ 8e5) and drops low bits long before. Core's estimators
@@ -254,13 +263,16 @@ poisson_slope(L::LinearRaw, model::SensorModel, colour::Symbol) = poisson_slope(
 _inv_gain(n::PoissonGaussian) = 1 / n.gain
 _inv_gain(::NoiseComponent) = 0.0
 
-# Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its Float64 value xs[p], rounded
-# once to the variance plane's element type: unrolled like the values; no variance plane (`nothing`) stores nothing.
-@inline _store_variances!(::Nothing, xs, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
-@inline _store_variances!(var::AbstractArray, xs, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
-@inline function _store_variances!(var::AbstractArray, xs, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p)
-    @inbounds var[i, j, p] = _value_covariance(eltype(eltype(var)), _value_variance(law, first(xs), first(planes), span, gain, r0, c0, origin))
-    return _store_variances!(var, Base.tail(xs), i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
+# Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its Float64 value xs[p], plus the
+# variance its store as T adds (`_storage_variance`), rounded once to the variance plane's element type: unrolled like the
+# values; no variance plane (`nothing`) stores nothing.
+@inline _store_variances!(::Nothing, ::Type, xs, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
+@inline _store_variances!(var::AbstractArray, ::Type, xs, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
+@inline function _store_variances!(var::AbstractArray, ::Type{T}, xs, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p) where {T}
+    x = first(xs)
+    @inbounds var[i, j, p] = _value_covariance(eltype(eltype(var)),
+                                               _value_variance(law, x, first(planes), span, gain, r0, c0, origin) + _storage_variance(T, x))
+    return _store_variances!(var, T, Base.tail(xs), i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
 end
 
 # Each cell's planes and whether any photosite its planes read (`sites`) is at
@@ -287,7 +299,7 @@ end
         v = ntuple(k -> _linear_value(x[k], b[k], span[k]), Val(4))
         xs = _plane_values(v, planes, gain)
         _store_planes!(img, i, j, xs, 1)
-        _store_variances!(var, xs, i, j, r0, c0, origin, planes, span, gain, law, 1)
+        _store_variances!(var, eltype(img), xs, i, j, r0, c0, origin, planes, span, gain, law, 1)
         sat[i, j] = any(k -> _at_white(x[k], white) ||
                              _masked(defects, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), sites)
     end
@@ -305,6 +317,11 @@ function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, mode
     raw = parent(m)
     backend = KA.get_backend(raw)
     black, span, dark = _model_levels(m, model, backend)              # THE resolution of the levels (sensor_model.jl)
+    # the largest value a code can give, (typemax − black)/span × gain, must be finite in T (Float16: 65504)
+    top = maximum(k -> (typemax(eltype(raw)) - black[k]) / span[k], 1:4) * gain
+    top <= floatmax(T) || throw(ArgumentError(
+        "LinearRaw: a $T image holds values up to $(floatmax(T)); at gain $gain a code up to $(typemax(eltype(raw))) gives up to $top: " *
+        "a lower gain, or a wider element type"))
     defects = defect_mask(model.defects, m; backend)
     law = _variance_law(model.noise, model.black, m, backend)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))

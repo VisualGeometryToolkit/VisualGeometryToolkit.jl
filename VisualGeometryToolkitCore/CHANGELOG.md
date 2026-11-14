@@ -11,7 +11,10 @@ A patch, purely additive: a RAW image's linear values may be stored as Float16 (
   Float64 and rounded once, to nearest, on store, so `LinearRaw(Float16, m; mode).image == Float16.(LinearRaw(m;
   mode).image)` bit for bit; an uncertain image's variance is computed from the unrounded value and stored as
   `Float32` beside Float16 values (a Float16 variance underflows: a dark cell's read-noise variance, ≈ 8e-9 in the
-  values' units², is below Float16's smallest subnormal). The default is one private constant, `_LINEAR_RAW_ELTYPE =
+  values' units², is below Float16's smallest subnormal), and includes the variance the store adds, `spacing²/12` at
+  the value (0 for Float64). The FX3 evidence: a photon-transfer fit over Float16-stored green cells gives K = 11.18
+  against 11.30 e⁻/code without the term (≈ 22× K's counts standard error), the added variance per point measured over
+  `spacing²/12` 0.98–1.03, and K = 11.297 with it subtracted. A gain at which a value could exceed `floatmax(T)` is refused. The default is one private constant, `_LINEAR_RAW_ELTYPE =
   Float64`. The `RawMosaic` stays its `UInt16` codes. `LinearRaw`'s docstring and the Raw images guide derive why
   Float16 suffices (its step on `[½, 1)` is `d/2048 ≈ 7.75` codes on the FX3's span, under a shot noise of ≈ 26–38
   codes there; the rounding adds at most 0.71% of the shot variance) and state the rule for consumers: reduce in

@@ -182,7 +182,18 @@ for σ_r = 2 codes. That is below half Float16's smallest subnormal,
 `2⁻²⁴ ≈ 6.0e-8`, so it would be stored as 0, and a whitened row would divide by
 it. At the white level the shot variance `1/(2Kd) ≈ 2.8e-6` is subnormal,
 held to about 2%. So a Float16 value carries a Float32 variance (6 bytes a
-value, against 16 for Float64 and its variance).
+value, against 16 for Float64 and its variance). That variance is the stored
+value's: the sensor law's at the unrounded value plus the `spacing²/12` the
+store adds. A statistic pooled over stored values sees that term too: a
+photon-transfer fit over the FX3's Float16 green cells (its E4 flats, 12
+points, ¾ million cells each) gives K 1.1% low, 11.18 against 11.30 e⁻/code,
+about 22 times K's standard error from the counts. At each bright point the
+added variance is the derived `spacing²/12`, measured over expected 0.98 to
+1.03; with each point's `spacing²/12` subtracted the fit gives 11.297. Core's estimators read the codes and are not affected.
+
+A value must be finite in its type: a gain at which a code could exceed
+`floatmax(T)` (65504 for Float16, a gain past about 16000 on a 14-bit span) is
+an `ArgumentError`.
 
 Reduce a Float16 image in Float64: `sum(Float64, A)` and `mean(Float64, A)`.
 A Float16 accumulation overflows past 65504 (a million green cells near the

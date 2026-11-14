@@ -10,7 +10,10 @@
     export δ
     # The bound of one rounding to nearest of a Float64 value x to Float16: half a spacing, eps(Float16)·|x|/2 for a
     # normal value, half the subnormal spacing 2⁻²⁴ below the smallest normal.
-    δ(x) = max(eps(Float16) * abs(x) / 2, nextfloat(Float16(0)) / 2)
+    δ(x) = max(eps(Float16) * abs(x) / 2, 2.0^-25)                  # (2⁻²⁵ in Float64: in Float16 it rounds to 0)
+    # The variance a Float16 store adds to a value x: its rounding, uniform over one spacing (Core's `_storage_variance`).
+    export storage_variance
+    storage_variance(x) = Float64(eps(Float16(x)))^2 / 12
 end
 
 @testitem "linear raw eltype: a Float16 value is the Float64 value rounded once; the variance plane Float32" setup = [SensorFixtures, Float16Rounding] begin
@@ -44,7 +47,10 @@ end
         @test U16.image isa StructArray && eltype(U16.image) <: Uncertain{Float16}
         @test eltype(components(U16.image)[2]) === typeof(CovMat(ScaledIdentity{1}(0.0f0)))
         @test value_of.(U16.image) == Float16.(value_of.(U64.image))
-        @test var.(U16.image) == Float32.(var.(U64.image))
+        # the stored value's variance: the law's at the unrounded value plus the storage's rounding, spacing²/12
+        @test var.(U16.image) == Float32.(var.(U64.image) .+ storage_variance.(value_of.(U64.image)))
+        @test var.(LinearRaw(Float32, m; mode, gain, sensor_model = pg).image) == Float32.(var.(U64.image) .+
+                                                                                    Float64.(eps.(Float32.(value_of.(U64.image)))) .^ 2 ./ 12)
         @test green_plane(U16) isa StructArray && eltype(green_plane(U16)) === eltype(U16.image)
         @test eltype(LinearRaw(Float32, m; mode, sensor_model = pg).image) <: Uncertain{Float32}
     end
@@ -54,14 +60,14 @@ end
     m0 = synth_mosaic(fill(UInt16(BLACK), 8, 8))
     v0 = var.(LinearRaw(m0; mode = :green_cells, sensor_model = pg).image)
     @test all(v -> Float16(v) == 0, v0)
-    @test var.(LinearRaw(Float16, m0; mode = :green_cells, sensor_model = pg).image) == Float32.(v0) && all(>(0), Float32.(v0))
+    @test var.(LinearRaw(Float16, m0; mode = :green_cells, sensor_model = pg).image) == Float32.(v0 .+ storage_variance(0.0)) && all(>(0), Float32.(v0))
     # the lazy view: the same element type, one rounding of the Float64 element
     for model in (SensorModel(), pg)
         lv64, lv16 = linearview(m; sensor_model = model), linearview(Float16, m; sensor_model = model)
         @test copy(linearview(Float64, m; sensor_model = model)) == copy(lv64)
         @test lv16 isa LinearRawView && value_of.(copy(lv16)) == Float16.(value_of.(copy(lv64)))
         @test (model === pg ? eltype(lv16) <: Uncertain{Float16} : eltype(lv16) === Float16) && eltype(copy(lv16)) === eltype(lv16)
-        model === pg && @test var.(copy(lv16)) == Float32.(var.(copy(lv64)))
+        model === pg && @test var.(copy(lv16)) == Float32.(var.(copy(lv64)) .+ storage_variance.(value_of.(copy(lv64))))
         @test eltype(adapt(Array, lv16)) === eltype(lv16)                      # adapt keeps the element type
     end
     # linear_quantum: the resolution of the stored value, the coarser of one code (1/span) and the value's spacing in T
@@ -71,6 +77,11 @@ end
     # near the white level a Float16 step is span/2048 codes (the spacing 2⁻¹¹ on [½, 1)): 7.75 codes on this sensor
     top = linearview(Float16, synth_mosaic(fill(UInt16(16000), 2, 2)))
     @test linear_quantum(top, 1, 1) == 2.0^-11 && linear_quantum(top, 1, 1) * (WHITE - BLACK) == (WHITE - BLACK) / 2048
+    # a value past the type's largest finite value is refused, not stored as Inf: Float16 holds 65504, a code of 65535 at
+    # gain g is (65535 − 512)/15871·g ≈ 4.1g
+    @test_throws ArgumentError LinearRaw(Float16, m; mode = :green_cells, gain = 2.0e4)
+    @test LinearRaw(Float16, m; mode = :green_cells, gain = 1.5e4).image isa Array{Float16, 3}
+    @test LinearRaw(m; mode = :green_cells, gain = 2.0e4).image isa Array{Float64, 3}
     # an element type is a float type
     @test_throws MethodError LinearRaw(Int, m; mode = :green_cells)
     @test_throws MethodError linearview(Int, m)

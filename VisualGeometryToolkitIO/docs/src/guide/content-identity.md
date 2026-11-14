@@ -68,7 +68,11 @@ reads back as exactly such a value, so a rig, the file written from it in any
 decimal unit, the rig loaded back from that file and a value built in code from
 the same decimals (`14.2mm`, one ulp off the nearest double of 0.0142 m) have
 one identity. Normalisation is of the metre value itself: no unit is chosen,
-and it moves a value by at most one rounding at the 15th digit.
+and it moves a value by at most one rounding at the 15th digit. A computed,
+full-precision value has the identity of the file written from it too: the
+writer writes either a number that reads back to the value exactly or, when the
+file's unit has none, one that reads back with the value's normalisation
+(IO 0.10.1).
 
 ## Poses
 

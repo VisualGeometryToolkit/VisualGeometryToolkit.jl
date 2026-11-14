@@ -59,9 +59,16 @@ the unit's scale and writes the shortest decimal that reads back to the
 identical value.
 
 A file this package wrote is rewritten byte for byte when its numbers have at
-most 15 significant digits. A full-precision number (16 or 17 digits) may move
-by at most 2 ulp on its first rewrite, and it stays fixed after that. This is
-inherent to holding metres in memory and millimetres in files.
+most 15 significant digits. A full-precision length (16 or 17 digits; a value
+computed in code) is written as the number that reads back to it exactly
+whenever one exists. When none does (about one computed metre value in eight in
+millimetres: the two grids differ), the writer writes a number whose value has
+the length's identity, its persisted form, the metre value at 15 significant
+digits ([Content identity](content-identity.md)); so a full-precision number may
+move on its first rewrite, by at most 2 ulp or to that persisted form, and it
+stays fixed after that. Either way the value, the file written from it and the
+value loaded back have one identity (IO 0.10.1; 0.10.0 wrote the nearest number,
+whose identity could differ).
 
 A length built in code by multiplication has already rounded before it reaches
 a writer. `1.3mm` is held as `0.0013000000000000002` m and is written as

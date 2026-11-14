@@ -1,3 +1,50 @@
+docs-pass: c3f1d596
+
+# VisualGeometryToolkitFeatures 0.9.4 docs pass (julia-docs-pass) — branch patch-feat094
+
+Baseline: GitHub main 300794c3 (Features 0.9.3, Core 0.10.3; Features' Core compat floor "0.10.3", kept). The candidate:
+22643f9e (all of Features 0.9.4: the thorlabs work, debaf972) and the review's commits 209121af, 22e3f9cd, 111b1afa
+(tests, red on 22e3f9cd: dev 16875) and c3f1d596. No other package changes.
+
+## 1. Public API since 0.9.3
+
+- **Added (methods):** `detect_sfop(L::LinearRaw; kwargs...)`; the seeded `detect_foerstner([T = Float32], L::LinearRaw,
+  seeds; sensor_model, kwargs...)`. Nothing exported or made public; nothing removed or renamed.
+- **Changed:** `detect_foerstner`'s F-test at the residual sums' effective degrees of freedom (labels change where F lies
+  between the critical values; positions and covariances do not); the seeded call refuses the image-wide search's
+  keywords (`ArgumentError`, naming them) and checks each seed (a point seed an `ArgumentError` naming its frame; any
+  uncertain scaled frame accepted); `detect_sfop`'s `nb_octaves` default `min(3, sift_nb_octaves(size(img)...; upsample))`;
+  `detect_image_circle`'s deprecation text says "deprecated". `detect_image_circle`'s outputs are 0.9.3's bit for bit.
+- **Scheduled (wave 11):** `gaussian_gradient`'s `derivative::Symbol` (`.release/wave11-removals.md`).
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| docstrings against the code | `detect_foerstner` (seeded): the `[T = Float32]` LinearRaw form, the point seed's `ArgumentError`, every scaled frame also uncertain (fixed in c3f1d596); `detect_sfop`: the `nb_octaves` default and the LinearRaw form; `detect_image_circle` / `RimProfile`: the saturated bins flagged, not skipped (22643f9e) |
+| `checkdocs = :public`, cross-references | docs 16918: strict build green (api/detection.md over `size_threshold_warn`, a size warning, as before) |
+| README and landing page | unchanged: nothing they show moved (the landing names `detect_sfop` and `detect_image_circle`, both still true) |
+| guides | foerstner.md: difference 4 (the F-test's degrees of freedom, 22643f9e) and the seeded form's keywords and LinearRaw forms (22e3f9cd); detection.md's image circle: nothing it states changed |
+| check_naming | 0 (prep 16914, Core and Features; upstream duplication 16919) |
+| CHANGELOG | `## 0.9.4` |
+| version | VisualGeometryToolkitFeatures 0.9.4 (Core compat "0.10.3" in the package, test and docs projects) |
+| `detect_image_circle` bit for bit | circle_dump on 22643f9e (16866) and 209121af (16869, the image-circle code's last change) `cmp`-identical to 0.9.3's reference (circle-cd3170c2.txt) |
+
+## 3. Executed on c3f1d596
+
+Julia 1.13.3, a fresh clone, nice 0 (~/logs/dgx-agent/runs/patch-feat094/c3f1d596), all rc 0:
+
+| gate | job | result |
+|---|---|---|
+| prep | 16914 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0 (Core, Features), check_naming 0 |
+| upstream duplication | 16919 | Features: 0 findings, check_naming 0 (name-ownership upstream: Core, Estimation) |
+| CPU (--depwarn=error) | 16915 | 6/6 green: 3,588 pass, 13 broken, 3,601 total |
+| CPU (--depwarn=yes) | 16916 | 6/6 green: 3,591 pass, 13 broken, 3,604 total |
+| GPU | 16917 | green: 2,472 pass; Core warp_tests.jl 432 pass |
+| docs | 16918 | green |
+
+---
+
 docs-pass: 7b322318
 
 # VisualGeometryToolkitCore 0.10.3, VisualGeometryToolkitIO 0.10.2, VisualGeometryToolkitFeatures 0.9.3 docs pass (julia-docs-pass) — branch patch-core0103

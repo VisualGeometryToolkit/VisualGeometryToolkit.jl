@@ -405,7 +405,7 @@
             kp = E.run_key(cfg; parts = (; frame_limit = 10))
             @test kp != k0 && kp == E.run_key(cfg; parts = Dict("frame_limit" => 10)) && kp != E.run_key(cfg; parts = (; frame_limit = 0))
             @test_throws r"keyed_with" E.run_key(merge(cfg, Dict{String,Any}("keyed_with" => 1)))
-            @test E.Product("e", "pose", cfg; output = "p.json", parts = (; frame_limit = 10)).key == kp
+            @test E.Product("e", "pose", cfg; output = "p.json", parts = (; frame_limit = 10), code = nothing).key == kp
             # a project laid out by its own config, not by pool: [experiment] layout
             p = joinpath(mktempdir(), "lay.toml")
             write(p, "[experiment]\nlayout = [\"mocap\", \"cam0\"]\n")

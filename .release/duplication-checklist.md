@@ -1,3 +1,20 @@
+# Core 0.10.3, IO 0.10.2, Features 0.9.3 duplication checklist (patch-core0103), 2026-11-14
+
+The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in Core's prep
+16565 on the fresh clone of 7b322318 for Core, IO and Features: 0 findings each (Features' name-ownership upstream:
+Core and Estimation; IO's: Core). `check_duplication` of IO and Features in their preps (16569, 16572): 0.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| darks of several exposures | a second characterisation per exposure, or a band lookup in a consumer | Core's `Darks`, resolved inside `sensor_model` (`_frame_black(::Darks, t)`); `_pick` unchanged | [x] |
+| the defect mask | RC/Features building the mask from a `DefectList` | Core's public `defect_mask`, LinearRaw's own `_defect_mask` | [x] |
+| a linear view's code quantum | RC reading `LinearRawView.span` / `_quad_site` | Core's public `linear_quantum` | [x] (RC adopts it) |
+| the versions a writer emits | a hand-kept list of published schemas beside the writer's choice | IO's `_written_versions` (with each version's validator), read by `_write_kind` and the JSON Schema generator | [x] |
+| the optional channel black of a dark body | written and read twice in the codec | `_with_black` / `_optional_black_from` | [x] |
+| the rim kernel launch | a bare `OnBackend(...)` + `synchronize` | Features' `_launch!` | [x] |
+
+---
+
 # Core 0.10.2 duplication checklist (patch-core0102), 2026-11-14
 
 Core is the stack's root, so it has no upstream. `check_duplication(VisualGeometryToolkitCore)` ran in prep 16196 over the

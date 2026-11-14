@@ -1,3 +1,54 @@
+docs-pass: 7b322318
+
+# VisualGeometryToolkitCore 0.10.3, VisualGeometryToolkitIO 0.10.2, VisualGeometryToolkitFeatures 0.9.3 docs pass (julia-docs-pass) — branch patch-core0103
+
+Baseline: GitHub main 2bbd6e72 (Core 0.10.2, IO 0.10.1, Features 0.9.2). 7b322318 is patch-core0103 (from main) with
+the desktop's imgcircle-jacobian a544bdad merged (its 4fcb52bb and the test-only a544bdad), so the gate runs on the
+tree that is pushed. Owner rulings 2026-11-14: Darks (1), the writer's version follows the record (a).
+
+## 1. Public API since main
+
+- **Core 0.10.3 (additive):** `Darks` (public; a black-slot component, one Dark per disjoint exposure band, a shared
+  channel black); `defect_mask(model_or_defects, mosaic; backend)` (public, was `_defect_mask`); `linear_quantum(view,
+  i, j)` (public); `transform_deriv(::LogPolarToCartesian, p)`, `inv(::LogPolarToCartesian)` → `CartesianToLogPolar`
+  (4fcb52bb); `sensor_fixture(; darks)`. A `SensorModel`'s black is a frame's (`FileBlack`, `ChannelBlack`, `Dark`): a
+  `Darks` is refused there (it is a characterisation's). Removed: nothing. Exports: unchanged.
+- **IO 0.10.2:** `vgio/sensor_characterisation/v2.0` (the darks body), written only for a record holding a `Darks`;
+  every other characterisation is written as v1.0, IO 0.10.1's bytes; `json_schema(kind[, version])`. No public name
+  removed.
+- **Features 0.9.3:** no public API change; `detect_image_circle`'s rim radii through the log-polar map's differential
+  and inverse (results move within their σ; `RimProfile.noise` per pixel).
+- **Deferred to Core 0.10.4:** the Float32 `_precision` of the log-polar maps (it moved `detect_image_circle`: a flat
+  image fit an ellipse), and `_precision`'s silent catch-all for float-carrying leaves.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` items green in all three suites (Core CPU group 9, IO cpu, Features cpu 4) |
+| `checkdocs = :public`, doctests, cross-references, link check | Core docs 16568, IO docs 16571, Features docs 16575: strict builds green. `Darks`, `defect_mask`, `linear_quantum` reach the manual through raw.md's `@autodocs`; `CartesianToLogPolar` through the transforms page |
+| README and landing pages | Core, Features: unchanged (nothing they show moved). IO's landing page states the written-versions rule. No example changed, so the readme items stand as run |
+| guides | IO: kinds.md (v2.0, v1.0 written without a `Darks`), json-schemas.md (the published schemas are the written versions, generated from `_written_versions`), schemas.md ("Earlier versions": the one rule), CLAUDE.md (the convention). Core: none (the sensor model has no guide page; its API page is generated) |
+| published JSON Schemas | `schemas/vgio/sensor_characterisation/v1.0.json` (regenerated, byte-identical to IO 0.10.1's) and `v2.0.json`; one per written version, the count test reading the same table |
+| check_naming | 0 on every package of the tree and on ci/ (dev 16576); Core, IO and Features in their preps |
+| CHANGELOGs | Core `## 0.10.3` (Added); IO `## 0.10.2` (Added: v2.0, the writer's rule); Features `## 0.9.3` (Changed; the 0.9.2 heading dated) |
+| versions | Core 0.10.3, IO 0.10.2 (Core compat 0.10.3), Features 0.9.3 (Core compat 0.10.3 in the package, test, docs, validation and examples projects) |
+
+## 3. Executed on 7b322318
+
+Julia 1.13.3, fresh clones, nice 0, the wave stack paths:
+
+| gate | job | result |
+|---|---|---|
+| Core prep | 16565 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 (Core, IO, Features) |
+| Core CPU | 16566 | groups 1–16 green: 414,027 pass, 33 broken, 414,060 total |
+| Core GPU | 16567 | groups 17–22 green: 54,792 pass |
+| Core docs | 16568 | green |
+| IO prep / cpu / docs | 16569 / 16570 / 16571 | 8/8 green: 73,074 pass, 8 broken, 73,082 total |
+| Features prep / cpu / gpu / docs | 16572 / 16573 / 16574 / 16575 | 9/9 green: CPU 3,258 pass, 13 broken; GPU 2,155 pass |
+
+---
+
 docs-pass: 19126b52
 
 # VisualGeometryToolkitCore 0.10.2 docs pass (julia-docs-pass) — branch patch-core0102

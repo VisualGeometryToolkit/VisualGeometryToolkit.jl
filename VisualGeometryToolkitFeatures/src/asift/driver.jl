@@ -305,7 +305,7 @@ end
 #     walk off the interior, no convergence) DROPS the extremum, counted in
 #     `count[2]` — never emitted unrefined
 #   • validity gate |new_val| > dog_threshold
-#   • edge test tr²/det < (r+1)²/r on the spatial Hessian, r = edge_thr, det > 0
+#   • edge test tr²/det < (r+1)²/r on the spatial Hessian, r = edge_thr, det > 0 (not in the precision mode, `PRECISION`: detect_sfop)
 #   • emission (0-indexed subpixel): sf = 2^octave_idx,
 #       sigma = seed_sigma·2^((s + 0.5)/S)·sf,  x = x·sf + (sf − 1)
 #   • detection covariance (`uncertainty = FeatureCovariance()`, uncertainty.jl):
@@ -408,7 +408,9 @@ end
                 keep = abs(new_val) > dog_thr &&
                     0.0f0 <= sx <= Float32(W - 1) && 0.0f0 <= sy <= Float32(H - 1) &&
                     0.0f0 <= ssv <= Float32(NS - 1)
-                if keep
+                # the edge test is ASIFT's alone: the precision field has no edge response to reject, and a maximum
+                # beside a failed window (−∞) has an infinite curvature, whose tr²/det is NaN or a negative det
+                if keep && !PRECISION
                     exx = dog[xi + 1, yi, sl, Lw] - 2.0f0 * dog[xi, yi, sl, Lw] + dog[xi - 1, yi, sl, Lw]
                     eyy = dog[xi, yi + 1, sl, Lw] - 2.0f0 * dog[xi, yi, sl, Lw] + dog[xi, yi - 1, sl, Lw]
                     exy = 0.25f0 * (dog[xi + 1, yi + 1, sl, Lw] - dog[xi - 1, yi + 1, sl, Lw] - dog[xi + 1, yi - 1, sl, Lw] + dog[xi - 1, yi - 1, sl, Lw])

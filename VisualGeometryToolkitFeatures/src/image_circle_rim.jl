@@ -47,9 +47,10 @@ Fields (radii and centre in the MEASURED plane's pixels: a RAW frame's green cel
 - `angles::Vector{Float64}` — each angle bin's centre, radians, `atan(y − cy, x − cx)` (COLMAP pixels, y down);
 - `radii::Vector{Float64}` — the samples' radii from `center`, ascending, `Δ(ln r) ≤ 1 / r_max` (≤ 1 px at r_max);
 - `bin_samples::Vector{Int}` — each angle bin's sample rows (≤ 1 px of arc apart at r_max);
-- `profile::Matrix{Float64}` — `profile[a, j]`, the median of angle bin `a` at radius `j`, `NaN` where the bin is skipped;
+- `profile::Matrix{Float64}` — `profile[a, j]`, the median of angle bin `a` at radius `j`, `NaN` where the bin is skipped
+  (`:off_frame`); a `:saturated` bin is flagged, not skipped: its median is kept and read like any other;
 - `bin_reason::Matrix{Symbol}` — `:ok`, `:off_frame` (a sample's bilinear taps leave the frame) or `:saturated` (more
-  than half the bin's samples saturated);
+  than half the bin's samples saturated: a flag, the median kept);
 - `statistics` — [`SensorModelNoise`](@ref)`()` or [`EmpiricalNoise`](@ref)`()`, chosen by the frames' type (the
   provenance); `profile_scale::Matrix{Float64}` each bin's noise under the sensor model (`NaN` without one): the median
   over the bin's m_eff distinct pixels of the maximum of the N frames' noise, standard error
@@ -101,9 +102,11 @@ _model_radius(model, u) = 1 / norm(AffineMap(model).linear \ u)
 # The median of each (angle bin, radius) bin of the log-polar samples: angle bin `a` holds the sample rows
 # `((a − 1)·rows) ÷ n + 1 … (a·rows) ÷ n` of column `j`; `mask` the same layout of the saturation mask's bilinear samples.
 # With the sensor model's variances `vars` (the same layout) it also writes each bin's mean variance to `meanvar`.
-# ONE KernelAbstractions kernel, one work item per bin: the median by rank counting (the order statistics ⌊(m+1)/2⌋ and
-# ⌈(m+1)/2⌉ of the bin's m samples, O(m²) with no scratch), `NaN` and code 1 when a sample is off the frame (`NaN`),
-# code 2 when more than half the bin is saturated. The variance sum accumulates in Float64.
+# ONE KernelAbstractions kernel, one work item per bin: the median, the mean of the order statistics ⌊(m+1)/2⌋ and
+# ⌈(m+1)/2⌉ of the bin's m samples (`_bin_order_stats_rank`, O(m²), up to `_RANK_COUNT_MAX` samples; above, the radix
+# selection `_bin_order_stats_select`, O(m), the same two samples bit for bit; neither needs scratch), `NaN` and code 1
+# when a sample is off the frame (`NaN`), code 2 when more than half the bin is saturated (flagged: its median is kept).
+# The variance sum accumulates in Float64.
 @kernel function _rim_bin_median_kernel!(med, code, meanvar, @Const(samples), @Const(mask), @Const(vars), nbins::Int32, rows::Int32)
     a, j = @index(Global, NTuple)
     T = eltype(med)
@@ -121,23 +124,98 @@ _model_radius(model, u) = 1 / norm(AffineMap(model).linear \ u)
     s1 = T(NaN)
     s2 = T(NaN)
     if !off
-        @inbounds for k in lo:hi
-            v = samples[k, j]
-            lt = Int32(0)
-            le = Int32(0)
-            for l in lo:hi
-                w = samples[l, j]
-                lt += w < v ? Int32(1) : Int32(0)
-                le += w <= v ? Int32(1) : Int32(0)
-            end
-            (lt < m1 <= le) && (s1 = v)
-            (lt < m2 <= le) && (s2 = v)
-        end
+        s1, s2 = m > _RANK_COUNT_MAX ? _bin_order_stats_select(samples, lo, hi, j, m1, m2) :
+                                       _bin_order_stats_rank(samples, lo, hi, j, m1, m2)
     end
     @inbounds med[a, j] = off ? T(NaN) : (s1 + s2) / 2
     @inbounds code[a, j] = off ? UInt8(1) : (2 * nsat > m ? UInt8(2) : UInt8(0))
     _rim_bin_meanvar!(meanvar, vars, a, j, lo, hi, m, off)
 end
+# The bin sizes the rank count takes (its m² comparisons against the selection's ~35 sweeps of m).
+const _RANK_COUNT_MAX = Int32(32)
+
+# The order statistics m1 and m2 (1-based ranks) of the samples `samples[lo:hi, j]` (none NaN), each the LAST sample
+# in row order equal to it (under `==`: −0 and +0 are one value), by rank counting: a sample v is the statistic of
+# rank k when #{w < v} < k ≤ #{w ≤ v}.
+@inline function _bin_order_stats_rank(samples, lo, hi, j, m1, m2)
+    T = eltype(samples)
+    s1 = T(NaN)
+    s2 = T(NaN)
+    @inbounds for k in lo:hi
+        v = samples[k, j]
+        lt = Int32(0)
+        le = Int32(0)
+        for l in lo:hi
+            w = samples[l, j]
+            lt += w < v ? Int32(1) : Int32(0)
+            le += w <= v ? Int32(1) : Int32(0)
+        end
+        (lt < m1 <= le) && (s1 = v)
+        (lt < m2 <= le) && (s2 = v)
+    end
+    return s1, s2
+end
+
+# The same two samples by selection: the value of rank m1 by a radix select on the samples' order-preserving integer
+# keys (one counting sweep per bit, `_order_key`), the value of rank m2 = m1 or m1 + 1 from it (itself when at least m2
+# samples are ≤ it, else the smallest sample above it), each taken back to the last sample equal to it, as the rank
+# count does. No scratch, no recursion: every backend.
+@inline function _bin_order_stats_select(samples, lo, hi, j, m1, m2)
+    x1 = _kth_sample(samples, lo, hi, j, m1)
+    x2 = m2 == m1 ? x1 : _next_sample(samples, lo, hi, j, x1, m2)
+    return _last_equal(samples, lo, hi, j, x1), _last_equal(samples, lo, hi, j, x2)
+end
+
+# An IEEE float's key, ordered as the float (−0 read as +0: `==` makes them one value), and back.
+@inline _order_key(x::Float32) = (u = reinterpret(UInt32, x + 0.0f0); u ⊻ ifelse(u >> 31 == 0x00000001, 0xffffffff, 0x80000000))
+@inline _order_key(x::Float64) = (u = reinterpret(UInt64, x + 0.0); u ⊻ ifelse(u >> 63 == 0x0000000000000001, 0xffffffffffffffff, 0x8000000000000000))
+@inline _key_value(::Type{Float32}, k::UInt32) = reinterpret(Float32, k ⊻ ifelse(k >> 31 == 0x00000001, 0x80000000, 0xffffffff))
+@inline _key_value(::Type{Float64}, k::UInt64) = reinterpret(Float64, k ⊻ ifelse(k >> 63 == 0x0000000000000001, 0x8000000000000000, 0xffffffffffffffff))
+
+# The value of rank r among `samples[lo:hi, j]`: its key bit by bit from the top, each bit the one whose count of
+# samples (those sharing the bits fixed so far) holds rank r.
+@inline function _kth_sample(samples, lo, hi, j, r)
+    T = eltype(samples)
+    K = typeof(_order_key(zero(T)))
+    prefix = zero(K)
+    rank = r
+    @inbounds for b in (8 * sizeof(K) - 1):-1:0
+        bit = one(K) << b
+        above = ~((bit << 1) - one(K))                       # the bits fixed so far (none at the top bit)
+        c = Int32(0)
+        for l in lo:hi
+            key = _order_key(samples[l, j])
+            c += ((key & above) == prefix) & ((key & bit) == zero(K)) ? Int32(1) : Int32(0)
+        end
+        rank > c && (rank -= c; prefix |= bit)
+    end
+    return _key_value(T, prefix)
+end
+
+# The value of rank r = (rank of x) + 1 when x's own rank is r − 1: x when at least r samples are ≤ x, else the
+# smallest sample above x.
+@inline function _next_sample(samples, lo, hi, j, x, r)
+    T = eltype(samples)
+    le = Int32(0)
+    above = T(Inf)
+    @inbounds for l in lo:hi
+        v = samples[l, j]
+        le += v <= x ? Int32(1) : Int32(0)
+        v > x && v < above && (above = v)
+    end
+    return le >= r ? x : above
+end
+
+# The last sample in row order equal to x.
+@inline function _last_equal(samples, lo, hi, j, x)
+    s = x
+    @inbounds for l in lo:hi
+        v = samples[l, j]
+        v == x && (s = v)
+    end
+    return s
+end
+
 @inline _rim_bin_meanvar!(::Nothing, ::Nothing, a, j, lo, hi, m, off) = nothing
 @inline function _rim_bin_meanvar!(meanvar, vars, a, j, lo, hi, m, off)
     v = 0.0
@@ -161,7 +239,9 @@ function _rim_samples(upper::AbstractMatrix{<:Real}, sat::AbstractMatrix{Bool}, 
     samples = similar(src, Float32, rows, nr)
     masks = similar(src, Float32, rows, nr)
     image_warp!(samples, bm, src; fillvalue = NaN32)
-    image_warp!(masks, bm, on_device(Float32, device, Matrix{Float32}(sat)); fillvalue = 0.0f0)
+    # the saturation mask's samples; with no pixel saturated, every sample of it (its taps' weights times 0, the fill 0)
+    # is 0: the warp is skipped
+    any(sat) ? image_warp!(masks, bm, on_device(Float32, device, Matrix{Float32}(sat)); fillvalue = 0.0f0) : fill!(masks, 0.0f0)
     vars = variance === nothing ? nothing : similar(src, Float32, rows, nr)   # the model's variances, bilinear like the values
     vars === nothing || image_warp!(vars, bm, on_device(Float32, device, variance); fillvalue = NaN32)
     θ(row) = (p = math(Point2(nr / 2, row)); atan(p[2] - center[2], p[1] - center[1]))
@@ -176,9 +256,10 @@ const _RIM_SPAN = 2.0
 # index is x = u + 0.5); with J = ∂(image)/∂(u, v) there (`transform_deriv`):
 # - `radii[j]`, its radius from the centre (the forward map);
 # - `drdu[j]` = ‖J[:, 1]‖, the radial spacing (px per column);
-# - `pixels[j]`, the distinct pixels of one row's cell: its footprint |det J| = ‖J[:, 1]‖·‖J[:, 2]‖ px², but no fewer than
-#   one pixel thick radially (adjacent columns closer than a pixel share their pixels), and the grid's radial spacing is
-#   ≤ 1 px everywhere (`_rim_samples`), so the arc ‖J[:, 2]‖. A bin of k rows has k·pixels[j];
+# - `pixels[j]`, the distinct pixels of one row's cell: its footprint |det J| = ‖J[:, 1]‖·‖J[:, 2]‖ px², but counted one
+#   pixel thick radially (adjacent columns closer than a pixel share their pixels; the grid's radial spacing is ≤ 1 px
+#   everywhere, `_rim_samples`), so the arc ‖J[:, 2]‖. No floor of one pixel is applied to the arc: inside r_max it is
+#   below 1 px (2πr/rows), and so is `pixels[j]`. A bin of k rows has k·pixels[j];
 # - `stencil[j]`, the ends of the drop's stencil, r_j ∓ `_RIM_SPAN`/2 through the inverse map, as interpolation weights
 #   (i₋, f₋, i₊, f₊) at the column indices i + f: exactly `_RIM_SPAN` px wide at every radius (i₋ = 0 when an end leaves
 #   the band);
@@ -241,17 +322,23 @@ _bin_noise(::SensorModelNoise, pscale, counts, s, a, σ₁) = view(pscale, a, :)
 _bin_noise(::EmpiricalNoise, pscale, counts, s, a, σ₁) = σ₁ ./ sqrt.(counts[a] .* s.pixels)
 
 # Each angle's noise per pixel σ₁: the sensor model's (the median over the angle of its bins' noise times √(their
-# pixels)), or the data's (the profile's drops across the stencil, each over its noise for σ₁ = 1: mad_scale of those,
+# pixels)), or the data's (the profile's drops across the stencil, each over its noise for σ₁ = 1, `unit` (`_unit_drop_noise`): mad_scale of those,
 # the rim's few drops leaving the median alone).
-function _rim_noise(stat::SensorModelNoise, profile, pscale, counts, s, a)
+function _rim_noise(stat::SensorModelNoise, profile, pscale, counts, s, a, unit)
     v = filter(isfinite, view(pscale, a, :) .* sqrt.(counts[a] .* s.pixels))
     return isempty(v) ? NaN : median(v)
 end
-function _rim_noise(stat::EmpiricalNoise, profile, pscale, counts, s, a)
-    p, σ = view(profile, a, :), _bin_noise(stat, pscale, counts, s, a, 1.0)
-    d = [x for x in (_stencil_ends(-, p, s, j) / _stencil_ends(hypot, σ, s, j) for j in eachindex(p)) if isfinite(x)]
+function _rim_noise(stat::EmpiricalNoise, profile, pscale, counts, s, a, unit)
+    p, σD = view(profile, a, :), unit[counts[a]]
+    d = [x for x in (_stencil_ends(-, p, s, j) / σD[j] for j in eachindex(p)) if isfinite(x)]
     return isempty(d) ? NaN : _scalar_scale(d)
 end
+
+# Each column's drop noise across its stencil at unit pixel noise (`_bin_noise` at σ₁ = 1 through `_stencil_ends`), per
+# bin row count: it depends on the angle only through its bin's rows (two counts at most), so it is computed once per
+# count, not once per angle.
+_unit_drop_noise(s, counts) = Dict(c => (σ = 1.0 ./ sqrt.(c .* s.pixels); [_stencil_ends(hypot, σ, s, j) for j in eachindex(σ)])
+                                   for c in unique(counts))
 
 # The candidates of one angle: every EDGE of the profile's OUTER ENVELOPE (the brightest the profile gets at or beyond
 # each radius: where the light ends it does not come back, while a scene edge or a dark object inside the disc is
@@ -362,8 +449,9 @@ end
 # angle's edge (the inlier candidate nearest the model).
 function _rim_at(rng, ::Type{T}, s, stat, c, initial, nbins; significance, outlier_halfwidth, device) where {T}
     profile, bin_reason, angles, counts, pscale = _rim_bins(s, nbins; device)
-    noise = [_rim_noise(stat, profile, pscale, counts, s, a) for a in 1:nbins]
-    scatter = _model_scatter(stat, profile, pscale, counts, s, noise)
+    unit = _unit_drop_noise(s, counts)
+    noise = [_rim_noise(stat, profile, pscale, counts, s, a, unit) for a in 1:nbins]
+    scatter = _model_scatter(stat, profile, pscale, counts, s, noise, unit)
     cand = [_rim_candidates(view(profile, a, :), s, _bin_noise(stat, pscale, counts, s, a, noise[a]), significance) for a in 1:nbins]
     ray(a, r) = c + r * Point2(cos(angles[a]), sin(angles[a]))
     # ONE point per wedge in each fit, so the support counts wedges and a wedge with many edges does not dominate:
@@ -401,9 +489,9 @@ function _rim_at(rng, ::Type{T}, s, stat, c, initial, nbins; significance, outli
 end
 
 # The sensor model against the data: each angle's empirical noise over the model's (`NaN`s without a model).
-_model_scatter(::EmpiricalNoise, profile, pscale, counts, s, noise) = fill(NaN, length(noise))
-_model_scatter(::SensorModelNoise, profile, pscale, counts, s, noise) =
-    [_rim_noise(EmpiricalNoise(), profile, pscale, counts, s, a) / noise[a] for a in eachindex(noise)]
+_model_scatter(::EmpiricalNoise, profile, pscale, counts, s, noise, unit) = fill(NaN, length(noise))
+_model_scatter(::SensorModelNoise, profile, pscale, counts, s, noise, unit) =
+    [_rim_noise(EmpiricalNoise(), profile, pscale, counts, s, a, unit) / noise[a] for a in eachindex(noise)]
 
 # The coverage's uncertainty: the covariance of the model `m` in Core's `ambient_coordinates` (an ellipse: centre and the
 # form Q's (Q₁₁, Q₁₂, Q₂₂); a circle: centre and radius) from the inliers `pts`, s²·solver_covariance (the

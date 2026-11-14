@@ -133,12 +133,37 @@ The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 unit weight, on the chart-LM refit's own chart and state (`_chart`,
 `_refit_state`: the rows `refine!` descends) in its workspace (`L.refine`, the
 one reuse policy) at Core's LM stop settings (`LmStops`, `[lm]`). NLLSsolver's Triggs
-correction carries the loss; nothing is reweighted here and no inlier set is
-formed. The model comes back through the chart's `recenter` and `_model_at`,
-as from `refine!`.
+correction carries the loss; nothing is reweighted during the LM and no inlier set is
+formed (the loop's re-score decides the inliers). The model comes back through the
+chart's `recenter` and `_model_at`, as from `refine!`.
+
+Two weight rules, fixed for the one LM (0 or 1 per datum; unit weight on every
+row when neither applies), as for `Irls{K}`:
+
+- a datum whose residual at `model` (`buf.residuals` on entry) is not finite
+  weighs 0 under every shape: its row would make the LM's cost infinite at its
+  start, and the local optimization would hand back its seed;
+- `Triggs{GaussianShape}` (least squares, which no outlier may enter) weighs only
+  the scorer's consensus set `cs` — `consensus_mask!(buf, scoring)`, the first
+  `inlier_count(cs)` of the scorer's `consensus_order` — the LO-RANSAC least
+  squares on the inliers. The robust shapes weigh every finite datum.
 """
-locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
-    _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, lo_loss(lo, cs, scoring, buf))
+function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
+    loss = lo_loss(lo, cs, scoring, buf)
+    weights = _triggs_weights!(L.posterior_w, _lo_consensus(lo, cs, buf, scoring), buf.residuals, data_size(problem))
+    return _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, loss; weights)
+end
+
+# The Triggs LO's per-datum weights, 0 or 1 (`_weighs`: a finite seed residual,
+# inside the consensus set when one is given), in the buffer `w`; `nothing` — unit
+# weight on every row, the LM as before — when no datum is excluded.
+function _triggs_weights!(w::AbstractVector{Float64}, consensus, r::AbstractVector, n::Int)
+    consensus === nothing && all(i -> @inbounds(isfinite(r[i])), 1:n) && return nothing
+    @inbounds for i in 1:n
+        w[i] = _weighs(consensus, r[i], i) ? 1.0 : 0.0
+    end
+    return view(w, 1:n)
+end
 
 # The rows the robustified LM robustifies, and a refine's plain least squares
 # minimises (`_refine_run(::Nothing, …)`, fitting/_refine.jl): the refit's
@@ -150,11 +175,12 @@ _triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
 
 # THE robustified chart LM — the RANSAC local optimization's (above) and every
 # refine_*'s Triggs (fitting/_refine.jl): `shape` at the deployed `loss`, one
-# `lmsolve_chart!` from `model` over every datum at unit weight, on the refit's
-# chart and state, in the chart-LM workspace `refine_ws` (the one reuse policy).
-function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss)
+# `lmsolve_chart!` from `model` over every datum at `weights` (`nothing`: unit
+# weight; the LO's 0/1 weights above), on the refit's chart and state, in the
+# chart-LM workspace `refine_ws` (the one reuse policy).
+function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss; weights = nothing)
     robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    m, (code, rule), n_iter = _chart_refit(refine_ws, problem, _chart(problem, _as_model(problem, model)), _triggs_state, nothing;
+    m, (code, rule), n_iter = _chart_refit(refine_ws, problem, _chart(problem, _as_model(problem, model)), _triggs_state, weights;
                                            robustifier)
     m === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
     return lo_estimate(m, code, rule; iterations = n_iter)

@@ -1,5 +1,17 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.4 (unreleased)
+
+- **`detect_foerstner`'s F-test at the residual sums' effective degrees of freedom** (difference 4 from `ip_fop.m`,
+  docs guide). `F = Ω_corner / Ω_circular` was tested against `F(redundancy, redundancy)`, the window's doubled-pixel
+  count less 2, as if the doubled, derivative-filtered samples were independent; at that count the test's level was not
+  the stated one (on white noise 20 % of the windows labelled circular and 25 % corner at 0.999). It is now tested
+  against `F(ν_corner, ν_circular)`, each `ν = (tr Q)²/tr Q²` (Satterthwaite) of the residual sum as the quadratic
+  form `Iᵀ Q I` of the input pixels, exact per window half-width (ν ≈ 87 against 2023 at σ = 6). Both the image-wide
+  search and the seeded windows. On the THORLABS chrome photographs the SFOP seeds between dots, on line artefacts
+  and on letter strokes (F ≈ 1–3) were labelled circular; they are now unknown. Labels change wherever F lies
+  between the two critical values; positions and covariances do not change.
+
 ## 0.9.3
 
 A patch: `detect_image_circle`'s rim radii through the log-polar map's differential and inverse (Core 0.10.3).

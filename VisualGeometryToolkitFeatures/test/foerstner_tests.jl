@@ -126,7 +126,8 @@ end
     estimates[[3, 6, 10, 13], :] .= 1.0                 # N⁻¹ = I for both models
     estimates[7, :] .= (1.0, 50.0, 10.0)                # Ω_corner
     estimates[14, :] .= (50.0, 1.0, 10.0)               # Ω_circular: F = 0.02, 50, 1
-    found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, redundancy = 167, upscale = 2)
+    taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)                     # derivative_sigma 1, doubled
+    found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, ρ = 6, redundancy = 167, upscale = 2, taps)
     rows = VGF._foerstner_points(found, VGF._foerstner_classes(found, 0.999), VGF._undouble)
     @test [d.label for d in rows] == [:corner, :circular, :unknown]
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
@@ -148,6 +149,44 @@ end
 # corner model's residuals), against the circular model's own residual sum, by
 # the coverage of the reported covariance on noisy dots (the docs page's numbers
 # come from the 400-trial version of this).
+@testitem "detect_foerstner: the F-test at the residual sums' effective degrees of freedom" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: Disc, Point2
+    using Random: Xoshiro, randn
+    using Statistics: mean, var
+    VGF = VisualGeometryToolkitFeatures
+    # white noise: each residual sum is the quadratic form Iᵀ Q I, E = σ² tr Q and ν = (tr Q)²/tr Q² (`_residual_dof`)
+    σn, level = 0.5, 0.999
+    img = Float32.(0.5 .+ (σn / 255) .* randn(Xoshiro(3), 600, 600))
+    σ = 6.0                                                     # a seed's scale: ρ = 22 doubled px
+    seeds = [Detection(Disc(Point2(x, y), σ), (; precision = 1.0)) for x in 30.0:24:570 for y in 30.0:24:570]   # disjoint windows
+    n = length(seeds)
+    g = VGF.ka_upload(Float32, KA.CPU(), img)
+    doubled = KA.allocate(KA.CPU(), Float32, 2 .* size(g)...)
+    VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
+    found = VGF._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
+    @test length(found.centres) == n && all(==(22), found.ρ)
+    dof = VGF._residual_dof(found.taps, 22)
+    # E[Ω] = σ² tr Q, within 4 standard errors of the mean (Var Ω = 2(σ² tr Q)²/ν); the corner sum's variance gives ν
+    # within 4 standard errors (a sample variance's relative SE is √(2/(n − 1)))
+    for (row, d) in ((7, dof.corner), (14, dof.circular))
+        Ω = found.estimates[row, :]
+        expected = (σn / 255)^2 * d.E
+        @test abs(mean(Ω) - expected) < 4 * expected * sqrt(2 / d.ν / n)
+    end
+    Ωc = found.estimates[7, :]
+    @test abs(2mean(Ωc)^2 / var(Ωc) - dof.corner.ν) < 4 * dof.corner.ν * sqrt(2 / (n - 1))
+    @test dof.corner.ν < (2 * 22 + 1)^2 / 10                    # far below the pixel count (2ρ + 1)² − 2 = 2023
+    # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
+    # at the pixel count it was about a fifth per side
+    rows = detect_foerstner(Float64, img, seeds; device = KA.CPU(), significance_level = level)
+    p = 2 * (1 - level)
+    @test count(d -> d.label !== :unknown, rows) <= n * p + 4 * sqrt(n * p * (1 - p))
+    # a dot is still a circular point and a corner a corner (the suite's synthetic scenes elsewhere)
+    truth, dots = blob_grid(60, 70; nx = 2, ny = 2)
+    @test all(d -> d.label === :circular, detect_foerstner(Float64, dots; device = KA.CPU()))
+end
+
 @testitem "detect_foerstner: the circular point's covariance, line 423 against its derivation" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using Random: Xoshiro, randn

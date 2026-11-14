@@ -115,11 +115,14 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
    `Σ ∇g∇gᵀ`), the circular point that of the lines ALONG it (`Σ ∇g⊥∇g⊥ᵀ`).
    Each has a weighted residual sum `Ω`, redundancy `(2ρ + 1)² − 2` and
    a-posteriori covariance `Ω/redundancy · N⁻¹` (lines 314–423, 440, 449).
-5. `F = Ω_corner / Ω_circular` against the F distribution of (redundancy,
-   redundancy) degrees of freedom, as the reference's
+5. `F = Ω_corner / Ω_circular` against the F distribution of the two residual
+   sums' EFFECTIVE degrees of freedom `(ν_corner, ν_circular)`, as the reference's
    `(T < F(α)) − (T > F(1 − α))` (line 429): a corner below the
    `1 − significance_level` quantile, a circular point above the
-   `significance_level` quantile, unknown in between.
+   `significance_level` quantile, unknown in between. `ν = (tr Q)²/tr Q²`
+   (Satterthwaite), `Ω = Iᵀ Q I` the residual sum as a quadratic form of the
+   input pixels under white noise, exact for the window's half-width and the
+   derivative taps (difference 4 below).
 6. With `noise` given, the covariance is propagated instead (not in the
    reference): the estimate `x̂ = N⁻¹ b` moves, by the implicit-function theorem,
    by `δx̂ = N⁻¹ Σₚ A(p) δ∇g(p)` with `A(p) w = (vᵀe) R w + v eᵀ R w`, `v = R∇g`,
@@ -152,6 +155,19 @@ input at 1-based `(r′/2, c′/2)`, so a doubled-grid position is at COLMAP
 3. **Defaults — the code's, not the header's.** The header states
    `SIGMA_N = 2.5` and `SIGMA_DIFF = 0.7` (lines 37, 50); the code runs `2.0`
    and `1.0` (lines 521, 524). A documentation conflict, not a fix.
+4. **The F-test's degrees of freedom — corrected.** The reference tests `F`
+   against `F(redundancy, redundancy)`, the window's doubled-pixel count less 2,
+   as if every residual were independent. The doubled samples are not: the
+   doubling and the derivative taps correlate them, and each residual sum has
+   the effective degrees of freedom `ν` of step 5, about 1/23 of the pixel count
+   (ν ≈ 87 against 2023 at ρ = 22, `derivative_sigma` 1). At the pixel count the
+   test's level is not the stated one: on white noise about 20 % of the windows
+   were labelled circular and 25 % corner at `significance_level` 0.999 (the
+   suite's test), where `ν` gives at most the stated rate. On the chrome
+   photographs the windows between dots, on line artefacts and on letter strokes
+   (F ≈ 1–3) were labelled circular. The a-posteriori covariance keeps the
+   reference's `Ω/redundancy · N⁻¹` (its calibration, NEES ≈ 2, is the
+   Förstner study's).
 
 The docs page gives the evidence for each. The reference warns that with a
 Gaussian integration the window estimation still weighs the pixels equally;
@@ -192,7 +208,7 @@ would give: SFOP's `N(σ) = 12σ² + 1` is the pixel count of the box of the sam
 energy as its Gaussian `G_σ`. The image-wide window search (step 3) is not run.
 
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
-window, F; the F-test of each window at its own redundancy), one per seed whose
+window, F; the F-test of each window at its own half-width's degrees of freedom), one per seed whose
 window lies inside the doubled image, in the order of `seeds`.
 """
 detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:Detection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
@@ -412,15 +428,61 @@ end
 end
 
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
-# 0 unknown (the reference's noclass).
+# 0 unknown (the reference's noclass). The F distribution's degrees of freedom are the two residual sums' effective
+# ones (`_residual_dof`, one per window half-width ρ), not the reference's pixel count `(2ρ + 1)² − 2`.
 function _foerstner_classes(found, significance_level)
-    critical(red) = (fdist = FDist(red, red); (quantile(fdist, significance_level), quantile(fdist, 1 - significance_level)))
-    shared = found.redundancy isa Number ? critical(found.redundancy) : nothing     # one F distribution for all
+    dof = Dict(ρ => _residual_dof(found.taps, ρ) for ρ in unique(found.ρ))
+    function critical(ρ)
+        d = dof[ρ]
+        fdist = FDist(d.corner.ν, d.circular.ν)
+        return quantile(fdist, significance_level), quantile(fdist, 1 - significance_level)
+    end
+    tests = Dict(ρ => critical(ρ) for ρ in keys(dof))
     function class(k, e)
-        corner_critical, circular_critical = something(shared, critical(_per_window(found.redundancy, k)))
+        corner_critical, circular_critical = tests[_per_window(found.ρ, k)]
         return (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
     end
     return Int8[class(k, e) for (k, e) in enumerate(eachcol(found.estimates))]
+end
+
+# The effective degrees of freedom of the window's two residual sums under white input noise (Satterthwaite):
+# `Ω = Σₚ (aₚᵀ∇g(p))²` over the (2ρ + 1)² doubled pixels p of the window, `aₚ = e` (the corner model: the distance
+# across the gradient) or `R e` (the circular point: along it), `e = p − c` about the window centre c, is the quadratic
+# form `Ω = Iᵀ Q I` of the input pixels I, so for iid noise of unit variance `E[Ω] = tr Q`, `Var Ω = 2 tr Q²` and
+# `ν = (tr Q)²/tr Q²`. The doubled samples are correlated (the doubling, the derivative and across taps), so ν is far
+# below the pixel count. The gradient's components are separable — the rows' and the columns' one-axis operators
+# (`_pipeline_bands` of `taps`, `_propagated_covariances`' convention: ∂/∂row reads (derivative, across), ∂/∂column
+# (across, derivative)) — so their covariance is `K_ss′(p, p′) = Kr_ss′(r, r′)·Kc_ss′(c, c′)`, and with `aₚ` linear in
+# one coordinate each `aₚᵀ K(p, p′) aₚ′` is a sum of four products `f_t(r, r′)·g_t(c, c′)`: `tr Q = Σ_t tr f_t tr g_t`,
+# `tr Q² = Σ_tu ⟨f_t, f_u⟩⟨g_t, g_u⟩`, exact, O(ρ²). Interior windows (every window is inside the image); the
+# doubling's phase changes ν by < 1e-5 relative, so the window is centred on an even doubled pixel.
+# Returns `(; corner = (; ν, E), circular = (; ν, E))`, `E = tr Q`.
+function _residual_dof(taps::AbstractMatrix, ρ::Integer)
+    r = size(taps, 1) ÷ 2
+    n = ρ + r + 4                                           # input pixels: the window and the taps' reach, interior
+    span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
+    x = Float64.(collect(span) .- n)                        # e along that axis
+    function kernels(B)                                     # K_ss′ = Bₛᵀ Bₛ′, Bₛ[q, i] the weight of input q at span[i]
+        D = zeros(n, length(span), 2)
+        for (i, p) in enumerate(span), s in 1:2, k in axes(B, 1)
+            D[_band_start(p, r) + k - 1, i, s] += B[k, p, s]
+        end
+        return [D[:, :, s]' * D[:, :, s2] for s in 1:2, s2 in 1:2]
+    end
+    Kr = kernels(_pipeline_bands(Float64.(taps), n))
+    Kc = kernels(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
+    xi, xj = x, x'                                          # the factor's row and column coordinate
+    # aₚᵀ K aₚ′ = Σ_t f_t(r, r′) g_t(c, c′); circular a = (−c, r), corner a = (r, c) on (∂/∂row, ∂/∂column)
+    circular = ((Kr[1, 1], xi .* xj .* Kc[1, 1]), (-xj .* Kr[1, 2], xi .* Kc[1, 2]),
+                (-xi .* Kr[2, 1], xj .* Kc[2, 1]), (xi .* xj .* Kr[2, 2], Kc[2, 2]))
+    corner = ((xi .* xj .* Kr[1, 1], Kc[1, 1]), (xi .* Kr[1, 2], xj .* Kc[1, 2]),
+              (xj .* Kr[2, 1], xi .* Kc[2, 1]), (Kr[2, 2], xi .* xj .* Kc[2, 2]))
+    function moments(terms)
+        E = sum(tr(f) * tr(g) for (f, g) in terms)
+        V = sum(sum(f .* f2) * sum(g .* g2) for (f, g) in terms, (f2, g2) in terms)
+        return (; ν = E^2 / V, E)
+    end
+    return (; corner = moments(corner), circular = moments(circular))
 end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is

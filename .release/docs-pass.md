@@ -1,3 +1,66 @@
+docs-pass: 15156a4b
+
+# VisualGeometryToolkitCore 0.10.5 docs pass (julia-docs-pass) — branch patch-core-f16
+
+Baseline: GitHub main aaf389a5 (Core 0.10.4). 15156a4b is patch-core-f16: the red tests (fe8672c7), the element type
+(c65c1845), the /simplify (8dd638f0) and /code-review high (dc54751f) fixes, with GitHub main dc983c78 merged
+(Estimation 0.11.2 as posted; no Core file changed: `VisualGeometryToolkitCore/` is byte-identical to the gated dc54751f).
+Owner and coordinator rulings 2026-11-14: a purely additive patch, the default element type unchanged (Float64; the
+flip to Float16 is a wave-11 row); the variance plane Float32 beside Float16 values (a Float16 variance underflows), and
+the stored value's variance (the law's plus the store's spacing²/12; 0 for Float64); a gain that could overflow the type
+refused; the type a leading positional per conventions/signatures.md (`LinearRaw{T}` is taken by the mode).
+
+## 1. Public API since 0.10.4
+
+- **Added:** the methods `LinearRaw(T, mosaic; mode, gain, sensor_model)` and `linearview(T, m; sensor_model)`, `T` a
+  `Base.IEEEFloat`. Names: unchanged (no export, no new public name; the default is the private `_LINEAR_RAW_ELTYPE`).
+  Removed: nothing public (`_ValueCovariance` was internal).
+- **Behaviour:** none at the default (Float64 values and variances bit for bit 0.10.4's). `linear_quantum` of a Float16
+  view is the coarser of one code and the stored value's spacing (Float32 and Float64: the code's, bit for bit). A
+  Float16 or Float32 uncertain image's variance includes spacing²/12. `LinearRaw(T, …)` refuses a gain at which a value
+  could exceed `floatmax(T)`.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` items green in CPU group 9 and depwarn=yes group 25 (`LinearRaw([T = Float64], mosaic; …)`, `linearview([T = Float64], m; …)` as the methods) |
+| `checkdocs = :public`, doctests, cross-references, link check | Core docs 17227: strict build green |
+| README and landing page | unchanged: neither shows a `LinearRaw` or `linearview` (no element-type example to add); the readme items stand as run |
+| guides | raw-images.md: a new section, "The element type: Float16 values", deriving the Float16 budget on the FX3 (step `d/2048 ≈ 7.75` codes against a shot noise of 26.5–37.6 codes; rounding ≤ 0.71% of the shot variance; 3.3 digits in the darks), the variance plane (why not Float16; the storage term with the FX3 evidence: K 11.18 vs 11.30 e⁻/code without it, ≈ 22× the counts SE, measured/expected 0.98–1.03, 11.297 with it), the overflow refusal and the Float64 reduction rule. No other guide states a RAW element type |
+| docstrings | `LinearRaw` (the image's element type, "The element type" section with the derivations), `LinearRaw(…)` (the type argument; the green-cell value of a non-Float64 image is the Float64 mean rounded once), `LinearRawView` (`Uncertain{V}`), `linearview` (`T`, `Uncertain{T}`), `linear_quantum` (the stored value's resolution), `green_plane` (the image's element type) |
+| check_naming | 0 in the prep (17223); the test's `step` identifier renamed before the first run |
+| CHANGELOG | Core `## 0.10.5`: Added (the type argument, the variance plane's type and storage term with the FX3 evidence, the overflow refusal, `linear_quantum`), Unchanged (the estimators read the codes) |
+| wave 11 | `.release/wave11-removals.md`: the default's flip to Float16, with the default's other homes (the docstrings' `[T = Float64]`, `raw_provenance`'s element type, Features' `load_raw` cache key) |
+| version | Core 0.10.5 |
+
+Review (/simplify, /code-review high) findings recorded, not fixed: testitems 2 and 3 kept (the brief's derived-bound
+tests, a consumer's statistics over Float16 storage); `_LINEAR_RAW_ELTYPE === Float64` kept as the guard a flip must
+change deliberately; `_store_variances!` keeps its recursion (the planes are a heterogeneous tuple, unrolled for the
+GPU); `IsotropicCovMat` not used for the covariance type (the frame parameter would be restated); `raw_provenance` does
+not record the element type (a new key could break downstream records: wave 11); `copy(::LinearRawView{<:Attributed})`'s
+two broadcasts predate the patch.
+
+## 3. Executed on dc54751f (Core identical at 15156a4b)
+
+Julia 1.13.3, fresh clones, nice 0, the wave stack paths:
+
+| gate | job | result |
+|---|---|---|
+| Core prep | 17223 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 (Core, IO, Features) |
+| Core CPU (--depwarn=error) | 17224 | groups 1–16 green: 414,164 pass, 34 broken, 414,198 total |
+| Core CPU (--depwarn=yes) | 17225 | groups 17–32 green: 414,164 pass, 34 broken, 414,198 total |
+| Core GPU | 17226 | groups 33–38 green: 54,985 pass (the new CPU = GPU item ran: group 33, 0 broken) |
+| Core docs | 17227 | green |
+
+Development runs (snapshots of the worktree): 17123 (red: 5 errors, MethodError and UndefVarError), 17125 and 17126
+(green; the GPU item's `m`, Core's metre, renamed), 17203 and 17204 (after the review, CPU and GPU green); 17145 the
+Float16-default configuration (13 existing items fail only their bit-for-bit Float64 assertions; no exception).
+Downstream measurement (scratch only, read-only on RC 0.10.0 4fa0f62a): 17142, 17156 (FX3), 17228 (RC observations),
+17229, 17230 (Features detectors).
+
+---
+
 docs-pass: e20a176e
 
 # VisualGeometryToolkitEstimation 0.11.2 docs pass (julia-docs-pass) — branch patch-est0112

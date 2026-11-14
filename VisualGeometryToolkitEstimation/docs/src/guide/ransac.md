@@ -84,6 +84,21 @@ about the current model (tabled below). It stops when the weighted cost fails
 to decrease, the refit fails, or after `max_iter` iterations, returning the
 lowest-cost model.
 
+Two weight rules hold for every shape:
+
+- **A non-finite residual weighs 0.** A datum whose squared residual is `Inf`
+  or `NaN` (an out-of-reach point, an infinite Sampson distance) gets weight 0
+  at the seed and at every refit, so it can neither make the cost
+  ``\sum_i w_i r_i^2`` infinite — which would stop the iteration at its seed —
+  nor enter the refit. The robust shapes already weigh an infinite residual 0;
+  the rule adds the Gaussian shape and the `NaN` residual.
+- **The Gaussian shape refits the consensus set.** `Irls{GaussianShape}` is
+  least squares, which no outlier may enter: it weighs the scorer's consensus
+  set (the first `inlier_count` of its `consensus_order`, the set
+  `consensus_mask!` marks) at unit weight and every other datum 0 — the
+  LO-RANSAC least squares on the inliers. No threshold of its own: the set is
+  the scorer's decision. The robust shapes weigh every datum by their loss.
+
 ### M-step dispatch
 
 The M-step is implemented by `refine!(ws, problem, θ, weights)`, routed by the

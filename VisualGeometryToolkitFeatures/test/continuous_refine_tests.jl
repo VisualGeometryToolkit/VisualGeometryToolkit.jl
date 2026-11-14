@@ -18,7 +18,7 @@
     @test e !== nothing && e.o == 0
     vA = SVector(e.X + e.off[2], e.Y + e.off[3], e.sl + e.off[1])
     cfg = VgtkFeatures._continuous_refinement(:spline)
-    ext, wins, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(vA..., 1)]; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg)
+    ext, wins, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(vA..., 1)]; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg)
     r = ext[1]
     @test VgtkCore.successful_retcode(r.retcode)
     truth = SVector(cx + 1, cy + 1)                          # octave 0: level px = image px, 1-based
@@ -30,11 +30,11 @@
     # a start 2.5 level px off: the extremum lies outside its box (half-width 1), so the solve ends on the box —
     # LeftBasin, a failure, and the start returned as the last valid estimate
     v2 = SVector(vA[1] + 2.5, vA[2], vA[3])
-    ext2, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(v2..., 1)]; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg)
+    ext2, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(v2..., 1)]; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg)
     @test !VgtkCore.successful_retcode(ext2[1].retcode) && ext2[1].stop_rule == VgtkCore.LeftBasin && ext2[1].v == v2
     # the recipe (ContinuousRefinement(): the matched spatial gradient, the scale row from the unfiltered spline):
     # converged, no farther from the truth than A
-    extS, winsS, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(vA..., 1)]; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg = VgtkFeatures.ContinuousRefinement())
+    extS, winsS, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(vA..., 1)]; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = VgtkFeatures.ContinuousRefinement())
     @test VgtkCore.successful_retcode(extS[1].retcode)
     @test hypot(extS[1].v[1] - truth[1], extS[1].v[2] - truth[2]) < errA
     ΣS = VgtkFeatures._continuous_covariance(plan, e.oi, 1, winsS[1], extS[1], VgtkFeatures.ContinuousRefinement())
@@ -48,7 +48,7 @@
     # the extremum the refinement reaches it inside the level, but with the level's last column at x = 128 (the
     # extremum at 128.45 beyond it) it ends on that edge — LeftBasin, the start returned — never outside the level
     v3 = SVector(vA[1] - 0.6, vA[2], vA[3])
-    S = plan.nb_scales
+    S = plan.space.nb_scales
     inside = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (W, H))
     @test VgtkCore.successful_retcode(inside[4]) && abs(inside[1][1] - truth[1]) < 2.0e-3
     cut = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (128, H))
@@ -76,7 +76,7 @@ end
         tol = VgtkFeatures._cr("cpu_gpu_tolerance")                 # derived in configs/continuous_refinement.toml
         for response in (:spline, :farid_simoncelli_spatial), oi in unique(e.oi for e in es)
             st = [(e.X + e.off[2], e.Y + e.off[3], e.sl + e.off[1], 1) for e in es if e.oi == oi]
-            kw = (; seed_sigma = plan.seed_sigma, S = plan.nb_scales, cfg = VgtkFeatures._continuous_refinement(response))
+            kw = (; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = VgtkFeatures._continuous_refinement(response))
             eg, _, _ = VgtkFeatures._refine_dog_extrema(CUDA.CUDABackend(), plan.dogs[oi], st; kw...)
             ec, _, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), Array(plan.dogs[oi]), st; kw...)
             # the same verdict on both backends; the stop RULE may differ between two converged solves at a tie of their

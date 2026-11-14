@@ -35,8 +35,8 @@ its covariance, after the reference implementation `ip_fop.m`
 [Koethe2003](@cite).
 
 Returns one row per optimal window, a `StructArray` of
-`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F))` (VisualGeometryToolkitCore's
-`PointFrame`: a position, no scale):
+`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F, covariance_status))`
+(VisualGeometryToolkitCore's `PointFrame`: a position, no scale):
 
 - `label`: `:corner` (a junction point), `:circular` (Förstner & Gülch's
   circular point: the centre of a rotationally symmetric pattern, with no size
@@ -100,7 +100,7 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
 1. The image is doubled bilinearly (the package's one 2× upsampling, ASIFT's)
    and every scale and threshold doubled with it (lines 170–180).
 2. The gradient by correlation with the derivative taps (radius `⌈3.3σ⌉`, zero
-   padding, as `imfilter`), its squares and product (the squared gradient),
+   padding, as `imfilter`: [`gaussian_gradient`](@ref)), its squares and product (the squared gradient),
    and their integration by the box (width `2⌈√(12σ² + 1)/2⌉ + 1`) or the
    Gaussian (radius `⌈3.3σ⌉`), zero padded (lines 184–207, 617–678).
 3. The window measure (`det/tr` or the smaller eigenvalue) masked by the tests
@@ -177,6 +177,29 @@ detect_foerstner(img::Union{AbstractMatrix, LinearRaw}; kw...) = detect_foerstne
 detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = nothing, noise_sigma::Real = something(noise, 2.0),
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
 
+"""
+    detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
+                     noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
+                     significance_level = 0.999) -> StructArray{<:Detection}
+
+The Förstner operator's window estimation (steps 4–6 of the method above, its
+doubled resolution, its kernels) at GIVEN windows: one window per seed, centred
+on the doubled-grid pixel nearest the seed's centre, its integration scale the
+seed's characteristic scale σ (input pixels; a [`detect_sfop`](@ref) row's
+selected σ). The box window has the standard deviation σ, the estimation window
+the half-width `⌈√(12(2σ)² + 1)/2⌉ + 1` doubled pixels, as `integration_sigma = σ`
+would give: SFOP's `N(σ) = 12σ² + 1` is the pixel count of the box of the same
+energy as its Gaussian `G_σ`. The image-wide window search (step 3) is not run.
+
+Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
+window, F; the F-test of each window at its own redundancy), one per seed whose
+window lies inside the doubled image, in the order of `seeds`.
+"""
+detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:Detection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
+
+detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detection}; noise::Union{Nothing, Real} = nothing,
+                 kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); seeds, kw...)
+
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
     _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
 
@@ -197,7 +220,8 @@ function _detect_foerstner(
         integration_sigma::Real = 1.41 * derivative_sigma,
         precision_threshold::Real = 0.5,
         roundness_threshold::Real = 0.3,
-        significance_level::Real = 0.999
+        significance_level::Real = 0.999,
+        seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing
     ) where {T <: AbstractFloat}
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
@@ -205,10 +229,10 @@ function _detect_foerstner(
     g = ka_upload(T, device, img isa AbstractMatrix{<:AbstractFloat} ? img : gray.(gray_f32(img)))
     doubled = KA.allocate(device, T, 2 .* size(g)...)
     _launch!(_upsample_doubled!, device, doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
-    found = _foerstner_windows(
+    found = seeds === nothing ? _foerstner_windows(
         device, doubled; method, noise_sigma, derivative, integration, derivative_sigma,
         integration_sigma, precision_threshold, roundness_threshold
-    )
+    ) : _foerstner_seeded(device, doubled, seeds; derivative, derivative_sigma)
     classes = _foerstner_classes(found, significance_level)
     model === nothing && return _foerstner_points(found, classes, _undouble)
     variance, covariance_status = model
@@ -255,8 +279,8 @@ end
 # The image-wide steps on the doubled image (ip_fop.m 127, 177–281) and the
 # window estimates (314–423), positions on the doubled grid, 1-based (row,
 # column). Returns the window centres, the estimates (a 14 × K host matrix, see
-# `_window_estimate`), the window half-width ρ, its redundancy and the squared
-# gradient on the host (`grr, gcc, grc` as a H × W × 3 array).
+# `_window_estimate`), the window half-width ρ, its redundancy and, on the device,
+# the squared gradient (`grr, gcc, grc` as a H × W × 3 array) and the gradient.
 function _foerstner_windows(
         device, doubled::AbstractMatrix{T}; method::Symbol, noise_sigma::Real, derivative::Symbol,
         integration::Symbol, derivative_sigma::Real, integration_sigma::Real,
@@ -264,32 +288,20 @@ function _foerstner_windows(
     ) where {T}
     method in (:foerstner, :koethe) ||
         throw(ArgumentError("detect_foerstner: method must be :foerstner or :koethe, got :$method"))
-    derivative in (:gaussian2d, :gaussian1d) ||
-        throw(ArgumentError("detect_foerstner: derivative must be :gaussian2d or :gaussian1d, got :$derivative"))
     integration in (:box, :gaussian) ||
         throw(ArgumentError("detect_foerstner: integration must be :box or :gaussian, got :$integration"))
     upscale = 2                                             # 170–180
     nonmax_radius = upscale * ceil(Int, sqrt(12 * integration_sigma^2 + 1))
-    σd = upscale * derivative_sigma
     σi = upscale * integration_sigma
     precision_floor = T(((noise_sigma / 255) / (upscale * precision_threshold))^2)   # 213
     rows, cols = size(doubled)
 
     # 184–207: the squared gradient and its integration
-    derivative_taps, across_taps = _derivative_taps(derivative, σd)
+    grad = _foerstner_gradient(device, doubled; derivative, derivative_sigma, upscale)
+    gamma = grad.gamma
     integration_taps, integration_radius = _integration_taps(integration, σi)
-    up(taps) = ka_upload(T, device, taps)
-    dr = KA.allocate(device, T, rows, cols, 2)
-    tmp = similar(dr)
-    _launch!(_correlate_rows!, device, tmp, reshape(doubled, rows, cols, 1), up([derivative_taps across_taps]); ndrange = size(tmp))
-    _launch!(_correlate_columns!, device, dr, tmp, up([across_taps derivative_taps]); ndrange = size(dr))
-    gamma = KA.allocate(device, T, rows, cols, 3)
-    _launch!(_squared_gradient!, device, gamma, dr; ndrange = (rows, cols))
-    mean_gamma = similar(gamma)
-    tmp3 = similar(gamma)
-    it = up(repeat(integration_taps, 1, 3))
-    _launch!(_correlate_rows!, device, tmp3, gamma, it; ndrange = size(tmp3))
-    _launch!(_correlate_columns!, device, mean_gamma, tmp3, it; ndrange = size(mean_gamma))
+    mean_gamma = _separable_correlate(device, gamma, ka_upload(T, device, repeat(integration_taps, 1, 3)),
+                                      ka_upload(T, device, repeat(integration_taps, 1, 3)))
 
     # 210–248: the window measure and its regional maxima
     candidates = KA.allocate(device, T, rows, cols)
@@ -309,37 +321,106 @@ function _foerstner_windows(
         Array(changed)[1] == 0 && break
     end
 
-    # 249–281: the second non-maximum suppression, away from the border
+    # 249–281: the second non-maximum suppression, away from the border; the kept centres compacted on the device
     border = max(integration_radius, nonmax_radius) + 1
     keep = KA.allocate(device, Bool, rows, cols)
     _launch!(_second_suppression!, device, keep, is_max, ranking, Int32(nonmax_radius), Int32(border); ndrange = (rows, cols))
-    keep_host = Array(keep)
-    count(Array(is_max) .& (Array(ranking) .> 0)) == rows * cols && fill!(keep_host, false)   # 255–258
-    centres = findall(keep_host)                            # column-major, as MATLAB's find
+    centres = _kept_centres(device, keep, is_max, ranking)
 
     # 314–423: both point models in each window
     ρ = ceil(Int, sqrt(12 * σi^2 + 1) / 2) + 1
+    return (; _foerstner_estimates(device, gamma, centres, ρ)..., upscale, grad...)
+end
+
+# 184–207 (the gradient half): the gradient of the doubled image at the doubled derivative σ, by the package's one
+# Gaussian gradient, and its squared gradient (`grr, gcc, grc` as an H × W × 3 device array), with the taps it ran.
+function _foerstner_gradient(device, doubled::AbstractMatrix{T}; derivative::Symbol, derivative_sigma::Real, upscale::Integer) where {T}
+    derivative in (:gaussian2d, :gaussian1d) ||
+        throw(ArgumentError("detect_foerstner: derivative must be :gaussian2d or :gaussian1d, got :$derivative"))
+    σd = upscale * derivative_sigma
+    derivative_taps, across_taps = _derivative_taps(derivative, σd)
+    gx, gy = gaussian_gradient(doubled, σd; derivative)    # the package's one Gaussian gradient (∂/∂column, ∂/∂row)
+    rows, cols = size(doubled)
+    gamma = KA.allocate(device, T, rows, cols, 3)
+    _launch!(_squared_gradient!, device, gamma, gy, gx; ndrange = (rows, cols))
+    return (; gamma, gradient_rows = gy, gradient_columns = gx, taps = [derivative_taps across_taps])
+end
+
+# The windows of `seeds` on the doubled image: each centred on the doubled pixel nearest its centre (COLMAP x is
+# doubled column 2x + 1), half-width ρ = ⌈√(12(2σ)² + 1)/2⌉ + 1 for its characteristic scale σ (the box window of
+# `integration_sigma = σ`); a window that leaves the image is dropped. Then both point models in each (314–423).
+function _foerstner_seeded(device, doubled::AbstractMatrix, seeds; derivative::Symbol, derivative_sigma::Real)
+    upscale = 2
+    grad = _foerstner_gradient(device, doubled; derivative, derivative_sigma, upscale)
+    rows, cols = size(doubled)
+    centres, radii = CartesianIndex{2}[], Int[]
+    for d in seeds
+        disc = Disc(d)
+        r, c = round(Int, upscale * disc.center[2] + 1), round(Int, upscale * disc.center[1] + 1)
+        ρ = ceil(Int, sqrt(12 * (upscale * disc.σ)^2 + 1) / 2) + 1
+        (ρ < r <= rows - ρ) && (ρ < c <= cols - ρ) || continue
+        push!(centres, CartesianIndex(r, c)); push!(radii, ρ)
+    end
+    return (; _foerstner_estimates(device, grad.gamma, centres, radii)..., upscale, grad...)
+end
+
+# 314–423: both point models in the window of half-width ρ (one for every window, or one per window) around each
+# centre (doubled 1-based CartesianIndex), each window's redundancy `(2ρ + 1)² − 2`.
+function _foerstner_estimates(device, gamma::AbstractArray{T, 3}, centres, ρ) where {T}
     centre_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
+    radii = ρ isa Integer ? Int32(ρ) : ka_upload(Int32, device, Int32.(ρ))
     device_estimates = KA.allocate(device, T, 14, length(centres))
     isempty(centres) ||
-        _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, Int32(ρ); ndrange = length(centres))
+        _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, radii; ndrange = length(centres))
     KA.synchronize(device)
     return (;
-        centres, estimates = Float64.(Array(device_estimates)), ρ, redundancy = (2ρ + 1)^2 - 2, upscale,
-        gamma = Array(gamma), gradient = dr, taps = [derivative_taps across_taps], centre_list, device_estimates,
+        centres, estimates = Float64.(Array(device_estimates)), ρ = radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,
+        centre_list, device_estimates,
     )
+end
+
+# A window parameter shared by every window (a number) or one per window (a vector): window k's.
+@inline _per_window(x::Number, k) = x
+@inline _per_window(x::AbstractVector, k) = @inbounds x[k]
+
+# 228, 249–281: the kept window centres (the second suppression's `keep`), compacted on the device — a count, then
+# each kept pixel's linear index appended — and sorted column-major as MATLAB's find. None when every pixel is a
+# regional maximum of positive rank (255–258: the reference discards a constant image).
+function _kept_centres(device, keep, is_max, ranking)
+    counts = KA.zeros(device, Int32, 2)
+    _launch!(_count_kept!, device, counts, keep, is_max, ranking; ndrange = size(keep))
+    n, n_max = Array(counts)
+    (n == 0 || n_max == length(keep)) && return CartesianIndex{2}[]
+    list = KA.allocate(device, Int32, n)
+    fill!(counts, Int32(0))
+    _launch!(_append_kept!, device, list, counts, keep; ndrange = size(keep))
+    return CartesianIndices(keep)[sort!(Array(list))]
+end
+
+@kernel function _count_kept!(counts, @Const(keep), @Const(is_max), @Const(ranking))
+    I = @index(Global, Linear)
+    @inbounds keep[I] && Atomix.@atomic counts[1] += Int32(1)
+    @inbounds (is_max[I] & (ranking[I] > zero(eltype(ranking)))) && Atomix.@atomic counts[2] += Int32(1)
+end
+
+@kernel function _append_kept!(list, counts, @Const(keep))
+    I = @index(Global, Linear)
+    @inbounds if keep[I]
+        k = Atomix.@atomic counts[1] += Int32(1)
+        list[k] = Int32(I)
+    end
 end
 
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
 # 0 unknown (the reference's noclass).
 function _foerstner_classes(found, significance_level)
-    fdist = FDist(found.redundancy, found.redundancy)
-    corner_critical = quantile(fdist, significance_level)
-    circular_critical = quantile(fdist, 1 - significance_level)
-    return Int8[
-        (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
-            for e in eachcol(found.estimates)
-    ]
+    critical(red) = (fdist = FDist(red, red); (quantile(fdist, significance_level), quantile(fdist, 1 - significance_level)))
+    shared = found.redundancy isa Number ? critical(found.redundancy) : nothing     # one F distribution for all
+    function class(k, e)
+        corner_critical, circular_critical = something(shared, critical(_per_window(found.redundancy, k)))
+        return (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
+    end
+    return Int8[class(k, e) for (k, e) in enumerate(eachcol(found.estimates))]
 end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is
@@ -352,7 +433,7 @@ function _foerstner_points(found, classes, undouble; covariances = nothing, cova
         e = view(estimates, :, k)
         class = classes[k]
         window = undouble(p[1], p[2])
-        Σ(Ninv, Ω) = covariances === nothing ? Ninv .* (Ω / redundancy) : view(covariances, :, k)
+        Σ(Ninv, Ω) = covariances === nothing ? Ninv .* (Ω / _per_window(redundancy, k)) : view(covariances, :, k)
         frame = if class == 1
             _uncertain_point(undouble, e[1], e[2], Σ(e[3:6], e[7]), upscale)
         elseif class == -1
@@ -408,7 +489,7 @@ end
 # (on the device of `found`), through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
 function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
-    (; centres, ρ, gradient, taps, centre_list, device_estimates) = found
+    (; centres, ρ, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
     H, W = size(variance)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
@@ -417,8 +498,8 @@ function _propagated_covariances(device, found, classes, variance::AbstractMatri
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient, variance, centre_list, device_estimates,
-        ka_upload(Int8, device, classes), rows, columns, Int32(ρ), Int32(size(taps, 1) ÷ 2); ndrange = K
+        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, centre_list, device_estimates,
+        ka_upload(Int8, device, classes), rows, columns, ρ, Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
 end
@@ -427,10 +508,11 @@ end
 # pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
 # |p − 2q| ≤ r + 2 along each axis.
 @kernel function _propagated_covariances!(
-        out, @Const(gradient), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
-        @Const(rows), @Const(columns), ρ::Int32, r::Int32
+        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
+        @Const(rows), @Const(columns), radii, r::Int32
     )
     k = @index(Global)
+    ρ = _per_window(radii, k)
     T = eltype(out)
     @inbounds class = classes[k]
     @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
@@ -454,7 +536,7 @@ end
                 (1 <= k1 <= w) & (1 <= k2 <= w) || continue
                 @inbounds δr = rows[k1, pr, 1] * columns[k2, pc, 1]
                 @inbounds δc = rows[k1, pr, 2] * columns[k2, pc, 2]
-                @inbounds gr, gc = gradient[pr, pc, 1], gradient[pr, pc, 2]
+                @inbounds gr, gc = gradient_rows[pr, pc], gradient_columns[pr, pc]
                 # v = R∇g and u = Rδ∇g (R the 90° rotation for the circular point), e = p − x̂
                 vr, vc = dot ? (-gc, gr) : (gr, gc)
                 ur, uc = dot ? (-δc, δr) : (δr, δc)
@@ -567,11 +649,11 @@ end
     @inbounds out[i, j, k] = s
 end
 
-# 196–199: (∂r g)², (∂c g)², ∂r g ∂c g from the two derivative slices.
-@kernel function _squared_gradient!(gamma, @Const(d))
+# 196–199: (∂r g)², (∂c g)², ∂r g ∂c g from the gradient's row and column components.
+@kernel function _squared_gradient!(gamma, @Const(grad_r), @Const(grad_c))
     i, j = @index(Global, NTuple)
     @inbounds begin
-        gr, gc = d[i, j, 1], d[i, j, 2]
+        gr, gc = grad_r[i, j], grad_c[i, j]
         gamma[i, j, 1] = gr * gr
         gamma[i, j, 2] = gc * gc
         gamma[i, j, 3] = gr * gc
@@ -635,12 +717,93 @@ end
     @inbounds keep[i, j] = k
 end
 
-@kernel function _window_estimates!(out, @Const(gamma), @Const(centres), ρ::Int32)
+@kernel function _window_estimates!(out, @Const(gamma), @Const(centres), radii)
     k = @index(Global)
-    @inbounds e = _window_estimate(gamma, centres[1, k], centres[2, k], ρ)
+    @inbounds e = _window_estimate(gamma, centres[1, k], centres[2, k], _per_window(radii, k))
     for n in 1:14
         @inbounds out[n, k] = e[n]
     end
+end
+
+# ----- the Gaussian gradient ---------------------------------------------------------
+
+"""
+    gaussian_gradient(img::AbstractMatrix{<:Real}, σ[, mask]; derivative = :gaussian2d) -> (gx, gy)
+
+The gradient of `img` at scale `σ` (pixels): `gx` the derivative along the
+columns (COLMAP x, ∂/∂column), `gy` along the rows (y, ∂/∂row), each the
+image's size, in its element type (an integer image's `float`), on its device
+(the image's KernelAbstractions backend: a host array on the CPU, a GPU array on
+its GPU — one kernel for both). Per pixel, so a step of height 1 gives a peak
+of ≈ 1/(√(2π)σ) per pixel for `:gaussian2d`.
+
+The derivative of a Gaussian, correlated along one axis: the taps
+`x·exp(−x²/2σ²)/(√(2π)σ³)` on radius `⌈3.3σ⌉`; along the other axis
+`derivative = :gaussian2d` smooths with the unit-sum Gaussian of the same σ and
+radius, `:gaussian1d` not at all. Zero padding at the image border (MATLAB's
+`imfilter`): the Förstner operator's gradient ([`detect_foerstner`](@ref) calls
+this one), bit for bit.
+
+With a `mask` (an `H × W` array of weights, `0` outside the support — a
+fisheye's image circle) it honours [`gaussian_blur`](@ref)'s semantics: the
+gradient of the NORMALIZED convolution `blur(img·mask) / blur(mask)` (the blur
+the across-axis Gaussian), `(∂N·D − N·∂D) / D²` with `N` and `∂N` of
+`img·mask`, `D` and `∂D` of `mask`; pixels outside the mask do not bleed in, and
+the gradient is `0` where the mask is zero.
+"""
+function gaussian_gradient(img::AbstractMatrix{<:Real}, σ::Real, mask::Union{Nothing, AbstractMatrix{<:Real}} = nothing;
+                           derivative::Symbol = :gaussian2d)
+    isfinite(σ) && σ > 0 || throw(ArgumentError("gaussian_gradient: σ must be positive and finite, got $σ"))
+    derivative in (:gaussian2d, :gaussian1d) ||
+        throw(ArgumentError("gaussian_gradient: derivative must be :gaussian2d or :gaussian1d, got :$derivative"))
+    H, W = size(img)
+    mask === nothing || size(mask) == (H, W) ||
+        throw(DimensionMismatch("gaussian_gradient: an $(H)×$(W) image and a $(join(size(mask), '×')) mask"))
+    T = float(eltype(img))
+    device = KA.get_backend(img)
+    a = img isa AbstractMatrix{T} ? img : T.(img)
+    d, c = _derivative_taps(derivative, σ)
+    if mask === nothing                                     # ∂row then ∂column: the rows' taps (d, c), the columns' (c, d)
+        g = _separable_correlate(device, reshape(a, H, W, 1), ka_upload(T, device, [d c]), ka_upload(T, device, [c d]))
+        return view(g, :, :, 2), view(g, :, :, 1)
+    end
+    m = ka_upload(T, device, mask)
+    # N, ∂rN, ∂cN of img·mask and D, ∂rD, ∂cD of mask: the rows' taps (c, d, c), the columns' (c, c, d) — the blur across
+    # the derivative is the across taps (the Gaussian, or the identity for :gaussian1d), the blur itself the across taps
+    rows, cols = ka_upload(T, device, [c d c]), ka_upload(T, device, [c c d])
+    am = similar(a, H, W, 1)
+    _launch!(_masked_product!, device, am, a, m; ndrange = (H, W))
+    nm = _separable_correlate(device, am, rows, cols)
+    dm = _separable_correlate(device, reshape(m, H, W, 1), rows, cols)
+    g = similar(a, H, W, 2)
+    _launch!(_normalized_gradient!, device, g, nm, dm, m; ndrange = (H, W))
+    return view(g, :, :, 2), view(g, :, :, 1)
+end
+
+# `a` (H × W × 1, or × K) correlated along the rows with each column of `rows` and then along the columns with the same
+# column of `cols`: one H × W × K slice per taps column.
+function _separable_correlate(device, a::AbstractArray{T, 3}, rows, cols) where {T}
+    H, W = size(a, 1), size(a, 2)
+    tmp = KA.allocate(device, T, H, W, size(rows, 2))
+    out = similar(tmp)
+    _launch!(_correlate_rows!, device, tmp, a, rows; ndrange = size(tmp))
+    _launch!(_correlate_columns!, device, out, tmp, cols; ndrange = size(out))
+    return out
+end
+
+@kernel function _masked_product!(out, @Const(a), @Const(m))
+    i, j = @index(Global, NTuple)
+    @inbounds out[i, j, 1] = a[i, j] * m[i, j]
+end
+
+# The gradient of N/D from (N, ∂rN, ∂cN) and (D, ∂rD, ∂cD): (∂N·D − N·∂D)/D², 0 where the mask or D is 0 (gaussian_blur's).
+@kernel function _normalized_gradient!(g, @Const(n), @Const(d), @Const(m))
+    i, j = @index(Global, NTuple)
+    T = eltype(g)
+    @inbounds N, Nr, Nc, D, Dr, Dc = n[i, j, 1], n[i, j, 2], n[i, j, 3], d[i, j, 1], d[i, j, 2], d[i, j, 3]
+    inside = (D > zero(T)) & (m[i, j] > zero(T))
+    @inbounds g[i, j, 1] = ifelse(inside, (Nr * D - N * Dr) / (D * D), zero(T))
+    @inbounds g[i, j, 2] = ifelse(inside, (Nc * D - N * Dc) / (D * D), zero(T))
 end
 
 # ----- taps -----------------------------------------------------------------------

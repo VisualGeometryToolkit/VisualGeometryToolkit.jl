@@ -34,7 +34,7 @@ using Statistics: var   # an Uncertain pixel's scalar variance (VisualGeometryTo
 using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
-using Distributions: FDist, quantile   # the F-test of detect_foerstner
+using Distributions: FDist, Chisq, quantile   # the F-test of detect_foerstner, detect_sfop's λ₂ significance test
 using Random: Random, AbstractRNG   # detect_image_circle's RANSAC draws (image_circle.jl)
 using VisualGeometryToolkitCore: Circle, found_model, estimate, inlier_mask, map_estimate, unlabel, signed_area, require_extension   # detect_image_circle: its models, the fit's accessors, the RAW cells' map (image_circle.jl)
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
@@ -108,6 +108,7 @@ include("matching.jl")
 include("nn_match.jl")
 include("matching_ka.jl")   # the one matcher: KA kernels on the CPU and any GPU
 include("foerstner.jl")      # detect_foerstner — the Förstner interest operator (after ip_fop.m); after asift/ and matching_ka.jl, whose upsampling and upload it uses
+include("sfop.jl")           # detect_sfop — SFOP scale selection for circular points on gaussian_scale_space
 include("matching_stacked_ka.jl")   # stacked multi-gallery matcher (hoisted from BlobBoards)
 include("described_feature.jl")
 include("onnx_runtime.jl")   # ONNX Runtime sessions: the execution provider (the CUDA 12 libraries) and the thread pools
@@ -181,6 +182,9 @@ export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours
 export detect_foerstner        # the Förstner interest operator: labelled corner / circular points
+export gaussian_scale_space, GaussianScaleSpace, detect_sfop   # an image's Gaussian scale space, ASIFT's pyramid (its octaves' Gaussian levels)
+public level_sigma             # a scale-space level's blur in input pixels
+export gaussian_gradient       # an image's Gaussian-derivative gradient (gx, gy), optionally masked as gaussian_blur: one KA kernel, CPU and GPU (Förstner's)
 export detect_image_circle    # a lens's image circle measured from photographs: dark MSERs, their hull, the RANSAC ellipse (Estimation extension)
 
 # -----------------------------------------------------------------------------

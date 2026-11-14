@@ -121,7 +121,7 @@ end
     asift_detect!(plan, randn(Xoshiro(2), Float32, n, n); intensity_thr = 1.0e9)
     dog = Array(plan.dogs[1])[33:(2n - 32), 33:(2n - 32), :, 1]
     empirical = maximum(std(dog[px:2:end, py:2:end, sl]) for px in 1:2, py in 1:2, sl in 2:(size(dog, 3) - 1))
-    @test isapprox(thr1 / plan.nb_scales, empirical; rtol = 0.03)
+    @test isapprox(thr1 / plan.space.nb_scales, empirical; rtol = 0.03)
     # on pure noise of σ 1, a threshold of k σ admits fewer extrema as k grows, and few at 5σ
     rng = Xoshiro(3)
     img = 100 .+ randn(rng, 256, 256)

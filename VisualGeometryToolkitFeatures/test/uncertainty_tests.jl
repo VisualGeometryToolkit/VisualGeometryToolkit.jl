@@ -12,7 +12,7 @@
     # Float64 adjoint table; the Float32 pyramid limits the agreement.
     plan = AsiftPlan(256, 256; device = KA.CPU(), tilts = [(1.0, 0.0)], upsample = true)
     _ensure_cov!(plan)
-    for oi in 1:3, sl in 2:(plan.nb_scales + 1), (px, py) in ((0, 0), (1, 0), (0, 1), (1, 1))
+    for oi in 1:3, sl in 2:(plan.space.nb_scales + 1), (px, py) in ((0, 0), (1, 0), (0, 1), (1, 1))
         oi > 1 && (px, py) != (0, 0) && continue
         Mi = impulse_M(plan, oi, sl, px, py)
         Mt = _unpack_M(Array(plan.ctab[oi]), sl, 1 + px + 2py, 1)
@@ -53,10 +53,10 @@ end
         asift_detect!(plan, permutedims(Float32.(img)); uncertainty = FeatureCovariance())
         n = Int(Array(plan.counth)[1])
         raw = Array(plan.raw)[:, 1:n]; rc = Array(plan.featcov)[:, 1:n]
-        S = plan.nb_scales; σ0 = plan.seed_sigma
+        S = plan.space.nb_scales; σ0 = plan.space.seed_sigma
         checked = 0
-        for oi in 1:plan.nb_octaves
-            o = oi - 1 + plan.o_first; sf = 2.0^o
+        for oi in 1:length(plan.space.levels)
+            o = oi - 1 + plan.space.first_octave; sf = 2.0^o
             d = Float64.(Array(plan.dogs[oi])[:, :, :, 1])
             Wo, Ho, NS = size(d)
             tab = Array(plan.ctab[oi])

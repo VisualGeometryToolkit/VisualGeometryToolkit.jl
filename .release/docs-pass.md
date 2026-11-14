@@ -1,3 +1,88 @@
+docs-pass: 825a5e64
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: the Features card names the package's scope, not its detectors)
+
+# Features 0.9.1 docs pass (julia-docs-pass) — rel-feat091
+
+A patch, additive, on Core 0.10: SFOP scale selection and its parts. Baseline: VisualGeometryToolkitFeatures 0.9.0, the
+registered tree (tag `VisualGeometryToolkitFeatures-v0.9.0` = 7b9bec70). The candidate: features-sfop-gate 0d36b9f7 (a
+fast-forward of GitHub main b808396e, Features only), then this pass's commits 074d7c65 (CHANGELOG), 181f6ea6
+(docstrings), a81ebf67 (guide), 825a5e64 (landing and API page).
+
+## 1. Public API since the baseline
+
+From the module's `export`/`public` lines and the methods (7b9bec70..825a5e64); nothing removed or renamed:
+- exported `gaussian_gradient(img, σ[, mask]; derivative = :gaussian2d) -> (gx, gy)`, Förstner's one gradient;
+- exported `gaussian_scale_space(img; …) -> GaussianScaleSpace` and the type, ASIFT's pyramid; public
+  `level_sigma(space, o, l)`;
+- exported `detect_sfop(img; noise_sigma, significance_level, precision_threshold, …)`;
+- the method `detect_foerstner([T = Float32], img, seeds)`: the window estimation at given windows;
+- `AsiftPlan`'s type parameters (`A1` gone, `SP` new) and the 8 undocumented fields now `plan.space`: not breaking,
+  owner ruling 2026-11-14 (CHANGELOG line, 074d7c65);
+- behaviour: `detect_foerstner` faster, results bit for bit (the squared gradient on the device, the window centres
+  compacted there); the accepted r ≈ 1.8 px limitation of the SFOP-selected window.
+
+## 2. Static findings, fixed
+
+| where | finding | fix |
+|---|---|---|
+| `detect_foerstner` docstring | the row shape read `(; label, window, F)`, the rows carry `covariance_status` (since 0.9.0) | the shape names it (181f6ea6) |
+| `detect_foerstner` docstring, step 2 | the gradient is now `gaussian_gradient` | linked (181f6ea6) |
+| `GaussianScaleSpace` docstring | "one per tilted warp inside every `AsiftPlan`": a plan holds ONE space, a slot per resident warp | corrected (181f6ea6) |
+| guide/foerstner.md | no word of `detect_sfop`, the seeded form or the limitation; "assembled on the host" no longer says what stays on the device | a section "Windows chosen by scale: SFOP and seeded windows" (the pipeline, bit-for-bit seeded rows, the accepted limit with what the suite holds), the device paragraph (a81ebf67) |
+| index.md, api/detection.md | the detector lists stopped at MSER and Förstner | `detect_sfop`, `gaussian_scale_space`, `gaussian_gradient` named (825a5e64) |
+| CHANGELOG 0.9.1 | the `AsiftPlan` change unstated | one line, with the ruling (074d7c65) |
+
+Checked and true: the `detect_sfop`, `gaussian_scale_space`, `level_sigma`, seeded `detect_foerstner` and
+`gaussian_gradient` docstrings against the code (signatures and defaults; the finest integration scale 3·2^(2/3)·0.5 ≈
+2.4 px; the λ₂ floor; the NMS footprint σ/√2 and half-octave bands; the seeded window half-width; the step response
+1/(√(2π)σ)); `sfop.jl` and `asift/pyramid.jl` are in api/detection.md's `Pages`; README (install line and example
+unchanged, no new name needed); no timing in a docstring or page (the speed-up's numbers are the CHANGELOG's,
+measured, not a gate).
+
+## 3. Executed
+
+On the commit carrying this record (records only on top of 825a5e64): prep (lint, agent_docs, floor, audit,
+check_duplication, check_naming), Features' CPU and GPU groups (strict flags) and the docs build (strict); results
+with job ids in the release report (a src docstring changed, so the full Features gate).
+
+---
+
+# Estimation 0.11.1 docs pass (julia-docs-pass) — patch-est0111-fixture
+
+The owner's ruling (it blocks LocalOptimizationDoneRight 0.7.0): ONE public fixture for the two-camera F scene, and the
+LO bench's arm binding in one place. Baseline: GitHub main 7b9bec70 (the registered wave: Estimation 0.11.0).
+
+## 1. Public API since the baseline
+
+None of the package's API. Test support, public to the stack's tests:
+- `synthetic_scenes().EpipolarScenes.fundmat_scene(rng; n_inliers = 100, n_outliers = 30, σ = 0.5) -> (; source, target,
+  F, n_inliers)`: THE two-camera F scene, on the family's `stereo_pixel_pairs`; docstring in the extension, listed in
+  `synthetic_scenes`' docstring (docs/src/api/ransac.md renders it).
+- `test/lo_timing/call_set.jl`'s `lo_call_set_arm(make_lo, problems, scorings, workspaces, pairs, reps)`: the LO bench
+  arm, beside `call_set_arm` in the file LocalOptimizationDoneRight's bench includes.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| docstrings and pages | `fundmat_scene` documented; `synthetic_scenes` names it; docs build strict green (gate task 10) |
+| CHANGELOG | Estimation 0.11.1: Added (the fixture, the arm), Fixed (the bench's essential threshold key, moved into `scoring` in 0.10) |
+| versions | Estimation 0.11.1; every other package as on main 7b9bec70 |
+| in-repo compat | unchanged (Eval's Estimation "0.11" admits 0.11.1) |
+
+## 3. Executed on the release candidate (b26cfd06)
+
+Gate (~/logs/dgx-agent/scripts/w10-est-eval, NICE=0, `GATE_PKGS=VisualGeometryToolkitEstimation`; General c8aaee84e13;
+jobs 15162 prep, 15163 CPU, 15164 docs, 15165 GPU): prep registration_lint 0 errors 0 warnings, agent_docs 0,
+floor_compat --latest, audit_manifests, check_duplication 0, check_naming 0, check_splat 0, with the stack paths
+bb-leg-060, **w10-lodr** (LocalOptimizationDoneRight's wave branch, 153bc9f), rsdr-09, cb-release, ps-release-062;
+Estimation's CPU groups 7977 passed + 2 broken (8 groups; the 2 broken are `@test_broken` marks in task 2's files, none of which this patch touches), GPU 9/9, docs green.
+Julia 1.13.3. The fixture's draws: ransac_fundmat's items pass unchanged (dev 15158: 32/32 with lo_timing_call_set).
+The bench runs end to end on the change (dev 15161, `julia -t 1`, 2 reps: Welsch-IRLS 374 µs/call, GM-IRLS 330 µs/call,
+8480 bytes/call; it failed before the threshold fix).
+
+---
+
 docs-pass: 5fb8889b
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (prepared, unpushed, branch wave-113; one open prose item below)
 

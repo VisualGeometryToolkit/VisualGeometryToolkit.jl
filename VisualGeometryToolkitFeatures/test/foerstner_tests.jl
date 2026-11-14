@@ -368,3 +368,93 @@ end
         end
     end
 end
+
+# gaussian_gradient: the package's one Gaussian-derivative gradient (Förstner's), with gaussian_blur's mask semantics.
+@testitem "gaussian_gradient: a linear ramp's gradient, Förstner's correlation bit for bit, gaussian_blur's mask" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitFeatures: gaussian_gradient
+    const VGF = VisualGeometryToolkitFeatures
+    H, W = 60, 70
+    α, β = 0.013, -0.007                                  # ∂/∂column, ∂/∂row per pixel
+    ramp = [0.3 + α * c + β * r for r in 1:H, c in 1:W]
+    for σ in (1.0, 2.0, 2.8)
+        gx, gy = gaussian_gradient(ramp, σ)
+        @test size(gx) == size(gy) == (H, W) && eltype(gx) == Float64
+        d, c = VGF._derivative_taps(:gaussian2d, σ)
+        r = length(d) ÷ 2
+        inner = (r + 1):(H - r), (r + 1):(W - r)
+        # the taps' first moment Σ x·d[x] is 1 less the Gaussian's second-moment mass beyond the truncation ⌈3.3σ⌉:
+        # 2(cφ(c) + 1 − Φ(c)) = 0.0124 at c = 3.3 (the sampling's error, e^(−2π²σ²) ≤ 3e-9 at σ ≥ 1, is far below); the
+        # across taps sum to 1, so a ramp's gradient is its slope times that moment
+        @test all(isapprox.(gx[inner...], α; rtol = 0.0125)) && all(isapprox.(gy[inner...], β; rtol = 0.0125))
+        # the correlation Förstner ran before: rows with (d, c), columns with (c, d), zero padded — the same bits
+        tmp = zeros(H, W, 2); ref = zeros(H, W, 2)
+        VGF._launch!(VGF._correlate_rows!, KA.CPU(), tmp, reshape(ramp, H, W, 1), [d c]; ndrange = size(tmp))
+        VGF._launch!(VGF._correlate_columns!, KA.CPU(), ref, tmp, [c d]; ndrange = size(ref))
+        @test gy == ref[:, :, 1] && gx == ref[:, :, 2]
+    end
+    # :gaussian1d: no smoothing across; an integer image is read as float
+    gx1, gy1 = gaussian_gradient(round.(Int, 100 .* ramp), 1.5; derivative = :gaussian1d)
+    @test eltype(gx1) == Float64
+    # the mask (gaussian_blur's normalized convolution): no bleed from outside, 0 outside, the plain gradient deep inside
+    disc = [hypot(r - 30.5, c - 35.5) < 22 ? 1.0 : 0.0 for r in 1:H, c in 1:W]
+    wild = ifelse.(disc .> 0, ramp, 1.0e6)                 # a huge value outside the mask must not enter
+    mx, my = gaussian_gradient(wild, 2.0, disc)
+    nx, ny = gaussian_gradient(ramp, 2.0, disc)
+    @test mx == nx && my == ny
+    @test all(iszero, mx[disc .== 0]) && all(iszero, my[disc .== 0])
+    px, py = gaussian_gradient(ramp, 2.0)
+    r2 = length(first(VGF._derivative_taps(:gaussian2d, 2.0))) ÷ 2
+    deep = [hypot(r - 30.5, c - 35.5) < 22 - sqrt(2) * r2 - 1 for r in 1:H, c in 1:W]   # the whole square stencil (its corners at √2·r) inside the mask
+    # there D = 1 to rounding (the unit-sum taps over ones) and ∂D = 0, so the quotient is N's gradient: rounding only
+    @test maximum(abs.(mx[deep] .- px[deep])) <= 64 * eps() * maximum(abs, px)
+    @test_throws ArgumentError gaussian_gradient(ramp, 0.0)
+    @test_throws ArgumentError gaussian_gradient(ramp, 1.0; derivative = :sobel)
+    @test_throws DimensionMismatch gaussian_gradient(ramp, 1.0, ones(3, 3))
+end
+
+# GPU: gaussian_gradient on the device against the CPU. The two run the same correlations in the same order; a GPU may
+# fuse each multiply-add, so each of the two correlations differs by at most its 2r + 1 terms' rounding: per pixel
+# |Δ| ≤ 2(2r + 1)·eps(T)·max|img|·Σ|d|·Σ|c|. Runs only with a functional CUDA device; records a skip otherwise.
+@testitem "gaussian_gradient: CUDA matches the CPU" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitFeatures: gaussian_gradient
+    const VGF = VisualGeometryToolkitFeatures
+    cuda = try
+        m = Base.require(Main, :CUDA)
+        (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing
+    else
+        cu = getproperty(cuda, :cu)
+        img = Float32.(render((x, y) -> (x - 31.2)^2 + (y - 22.7)^2 < 64 ? 0.8 : 0.2, 48, 64))
+        disc = Float32.([hypot(r - 24, c - 32) < 20 for r in 1:48, c in 1:64])
+        for σ in (1.0f0, 2.5f0), mask in (nothing, disc)
+            cx, cy = gaussian_gradient(img, σ, mask)
+            gx, gy = Base.invokelatest(gaussian_gradient, cu(img), σ, mask === nothing ? nothing : cu(mask))
+            d, c = VGF._derivative_taps(:gaussian2d, σ)
+            r = length(d) ÷ 2
+            bound = 2 * (2r + 1) * eps(Float32) * maximum(abs, img) * sum(abs, d) * sum(abs, c)
+            if mask === nothing
+                @test maximum(abs.(Array(gx) .- cx)) <= bound && maximum(abs.(Array(gy) .- cy)) <= bound
+            else
+                # g = (∂N·D − N·∂D)/D², each of N, ∂N, D, ∂D within `bound` (D's and ∂D's with max|mask| = 1): to first order
+                # |Δg| ≤ (bound·D + |∂N|·bound + bound·|∂D| + |N|·bound)/D² + 2|g|·bound/D, per pixel, plus the quotient's
+                # own rounding, a few eps(T)·|g|
+                H, W = size(img)
+                n = VGF._separable_correlate(KA.CPU(), reshape(Float64.(img .* disc), H, W, 1), [c d c], [c c d])
+                dd = VGF._separable_correlate(KA.CPU(), reshape(Float64.(disc), H, W, 1), [c d c], [c c d])
+                inside = disc .> 0
+                for (k, gpu, cpu) in ((3, gx, cx), (2, gy, cy))
+                    N, ∂N, D, ∂D = n[:, :, 1], n[:, :, k], dd[:, :, 1], dd[:, :, k]
+                    allowed = @. (bound * D + abs(∂N) * bound + bound * abs(∂D) + abs(N) * bound) / D^2 +
+                                 2 * abs(cpu) * bound / D + 4 * eps(Float32) * abs(cpu)
+                    @test all((abs.(Array(gpu) .- cpu) .<= allowed)[inside])
+                end
+            end
+        end
+    end
+end

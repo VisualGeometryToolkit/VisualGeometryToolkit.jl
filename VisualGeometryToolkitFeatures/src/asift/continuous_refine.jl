@@ -433,12 +433,12 @@ through the pyramid's adjoint — the same estimator and map as the refinement.
 """
 function _continuous_covariance(
         plan, oi::Integer, w::Integer, m::_DogSplineWindow, e::_DogExtremum, cfg::ContinuousRefinement = ContinuousRefinement();
-        taps = [Array(t) for t in plan.pyr_taps],
+        taps = [Array(t) for t in plan.space.taps],
         autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H),
         fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
     )
-    S = plan.nb_scales
-    upsample = plan.o_first < 0
+    S = plan.space.nb_scales
+    upsample = plan.space.first_octave < 0
     N = size(m.coef, 3)
     v = e.v
     ξ = v[1] - m.X0; η = v[2] - m.Y0; τ = v[3] - m.s0 + 1
@@ -473,7 +473,7 @@ function _continuous_covariance(
     end
     Hi = inv(Matrix(e.hessian))
     Σv = Hi * C * Hi'                # (x, y, s) level coordinates
-    o = oi - 1 + plan.o_first
+    o = oi - 1 + plan.space.first_octave
     sf = 2.0^o
     J = [sf 0 0; 0 sf 0; 0 0 log(2.0) / S]
     return SMatrix{3, 3, Float64}(J * Σv * J')
@@ -488,11 +488,11 @@ end
 function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, nnew::Int)
     sl = (nbefore + 1):(nbefore + nnew)
     rawc = Array(view(plan.rawcov, :, sl)); rawh = Array(view(plan.raw, :, sl))
-    S = plan.nb_scales
+    S = plan.space.nb_scales
     byoct = Dict{Int, Vector{Int}}()
     for i in 1:nnew
         code = unsafe_trunc(Int32, rawc[3, i])
-        oi = Int((code >> 3) - Int32(2)) - plan.o_first + 1
+        oi = Int((code >> 3) - Int32(2)) - plan.space.first_octave + 1
         push!(get!(byoct, oi, Int[]), i)
     end
     refined = Tuple{Int, Int, Int, _DogSplineWindow, _DogExtremum}[]   # (pool column, octave, chunk warp, window, extremum)
@@ -502,13 +502,13 @@ function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, n
             (Float64(rawc[1, i]) + rawc[5, i], Float64(rawc[2, i]) + rawc[6, i], Float64(code & Int32(7)) + rawc[4, i], Int(rawh[5, i]))
         end
         dog = view(plan.dogs[oi], :, :, :, 1:m)
-        ext, wins, _ = _refine_dog_extrema(plan.dev, dog, starts; seed_sigma = plan.seed_sigma, S, cfg)
-        sf = exp2(Float64(oi - 1 + plan.o_first))
+        ext, wins, _ = _refine_dog_extrema(plan.dev, dog, starts; seed_sigma = plan.space.seed_sigma, S, cfg)
+        sf = exp2(Float64(oi - 1 + plan.space.first_octave))
         for (j, i) in enumerate(is)
             e = ext[j]
             successful_retcode(e.retcode) || continue
             rawh[1, i] = Float32(_level_to_canvas(e.v[1] - 1, sf)); rawh[2, i] = Float32(_level_to_canvas(e.v[2] - 1, sf))
-            rawh[3, i] = Float32(_slice_sigma(e.v[3] - 1, plan.seed_sigma, S, sf)); rawh[4, i] = Float32(e.response)
+            rawh[3, i] = Float32(_slice_sigma(e.v[3] - 1, plan.space.seed_sigma, S, sf)); rawh[4, i] = Float32(e.response)
             push!(refined, (nbefore + i, oi, Int(rawh[5, i]), wins[j], e))
         end
     end
@@ -523,7 +523,7 @@ function _refined_covs!(plan, cfg::ContinuousRefinement, refined, r, nbefore::In
     isempty(refined) && return nothing
     sl = (nbefore + 1):(nbefore + nnew)
     fc = Array(view(plan.featcov, :, sl))
-    taps = [Array(t) for t in plan.pyr_taps]
+    taps = [Array(t) for t in plan.space.taps]
     ac = Dict(w => _canvas_autocov(plan.geo[r[w]], plan.W, plan.H) for w in unique(x[3] for x in refined))
     fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)   # the configuration's, once for every detection
     Threads.@threads :dynamic for (col, oi, w, win, e) in refined

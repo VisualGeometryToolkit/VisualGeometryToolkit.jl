@@ -1315,8 +1315,9 @@ fit_camera(::Type{SplineLens}, source::NoncentralSplineModel, region; kwargs...)
 # its errors and point count, the termination record and the central fields of the family, with the share of the image
 # the fit has no source ray in (`extrapolated_fraction`, below).
 function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics, <:SplineLens}, source, region, grid_size, tolerance, device)
-    grid_size === nothing || Tuple(Int.(grid_size)) == VgtkCore.grid_size(src) ||
+    if grid_size !== nothing && Int.(Tuple(grid_size)) != VgtkCore.grid_size(src)
         return _lattice_backward(source, region, grid_size, tolerance, device)   # resampled onto another lattice
+    end
     cam = _without_forward(src)   # refine_spline_camera_and_poses.jl
     q = _image_quadrature(cam, region; device)
     held = _held_out(SplineLens, cam, q, cam.intrinsics, device)
@@ -1339,7 +1340,7 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
 # The share of the image's area — the full-image lattice's — where the fit has no source ray: outside the region, or
 # inside it where the source images none (each fitted quadrature pixel stands for `stride²` of area), so the penalty
 # alone holds the lattice there.
-_extrapolated_fraction(q, size) = clamp(1 - length(q.fit_px) * q.stride^2 / (Int(size.width) * Int(size.height)), 0.0, 1.0)
+_extrapolated_fraction(q, image_size) = clamp(1 - length(q.fit_px) * q.stride^2 / VgtkCore.area(image_size), 0.0, 1.0)
 
 # The SplineLens camera `cam` with the forward spline `forward`: its K, backward and presence kept.
 _with_forward(cam, forward) = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward, present = cam.lens.present))

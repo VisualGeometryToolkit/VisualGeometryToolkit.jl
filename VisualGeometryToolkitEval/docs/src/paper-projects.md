@@ -51,13 +51,16 @@ from the data layer of `Experiments`, never from a literal machine path.
   pipeline (decode, detect, index, a start state, a refinement, an evaluation,
   a figure) is a `Product(experiment, name, record; output, files, upstream,
   parts)`, keyed by ONLY what it reads — its own config section, its inputs,
-  the keys of the products it reads (`upstream = ("start" => start_product,)`) — so
-  a later step's setting never recomputes an earlier one. `produce(f, product)`
-  is DrWatson's `produce_or_load` on the step's output: produced once, loaded
-  after; a record `f` returns is saved through `VisualGeometryToolkitIO.save`
-  (`DrWatson._wsave`) and read with `load_output`; a product that writes a
-  directory of outputs returns `nothing`, its `output` the file it writes
-  last. Its directory is DrWatson's
+  the products it reads (`upstream = ("start" => start_product,)`: each one's key
+  and its output's content hash, recorded when it was produced, so an upstream
+  produced again with another output re-keys its consumers; build the products
+  when their stage runs) — so a later step's setting never recomputes an earlier
+  one. `produce(f, product)` is DrWatson's `produce_or_load` on the step's output:
+  produced once, loaded after; a record `f` returns is saved atomically (a
+  temporary file renamed onto the output) — a `.jld2` output as JLD2's object
+  `"record"` (any Julia value), any other through `VisualGeometryToolkitIO.save` —
+  and read with `load_output`; a product that writes its own outputs returns
+  `nothing`, its `output` the file (or directory) it writes last. Its directory is DrWatson's
   `datadir("exp_pro", experiment, name, key)` (`results_root()` is
   `datadir("exp_pro")`, `VGTK_RESULTS_ROOT` relocates it); a deeper layout is
   the experiment path (`joinpath(dataset, matcher, problem, experiment)`).

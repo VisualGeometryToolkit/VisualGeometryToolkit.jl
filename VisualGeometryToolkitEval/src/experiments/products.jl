@@ -36,8 +36,9 @@ config fields and inputs the product reads), its `key` and its `output`, the fil
 ([`product_dir`](@ref)) that holds its result — the record [`produce`](@ref) saves, or the file a product that writes its own
 outputs writes last.
 
-The key is THE dependency tracking of a pipeline (`run_key(record; files, upstream, parts, code)`): the record; the KEYS of the
-products it reads (`upstream`: a `Product`, whose key is folded in, or a key — a Merkle chain, never a re-hash of their contents);
+The key is THE dependency tracking of a pipeline (`run_key(record; files, upstream, parts, code)`): the record; the products it reads
+(`upstream`: a `Product`, whose key AND its output's content hash, recorded when it was produced, are folded in — so an upstream
+produced again with another output re-keys this one; or a bare key, folded as it is);
 the content of the files it reads (`files`; a config's pinned inputs belong in its record, by their `sha256`); a choice made on
 a command line (`parts`); and the CODE it runs (`code`): the source-tree hash of every stack package its environment loads and
 the project's own `src` ([`current_code_trees`](@ref): a path checkout's git trees of `src`, `ext`, `Project.toml`, a registered
@@ -60,10 +61,27 @@ function Product(experiment::AbstractString, name::AbstractString, record::Abstr
     (isempty(output) || isabspath(output) || any(==(".."), splitpath(output))) &&
         throw(ArgumentError("Product: output $(repr(output)) must be a relative path inside the product's directory"))
     up = upstream === nothing ? nothing :
-         Dict{String, String}(String(k) => (v isa Product ? v.key : String(v)) for (k, v) in (upstream isa Union{AbstractDict, NamedTuple} ? pairs(upstream) : upstream))
+         Dict{String, String}(String(k) => (v isa Product ? _upstream_token(v) : String(v)) for (k, v) in (upstream isa Union{AbstractDict, NamedTuple} ? pairs(upstream) : upstream))
     rec = Dict{String, Any}(String(k) => v for (k, v) in record)
     return Product(String(experiment), String(name), rec, run_key(rec; files, upstream = up, parts, code), String(output))
 end
+
+# An upstream product's part of a consumer's key: its key and, once it is produced, the content hash of its output as its
+# provenance recorded it when it was produced (`output_sha256`), so an upstream produced again with another output (a
+# `--force`, a nondeterministic step, an input it did not pin) re-keys every consumer; its key alone before it is produced
+# (a consumer built before its upstream ran is re-keyed once that runs: build products when their stage runs).
+function _upstream_token(v::Product)
+    h = try
+        prov = read_provenance(product_dir(v))
+        get(prov, "run_key", "") == v.key ? string(get(prov, "output_sha256", "")) : ""
+    catch
+        ""
+    end
+    return isempty(h) ? v.key : v.key * "+output:" * h
+end
+
+# The content hash of a product's output: a file's SHA-256, a directory's `tree_sha256` (sorted relative paths and bytes).
+_output_sha256(path::AbstractString) = isdir(path) ? tree_sha256(path) : file_sha256(path)
 
 _segments_ok(p::AbstractString) = !isempty(p) && !isabspath(p) && !occursin('\\', p) &&
     all(seg -> !isempty(seg) && !(seg in (".", "..")), split(p, '/'))
@@ -90,7 +108,7 @@ it runs), its scratch flag is this run's ([`scratch_run`](@ref)) and no code tre
 """
 function produced(s::Product)
     dir = product_dir(s)
-    isfile(product_output(s)) && isfile(joinpath(dir, PROVENANCE_FILE)) || return false
+    ispath(product_output(s)) && isfile(joinpath(dir, PROVENANCE_FILE)) || return false
     prov = try read_provenance(dir) catch; return false end
     get(prov, "run_key", "") == s.key || return false
     get(prov, "scratch", false) === scratch_run() || return false
@@ -116,8 +134,24 @@ struct Produced{T, K}
 end
 Produced(record = nothing; inputs = String[], kwargs...) = Produced(record, String[String(x) for x in inputs], values(kwargs))
 Base.copy(x::Produced) = x                                            # produce_or_load saves `copy(data)`
-DrWatson._wsave(file, x::Produced) =
-    x.record === nothing ? (isfile(file) || error("the product wrote no $file")) : VgtkIO.save(file, x.record; x.kwargs...)
+# The record saved ATOMICALLY: written to a temporary file of the same extension in the same directory and renamed onto the
+# output, so a save that throws leaves no output (the temporary file removed) and the product is not produced. The saver by
+# the output: a `.jld2` file holds the record as JLD2's one object `"record"` (any Julia value: a String- or Symbol-keyed
+# Dict, read back as it was), any other through VisualGeometryToolkitIO's `save` (its own types and formats).
+function DrWatson._wsave(file, x::Produced)
+    x.record === nothing && return (ispath(file) || error("the product wrote no $file"))
+    tmp = joinpath(dirname(file), ".partial-" * basename(file))
+    try
+        _save_record(tmp, x.record; x.kwargs...)
+        mv(tmp, file; force = true)
+    catch
+        rm(tmp; force = true, recursive = true)
+        rethrow()
+    end
+    return nothing
+end
+_save_record(file, record; kwargs...) =
+    endswith(lowercase(file), ".jld2") ? JLD2.jldsave(file; record) : VgtkIO.save(file, record; kwargs...)
 
 """
     produce(f, s::Product; driver, config_source, inputs = String[], producer = false, fields = Dict(),
@@ -140,7 +174,7 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
         assert_not_input(dir; producer)
         _recorded_code_trees(gitpath, dir)                            # a run of record of uncommitted code is refused before it computes
         rm(joinpath(dir, PROVENANCE_FILE); force = true)
-        rm(product_output(s); force = true)                          # a save that fails never leaves an earlier output standing
+        rm(product_output(s); force = true, recursive = true)        # a save that fails never leaves an earlier output standing
     end
     read = String[]                                                   # the inputs f says it read
     DrWatson.produce_or_load(s.record, dirname(dir); filename = _ -> joinpath(s.key, s.output), prefix = "", suffix = "",
@@ -152,18 +186,22 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
         out
     end
     reuse && return dir
-    isfile(product_output(s)) || error("$(s.experiment)/$(s.name): $(product_output(s)) was not saved (the error is printed above)")
-    write_run_records(dir, s.record; driver, config_source, key = s.key, inputs = String[String.(inputs); read], producer, fields,
-                      gitpath)
+    ispath(product_output(s)) || error("$(s.experiment)/$(s.name): $(product_output(s)) was not saved (the error is printed above)")
+    rec_fields = merge(Dict{String, Any}(String(k) => v for (k, v) in fields), Dict{String, Any}("output_sha256" => _output_sha256(product_output(s))))
+    write_run_records(dir, s.record; driver, config_source, key = s.key, inputs = String[String.(inputs); read], producer,
+                      fields = rec_fields, gitpath)
     return dir
 end
 
 """
     load_output(T, s::Product; kwargs...)
 
-The product's record: `VisualGeometryToolkitIO.load(T, <product_dir(s)>/<output>; kwargs...)`.
+The product's record: a `.jld2` output's JLD2 object `"record"` (asserted a `T`), any other
+`VisualGeometryToolkitIO.load(T, <product_dir(s)>/<output>; kwargs...)`.
 """
-load_output(::Type{T}, s::Product; kwargs...) where {T} = VgtkIO.load(T, product_output(s); kwargs...)
+load_output(::Type{T}, s::Product; kwargs...) where {T} = _load_record(T, product_output(s); kwargs...)
+_load_record(::Type{T}, file; kwargs...) where {T} =
+    endswith(lowercase(file), ".jld2") ? JLD2.load(file, "record")::T : VgtkIO.load(T, file; kwargs...)
 
 # The stage runner's view of a product (stages.jl): produced, and unmarked by --force.
 _product_produced(s::Product) = produced(s)

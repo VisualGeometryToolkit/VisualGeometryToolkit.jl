@@ -14,8 +14,8 @@ fresher(args...; kwargs...) = _retired("fresher", "declare the stage's keyed pro
 "Retired: `produced(product)` (a `Product`'s output, its provenance and its code trees)."
 run_complete(args...; kwargs...) = _retired("run_complete", "a Product's reuse is produced(product); produce(f, product) loads or produces it")
 
-"Retired: `produce(f, product)` — DrWatson's produce_or_load on a keyed `Product`, its record saved through VisualGeometryToolkitIO."
-cached_result(args...; kwargs...) = _retired("cached_result", "produce(f, Product(experiment, name, record; output)) — DrWatson's produce_or_load, its record saved and loaded through VisualGeometryToolkitIO (load_output)")
+"Retired: `produce(f, product)` — DrWatson's produce_or_load on a keyed `Product` (a `.jld2` output's record saved as JLD2's object `\"record\"`), read back with `load_output`."
+cached_result(args...; kwargs...) = _retired("cached_result", "p = Product(experiment, prefix, cfg; output = \"<prefix>.jld2\"); produce(_ -> f(cfg), p; driver, config_source, force, gitpath); data = load_output(Dict{String, Any}, p); file = product_output(p) — DrWatson's produce_or_load, the Dict saved as JLD2's object \"record\"")
 
 "Retired: every key is `run_key` (SHA-256 of the canonical JSON), a `Product`'s."
 legacy_hash_key(args...; kwargs...) = _retired("legacy_hash_key", "run_key(record), a Product's key")

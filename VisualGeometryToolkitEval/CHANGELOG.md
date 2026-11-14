@@ -8,23 +8,48 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 ### Breaking
 
 - **One cache: the keyed product on DrWatson's `produce_or_load` replaces Eval's own caching.** `Product(experiment, name,
-  record; output, files, upstream, parts, code)` and `produce(f, product)` (produce_or_load with `loadfile = false`; a record `f`
-  returns saved through `DrWatson._wsave` → `VisualGeometryToolkitIO.save`, read back with `load_output`; `f` may return a
-  `Produced`: its record or `nothing`, the inputs it read, the save's keywords). A product's directory is DrWatson's
-  `datadir("exp_pro", experiment, name, key)` (`product_dir`); `_config.toml` and `_provenance.toml` are written last;
-  `produced(product)` is the reuse rule; a failed save is an error (produce_or_load only warns).
+  record; output, files, upstream, parts, code)` and `produce(f, product)` (produce_or_load with `loadfile = false`; `f` may
+  return a `Produced`: its record or `nothing`, the inputs it read, the save's keywords). A record `f` returns is saved
+  through `DrWatson._wsave` ATOMICALLY (a temporary file of the same extension in the product's directory, renamed onto the
+  output; a save that throws leaves no output and the product not produced) by the output's saver: a `.jld2` output holds
+  the record as JLD2's one object `"record"` (any Julia value, a String- or Symbol-keyed `Dict` read back as it was), any
+  other goes through `VisualGeometryToolkitIO.save`; `load_output(T, product)` reads it back the same way. An `output` may
+  be a directory (a product that writes one: produced while it is there, removed whole when produced again). A product's
+  directory is DrWatson's `datadir("exp_pro", experiment, name, key)` (`product_dir`); `_config.toml` and
+  `_provenance.toml` (with the output's content hash, `output_sha256`) are written last; `produced(product)` is the reuse
+  rule; a failed save is an error (produce_or_load only warns).
 - **Removed, each refused by name with its replacement** (no alias; an `ArgumentError` naming it): `keyed_cell_dir` →
   `product_dir(Product(…))`; `keyed_data_dir` → a `Product` then `promote_run(product_dir(p), tier)`; `experiment_dir` → a
-  `Product` whose experiment is a path; `fresher` and `run_complete` → `produced(product)`; `cached_result` →
-  `produce(f, Product(…))`; `legacy_hash_key` → `run_key`; the 4-argument `Stage(name, desc, done, run)` →
+  `Product` whose experiment is a path; `fresher` and `run_complete` → `produced(product)`; `cached_result(f, prefix, cfg, dir; force, gitpath)
+  -> (data, file)` → `p = Product(experiment, prefix, cfg; output = "$prefix.jld2")`, `produce(_ -> f(cfg), p; driver,
+  config_source, force, gitpath)`, `data = load_output(Dict{String, Any}, p)`, `file = product_output(p)` (`dir` is the
+  product's directory, `product_dir(p)`; its file holds the Dict as JLD2's object `"record"`, not as DrWatson's
+  `wsave` datasets, and a forced run replaces it, keeping no `_#n` copy; `key`, `ext`, `load` and `save` have no
+  counterpart: the key is `run_key`'s, the format the output's extension); `legacy_hash_key` → `run_key`; the 4-argument `Stage(name, desc, done, run)` →
   `Stage(name, desc; items, product, run)` (`run(item)` for every item: a produced product loads) or `Stage(name, desc; check)`.
   `--plan` prints each stage's produced products; `--force` unmarks each product just before its run.
 - **The roots are DrWatson's layout**: `results_root()` is `datadir("exp_pro")` and `data_root()` is `datadir("exp_raw")`
   (`VGTK_RESULTS_ROOT` / `VGTK_DATA_ROOT` only relocate them).
 - **Keys now include the code trees** (`run_key(…; code)`; a `Product` folds `current_code_trees`: every stack package's source
   tree — a path checkout's git trees, a registered version's Manifest tree hash — and the project's `src`), beside the record,
-  the upstream products' keys (a Merkle chain) and the pinned inputs: a change of any of them is a new product. **Results of
+  the upstream products' keys and their outputs' content hashes as produced (a Merkle chain over the outputs, so an
+  upstream produced again with another output — a `--force`, a nondeterministic step, an input it did not pin — re-keys
+  every consumer, and with the same output does not; build a consumer when its stage runs, after its upstream) and the
+  pinned inputs: a change of any of them is a new product. **Results of
   earlier versions are not found** by the new keys (nor in the retired `<kind>-<key>` layout); they stay where they are.
+
+### Known issues
+
+- A paper's external-arm environment that includes `experiments/stages.jl` by path (it cannot load this package) has no
+  `Product` methods: its producing stages show `?` under `--plan` and fail under `--force`, so only `check` stages work
+  there (no skip-if-done), and the 4-argument `Stage` is refused there too.
+- The template's results branch records only the simulate product's key in `RUN.toml` (`run_keys`), not the fit's or the
+  figure's, and a bare key does not locate a product (its directory needs the experiment and the name).
+- Producing a product again removes its provenance and its `output` only: other files it wrote under the same key in an
+  earlier production stay beside the new ones.
+- Every `Product` construction recomputes `current_code_trees` (a stat walk of every path-loaded stack package), several
+  times per item and run; pass `code` to build many.
+- An experiment path with `\` is refused, so `joinpath` builds a refused path on Windows (write the segments with `/`).
 
 ## 0.8.0
 

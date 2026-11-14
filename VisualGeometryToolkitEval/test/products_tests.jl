@@ -135,8 +135,74 @@
         E.set_project_root!("")
     end
 
+    # a record whose save writes part of its file and then fails (a full disk)
+    struct Boom end
+    VgtkIO.save(file::AbstractString, ::Boom; kwargs...) = (write(file, "partial"); error("disk full"))
+
+    @testset "an upstream produced again with another output re-keys its consumers; with the same output it does not" begin
+        project()
+        withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+            up = E.Product("x", "simulate", Dict("n" => 3); output = "samples.tsv")
+            fit() = E.Product("x", "fit", Dict{String, Any}(); output = "fit.toml", upstream = ("simulate" => up,))
+            samples(text) = d -> (write(joinpath(d, "samples.tsv"), text); nothing)
+            E.produce(samples("1\n2\n"), up; args...)
+            haskey(E.read_provenance(E.product_dir(up)), "output_sha256") || error("no output hash recorded")
+            n = Ref(0)
+            fitted = d -> (n[] += 1; write(joinpath(d, "fit.toml"), "n = $(n[])\n"); nothing)
+            f1 = fit(); E.produce(fitted, f1; args...)
+            @test E.produced(f1) && n[] == 1
+            E.produce(samples("1\n5\n"), up; args..., force = true)                    # the same key, another output
+            f2 = fit()
+            @test f2.key != f1.key && !E.produced(f2)                                         # the consumer is produced again
+            E.produce(fitted, f2; args...)
+            @test n[] == 2
+            E.produce(samples("1\n5\n"), up; args..., force = true)                    # produced again, the same output
+            @test fit().key == f2.key && E.produced(fit())
+        end
+        E.set_project_root!("")
+    end
+
+    @testset "a save that throws leaves no output and the product not produced (atomic: a temporary file renamed)" begin
+        project()
+        withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+            s = E.Product("x", "boom", Dict("k" => 1); output = "boom.json")
+            @test_throws Exception E.produce(d -> Boom(), s; args...)                          # its save writes a part, then throws
+            @test !E.produced(s) && !ispath(E.product_output(s))
+            @test isempty(filter(f -> startswith(f, ".partial-"), readdir(E.product_dir(s))))
+        end
+        E.set_project_root!("")
+    end
+
+    @testset "a .jld2 output: a String- or a Symbol-keyed Dict saved and read back as it was (never VisualGeometryToolkitIO's)" begin
+        project()
+        withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+            ds = Dict{String, Any}("v" => [1.0, 2.0], "name" => "a")
+            s = E.Product("x", "cv", Dict("k" => 1); output = "r.jld2")
+            E.produce(d -> ds, s; args...)
+            @test E.produced(s) && E.load_output(Dict{String, Any}, s) == ds
+            dy = Dict{Symbol, Int}(:a => 1, :b => 2)
+            t = E.Product("x", "cv", Dict("k" => 2); output = "r.jld2")
+            E.produce(d -> dy, t; args...)
+            @test E.load_output(Dict{Symbol, Int}, t) == dy
+        end
+        E.set_project_root!("")
+    end
+
+    @testset "a directory output: produced while it is there, removed whole when produced again" begin
+        project()
+        withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+            s = E.Product("x", "model", Dict("k" => 1); output = "model")
+            write_model(names) = d -> (m = mkpath(joinpath(d, "model")); foreach(f -> write(joinpath(m, f), f), names); nothing)
+            E.produce(write_model(["a.txt", "b.txt"]), s; args...)
+            @test E.produced(s)
+            E.produce(write_model(["a.txt"]), s; args..., force = true)
+            @test E.produced(s) && readdir(E.product_output(s)) == ["a.txt"]
+        end
+        E.set_project_root!("")
+    end
+
     @testset "the retired names are refused by name with their replacement" begin
-        for (f, new) in ((E.fresher, "Stage(name, desc; items, product, run)"), (E.run_complete, "produced(product)"), (E.cached_result, "produce(f, Product"),
+        for (f, new) in ((E.fresher, "Stage(name, desc; items, product, run)"), (E.run_complete, "produced(product)"), (E.cached_result, "produce(_ -> f(cfg), p"),
                          (E.legacy_hash_key, "run_key"), (E.keyed_cell_dir, "product_dir(Product"), (E.keyed_data_dir, "promote_run(product_dir"),
                          (E.experiment_dir, "Product(joinpath("))
             e = try f(Dict(), "a", "b"); nothing catch err; err end

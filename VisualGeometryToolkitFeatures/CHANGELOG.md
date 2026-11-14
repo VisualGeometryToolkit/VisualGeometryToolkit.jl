@@ -52,7 +52,13 @@ SFOP's λ₂ test, and the detectors on a RAW mosaic at the raw resolution (the 
   on a mosaic is refused (seed it with `detect_sfop(m)`), and so are `input_blur`, `upsample` and `seed_sigma` (the
   image's own). **Known limit:** G1 and G2 are taken to respond alike (the sensor model carries no per-channel
   response): a G1/G2 gain mismatch stays in the image as a checkerboard of its amplitude (measure it with flat fields,
-  the characterisation's E5, if it matters). Data on the six RC chrome sets: DATA_TABLE.
+  the characterisation's E5, if it matters). Data (RC 0.10.2's detect + Hungarian index, FX3 chrome sets, each
+  frame under its sensor model; green cells → raw grid): DSC06837 (fisheye chrome-april) 187 → 283 of 289 dots
+  assigned, 0 mislabels; every RC-registered dot of DSC06825 (166 with a saturated photosite near the core) and
+  DSC06837 found again; per set, assigned dots (dustbin): fisheye_10cm_ag 41 943 (1 433) → 44 284 (5 553),
+  fisheye_2710_si 26 457 (2 608; 21 photographs refused) → 33 283 (4 817; none refused), tamron_17cm_si 32 368 (691) →
+  32 368 (1 416), tamron_20261108_ag 40 187 (107) → 40 999 (6 816); no mislabel refusal in either. The dustbin (detections
+  left unassigned, the consumer's to drop) grows with the raw grid's finer windows.
 - **Investigated, not changed:** the three dim top-rim dots on DSC06962 with no SFOP candidate are not dropped by the
   significance test or the NMS: no candidate exists before the NMS. The squashed rim dots (≈ 4 × 1.5 cells) have a
   precision still rising at the finest searched level (w = 69, 34, 19 … over levels 1, 2, 3 of the upsampled octave),

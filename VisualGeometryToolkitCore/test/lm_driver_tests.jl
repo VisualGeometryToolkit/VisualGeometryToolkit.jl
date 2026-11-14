@@ -70,6 +70,8 @@ end
 # A function barrier: the testitem's locals are globals.
 _refit!(ws, lm) = lmsolve_chart!(ws, lm)
 _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
+_refit_stops!(ws, lm, stops) = lmsolve_chart!(ws, lm, stops)
+_refit_stops_allocations(ws, lm, stops) = @allocations _refit_stops!(ws, lm, stops)
 
 @testset "a refit through the typed cache allocates nothing" begin
     # NLLSsolver's typed `OptimizeCache(problem, options, unfixed)` (upstream
@@ -80,6 +82,25 @@ _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
     ws = ManifoldLmWorkspace(length(s), 4)
     _refit!(ws, lm); _refit!(ws, lm)
     @test _refit_allocations(ws, lm) == 0
+end
+
+@testset "the damping strategy: Marquardt by default, Levenberg by dispatch" begin
+    # LmStops' `damping` (Core 0.10.2): MarquardtDamping (λ·DᵀD) is the default, LevenbergDamping (λ·I) opt-in;
+    # both converge on the chart fit to the same minimum, the workspace rebuilds its run for the other damping,
+    # and a Levenberg refit allocates nothing either.
+    s = collect(range(0.0, 2.0; length = 40))
+    lm = _ExpFitLm(s, [1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 for si in s], SVector(1.0, 0.0, 0.0, 0.0))
+    @test LmStops().damping === VgtkCore.MarquardtDamping()
+    ws = ManifoldLmWorkspace(length(s), 4)
+    xm, Fm, cm, _, rm = lmsolve_chart!(ws, lm)
+    xl, Fl, cl, _, rl = lmsolve_chart!(ws, lm, LmStops(; damping = VgtkCore.LevenbergDamping()))
+    @test retcode_symbol(rm...) === :converged && retcode_symbol(rl...) === :converged
+    @test isapprox(xm, xl; rtol = 1.0e-8, atol = 1.0e-10) && isapprox(Fm, Fl; rtol = 1.0e-8, atol = 1.0e-20)
+    xm2, Fm2, = lmsolve_chart!(ws, lm, LmStops(; damping = VgtkCore.MarquardtDamping()))   # back: Marquardt's run
+    @test xm2 == xm && Fm2 == Fm
+    lstops = LmStops(; damping = VgtkCore.LevenbergDamping())
+    _refit_stops!(ws, lm, lstops); _refit_stops!(ws, lm, lstops)
+    @test _refit_stops_allocations(ws, lm, lstops) == 0
 end
 
 @testset "the stop codes: one decoder, one order" begin
@@ -374,6 +395,82 @@ end
     full = lmsolve_chart!(q)
     @test full.code === ReturnCode.Success
     @test q.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
+end
+
+@testitem "lmsolve_chart!(::LmProblem): the damping strategy, the default Core 0.10.1's bit for bit" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, MarquardtDamping,
+        LevenbergDamping
+    struct _DampLine <: NLLSsolver.AbstractResidual
+        s::Float64
+        y::Float64
+    end
+    NLLSsolver.ndeps(::_DampLine) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_DampLine) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_DampLine) = SVector(1)
+    NLLSsolver.getvars(::_DampLine, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_DampLine) = Float64
+    NLLSsolver.computeresidual(r::_DampLine, ab) = SVector(ab[1] + ab[2] * r.s - r.y)
+    struct _DampRosen <: NLLSsolver.AbstractResidual end
+    NLLSsolver.ndeps(::_DampRosen) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_DampRosen) = NLLSsolver.static(2)
+    NLLSsolver.varindices(::_DampRosen) = SVector(1)
+    NLLSsolver.getvars(::_DampRosen, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_DampRosen) = Float64
+    NLLSsolver.computeresidual(::_DampRosen, x) = SVector(10 * (x[2] - x[1]^2), 1 - x[1])
+    s = collect(range(-1.0, 1.0; length = 21))
+    y = [0.5 + 2.0 * si + 0.01 * sin(5si) + 0.3 * si^3 for si in s]
+    line(d) = LmProblem([SVector(0.0, 0.0)], [_DampLine(si, yi) for (si, yi) in zip(s, y)]; damping = d)
+    # the default and an explicit MarquardtDamping: Core 0.10.1's results bit for bit (measured on 0.10.1, b8cc82b6)
+    for (p, stops) in ((LmProblem([SVector(0.0, 0.0)], [_DampLine(si, yi) for (si, yi) in zip(s, y)]), LmStops()),
+            (line(MarquardtDamping()), LmStops(; damping = MarquardtDamping())))
+        sol = lmsolve_chart!(p, stops)
+        @test p.variables[1] === SVector(0.5, 2.193694599112287)
+        @test sol.cost === 0.04458855362594855 && sol.iterations == 3 && sol.code === ReturnCode.Success
+    end
+    q = LmProblem([SVector(-1.2, 1.0)], [_DampRosen()])
+    sq = lmsolve_chart!(q)
+    @test q.variables[1] === SVector(0.9999999999999998, 0.9999999999999997)
+    @test sq.cost === 1.2818989709841442e-30 && sq.iterations == 18
+    # LevenbergDamping: the same minima
+    pl = line(LevenbergDamping())
+    sl = lmsolve_chart!(pl, LmStops(; damping = LevenbergDamping()))
+    @test sl.code === ReturnCode.Success
+    @test pl.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
+    @test sl.cost ≈ 0.04458855362594855 rtol = 1.0e-10
+    ql = LmProblem([SVector(-1.2, 1.0)], [_DampRosen()]; damping = LevenbergDamping())
+    sql = lmsolve_chart!(ql, LmStops(; damping = LevenbergDamping()))
+    @test sql.code === ReturnCode.Success && ql.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
+    # a problem built for one damping solved with the other: correct (its cache rebuilt)
+    pm = line(LevenbergDamping())
+    @test lmsolve_chart!(pm).code === ReturnCode.Success && pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
+    @test_throws MethodError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
+end
+
+@testitem "lmsolve_chart!(::LmProblem): LevenbergDamping converges where a column starts at zero (non-central-like)" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, LevenbergDamping
+    # A ray-origin-like fit: r_i = c·u_i + c·o·v_i − y_i, the offset `o` reaching the residual only through the scale
+    # `c`, which starts at 0 — o's column, and so its diag(JᵀJ), is zero at the start (a non-central origin's weak
+    # column at a central start). λ·I damps it as every other; the solve reaches the exact fit c = 2, o = 0.3.
+    struct _OriginRow <: NLLSsolver.AbstractResidual
+        u::Float64
+        v::Float64
+        y::Float64
+    end
+    NLLSsolver.ndeps(::_OriginRow) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_OriginRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_OriginRow) = SVector(1)
+    NLLSsolver.getvars(::_OriginRow, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_OriginRow) = Float64
+    NLLSsolver.computeresidual(r::_OriginRow, x) = SVector(x[1] * r.u + x[1] * x[2] * r.v - r.y)
+    u = collect(range(0.5, 2.0; length = 12)); v = [sin(3ui) for ui in u]
+    rows = [_OriginRow(ui, vi, 2.0 * ui + 2.0 * 0.3 * vi) for (ui, vi) in zip(u, v)]
+    p = LmProblem([SVector(0.0, 0.0)], rows; damping = LevenbergDamping())
+    sol = lmsolve_chart!(p, LmStops(; damping = LevenbergDamping()))
+    @test sol.code === ReturnCode.Success
+    @test p.variables[1] ≈ SVector(2.0, 0.3) atol = 1.0e-8
+    @test sol.cost < 1.0e-20
 end
 
 @testitem "lmsolve_chart!(::LmProblem): a repeated solve allocates O(1) in the number of variables" begin

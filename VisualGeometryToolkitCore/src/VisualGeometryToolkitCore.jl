@@ -706,7 +706,7 @@ public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_
 public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
 # The LM's stop settings (their one owner), its multi-block problem and the device LM's stop settings; whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
-public LmStops, LmProblem, StaticLmStops
+public LmStops, LmProblem, StaticLmStops, LmDamping, MarquardtDamping, LevenbergDamping
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
 public nlls_features, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # its Schur system detected, NLLSsolver's termination bits named; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's

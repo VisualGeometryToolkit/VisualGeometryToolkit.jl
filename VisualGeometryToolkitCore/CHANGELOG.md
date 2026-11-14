@@ -2,7 +2,7 @@
 
 ## 0.10.2
 
-A patch: the success rule's exact-fit test and a visible sensor-model fallback.
+A patch: the success rule's exact-fit test, a visible sensor-model fallback, and a choice of LM damping.
 
 ### Fixed
 - **The LM's exact-fit test has its own threshold.** `LmStops.ftol` is the RELATIVE cost-decrease stop; it was also read
@@ -18,6 +18,17 @@ A patch: the success rule's exact-fit test and a visible sensor-model fallback.
   components kept). The fallback was silent (`Matched`); it is now in every model's `reason` and `component_sources`.
   Additive for a caller that does not match the values exhaustively; no stack package does (searched: the monorepo, PS,
   RC, BB, CB, LODR, RSDR).
+- **The LM damping is a strategy type** (public `LmDamping`, `MarquardtDamping`, `LevenbergDamping`): `LmStops(; damping)`
+  and `LmProblem(…; damping)` select it by dispatch, each NLLSsolver's own public iterator. `MarquardtDamping()`
+  (λ·DᵀD, `:levenbergmarquardt_dtd`) is the default, and with it every fit is 0.10.1's bit for bit (tested against
+  values measured on 0.10.1). `LevenbergDamping()` (λ·I, `:levenbergmarquardt`) is opt-in. Additive: `LmStops` gains a
+  type parameter and a field, and a caller that builds it by keyword is unchanged.
+- **Measured, so it is not retried blindly:** on RC's refinements, neither damping wins everywhere. λ·DᵀD reaches a
+  lower cost on the fisheye case. λ·I converges on a non-central origin fit where DᵀD stalls at 1.2e-8 of its start
+  cost, and it reaches a slightly lower cost 1.6–1.8× faster on the Tamron and grid cases. Hence a choice, not a new
+  default. Moré's scaling (the DᵀD running max without NLLSsolver's 1e-8 floor) was also measured and REJECTED: a
+  column whose diag(JᵀJ) is zero leaves `H + λDᵀD` singular (the grid and non-central factorizations fail), and it was
+  no faster than the floored DᵀD. The measurements are in the `LmDamping` docstring.
 
 ## 0.10.1
 

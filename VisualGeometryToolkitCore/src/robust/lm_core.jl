@@ -73,7 +73,32 @@ const _STATIC_LM_MAX_ITER = toml_default(_CORE_DEFAULTS, "lm", "device_max_iter"
 const _STATIC_LM_ACCEPTANCE = toml_default(_CORE_DEFAULTS, "lm", "device_acceptance")::Float64
 
 """
-    LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing)
+    MarquardtDamping()
+    LevenbergDamping()
+
+The damping of the host Levenberg–Marquardt step, a strategy TYPE of [`LmStops`](@ref) and [`LmProblem`](@ref)
+(dispatch, not a flag), each NLLSsolver's own public iterator:
+
+- `MarquardtDamping()` (the default): λ·DᵀD, DᵀD the running maximum of diag(JᵀJ) floored at 1e-8 of its largest
+  entry — NLLSsolver's `:levenbergmarquardt_dtd`; Core 0.10's damping, bit for bit;
+- `LevenbergDamping()`: λ·I — NLLSsolver's `:levenbergmarquardt` (RadiometricCamera 0.8.0's).
+
+Measured (Core 0.10.2, 2026-11-14, six iterations of RC's fisheye, Tamron and grid refinements and a non-central
+origin fit): neither wins everywhere. λ·DᵀD reaches a lower cost on the fisheye case (1711 against 1776), while λ·I
+converges where DᵀD's weak columns stall (the non-central fit: a cost ratio of 1.7e-18 against DᵀD's 1.2e-8 after
+25 iterations, 9.0e-9 after 125), and on the Tamron and grid cases it reaches a slightly lower cost 1.6–1.8× faster
+(λ·DᵀD rejects more trial steps). An UNFLOORED running
+max (Moré's scaling, NLLSsolver's DᵀD without its floor) was measured and rejected: a column whose diag(JᵀJ) is zero
+leaves `H + λDᵀD` singular (the grid and non-central factorizations fail), and it is no faster than the floored DᵀD.
+"""
+abstract type LmDamping end
+@doc (@doc LmDamping) struct MarquardtDamping <: LmDamping end
+@doc (@doc LmDamping) struct LevenbergDamping <: LmDamping end
+_nlls_iterator(::MarquardtDamping) = NLLSsolver.static(:levenbergmarquardt_dtd)
+_nlls_iterator(::LevenbergDamping) = NLLSsolver.static(:levenbergmarquardt)
+
+"""
+    LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing, damping = MarquardtDamping())
 
 THE stop settings of every host Levenberg–Marquardt fit of the stack — the one owner of its knobs, which
 [`lmsolve_chart!`](@ref) maps onto NLLSsolver's options in one place. Every keyword defaults to Core's
@@ -86,26 +111,27 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
+| `damping` | the step's damping, a strategy type: [`MarquardtDamping`](@ref) (the default, λ·DᵀD) or [`LevenbergDamping`](@ref) (λ·I) | `iterator`: `:levenbergmarquardt_dtd` / `:levenbergmarquardt` |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 
-The damping is Marquardt's, λ·DᵀD with DᵀD the running maximum of diag(JᵀJ), its initial λ NLLSsolver's `1e-6`;
-neither is a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
+The initial λ is NLLSsolver's (`1e-6`), not a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
 tolerance: success is the stationarity postcondition's ([`lmsolve_chart!`](@ref)).
 """
-struct LmStops
+struct LmStops{D <: LmDamping}
     max_iter::Int
     ftol::Float64
     xtol::Float64
     stationarity_tol::Float64
     max_time::Float64
+    damping::D
 end
 function LmStops(; max_iter::Integer = _LM_MAX_ITER, ftol::Real = _LM_FTOL, xtol::Real = _LM_XTOL,
-        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing)
+        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing, damping::LmDamping = MarquardtDamping())
     max_iter >= 0 || throw(ArgumentError("LmStops: max_iter is a count of accepted iterations, ≥ 0; got $max_iter"))
     (ftol >= 0 && xtol >= 0) || throw(ArgumentError("LmStops: ftol and xtol are tolerances, ≥ 0; got ftol = $ftol, xtol = $xtol"))
     0 < stationarity_tol <= 1 || throw(ArgumentError("LmStops: stationarity_tol is a cosine in (0, 1]; got $stationarity_tol"))
-    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(stationarity_tol), _time_cap(max_time))
+    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(stationarity_tol), _time_cap(max_time), damping)
 end
 # `max_time` in seconds: `nothing` or `Inf` (or anything past the no-cap value) is
 # no cap; a negative or NaN cap is no cap anyone meant.
@@ -114,15 +140,15 @@ function _time_cap(t::Real)
     (isnan(t) || t < 0) && throw(ArgumentError("LmStops: max_time is a time in seconds, ≥ 0 (Inf or nothing: no cap); got $t"))
     return min(Float64(t), _NLLS_NO_TIME_CAP)
 end
-# The map onto NLLSsolver's options, on the static iterator `_DTD` (Marquardt's damping), so the options are inferred
-# and allocate nothing (a runtime Symbol made `static(iterator)` a dynamic call, three allocations per refit).
+# The map onto NLLSsolver's options, on the damping's static iterator (`_nlls_iterator`, by dispatch on its type), so
+# the options are inferred and allocate nothing (a runtime Symbol made `static(iterator)` a dynamic call, three
+# allocations per refit).
 @inline _nlls_options(s::LmStops) =
     NLLSsolver.NLLSOptions(
         s.ftol, 0.0, s.xtol, _NLLS_MAXFAILS, s.max_iter, UInt64(round(s.max_time * 1.0e9)),
-        _DTD, NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
+        _nlls_iterator(s.damping), NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
     )
-const _DTD = NLLSsolver.static(:levenbergmarquardt_dtd)
-const _NLLS_OPTIONS_TYPE = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 1.0, _NLLS_NO_TIME_CAP)))
+_nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 1.0, _NLLS_NO_TIME_CAP, d)))
 
 """
     ManifoldLmWorkspace{N}
@@ -378,7 +404,7 @@ NLLSsolver.computecostgradhess(_varflags, c::_ChartRows{N}, x) where {N} = resid
 # =============================================================================
 
 """
-    LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing)
+    LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing, damping = MarquardtDamping())
 
 An NLLSsolver problem as the stack's one LM adapter ([`lmsolve_chart!`](@ref)) solves it: `variables` (any NLLSsolver
 variables — Core [`Manifold`](@ref)s, `SVector`s, [`Eliminable`](@ref)s — of one type or several) and the residual
@@ -395,6 +421,10 @@ the residual statistics of a solve are [`nlls_rows_and_jacobian`](@ref)`(p.block
 as constants the blocks read (NLLSsolver's unfixed mask); the stationarity postcondition reads the free variables'
 columns only. `nothing` (the default) holds none, the problem as without the keyword, bit for bit. An index outside
 `variables`, or every variable held, is an `ArgumentError`.
+
+`damping` ([`MarquardtDamping`](@ref), the default, or [`LevenbergDamping`](@ref)) is the damping the problem's kept
+NLLSsolver cache is built for: solve it with the same `LmStops(; damping)` (another damping is correct but rebuilds
+the cache, as a changed problem does).
 """
 struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     problem::P
@@ -409,7 +439,7 @@ struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     w::Vector{Float64}
     free::BitVector
 end
-function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing)
+function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing, damping::LmDamping = MarquardtDamping())
     isempty(variables) && throw(ArgumentError("LmProblem: no variables"))
     isempty(blocks) && throw(ArgumentError("LmProblem: no residual blocks"))
     VT = _element_union(variables)
@@ -422,7 +452,7 @@ function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = no
     for b in bl
         NLLSsolver.addcost!(problem, b)
     end
-    return _lm_problem(problem, bl, _unfixed(fixed, length(variables)))
+    return _lm_problem(problem, bl, _unfixed(fixed, length(variables)), damping)
 end
 # NLLSsolver's unfixed mask of `fixed` (indices into the variables): `nothing` when none is held.
 _unfixed(::Nothing, n) = nothing
@@ -440,22 +470,22 @@ end
 # The element type a vector's values need: its own when concrete, else the union of the values' types (a camera
 # chart and pose charts; a pose and N points).
 _element_union(xs::AbstractVector) = isconcretetype(eltype(xs)) ? eltype(xs) : Union{unique(typeof.(xs))...}
-function _lm_problem(problem, blocks, unfixed)
+function _lm_problem(problem, blocks, unfixed, damping::LmDamping)
     free = unfixed === nothing ? trues(length(problem.variables)) : BitVector(unfixed)
     offsets = _free_offsets(problem.variables, free)
-    return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), unfixed), blocks, unfixed,
+    return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), unfixed), blocks, unfixed,
         offsets, zeros(offsets[end]), zeros(offsets[end]), free)
 end
 # A chart LM's run, of its concrete type `R` (the typed cache converted to the inferred cache type, as `_kept_run` asserts)
-_chart_lm_problem(::Type{R}, problem, blocks) where {R} =
-    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops()), 1), blocks, 1, Int[], Float64[], Float64[], falses(0))
+_chart_lm_problem(::Type{R}, problem, blocks, damping::LmDamping) where {R} =
+    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), 1), blocks, 1, Int[], Float64[], Float64[], falses(0))
 Base.getproperty(p::LmProblem, s::Symbol) = s === :variables ? getfield(p, :problem).variables : getfield(p, s)
 Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :offsets, :g, :w, :free, :variables)
 
 # The concrete LmProblem of a problem type `P` with blocks `B` and one free variable — the chart LMs' runs, whose
 # typed cache's type is the constructor's inferred return type (a constant of the types).
-_chart_problem_type(::Type{P}, ::Type{B}) where {P, B} =
-    LmProblem{P, Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{P, _NLLS_OPTIONS_TYPE, Int}), Vector{B}, Int}
+_chart_problem_type(::Type{P}, ::Type{B}, d::LmDamping) where {P, B} =
+    LmProblem{P, Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{P, _nlls_options_type(d), Int}), Vector{B}, Int}
 
 # THE one caching path of the chart LMs, plain and robust: the workspace's kept run when it is of type `R`, else a new
 # one (`build()`) kept in its place — a workspace serves one run type at a time (the LO's never changes type).
@@ -662,13 +692,13 @@ the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖
 and `MaxTime`, a failed solve `Failure`.
 """
 function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm::L, stops::LmStops = LmStops()) where {N, L}
-    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}, _ChartRows{N, L})
+    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}, _ChartRows{N, L}, stops.damping)
     run = _kept_run(ews, R) do
         problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _ChartRows{N, L})
         NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
         blocks = [_ChartRows{N, L}(_ChartState{L}(lm), ews.r, ews.J)]
         NLLSsolver.addcost!(problem, blocks[1])
-        _chart_lm_problem(R, problem, blocks)
+        _chart_lm_problem(R, problem, blocks, stops.damping)
     end
     run.blocks[1].state.lm = lm
     run.variables[1] = zero(SVector{N, Float64})
@@ -746,14 +776,14 @@ function lmsolve_chart!(
     rows % C == 0 || throw(ArgumentError("lmsolve_chart!: $rows rows are not a whole number of $C-row data"))
     S = _RobustChartState{N, L, K}
     B = _DatumRows{N, C, S}
-    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, B}, B)
+    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, B}, B, stops.damping)
     run = _kept_run(ews, R) do
         state = S(lm, robustifier, zero(SVector{N, Float64}), false, false, ews.r, ews.J)
         problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, B)
         NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
         blocks = [B(state, i) for i in 1:(rows ÷ C)]
         foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
-        _chart_lm_problem(R, problem, blocks)
+        _chart_lm_problem(R, problem, blocks, stops.damping)
     end
     state = run.blocks[1].state
     state.lm = lm; state.kernel = robustifier; state.rows = false; state.jac = false

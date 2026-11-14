@@ -112,17 +112,21 @@ StudentTMixture{T}(m::StudentTMixture) where {T <: AbstractFloat} =
 @inline _log_inlier_density(m::StudentTMixture, sq_r) =
     m.log_C + _student_t_log_kernel(m.half_νdg, m.νs2, m.s2, sq_r)
 
+# A NaN squared residual is read as an infinite one: the outlier's, whose
+# posterior and weight the formulas give as 0 and whose NLL as the outlier term,
+# where a NaN would make them NaN and poison every sum read from them. THE one
+# rule of every per-residual function of the mixture; branch-free, so
+# kernel-lawful, and the identity on every other value (finite residuals bit for
+# bit). An integer is never NaN, and keeps its type.
+@inline _nan_as_inf(sq_r::Integer) = sq_r
+@inline _nan_as_inf(sq_r) = ifelse(isnan(sq_r), oftype(sq_r, Inf), sq_r)
+
 # (P(inlier | r), w): the responsibility and the IRLS weight, the pair the
 # E-step writes. ONE kernel: the public scalars and every vector path call it.
-# A non-finite squared residual is the outlier's, (0, 0): an infinite one by the
-# formulas already, a NaN one (which they make NaN, poisoning every sum read
-# from the E-step) only by the guard. Branch-free, so kernel-lawful; a finite
-# residual's pair is the formulas' bit for bit.
 @inline function _posterior_pair(m::StudentTMixture{T}, sq_r) where {T}
+    sq_r = _nan_as_inf(sq_r)
     p = one(T) / (one(T) + exp(m.log_odds_out - _log_inlier_density(m, sq_r)))
-    w = p * _student_t_weight(m.νdg, m.νs2, m.s2, sq_r)
-    held = isfinite(sq_r)
-    return ifelse(held, p, zero(p)), ifelse(held, w, zero(w))
+    return p, p * _student_t_weight(m.νdg, m.νs2, m.s2, sq_r)
 end
 
 """
@@ -131,9 +135,9 @@ end
 The posterior probability that a residual with squared norm `sq_r` is an
 inlier, `π·t / (π·t + (1−π)·p_out)`. Scalar and kernel-callable.
 
-A non-finite `sq_r` (Inf or NaN) is the outlier's: its posterior is 0, so it is
-no inlier ([`is_map_inlier`](@ref)), and its [`posterior_weight`](@ref) is 0.
-(An infinite residual gives 0 by the formula; a NaN one gave NaN before 0.10.6.)
+A non-finite `sq_r` is the outlier's: its posterior is 0, so it is no inlier
+([`is_map_inlier`](@ref)), and its [`posterior_weight`](@ref) is 0. A NaN
+`sq_r` is read as an infinite one.
 """
 @inline inlier_posterior(m::StudentTMixture, sq_r) = first(_posterior_pair(m, sq_r))
 
@@ -154,9 +158,10 @@ The slope of [`posterior_weight`](@ref) in the squared residual,
 weight's own decay plus the responsibility's. `w` is strictly decreasing in
 `sq_r`, so this is negative wherever `w > 0`; it is what a Newton inversion of
 the weight (a tabulated half-quadratic conjugate, LocalOptimizationDoneRight's `TabulatedLift`)
-needs. Scalar and kernel-callable.
+needs. A NaN residual is read as an infinite one (a slope of 0). Scalar and kernel-callable.
 """
 @inline function posterior_weight_derivative(m::StudentTMixture, sq_r)
+    sq_r = _nan_as_inf(sq_r)
     p, w = _posterior_pair(m, sq_r)
     # ν = Inf: the Gaussian weight is flat, only the responsibility decays
     isinf(m.νs2) && return -w * (1 - p) / (2 * m.s2)
@@ -170,10 +175,10 @@ The negative log-density of the mixture at one residual — the per-point summan
 of the mixture NLL. Computed against the outlier term in log space,
 `−(log((1−π)p_out) + softplus(log π·t − log((1−π)p_out)))`, so it is finite for
 an infinite residual (it is the outlier term's) and for an exact inlier.
-Scalar and kernel-callable.
+A NaN residual is read as an infinite one. Scalar and kernel-callable.
 """
 @inline mixture_nll(m::StudentTMixture, sq_r) =
-    -(m.log_mix_out + log1pexp(_log_inlier_density(m, sq_r) - m.log_odds_out))
+    -(m.log_mix_out + log1pexp(_log_inlier_density(m, _nan_as_inf(sq_r)) - m.log_odds_out))
 
 """
     soft_posterior_weights!(w, inlier_posterior, sq_distances, ν, s_hat_sq, log_two_outlier_halfwidth, n, d_g=1[, inlier_prior=1/2])

@@ -118,14 +118,15 @@ end
 # Sampson distance, a residual that turned NaN — is the outlier's: inlier
 # posterior 0 and weight 0, so it is no inlier, and nothing read from the E-step
 # (ŝ², ν, π, the cost Σwᵢrᵢ²) sees it. An infinite residual gives it by the
-# formulas; a NaN one by the kernel's guard. A finite residual's pair is the
-# unguarded formula's, bit for bit.
+# formulas; a NaN one is read as an infinite one. A finite residual's pair is
+# the unguarded formula's, bit for bit.
 @testitem "student_t_mixture: non-finite residuals" begin
     using Test, Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, soft_posterior_weights!,
-        PosteriorWeightState, JeffreysPrior, IGPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
-        posterior_weights!, posterior_inlier_probs!, median_seeded_posterior, is_map_inlier
+        PosteriorWeightState, JeffreysPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
+        posterior_weights!, posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll,
+        posterior_weight_derivative
     const VGC = VisualGeometryToolkitCore
 
     mixtures = [StudentTMixture(ν, s2, log(2 * hw), dg, πin)
@@ -140,6 +141,9 @@ end
                 @test inlier_posterior(mT, x) === zero(T)
                 @test posterior_weight(mT, x) === zero(T)
                 @test !is_map_inlier(inlier_posterior(mT, x))
+                # the NLL is the outlier term's and the weight's slope 0, as at Inf
+                @test mixture_nll(mT, x) === mixture_nll(mT, T(Inf)) && isfinite(mixture_nll(mT, x))
+                @test iszero(posterior_weight_derivative(mT, x))
             end
         end
     end
@@ -156,6 +160,8 @@ end
             xs = T[0, nextfloat(zero(T)), floatmin(T), eps(T), 1, floatmax(T), prevfloat(floatmax(T))]
             append!(xs, T.(exp10.(range(-12, 12; length = 400))), rand(rng, T, 400) .* 50)
             @test all(x -> VGC._posterior_pair(mT, x) === _unguarded(mT, x), xs)
+            @test all(x -> mixture_nll(mT, x) ===
+                           -(mT.log_mix_out + VGC.log1pexp(VGC._log_inlier_density(mT, x) - mT.log_odds_out)), xs)
         end
     end
 
@@ -167,9 +173,7 @@ end
         n = 30
         base = 0.2 .* rand(rng, n) .^ 2; base[1:6] .= 400.0
         for bad in (NaN, Inf), dg in (1, 2)
-            sq_nan = copy(base); sq_nan[[4, 17]] .= NaN
-            sq_inf = copy(base); sq_inf[[4, 17]] .= Inf
-            sq = bad === NaN ? sq_nan : sq_inf
+            sq = copy(base); sq[[4, 17]] .= bad
             w = fill(-1.0, n); p = fill(-1.0, n)
             soft_posterior_weights!(w, p, sq, 6.0, 0.05, log(20.0), n, dg)
             @test w[[4, 17]] == [0.0, 0.0] && p[[4, 17]] == [0.0, 0.0]
@@ -177,7 +181,10 @@ end
             keep = setdiff(1:n, [4, 17])
             @test w[keep] == posterior_weight.(Ref(m), sq[keep])
             @test p[keep] == inlier_posterior.(Ref(m), sq[keep])
-
+        end
+        sq_nan = copy(base); sq_nan[[4, 17]] .= NaN
+        sq_inf = copy(base); sq_inf[[4, 17]] .= Inf
+        for dg in (1, 2)
             states = map((sq_nan, sq_inf)) do s
                 pws = PosteriorWeightState(zeros(n), zeros(n), copy(s), 6.0, 0.05, log(20.0), dg, JeffreysPrior(), 0.5)
                 update_weights!(pws, n)
@@ -201,23 +208,17 @@ end
         end
     end
 
-    # The median seed (a fit with no partition): the median runs over the residuals
-    # that are not NaN, so a NaN residual neither moves the seed scale nor makes it
-    # NaN, and the E-step gives it 0. An Inf residual stays in the median (an
-    # outlier's large norm), as it always did.
-    @testset "median_seeded_posterior: a NaN residual" begin
+    # The median seed (a fit with no partition): a NaN residual is read as an Inf
+    # one, in the median and in the E-step, so the seed is the Inf seed bit for bit
+    # (ŝ² finite), and it weighs 0.
+    @testset "median_seeded_posterior: a NaN residual is an Inf one" begin
         rng = MersenneTwister(8)
         sq = 0.1 .* rand(rng, 21) .^ 2
-        sq_nan = [sq[1:10]; NaN; sq[11:21]]
         kw = (; outlier_halfwidth = 10.0, ν = 50.0, prior = JeffreysPrior(), codimension = 2)
-        ref = median_seeded_posterior(sq, 21; kw...)
-        pws = median_seeded_posterior(sq_nan, 22; kw...)
-        @test pws.s_hat_sq === ref.s_hat_sq
-        @test pws.w[11] === 0.0 && pws.inlier_posterior[11] === 0.0
-        @test pws.w[[1:10; 12:22]] == ref.w && pws.inlier_posterior[[1:10; 12:22]] == ref.inlier_posterior
-        sq_inf = [sq[1:10]; Inf; sq[11:21]]
-        pinf = median_seeded_posterior(sq_inf, 22; kw...)
-        @test isfinite(pinf.s_hat_sq) && pinf.w[11] === 0.0
-        @test pinf.s_hat_sq == VGC._mad_scale_norms(; norms = sqrt.(sq_inf), codimension = 2)^2
+        pnan = median_seeded_posterior([sq[1:10]; NaN; sq[11:21]], 22; kw...)
+        pinf = median_seeded_posterior([sq[1:10]; Inf; sq[11:21]], 22; kw...)
+        @test isfinite(pnan.s_hat_sq) && pnan.s_hat_sq === pinf.s_hat_sq
+        @test pnan.w == pinf.w && pnan.inlier_posterior == pinf.inlier_posterior
+        @test pnan.w[11] === 0.0 && pnan.inlier_posterior[11] === 0.0
     end
 end

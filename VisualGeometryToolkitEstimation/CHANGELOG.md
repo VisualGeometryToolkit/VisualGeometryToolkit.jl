@@ -2,7 +2,9 @@
 
 ## 0.11.6
 
-A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source onto another lattice. No other result changes.
+A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source onto another lattice. Every SplineLens result's
+family record gains `extrapolated_fraction`; no other result changes beyond rounding (a kept backward's held-out errors
+are now taken in the turned frame).
 
 ### Added
 

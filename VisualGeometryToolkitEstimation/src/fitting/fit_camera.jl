@@ -1063,7 +1063,9 @@ directions and points one right-hand side — in the source's frame. No spacing
 search and no tolerance: the one deterministic least-squares step
 `fit_camera(T, source, region; tolerance)` repeats at each spacing it tries
 (the same implementation), so `pspline_grid(T, source, region, (gw, gh))` at
-the lattice `fit_camera` chose is its backward.
+the lattice `fit_camera` chose is its backward — for a gauge-`K` source (a
+SplineLens camera) once that source is turned onto its optical axis, the frame
+`fit_camera` fits in.
 
 `source` is a [`BoundedCamera`](@extref
 VisualGeometryToolkitCore.Cameras.BoundedCamera) (the lattice needs the image:
@@ -1264,6 +1266,8 @@ function fit_camera(
     )
     _check_tolerance(tolerance)
     VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
+    # a source that bounds no central CameraModel is refused before any fit (`_spline_backward`'s fallback)
+    model(source) isa CameraModel || _spline_backward(model(source), source, region, grid_size, tolerance, device)
     # the source on its optical axis first (a gauge K; a physical K is its own axis), then the backward in that frame:
     # kept, or the lattice of `grid_size` fitted to the turned source's rays
     gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), model(source), source, device)
@@ -1339,8 +1343,10 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
 
 # The share of the image's area — the full-image lattice's — where the fit has no source ray: outside the region, or
 # inside it where the source images none (each fitted quadrature pixel stands for `stride²` of area), so the penalty
-# alone holds the lattice there.
-_extrapolated_fraction(q, image_size) = clamp(1 - length(q.fit_px) * q.stride^2 / VgtkCore.area(image_size), 0.0, 1.0)
+# alone holds the lattice there. Only the quadrature pixels inside the image count (a region's box may run past its
+# right or bottom edge).
+_extrapolated_fraction(q, image_size) =
+    clamp(1 - count(p -> p[1] <= image_size.width && p[2] <= image_size.height, q.fit_px) * q.stride^2 / VgtkCore.area(image_size), 0.0, 1.0)
 
 # The SplineLens camera `cam` with the forward spline `forward`: its K, backward and presence kept.
 _with_forward(cam, forward) = CameraModel(cam.intrinsics, SplineLens(cam.lens.backward; forward, present = cam.lens.present))

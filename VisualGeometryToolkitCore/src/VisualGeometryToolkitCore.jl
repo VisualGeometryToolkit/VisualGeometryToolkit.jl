@@ -433,7 +433,7 @@ export FileBlack, ChannelBlack, Dark               # the black slot: the RAW's o
 export NoNoise, ReadNoise, PoissonGaussian, RelativeNoise   # the noise slot: none; σ_r alone; the gain and σ_r; (σ_rel·x)²
 export NoDefects, DefectList                       # the defect slot: none; photosites with their onset exposures
 public BlackComponent, NoiseComponent, DefectComponent, SensorEntry   # the slots' supertypes; a characterisation entry
-public SensorSource, ModelReason, Matched, NoCharacterisation, UnmatchedISO, OtherBody   # a component's source (an enum module); why a frame got its model
+public SensorSource, ModelReason, Matched, NoCharacterisation, UnmatchedISO, OtherBody, DarkOutOfBand   # a component's source (an enum module); why a frame got its model
 public content_digest                              # a SensorModel's identity: sha256_hex(canonical_json(its tree))
 public component_sources                           # a SensorModel's provenance: each slot's SensorSource (nothing when absent), its reason, the override
 export photon_transfer, master_dark, defect_onsets # the estimators (raw/sensor_estimators.jl): a FitResult of a measured PoissonGaussian (one frame, scheduled for removal: an estimated one); a Dark and ReadNoise; masks into a DefectList

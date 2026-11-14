@@ -347,6 +347,35 @@ end
 # A kept problem's repeated solve allocates O(1): the success rule's postcondition reads the problem's own scratch
 # (`p.offsets`, `p.g`, `p.w`, `p.free`, built once with it, as a chart run reads its workspace's), so neither it nor
 # the solve's count grows with the number of variables (VisualGeometryToolkitEstimation's relpose allocation gate).
+# Core 0.10.2: `LmStops.ftol` is a RELATIVE cost-decrease tolerance; the success rule's exact-fit test has its own,
+# absolute threshold. A low-cost but non-stationary stop must not report Success: the Rosenbrock valley scaled by
+# 1e-3 (cost ≈ 2.4e-5 at the start, far below a relative ftol of 0.5) stops on the cost-decrease rule (a step that
+# lowers the cost by less than half) after its first steps, well short of the minimum, where the gradient is not
+# orthogonal to the residual.
+@testitem "lmsolve_chart!(::LmProblem): a low-cost stop short of stationarity is not a Success" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
+    struct _ScaledRosenbrock <: NLLSsolver.AbstractResidual
+        s::Float64
+    end
+    NLLSsolver.ndeps(::_ScaledRosenbrock) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_ScaledRosenbrock) = NLLSsolver.static(2)
+    NLLSsolver.varindices(::_ScaledRosenbrock) = SVector(1)
+    NLLSsolver.getvars(::_ScaledRosenbrock, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_ScaledRosenbrock) = Float64
+    NLLSsolver.computeresidual(r::_ScaledRosenbrock, x) = r.s .* SVector(10 * (x[2] - x[1]^2), 1 - x[1])
+    p = LmProblem([SVector(-1.2, 1.0)], [_ScaledRosenbrock(1.0e-3)])
+    sol = lmsolve_chart!(p, LmStops(; ftol = 0.5))
+    @test sol.cost < 0.5                                       # a cost below the relative tolerance's value …
+    @test p.variables[1][1] < 0.9                              # … far from the minimum at (1, 1)
+    @test sol.code !== ReturnCode.Success                      # so not a Success: the exact-fit test is not ftol
+    # the same problem to its minimum is a Success (an exact fit there: the cost at its rounding)
+    q = LmProblem([SVector(-1.2, 1.0)], [_ScaledRosenbrock(1.0e-3)])
+    full = lmsolve_chart!(q)
+    @test full.code === ReturnCode.Success
+    @test q.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
+end
+
 @testitem "lmsolve_chart!(::LmProblem): a repeated solve allocates O(1) in the number of variables" begin
     using Test, StaticArrays
     import VisualGeometryToolkitCore as VgtkCore

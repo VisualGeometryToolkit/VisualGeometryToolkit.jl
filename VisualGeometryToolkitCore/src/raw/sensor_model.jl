@@ -68,16 +68,23 @@ Why [`sensor_model`](@ref) gave a frame the model it did (an isbits `@enum`,
 - `NoCharacterisation`: none was given (also the absent default `SensorModel()`);
 - `UnmatchedISO`: characterisations of this body exist, none at this ISO (no
   extrapolation across ISO);
-- `OtherBody`: the characterisations given are of other bodies.
+- `OtherBody`: the characterisations given are of other bodies;
+- `DarkOutOfBand` (Core 0.10.2): the body and the ISO matched, but the frame's
+  exposure is outside the entry's [`Dark`](@ref)'s exposure band, so the model's
+  black is the Dark's [`ChannelBlack`](@ref) (the entry's other components kept):
+  the fallback is visible, never silent.
 
-Every reason but `Matched` gives the absent model.
+`NoCharacterisation`, `UnmatchedISO` and `OtherBody` give the absent model;
+`Matched` and `DarkOutOfBand` the entry's components. A caller that matches the
+values exhaustively handles `DarkOutOfBand` too.
 """
-@enum ModelReason::UInt8 Matched NoCharacterisation UnmatchedISO OtherBody
+@enum ModelReason::UInt8 Matched NoCharacterisation UnmatchedISO OtherBody DarkOutOfBand
 
 @doc "`Matched`: a [`ModelReason`](@ref) — an entry of this body at the frame's ISO gave the model." Matched
 @doc "`NoCharacterisation`: a [`ModelReason`](@ref) — no characterisation was given; the absent model." NoCharacterisation
 @doc "`UnmatchedISO`: a [`ModelReason`](@ref) — this body is characterised, but not at the frame's ISO; the absent model." UnmatchedISO
 @doc "`OtherBody`: a [`ModelReason`](@ref) — the characterisations given are of other bodies; the absent model." OtherBody
+@doc "`DarkOutOfBand`: a [`ModelReason`](@ref) — this body at this ISO, but the frame's exposure is outside the Dark's band: its ChannelBlack, the entry's other components." DarkOutOfBand
 
 """
     BlackComponent, NoiseComponent, DefectComponent
@@ -426,7 +433,9 @@ record states (ruling A): `black`, `noise` and `defects` each the component's
 [`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
 for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
 frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
-…); `specified_override` whether a specified component won over a measured one.
+`UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark did not serve
+the frame's exposure and its ChannelBlack stands in); `specified_override` whether
+a specified component won over a measured one.
 The one public view of a model's provenance: a consumer reads it, never the
 components' fields.
 """
@@ -538,14 +547,16 @@ exposure `capture[t].exposure`.
    of the same source are an `ArgumentError`, as are two different bodies
    matching a capture that states no serial.
 3. A [`Dark`](@ref) only when its exposure band serves the frame's exposure
-   (otherwise its channel black); a [`DefectList`](@ref) cut to the sites whose
-   onset is at most the exposure (none left: [`NoDefects`](@ref)).
+   (otherwise its channel black, and the reason `DarkOutOfBand`); a
+   [`DefectList`](@ref) cut to the sites whose onset is at most the exposure
+   (none left: [`NoDefects`](@ref)).
 
 With no characterisation (`NoCharacterisation`), none of this body
 (`OtherBody`) or none at this ISO (`UnmatchedISO`) the result is the absent
 model `SensorModel(FileBlack(), NoNoise(), NoDefects())` with that
 [`ModelReason`](@ref): today's linearisation, bit for bit. Otherwise its
-`reason` is `Matched`. A frame the capture does not hold is an `ArgumentError`.
+`reason` is `Matched`, or `DarkOutOfBand` when the entry's Dark does not serve the
+frame's exposure. A frame the capture does not hold is an `ArgumentError`.
 An explicit model a caller holds is used as it is: this resolver is where a
 characterisation becomes one, never a substitute for one given.
 """
@@ -568,8 +579,9 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
     black, ob = _pick([e.black for e in entries], FileBlack(), :black, ex.iso)
     noise, on = _pick([e.noise for e in entries], NoNoise(), :noise, ex.iso)
     defects, od = _pick([e.defects for e in entries], NoDefects(), :defects, ex.iso)
-    return SensorModel(_frame_black(black, ex.exposure_time), noise, _frame_defects(defects, ex.exposure_time);
-                       reason = Matched, specified_override = ob || on || od)
+    fb = _frame_black(black, ex.exposure_time)
+    return SensorModel(fb, noise, _frame_defects(defects, ex.exposure_time);
+                       reason = black isa Dark && !(fb isa Dark) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
 end
 
 # ------------------------------------------------------------------------------

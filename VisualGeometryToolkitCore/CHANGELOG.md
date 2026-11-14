@@ -1,5 +1,24 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.2
+
+A patch: the success rule's exact-fit test and a visible sensor-model fallback.
+
+### Fixed
+- **The LM's exact-fit test has its own threshold.** `LmStops.ftol` is the RELATIVE cost-decrease stop; it was also read
+  as the success rule's ABSOLUTE exact-fit threshold (`F < ftol`), so any stop at a cost below it was a `Success`
+  however far from stationary (a downstream fixture ending at a cost of about 2e-8). The exact-fit test is now the run's
+  own resolution of its starting cost, `F < m·ε·F₀` over `m` residuals (`_exact_fit_threshold`: a cost of `m` squares is
+  evaluated to about `m·ε` relative), in the chart, robust and multi-block postconditions alike. A low-cost stop short
+  of stationarity is now `Stalled` (tested); an exact fit is still a `Success`.
+
+### Added
+- **`ModelReason` value `DarkOutOfBand`** (public): `sensor_model` matched the body and the ISO, but the frame's exposure
+  is outside the entry's `Dark`'s exposure band, so the model's black is the Dark's `ChannelBlack` (the entry's other
+  components kept). The fallback was silent (`Matched`); it is now in every model's `reason` and `component_sources`.
+  Additive for a caller that does not match the values exhaustively; no stack package does (searched: the monorepo, PS,
+  RC, BB, CB, LODR, RSDR).
+
 ## 0.10.1
 
 The photon transfer of a dedicated capture (owner rulings of 2026-11-13/14, the FX3 characterisation: the single-frame

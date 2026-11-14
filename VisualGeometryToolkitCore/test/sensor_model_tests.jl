@@ -286,7 +286,8 @@ end
 
 @testitem "sensor model: the resolver — full, partial, absent, unmatched ISO, other body, precedence, onset" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, NoCharacterisation, UnmatchedISO, OtherBody
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, NoCharacterisation, UnmatchedISO, OtherBody,
+        DarkOutOfBand
     s = parse_unit("s")
     body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "5012345")
     frame(t, iso) = (; exposure = ExposureSettings(t, 8, iso), lens_settings = LensSettings(14mm))
@@ -305,6 +306,16 @@ end
     @test m.noise == full.entries[100.0].noise
     m2 = sensor_model([full], cap, 2)                    # 1/500 s: outside the dark's band
     @test m2.black isa ChannelBlack && m2.black == full.entries[100.0].black.black
+    # Core 0.10.2: the fallback is VISIBLE — the reason says the Dark's band missed the frame (the FX3 record's folder band
+    # 1/8000 s against the frames' EXIF 1.25000006e-4 s), and a band at the frame's own exposure is Matched
+    @test m2.reason === DarkOutOfBand && !(m2.noise isa NoNoise)       # the entry's other components kept
+    t_exif = 0.0001250000059371814 * s
+    capx = CaptureSettings(Dict(1 => frame(t_exif, 100)); body)
+    narrow(band) = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), dark = (; dark..., exposure_band = band),
+                                  read_noise = (2.5, 2.5, 2.5, 2.5)).characterisation
+    @test sensor_model(narrow(((1 / 8000)s, (1 / 8000)s)), capx, 1).reason === DarkOutOfBand    # the folder band: just below
+    @test sensor_model(narrow((t_exif, t_exif)), capx, 1).reason === Matched                     # the EXIF band
+    @test sensor_model(narrow((t_exif, t_exif)), capx, 1).black isa Dark
     # ONSET: the sites whose onset is at most the exposure, the boundary included
     sites(t) = sort(collect(sensor_model(full, cap, t).defects.x))
     @test sites(4) == [1]                                # 1/1000 s: the 1/2000 s site

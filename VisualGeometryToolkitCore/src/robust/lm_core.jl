@@ -82,7 +82,7 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | knob | meaning | NLLSsolver |
 |---|---|---|
 | `max_iter` | the iteration cap (`[lm]` 1000) | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first, so the cap bounds accepted steps, not work |
-| `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F; also the stationarity postcondition's exact-fit test, F < `ftol` | `reldcost` |
+| `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the run's own, `_exact_fit_threshold`) | `reldcost` |
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
@@ -469,15 +469,25 @@ end
 
 # THE solve, every form's: NLLSsolver under the stop settings on the kept problem and cache, its stop code
 # (`nlls_stop_code`) and termination record (`nlls_termination`) under THE success rule — the stationarity
-# postcondition (`postcondition()`, at the returned point) decides every stop that is not a failure or a cap: the
+# postcondition (`postcondition(exact)`, at the returned point, with the run's exact-fit threshold) decides every stop that is not a failure or a cap: the
 # cost-decrease stop, the step-size stop and the rejection cap alike. A stop it fails is `_LM_STALLED`.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, callback, p.cache)
     code = nlls_stop_code(result.termination)
-    stationary = (code == 1 || code == 2 || code == 4) ? postcondition()::Bool : true
+    exact = _exact_fit_threshold(2 * result.startcost, _residual_count(p.blocks))
+    stationary = (code == 1 || code == 2 || code == 4) ? postcondition(exact)::Bool : true
     stationary || (code = _LM_STALLED)
     return result, code, nlls_termination(result, stationary)
 end
+
+# THE exact-fit threshold of a run (Core 0.10.2; it was `LmStops.ftol`, a RELATIVE tolerance, read as an absolute cost):
+# a cost F = Σᵢ rᵢ² of `m` residuals is evaluated to a relative error of about m·ε (each square to ε, their sum's m − 1
+# additions), so at the start, F₀, it is known to m·ε·F₀. A remaining cost below that resolution is zero: an exact fit,
+# whose residuals point in no particular direction (the column cosine says nothing there). Scaled to the problem by F₀
+# and m, it is never a fixed number: a low cost that is merely small (a problem whose costs are all small) is not exact.
+_exact_fit_threshold(F₀::Real, m::Integer) = m * eps(Float64) * F₀
+# The residuals' count m of a run's blocks (NLLSsolver's `nres` of each).
+_residual_count(blocks) = sum(b -> Int(NLLSsolver.dynamic(NLLSsolver.nres(b))), blocks; init = 0)
 
 # The linear-algebra failures NLLSsolver's step solve may throw (an indefinite or singular normal system): a
 # multi-block solve maps them to a failed solve, `(ReturnCode.Failure, NonFinite)`. Anything else is a bug and
@@ -645,7 +655,8 @@ THE SUCCESS RULE. A stop is a success only at a STATIONARY point: for the cost-d
 the rejection cap alike, stationarity is TESTED at the returned point, and a stop that fails it is
 `ReturnCode.Stalled` (`converged = -2`) with the rule that fired. A tiny cost decrease or a tiny step proves nothing: a
 run whose damping grew until no step could lower the cost (a wrong-sign Jacobian; a NaN wall the minimizer lies
-behind) stops there. Stationary means the cost is zero by the exact-fit test, `F < stops.ftol`, or every column of
+behind) stops there. Stationary means the cost is zero by the exact-fit test — below the run's own resolution of its
+starting cost F₀, `F < m·ε·F₀` over `m` residuals (`stops.ftol` is the relative cost-decrease stop, never this test) — or every column of
 the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`
 (√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)). The iteration and time caps are `MaxIters`
 and `MaxTime`, a failed solve `Failure`.
@@ -662,7 +673,7 @@ function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm::L, stops::LmStops = LmS
     run.blocks[1].state.lm = lm
     run.variables[1] = zero(SVector{N, Float64})
     result, converged, record = _lm_run!(run, stops, NLLSsolver.nullcallback,
-        () -> _lm_stationary(ews, lm, run.variables[1], stops.stationarity_tol, stops.ftol))
+        exact -> _lm_stationary(ews, lm, run.variables[1], stops.stationarity_tol, exact))
     return run.variables[1], 2 * result.bestcost, converged, result.niterations, record
 end
 
@@ -748,7 +759,7 @@ function lmsolve_chart!(
     state.lm = lm; state.kernel = robustifier; state.rows = false; state.jac = false
     run.variables[1] = zero(SVector{N, Float64})
     result, converged, record = _lm_run!(run, stops, NLLSsolver.nullcallback,
-        () -> _blocks_stationary!(ews.g, ews.w, _CHART_OFFSETS, run.blocks, run.variables, _ONE_FREE, stops.stationarity_tol, stops.ftol))
+        exact -> _blocks_stationary!(ews.g, ews.w, _CHART_OFFSETS, run.blocks, run.variables, _ONE_FREE, stops.stationarity_tol, exact))
     x = run.variables[1]
     _robust_rows!(state, x)            # the solver's last evaluation may have been a rejected trial
     return x, 2 * result.bestcost, converged, result.niterations, record
@@ -759,7 +770,7 @@ const _CHART_OFFSETS = (0,)   # its columns start at 1
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
     cb = callback === nothing ? NLLSsolver.nullcallback : callback
     out = try
-        _lm_run!(p, stops, cb, () -> _lm_problem_stationary!(p, stops.stationarity_tol, stops.ftol))
+        _lm_run!(p, stops, cb, exact -> _lm_problem_stationary!(p, stops.stationarity_tol, exact))
     catch e
         e isa _LM_LINEAR_FAILURES || rethrow()
         nothing
@@ -791,7 +802,8 @@ end
 
 Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
 
-1. `F < ftol` — the cost is ZERO by the cost tolerance's own scale. A zero-
+1. `F < ftol` — the cost is ZERO: `ftol` the run's exact-fit threshold (`_exact_fit_threshold`, the resolution
+   m·ε·F₀ of its starting cost), never the relative `LmStops.ftol`. A zero-
    residual fit ends with `r` at its rounding floor, which points in no
    particular direction, so the cosine below says nothing there: measured
    2026-10-01, exact fits (robot-world, lens, relative-pose, essential) ended

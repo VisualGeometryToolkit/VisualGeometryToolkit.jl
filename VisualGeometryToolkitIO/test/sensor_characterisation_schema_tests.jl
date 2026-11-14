@@ -182,7 +182,7 @@ end
     @test e.noise.gain == 2.1 && e.defects.x == [5] && e.defects.y == [2]
     @test validate(src) == "sensor_characterisation"
     @test VgtkIO.schema_versions("sensor_characterisation") == ["vgio/sensor_characterisation/v1.0", "vgio/sensor_characterisation/v2.0"]
-    @test VgtkIO._written_versions("sensor_characterisation") == ((1, 0), (2, 0))
+    @test VgtkIO._written_versions("sensor_characterisation") == [(1, 0), (2, 0)]
     @test_throws ArgumentError VgtkIO.json_schema("sensor_characterisation", (3, 0))
     @test_throws ArgumentError VgtkIO.json_schema("cameras", (5, 0))            # a version no writer emits
     mktempdir() do dir

@@ -338,7 +338,8 @@ _schema(kind, v::Tuple{Int, Int}) = "vgio/$(kind)/$(_version_string(v))"
 # stated: `_spec(kind, v)` reads it, so a version listed has its validator.
 const _OLDER_WRITTEN_VERSIONS = Dict{String, Vector{Pair{Tuple{Int, Int}, Function}}}(
     "sensor_characterisation" => [(1, 0) => () -> _SENSOR_CHARACTERISATION_V1_SPEC])   # IO 0.10.1's table
-_written_versions(kind::AbstractString) = (map(first, get(_OLDER_WRITTEN_VERSIONS, kind, ()))..., _schema_version(kind))
+_written_versions(kind::AbstractString) =
+    push!(Tuple{Int, Int}[first(p) for p in get(_OLDER_WRITTEN_VERSIONS, kind, Pair{Tuple{Int, Int}, Function}[])], _schema_version(kind))
 
 # A record's `schema` field accepts its version's major (by default the kind's current version) at any minor.
 struct _SchemaTok <: _Spec

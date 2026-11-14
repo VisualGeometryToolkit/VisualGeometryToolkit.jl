@@ -321,27 +321,27 @@ function _detect_foerstner(
         integration_sigma, precision_threshold, roundness_threshold
     ) : _foerstner_seeded(device, doubled, seeds; derivative, derivative_sigma)
     classes = _foerstner_classes(found, significance_level)
-    model === nothing && return _one_per_blob(found, _foerstner_points(found, classes, _undouble))
+    blob(rows) = seeds === nothing ? rows : _one_per_blob(rows, found.sigmas)   # the seeded rows: one :circular per blob
+    model === nothing && return blob(_foerstner_points(found, classes, _undouble))
     variance, covariance_status = model
     v = variance isa Real ? fill!(KA.allocate(device, T, size(g)...), T(variance)) : ka_upload(T, device, variance)
     covariances = _propagated_covariances(device, found, classes, v)
-    return _one_per_blob(found, _foerstner_points(found, classes, _undouble; covariances, covariance_status))
+    return blob(_foerstner_points(found, classes, _undouble; covariances, covariance_status))
 end
 
 # The seeded rows, one :circular row per blob: two :circular rows closer than the larger of their blobs' radii, σ/√2
 # of each row's seed (SFOP's NMS footprint), are one blob found from two seeds (a dot seen at two scales, a coarse
 # window that the estimate pulls onto a dot), and the better-determined row (the smaller trace of its covariance; a
 # tie to the earlier row) is kept. Greedy, best first: a row is dropped only by a KEPT row, so a dropped row never
-# drops a third. The other rows, and the image-wide search's (no seeds), as they are. Sequential, on the host: n is
-# the seeds' count (a few hundred).
-_one_per_blob(found, rows) = haskey(found, :sigmas) ?
-    rows[_one_per_blob_mask([r.center for r in rows], found.sigmas, [r.label for r in rows], [tr(cov(r.value)) for r in rows])] : rows
+# drops a third. The other rows as they are. Sequential, on the host: n is the seeds' count (a few hundred).
+_one_per_blob(rows, sigmas) =
+    rows[_one_per_blob_mask([r.center for r in rows], sigmas, [r.label for r in rows], [tr(cov(r.value)) for r in rows])]
 function _one_per_blob_mask(centres, sigmas, labels, spreads)
     keep = trues(length(centres))
     kept = Int[]
     for k in sort(findall(==(:circular), labels); by = k -> (spreads[k], k))
-        one(j) = hypot((centres[k] .- centres[j])...) < max(sigmas[k], sigmas[j]) / sqrt(2)
-        any(one, kept) ? (keep[k] = false) : push!(kept, k)
+        same_blob(j) = hypot((centres[k] .- centres[j])...) < max(sigmas[k], sigmas[j]) / sqrt(2)
+        any(same_blob, kept) ? (keep[k] = false) : push!(kept, k)
     end
     return keep
 end

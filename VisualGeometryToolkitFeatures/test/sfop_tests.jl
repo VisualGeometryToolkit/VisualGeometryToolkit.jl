@@ -310,8 +310,8 @@ end
     rows = detect_sfop(L; device = KA.CPU(), sensor_model = model)
     @test !any(bright, rows)
     l = detect_sfop(L; device = KA.CPU(), sensor_model = model, polarity = :light)
-    # (a dot SFOP sees at two scales gives two seeds: the seeded rows keep one per blob, below)
-    @test all(any(norm(d.center .- t) < 1.5 for t in dots) for d in l) && all(any(norm(d.center .- t) < 1.5 for d in l) for t in dots)
+    # every dot seeded (a weak coarse window on two dots' tails may seed too: its seeded row is no :circular point, below)
+    @test all(any(norm(d.center .- t) < 1.5 for d in l) for t in dots)
     # the seeded windows under the same model: each a dot, once
     pts = detect_foerstner(Float32, L, l; sensor_model = model, device = KA.CPU(), polarity = :light)
     @test length(pts) == length(dots) && all(d -> d.label === :circular, pts)

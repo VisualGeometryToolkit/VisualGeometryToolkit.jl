@@ -139,11 +139,13 @@ and skips the image-wide search:
 
 ```julia
 seeds  = detect_sfop(img; noise_sigma = 2)        # discs: the selected σ per dot
-points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose window lies inside the image
+points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose window lies inside the image, one :circular per blob
 ```
 
-The rows are those of `detect_foerstner(img)`; at the windows `detect_foerstner(img)`
-chose, the seeded form returns its rows bit for bit (a test item). The seeded form
+The rows are those of `detect_foerstner(img)`, one per seed whose window lies inside
+the image, except a second `:circular` row of one blob (below); at the windows
+`detect_foerstner(img)` chose, the seeded form returns its rows bit for bit (a test
+item: those windows' points are distinct blobs). The seeded form
 takes only the window estimation's keywords (`device`, `noise`, `derivative`,
 `derivative_sigma`, `significance_level`) and `polarity` (below); the image-wide search's are refused by
 name. On a RAW's green cells both take the `LinearRaw`: `detect_sfop(L)` and

@@ -49,8 +49,8 @@ end
 @inline _variance_at(v::Real, i, j) = v
 @inline _variance_at(v::AbstractMatrix, i, j) = @inbounds v[i, j]
 
-# Which of the points (`points`, a host 3 × n matrix: COLMAP x, y and the scale s of each, columns) pass the polarity gate of sign `sign` on the device
-# image `img` (H × W) under the pixel noise `variance` (`_blob_laplacian!`'s `v`, on the device): their Laplacian has
+# Which of the points (`points`, a host 3 × n matrix: COLMAP x, y and the scale s of each, columns) the polarity gate of
+# sign `sign` keeps, on the device image `img` (H × W) under the pixel noise `variance` (`_blob_laplacian!`'s `v`, on the device): their Laplacian has
 # that sign SIGNIFICANTLY, `sign·L > z·√Var L`, z the standard normal's `significance_level` quantile — a one-sided
 # test, so a point whose sign the noise could have given (a window on flat background between blobs) is not kept for
 # either polarity: a missed blob, never one of the wrong sign.

@@ -287,10 +287,13 @@ end
 @inline _floor_at(floor::Real, i, j) = floor
 @inline _floor_at(floor::AbstractArray, i, j) = @inbounds floor[i, j, 1]
 
-# The input variance (H × W, rows y) on an octave's grid (W_o × H_o, x first): the nearest input pixel to each octave
-# pixel's centre, `sf` input pixels per octave pixel.
+# The input variance (H × W, rows y) on an octave's grid (W_o × H_o, x first): at the input pixel the pyramid puts each
+# octave pixel at (`_level_to_canvas`, 0-based both; the nearest one on the upsampled octave), `sf` input pixels per
+# octave pixel.
 @kernel function _octave_variance!(out, @Const(v), sf::Float32)
     i, j = @index(Global, NTuple)
     H, W = size(v)
-    @inbounds out[i, j, 1] = v[clamp(round(Int, (j - 0.5f0) * sf + 0.5f0), 1, H), clamp(round(Int, (i - 0.5f0) * sf + 0.5f0), 1, W)]
+    x = round(Int, _level_to_canvas(Float32(i - 1), sf)) + 1
+    y = round(Int, _level_to_canvas(Float32(j - 1), sf)) + 1
+    @inbounds out[i, j, 1] = v[clamp(y, 1, H), clamp(x, 1, W)]
 end

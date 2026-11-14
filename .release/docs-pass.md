@@ -1,3 +1,47 @@
+docs-pass: fdbbcb3b
+
+# VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitFeatures 0.9.6, VisualGeometryToolkitEval 0.9.0 docs pass (julia-docs-pass) — branch patch-feat096
+
+Baseline: GitHub main 29d7492e (Features 0.9.5), main d40a948a and 0005582b merged (Estimation 0.11.4, 0.11.5: no Core,
+Features or Eval change). The gated tree is fdbbcb3b; this record is the only change after it.
+
+## 1. Public API since the last releases
+
+- **Core 0.10.7**, additive: `value_variance(v::LinearRawView, i, j, x)` (public). Docs only: `Triggs`' docstring
+  (Estimation 0.11.3's LO over the consensus set, a non-finite residual weighing 0, the weights fixed for the one LM).
+  `_with_variance` lost a dead argument (internal).
+- **Features 0.9.6**, additive: `polarity` on `detect_sfop` and the seeded `detect_foerstner`; `detect_sfop(L::LinearRaw;
+  sensor_model)`; `detect_sfop(m::RawMosaic; …)` and `detect_foerstner([T], m::RawMosaic, seeds; …)` (the bilinear green
+  image). No name removed.
+- **Eval 0.9.0**, breaking: `Product`, `produce`, `Produced`, `produced`, `product_dir`, `product_output`, `load_output`
+  added; `keyed_cell_dir`, `keyed_data_dir`, `experiment_dir`, `fresher`, `run_complete`, `cached_result`,
+  `legacy_hash_key` and the 4-argument `Stage` refused by name (retired.jl); `results_root()`/`data_root()` DrWatson's
+  `exp_pro`/`exp_raw`.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | the `docs` items green in all three suites (gate CPU and depwarn=yes) |
+| `checkdocs = :public`, doctests, cross-references | the three strict docs builds green (Core 18069, Features 18084, Eval 18089) |
+| README and landing pages | unchanged (no README example touches the new API) |
+| guides | Features foerstner.md: the polarity section, duplicates left to the consumer, the seeded rows' claim corrected; Eval paper-projects.md: the keyed product (output hashes, atomic save, the `.jld2` saver), getting-started/protocol/tuning prose restored after a rename |
+| docstrings | `detect_sfop`, `detect_foerstner` (seeded, mosaic), `value_variance`, `Triggs`, `Product`, `Produced`, `produce`, `produced`, `load_output`, `write_run_records` (`gitpath`) |
+| check_naming | 0 in the three preps |
+| CHANGELOGs | Core `## 0.10.7`, Features `## 0.9.6`, Eval `## 0.9.0` (Breaking, Known issues) |
+| versions, floors | Core 0.10.7; Features 0.9.6, Core "0.10.7" (package, test, docs); Eval 0.9.0, Core "0.10.7", IO "0.10.3", Estimation "0.11.5" (package, test; its docs project names no stack package) |
+
+## 3. Executed on fdbbcb3b
+
+Julia 1.13.3, fresh `git clone --shared`, nice 0, the per-agent depot `depot-feat096` (General a GitHub clone,
+`JULIA_PKG_SERVER=""`); GPU tiers on the B200s.
+
+| package | prep (lint, agent_docs, floor --latest, audit, dup, naming, upstream dup) | CPU strict | CPU depwarn=yes | GPU | docs |
+|---|---|---|---|---|---|
+| Core 0.10.7 | 18065: all 0 | 18066, 16 groups green | 18067, 16 groups green | 18068, 6 groups green | 18069 green |
+| Features 0.9.6 | 18080: all 0 | 18081, 6 groups green (data items run) | 18082, 6 groups green | 18083 green (+ Core warp) | 18084 green |
+| Eval 0.9.0 | 18085: all 0 | 18086, 6 groups green | 18087, 6 groups green | 18088 green | 18089 green |
+
 docs-pass: 3dc35e52
 
 # VisualGeometryToolkitEstimation 0.11.5 docs pass (julia-docs-pass) — branch patch-est0115

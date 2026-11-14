@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEval changelog
 
-## 0.9.0 (unreleased)
+## 0.9.0
 
 On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGeometryToolkitEstimation 0.11.5 (the
 `[compat]` floors of the package and its test project).

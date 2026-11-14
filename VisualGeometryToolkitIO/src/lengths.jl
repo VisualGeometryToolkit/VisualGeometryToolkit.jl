@@ -30,13 +30,15 @@
 #
 # What is exact, and what cannot be. A file number of at most 15 significant
 # digits reads and writes back to its own text, so a file written by a person
-# or by the stack from such numbers is rewritten byte for byte. A full
-# precision (17 digit) file number need not be: a millimetre double and a
-# metre double are on different grids, and about a quarter of 17-digit
-# millimetre numbers share their nearest metre value with a neighbour, so one
-# of the two cannot come back. Its first rewrite moves it by at most 2 ulp;
-# every rewrite after that is byte-identical, because `write_length` writes
-# the number that reads back to the identical quantity whenever one exists.
+# or by the stack from such numbers is rewritten byte for byte. A writer writes
+# every length as its PERSISTED value (`_persisted`: the metre value at 15
+# significant digits, the value content_id hashes; IO 0.10.1), so a
+# full-precision value computed in code is written as at most 15 significant
+# digits, moved by at most one rounding at the 15th digit, and reads back as
+# exactly that value: the value, its file and the value loaded back have one
+# identity, and every rewrite is byte-identical. A full-precision (17 digit)
+# number a person wrote in a file reads as the nearest metre value, and its
+# first rewrite is its persisted form.
 #
 # Every Float64 crosses: negatives, ±0 (the sign kept), integers, subnormal
 # and huge values, NaN and ±Inf (NaN stays NaN, an infinity keeps its sign).
@@ -134,7 +136,17 @@ function _write_power(y::Float64, u::Units, n::Int)
     n == 0 && return y
     return _write_scaled(y, _length_scale(u), n)
 end
+# Set (only) by the reproductions of IO 0.9's identities (migrate_v010.jl, `_v09`): their millimetre numbers are the
+# ones 0.9's `_persisted` read back, i.e. the unrounded value's nearest file number, the writer before 0.10.1.
+const _WRITE_UNROUNDED = Base.ScopedValues.ScopedValue(false)
 function _write_scaled(y::Float64, scale::Float64, n::Int)
+    # The file holds the value's PERSISTED form (`_persisted`, content_id's length leaf: the metre value at 15
+    # significant digits), never the unrounded one (IO 0.10.1). Then the file reads back as exactly that value, so a
+    # value built in code, the file written from it and the value loaded back have one identity, and a rewrite is
+    # byte-stable. Writing the unrounded value (0.10.0) read back an ulp off for about one computed value in eight, on
+    # the other side of a 15th-digit rounding boundary for about one in ninety: two identities for one rig.
+    # (`_WRITE_UNROUNDED` is set only where IO reproduces 0.10.0's writer: the 0.9 identities, migrate_v010.jl.)
+    _WRITE_UNROUNDED[] || (y = _persisted(y, n))
     k = _decimal_exponent(scale)
     back(c) = _read_scaled(c, scale, k, n) === y    # `_read_power(c, u, n) === y`
     if k !== nothing
@@ -188,13 +200,16 @@ read_length(x::Real, u::Units) = _metre_quantity(_read_power(x, u, 1))
 
 The number a file holds for the length `q` in the unit `u`, the inverse of
 [`read_length`](@ref): `write_length(read_length(x, u), u)` prints as `x` for
-every `x` of at most 15 significant digits, and `read_length` of the result is
-`q` itself whenever any file number reads back to it (a full-precision metre
-value may have none in millimetres; the nearest is written, within an ulp). A
-power-of-ten unit shifts the decimal exponent of the metre value; any other
-unit takes the fewest significant digits (1 to 17) that `read_length` maps back
-to the identical `q`. NaN and ±Inf are written as they are. An `ArgumentError`
-for a unit that is not a length, or a quantity that is not one.
+every `x` of at most 15 significant digits. What is written is `q`'s PERSISTED
+value, its metre value rounded to 15 significant digits (the value
+[`content_id`](@ref) hashes), so `read_length` of the result is that value: a
+full-precision length computed in code moves by at most one rounding at the
+15th digit, and the length built in code, the file written from it and the
+length loaded back have one identity; a rewrite is byte for byte. A
+power-of-ten unit shifts the decimal exponent of the persisted metre value; any
+other unit takes the fewest significant digits (1 to 17) that `read_length`
+maps back to it. NaN and ±Inf are written as they are. An `ArgumentError` for a
+unit that is not a length, or a quantity that is not one.
 
 The search is not a conversion and stays: FlexUnits' `ustrip(u, q)`, even
 correctly rounded, gives back the file's own number for only about three

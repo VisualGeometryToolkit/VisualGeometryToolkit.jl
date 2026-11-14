@@ -195,15 +195,54 @@ end
 # chart-LM workspace from `ws` (the one reuse policy, `_lm_workspace`), ONE `lmsolve_chart!` at Core's stop settings
 # (`LmStops()`, its `[lm]` table), robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
 # `recenter` and read as a model (`_model_at`). Returns `(model, (code, rule), iterations)`, the model `nothing` when
-# the solve went non-finite.
+# the solve went non-finite. A ZERO-WEIGHT ROW IS EXACTLY 0: a row whose √w is 0 (a datum the caller or the problem's
+# own state weighs 0) and its Jacobian row are set to 0 whatever the problem's row is, so a datum whose residual is
+# Inf or NaN in Float64 cannot reach the LM as 0·Inf = NaN (`_ZeroWeightRows`). Only a run with a zero √w is wrapped:
+# with none the state and every row are as before, bit for bit.
 function _chart_refit(ws, problem, ch, state, weights; robustifier = nothing, stops::LmStops = LmStops())
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(ws, rows, dof)
     weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
         fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(problem), rows ÷ data_size(problem))
-    lm = state(problem, ch, sqrt_weights(ews))
+    # after the state: a problem's own state may zero √w (PnP's out-of-reach anchor points, bearing pose's caller weights)
+    lm = _zero_weight_rows(state(problem, ch, sqrt_weights(ews)), sqrt_weights(ews), rows)
     x, _, _, n_iter, record = robustifier === nothing ? lmsolve_chart!(ews, lm, stops) :
         lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem)), stops)
     any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), n_iter
     return _model_at(problem, recenter(ch, x)), record, n_iter
+end
+
+# =============================================================================
+# The zero-weight row rule — `_chart_refit`'s, for every chart refit
+# =============================================================================
+
+# A chart-LM state whose rows (and Jacobian rows) at a zero √w are exactly 0: the
+# inner state's rows, then every row `j` with `sqrtw[j] == 0` overwritten with 0.
+# The rows at a nonzero √w are the inner state's, untouched. It answers the
+# chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`); Core's
+# cost and normal-equation reductions read the rows through it.
+struct _ZeroWeightRows{L}
+    lm::L
+    sqrtw::Vector{Float64}
+end
+_zero_weight_rows(lm, sqrtw::Vector{Float64}, rows::Int) = any(iszero, view(sqrtw, 1:rows)) ? _ZeroWeightRows(lm, sqrtw) : lm
+
+function residual_rows!(r, s::_ZeroWeightRows, x)
+    residual_rows!(r, s.lm, x)
+    sw = s.sqrtw
+    @inbounds for j in eachindex(r)
+        iszero(sw[j]) && (r[j] = zero(eltype(r)))
+    end
+    return r
+end
+function residual_jacobian_rows!(J, s::_ZeroWeightRows, x)
+    residual_jacobian_rows!(J, s.lm, x)
+    sw = s.sqrtw
+    @inbounds for j in axes(J, 1)
+        iszero(sw[j]) || continue
+        for k in axes(J, 2)
+            J[j, k] = zero(eltype(J))
+        end
+    end
+    return J
 end

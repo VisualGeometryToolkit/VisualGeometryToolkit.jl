@@ -1,3 +1,37 @@
+docs-pass: e548389b
+
+# VisualGeometryToolkitCore 0.10.6 docs pass (julia-docs-pass) — branch patch-core0106
+
+Baseline: GitHub main dc983c78 (Estimation 0.11.2 records; Core 0.10.4 as registered). e548389b is patch-core0106: the
+red tests (d9e6f5d1), the fix (3bde6291), version and docs (10a7d20f), the /simplify (08c51602) and /code-review
+(64266595) fixes, and the merge of GitHub main 8f28fde7 (Core 0.10.5 posted: the Float16 LinearRaw; no file of this
+patch touched by it but the version, the CHANGELOG and this record). The bug (found reviewing Estimation 0.11.2):
+Core's mixture kernel `_posterior_pair` gave NaN for a NaN squared residual, so the `fit_*` seeds built outside
+Estimation's `consensus_posterior` and every E-step outside Estimation's guards made the whole posterior state NaN.
+
+## 1. Public API since 0.10.5
+
+- **Added / removed / exports:** nothing.
+- **Behaviour:** a non-finite squared residual's inlier posterior and weight are 0 (`inlier_posterior`,
+  `posterior_weight`, `soft_posterior_weights!`, `posterior_weights!`, `posterior_inlier_probs!`, and through them the
+  state's E-step and seed), at every mixture; `median_seeded_posterior`'s median skips NaN residuals. Inf at a mixture
+  with finite constants and every finite residual: unchanged bit for bit.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| docstrings | `inlier_posterior`, `posterior_weight`, `soft_posterior_weights!` (the non-finite rule), `median_seeded_posterior` (the NaN median), `Irls{GaussianShape}` in `Irls{K}`'s strategy list (the consensus refit set, since Estimation 0.11.2) |
+| README, landing page, guides | unchanged: none states the mixture's per-residual rule (estimators.md names `is_map_inlier` only) |
+| CHANGELOG | Core `## 0.10.6`: Fixed (the kernel's non-finite rule; the median seed), Changed (`Irls{GaussianShape}`'s docstring) |
+| version | Core 0.10.6 |
+
+Review findings recorded, not taken: `mixture_nll` and `posterior_weight_derivative` keep NaN for a NaN residual (a
+finite NLL would let an NLL-driven incumbent accept an iterate whose residuals went NaN); `mad_scale` itself is
+unchanged (its other caller, the sensor estimators, is outside this patch); Estimation's `_zero_nonfinite_weights!`
+duplicates the rule once Estimation's Core floor is 0.10.6 (an Estimation change); a residual that turns NaN between an
+E-step and the scale update still meets a nonzero weight there (the next E-step zeroes it).
+
 docs-pass: ca3311df
 
 # VisualGeometryToolkitEstimation 0.11.3 docs pass (julia-docs-pass) — branch patch-est0113

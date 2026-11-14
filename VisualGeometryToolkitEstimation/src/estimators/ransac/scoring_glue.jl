@@ -232,8 +232,8 @@ struct LossPlainWeights{L <: DeployedLoss, C <: Union{Nothing, BitVector}} <: Ab
 end
 LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss) = LossPlainWeights(rws, n, loss, nothing)
 
-# Whether datum `i` may weigh at all: its squared residual finite, and inside the
-# consensus set when the policy holds one.
+# Whether datum `i` may weigh at all: its residual (squared or not: only its
+# finiteness is read) finite, and inside the consensus set when one is given.
 @inline _weighs(::Nothing, sq_r, _i) = isfinite(sq_r)
 @inline _weighs(consensus::BitVector, sq_r, i) = isfinite(sq_r) & @inbounds(consensus[i])
 

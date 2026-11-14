@@ -381,8 +381,8 @@ end
 # own workspace (`consensus_mask!`) rather than read as it stands: a caller that
 # scored with `mask = false` leaves the previous score's mask in `buf` under a
 # fresh epoch, which `check_fresh` cannot see.
-_lo_consensus(::Irls, _cs, _buf, _scoring) = nothing
-function _lo_consensus(::Irls{GaussianShape}, cs::ConsensusSet, buf::ScoreBuffers, scoring)
+_lo_consensus(::Union{Irls, Triggs}, _cs, _buf, _scoring) = nothing
+function _lo_consensus(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     check_fresh(cs, buf)
     return consensus_mask(consensus_mask!(buf, scoring))
 end

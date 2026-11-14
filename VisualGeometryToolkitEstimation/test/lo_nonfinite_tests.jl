@@ -89,3 +89,80 @@ end
     @test inlier_weight(rws)[3] === 0.0
 end
 end
+
+@testitem "lo_nonfinite: Triggs" begin
+# =============================================================================
+# The same two rules for the robustified chart LM, Triggs{K} (0.11.3)
+# =============================================================================
+#
+# WHY THIS ITEM EXISTS: `Triggs{GaussianShape}` ran one chart LM over EVERY datum
+# at unit weight — least squares on the outliers, and an out-of-reach point's
+# row (its residual beyond the storage range) made the LM's cost infinite at its
+# start, so the local optimization handed back its seed. The rules, as 0.11.2's
+# `Irls{K}`: a datum whose seed residual is not finite weighs 0 under every
+# shape; under the Gaussian shape the LM weighs only the scorer's consensus set.
+# =============================================================================
+
+using Test
+using LinearAlgebra
+using StaticArrays
+using StableRNGs
+using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation
+using VisualGeometryToolkitCore: Point2, Circle, Triggs, GaussianShape, CauchyShape, MsacScoring, estimate
+using VisualGeometryToolkitEstimation: CircleProblem, locally_optimize
+import VisualGeometryToolkitEstimation as VgtkEstimation
+import VisualGeometryToolkitCore as VgtkCore
+
+# The circle (100, 80), radius 50: 60 inliers (σ = 0.1); `outliers`: 8 points 3 px
+# outside it on one arc (out of the scorer's 1 px threshold); `out_of_reach`: 3
+# points 1e200 out. (The circle's Sampson distance is degenerate there — Core's
+# rule — so their residuals stay finite and their rows are zero rows: these fits
+# check that such points move nothing; the non-finite rule itself is checked on
+# the LM's weights, "the Triggs weights" below.)
+function circle_points(rng; outliers::Bool, out_of_reach::Bool)
+    pts = [Point2{Float64}(100 + 50cos(t) + 0.1randn(rng), 80 + 50sin(t) + 0.1randn(rng)) for t in range(0, 2π, length = 61)[1:60]]
+    outliers && append!(pts, [Point2{Float64}(100 + 53cos(t), 80 + 53sin(t)) for t in range(0.0, 0.7, length = 8)])
+    out_of_reach && append!(pts, [Point2{Float64}(s * 1.0e200, 1.0e200) for s in (1.0, -1.0, 2.0)])
+    return pts
+end
+const SEED = Circle(Point2(100.2, 79.9), 50.15)
+circle_error(c) = max(norm(SVector(c.center...) - SVector(100.0, 80.0)), abs(c.r - 50))
+fit(pts, lo) = (p = CircleProblem(pts); estimate(locally_optimize(p, SEED; local_optimization_strategy = lo, scoring = MsacScoring(p; threshold = 1.0))))
+
+@testset "Gaussian Triggs" begin
+    @testset "improves its seed beside out-of-reach points" begin
+        c = fit(circle_points(StableRNG(81); outliers = true, out_of_reach = true), Triggs{GaussianShape}())
+        @test c != SEED
+        @test circle_error(c) < 0.05
+    end
+    @testset "fits the consensus set, not the outliers" begin
+        # least squares over every point sits ~0.3 px off
+        c = fit(circle_points(StableRNG(82); outliers = true, out_of_reach = false), Triggs{GaussianShape}())
+        @test circle_error(c) < 0.05
+    end
+end
+
+@testset "a robust shape: only the non-finite rule" begin
+    lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
+    with = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = true), lo)
+    without = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = false), lo)
+    v(c) = SVector(c.center..., c.r)
+    # the out-of-reach rows weigh 0: the fit is the one without them, up to the LM's
+    # stop settings (scaled by the row count; measured 2e-3 px)
+    @test norm(v(with) - v(without)) < 0.01
+    # no consensus restriction for a robust shape: only the Gaussian Triggs takes the scorer's set
+    @test VgtkEstimation._lo_consensus(lo, nothing, nothing, nothing) === nothing
+    @test hasmethod(VgtkEstimation._lo_consensus,
+                    Tuple{Triggs{GaussianShape}, VgtkCore.ConsensusSet, VgtkCore.ScoreBuffers, Any})
+end
+
+@testset "the Triggs weights" begin
+    # The circle's out-of-reach rows are already zero rows (Core's Sampson rows give a
+    # degenerate element a zero row), so the rule is checked on the weights the LM gets.
+    w = fill(NaN, 5)
+    r = Float32[0.5, Inf32, NaN32, 2.0, 0.1]
+    @test VgtkEstimation._triggs_weights!(w, nothing, Float32[0.5, 1.0, 2.0, 0.1, 3.0], 5) === nothing   # every row at unit weight
+    @test collect(VgtkEstimation._triggs_weights!(w, nothing, r, 5)) == [1.0, 0.0, 0.0, 1.0, 1.0]
+    @test collect(VgtkEstimation._triggs_weights!(w, BitVector([true, true, true, false, true]), r, 5)) == [1.0, 0.0, 0.0, 0.0, 1.0]
+end
+end

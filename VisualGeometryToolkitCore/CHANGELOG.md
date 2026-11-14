@@ -19,6 +19,8 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
   Dark is substituted. Maps that do not cover the frames are a `DimensionMismatch`.
 - **`[photon_transfer] significance = 0.001`** in `configs/default.toml`: the default of every method's
   `significance`, read with `toml_default` like the LM's settings.
+- **`LogPolarToCartesian` and `CartesianToLogPolar` are public** (not exported): the log-polar map and its inverse,
+  whose `transform_deriv` and `inv` Core 0.10.3 added.
 
 ### Fixed
 - **σ_r's standard error is carried from the darks** (both series methods). It was stated as `0` always. The `Dict`
@@ -30,6 +32,10 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
   `Success`/`ClosedForm` with 0 iterations. The series' `FitResult` now carries the line's outcome:
   `Success`/`IncrementSize` with its reweightings when the weights converged, `MaxIters`/`IterationCap` when they did
   not. The single-frame method throws `NoiseEstimateFailed` when its line did not converge.
+- **A non-finite Jacobian never certifies an exact fit.** An Inf Jacobian entry, or one whose square overflows, makes
+  the final point's operand scale S² infinite, and with it the rounding floor (16ε)²·S²: every finite cost read as an
+  exact fit, a `Success` where the column cosine says nothing (0.10.3 read `Stalled` there). A non-finite S² gives no
+  rounding floor, only the data's `residual_resolution`²; a finite S² is unchanged.
 - **One frame that gives fewer than 4 points is refused.** The single-frame `photon_transfer(mosaic)` skipped the μ²
   test below 4 points and returned an untested K. It now throws `NoiseEstimateFailed`, which says why: the test needs
   the slope, the intercept, the μ² term and one degree of freedom. `NoiseEstimateFailed` is the type the estimator's
@@ -41,6 +47,16 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
   `:solved`). The estimates are unchanged.
 - **The `Dict` method `photon_transfer(groups, darks::AbstractDict{<:Quantity, <:ReadNoise})` is kept, and is removed
   in wave 11**: use the `Darks` method.
+- **The `LmProblem` owns its damping** (`p.damping`, the damping its kept NLLSsolver cache is built for).
+  `lmsolve_chart!(p)`'s default stops take it, so 0.10.3's `lmsolve_chart!(p)` on a `LevenbergDamping` problem solves
+  as before. An EXPLICITLY supplied `LmStops` of another damping is an `ArgumentError` naming both, the problem left as
+  it was, where 0.10.3 solved it by rebuilding the cache. A caller that supplies its own stops to a `LevenbergDamping`
+  problem (`LmStops(; max_iter = 50)` is Marquardt's) states `damping = p.damping`.
+- **A precision conversion that is not there is visible.** `image_warp(T, …)` (`_precision`) leaves a link that holds
+  floats of another precision and has no conversion as it is, as before, and now warns once per type, naming it.
+  Kept on purpose and not warned about: the log-polar maps, whose log radius stays Float64 in a Float32 warp (a
+  Float32 one moved VisualGeometryToolkitFeatures' `detect_image_circle`), and the intrinsics, which keep their
+  precision as they always have.
 - Internal cleanups in `src/raw/sensor_estimators.jl`, none of which changes a number:
   - `_ptc_rms` and `_birge_ratio` are one function (the rms is the ratio at 0 parameters);
   - the greens' colour indices are computed once (`_green_sites`);
@@ -48,7 +64,9 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
     temporal-moments helper (`_temporal_moments`); the series reuses one stack buffer group by group, and the
     `Dict` method uploads its model's offset map and mask once rather than once per group;
   - "blocks per point" is the named constant `_PTC_BLOCKS_PER_POINT`;
-  - the too-few-blocks refusal counts "samples", not "cells".
+  - the too-few-blocks refusal counts "samples", not "cells";
+  - `defect_mask` is the one defect-mask method pair (the internal `_defect_mask` folded into it), and
+    `sensor_model`'s reason and `SensorModel`'s frame-black check are by dispatch.
 - **The LM success rule's exact-fit threshold is the FINAL point's rounding, one derivation for the host and the device
   LM.** A residual evaluated from operands of magnitude s is rounded to 16·ε·s (c = 16: γₙ ≈ n·ε/2 over at most 32
   rounded operations), so a cost below (16ε)²·Σᵢ sᵢ² is zero — `_exact_fit_threshold`, which `lmsolve_chart!` (every

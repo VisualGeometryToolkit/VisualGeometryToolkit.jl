@@ -428,8 +428,9 @@ columns only. `nothing` (the default) holds none, the problem as without the key
 `variables`, or every variable held, is an `ArgumentError`.
 
 `damping` ([`MarquardtDamping`](@ref), the default, or [`LevenbergDamping`](@ref)) is THE problem's damping (its one
-owner, Core 0.10.4: `p.damping`), the one its kept NLLSsolver cache is built for: [`lmsolve_chart!`](@ref) refuses
-stops of another damping (`ArgumentError`, naming both), the problem left as it was.
+owner, Core 0.10.4: `p.damping`), the one its kept NLLSsolver cache is built for: [`lmsolve_chart!`](@ref)'s default
+stops take it, and an explicitly supplied stops of another damping is refused (`ArgumentError`, naming both), the
+problem left as it was.
 """
 struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     problem::P
@@ -542,7 +543,10 @@ struct _FinalRounding
 end
 # The threshold `exact` gives at operand scale S² = `S2`: the final point's (`_FinalRounding`), or a caller's stated
 # absolute cost (`is_stationary`'s `ftol`, a number).
-_exact_threshold(e::_FinalRounding, S2) = _exact_fit_threshold(sqrt(S2), e.resolution)
+# A non-finite S² (an Inf Jacobian entry, an overflowing square) gives NO rounding floor, only the data's resolution:
+# an infinite floor would certify every finite cost as an exact fit.
+_exact_threshold(e::_FinalRounding, S2) =
+    isfinite(S2) ? _exact_fit_threshold(sqrt(S2), e.resolution) : Float64(e.resolution)^2
 _exact_threshold(ftol::Real, S2) = ftol
 # uⱼ of coordinate `k` of variable `v` in block `c`'s columns.
 _operand_unit(c, v, k) = _operand_unit(v, k)
@@ -687,7 +691,7 @@ const _LM_STALLED = -2
         -> (x::SVector{N}, F, converged, iterations, (code, rule))
     lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}, stops::LmStops = LmStops())
         -> (x::SVector{N}, F, converged, iterations, (code, rule))
-    lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
+    lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(; damping = p.damping); callback = nothing)
         -> (; code::ReturnCode.T, rule::StopRule, iterations::Int, cost::Float64)
 
 THE stack's host Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) under the stop settings `stops`
@@ -832,7 +836,7 @@ const _ONE_FREE = (true,)      # the chart LMs' one variable, free
 _operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the linearization point: a chart unit
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
-function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
+function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(; damping = p.damping); callback = nothing)
     p.damping === stops.damping || throw(ArgumentError(
         "lmsolve_chart!: the problem was built for $(nameof(typeof(p.damping)))() (its kept cache) and the stops say " *
         "$(nameof(typeof(stops.damping)))(): solve it with LmStops(; damping = $(nameof(typeof(p.damping)))()), or build " *

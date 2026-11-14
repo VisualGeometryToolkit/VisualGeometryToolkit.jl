@@ -207,6 +207,7 @@ export FramedImage        # canvas + its pixel-frame window (warp-layer return c
 export image_warp!, image_warp_batch_to!
 export image_sample!      # the same bilinear tap at scattered points (one kernel, every backend)
 export canonical_map, logpolar_map, logpolar_to_cartesian
+public LogPolarToCartesian, CartesianToLogPolar   # the log-polar map and its inverse (inv), with their transform_deriv
 export dilate, intersects
 # Pointwise maps over arrays: one KernelAbstractions kernel on every backend, the CPU's included.
 export pointwise!

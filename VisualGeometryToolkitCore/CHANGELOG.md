@@ -7,20 +7,21 @@ weight 0, and is no inlier: the rule VisualGeometryToolkitEstimation 0.11.2 appl
 every caller reads it.
 
 ### Fixed
-- **A NaN squared residual is read as an infinite one by every per-residual function of the mixture**, so its inlier
-  posterior and weight are 0, as an infinite residual's always were. The kernel `_posterior_pair`, which
-  `inlier_posterior`, `posterior_weight`, `soft_posterior_weights!` (and so `update_weights!` and `seed_posterior!`),
-  `posterior_weights!` and `posterior_inlier_probs!` all call, gave NaN for a NaN squared residual. The NaN reached every
-  sum read from the E-step (`update_scale!`'s ŝ², `update_nu!`'s ν, `update_inlier_prior!`'s π, a cost Σwᵢrᵢ²), so one
-  NaN datum made the whole state NaN. That reached the seeds built outside VisualGeometryToolkitEstimation's
-  `consensus_posterior` (`fit_residual_mixture`'s, `fit_division_camera`'s) and its E-steps unguarded. `mixture_nll`
-  gives a NaN residual the outlier term (it gave NaN) and `posterior_weight_derivative` a slope of 0 (it gave NaN). An
-  infinite residual is unchanged; a finite residual's posterior, weight and NLL are unchanged bit for bit (tested
-  against the unguarded formulas, Float64 and Float32; measured over Core's and Estimation's suites: no posterior value
-  moves but a NaN input's).
-- **`median_seeded_posterior` reads a NaN residual as an infinite one in its median too.** The median of norms holding
-  a NaN was NaN, so the seed scale ŝ² and every posterior were NaN. A NaN residual now seeds exactly as an infinite one
-  does (an outlier's large norm). `mad_scale` itself is unchanged.
+- **A non-finite squared residual's inlier posterior and weight are 0 in the mixture kernel**, whatever the mixture's
+  constants. The kernel `_posterior_pair`, which `inlier_posterior`, `posterior_weight`, `soft_posterior_weights!` (and
+  so `update_weights!` and `seed_posterior!`), `posterior_weights!` and `posterior_inlier_probs!` all call, gave NaN for
+  a NaN squared residual. The NaN reached every sum read from the E-step (`update_scale!`'s ŝ², `update_nu!`'s ν,
+  `update_inlier_prior!`'s π, a cost Σwᵢrᵢ²), so one NaN datum made the whole state NaN. That reached the seeds built
+  outside VisualGeometryToolkitEstimation's `consensus_posterior` (`fit_residual_mixture`'s, `fit_division_camera`'s)
+  and its E-steps unguarded. An infinite residual already gave 0 by the formulas at every mixture with finite constants
+  and is unchanged there; it gave NaN at a degenerate one (an inlier prior of 1, an infinite scale) and gives 0 now. A
+  finite residual's posterior and weight are unchanged bit for bit (tested against the unguarded formulas, Float64 and
+  Float32; measured over Core's and Estimation's suites: no posterior value moves but a non-finite input's).
+  `mixture_nll` and `posterior_weight_derivative` are unchanged: a NaN residual's NLL stays NaN, so an NLL-driven
+  incumbent never accepts an iterate whose residuals went NaN.
+- **`median_seeded_posterior`'s median skips NaN residuals.** The median of norms holding a NaN was NaN, so the seed
+  scale ŝ² and every posterior were NaN. The median is now over the residuals that are not NaN, however many are; an
+  infinite residual stays in it (an outlier's large norm), as before. With every residual NaN, ŝ² is NaN, as before.
 
 ### Changed
 - **`Irls{GaussianShape}`'s docstring states the refit set.** It said "plain least squares over all points"; since

@@ -118,15 +118,14 @@ end
 # Sampson distance, a residual that turned NaN — is the outlier's: inlier
 # posterior 0 and weight 0, so it is no inlier, and nothing read from the E-step
 # (ŝ², ν, π, the cost Σwᵢrᵢ²) sees it. An infinite residual gives it by the
-# formulas; a NaN one is read as an infinite one. A finite residual's pair is
-# the unguarded formula's, bit for bit.
+# formulas; a NaN one by the kernel's guard. A finite residual's pair is the
+# unguarded formula's, bit for bit.
 @testitem "student_t_mixture: non-finite residuals" begin
     using Test, Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, soft_posterior_weights!,
         PosteriorWeightState, JeffreysPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
-        posterior_weights!, posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll,
-        posterior_weight_derivative
+        posterior_weights!, posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll
     const VGC = VisualGeometryToolkitCore
 
     mixtures = [StudentTMixture(ν, s2, log(2 * hw), dg, πin)
@@ -141,10 +140,12 @@ end
                 @test inlier_posterior(mT, x) === zero(T)
                 @test posterior_weight(mT, x) === zero(T)
                 @test !is_map_inlier(inlier_posterior(mT, x))
-                # the NLL is the outlier term's and the weight's slope 0, as at Inf
-                @test mixture_nll(mT, x) === mixture_nll(mT, T(Inf)) && isfinite(mixture_nll(mT, x))
-                @test iszero(posterior_weight_derivative(mT, x))
             end
+        end
+        # unconditionally: a mixture whose constants make the formulas NaN at Inf
+        # (an inlier prior of 1, log_odds_out = −Inf; an infinite scale)
+        for m in (StudentTMixture(5.0, 0.04, log(4.0), 1, 1.0), StudentTMixture(5.0, Inf, log(4.0), 1)), x in (Inf, NaN)
+            @test VGC._posterior_pair(m, x) === (0.0, 0.0)
         end
     end
 
@@ -208,17 +209,27 @@ end
         end
     end
 
-    # The median seed (a fit with no partition): a NaN residual is read as an Inf
-    # one, in the median and in the E-step, so the seed is the Inf seed bit for bit
-    # (ŝ² finite), and it weighs 0.
-    @testset "median_seeded_posterior: a NaN residual is an Inf one" begin
+    # The median seed (a fit with no partition): the median runs over the residuals
+    # that are not NaN, so NaN residuals neither move the seed scale nor make it
+    # NaN, even when they are most of the data, and the E-step gives them 0. An Inf
+    # residual stays in the median (an outlier's large norm). All NaN: ŝ² is NaN.
+    @testset "median_seeded_posterior: NaN residuals" begin
         rng = MersenneTwister(8)
         sq = 0.1 .* rand(rng, 21) .^ 2
         kw = (; outlier_halfwidth = 10.0, ν = 50.0, prior = JeffreysPrior(), codimension = 2)
-        pnan = median_seeded_posterior([sq[1:10]; NaN; sq[11:21]], 22; kw...)
-        pinf = median_seeded_posterior([sq[1:10]; Inf; sq[11:21]], 22; kw...)
-        @test isfinite(pnan.s_hat_sq) && pnan.s_hat_sq === pinf.s_hat_sq
-        @test pnan.w == pinf.w && pnan.inlier_posterior == pinf.inlier_posterior
-        @test pnan.w[11] === 0.0 && pnan.inlier_posterior[11] === 0.0
+        ref = median_seeded_posterior(sq, 21; kw...)
+        for k in (1, 30)                                  # one NaN; NaN the majority
+            sq_nan = [sq[1:10]; fill(NaN, k); sq[11:21]]
+            pws = median_seeded_posterior(sq_nan, 21 + k; kw...)
+            bad = 11:(10 + k); good = setdiff(1:(21 + k), bad)
+            @test pws.s_hat_sq === ref.s_hat_sq
+            @test all(iszero, pws.w[bad]) && all(iszero, pws.inlier_posterior[bad])
+            @test pws.w[good] == ref.w && pws.inlier_posterior[good] == ref.inlier_posterior
+        end
+        sq_inf = [sq[1:10]; Inf; sq[11:21]]
+        pinf = median_seeded_posterior(sq_inf, 22; kw...)
+        @test isfinite(pinf.s_hat_sq) && pinf.w[11] === 0.0
+        @test pinf.s_hat_sq == VGC._mad_scale_norms(; norms = sqrt.(sq_inf), codimension = 2)^2
+        @test isnan(median_seeded_posterior(fill(NaN, 5), 5; kw...).s_hat_sq)
     end
 end

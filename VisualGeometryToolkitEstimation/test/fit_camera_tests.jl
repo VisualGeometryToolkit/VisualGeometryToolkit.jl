@@ -423,14 +423,14 @@ end
     @test_throws r"at least 4 × 4 nodes" VgtkEstimation._penalized_solve(Tuple{SVector{16, Int}, SVector{16, Float64}}[], zeros(0, 2), 3, 9, Val(2))
 end
 
-@testitem "fit_camera: the held-out errors read no back-projection Jacobian (0.11.6)" setup = [FitCameraFisheye, FitCameraNoncentral] begin
+@testitem "fit_camera: the held-out errors read no back-projection Jacobian (0.11.6)" setup = [FitCameraFisheye] begin
     # Until 0.11.6 a held-out pixel where the source's Jacobian was not finite was dropped and counted: the error was a
     # pixel mapping through the Jacobian. Now the error is the angle to the source's ray, f·angle: a source whose
     # Jacobian is NaN everywhere has every held-out pixel's error, finite, and nothing dropped.
     using Test
     using StaticArrays: SMatrix, SVector
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: estimate, BoundedCamera, Size2, SplineLens, NoncentralSplineModel, backproject_with_jacobian
+    using VisualGeometryToolkitCore: estimate, BoundedCamera, Size2, SplineLens, backproject_with_jacobian
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
     struct NaNJacobian
@@ -445,7 +445,21 @@ end
     e = VgtkEstimation._direction_errors(g, held)
     @test length(e) == length(q.held_px) && all(isfinite, e)
     @test e == VgtkEstimation._direction_errors(g, VgtkEstimation._held_out(SplineLens, FISHEYE, q, g.intrinsics, VgtkCore.default_device()))
-    # the non-central model's line offsets at every held-out pixel too
+end
+
+@testitem "fit_camera: a non-central model's held-out errors read no back-projection Jacobian (0.11.6)" setup = [FitCameraNoncentral] begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: estimate, NoncentralSplineModel, backproject_with_jacobian
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    using VisualGeometryToolkitEstimation: fit_camera
+    struct NaNJacobian
+        model::Any
+    end
+    VgtkCore.backproject_with_jacobian(s::NaNJacobian, u) = (first(backproject_with_jacobian(s.model, u)), fill(NaN, SMatrix{3, 2, Float64}))
+    VgtkCore.backproject_with_jacobian(s::NaNJacobian, us::AbstractVector{<:SVector{2}}; device) = map(u -> backproject_with_jacobian(s, u), us)
+    # the line offsets and direction errors at every held-out pixel
     fitted = estimate(fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3))
     ql = VgtkEstimation._image_quadrature(VgtkEstimation._lines_on(VgtkEstimation.default_device()), MODEL, REGION)
     hl = VgtkEstimation._held_out(NoncentralSplineModel, NaNJacobian(MODEL), ql, fitted.intrinsics, VgtkCore.default_device())

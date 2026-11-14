@@ -2,6 +2,9 @@
 
 ## 0.9.0 (unreleased)
 
+On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGeometryToolkitEstimation 0.11.5 (the
+`[compat]` floors of the package and its test project).
+
 ### Breaking
 
 - **One cache: the keyed product on DrWatson's `produce_or_load` replaces Eval's own caching.** `Product(experiment, name,

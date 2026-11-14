@@ -142,6 +142,21 @@ end
     @test_throws ArgumentError box_downsample(zeros(2, 2, 2, 2), 1)
 end
 
+@testitem "linear image: the box downsample of a Float16 image sums in Float64" begin
+    using VisualGeometryToolkitFeatures: box_downsample
+    using Colors: Gray
+    # above 2048 Float16's spacing is 2: a Float16 running sum of 2048 and four 0.25s stays at 2048 (each 2048.25
+    # rounds back), the Float64 sum is 2049, its mean 2049 / 9 ≈ 227.67 (Float16 227.625), not 2048 / 9 (227.5)
+    A = fill(Float16(0.25), 3, 3, 1); A[1, 1, 1] = Float16(2048)
+    A[3, 1, 1] = A[1, 3, 1] = A[3, 3, 1] = A[2, 2, 1] = Float16(0)
+    out = box_downsample(A, 3)
+    @test eltype(out) === Float16
+    @test out[1, 1, 1] == Float16((2048 + 4 * 0.25) / 9)
+    @test out[1, 1, 1] != Float16(Float16(2048) / 9)
+    g = box_downsample(Gray{Float16}.(A[:, :, 1]), 3)
+    @test eltype(g) === Gray{Float16} && g[1, 1] == Gray{Float16}((2048 + 4 * 0.25) / 9)
+end
+
 @testitem "linear image: the box downsample of a Gray{Float32} patch is BlobBoards' supersampling filter, bit for bit" begin
     using VisualGeometryToolkitFeatures: box_downsample
     using Colors: Gray

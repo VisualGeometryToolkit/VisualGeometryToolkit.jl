@@ -106,24 +106,33 @@ number or a colour (`Gray{Float32}`, `RGB{N0f8}`, …); the sums accumulate, and
 the output is stored, in its floating-point type `float(T)` — `Float64` for a
 `Float64` or integer image, `Float32` for a `Float32` or 8-bit one (the
 patches BlobBoards' descriptor reads, byte for byte) — each block summed
-column by column and scaled once by `1/f²` in that type. `f = 1` returns a
-`float(T)` copy.
+column by column and scaled once by `1/f²` in that type. A `Float16` image (a
+`LinearRaw(Float16, …)`'s values) is stored as `Float16` but summed and scaled in
+`Float64`, each output rounded once: a Float16 sum of a block loses the values'
+low bits. `f = 1` returns a `float(T)` copy.
 """
 function box_downsample(img::AbstractArray{T, N}, f::Integer) where {T <: Union{Real, Colorant}, N}
     N in (2, 3) || throw(ArgumentError("box_downsample: an H × W or H × W × C image, got $N dimensions"))
     f >= 1 || throw(ArgumentError("box_downsample: the factor must be a positive integer, got $f"))
     A = float(T)
     out = Array{A}(undef, size(img, 1) ÷ f, size(img, 2) ÷ f, size(img)[3:end]...)
-    inv_n = one(eltype(A)) / (f * f)
+    S = _sum_type(A)
+    inv_n = one(eltype(S)) / (f * f)
     for c in CartesianIndices(axes(out)[3:end]), j in axes(out, 2), i in axes(out, 1)
-        s = zero(A)
+        s = zero(S)
         for jj in ((j - 1) * f + 1):(j * f), ii in ((i - 1) * f + 1):(i * f)
-            s += A(img[ii, jj, c])
+            s += S(img[ii, jj, c])
         end
-        out[i, j, c] = s * inv_n
+        out[i, j, c] = A(s * inv_n)
     end
     return out
 end
+
+# The type a sum of `A` values accumulates in: `A` itself, but Float64 for a Float16 value or colour (the stack's rule
+# for a Float16 store: reduce in Float64).
+_sum_type(::Type{A}) where {A} = A
+_sum_type(::Type{Float16}) = Float64
+_sum_type(::Type{C}) where {C <: Colorant} = base_colorant_type(C){_sum_type(eltype(C))}
 
 """
     load_linear_image(path; srgb = false, downsample = 1) -> Array{Float64, 3}

@@ -41,14 +41,15 @@
     end
     # The photon-transfer scene of `ptc_frame` at `light` times its levels, each photosite's expected electrons times its
     # fixed response `response[i, j]` (a G1/G2 gain mismatch, a PRNU: 1 when `nothing`) and `texture[i, j]` (a scene:
-    # 1 when `nothing`) — the frames of one exposure share the response and the texture, and differ only in their noise.
-    function scene_frame(rng; levels = LEVELS, light = 1.0, response = nothing, texture = nothing, σ = SIGMA_R)
+    # 1 when `nothing`) — the frames of one exposure share the response and the texture, and differ only in their noise;
+    # `black` their offset (a dark current's shift at a long exposure).
+    function scene_frame(rng; levels = LEVELS, light = 1.0, response = nothing, texture = nothing, σ = SIGMA_R, black = BLACK)
         H, W = 16 * 16, 32 * 16
         raw = Matrix{UInt16}(undef, H, W)
         for j in 1:W, i in 1:H
             μ = light * levels[cld(cld(j, 16), 2)] * (response === nothing ? 1.0 : response[i, j]) *
                 (texture === nothing ? 1.0 : texture[i, j])
-            raw[i, j] = code(rng, BLACK, Poisson(μ * K_TRUE), σ)
+            raw[i, j] = code(rng, black, Poisson(μ * K_TRUE), σ)
         end
         return synth_mosaic(raw)
     end
@@ -68,7 +69,7 @@ end
     # one frame: the truth within Z of its returned standard errors (σ_r's truth with the rounding)
     @test abs(e.gain - K_TRUE) <= Z * e.std_error.gain
     @test abs(e.σ[1] - SIGMA_EFF) <= Z * e.std_error.σ[1]
-    # The standard errors (the WLS line's, from the counts: each group's median of m blocks of n cells, v̂/v ~
+    # The standard errors (the WLS line's, from the counts: each group's median of m blocks of n samples, v̂/v ~
     # χ²_{n−1}/(n−1)) against a seeded Monte Carlo of R frames: if they are right, the spread of the R estimates over
     # the mean squared standard error is χ²_{R−1}/(R−1), two-sided at 0.1%; and the mean of the R estimates lies
     # within Z standard errors of the mean (no bias at the Monte Carlo's resolution).
@@ -135,6 +136,16 @@ end
     @test md.rollover_level == 0.001 / md.rollover_tests && abs(md.curvature_t) <= z_over(md.tests)
     @test SIGMA_EFF^2 <= md.intercept <= SIGMA_EFF^2 + σd^2                   # the fitted points' darks (their median)
     @test md.birge_ratio > 0                                                 # recorded (its rule: the Birge-ratio item)
+    # the weighted line iterates its weights to a fixed point: the result says so (its stop rule and iterations)
+    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.iterations >= 1
+    # σ_r's standard error is carried from the darks: none stated, none carried (0); stated, the fitted points' median
+    # exposure's, se(σ₀²)/(2σ_r) with se(σ₀²) = 2σ·se/√2 over the two independent green channels (at most se/√2 when the
+    # median falls between two exposures)
+    @test pg.std_error.σ == (0.0, 0.0, 0.0, 0.0)
+    rse(σ, se) = sensor_fixture(; read_noise = (σ, σ, σ, σ), read_noise_std_error = (se, se, se, se)).model.noise
+    pgs = estimate(photon_transfer(groups, Dict(t1 => rse(SIGMA_EFF, 0.01), t2 => rse(sqrt(SIGMA_EFF^2 + σd^2), 0.01))))
+    @test pgs.gain == pg.gain && pgs.σ == pg.σ && allequal(pgs.std_error.σ)
+    @test 0 < pgs.std_error.σ[1] <= 0.01 / sqrt(2) * (1 + 1.0e-12)
     # the intercept is each group's OWN exposure's: the longer group's darks taken as the shorter's bias K
     wrong = photon_transfer(groups, Dict(t1 => rn(SIGMA_EFF), t2 => rn(SIGMA_EFF)))
     @test abs(estimate(wrong).gain - K_TRUE) > Z * estimate(wrong).std_error.gain
@@ -161,6 +172,103 @@ end
     @test pd.source === SensorSource.estimated
     @test abs(pd.gain - K_TRUE) <= Z * pd.std_error.gain && abs(pd.σ[1] - SIGMA_EFF) <= Z * pd.std_error.σ[1]
     @test_throws ArgumentError photon_transfer(scene_frame(StableRNG(1)); significance = 0)
+end
+
+# Core 0.10.4: the series against a `Darks` (Core 0.10.3's black slot of several exposure bands): each group's exposure
+# matched to the Dark whose BAND serves it (not by an exact key), each group linearised with that Dark (its offset map
+# and channel black, never one black for every exposure), its intercept that Dark's green variance, and σ_r's standard
+# error carried from the Darks' frame and photosite counts.
+@testitem "sensor model: photon_transfer(groups, darks::Darks) — each group's own Dark, matched by band" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, PhotonTransferMetadata, sensor_fixture, parse_unit,
+        estimate, retcode, ReturnCode, SensorSource, Darks
+    using StableRNGs: StableRNG
+    refusal(f) = (try f(); nothing catch e; e end)
+    s = parse_unit("s")
+    # two exposures keyed as exact rationals (10 ms and 20 ms, the Rational quantities `10 * ms` builds); the darks
+    # taken at 0.01 s and 0.02 s (Float64). The longer exposure's dark current: noise σ_d and an offset Δ above the black.
+    t1, t2 = (10 // 1000)s, (20 // 1000)s
+    σd, Δ = 20.0, 1000.0
+    groups = Dict(t1 => [scene_frame(StableRNG(300 + k); light = k == 2 ? 0.5025 : 0.5) for k in 1:4],
+                  t2 => [scene_frame(StableRNG(310 + k); black = BLACK + Δ, σ = sqrt(SIGMA_R^2 + σd^2)) for k in 1:4])
+    H, W, nd = 256, 512, 16
+    σ0² = (SIGMA_EFF^2, SIGMA_EFF^2 + σd^2)
+    band(t, off, v) = (; offset = fill(Float32(off), H, W), variance = fill(Float32(v), H, W), exposure_band = (t, t), frames = nd)
+    fx = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), darks = [band(0.01s, BLACK, σ0²[1]), band(0.02s, BLACK + Δ, σ0²[2])])
+    darks = fx.characterisation.entries[100.0].black
+    @test darks isa Darks
+    # the Dict method matches exposures by exact key: 1//100 s is not the Float64 0.01 s, so it refuses ...
+    rn(σ²) = sensor_fixture(; read_noise = ntuple(_ -> sqrt(σ²), 4)).model.noise
+    e = refusal(() -> photon_transfer(groups, Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2]))))
+    @test e isa ArgumentError && occursin("no darks at the exposure", e.msg)
+    # ... the band-matched path serves each group by the Dark whose band holds its exposure
+    r = photon_transfer(groups, darks)
+    pg, md = estimate(r), r.metadata
+    @test r isa FitResult && retcode(r) === ReturnCode.Success && md isa PhotonTransferMetadata
+    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.iterations >= 1
+    @test pg isa PoissonGaussian && pg.source === SensorSource.measured
+    @test abs(pg.gain - K_TRUE) <= Z * pg.std_error.gain
+    @test σ0²[1] * (1 - 1.0e-6) <= md.intercept <= σ0²[2] * (1 + 1.0e-6)     # the fitted points' Darks' green variance
+    # σ_r's standard error from the Darks: se(σ₀²) = √(2/((n − 1)·N_g))·σ₀² over N_g green photosites of n frames, by
+    # first order (master_dark's rule); linear in σ₀², so the median's is the same rule at the median
+    Ng = H * W ÷ 2
+    @test allequal(pg.std_error.σ) && pg.std_error.σ[1] ≈ sqrt(2 / ((nd - 1) * Ng)) * sqrt(md.intercept) / 2
+    # ONE black for every exposure (the shorter band's Dark, as a frame's model gives it) is not each group's own: the
+    # longer group's offset Δ left in its means, the series refuses the line, or its points scatter about it (R > 1,
+    # which widens K's standard error) and K is off by more than Z of the per-group estimate's standard error
+    one_black = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), dark = band(0.01s, BLACK, σ0²[1]), exposure = 0.01s).model
+    wrong = try
+        photon_transfer(Dict(0.01s => groups[t1], 0.02s => groups[t2]), Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2]));
+                        sensor_model = one_black)
+    catch x
+        x
+    end
+    @test md.birge_ratio <= 1 + Z * sqrt(2 / (r.n - 1))                       # the per-group fit: the counts' scatter
+    @test wrong isa NoiseEstimateFailed ||
+          (wrong.metadata.birge_ratio > 1 && abs(estimate(wrong).gain - K_TRUE) > Z * pg.std_error.gain)
+    # the defects, cut to each group's own exposure (a site masked from its onset): every photosite masked from 15 ms
+    # leaves the 10 ms group whole and the 20 ms group nothing
+    every = (; x = repeat(1:W; inner = H), y = repeat(1:H; outer = W), onset = fill(0.015s, H * W), size = (H, W))
+    late = sensor_fixture(; defects = (; every..., onset = fill(1.0s, H * W))).model.defects
+    @test photon_transfer(groups, darks; defects = late).estimate == pg              # no site's onset reached
+    half = photon_transfer(groups, darks; defects = sensor_fixture(; defects = every, exposure = 1.0s).model.defects)
+    @test half.metadata.points_offered < md.points_offered && isapprox(half.metadata.intercept, σ0²[1]; rtol = 1.0e-6)
+    # the guards: an exposure no band serves, maps that do not cover the frames
+    e = refusal(() -> photon_transfer(Dict(t1 => groups[t1], 0.03s => groups[t2]), darks))
+    @test e isa ArgumentError && occursin("no Dark", e.msg)
+    small = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK),
+                           darks = [(; band(0.01s, BLACK, 1.0)..., offset = fill(Float32(BLACK), 8, 8), variance = fill(1.0f0, 8, 8))])
+    @test_throws DimensionMismatch photon_transfer(Dict(t1 => groups[t1]), small.characterisation.entries[100.0].black)
+    @test_throws ArgumentError photon_transfer(groups, darks; significance = 0)
+    @test_throws ArgumentError photon_transfer(Dict(t1 => groups[t1][1:1]), darks)
+end
+
+# Core 0.10.4: the weighted line iterates its weights to a fixed point and says whether it reached it (a capped run is
+# not a converged one), and the single frame's μ² test, which needs 4 points, refuses a frame that gives fewer.
+@testitem "sensor model: photon_transfer — the weighted line's convergence, the single frame's μ² test" setup = [SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, ReturnCode
+    using StableRNGs: StableRNG
+    using Distributions: Poisson
+    # 4 × 6 blocks of 8 × 8 cells, six levels: 24 whole blocks give 3 points, too few for the μ² test: refused, not
+    # returned untested
+    rng = StableRNG(5)
+    lv = LEVELS[[1, 4, 7, 10, 13, 16]]
+    raw = [code(rng, BLACK, Poisson(lv[cld(j, 16)] * K_TRUE), SIGMA_R) for i in 1:64, j in 1:96]
+    e = try photon_transfer(synth_mosaic(raw)); nothing catch x; x end
+    @test e isa NoiseEstimateFailed && occursin("μ² test", e.reason) && occursin("3 points", e.reason)
+    xs = collect(range(500.0, 9000.0; length = 24)); ms = fill(64.0, 24); rel = 0.05; σ0 = 1.3
+    line = σ0 .+ xs ./ K_TRUE
+    sd = sqrt.(rel .* line .^ 2 ./ ms)
+    q = (; xs, ys = line .+ 3 .* sd .* randn(StableRNG(7), 24), ms, os = fill(σ0, 24), rel)
+    A = reshape(xs, :, 1)
+    l = VgtkCore._ptc_line(A, q.ys, q.os, q.ms, q.rel)
+    @test l.converged && 1 <= l.iterations < 100
+    l1 = VgtkCore._ptc_line(A, q.ys, q.os, q.ms, q.rel; max_iter = 1)
+    @test !l1.converged && l1.iterations == 1
+    @test VgtkCore._series_slope(q).retcode === ReturnCode.Success
+    f1 = VgtkCore._series_slope(q; max_iter = 1)
+    @test f1.retcode === ReturnCode.MaxIters && f1.rule === VgtkCore.IterationCap && f1.iterations == 1
 end
 
 # The Birge ratio (owner ruling, 0.10.1): the series' K standard error is the line's from the counts times R = √(χ²/dof)

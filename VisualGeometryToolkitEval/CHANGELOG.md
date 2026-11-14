@@ -16,7 +16,8 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
   other goes through `VisualGeometryToolkitIO.save`; `load_output(T, product)` reads it back the same way. An `output` may
   be a directory (a product that writes one: produced while it is there, removed whole when produced again). A product's
   directory is DrWatson's `datadir("exp_pro", experiment, name, key)` (`product_dir`); `_config.toml` and
-  `_provenance.toml` (with the output's content hash, `output_sha256`) are written last; `produced(product)` is the reuse
+  `_provenance.toml` (with `output_sha256`, the content hash of every file of the product's directory but its records, and
+  `upstream_outputs`, its upstream products' as it read them) are written last; `produced(product)` is the reuse
   rule; a failed save is an error (produce_or_load only warns).
 - **Removed, each refused by name with its replacement** (no alias; an `ArgumentError` naming it): `keyed_cell_dir` →
   `product_dir(Product(…))`; `keyed_data_dir` → a `Product` then `promote_run(product_dir(p), tier)`; `experiment_dir` → a
@@ -33,9 +34,10 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 - **Keys now include the code trees** (`run_key(…; code)`; a `Product` folds `current_code_trees`: every stack package's source
   tree — a path checkout's git trees, a registered version's Manifest tree hash — and the project's `src`), beside the record,
   the upstream products' keys and their outputs' content hashes as produced (a Merkle chain over the outputs, so an
-  upstream produced again with another output — a `--force`, a nondeterministic step, an input it did not pin — re-keys
-  every consumer, and with the same output does not; build a consumer when its stage runs, after its upstream) and the
-  pinned inputs: a change of any of them is a new product. **Results of
+  upstream produced again with other outputs — a `--force`, a nondeterministic step, an input it did not pin — re-keys
+  every consumer, and with the same outputs does not; `produced` checks them again, so a consumer built before its upstream
+  was produced again is not reused; an upstream given as a bare key folds the key alone) and the pinned inputs: a change of
+  any of them is a new product. **Results of
   earlier versions are not found** by the new keys (nor in the retired `<kind>-<key>` layout); they stay where they are.
 
 ### Known issues

@@ -151,7 +151,9 @@ end
             @test parse_json(read(p, String)).units.length == unit_string(u)
             back = load(Vector{EuclideanMap}, p)
             if u === inch
-                @test all(all(abs.(metres(x) .- metres(y)) .<= eps.(abs.(metres(y)))) for (x, y) in zip(back, mm_poses))
+                # within the scale's rounding, or (no inch number reads back to it) with its identity, its persisted value (IO 0.10.1)
+                @test all(all((abs.(metres(x) .- metres(y)) .<= eps.(abs.(metres(y)))) .| (VgtkIO._persisted.(metres(x)) .=== VgtkIO._persisted.(metres(y))))
+                          for (x, y) in zip(back, mm_poses))
                 @test cov(back[2]) ≈ cov(mm_poses[2]) rtol = 4 * eps()
             else
                 @test all(metres(x) === metres(y) for (x, y) in zip(back, mm_poses))
@@ -201,12 +203,15 @@ end
     using VisualGeometryToolkitCore: inch
     # A 17-digit millimetre number need not survive into metres (the two grids
     # differ; about a quarter of such numbers share a metre value). Its first
-    # rewrite moves it by at most 2 ulp, and every rewrite after is exact.
+    # rewrite moves it by at most 2 ulp or (IO 0.10.1: no number reads back to
+    # its metre value) to a number with that value's identity, its persisted
+    # form; every rewrite after is exact.
     rng = Xoshiro(7)
     for u in (mm, inch)
         xs = [(rand(rng) - 0.5) * 10.0^rand(rng, -1:4) for _ in 1:20_000]
         t1 = [VgtkIO.write_length(VgtkIO.read_length(x, u), u) for x in xs]
-        @test all(abs(a - x) <= 2 * eps(abs(x)) for (a, x) in zip(t1, xs))
+        rd(x) = ustrip(m, VgtkIO.read_length(x, u))
+        @test all(abs(a - x) <= 2 * eps(abs(x)) || VgtkIO._persisted(rd(a)) === VgtkIO._persisted(rd(x)) for (a, x) in zip(t1, xs))
         @test all(VgtkIO.write_length(VgtkIO.read_length(a, u), u) === a for a in t1)
     end
     # a computed metre value is written as a number that reads back to it, whenever one exists

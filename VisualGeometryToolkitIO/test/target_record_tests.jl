@@ -654,7 +654,8 @@ end
             @test back == cc
             @test JSON.json(VgtkIO.target_calibration_json(s, back)) == text
         else
-            @test all(abs.(heights(back) .- heights(cc)) .<= 2 .* eps.(heights(cc)))   # the decimal codec's persisted form
+            # the decimal codec: within 2 ulp, or (no number reads back to the height) its persisted value (IO 0.10.1)
+            @test all((abs.(heights(back) .- heights(cc)) .<= 2 .* eps.(heights(cc))) .| (VgtkIO._persisted.(heights(back)) .=== VgtkIO._persisted.(heights(cc))))
             @test VgtkIO.target_calibration_from_json(s, JSON.parse(JSON.json(VgtkIO.target_calibration_json(s, back)))) == back
         end
     end

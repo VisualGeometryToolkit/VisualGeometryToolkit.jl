@@ -181,9 +181,13 @@ end
 # A decimal unit: the persisted value's own decimal, which reads back as exactly the persisted value.
 _decimal_last_resort(::_PersistedLastResort, c, y, k, n) = _shift_exponent(_persisted(y, n), -n * k)
 _decimal_last_resort(::_NearestLastResort, c, y, k, n) = c
-# Another unit (the scale's grid skips `y`): the fewest digits whose value has `y`'s identity.
+# Another unit (the scale's grid skips `y`): the number that reads back to `y`'s persisted value itself, when one
+# does (so a rewrite, which targets that value, finds the same number); else the fewest digits with `y`'s identity.
 function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
-    same_identity(c) = _persisted(_read_scaled(c, scale, k, n), n) === _persisted(y, n)
+    p = _persisted(y, n)
+    c = _write_scaled(_NearestLastResort(), p, scale, n)
+    _read_scaled(c, scale, k, n) === p && return c
+    same_identity(c) = _persisted(_read_scaled(c, scale, k, n), n) === p
     for d in 1:17
         candidate = round(value; sigdigits = d)
         same_identity(candidate) && return candidate

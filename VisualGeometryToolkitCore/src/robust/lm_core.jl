@@ -87,7 +87,7 @@ Measured (Core 0.10.2, 2026-11-14, six iterations of RC's fisheye, Tamron and gr
 origin fit): neither wins everywhere. λ·DᵀD reaches a lower cost on the fisheye case (1711 against 1776), while λ·I
 converges where DᵀD's weak columns stall (the non-central fit: a cost ratio of 1.7e-18 against DᵀD's 1.2e-8 after
 25 iterations, 9.0e-9 after 125), and on the Tamron and grid cases it reaches a slightly lower cost 1.6–1.8× faster
-(λ·DᵀD rejects more trial steps). An UNFLOORED running
+(λ·DᵀD rejects more candidate steps). An UNFLOORED running
 max (Moré's scaling, NLLSsolver's DᵀD without its floor) was measured and rejected: a column whose diag(JᵀJ) is zero
 leaves `H + λDᵀD` singular (the grid and non-central factorizations fail), and it is no faster than the floored DᵀD.
 """

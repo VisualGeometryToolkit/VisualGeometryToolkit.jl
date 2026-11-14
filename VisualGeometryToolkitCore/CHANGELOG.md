@@ -1,5 +1,23 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.3
+
+A patch, additive: darks at several exposures in one characterisation entry, and the defect mask public.
+
+### Added
+- **`Darks`** (public), a black-slot component: the master darks of one body at one ISO, one `Dark` per exposure
+  band, with ONE shared per-channel black as the fallback. The bands are disjoint: two bands sharing an exposure,
+  an endpoint included, are an `ArgumentError`. The maps are of one size, and every Dark is of the component's
+  source. `sensor_model` resolves a frame to the one Dark whose band serves its exposure (`Matched`; the model and its
+  `content_digest` are the ones that Dark alone gives), else to the shared black with `DarkOutOfBand`. The selection
+  is inside the one component: the slot's precedence of sources (`_pick`) is unchanged. A bare `Dark` stays a `Dark`;
+  a `Darks` of one band is valid. `sensor_fixture` gains `darks` (a vector of the `dark` named tuples). Tested: each
+  band's frame its own Dark, between bands / below the shortest / past the longest the shared black with
+  `DarkOutOfBand`, overlapping, touching and repeated bands refused, any order the same `Darks`, Adapt and equality.
+- **`defect_mask(model_or_defects, mosaic; backend)`** (public): the defect slot as a `Bool` mask over the visible
+  raw, on the backend, the mask `LinearRaw` joins with its saturation mask; `nothing` for `NoDefects`. It was the
+  internal `_defect_mask`; LinearRaw and the estimators are unchanged.
+
 ## 0.10.2
 
 A patch: the success rule's exact-fit test and the data's resolution, a visible sensor-model fallback, and a choice

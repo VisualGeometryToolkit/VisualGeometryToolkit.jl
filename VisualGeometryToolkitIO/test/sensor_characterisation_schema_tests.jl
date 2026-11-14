@@ -1,4 +1,4 @@
-# vgio/sensor_characterisation/v1.0 (sensor_characterisation_schema.jl): Core's SensorCharacterisation, its components
+# vgio/sensor_characterisation/v1.1 (sensor_characterisation_schema.jl): Core's SensorCharacterisation, its components
 # built by Core's `sensor_fixture` (the one way a test builds one) — each component alone in an entry, partial entries,
 # several ISOs, an empty entry; exact by type; a dark's maps as hashed artifacts; the refusals.
 

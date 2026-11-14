@@ -436,6 +436,7 @@ public BlackComponent, NoiseComponent, DefectComponent, SensorEntry   # the slot
 public SensorSource, ModelReason, Matched, NoCharacterisation, UnmatchedISO, OtherBody, DarkOutOfBand   # a component's source (an enum module); why a frame got its model
 public content_digest                              # a SensorModel's identity: sha256_hex(canonical_json(its tree))
 public component_sources                           # a SensorModel's provenance: each slot's SensorSource (nothing when absent), its reason, the override
+public Darks, defect_mask                          # the black slot's Darks: one Dark per exposure band (0.10.3); the defect slot as a mask over the visible raw
 export photon_transfer, master_dark, defect_onsets # the estimators (raw/sensor_estimators.jl): a FitResult of a measured PoissonGaussian (one frame, scheduled for removal: an estimated one); a Dark and ReadNoise; masks into a DefectList
 public PhotonTransferMetadata                      # photon_transfer(groups, darks)'s FitResult metadata: the range fitted, the intercept, the μ² test
 public NoiseEstimateFailed                         # the estimators' failure

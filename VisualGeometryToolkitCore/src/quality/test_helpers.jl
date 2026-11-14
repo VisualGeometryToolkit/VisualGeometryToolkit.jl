@@ -340,7 +340,7 @@ VisualGeometryToolkitCoreTestExt (`using Test` loads it).
 function test_readme_example end
 
 """
-    sensor_fixture(; body, iso = 100, exposure = 1.0s, black = nothing, black_std_error = nothing, dark = nothing,
+    sensor_fixture(; body, iso = 100, exposure = 1.0s, black = nothing, black_std_error = nothing, dark = nothing, darks = nothing,
                    gain = nothing, gain_std_error = nothing, read_noise = nothing, read_noise_std_error = nothing,
                    relative_noise = nothing, defects = nothing, source = SensorSource.specified)
         -> (; characterisation, capture, model)
@@ -355,6 +355,9 @@ numbers. The slots, each absent when its keywords are `nothing`:
 - black: `black` (a 4-tuple per colour index) → [`ChannelBlack`](@ref) (with
   `black_std_error`); `dark = (; offset, variance, exposure_band, frames)` → a
   [`Dark`](@ref) over that channel black (the [`FileBlack`](@ref) without `black`);
+  `darks`, a vector of such named tuples → a [`Darks`](@ref), one Dark per band,
+  each over that channel black, which is also the shared fallback (`dark` or
+  `darks`, not both);
 - noise: `read_noise` → [`ReadNoise`](@ref) (with `read_noise_std_error`); with
   a `gain` → [`PoissonGaussian`](@ref) (`gain_std_error` and
   `read_noise_std_error` its standard errors); `relative_noise` →

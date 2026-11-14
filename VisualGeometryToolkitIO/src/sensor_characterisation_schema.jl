@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/sensor_characterisation/v1.0 ↔ VGC `SensorCharacterisation` — one sensor, per ISO its components
+# vgio/sensor_characterisation/v1.1 ↔ VGC `SensorCharacterisation` — one sensor, per ISO its components
 # =============================================================================
 #
-# {"schema": "vgio/sensor_characterisation/v1.0", <envelope>,
+# {"schema": "vgio/sensor_characterisation/v1.1", <envelope>,
 #  "device": {"body": {"make": "Sony", "model": "ILME-FX3", "serial": "5012345"}},
 #  "entries": [
 #    {"iso": 100,
@@ -10,7 +10,9 @@
 #            | {"type": "dark", "black": {channel body}, "exposure_band": [0.001, 1.0], "frames": 16,
 #               "size": {"width": W, "height": H},
 #               "offset": {"file": "fx3.iso100.dark_offset.tiff", "sha256": "<hex>"},
-#               "variance": {"file": "fx3.iso100.dark_variance.tiff", "sha256": "<hex>"}, "source": "measured"},
+#               "variance": {"file": "fx3.iso100.dark_variance.tiff", "sha256": "<hex>"}, "source": "measured"}
+#            | {"type": "darks", "black": {channel body}, "source": "measured",
+#               "darks": [{dark body, its rasters "fx3.iso100.band1.dark_offset.tiff", …}, …]},   (v1.1)
 #     "noise": {"type": "read_noise", "sigma": [r0, r1, r2, r3], "std_error": [s0, …], "source": "specified"}
 #            | {"type": "poisson_gaussian", "gain": 2.1, "sigma": [r0, …], "std_error": {"gain": 0.01, "sigma": [s0, …]},
 #               "source": "estimated"}
@@ -22,14 +24,20 @@
 # key is the body's identity, `device.body` (the ONE device-identity encoding, a
 # capture's and a calibration record's; a sensor's description has no lens), and
 # per ISO (each once) its three slots. A slot holds ONE component body, its kind
-# by `type` (the black slot's ChannelBlack "channel" or Dark "dark", the noise
+# by `type` (the black slot's ChannelBlack "channel", Dark "dark" or Darks "darks", the noise
 # slot's ReadNoise "read_noise", PoissonGaussian "poisson_gaussian" or
 # RelativeNoise "relative"; the defect slot has one kind, DefectList), each with
 # its `source` (measured | estimated | specified) and, where stated, its standard
 # error in the value's units and shape. An ABSENT slot is absent from the entry
 # and loads as its absent type (FileBlack, NoNoise, NoDefects): the RAW's own
 # black, no noise stated, no defect. A Dark's own `black` is its channel black,
-# absent when it is the RAW's.
+# absent when it is the RAW's. A Darks (v1.1: the darks of several exposures at one
+# ISO) holds its shared channel black (absent when it is the RAW's) and its Darks in
+# increasing band, each a dark body with its own rasters (`<stem>.band<k>.…`, k the
+# band's place); the bands are disjoint.
+#
+# VERSIONS: v1.1 (IO 0.10.2) added the "darks" body; a v1.0 file (IO 0.10.1's, at
+# most one Dark per ISO) is a v1.1 file as it stands, read as written.
 #
 # Per CFA colour index 0–3 (LibRaw's): `values[c + 1]`, codes. Times — a dark's
 # exposure band, a defect's onset (the shortest exposure at which it is hot) —
@@ -63,12 +71,15 @@ end
 
 const _CHANNEL_BLACK = _Obj(Pair{Symbol, _Spec}[:type => _Tok("channel"), :values => _FOUR, :source => _SENSOR_SOURCE],
                             Pair{Symbol, _Spec}[:std_error => _FOUR])
+const _DARK_BODY = _Obj(Pair{Symbol, _Spec}[:type => _Tok("dark"), :exposure_band => _Vec(_Real(), 2), :frames => _PosInt(),
+                                             :size => _SIZE_INT, :offset => _RASTER_PAYLOAD, :variance => _RASTER_PAYLOAD,
+                                             :source => _SENSOR_SOURCE],
+                         Pair{Symbol, _Spec}[:black => _CHANNEL_BLACK])
 const _BLACK_COMPONENT = _ByType("a black component", Pair{String, _Spec}[
     "channel" => _CHANNEL_BLACK,
-    "dark" => _Obj(Pair{Symbol, _Spec}[:type => _Tok("dark"), :exposure_band => _Vec(_Real(), 2), :frames => _PosInt(),
-                                       :size => _SIZE_INT, :offset => _RASTER_PAYLOAD, :variance => _RASTER_PAYLOAD,
-                                       :source => _SENSOR_SOURCE],
-                   Pair{Symbol, _Spec}[:black => _CHANNEL_BLACK]),
+    "dark" => _DARK_BODY,
+    "darks" => _Obj(Pair{Symbol, _Spec}[:type => _Tok("darks"), :darks => _Vec(_DARK_BODY), :source => _SENSOR_SOURCE],
+                    Pair{Symbol, _Spec}[:black => _CHANNEL_BLACK]),
 ])
 const _NOISE_COMPONENT = _ByType("a noise component", Pair{String, _Spec}[
     "read_noise" => _Obj(Pair{Symbol, _Spec}[:type => _Tok("read_noise"), :sigma => _FOUR, :source => _SENSOR_SOURCE],
@@ -83,11 +94,21 @@ const _DEFECT_COMPONENT = _Obj(:size => _SIZE_INT, :sites => _Vec(_Vec(_Real(), 
 # The rules the tables cannot state: a dark's band and frames; a defect site inside the raw, once, its onset positive;
 # a gain and σ_rel positive; each ISO positive and once.
 function _dark_problem(b)
+    b[:type] == "darks" && return _darks_problem(b[:darks])
     b[:type] == "dark" || return nothing
     lo, hi = b[:exposure_band]
     0 < lo <= hi || return "a dark's exposure band runs from its shortest to its longest time, both positive"
     b[:frames] >= 2 && return nothing
     return "a dark's temporal variance needs at least 2 frames"
+end
+function _darks_problem(ds)
+    isempty(ds) && return "a darks body holds at least one dark"
+    for d in ds
+        p = _dark_problem(d); p === nothing || return p
+    end
+    bands = sort!([(Float64(d[:exposure_band][1]), Float64(d[:exposure_band][2])) for d in ds])
+    all(k -> bands[k][1] > bands[k - 1][2], 2:length(bands)) || return "a darks body's exposure bands are disjoint"
+    return nothing
 end
 function _noise_problem(n)
     n[:type] == "poisson_gaussian" && !(n[:gain] > 0) && return "a Poisson–Gaussian gain (electrons per code) is positive"
@@ -120,7 +141,7 @@ const _SENSOR_ENTRY = _CheckedSpec(
          Pair{Symbol, _Spec}[:black => _BLACK_COMPONENT, :noise => _NOISE_COMPONENT, :defects => _DEFECT_COMPONENT]),
     _entry_problem;
     rule = "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at " *
-           "least 2 frames; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
+           "least 2 frames, and a darks body's bands (at least one) are disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
            "x the column), listed once, its onset positive",
 )
 const _SENSOR_CHARACTERISATION_SPEC = _kind_spec(
@@ -151,6 +172,12 @@ function _component_json(d::VgtkCore.Dark, files)
     b = _component_json(d.black, files)
     return b === nothing ? r : merge((type = r.type, black = b), r)
 end
+function _component_json(d::VgtkCore.Darks, files)
+    r = (type = "darks", darks = [_component_json(x, (dir = files.dir, stem = "$(files.stem).band$(k)")) for (k, x) in enumerate(d.darks)],
+         source = string(d.source))
+    b = _component_json(d.black, files)
+    return b === nothing ? r : merge((type = r.type, black = b), r)
+end
 _component_json(c::VgtkCore.ReadNoise, files) = _std_error_json((type = "read_noise", sigma = _four(c.σ), source = string(c.source)), c.std_error)
 _component_json(c::VgtkCore.PoissonGaussian, files) =
     _std_error_json((type = "poisson_gaussian", gain = c.gain, sigma = _four(c.σ), source = string(c.source)), c.std_error)
@@ -162,13 +189,15 @@ _component_json(d::VgtkCore.DefectList, files) =
 """
     save(path, characterisation::SensorCharacterisation; provenance = (;))
 
-Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation/v1.0`
+Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation/v1.1`
 file: the body's identity (`device.body`) and one entry per ISO (in increasing
 ISO), each present slot as its component's body with its source and standard
 error, an absent slot (`FileBlack`, `NoNoise`, `NoDefects`) absent. A `Dark`'s
 offset and variance maps are written beside `path` as rasters, the raster payload
 body (`<stem>.iso<ISO>.dark_offset.tiff`, `<stem>.iso<ISO>.dark_variance.tiff`,
-float32 TIFFs of the raster profile, row 1 on top) bound by their SHA-256.
+float32 TIFFs of the raster profile, row 1 on top) bound by their SHA-256; a
+`Darks`' maps one pair per band, `<stem>.iso<ISO>.band<k>.dark_offset.tiff` and
+`….dark_variance.tiff`, `k` the band's place in increasing exposure.
 """
 function save(path::AbstractString, c::SensorCharacterisation; provenance::NamedTuple = (;))
     dir, stem = dirname(path), first(splitext(basename(path)))
@@ -191,6 +220,8 @@ _std_error_from(b, f) = haskey(b, :std_error) ? f(b.std_error) : nothing
 _channel_black_from(b) = VgtkCore.ChannelBlack(_four_from(b.values), _std_error_from(b, _four_from); source = _source_from(b.source))
 function _black_from(path, b)
     b.type == "channel" && return _channel_black_from(b)
+    b.type == "darks" && return VgtkCore.Darks(haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack(),
+                                               [_black_from(path, x) for x in b.darks]; source = _source_from(b.source))
     sec = parse_unit(_TIME_UNIT)
     W, H = Int(b.size.width::Integer), Int(b.size.height::Integer)
     return VgtkCore.Dark(haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack(),
@@ -216,10 +247,10 @@ end
 """
     load(SensorCharacterisation, path) -> SensorCharacterisation
 
-Read a `vgio/sensor_characterisation/v1.0` file ([`save`](@ref)'s): the
+Read a `vgio/sensor_characterisation/v1.x` file ([`save`](@ref)'s; a v1.0 file as written): the
 `SensorCharacterisation` exactly as written — per ISO each present slot's
 component with its source and standard error, an absent slot its absent type
-(`FileBlack`, `NoNoise`, `NoDefects`); a `Dark`'s maps (`Matrix{Float32}`) read
+(`FileBlack`, `NoNoise`, `NoDefects`); a `Dark`'s maps (`Matrix{Float32}`, each of a `Darks`' too) read
 from the rasters beside it, each checked against its SHA-256, the raster profile
 and its size.
 """

@@ -72,7 +72,8 @@ Why [`sensor_model`](@ref) gave a frame the model it did (an isbits `@enum`,
 - `DarkOutOfBand` (Core 0.10.2): the body and the ISO matched, but the frame's
   exposure is outside the entry's [`Dark`](@ref)'s exposure band, so the model's
   black is the Dark's [`ChannelBlack`](@ref) (the entry's other components kept):
-  the fallback is visible, never silent.
+  the fallback is visible, never silent. Of [`Darks`](@ref) (0.10.3): no band
+  serves the exposure, and the model's black is their shared channel black.
 
 `NoCharacterisation`, `UnmatchedISO` and `OtherBody` give the absent model;
 `Matched` and `DarkOutOfBand` the entry's components. A caller that matches the
@@ -84,7 +85,7 @@ values exhaustively handles `DarkOutOfBand` too.
 @doc "`NoCharacterisation`: a [`ModelReason`](@ref) — no characterisation was given; the absent model." NoCharacterisation
 @doc "`UnmatchedISO`: a [`ModelReason`](@ref) — this body is characterised, but not at the frame's ISO; the absent model." UnmatchedISO
 @doc "`OtherBody`: a [`ModelReason`](@ref) — the characterisations given are of other bodies; the absent model." OtherBody
-@doc "`DarkOutOfBand`: a [`ModelReason`](@ref) — this body at this ISO, but the frame's exposure is outside the Dark's band: its ChannelBlack, the entry's other components." DarkOutOfBand
+@doc "`DarkOutOfBand`: a [`ModelReason`](@ref) — this body at this ISO, but the frame's exposure is outside the Dark's band (or every band of its Darks): its ChannelBlack, the entry's other components." DarkOutOfBand
 
 """
     BlackComponent, NoiseComponent, DefectComponent
@@ -191,6 +192,46 @@ Adapt.adapt_structure(to, d::Dark) =
 
 # Whether a dark's band serves an exposure time.
 _serves(d::Dark, t) = d.exposure_band[1] <= t <= d.exposure_band[2]
+
+"""
+    Darks(black, darks; source::SensorSource.T)
+
+The master darks of one body at one ISO, one [`Dark`](@ref) per exposure band —
+the black slot's form for darks taken at several exposures (Core 0.10.3):
+
+- `black` — the shared per-channel black ([`ChannelBlack`](@ref) or
+  [`FileBlack`](@ref)), the black a frame whose exposure NO band serves is
+  linearised with;
+- `darks` — the Darks, any order, stored in increasing band; their bands are
+  DISJOINT (two bands sharing an exposure, an endpoint included, are an
+  `ArgumentError`: which would serve it?), their maps of one size, at least one,
+  each of `source`.
+
+[`sensor_model`](@ref) resolves a frame to the ONE Dark whose band serves its
+exposure (`Matched`: the model is the one that Dark alone gives), else to `black`
+with the reason `DarkOutOfBand`. The selection is inside the one component: the
+slot's precedence of sources is unchanged. A single band is a `Darks` of one; a
+bare `Dark` stays a `Dark`. Moved to a device by `Adapt.adapt`.
+"""
+struct Darks{B <: Union{FileBlack, ChannelBlack}, D <: Dark} <: BlackComponent
+    black::B
+    darks::Vector{D}
+    source::SensorSource.T
+    function Darks(black::B, darks::AbstractVector{<:Dark}; source::SensorSource.T) where {B <: Union{FileBlack, ChannelBlack}}
+        isempty(darks) && throw(ArgumentError("Darks: at least one Dark"))
+        src = _component_source(source, "Darks")
+        all(d -> d.source === src, darks) || throw(ArgumentError("Darks: every Dark is of the source $(string(src))"))
+        allequal(d -> size(d.offset), darks) ||
+            throw(DimensionMismatch("Darks: the darks' maps are of one size, got $(join(unique(size(d.offset) for d in darks), ", "))"))
+        ds = sort!(collect(darks); by = d -> d.exposure_band)
+        for k in 2:length(ds)
+            ds[k].exposure_band[1] > ds[k - 1].exposure_band[2] || throw(ArgumentError(
+                "Darks: the exposure bands are disjoint, got $(ds[k - 1].exposure_band) and $(ds[k].exposure_band)"))
+        end
+        return new{B, eltype(ds)}(black, ds, src)
+    end
+end
+Adapt.adapt_structure(to, d::Darks) = Darks(d.black, [Adapt.adapt(to, x) for x in d.darks]; source = d.source)
 
 # ------------------------------------------------------------------------------
 # The noise slot
@@ -329,6 +370,7 @@ Adapt.adapt_structure(to, d::DefectList) =
 _sensor_fields(c::FileBlack) = (c.source,)
 _sensor_fields(c::ChannelBlack) = (c.values, c.std_error, c.source)
 _sensor_fields(c::Dark) = (c.black, c.offset, c.variance, c.exposure_band, c.frames, c.source)
+_sensor_fields(c::Darks) = (c.black, c.darks, c.source)
 _sensor_fields(::NoNoise) = ()
 _sensor_fields(c::ReadNoise) = (c.σ, c.std_error, c.source)
 _sensor_fields(c::PoissonGaussian) = (c.gain, c.σ, c.std_error, c.source)
@@ -433,8 +475,8 @@ record states (ruling A): `black`, `noise` and `defects` each the component's
 [`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
 for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
 frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
-`UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark did not serve
-the frame's exposure and its ChannelBlack stands in); `specified_override` whether
+`UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark (or no Dark of its
+`Darks`) served the frame's exposure and the ChannelBlack stands in); `specified_override` whether
 a specified component won over a measured one.
 The one public view of a model's provenance: a consumer reads it, never the
 components' fields.
@@ -461,6 +503,8 @@ _digest_tree(c::Dark) = Dict{String, Any}("type" => "dark", "black" => _digest_t
                                    "offset" => _digest_tree(c.offset), "variance" => _digest_tree(c.variance),
                                    "exposure_band" => collect(map(_digest_tree, c.exposure_band)), "frames" => Int64(c.frames),
                                    "source" => _digest_tree(c.source))
+_digest_tree(c::Darks) = Dict{String, Any}("type" => "darks", "black" => _digest_tree(c.black), "darks" => map(_digest_tree, c.darks),
+                                    "source" => _digest_tree(c.source))
 _digest_tree(::NoNoise) = Dict{String, Any}("type" => "none")
 _digest_tree(c::ReadNoise) = _with_std_error(Dict{String, Any}("type" => "read_noise", "sigma" => _digest_tree(c.σ), "source" => _digest_tree(c.source)), c.std_error)
 _digest_tree(c::PoissonGaussian) = _with_std_error(Dict{String, Any}("type" => "poisson_gaussian", "gain" => c.gain, "sigma" => _digest_tree(c.σ),
@@ -518,9 +562,16 @@ function _pick(candidates, absent, slot, iso)
     return only(top), best == 3 && any(c -> c.source === SensorSource.measured, present)
 end
 
-# A frame's black: a Dark only when its band serves the exposure, else its channel black.
+# A frame's black: a Dark only when its band serves the exposure, else its channel black; of Darks, the one Dark whose
+# band serves it, else their shared channel black. Whether it fell back: `_out_of_band`.
 _frame_black(b::BlackComponent, t) = b
 _frame_black(d::Dark, t) = _serves(d, t) ? d : d.black
+function _frame_black(d::Darks, t)
+    k = findfirst(x -> _serves(x, t), d.darks)
+    return k === nothing ? d.black : d.darks[k]
+end
+_out_of_band(black::Union{Dark, Darks}, fb) = !(fb isa Dark)
+_out_of_band(black, fb) = false
 # A frame's defects: the sites whose onset is at most the exposure (none: NoDefects).
 _frame_defects(d::DefectComponent, t) = d
 function _frame_defects(d::DefectList, t)
@@ -547,7 +598,9 @@ exposure `capture[t].exposure`.
    of the same source are an `ArgumentError`, as are two different bodies
    matching a capture that states no serial.
 3. A [`Dark`](@ref) only when its exposure band serves the frame's exposure
-   (otherwise its channel black, and the reason `DarkOutOfBand`); a
+   (otherwise its channel black, and the reason `DarkOutOfBand`); of
+   [`Darks`](@ref), the one Dark whose band serves it (otherwise their shared
+   channel black, and `DarkOutOfBand`); a
    [`DefectList`](@ref) cut to the sites whose onset is at most the exposure
    (none left: [`NoDefects`](@ref)).
 
@@ -555,8 +608,8 @@ With no characterisation (`NoCharacterisation`), none of this body
 (`OtherBody`) or none at this ISO (`UnmatchedISO`) the result is the absent
 model `SensorModel(FileBlack(), NoNoise(), NoDefects())` with that
 [`ModelReason`](@ref): today's linearisation, bit for bit. Otherwise its
-`reason` is `Matched`, or `DarkOutOfBand` when the entry's Dark does not serve the
-frame's exposure. A frame the capture does not hold is an `ArgumentError`.
+`reason` is `Matched`, or `DarkOutOfBand` when the entry's Dark (or no Dark of its
+`Darks`) serves the frame's exposure. A frame the capture does not hold is an `ArgumentError`.
 An explicit model a caller holds is used as it is: this resolver is where a
 characterisation becomes one, never a substitute for one given.
 """
@@ -581,7 +634,7 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
     defects, od = _pick([e.defects for e in entries], NoDefects(), :defects, ex.iso)
     fb = _frame_black(black, ex.exposure_time)
     return SensorModel(fb, noise, _frame_defects(defects, ex.exposure_time);
-                       reason = black isa Dark && !(fb isa Dark) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
+                       reason = _out_of_band(black, fb) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
 end
 
 # ------------------------------------------------------------------------------
@@ -638,6 +691,22 @@ function _defect_mask(d::DefectList, m::RawMosaic, backend)
     KA.synchronize(backend)
     return _photosite_map(mask, m, backend, Bool, "the defect list's sensor")
 end
+
+"""
+    defect_mask(model::SensorModel, mosaic::RawMosaic; backend = the mosaic's) -> AbstractMatrix{Bool} or nothing
+    defect_mask(defects::DefectComponent, mosaic::RawMosaic; backend = the mosaic's)
+
+The defect slot as a mask over the VISIBLE raw (`raw[y, x]`, the
+[`DefectList`](@ref)'s `size`), on `backend`: `true` at each site of the list
+([`sensor_model`](@ref) has cut a model's to the frame's exposure), the mask
+[`LinearRaw`](@ref) joins its saturation mask with. `nothing` for
+[`NoDefects`](@ref): no photosite is masked. Indexed by the visible raw, not the
+mosaic's window: a window's photosite `(i, j)` is `mask[i + o[1], j + o[2]]`,
+`o = mosaic.window_origin`. A list that does not cover the mosaic's photosites
+is a `DimensionMismatch`.
+"""
+defect_mask(model::SensorModel, mosaic::RawMosaic; backend = KA.get_backend(parent(mosaic))) = _defect_mask(model.defects, mosaic, backend)
+defect_mask(defects::DefectComponent, mosaic::RawMosaic; backend = KA.get_backend(parent(mosaic))) = _defect_mask(defects, mosaic, backend)
 
 # A pixel value's variance law under the noise slot, as the kernel reads it per cell site k (D11): a value x of a plane
 # of m photosites (spans d_k), times the gain g, has variance

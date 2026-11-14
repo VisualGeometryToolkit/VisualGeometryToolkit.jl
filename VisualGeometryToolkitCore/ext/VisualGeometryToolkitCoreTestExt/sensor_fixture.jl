@@ -14,12 +14,15 @@ _slot_source(s::NamedTuple, slot) = get(s, slot, _VGC.SensorSource.specified)
 
 function sensor_fixture(; body::_VGC.DeviceIdentity = _VGC.DeviceIdentity(; make = "SYNTHETIC", model = "SENSOR"),
                         iso::Real = 100, exposure = 1.0 * _VGC._SECOND,
-                        black = nothing, black_std_error = nothing, dark = nothing,
+                        black = nothing, black_std_error = nothing, dark = nothing, darks = nothing,
                         gain = nothing, gain_std_error = nothing, read_noise = nothing, read_noise_std_error = nothing,
                         relative_noise = nothing, defects = nothing, source = _VGC.SensorSource.specified)
     channel = black === nothing ? _VGC.FileBlack() : _VGC.ChannelBlack(black, black_std_error; source = _slot_source(source, :black))
-    b = dark === nothing ? channel :
-        _VGC.Dark(channel, dark.offset, dark.variance, dark.exposure_band, dark.frames; source = _slot_source(source, :black))
+    (dark !== nothing && darks !== nothing) &&
+        throw(ArgumentError("sensor_fixture: one form of the black slot's darks — `dark` (a Dark) or `darks` (a Darks), not both"))
+    bs = _slot_source(source, :black)
+    one_dark(d) = _VGC.Dark(channel, d.offset, d.variance, d.exposure_band, d.frames; source = bs)
+    b = dark !== nothing ? one_dark(dark) : darks !== nothing ? _VGC.Darks(channel, [one_dark(d) for d in darks]; source = bs) : channel
     gain === nothing || read_noise !== nothing ||
         throw(ArgumentError("sensor_fixture: a gain makes a PoissonGaussian, which needs `read_noise` too"))
     (relative_noise !== nothing && read_noise !== nothing) &&

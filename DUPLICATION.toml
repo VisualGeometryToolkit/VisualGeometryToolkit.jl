@@ -126,4 +126,4 @@ reason = "not a black subtraction: the decoder writes the mosaic's per-channel b
 [[pattern]]
 use = "sensor_component"
 file = "VisualGeometryToolkitIO/src/sensor_characterisation_schema.jl"
-reason = "the vgio/sensor_characterisation kind's codec is the ONE reader that turns a file into sensor-model components (ChannelBlack, Dark, ReadNoise, PoissonGaussian, RelativeNoise, DefectList) and a SensorCharacterisation, through their public constructors"
+reason = "the vgio/sensor_characterisation kind's codec is the ONE reader that turns a file into sensor-model components (ChannelBlack, Dark, Darks, ReadNoise, PoissonGaussian, RelativeNoise, DefectList) and a SensorCharacterisation, through their public constructors"

@@ -50,7 +50,7 @@ const _RETIRED_PATTERNS = (
     # the sensor model (owner rulings D1–D13, 2026-11-13): a consumer never constructs a component, a characterisation or
     # a model (the absent `SensorModel()` aside); a test describes one through the one fixture helper (D13)
     (:sensor_component,
-        Regex("\\b(?:File" * "Black|Channel" * "Black|Da" * "rk|No" * "Noise|Read" * "Noise|Poisson" * "Gaussian|Relative" * "Noise|No" *
+        Regex("\\b(?:File" * "Black|Channel" * "Black|Da" * "rks?|No" * "Noise|Read" * "Noise|Poisson" * "Gaussian|Relative" * "Noise|No" *
               "Defects|Defect" * "List|SensorCharac" * "terisation)(?:\\{[^}]*\\})?\\s*\\(|\\bSensor" * "Model(?:\\{[^}]*\\})?\\s*\\((?!\\s*\\))"),
         "VisualGeometryToolkitCore's sensor model (src/raw/sensor_model.jl): `sensor_model(characterisation, capture, t)`, " *
             "`load(SensorCharacterisation, path)` (VisualGeometryToolkitIO); in tests `sensor_fixture` (D13)",

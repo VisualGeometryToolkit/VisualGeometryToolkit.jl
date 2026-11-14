@@ -1,13 +1,13 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterisation/v1.0.json",
-    "title": "vgio/sensor_characterisation/v1.0",
-    "description": "A vgio/sensor_characterisation/v1.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterisation/v1.1.json",
+    "title": "vgio/sensor_characterisation/v1.1",
+    "description": "A vgio/sensor_characterisation/v1.1 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
     "type": "object",
     "properties": {
         "schema": {
             "type": "string",
-            "description": "vgio/sensor_characterisation/v1.0, or the same major version at any minor",
+            "description": "vgio/sensor_characterisation/v1.1, or the same major version at any minor",
             "pattern": "^vgio/sensor_characterisation/v1(\\.[0-9]+)?$"
         },
         "generator": {
@@ -377,6 +377,205 @@
                                     "source"
                                 ],
                                 "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "const": "darks"
+                                    },
+                                    "darks": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "type": {
+                                                    "const": "dark"
+                                                },
+                                                "exposure_band": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "minItems": 2,
+                                                    "maxItems": 2
+                                                },
+                                                "frames": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "size": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "width": {
+                                                            "type": "integer",
+                                                            "minimum": 1
+                                                        },
+                                                        "height": {
+                                                            "type": "integer",
+                                                            "minimum": 1
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "width",
+                                                        "height"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "offset": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "file": {
+                                                            "type": "string",
+                                                            "description": "a relative path inside the header's directory (the calibration manifest's rule)"
+                                                        },
+                                                        "sha256": {
+                                                            "type": "string",
+                                                            "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                                                            "pattern": "^[0-9a-f]{64}$"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "file",
+                                                        "sha256"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "variance": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "file": {
+                                                            "type": "string",
+                                                            "description": "a relative path inside the header's directory (the calibration manifest's rule)"
+                                                        },
+                                                        "sha256": {
+                                                            "type": "string",
+                                                            "description": "a SHA-256 hex digest (64 lowercase hex digits)",
+                                                            "pattern": "^[0-9a-f]{64}$"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "file",
+                                                        "sha256"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "source": {
+                                                    "type": "string",
+                                                    "description": "a present component's source (measured, estimated, specified)",
+                                                    "enum": [
+                                                        "measured",
+                                                        "estimated",
+                                                        "specified"
+                                                    ]
+                                                },
+                                                "black": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "channel"
+                                                        },
+                                                        "values": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 4,
+                                                            "maxItems": 4
+                                                        },
+                                                        "source": {
+                                                            "type": "string",
+                                                            "description": "a present component's source (measured, estimated, specified)",
+                                                            "enum": [
+                                                                "measured",
+                                                                "estimated",
+                                                                "specified"
+                                                            ]
+                                                        },
+                                                        "std_error": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "minItems": 4,
+                                                            "maxItems": 4
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "values",
+                                                        "source"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            },
+                                            "required": [
+                                                "type",
+                                                "exposure_band",
+                                                "frames",
+                                                "size",
+                                                "offset",
+                                                "variance",
+                                                "source"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "source": {
+                                        "type": "string",
+                                        "description": "a present component's source (measured, estimated, specified)",
+                                        "enum": [
+                                            "measured",
+                                            "estimated",
+                                            "specified"
+                                        ]
+                                    },
+                                    "black": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {
+                                                "const": "channel"
+                                            },
+                                            "values": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 4,
+                                                "maxItems": 4
+                                            },
+                                            "source": {
+                                                "type": "string",
+                                                "description": "a present component's source (measured, estimated, specified)",
+                                                "enum": [
+                                                    "measured",
+                                                    "estimated",
+                                                    "specified"
+                                                ]
+                                            },
+                                            "std_error": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "minItems": 4,
+                                                "maxItems": 4
+                                            }
+                                        },
+                                        "required": [
+                                            "type",
+                                            "values",
+                                            "source"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "required": [
+                                    "type",
+                                    "darks",
+                                    "source"
+                                ],
+                                "additionalProperties": false
                             }
                         ]
                     },
@@ -560,7 +759,7 @@
                     "iso"
                 ],
                 "additionalProperties": false,
-                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
+                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames, and a darks body's bands (at least one) are disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
             }
         },
         "provenance": {

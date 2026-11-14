@@ -320,7 +320,7 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "vignetting" => (2, 0), "environment_light" => (2, 0), "blur" => (2, 0),
     "units" => (3, 0),
     "panorama" => (2, 0),   # (v1: IO 0.9.4's, read through its step)
-    "detection" => (1, 0), "sensor_characterisation" => (1, 1), "radial_profile" => (1, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v1.1, IO 0.10.2: the darks body); a binned radial profile
+    "detection" => (1, 0), "sensor_characterisation" => (2, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v2, IO 0.10.2: the darks body; v1.0 through its step); a binned radial profile
     "raster" => (2, 0),     # (v1: IO 0.9.5's, read through its step)
 )
 _schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);

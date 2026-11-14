@@ -1,8 +1,8 @@
 # =============================================================================
-# vgio/sensor_characterisation/v1.1 ↔ VGC `SensorCharacterisation` — one sensor, per ISO its components
+# vgio/sensor_characterisation/v2.0 ↔ VGC `SensorCharacterisation` — one sensor, per ISO its components
 # =============================================================================
 #
-# {"schema": "vgio/sensor_characterisation/v1.1", <envelope>,
+# {"schema": "vgio/sensor_characterisation/v2.0", <envelope>,
 #  "device": {"body": {"make": "Sony", "model": "ILME-FX3", "serial": "5012345"}},
 #  "entries": [
 #    {"iso": 100,
@@ -12,7 +12,7 @@
 #               "offset": {"file": "fx3.iso100.dark_offset.tiff", "sha256": "<hex>"},
 #               "variance": {"file": "fx3.iso100.dark_variance.tiff", "sha256": "<hex>"}, "source": "measured"}
 #            | {"type": "darks", "black": {channel body}, "source": "measured",
-#               "darks": [{dark body, its rasters "fx3.iso100.band1.dark_offset.tiff", …}, …]},   (v1.1)
+#               "darks": [{dark body, its rasters "fx3.iso100.band1.dark_offset.tiff", …}, …]},   (v2)
 #     "noise": {"type": "read_noise", "sigma": [r0, r1, r2, r3], "std_error": [s0, …], "source": "specified"}
 #            | {"type": "poisson_gaussian", "gain": 2.1, "sigma": [r0, …], "std_error": {"gain": 0.01, "sigma": [s0, …]},
 #               "source": "estimated"}
@@ -31,13 +31,15 @@
 # error in the value's units and shape. An ABSENT slot is absent from the entry
 # and loads as its absent type (FileBlack, NoNoise, NoDefects): the RAW's own
 # black, no noise stated, no defect. A Dark's own `black` is its channel black,
-# absent when it is the RAW's. A Darks (v1.1: the darks of several exposures at one
+# absent when it is the RAW's. A Darks (v2: the darks of several exposures at one
 # ISO) holds its shared channel black (absent when it is the RAW's) and its Darks in
 # increasing band, each a dark body with its own rasters (`<stem>.band<k>.…`, k the
 # band's place); the bands are disjoint.
 #
-# VERSIONS: v1.1 (IO 0.10.2) added the "darks" body; a v1.0 file (IO 0.10.1's, at
-# most one Dark per ISO) is a v1.1 file as it stands, read as written.
+# VERSIONS: v2.0 (IO 0.10.2) added the "darks" body, a new value of the black slot's
+# `type` (a v1 reader cannot read it, so a major version); a v1.0 file (IO 0.10.1's,
+# at most one Dark per ISO) reads through its step, which only renames the schema:
+# its body is a v2.0 body as it stands.
 #
 # Per CFA colour index 0–3 (LibRaw's): `values[c + 1]`, codes. Times — a dark's
 # exposure band, a defect's onset (the shortest exposure at which it is hot) —
@@ -94,6 +96,7 @@ const _DEFECT_COMPONENT = _Obj(:size => _SIZE_INT, :sites => _Vec(_Vec(_Real(), 
 # The rules the tables cannot state: a dark's band and frames; a defect site inside the raw, once, its onset positive;
 # a gain and σ_rel positive; each ISO positive and once.
 function _dark_problem(b)
+    b[:type] == "darks" && (all(d -> d[:source] == b[:source], b[:darks]) || return "a darks body's darks are of its source")
     b[:type] == "darks" && return _darks_problem(b[:darks])
     b[:type] == "dark" || return nothing
     lo, hi = b[:exposure_band]
@@ -107,6 +110,7 @@ function _darks_problem(ds)
     for d in ds
         p = _dark_problem(d); p === nothing || return p
     end
+    allequal(d -> (d[:size][:width], d[:size][:height]), ds) || return "a darks body's darks are of one size"
     bands = sort!([(Float64(d[:exposure_band][1]), Float64(d[:exposure_band][2])) for d in ds])
     all(k -> bands[k][1] > bands[k - 1][2], 2:length(bands)) || return "a darks body's exposure bands are disjoint"
     return nothing
@@ -142,7 +146,7 @@ const _SENSOR_ENTRY = _CheckedSpec(
          Pair{Symbol, _Spec}[:black => _BLACK_COMPONENT, :noise => _NOISE_COMPONENT, :defects => _DEFECT_COMPONENT]),
     _entry_problem;
     rule = "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at " *
-           "least 2 frames, and a darks body's bands (at least one) are disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
+           "least 2 frames, and a darks body's darks (at least one) of its source and of one size, their bands disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
            "x the column), listed once, its onset positive",
 )
 const _SENSOR_CHARACTERISATION_SPEC = _kind_spec(
@@ -188,7 +192,7 @@ _component_json(d::VgtkCore.DefectList, files) =
 """
     save(path, characterisation::SensorCharacterisation; provenance = (;))
 
-Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation/v1.1`
+Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation/v2.0`
 file: the body's identity (`device.body`) and one entry per ISO (in increasing
 ISO), each present slot as its component's body with its source and standard
 error, an absent slot (`FileBlack`, `NoNoise`, `NoDefects`) absent. A `Dark`'s
@@ -246,7 +250,7 @@ end
 """
     load(SensorCharacterisation, path) -> SensorCharacterisation
 
-Read a `vgio/sensor_characterisation/v1.x` file ([`save`](@ref)'s; a v1.0 file as written): the
+Read a `vgio/sensor_characterisation/v2.0` file ([`save`](@ref)'s; a v1.0 file through its step): the
 `SensorCharacterisation` exactly as written — per ISO each present slot's
 component with its source and standard error, an absent slot its absent type
 (`FileBlack`, `NoNoise`, `NoDefects`); a `Dark`'s maps (`Matrix{Float32}`, each of a `Darks`' too) read
@@ -262,4 +266,23 @@ function load(::Type{SensorCharacterisation}, path::AbstractString)
         Float64(e.iso::Real) => merge(slots[1], slots[2], slots[3])
     end
     return SensorCharacterisation(_identity_from_json(d.device.body); entries)
+end
+
+# ----------------------------------------------------------------------------- the v1.0 step
+
+# v1.0 (IO 0.10.1) → v2.0: the body is unchanged (v2 only added the "darks" body), so the step renames the schema and
+# states the current generator; the file form reads the file as the characterisation and writes it anew (its rasters
+# beside the output, under its stem), read back equal.
+function _sensor_characterisation_v1_to_v2(t::AbstractDict)
+    n = Dict{String, Any}(String(k) => v for (k, v) in t)
+    n["schema"] = _schema("sensor_characterisation")
+    n["generator"] = _lower(_generator_json())
+    return n
+end
+migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, t::AbstractDict) = _sensor_characterisation_v1_to_v2(t)
+function migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, src::AbstractString, dst::AbstractString)
+    c = load(SensorCharacterisation, src)
+    save(dst, c; provenance = _provenance_of(_raw_tree(src)))
+    _verify(load(SensorCharacterisation, dst) == c, src, "the sensor characterisation")
+    return (; to = _schema("sensor_characterisation"))
 end

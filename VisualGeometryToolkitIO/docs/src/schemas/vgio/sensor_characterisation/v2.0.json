@@ -1,14 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterisation/v1.1.json",
-    "title": "vgio/sensor_characterisation/v1.1",
-    "description": "A vgio/sensor_characterisation/v1.1 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterisation/v2.0.json",
+    "title": "vgio/sensor_characterisation/v2.0",
+    "description": "A vgio/sensor_characterisation/v2.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
     "type": "object",
     "properties": {
         "schema": {
             "type": "string",
-            "description": "vgio/sensor_characterisation/v1.1, or the same major version at any minor",
-            "pattern": "^vgio/sensor_characterisation/v1(\\.[0-9]+)?$"
+            "description": "vgio/sensor_characterisation/v2.0, or the same major version at any minor",
+            "pattern": "^vgio/sensor_characterisation/v2(\\.[0-9]+)?$"
         },
         "generator": {
             "type": "object",
@@ -759,7 +759,7 @@
                     "iso"
                 ],
                 "additionalProperties": false,
-                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames, and a darks body's bands (at least one) are disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
+                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames, and a darks body's darks (at least one) of its source and of one size, their bands disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
             }
         },
         "provenance": {

@@ -455,7 +455,7 @@ NoDefects(); reason = NoCharacterisation)`: [`LinearRaw`](@ref) and
 model of isbits components is isbits; one holding a dark map or a defect list
 moves to a device with `Adapt.adapt`. [`content_digest`](@ref) is its identity.
 """
-struct SensorModel{B <: BlackComponent, N <: NoiseComponent, D <: DefectComponent}
+struct SensorModel{B <: Union{FileBlack, ChannelBlack, Dark}, N <: NoiseComponent, D <: DefectComponent}
     black::B
     noise::N
     defects::D
@@ -485,8 +485,8 @@ record states (ruling A): `black`, `noise` and `defects` each the component's
 [`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
 for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
 frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
-`UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark (or no Dark of its
-`Darks`) served the frame's exposure and the ChannelBlack stands in); `specified_override` whether
+`UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark did not serve the
+frame's exposure (or no Dark of its `Darks` did) and the ChannelBlack stands in); `specified_override` whether
 a specified component won over a measured one.
 The one public view of a model's provenance: a consumer reads it, never the
 components' fields.
@@ -513,8 +513,6 @@ _digest_tree(c::Dark) = Dict{String, Any}("type" => "dark", "black" => _digest_t
                                    "offset" => _digest_tree(c.offset), "variance" => _digest_tree(c.variance),
                                    "exposure_band" => collect(map(_digest_tree, c.exposure_band)), "frames" => Int64(c.frames),
                                    "source" => _digest_tree(c.source))
-_digest_tree(c::Darks) = Dict{String, Any}("type" => "darks", "black" => _digest_tree(c.black), "darks" => map(_digest_tree, c.darks),
-                                    "source" => _digest_tree(c.source))
 _digest_tree(::NoNoise) = Dict{String, Any}("type" => "none")
 _digest_tree(c::ReadNoise) = _with_std_error(Dict{String, Any}("type" => "read_noise", "sigma" => _digest_tree(c.σ), "source" => _digest_tree(c.source)), c.std_error)
 _digest_tree(c::PoissonGaussian) = _with_std_error(Dict{String, Any}("type" => "poisson_gaussian", "gain" => c.gain, "sigma" => _digest_tree(c.σ),
@@ -617,8 +615,8 @@ With no characterisation (`NoCharacterisation`), none of this body
 (`OtherBody`) or none at this ISO (`UnmatchedISO`) the result is the absent
 model `SensorModel(FileBlack(), NoNoise(), NoDefects())` with that
 [`ModelReason`](@ref): today's linearisation, bit for bit. Otherwise its
-`reason` is `Matched`, or `DarkOutOfBand` when the entry's Dark (or no Dark of its
-`Darks`) serves the frame's exposure. A frame the capture does not hold is an `ArgumentError`.
+`reason` is `Matched`, or `DarkOutOfBand` when the entry's Dark does not serve the
+frame's exposure (or no Dark of its `Darks` does). A frame the capture does not hold is an `ArgumentError`.
 An explicit model a caller holds is used as it is: this resolver is where a
 characterisation becomes one, never a substitute for one given.
 """

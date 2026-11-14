@@ -2,15 +2,17 @@
 
 ## 0.10.2
 
-A patch, additive: one schema minor version.
+A patch: one kind's new major version, its previous version read through its step; no other kind changes.
 
 ### Added
-- **`vgio/sensor_characterisation/v1.1`**: the black slot's `"darks"` body, VisualGeometryToolkitCore 0.10.3's `Darks`
+- **`vgio/sensor_characterisation/v2.0`**: the black slot's `"darks"` body, VisualGeometryToolkitCore 0.10.3's `Darks`
   (one Dark per exposure band at one ISO, with the shared channel black). Its darks are written in increasing band,
   each a dark body with its own raster pair, `<stem>.iso<ISO>.band<k>.dark_offset.tiff` and `….dark_variance.tiff`;
-  the reader and the validator refuse overlapping bands. A v1.0 file (IO 0.10.1's, at most one Dark per ISO) is a v1.1
-  file as it stands and reads as written (tested). An IO 0.10.1 reader refuses a `"darks"` body by its `type`.
-  The published JSON Schema is `schemas/vgio/sensor_characterisation/v1.1.json` (v1.0.json replaced: the generator
+  the reader and the validator refuse overlapping bands, a dark of another source and maps of different sizes. A new
+  value of a slot's `type` is a major version (a v1 reader cannot read it): v1.0 (IO 0.10.1's, at most one Dark per
+  ISO) reads through its step, which renames the schema and keeps the body, and `vgio_migrate` rewrites a v1.0 file
+  (its rasters beside the output). Tested on a v1.0 file the registered IO 0.10.1 wrote (`test/fixtures/old/`). The
+  published JSON Schema is `schemas/vgio/sensor_characterisation/v2.0.json` (v1.0.json replaced: the generator
   publishes each kind's current version). Requires VisualGeometryToolkitCore 0.10.3.
 
 ## 0.10.1 (2026-11-14)

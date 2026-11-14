@@ -1,4 +1,4 @@
-# vgio/sensor_characterisation/v1.1 (sensor_characterisation_schema.jl): Core's SensorCharacterisation, its components
+# vgio/sensor_characterisation/v2.0 (sensor_characterisation_schema.jl): Core's SensorCharacterisation, its components
 # built by Core's `sensor_fixture` (the one way a test builds one) — each component alone in an entry, partial entries,
 # several ISOs, an empty entry; exact by type; a dark's maps as hashed artifacts; the refusals.
 
@@ -131,7 +131,7 @@ end
     end
 end
 
-# v1.1 (IO 0.10.2): the black slot's `Darks`, one Dark per exposure band (each its own raster pair), with the shared
+# v2.0 (IO 0.10.2): the black slot's `Darks`, one Dark per exposure band (each its own raster pair), with the shared
 # channel black; a v1.0 file (a single Dark) still loads.
 @testitem "sensor_characterisation: Darks — a raster pair per band, the round trip, a stable digest; v1.0 still loads" setup = [VGIoFixtures, SensorFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
@@ -145,7 +145,7 @@ end
     @test c.entries[100.0].black isa Darks
     mktempdir() do dir
         b, d, p = round_trip(dir, "darks", c)
-        @test validate(p) == "sensor_characterisation" && d["schema"] == "vgio/sensor_characterisation/v1.1"
+        @test validate(p) == "sensor_characterisation" && d["schema"] == "vgio/sensor_characterisation/v2.0"
         @test same(b, c) && b.entries[100.0].black isa Darks
         bk = d["entries"][1]["black"]
         @test bk["type"] == "darks" && bk["black"]["type"] == "channel" && length(bk["darks"]) == 3
@@ -163,11 +163,32 @@ end
         t = JSON.parse(good; dicttype = Dict{String, Any}); t["entries"][1]["black"]["darks"][2]["exposure_band"] = [0.0001, 0.9]
         write(p, JSON.json(t))
         @test (try load(SensorCharacterisation, p); false catch e; e isa ArgumentError end)
-        # a v1.0 file (one Dark), as IO 0.10.1 wrote it, still loads
-        one = char(; black = (512.0, 511.5, 512.25, 511.75), dark = dark_maps(7), source = SensorSource.measured)
-        q = joinpath(dir, "v10.json"); save(q, one)
-        t = JSON.parse(read(q, String); dicttype = Dict{String, Any}); t["schema"] = "vgio/sensor_characterisation/v1.0"
-        write(q, JSON.json(t))
-        @test validate(q) == "sensor_characterisation" && same(load(SensorCharacterisation, q), one)
+    end
+end
+
+# The v1.0 file the REGISTERED IO 0.10.1 wrote (test/fixtures/old/, with its two rasters): read through its step, the
+# characterisation it held; `vgio_migrate` rewrites it as v2.0, read back equal.
+@testitem "sensor_characterisation: a v1.0 file IO 0.10.1 wrote reads through its step; vgio_migrate rewrites it" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Dark, ChannelBlack, PoissonGaussian, DefectList
+    using VisualGeometryToolkitIO: validate, vgio_migrate
+    import VisualGeometryToolkitIO as VgtkIO
+    src = joinpath(@__DIR__, "fixtures", "old", "sensor_characterisation_v1.0.json")
+    @test JSON.parsefile(src)["schema"] == "vgio/sensor_characterisation/v1.0" && JSON.parsefile(src)["generator"]["version"] == "0.10.1"
+    c = load(SensorCharacterisation, src)
+    e = c.entries[100.0]
+    @test e.black isa Dark && e.black.black isa ChannelBlack && e.noise isa PoissonGaussian && e.defects isa DefectList
+    @test e.black.offset == Float32[510 + i + 0.25j for i in 1:4, j in 1:6] && e.black.frames == 16
+    @test e.noise.gain == 2.1 && e.defects.x == [5] && e.defects.y == [2]
+    @test validate(src) == "sensor_characterisation"
+    @test VgtkIO.schema_versions("sensor_characterisation") == ["vgio/sensor_characterisation/v1.0", "vgio/sensor_characterisation/v2.0"]
+    mktempdir() do dir
+        for f in readdir(dirname(src))
+            startswith(f, "sensor_characterisation_v1.0") && cp(joinpath(dirname(src), f), joinpath(dir, f))
+        end
+        p = joinpath(dir, "sensor_characterisation_v1.0.json")
+        r = vgio_migrate(p)
+        @test r.to == "vgio/sensor_characterisation/v2.0" && JSON.parsefile(r.out)["schema"] == "vgio/sensor_characterisation/v2.0"
+        @test load(SensorCharacterisation, r.out) == c
     end
 end

@@ -128,7 +128,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
-using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   # sensor_characterisation/v1.1, radial_profile/v1.0
+using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   # sensor_characterisation/v2.0, radial_profile/v1.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -161,7 +161,7 @@ using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   #
 #                                                vgio/panorama/v2.0  a panorama's results (a NamedTuple: no VGC type)
 #   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
 #   load(BinnedRadialProfile, path)              vgio/radial_profile/v1.0  a measured radial profile (a flat field by field angle)
-#   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v1.1  one sensor's components per ISO, a dark's maps as hashed artifacts
+#   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v2.0  one sensor's components per ISO, a dark's maps as hashed artifacts
 #   load_raster(path) / save_raster(path, values; frame, nan)
 #                                                vgio/raster/v2.0    a Float32 or UInt8 raster: a JSON header + its TIFF payload
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
@@ -214,7 +214,7 @@ include("radial_profile_schema.jl")  # vgio/radial_profile/v1.0: a measured radi
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
 include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its TIFF payload (the one bulk-array binding; after the manifest: its path rule)
-include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v1.1: one sensor's components per ISO, a dark's maps as hashed artifacts
+include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v2.0: one sensor's components per ISO, a dark's maps as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators

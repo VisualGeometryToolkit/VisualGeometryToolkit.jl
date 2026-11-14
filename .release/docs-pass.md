@@ -1,3 +1,45 @@
+docs-pass: 78fa6599
+
+# VisualGeometryToolkitCore 0.10.1 docs pass (julia-docs-pass) — branch patch-core0101
+
+Baseline: the registered Core 0.10.0 (7b9bec70). This release is purely additive, option (B) of the owner's ruling. 78fa6599 is
+patch-core0101 merged with GitHub main 92d07363 (Features 0.9.1, Estimation 0.11.1), so the gate ran on the tree
+that is pushed.
+
+## 1. Public API since 0.10.0
+
+- **New methods and names:**
+  - `photon_transfer(groups, darks; sensor_model, block, normalize, significance) -> FitResult{PoissonGaussian, PhotonTransferMetadata}`;
+  - `PhotonTransferMetadata` (public);
+  - `LmProblem(variables, blocks; fixed)`.
+- **Changed, additive:** the single-frame `photon_transfer(mosaic; sensor_model, block, significance)` gains the
+  `significance` keyword. It refuses a μ² term; its signature is otherwise unchanged, as is its return. It is
+  deprecated, to be removed in the next breaking wave.
+- **Removed:** nothing. **Exports:** unchanged. `PhotonTransferMetadata` is `public`, not exported.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `test_docs` green (CPU group 9: docs item) |
+| `checkdocs = :public`, cross-references | docs build green (15740) |
+| check_naming | 0 (prep 15737) |
+| CHANGELOG | Core `## 0.10.1` (New, Added, Fixed, Deprecated, the measured FX3 limitation) |
+| version | VisualGeometryToolkitCore 0.10.1 |
+
+## 3. Executed on 78fa6599
+
+The gate ran Julia 1.13.3 on a fresh clone, at nice 0, with the wave stack paths. It finished 24/24 rc 0:
+
+| job | result |
+|---|---|
+| prep 15737 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0 |
+| CPU 15738 | groups 1–16 green |
+| GPU 15739 | groups 17–22 green |
+| docs 15740 | green |
+
+---
+
 docs-pass: 825a5e64
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: the Features card names the package's scope, not its detectors)
 

@@ -1,3 +1,19 @@
+# IO 0.10.3 duplication checklist (patch-io0103), 2026-11-14
+
+The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in IO's prep
+16879 on the fresh clone of f5e77eca: 0 findings (IO's name-ownership upstream: Core). `check_duplication` of IO: 0;
+`check_naming` of IO: 0.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| a length's identity in a comparison | a second tolerance beside the writer's last resort | `_persisted` (content_id's length leaf), read by `_same_metres` | [x] |
+| the versions a file is current at | `_is_current`'s own "current major" beside the writer's table | `_written_versions`, read by `_is_current`, the writer and kinds.md's table | [x] |
+| the persisted-form rule's text | IO's conventions page and Core's units.md each stating it | Core's `conventions/units.md` ("What is exact"); IO's page points at it | [x] |
+| the v1.0 fixture with its rasters in a test | three copy loops | `SensorFixtures`' `copy_v1_fixture` | [x] |
+| the persisted-length claims | the default item and the benchmark item | `PersistedLengthClaims`' `persisted_length_claims` | [x] |
+
+---
+
 # Core 0.10.3, IO 0.10.2, Features 0.9.3 duplication checklist (patch-core0103), 2026-11-14
 
 The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in Core's prep

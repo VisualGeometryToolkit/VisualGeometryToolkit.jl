@@ -1,3 +1,47 @@
+docs-pass: f5e77eca
+
+# VisualGeometryToolkitIO 0.10.3 docs pass (julia-docs-pass) — branch patch-io0103
+
+Baseline: GitHub main 300794c3 (Core 0.10.3, IO 0.10.2, Features 0.9.3). f5e77eca is 10d5845e (IO 0.10.3 and Core's
+`conventions/units.md` persisted-form paragraph) with the review's cleanups (86bc023e) and fixes (f5e77eca). Core stays
+0.10.3 (its paragraph ships with its next release); IO's Core compat floor stays "0.10.3".
+
+## 1. Public API since main
+
+- **IO 0.10.3:** no public name added or removed; no schema version added. Behaviour: `same_value` (and the
+  conversions' pose check) accepts a length with the same persisted identity; `vgio_migrate_tree` finds a file of any
+  version a writer emits current; `vgio_migrate` of a `vgio/sensor_characterisation/v1.0` file refuses ("nothing to
+  migrate"; the v1.0 file form deleted); `write_length` in a non-decimal unit refuses a length no number of the unit
+  has the identity of (no length unit); the validator requires a darks body's darks in increasing band.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` items green (IO cpu group 4, both tiers) |
+| `checkdocs = :public`, doctests, cross-references, link check | IO docs 16882: strict build green; kinds.md's `@eval` table rendered, its Written column `v1.0`, `v2.0` for `vgio/sensor_characterisation` |
+| README and landing page | unchanged (nothing they show moved); the readme items stand as run |
+| guides | IO: conventions.md (points at Core's "What is exact"), kinds.md (Written generated from `_written_versions`), schemas.md (a file of a written version is current). Core: `conventions/units.md` ("What is exact": the persisted form) |
+| docstrings | `write_length` (the last resort per unit kind, the refusal), `same_value`, `vgio_migrate`, `vgio_migrate_tree`, `convert_matlab_calibration` (the persisted identity accepted) |
+| published JSON Schemas | `sensor_characterisation/v2.0.json`'s rule states the darks' increasing band (description only) |
+| check_naming | 0 on IO (prep 16879, check_naming and upstream_duplication) |
+| CHANGELOG | IO `## 0.10.3` (Fixed, Docs, Tests) |
+| versions | IO 0.10.3 (Core compat "0.10.3"); Core 0.10.3 unchanged |
+
+## 3. Executed on f5e77eca
+
+Julia 1.13.3, fresh clone, nice 0:
+
+| gate | job | result |
+|---|---|---|
+| IO prep | 16879 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 |
+| IO cpu (--depwarn=error) | 16880 | groups 1–6 green: 73,098 pass, 9 broken, 73,107 total |
+| IO cpu (--depwarn=yes) | 16881 | groups 7–12 green: 73,098 pass, 9 broken, 73,107 total |
+| IO docs | 16882 | green |
+| dev runs on 10d5845e (whole suite, 4 workers) | 16872 / 16873 (--depwarn=yes) | green: 73,099 pass, 9 broken each; 0 deprecation warnings |
+
+---
+
 docs-pass: 7b322318
 
 # VisualGeometryToolkitCore 0.10.3, VisualGeometryToolkitIO 0.10.2, VisualGeometryToolkitFeatures 0.9.3 docs pass (julia-docs-pass) — branch patch-core0103

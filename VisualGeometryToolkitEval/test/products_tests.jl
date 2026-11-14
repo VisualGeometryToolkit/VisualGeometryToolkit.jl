@@ -1,6 +1,7 @@
 # The keyed product (src/experiments/products.jl): one cache, DrWatson's produce_or_load, keyed by only what a product reads.
 
-@testitem "products: produce_or_load keyed by only what a product reads" setup = [GitFixture] begin
+# produce_or_load keyed by only what a product reads
+@testitem "products" setup = [GitFixture] begin
     import VisualGeometryToolkitEval as VgtkEval
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitIO as VgtkIO

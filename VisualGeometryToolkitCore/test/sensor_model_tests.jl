@@ -889,3 +889,22 @@ end
         @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
     end
 end
+
+@testitem "sensor model: value_variance — the law's variance of a given value at a photosite (a censored one at 1)" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, linearview, value_variance, value_of
+    using Statistics: var
+    using Random: Xoshiro
+    rng = Xoshiro(3)
+    m = synth_mosaic(rand(rng, UInt16(600):UInt16(16383), 8, 10))
+    model = sensor_fixture(; gain = K_TRUE, read_noise = (SIGMA_R, SIGMA_R, SIGMA_R, SIGMA_R)).model
+    lv = linearview(m; sensor_model = model)
+    # at the photosite's own value: the view's element's variance, bit for bit; at the white level (a censored photosite)
+    # the law's there, above the read noise's
+    @test all(value_variance(lv, i, j, value_of(lv[i, j])) == var(lv[i, j]) for i in 1:8, j in 1:10)
+    d = WHITE - BLACK
+    @test value_variance(lv, 3, 4, 1.0) ≈ 1 / (K_TRUE * d) + SIGMA_R^2 / d^2
+    # without a variance law (no noise, or read noise alone): 0
+    @test value_variance(linearview(m), 3, 4, 1.0) == 0.0
+    @test value_variance(linearview(m; sensor_model = sensor_fixture(; read_noise = (2.0, 2.0, 2.0, 2.0)).model), 3, 4, 1.0) == 0.0
+end

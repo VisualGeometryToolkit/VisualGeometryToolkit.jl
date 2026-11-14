@@ -10,15 +10,20 @@
 #
 #     Ī(x) = Σ_k w(x − p_k) c_k I_k / Σ_k w(x − p_k) c_k,     Var Ī(x) = Σ_k w² c_k σ_k² / (Σ_k w c_k)²,
 #
-# c_k = 1 for a usable green photosite (not saturated, not a defect of the sensor model), 0 for every other: a green
-# site is its own value, a red or blue site the mean of its usable green 4-neighbours (the weights renormalised, so a
-# masked neighbour drops out); a site with no usable green under the cross (a saturated or defect green site, whose
-# 4-neighbours are red and blue; a red or blue site with all four greens masked) has NO value: NaN, never filled, so
-# every window that reads it fails its tests (SFOP's λ₂ test, Förstner's estimate: an :unknown row). I_k is Core's one
-# linearisation (`linearview`), σ_k² Core's one variance law (the sensor model's). The greens G1 and G2 are taken to
-# respond alike (identity response): the stack's sensor model carries no per-channel response (owner, 2026-11-14), so
-# a G1/G2 gain mismatch stays in the image as a checkerboard (a known limit; measure it with flat fields if needed).
-# One KernelAbstractions kernel, Float64 sums.
+# c_k = 1 for a usable green photosite, 0 for every other: a green site is its own value, a red or blue site the mean
+# of its usable green 4-neighbours (the weights renormalised). The owner's ruling (2026-11-14) on the two kinds of bad
+# photosite:
+#   - SATURATED = CENSORED: a normal sample, its value clipped at the white level (1) and its variance the noise law's
+#     at 1 (Core's `value_variance`, never 0 under a law); the pixels that read one are flagged (`saturated`);
+#   - DEFECTIVE (the sensor model's defect list) = MISSING: it drops out of the sums. A pixel with no usable green
+#     under the cross (a defective green, whose 4-neighbours are red and blue) is the mean of the usable greens of its
+#     3×3 neighbourhood (its four diagonal greens), weights renormalised; only a pixel with no usable green in the 3×3
+#     (a defect cluster) has no value: NaN, so every window reading it fails its tests (SFOP's λ₂ test, Förstner's
+#     estimate: an :unknown row).
+# I_k is Core's one linearisation (`linearview`), σ_k² Core's one variance law (the sensor model's). The greens G1 and
+# G2 are taken to respond alike (identity response): the stack's sensor model carries no per-channel response (owner,
+# 2026-11-14), so a G1/G2 gain mismatch stays in the image as a checkerboard (a known limit; measure it with flat
+# fields if needed). One KernelAbstractions kernel, Float64 sums.
 #
 # Then SFOP's scale space as implemented (its 2× upsampled first octave) gives the seeds, and the seeded Förstner
 # estimates on this raw-grid image itself (its own doubling, ip_fop.m step 1), its noise propagated from the
@@ -27,7 +32,7 @@
 # =============================================================================
 
 using KernelAbstractions: @kernel, @index, @Const
-using VisualGeometryToolkitCore: photosite_colors, saturationview, defect_mask, Adapt
+using VisualGeometryToolkitCore: photosite_colors, saturationview, defect_mask, value_variance, Adapt
 using VisualGeometryToolkitCore: _masked   # THE defect lookup of the visible raw (Core's kernels' own)
 
 # The bilinear green image's blur, raw pixels (per axis, by its second moment): the photosite's box integration,
@@ -36,69 +41,92 @@ using VisualGeometryToolkitCore: _masked   # THE defect lookup of the visible ra
 # `input_blur` (input pixels; the first octave, upsampled 2×, starts at 2/√3 ≈ 1.155 of its pixels).
 const _BILINEAR_GREEN_BLUR = 0.5773502691896258   # 1/√3 raw px
 
-# The cross kernel's taps, (Δrow, Δcolumn): the pixel, then its four 4-neighbours.
+# The cross kernel's taps, (Δrow, Δcolumn): the pixel, then its four 4-neighbours; and the 3×3 support's other taps,
+# the four diagonal neighbours (a green site's diagonal greens).
 const _CROSS_TAPS = ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1))
+const _DIAGONAL_TAPS = ((-1, -1), (1, -1), (-1, 1), (1, 1))
 
-# Photosite (i, j) is a usable green: a green colour index (1 or 3, LibRaw's G and G2), not at the white level, not a
-# defect (the defect mask is over the visible raw: the photosite at the mosaic's window offset `origin`).
-@inline _usable_green(colors, sat, defects, origin, i, j) =
-    @inbounds (colors[i, j] == 0x01) | (colors[i, j] == 0x03) && !sat[i, j] && !_masked(defects, i + origin[1], j + origin[2])
+# A pixel's support (`_bilinear_green!`'s `support` plane): the count n of its usable greens, flagged by
+# `_SUPPORT_3X3` when they are its 3×3 neighbourhood's (no usable green under its cross); 0 without a value.
+const _SUPPORT_3X3 = 0x80
+@inline _support_count(s::UInt8) = Int(s & ~_SUPPORT_3X3)
+# Whether photosite k at offset (d1, d2) from pixel p is in p's support `s`: under its cross, or in its 3×3.
+@inline _in_support(s::UInt8, d1, d2) = (s & _SUPPORT_3X3) != 0 ? max(abs(d1), abs(d2)) <= 1 : abs(d1) + abs(d2) <= 1
 
-# A linear photosite's variance: the variance law's, or 0 for a plain value (no law).
+# Photosite (i, j) is a usable green: a green colour index (1 or 3, LibRaw's G and G2), not a defect (the defect mask is
+# over the visible raw: the photosite at the mosaic's window offset `origin`). A saturated green is usable (censored).
+@inline _usable_green(colors, defects, origin, i, j) =
+    @inbounds ((colors[i, j] == 0x01) | (colors[i, j] == 0x03)) && !_masked(defects, i + origin[1], j + origin[2])
+
+# A usable green's sample (value, variance, saturated): its linear value and the law's variance there, or, saturated
+# (censored), 1 and the law's variance at 1 (`value_variance`; 0 without a law, as for a plain value).
 @inline _linear_variance(x::Real) = 0.0
 @inline _linear_variance(x) = Float64(var(x))
+@inline function _green_sample(lin, sat, i, j)
+    @inbounds sat[i, j] && return 1.0, value_variance(lin, i, j, 1.0), true
+    @inbounds x = lin[i, j]
+    return Float64(value_of(x)), _linear_variance(x), false
+end
 
-# The bilinear green at raw pixel (i, j): `value` (T, NaN without a usable green under the cross), `count` (n, the
-# usable greens under the cross: the bilinear weight of each is 1/n, so Var Ī = density/(2n)), `density` (the noise's
-# white-equivalent variance per raw pixel, Float32: the photosites' variance averaged under the cross, times 2 — the
-# green lattice holds one photosite per 2 raw pixels and the interpolation keeps the DC gain, so at the scales the
-# detectors integrate over the noise is that of white noise of variance 2σ² per pixel) and `photosite` (σ_k² of a
-# usable green photosite, 0 at every other site).
-@kernel function _bilinear_green!(value, count, density, photosite, @Const(lin), @Const(sat), @Const(defects), colors, origin)
+# Σ over the usable greens at `taps` from (i, j): their count, values' sum, variances' sum, whether one is censored.
+@inline function _green_sums(taps, lin, sat, defects, colors, origin, i, j, H, W)
+    n = 0; sx = 0.0; sv = 0.0; censored = false
+    for (di, dj) in taps
+        ii, jj = i + di, j + dj
+        if (1 <= ii <= H) & (1 <= jj <= W) && _usable_green(colors, defects, origin, ii, jj)
+            x, v, c = _green_sample(lin, sat, ii, jj)
+            n += 1; sx += x; sv += v; censored |= c
+        end
+    end
+    return n, sx, sv, censored
+end
+
+# The bilinear green at raw pixel (i, j): `value` (T; NaN without a usable green in the 3×3), `support` (the count n of
+# the greens it averages, each of weight 1/n, flagged `_SUPPORT_3X3` for the 3×3 fallback; so Var Ī = density/(2n)),
+# `density` (the noise's white-equivalent variance per raw pixel, Float32: the photosites' variance averaged over the
+# support, times 2 — the green lattice holds one photosite per 2 raw pixels and the interpolation keeps the DC gain, so
+# at the scales the detectors integrate over the noise is that of white noise of variance 2σ² per pixel), `photosite`
+# (σ_k² of a usable green photosite, 0 at every other site) and `saturated` (a censored green in the support).
+@kernel function _bilinear_green!(value, support, density, photosite, saturated, @Const(lin), @Const(sat), @Const(defects),
+                                  colors, origin)
     i, j = @index(Global, NTuple)
     H, W = size(value)
     T = eltype(value)
-    n = 0; sx = 0.0; sv = 0.0
-    own = 0.0f0
-    for (di, dj) in _CROSS_TAPS
-        ii, jj = i + di, j + dj
-        if (1 <= ii <= H) & (1 <= jj <= W) && _usable_green(colors, sat, defects, origin, ii, jj)
-            @inbounds x = lin[ii, jj]
-            v = _linear_variance(x)
-            n += 1
-            sx += Float64(value_of(x))
-            sv += v
-            (di == 0) & (dj == 0) && (own = Float32(v))
-        end
-    end
+    n, sx, sv, censored = _green_sums(_CROSS_TAPS, lin, sat, defects, colors, origin, i, j, H, W)
+    fallback = n == 0
+    fallback && ((n, sx, sv, censored) = _green_sums(_DIAGONAL_TAPS, lin, sat, defects, colors, origin, i, j, H, W))
+    own = _usable_green(colors, defects, origin, i, j) ? Float32(_green_sample(lin, sat, i, j)[2]) : 0.0f0
     @inbounds begin
         value[i, j] = n > 0 ? T(sx / n) : T(NaN)
-        count[i, j] = UInt8(n)
+        support[i, j] = n == 0 ? 0x00 : UInt8(n) | (fallback ? _SUPPORT_3X3 : 0x00)
         density[i, j] = n > 0 ? Float32(2sv / n) : NaN32
         photosite[i, j] = own
+        saturated[i, j] = censored
     end
 end
 
-# The bilinear green image of `m` on `device`, values in `T`, under the frame's `model`: `(; value, count, density,
-# photosite)` (H × W device arrays, `_bilinear_green!`'s planes).
+# The bilinear green image of `m` on `device`, values in `T`, under the frame's `model`: `(; value, support, density,
+# photosite, saturated)` (H × W device arrays, `_bilinear_green!`'s planes).
 function _bilinear_green(::Type{T}, device, m::RawMosaic, model::SensorModel) where {T}
     md = Adapt.adapt(device, m)                             # Core's device form of a mosaic: its photosites moved, the rest kept
     H, W = size(md)
     value = KA.allocate(device, T, H, W)
     density, photosite = KA.allocate(device, Float32, H, W), KA.allocate(device, Float32, H, W)
-    count = KA.allocate(device, UInt8, H, W)
-    _launch!(_bilinear_green!, device, value, count, density, photosite, linearview(Float64, md; sensor_model = model),
+    support, saturated = KA.allocate(device, UInt8, H, W), KA.allocate(device, Bool, H, W)
+    _launch!(_bilinear_green!, device, value, support, density, photosite, saturated, linearview(Float64, md; sensor_model = model),
              saturationview(md), defect_mask(model, md; backend = device), photosite_colors(md), md.window_origin; ndrange = (H, W))
-    return (; value, count, density, photosite)
+    return (; value, support, density, photosite, saturated)
 end
 
 """
     detect_sfop(m::RawMosaic; sensor_model::SensorModel = SensorModel(), device = default_device(), kwargs...)
 
 SFOP on a RAW mosaic's green photosites at the raw resolution: the scale space of the BILINEAR green image on the raw
-grid (a green photosite its own value, a red or blue one the mean of its usable green 4-neighbours; saturated and the
-sensor model's defect photosites masked, a site with no usable green under the cross left without a value, and every
-window reading it failing the λ₂ test), with SFOP's 2× upsampled first octave and `input_blur` the image's stated blur,
+grid (a green photosite its own value, a red or blue one the mean of its usable green 4-neighbours). A saturated
+photosite is censored: a normal sample at the white level (1) with the noise law's variance there. A defect of the
+sensor model is missing: it drops out, and a pixel with no usable green under its cross (a defective green) is the mean
+of the usable greens of its 3×3 neighbourhood; only a pixel with none in the 3×3 (a defect cluster) has no value, and
+every window reading it fails the λ₂ test. With SFOP's 2× upsampled first octave and `input_blur` the image's stated blur,
 `1/√3` raw pixels (the photosite's box ⊕ the interpolation). Rows as for a matrix, in raw COLMAP pixels (σ in raw
 pixels): the seeds of [`detect_foerstner(m, seeds)`](@ref detect_foerstner).
 
@@ -128,8 +156,9 @@ end
 The seeded Förstner window estimation on a RAW mosaic's bilinear green image on the raw grid (the image of
 [`detect_sfop(m)`](@ref detect_sfop), its seeds; the detector's own 2× doubling, ip_fop.m step 1), in raw COLMAP
 pixels. Under a gain-carrying `sensor_model` the covariance is propagated from the PHOTOSITES: each green photosite `k`
-moves the estimate by `J_k = Σ_q J[:, q] W[q, k]`, `W` the bilinear weights (1 at its own site, `1/n` at each red or
-blue 4-neighbour with `n` usable greens), and `Σ = Σ_k σ_k² J_k J_kᵀ`, `σ_k²` the variance law's; without a gain the
+moves the estimate by `J_k = Σ_q J[:, q] W[q, k]`, `W` the bilinear weights (`1/n` at each pixel whose `n` averaged
+greens include it: its own site, its red and blue 4-neighbours, and a defective green's 3×3 fallback), a censored
+(saturated) photosite with the law's variance at the white level, and `Σ = Σ_k σ_k² J_k J_kᵀ`, `σ_k²` the variance law's; without a gain the
 a-posteriori covariance. The F-test's effective degrees of freedom are those of the residual sums under that photosite
 noise (white over the green photosites, through the interpolation), not white input pixels. A window reading a pixel
 without a value (see `detect_sfop(m)`) is an `:unknown` row. The other keywords and the rows are those of
@@ -139,7 +168,7 @@ detect_foerstner(m::RawMosaic, seeds::AbstractVector{<:Detection}; kw...) = dete
 function detect_foerstner(::Type{T}, m::RawMosaic, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
                           device::KA.Backend = default_device(), kw...) where {T <: AbstractFloat}
     g = _bilinear_green(T, device, m, sensor_model)
-    noise = _BilinearGreenNoise(g.count, g.photosite, g.density, _propagated_status(sensor_model.noise))
+    noise = _BilinearGreenNoise(g.support, g.photosite, g.density, _propagated_status(sensor_model.noise))
     return _detect_seeded(T, g.value, noise, seeds; device, kw...)
 end
 

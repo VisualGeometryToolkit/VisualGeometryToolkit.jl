@@ -771,6 +771,20 @@ end
     Uncertain(T(x), _value_covariance(_variance_eltype(T),
                                       _value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin) +
                                       _storage_variance(T, x)))
+"""
+    value_variance(v::LinearRawView, i::Integer, j::Integer, x::Real) -> Float64
+
+The variance the view's noise law gives a linear value `x` at photosite `(i, j)` (gain 1, the law
+[`linearview`](@ref)'s element there carries at its own value, the store's rounding aside): for a CENSORED photosite —
+saturated, its value clipped at the white level — the variance of that clipped value, `value_variance(v, i, j, 1.0)`,
+never 0 under a law. 0 for a view without a variance law (no noise, or read noise alone: a plain view). Kernel-lawful.
+"""
+@inline value_variance(v::LinearRawView, i::Integer, j::Integer, x::Real) = _law_variance(v.law, i, j, Float64(x), v.span, v.origin)
+@inline _law_variance(::Nothing, i, j, x, span, origin) = 0.0
+@inline function _law_variance(law::_VarianceLaw, i, j, x, span, origin)
+    k = _quad_site(i, j)
+    return _value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin)
+end
 _view_eltype(::Type{T}, ::Nothing) where {T} = T
 _view_eltype(::Type{T}, ::_VarianceLaw) where {T} = Attributed{T, _covariance_eltype(T)}
 

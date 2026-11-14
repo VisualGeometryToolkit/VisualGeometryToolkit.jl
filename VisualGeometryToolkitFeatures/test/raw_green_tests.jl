@@ -58,9 +58,9 @@ function dot_study(m, model, centres; path = :raw, polarity = :none, T = Float64
 end
 end
 
-@testitem "the bilinear green image: a constant field, a ramp, the masked photosites dropped, no value without a usable green" setup = [NoisyMosaic] begin
+@testitem "the bilinear green image: a constant field, a ramp, a saturated green censored, a defect missing (its 3×3 fallback), a defect cluster without a value" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: RawMosaic, SensorModel, sensor_fixture, parse_unit
+    using VisualGeometryToolkitCore: RawMosaic, SensorModel, sensor_fixture, parse_unit, linearview, value_variance
     const VGF = VisualGeometryToolkitFeatures
     mosaic(raw) = RawMosaic(raw, RGGB, (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), size(raw), (; model = "synthetic"))
     green(i, j) = RGGB[mod1(i, 2), mod1(j, 2)] in (0x01, 0x03)
@@ -68,30 +68,38 @@ end
     # a constant green field: a constant image, no ripple (red and blue photosites never read)
     raw = [green(i, j) ? UInt16(30000) : UInt16(rand(100:60000)) for i in 1:H, j in 1:W]
     g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), SensorModel())
-    @test all(==(30000 / 65535), g.value) && count(>(0), g.photosite) == 0 && all(g.count .>= 1)
+    @test all(==(30000 / 65535), g.value) && count(>(0), g.photosite) == 0 && all(g.support .>= 1) && !any(g.saturated)
     # a ramp in the greens' codes: reproduced at every pixel whose four greens lie in the image
     ramp(i, j) = 1000.0 + 7i + 11j
     g = VGF._bilinear_green(Float64, KA.CPU(), mosaic([UInt16(ramp(i, j)) for i in 1:H, j in 1:W]), SensorModel())
     @test all(isapprox(g.value[i, j], ramp(i, j) / 65535; rtol = 1.0e-14) for i in 2:(H - 1), j in 2:(W - 1))
     @test g.value[1, 1] ≈ (ramp(1, 2) + ramp(2, 1)) / 2 / 65535        # a corner red: its two greens, renormalised
-    # masked: a saturated green (8, 7), a defect green (8, 5) — each without a value, its red and blue neighbours the mean
-    # of their other greens; a blue (12, 12) whose four greens are all saturated has none
+    # a saturated green (8, 7): CENSORED, a sample at 1, flagged with every pixel that reads it; a defect green (8, 5):
+    # MISSING, its value the mean of its four diagonal greens; a defect cluster — the green (14, 15) and its four diagonal
+    # greens — leaves (14, 15) alone without a value (its diagonal greens fall back on theirs)
     raw = fill(UInt16(20000), H, W)
     raw[8, 7] = 65535
-    raw[11, 12] = raw[13, 12] = raw[12, 11] = raw[12, 13] = 65535
-    s = parse_unit("s")
-    model = sensor_fixture(; read_noise = (3.0, 3.0, 3.0, 3.0), defects = (x = [5], y = [8], onset = [0.001s], size = (H, W))).model
+    raw[7, 6] = raw[9, 6] = 10000
     raw[8, 5] = 50000                                                  # a defect's value is never read
-    raw[7, 6] = raw[9, 6] = 10000                                      # the red (8, 6)'s other greens
+    s = parse_unit("s")
+    cluster = ((14, 15), (13, 14), (15, 14), (13, 16), (15, 16))
+    defects = (x = [5; [c for (_, c) in cluster]], y = [8; [r for (r, _) in cluster]], onset = fill(0.001s, 6), size = (H, W))
+    model = sensor_fixture(; read_noise = (3.0, 3.0, 3.0, 3.0), defects).model
     g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), model)
-    @test isnan(g.value[8, 7]) && isnan(g.value[8, 5]) && isnan(g.value[12, 12])
-    @test g.count[8, 6] == 2 && g.count[8, 8] == 3 && g.count[8, 7] == 0 && g.count[8, 9] == 1   # (8, 7)'s own green masked, (8, 9)'s not
-    @test g.value[8, 6] ≈ 10000 / 65535                                 # (7, 6) and (9, 6): the two masked greens dropped
-    @test g.value[8, 8] ≈ 20000 / 65535                                 # three usable greens, (8, 7) dropped
-    @test count(isnan, g.value) == 7                                   # the seven: (8, 7), (8, 5), (12, 12) and its four greens
-    # a window of the mosaic (an odd offset: another colour phase): the defect is the visible raw's photosite (8, 5)
+    @test g.value[8, 7] == 1 && g.saturated[8, 7] && g.saturated[8, 6] && g.saturated[8, 8] && !g.saturated[8, 9]
+    @test g.value[8, 6] ≈ (10000 + 10000 + 65535) / 3 / 65535         # (8, 5) dropped, (8, 7) censored at 1
+    @test g.value[8, 5] ≈ (20000 + 10000 + 20000 + 10000) / 4 / 65535 # the 3×3 fallback: (7, 4), (9, 4), (7, 6), (9, 6)
+    @test g.support[8, 5] == (0x04 | VGF._SUPPORT_3X3) && g.support[8, 6] == 0x03 && g.support[8, 9] == 0x01
+    @test isnan(g.value[14, 15]) && g.support[14, 15] == 0 && count(isnan, g.value) == 1
+    @test g.support[13, 14] == (0x03 | VGF._SUPPORT_3X3)               # a cluster's green: three usable diagonal greens
+    # a window of the mosaic (an odd offset: another colour phase): the defects are the visible raw's photosites
     w = VGF._bilinear_green(Float64, KA.CPU(), view(mosaic(raw), 3:H, 2:W), model)
-    @test isnan(w.value[8 - 2, 5 - 1]) && isnan(w.value[8 - 2, 7 - 1]) && count(isnan, w.value) == 7
+    @test isnan(w.value[14 - 2, 15 - 1]) && count(isnan, w.value) == 1 && w.value[8 - 2, 5 - 1] == g.value[8, 5]
+    # under a variance law the censored photosite carries the law's variance at 1 (never 0)
+    pg = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0)).model
+    g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), pg)
+    @test g.photosite[8, 7] ≈ value_variance(linearview(mosaic(raw); sensor_model = pg), 8, 7, 1.0) > 0
+    @test g.photosite[8, 5] > 0 && g.photosite[8, 6] == 0              # no defect here; a blue site carries none
 end
 
 @testitem "the bilinear green image: its variance is Σw²σ²/(Σw)² of the photosites (Monte Carlo)" setup = [NoisyMosaic] begin
@@ -107,7 +115,7 @@ end
     # Var Ī = Σw²σ²/(Σw)² = density/(2n) (the white-equivalent density twice the photosites' mean variance under the
     # cross, n its usable greens), the law's at each draw's value, averaged, against the draws' variance at a green site
     # (σ²) and at a red and a blue one (≈ σ²/4); n draws: the sample variance's relative standard error √(2/n)
-    varĪ(d, i, j) = d.density[i, j] / (2 * d.count[i, j])
+    varĪ(d, i, j) = d.density[i, j] / (2 * VGF._support_count(d.support[i, j]))
     for (i, j) in ((3, 4), (3, 3), (4, 4))
         empirical = var([d.value[i, j] for d in draws])
         @test abs(empirical / mean(varĪ(d, i, j) for d in draws) - 1) < 4 * sqrt(2 / n)
@@ -182,6 +190,36 @@ end
     # finer windows label some; the polarity gate keeps the dots alone
     lit = dot_study(m, model, centres; polarity = :light)
     @test lit.found == n^2 && lit.wrong == 0
+end
+
+@testitem "detect_sfop → detect_foerstner on a RawMosaic: a dot with a saturated core found and localised, a defective green in a dot's window harmless" setup = [NoisyMosaic, BayerDots] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit
+    using Random: Xoshiro
+    using LinearAlgebra: norm
+    n = 8
+    centres = dot_centres(n; seed = 3)
+    model = pg_model(2.5, 3.0)
+    # cores past the white level (80 000 e⁻ at 2.5 e⁻ per code: the codes clip at 16 383): every dot found, :circular,
+    # within a tenth of a pixel (the clipped plateau carries no gradient; the rim localises it)
+    e = dot_scene(30(n + 2), 30(n + 2), centres, 2.5; plateau = 80000.0)
+    m = noisy_mosaic(Xoshiro(5), (i, j) -> e[i, j], size(e)...; electrons_per_dn = 2.5, read_dn = 3.0)
+    @test count(>=(WHITE), parent(m)) > 4n^2                           # the cores saturate
+    s = dot_study(m, model, centres)
+    @test s.found == n^2 && s.rms < 0.1
+    # a defective green photosite within a pixel of each dot's centre (the worst place for one): every dot still found, the
+    # error within a few hundredths of a pixel more (the 3×3 fallback reads the diagonal greens, off the dot's peak:
+    # measured 0.03 → 0.09 px RMS at radius 1.5)
+    e = dot_scene(30(n + 2), 30(n + 2), centres, 1.5)
+    m = noisy_mosaic(Xoshiro(6), (i, j) -> e[i, j], size(e)...; electrons_per_dn = 2.5, read_dn = 3.0)
+    green(r, c) = RGGB[mod1(r, 2), mod1(c, 2)] in (0x01, 0x03)
+    sites = [first(p for p in ((round(Int, y + 0.5), round(Int, x + 0.5)), (round(Int, y + 0.5), round(Int, x + 0.5) + 1)) if green(p...))
+             for (x, y) in centres]
+    sec = parse_unit("s")
+    defective = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0),
+                               defects = (x = last.(sites), y = first.(sites), onset = fill(0.001sec, length(sites)), size = size(e))).model
+    clean, holed = dot_study(m, model, centres), dot_study(m, defective, centres)
+    @test holed.found == clean.found == n^2 && holed.rms < 0.15
 end
 
 @testitem "detect_sfop and detect_foerstner on a RawMosaic: the keywords, the sensor model, the image-wide search refused" setup = [NoisyMosaic, BayerDots] begin

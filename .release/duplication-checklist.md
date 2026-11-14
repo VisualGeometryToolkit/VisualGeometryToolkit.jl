@@ -1,3 +1,17 @@
+# Core 0.10.2 duplication checklist (patch-core0102), 2026-11-14
+
+Core is the stack's root, so it has no upstream. `check_duplication(VisualGeometryToolkitCore)` ran in prep 16196 over the
+whole monorepo tree of 19126b52: every in-repo package (Core, IO, Features, Estimation, Eval, PoseLib). VGTK_STACK_PATHS
+covered the downstream wave repositories (w10-bb, w10-ps, w10-cb, w10-lodr, w10-rsdr). The result was 0 findings.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| the LM damping | a second LM, or a copied NLLSsolver iterator, for λ·I | `LmDamping`: NLLSsolver's own public iterators (`:levenbergmarquardt_dtd`, `:levenbergmarquardt`), chosen by dispatch in `_nlls_iterator` | [x] |
+| the data's resolution in the success rule | a second notion beside `StaticLmStops`' | `residual_resolution`: the same name, the same meaning (the residual norm the data resolve, read only by the exact-fit test) on `LmStops` and `StaticLmStops` | [x] |
+| the exact-fit threshold | `LmStops.ftol` read as an absolute cost | `_exact_fit_threshold` in `_lm_run!`, the one place the chart, robust and multi-block postconditions get it | [x] |
+
+---
+
 # Core 0.10.1 duplication checklist (patch-core0101), 2026-11-14
 
 Core is the stack's root, so it has no upstream. `check_duplication(VisualGeometryToolkitCore)` ran in prep 15737 over the whole

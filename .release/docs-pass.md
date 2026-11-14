@@ -1,3 +1,45 @@
+docs-pass: 19126b52
+
+# VisualGeometryToolkitCore 0.10.2 docs pass (julia-docs-pass) — branch patch-core0102
+
+Baseline: the Core 0.10.1 release b8cc82b6. GitHub main is still b8cc82b6, so no merge was needed and the gate ran on
+the tree that is pushed. The release is additive (owner ruling, option (1), and the coordinator's ruling (A)).
+
+## 1. Public API since 0.10.1
+
+- **New names (public, not exported):** `LmDamping`, `MarquardtDamping`, `LevenbergDamping`; the `ModelReason` value
+  `DarkOutOfBand`.
+- **New keywords:**
+  - `LmStops(; damping = MarquardtDamping(), residual_resolution = 0)`; `LmStops` gains the type parameter
+    `{D <: LmDamping}` and the fields `damping` and `residual_resolution`;
+  - `LmProblem(variables, blocks; fixed, damping = MarquardtDamping())`.
+- **Changed behaviour (Fixed):** the success rule's exact-fit test is `F < max(m·ε·F₀, residual_resolution²)`, no
+  longer `F < ftol`; `sensor_model` reports `DarkOutOfBand` where it reported `Matched`.
+- **Removed:** nothing. **Exports:** unchanged.
+
+## 2. Static findings
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `test_docs` green (CPU group 9: the docs item) |
+| `checkdocs = :public`, cross-references | docs build green (16199). api/robust_statistics.html measured 206 KiB, over the 200 KiB limit (16140), so the chart rows and the LM core moved to a new page, api/lm_core.md "Chart LM" |
+| check_naming | 0 on every package of the tree and on ci/ (dev 16132; prep 16196 for Core). ci/slurm/test_summarize.sh:3 had a pre-existing R7 word, now reworded |
+| CHANGELOG | Core `## 0.10.2`: Fixed (the exact-fit test, measured on RC 0.9's suite); Added (`DarkOutOfBand`, the damping strategy, `residual_resolution`, the damping measurements and the rejected Moré scaling) |
+| version | VisualGeometryToolkitCore 0.10.2 |
+
+## 3. Executed on 19126b52
+
+The gate ran Julia 1.13.3 on a fresh clone, at nice 0, with the wave stack paths. It finished 24/24 rc 0:
+
+| job | result |
+|---|---|
+| prep 16196 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0 |
+| CPU 16197 | groups 1–16 green: 413,609 pass, 32 broken, 413,641 total |
+| GPU 16198 | groups 17–22 green: 54,372 pass, 54,372 total |
+| docs 16199 | green |
+
+---
+
 docs-pass: 78fa6599
 
 # VisualGeometryToolkitCore 0.10.1 docs pass (julia-docs-pass) — branch patch-core0101

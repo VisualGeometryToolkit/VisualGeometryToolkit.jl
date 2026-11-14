@@ -10,6 +10,12 @@ A patch, additive: the noise law's variance at a given value.
   its value clipped at the white level) carries the variance of the clipped value, never 0 under a law; 0 for a view
   without one. Kernel-lawful. VisualGeometryToolkitFeatures 0.9.6's bilinear green image on a RAW mosaic reads it.
 
+### Docs
+- **`Triggs` docstring** brought to VisualGeometryToolkitEstimation 0.11.3's behaviour: `Triggs{GaussianShape}` as a
+  RANSAC's local optimization refits the scorer's consensus set at the hypothesis (not every datum); a datum whose
+  residual at the hypothesis is not finite weighs 0 under every shape; the weights are fixed at the hypothesis for the
+  one LM.
+
 ## 0.10.6
 
 A patch: the mixture kernel's non-finite rule. A datum whose squared residual is Inf or NaN gets inlier posterior 0 and

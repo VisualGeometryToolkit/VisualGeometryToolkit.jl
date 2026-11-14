@@ -766,8 +766,8 @@ _dark_scale(d::Dark) = 1 + 1 / d.frames
 end
 # An element of the lazy view (D14) of element type T: the value alone without a law, else the value with its scalar
 # variance; each computed in Float64 and rounded once, to T and to the variance plane's `_variance_eltype(T)`.
-@inline _with_variance(::Type{T}, ::Nothing, x, k, span, i, j, origin) where {T} = T(x)
-@inline _with_variance(::Type{T}, law::_VarianceLaw, x, k, span, i, j, origin) where {T} =
+@inline _with_variance(::Type{T}, ::Nothing, x, span, i, j, origin) where {T} = T(x)
+@inline _with_variance(::Type{T}, law::_VarianceLaw, x, span, i, j, origin) where {T} =
     Uncertain(T(x), _value_covariance(_variance_eltype(T), _law_variance(law, i, j, x, span, origin) + _storage_variance(T, x)))
 """
     value_variance(v::LinearRawView, i::Integer, j::Integer, x::Real) -> Float64

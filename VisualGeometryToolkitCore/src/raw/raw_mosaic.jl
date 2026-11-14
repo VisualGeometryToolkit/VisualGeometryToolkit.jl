@@ -458,7 +458,7 @@ Base.parent(v::LinearRawView) = v.raw
 Base.IndexStyle(::Type{<:LinearRawView}) = IndexCartesian()
 Base.@propagate_inbounds function Base.getindex(v::LinearRawView, i::Int, j::Int)
     k = _quad_site(i, j)
-    return _with_variance(_value_eltype(v), v.law, _photosite_value(v, i, j, k), k, v.span, i, j, v.origin)
+    return _with_variance(_value_eltype(v), v.law, _photosite_value(v, i, j, k), v.span, i, j, v.origin)
 end
 # THE Float64 value of photosite (i, j) (cell site k) of a view: its code less its black (the dark map's offset, else the
 # channel's), over its span. getindex and linear_quantum read it.

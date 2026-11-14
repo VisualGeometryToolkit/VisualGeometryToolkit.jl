@@ -39,3 +39,9 @@ device_max_iter = 100
 # stationarity rule alone, unless the problem itself bounds its residual (a root-finding solve: a projection, a
 # lens inverse, a ray hit) and gives its own bound.
 device_acceptance = inf
+
+# The photon-transfer estimators' default family-wise significance (src/raw/sensor_estimators.jl: `photon_transfer`'s
+# `significance`): one frame's μ² test level; the series' range searches' Bonferroni family (each test at
+# significance / m). 0.001: a correct estimator is refused, or a range cut short, once in a thousand data sets.
+[photon_transfer]
+significance = 0.001

@@ -1,5 +1,54 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.4
+
+A patch, additive: photon_transfer against a `Darks` by band, σ_r's standard error from the darks, convergence reported.
+
+### Added
+- **`photon_transfer(groups, darks::Darks; defects, block, normalize, significance)`**: the series against Core
+  0.10.3's black component. Each group's exposure is matched to the Dark whose BAND serves it (`_serves`, as
+  `sensor_model` resolves a frame), so an exposure of any number type is served: groups keyed `(10 // 1000)s`
+  (what `10 * ms` builds, a Rational) and darks taken at 0.01 s (Float64). The `Dict` method refuses that case,
+  because it matches exact keys. Each group is linearised with its own Dark: that Dark's offset map and channel black.
+  The `Dict` method linearises every exposure with one `sensor_model` black. Each group's intercept is its Dark's mean
+  green variance over the photosites `defects` leaves, and `defects` is cut to each group's exposure (a site is masked
+  from its onset). σ_r's standard error is `√(2/((n − 1)N))·σ₀²` by first order from the Dark's frame and photosite
+  counts (master_dark's rule). The used Darks' offset maps, and the groups' defect masks, are uploaded once each into
+  one stack buffer. An exposure no band serves is an `ArgumentError`: neither the shared black nor another band's
+  Dark is substituted. Maps that do not cover the frames are a `DimensionMismatch`.
+- **`[photon_transfer] significance = 0.001`** in `configs/default.toml`: the default of every method's
+  `significance`, read with `toml_default` like the LM's settings.
+
+### Fixed
+- **σ_r's standard error is carried from the darks** (both series methods). It was stated as `0` always. The `Dict`
+  method now gives the ReadNoise's standard error when it states one, by first order: 2σ·se per green channel, the
+  two greens independent. It still gives `0` when the ReadNoise states none. The value is the standard error at the
+  fitted points' median exposure, or the mean of the two middle points' when the median falls between two exposures.
+- **The weighted line reports whether it converged.** `_ptc_line` iterates the points' weights to a fixed point (at
+  most 100 reweightings). It returned its last coefficients silently at the cap, and the series result always read
+  `Success`/`ClosedForm` with 0 iterations. The series' `FitResult` now carries the line's outcome:
+  `Success`/`IncrementSize` with its reweightings when the weights converged, `MaxIters`/`IterationCap` when they did
+  not. The single-frame method throws `NoiseEstimateFailed` when its line did not converge.
+- **One frame that gives fewer than 4 points is refused.** The single-frame `photon_transfer(mosaic)` skipped the μ²
+  test below 4 points and returned an untested K. It now throws `NoiseEstimateFailed`, which says why: the test needs
+  the slope, the intercept, the μ² term and one degree of freedom. `NoiseEstimateFailed` is the type the estimator's
+  callers catch.
+
+### Changed
+- **The series' stop rule is `IncrementSize`, no longer `ClosedForm`**, and `iterations` counts the line's
+  reweightings: the estimate iterates its weights, so it is not a closed form (its outcome reads `:converged`, not
+  `:solved`). The estimates are unchanged.
+- **The `Dict` method `photon_transfer(groups, darks::AbstractDict{<:Quantity, <:ReadNoise})` is kept, and is removed
+  in wave 11**: use the `Darks` method.
+- Internal cleanups in `src/raw/sensor_estimators.jl`, none of which changes a number:
+  - `_ptc_rms` and `_birge_ratio` are one function (the rms is the ratio at 0 parameters);
+  - the greens' colour indices are computed once (`_green_sites`);
+  - `master_dark` and the series share one frame stacking (`_frame_stack`, `_stack_frames!`) and one per-photosite
+    temporal-moments helper (`_temporal_moments`); the series reuses one stack buffer group by group, and the
+    `Dict` method uploads its model's offset map and mask once rather than once per group;
+  - "blocks per point" is the named constant `_PTC_BLOCKS_PER_POINT`;
+  - the too-few-blocks refusal counts "samples", not "cells".
+
 ## 0.10.3
 
 A patch, additive: darks at several exposures in one characterisation entry, the defect mask and a linear view's

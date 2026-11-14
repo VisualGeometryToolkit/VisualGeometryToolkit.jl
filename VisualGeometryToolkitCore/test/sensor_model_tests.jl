@@ -649,7 +649,7 @@ end
         # Then K moves by at most Y counts-standard-errors, its SE (√C/β² · max(R, 1)) relatively by 3|ΔK|/K plus R's
         # change ΔR ≤ Y/√(n − 1), and the μ² statistic t by at most Y. The discrete range (the searches' decisions,
         # |t| against its z) and the point counts can move only if a decision lies within Y of its threshold: they
-        # are compared EXACTLY, so a flip at a boundary fails the test rather than passing under a tolerance.
+        # are compared EXACTLY, so a flip at a boundary fails the test; no tolerance hides it.
         Gd = Distributions.Gamma(128, 1 / 128)                 # the block law of this fixture: p(N − 1) = 128·2 dof
         qd = Distributions.median(Gd); relc = 1 / (4 * Distributions.pdf(Gd, qd)^2 * qd^2)
         for normalize in (false, true)

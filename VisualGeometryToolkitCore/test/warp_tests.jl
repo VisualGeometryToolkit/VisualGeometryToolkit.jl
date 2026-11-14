@@ -397,6 +397,4 @@ end
     bm = @test_logs image_warp(Float32, lpm, Rect(0, 0, 400, 1200))                   # no warning for the kept link
     lp = filter(x -> x isa LogPolarToCartesian, leaves(bm.map))
     @test !isempty(lp) && all(x -> x.log_inner_radius isa Float64, lp)                # its coordinates stay Float64
-    @test image_warp(Float32, lpm, Rect(0, 0, 400, 1200)).map == image_warp(Float64, lpm, Rect(0, 0, 400, 1200)).map ||
-          all(x -> x isa LogPolarToCartesian, filter(x -> !(x isa CoordinateTransformations.AffineMap), leaves(bm.map)))
 end

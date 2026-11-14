@@ -1,5 +1,47 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.2 (unreleased)
+
+A patch, additive (owner rulings 2026-11-14: the lens coverage is the rim's outer edge; no rim margin).
+
+- **`detect_image_circle` measures the lens COVERAGE, where its light ends**, on the rim itself. The method:
+  - the frames' per-pixel maximum is resampled on a log-polar grid about the image centre (or a caller's `initial`
+    model), using VisualGeometryToolkitCore's `logpolar_map` / `image_warp!` at ≤ 1 px in radius and in arc;
+  - every (angle bin, radius) is reduced to its median by one KernelAbstractions kernel, on `device` (default
+    `default_device()`); off-frame and saturated bins are skipped;
+  - every edge of each angle's outer envelope (the brightest the profile gets at or beyond each radius: where the light
+    ends it does not come back) is a candidate: a run of drops significant against the angle's own noise at the
+    family-wise level `significance`, at its steepest log drop per pixel (the log floored at the angle's darkest level),
+    refined to the sub-sample peak; a rim that falls in two steps gives both (owner ruling);
+  - the RANSAC ellipse (or circle) is fitted on one candidate per angle, the same scorer as before: each angle's
+    outermost edge (where its light ends), then each angle's edge nearest that model (stray light, or a step off the model,
+    gives way), fitted again: the coverage.
+
+  What changes:
+  - No MSER and no hull. On a soft rim (an APS-C lens on the full frame, a ~230 px ramp) the hull fit landed mid-ramp;
+    the coverage is at the ramp's foot.
+  - The return type is unchanged: `circle`, `fit` (now on the candidates), `contour` (each angle's chosen edge, the
+    rim's points), `cut` and `rim_gap`.
+  - Added to the result: `covariance` (the coverage's, in Core's `ambient_coordinates` of the measured plane:
+    s²·`solver_covariance` on the inliers; `nothing` for a `Circle`, whose problem provides none), `center_scale`,
+    `axes_scale` (the standard deviations, in the result's pixels) and `rim::RimProfile` (the profiles, the candidates,
+    the per-angle edges and the noise statistics).
+  - New keywords: `initial`, `rim_band = (0.8, 0.0)`, `rim_angles = :auto` (the binning whose coverage is the most
+    precise, chosen per image), `significance = 0.01` (the edge test's family-wise level per angle) and `device`.
+  - The noise statistics follow the frames' TYPE: `Uncertain` RAW cells (a sensor model with a variance law) give the
+    model's per-bin noise (`SensorModelNoise`, with a model-vs-data check); plain images give the data's
+    (`EmpiricalNoise`).
+  - New public names: `RimProfile`, `SensorModelNoise`, `EmpiricalNoise`.
+- **Deprecated, inert:**
+  - `detect_image_circle`'s `min_hole_area` (no longer required), `smoothing_weight` and `border_margin` are hull-fit
+    keywords. They are accepted with a deprecation warning and ignored, and are REMOVED in 0.10.0 (wave 11: listed in
+    the monorepo's `.release/wave11-removals.md`).
+  - Every other keyword is live.
+- **Removed (internal):**
+  - the `VisualGeometryToolkitFeaturesImageSmoothExt` extension and its `ImageSmooth` weak dependency (the L0 smoothing
+    fed the MSER path);
+  - the `DelaunayTriangulation` dependency (the hull).
+
 ## 0.9.1 (unreleased)
 
 A patch, additive, on VisualGeometryToolkitCore 0.10.

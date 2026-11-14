@@ -159,34 +159,53 @@ detection; on the CPU it adds about 16 %.
 
 ## The image circle of a lens
 
-[`detect_image_circle`](@ref) measures where light falls on the sensor, the lit
-region a lens's field stop leaves on a dark surround, from photographs of one
-camera, lens and focus. No lens model predicts it. Each frame lights a different
-part of the rim, and their per-pixel maximum is the union of their light. Its
-dark maximally stable regions ([`detect_mser`](@ref), every region up to the
-whole image, duplicates kept) carry the rim as the boundary of the surround.
-The convex hull of every region's boundary, without the frame's border, small
-holes and vertices within `border_margin` of the border, is the rim's contour.
-The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit through
-that contour, scored by the Student-t + uniform marginal at the caller's
-`outlier_halfwidth`.
+[`detect_image_circle`](@ref) measures the lens COVERAGE: where the light that
+a lens's field stop (or its own image circle) lets through ends on the sensor.
+It works from photographs of one camera, lens and focus. No lens model predicts
+it.
 
-The detection is this package's. The fit is VisualGeometryToolkitEstimation's
-`find_ellipse` / `find_circle`, reached through a package extension, so load
-that package first. The optional L0 smoothing (`smoothing_weight > 0`) is
-ImageSmooth's, also an extension:
+Each frame lights a different part of the rim, and a scene's own edges move
+between frames, so the method works on their per-pixel maximum: the union of
+their light.
+
+1. The maximum is resampled on a log-polar grid about the image centre (or an
+   `initial` model of yours) by VisualGeometryToolkitCore's warp, at most 1 px
+   apart in radius and in arc.
+2. Each (angle bin, radius) is reduced to its median.
+3. In each angle bin, every edge of the profile's outer envelope (the
+   brightest it gets at or beyond each radius) is a rim candidate: a run of
+   drops significant against the angle's noise, placed at its steepest drop in
+   LOG brightness. Where the light ends it does not come back; a scene edge
+   inside the disc is followed by light again. A log drop is a ratio, so it
+   does not depend on the exposure.
+4. The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit on one
+   candidate per angle, scored by the Student-t + uniform marginal at the
+   caller's `outlier_halfwidth`: first each angle's outermost edge, then each
+   angle's edge nearest that model, fitted again. The scene's own edges are
+   candidates too, and they lose the vote.
+
+On a sharp stop the coverage is within a pixel of the stop. On a soft rim (an
+APS-C lens on a full-frame sensor: a ramp of a couple of hundred pixels) it is
+at the ramp's foot.
+
+The detection is this package's, and the warp and the bin medians run on
+`device`. The fit and its covariance are VisualGeometryToolkitEstimation's,
+reached through a package extension, so load that package first:
 
 ```julia
 using VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation
 using Random: Xoshiro
 
-res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 1000, min_hole_area = 256)
-res === nothing || (res.circle, res.rim_gap < π)   # the circle; whether the rim was seen all round
+res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 1000)
+res === nothing || (res.circle, res.axes_scale, res.rim_gap < π)   # the coverage, its σ, the rim seen all round
 ```
 
-A RAW frame (a `LinearRaw` or a `RawMosaic`) is measured on its green cells,
-the geometry image, with the keywords in green-cell pixels. Only the result is
-mapped: the circle and the contour come back in the raw's pixels through the
-cells' `raw_frame_map`. The circle is about 1 px outside the true rim, because the hull follows
-the dark side of the rim's partial-coverage band. Treat it as a mask that errs
-toward including the rim's last pixels.
+A RAW frame (a `LinearRaw` or a `RawMosaic`) is measured on its green cells, the
+geometry image, with the keywords in green-cell pixels. Only the result is
+mapped: the coverage, the contour and the standard deviations come back in the
+raw's pixels through the cells' `raw_frame_map`.
+
+Cells read under a sensor model with a variance law are `Uncertain`, and the
+rim's noise is then the model's. The result's `rim` ([`RimProfile`](@ref))
+records which noise was used, along with the profiles, the candidates and each
+angle's edge.

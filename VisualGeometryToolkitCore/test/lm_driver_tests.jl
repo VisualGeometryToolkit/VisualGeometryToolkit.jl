@@ -440,10 +440,12 @@ end
     @test sl.cost ≈ 0.04458855362594855 rtol = 1.0e-10
     ql = LmProblem([SVector(-1.2, 1.0)], [_DampRosen()]; damping = LevenbergDamping())
     sql = lmsolve_chart!(ql, LmStops(; damping = LevenbergDamping()))
-    @test sql.code === ReturnCode.Success && ql.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
+    @test sql.code === ReturnCode.Success
+    @test ql.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
     # a problem built for one damping solved with the other: correct (its cache rebuilt)
     pm = line(LevenbergDamping())
-    @test lmsolve_chart!(pm).code === ReturnCode.Success && pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
+    @test lmsolve_chart!(pm).code === ReturnCode.Success
+    @test pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
     @test_throws MethodError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
 end
 

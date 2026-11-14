@@ -181,14 +181,16 @@ end
     @test abs(2mean(Ωc)^2 / var(Ωc) - dof.corner.ν) < 4 * dof.corner.ν * sqrt(2 / (n - 1))
     @test dof.corner.ν < (2 * 22 + 1)^2 / 10                    # far below the pixel count (2ρ + 1)² − 2 = 2023
     # the image-wide default window (ρ = 6, ν ≈ 12; seeds at σ = 1.3 give it), where the neglected two parameters weigh
-    # most: the corner sum's ν within 4 standard errors, and at most the stated rate of noise windows labelled
+    # most: the corner sum's ν within 4 standard errors (Ω ~ χ²_ν: a sample variance's relative SE is √((2 + 12/ν)/(m − 1))),
+    # and at most the stated rate of noise windows labelled; the windows' input supports (ρ, the taps and the doubling: < ±8 px) disjoint at 16 px
     p = 2 * (1 - level)                                         # the labelled rate on noise, both sides
-    small = [Detection(Disc(Point2(x, y), 1.3), (; precision = 1.0)) for x in 20.0:10:580 for y in 20.0:10:580]
+    small = [Detection(Disc(Point2(x, y), 1.3), (; precision = 1.0)) for x in 20.0:16:580 for y in 20.0:16:580]
+    m = length(small)
     f6 = VGF._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
     ν6 = VGF._residual_dof(f6.taps, 6).corner.ν
     Ω6 = f6.estimates[7, :]
-    @test all(==(6), f6.ρ) && 11 < ν6 < 13 && abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt(2 / (length(small) - 1))
-    m = length(small)
+    @test length(f6.centres) == m && all(==(6), f6.ρ) && 11 < ν6 < 13
+    @test abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt((2 + 12 / ν6) / (m - 1))
     @test count(!=(0), VGF._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
     # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
     # at the pixel count it was about a fifth per side

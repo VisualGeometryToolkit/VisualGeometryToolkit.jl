@@ -1268,10 +1268,11 @@ function fit_camera(
     _check_tolerance(tolerance)
     VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
     # a source that bounds no central CameraModel is refused before any fit (`_spline_backward`'s fallback)
-    model(source) isa CameraModel || _spline_backward(model(source), source, region, grid_size, tolerance, device)
+    m = model(source)
+    m isa CameraModel || return _spline_backward(m, source, region, grid_size, tolerance, device)
     # the source on its optical axis first (a gauge K; a physical K is its own axis), then the backward in that frame:
     # kept, or the lattice of `grid_size` fitted to the turned source's rays
-    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(model(source))), model(source), source, device)
+    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(m)), m, source, device)
     back, code, family = _spline_backward(gauge.camera, VgtkCore.with_model(source, gauge.camera), region, grid_size, tolerance, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the axis's on a tie (as before 0.11.6)
     cam = back.camera

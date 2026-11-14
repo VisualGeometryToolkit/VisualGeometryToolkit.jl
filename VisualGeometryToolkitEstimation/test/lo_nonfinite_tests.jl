@@ -89,3 +89,62 @@ end
     @test inlier_weight(rws)[3] === 0.0
 end
 end
+
+@testitem "lo_nonfinite: Triggs" begin
+# =============================================================================
+# The same two rules for the robustified chart LM, Triggs{K} (0.11.3)
+# =============================================================================
+#
+# WHY THIS ITEM EXISTS: `Triggs{GaussianShape}` ran one chart LM over EVERY datum
+# at unit weight — least squares on the outliers, and an out-of-reach point's
+# row (its residual beyond the storage range) made the LM's cost infinite at its
+# start, so the local optimization handed back its seed. The rules, as 0.11.2's
+# `Irls{K}`: a datum whose seed residual is not finite weighs 0 under every
+# shape; under the Gaussian shape the LM weighs only the scorer's consensus set.
+# =============================================================================
+
+using Test
+using LinearAlgebra
+using StaticArrays
+using StableRNGs
+using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation
+using VisualGeometryToolkitCore: Point2, Circle, Triggs, GaussianShape, CauchyShape, MsacScoring, estimate
+using VisualGeometryToolkitEstimation: CircleProblem, locally_optimize
+
+# The circle (100, 80), radius 50: 60 inliers (σ = 0.1); `outliers`: 8 points 3 px
+# outside it on one arc (out of the scorer's 1 px threshold); `out_of_reach`: 3
+# points whose residual overflows the Float32 residual storage (Inf).
+function circle_points(rng; outliers::Bool, out_of_reach::Bool)
+    pts = [Point2{Float64}(100 + 50cos(t) + 0.1randn(rng), 80 + 50sin(t) + 0.1randn(rng)) for t in range(0, 2π, length = 61)[1:60]]
+    outliers && append!(pts, [Point2{Float64}(100 + 53cos(t), 80 + 53sin(t)) for t in range(0.0, 0.7, length = 8)])
+    out_of_reach && append!(pts, [Point2{Float64}(s * 1.0e200, 1.0e200) for s in (1.0, -1.0, 2.0)])
+    return pts
+end
+const SEED = Circle(Point2(100.2, 79.9), 50.15)
+circle_error(c) = max(norm(SVector(c.center...) - SVector(100.0, 80.0)), abs(c.r - 50))
+fit(pts, lo) = (p = CircleProblem(pts); estimate(locally_optimize(p, SEED; local_optimization_strategy = lo, scoring = MsacScoring(p; threshold = 1.0))))
+
+@testset "Gaussian Triggs" begin
+    @testset "improves its seed beside out-of-reach points" begin
+        c = fit(circle_points(StableRNG(81); outliers = true, out_of_reach = true), Triggs{GaussianShape}())
+        @test c != SEED
+        @test circle_error(c) < 0.05
+    end
+    @testset "fits the consensus set, not the outliers" begin
+        # least squares over every point sits ~0.3 px off
+        c = fit(circle_points(StableRNG(82); outliers = true, out_of_reach = false), Triggs{GaussianShape}())
+        @test circle_error(c) < 0.05
+    end
+end
+
+@testset "a robust shape: only the non-finite rule" begin
+    lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
+    with = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = true), lo)
+    without = fit(circle_points(StableRNG(83); outliers = true, out_of_reach = false), lo)
+    inliers_only = fit(circle_points(StableRNG(83); outliers = false, out_of_reach = false), lo)
+    # the out-of-reach rows weigh 0: the fit is the one without them
+    @test isapprox(SVector(with.center..., with.r), SVector(without.center..., without.r); rtol = 1.0e-9)
+    # the finite outliers still pull (Cauchy's influence never vanishes): no consensus restriction
+    @test norm(SVector(without.center..., without.r) - SVector(inliers_only.center..., inliers_only.r)) > 1.0e-4
+end
+end

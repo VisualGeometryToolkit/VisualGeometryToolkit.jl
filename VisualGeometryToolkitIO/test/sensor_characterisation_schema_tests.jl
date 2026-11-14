@@ -136,7 +136,6 @@ end
 @testitem "sensor_characterisation: Darks — a raster pair per band, the round trip, a stable digest; v1.0 still loads" setup = [VGIoFixtures, SensorFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Darks, Dark, content_digest, sensor_model
-    using VisualGeometryToolkitCore: CaptureSettings, ExposureSettings, LensSettings, mm
     using VisualGeometryToolkitIO: validate
     import VisualGeometryToolkitIO as VgtkIO
     bands = [(1 // 8000 * SEC, 1 // 8000 * SEC), (1 // 500 * SEC, 1 // 500 * SEC), (0.8 * SEC, 0.8 * SEC)]
@@ -154,12 +153,9 @@ end
         @test [x["offset"]["file"] for x in bk["darks"]] == ["darks.iso100.band$(k).dark_offset.tiff" for k in 1:3]
         @test VgtkIO.read_tiff(Float32, joinpath(dir, "darks.iso100.band2.dark_variance.tiff")) == darks[2].variance
         # a stable identity: every frame's resolved model is the original's, digest and all, and a second save is the same file
-        frame(t) = (; exposure = ExposureSettings(t, 8, 100), lens_settings = LensSettings(14mm))
-        cap = CaptureSettings(Dict(k => frame(t) for (k, t) in enumerate([first.(bands); 0.01 * SEC])); body = BODY)
-        for k in 1:4
-            @test content_digest(sensor_model(b, cap, k)) == content_digest(sensor_model(c, cap, k))
-        end
-        @test sensor_model(b, cap, 2).black isa Dark && sensor_model(b, cap, 4).reason === VgtkCore.DarkOutOfBand
+        caps = [VgtkCore.sensor_fixture(; body = BODY, exposure = t).capture for t in [first.(bands); 0.01 * SEC]]   # one frame each
+        @test all(content_digest(sensor_model(b, cap, 1)) == content_digest(sensor_model(c, cap, 1)) for cap in caps)
+        @test sensor_model(b, caps[2], 1).black isa Dark && sensor_model(b, caps[4], 1).reason === VgtkCore.DarkOutOfBand
         p2 = joinpath(dir, "again.json"); save(p2, b)
         @test replace(read(p2, String), "again." => "darks.") == read(p, String)
         # the bands overlapping: refused on read

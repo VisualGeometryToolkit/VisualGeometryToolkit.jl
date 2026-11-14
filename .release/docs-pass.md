@@ -1,3 +1,25 @@
+docs-pass: 343a062d
+
+# VisualGeometryToolkitIO 0.10.1 docs pass (julia-docs-pass) — branch patch-io0101
+
+Baseline: the registered IO 0.10.0 (b808396e, tree a66dc7e2). A patch: no public name added, removed or re-signatured; no
+schema or version of any kind changes. 343a062d is patch-io0101 merged with GitHub main b8cc82b6 (Core 0.10.1 on Features
+0.9.1), so the gate runs on the tree that is pushed.
+
+- API diff since 0.10.0: none. Internal only: the writer's last-resort policies (`_PersistedLastResort`,
+  `_NearestLastResort`) and IO 0.10.0's millimetre leaf form for the 0.9 identity reproductions (`_LEGACY_MM`).
+- Docstrings: `write_length` states what is written when no file number reads back to the length (a number with its
+  identity, its persisted form); lengths.jl's header the same.
+- Guides: docs/src/guide/conventions.md ("Lengths cross the file boundary"), kinds.md (`vgio_migrate`'s comparison) and
+  content-identity.md (normalisation) state that a full-precision length's file has the length's identity (IO 0.10.1).
+- README and landing page: unchanged (nothing they show moved). The Core conventions text (VisualGeometryToolkitCore
+  conventions/units.md, "at most 2 ulp on its first rewrite") is Core's: its sentence still holds for every value a file
+  number reads back to; the last-resort case is IO's and documented here (no Core change in an IO patch).
+- CHANGELOG: 0.10.1 (Fixed; the tests added and the three restated, each by name); 0.10.0 dated.
+- Docs build, docs item, quality and naming: run by the gate on the merged sha.
+
+---
+
 docs-pass: 78fa6599
 
 # VisualGeometryToolkitCore 0.10.1 docs pass (julia-docs-pass) — branch patch-core0101

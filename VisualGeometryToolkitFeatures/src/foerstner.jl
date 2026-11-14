@@ -195,8 +195,7 @@ Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
 window, F; the F-test of each window at its own redundancy), one per seed whose
 window lies inside the doubled image, in the order of `seeds`.
 """
-detect_foerstner(img::Union{AbstractMatrix, LinearRaw}, seeds::AbstractVector{<:Detection}; kw...) =
-    detect_foerstner(Float32, img, seeds; kw...)
+detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:Detection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
 
 detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detection}; noise::Union{Nothing, Real} = nothing,
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); seeds, kw...)

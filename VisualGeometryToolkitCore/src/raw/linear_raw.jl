@@ -255,7 +255,7 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, model::SensorMo
     raw = parent(m)
     backend = KA.get_backend(raw)
     black, span, dark = _model_levels(m, model, backend)              # THE resolution of the levels (sensor_model.jl)
-    defects = _defect_mask(model.defects, m, backend)
+    defects = defect_mask(model.defects, m; backend)
     law = _variance_law(model.noise, model.black, m, backend)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)

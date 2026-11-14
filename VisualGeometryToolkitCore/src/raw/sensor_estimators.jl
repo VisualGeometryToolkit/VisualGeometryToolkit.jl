@@ -319,7 +319,7 @@ function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel()
     g = _green_sites(m, block, "photon_transfer")
     black = _green_black(g, _channel_black(sensor_model.black, m))
     n, sm, sd, sd2 = _block_moments(_GreenPair(raw, g.s1, g.s2), m, _offset_map(sensor_model.black, m, backend),
-                                    _defect_mask(sensor_model.defects, m, backend), black, g, block)
+                                    defect_mask(sensor_model.defects, m; backend), black, g, block)
     full, keep = _whole_blocks(n)
     μ = [sm[k] / full for k in keep]
     v = [(sd2[k] - sd[k]^2 / full) / (full - 1) / 2 for k in keep]   # the difference's sample variance, halved
@@ -378,7 +378,7 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     used = unique(which)
     offsets = on_device(Float32, backend, _host_stack(Float32, sz, (darks.darks[k].offset for k in used)))
     cut = [_frame_defects(defects, t) for t in times]
-    host_masks = [Array(something(_defect_mask(d, m, KA.CPU()), falses(0, 0))) for d in cut]
+    host_masks = [Array(something(defect_mask(d, m; backend = KA.CPU()), falses(0, 0))) for d in cut]
     masked = findall(!isempty, host_masks)
     masks = isempty(masked) ? nothing :
             on_device(Bool, backend, _host_stack(Bool, size(host_masks[first(masked)]), (host_masks[i] for i in masked)))
@@ -402,7 +402,7 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     # ONE model for every group: its black, offset map and mask uploaded once
     black = _green_black(g, _channel_black(sensor_model.black, m))
     dark = _offset_map(sensor_model.black, m, backend)
-    mask = _defect_mask(sensor_model.defects, m, backend)
+    mask = defect_mask(sensor_model.defects, m; backend)
     # σ₀²(t) of each group: the greens' read noise² of the darks at that exposure, never another exposure's
     dark_at = Dict(ustrip(_SECOND, t) => rn for (t, rn) in darks)
     levels = map(exposures) do t

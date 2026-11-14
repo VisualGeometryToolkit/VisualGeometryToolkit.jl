@@ -695,8 +695,9 @@ _model_levels(m::RawMosaic, model::SensorModel, backend) =
     i = @index(Global)
     @inbounds mask[y[i], x[i]] = true
 end
-_defect_mask(::NoDefects, m, backend) = nothing
-function _defect_mask(d::DefectList, m::RawMosaic, backend)
+# (the public `defect_mask`, documented below, is this one method pair: LinearRaw and the estimators call it too)
+defect_mask(::NoDefects, m::RawMosaic; backend = KA.get_backend(parent(m))) = nothing
+function defect_mask(d::DefectList, m::RawMosaic; backend = KA.get_backend(parent(m)))
     mask = KA.zeros(backend, Bool, d.size...)
     isempty(d.x) || OnBackend(backend)(_defect_scatter_kernel!)(mask, on_device(Int, backend, d.x), on_device(Int, backend, d.y);
                                                                 ndrange = length(d.x))
@@ -718,7 +719,6 @@ mosaic's window: a window's photosite `(i, j)` is `mask[i + o[1], j + o[2]]`,
 is a `DimensionMismatch`.
 """
 defect_mask(model::SensorModel, mosaic::RawMosaic; kw...) = defect_mask(model.defects, mosaic; kw...)
-defect_mask(defects::DefectComponent, mosaic::RawMosaic; backend = KA.get_backend(parent(mosaic))) = _defect_mask(defects, mosaic, backend)
 
 # A pixel value's variance law under the noise slot, as the kernel reads it per cell site k (D11): a value x of a plane
 # of m photosites (spans d_k), times the gain g, has variance

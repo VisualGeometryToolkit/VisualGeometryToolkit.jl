@@ -1,3 +1,54 @@
+docs-pass: 3dc35e52
+
+# VisualGeometryToolkitEstimation 0.11.5 docs pass (julia-docs-pass) — branch patch-est0115
+
+Baseline: GitHub main d40a948a (Estimation 0.11.4). The owner's task: remove the duplicate `_zero_nonfinite_weights!`
+(0.11.2) now that VisualGeometryToolkitCore 0.10.6 (in General) owns the posterior's non-finite rule. Core floor
+"0.10.6" in the package, test and docs Project files.
+
+## 1. The duplicate, site by site
+
+| site | Core 0.10.6 covers it? | verdict |
+|---|---|---|
+| `consensus_posterior` (after `seed_posterior!`) | yes: `seed_posterior!` → `soft_posterior_weights!` → `_posterior_pair` over the same `sq_distances` buffer, every `i ≤ n`; non-finite → (0.0, 0.0), the values the post-pass wrote | duplicate: removed |
+| `update_weights!(::PosteriorLikelihood)` (after Core's `update_weights!(pws, n)`) | yes: the same kernel, both robust weight and inlier posterior | duplicate: removed |
+| `LossPlainWeights` (`_weighs`: every `Irls{K}`, `is_inlier`) | no: `weight(shape, …)` is not the posterior | kept |
+| the Triggs LO's 0/1 weights (`_triggs_weights!`) | no | kept |
+| the chart refit's zero-weight rows (`_ZeroWeightRows`) | no | kept |
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| docstrings / comments | `consensus_posterior` (the rule is Core's E-step), `update_weights!(::PosteriorLikelihood)` (cites `soft_posterior_weights!`), the stale RSDR boundary note |
+| guides, README, landing page | unchanged (they state the rule, not its owner) |
+| tests | lo_nonfinite: a new item on the LO's posterior seeding at a NaN residual (green on 0.11.4's code, 17725, and on 0.11.5, 17726: the same 0.0) |
+| check_naming | 0 in the prep (17727) |
+| CHANGELOG | Estimation `## 0.11.5`: Changed (the floor, the removal; Core 0.10.6's own NaN result changes named) |
+| version | Estimation 0.11.5; Core compat "0.10.6" (package, test, docs) |
+
+Review findings recorded, not fixed: the non-posterior guards could move into Core's `weight(shape, …)` (a Core change;
+then `_weighs` and `_triggs_weights!` would duplicate it in turn).
+
+## 3. Executed on 3dc35e52
+
+Julia 1.13.3, fresh clones, nice 0, the per-agent depot (`depot-est0115`):
+
+| gate | job | result |
+|---|---|---|
+| prep | 17727 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 |
+| CPU (--depwarn=error) | 17728 | groups 1–10 green: 8,896 pass, 2 broken, 8,898 total |
+| CPU (--depwarn=yes) | 17729 | groups 11–20 green: 8,896 pass, 2 broken, 8,898 total |
+| GPU | 17730 | group 21 green: 66 pass |
+| docs | 17731 | green |
+
+"Nothing moves" (instrumented scratch clones, every chart refit, posterior-IRLS and Triggs LO call and every weight
+refresh that met a non-finite residual; the suite and the LO bench): old d40a948a (17682/17683, again 17684/17685) vs
+new 4520cbfa (17686/17687; its src differs from 3dc35e52 in comments only). 40,959 calls identical; the non-finite weight
+refreshes the same on both sides (the lo_nonfinite policy items); the only unmatched calls are test group 9's homography
+and TLS calls, as nondeterministic on the baseline itself (old vs old: 180 and 66; old vs new 208/78 and 164/64). Bench
+bytes per call identical (1,725,206 / 1,765,189); µs within the instrumented runs' spread.
+
 docs-pass: 0ca7ef45
 
 # VisualGeometryToolkitEstimation 0.11.4 docs pass (julia-docs-pass) — branch patch-est0114

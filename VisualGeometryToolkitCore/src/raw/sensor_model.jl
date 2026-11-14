@@ -462,9 +462,7 @@ struct SensorModel{B <: Union{FileBlack, ChannelBlack, Dark}, N <: NoiseComponen
     reason::ModelReason
     specified_override::Bool
     function SensorModel(black::B, noise::N, defects::D, reason::ModelReason, specified_override::Bool) where {B <: BlackComponent, N <: NoiseComponent, D <: DefectComponent}
-        black isa Darks && throw(ArgumentError(
-            "SensorModel: a frame's black is one Dark, not a Darks — resolve the characterisation with sensor_model(c, capture, t)"))
-        return new{B, N, D}(black, noise, defects, reason, specified_override)
+        return new{B, N, D}(_frame_black_only(black), noise, defects, reason, specified_override)
     end
 end
 SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent; reason::ModelReason = Matched,
@@ -571,7 +569,14 @@ function _pick(candidates, absent, slot, iso)
 end
 
 # A frame's black: a Dark only when its band serves the exposure, else its channel black; of Darks, the one Dark whose
-# band serves it, else their shared channel black.
+# band serves it, else their shared channel black. The reason: `DarkOutOfBand` when a Dark or a Darks gave no Dark.
+_reason(::Union{Dark, Darks}, ::Dark) = Matched
+_reason(::Union{Dark, Darks}, ::BlackComponent) = DarkOutOfBand
+_reason(::BlackComponent, ::BlackComponent) = Matched
+# A SensorModel's black is a frame's: a Darks is a characterisation's, resolved by `sensor_model`.
+_frame_black_only(b::BlackComponent) = b
+_frame_black_only(::Darks) = throw(ArgumentError(
+    "SensorModel: a frame's black is one Dark, not a Darks — resolve the characterisation with sensor_model(c, capture, t)"))
 _frame_black(b::BlackComponent, t) = b
 _frame_black(d::Dark, t) = _serves(d, t) ? d : d.black
 function _frame_black(d::Darks, t)
@@ -641,7 +646,7 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
     defects, od = _pick([e.defects for e in entries], NoDefects(), :defects, ex.iso)
     fb = _frame_black(black, ex.exposure_time)
     return SensorModel(fb, noise, _frame_defects(defects, ex.exposure_time);
-                       reason = black isa Union{Dark, Darks} && !(fb isa Dark) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
+                       reason = _reason(black, fb), specified_override = ob || on || od)
 end
 
 # ------------------------------------------------------------------------------

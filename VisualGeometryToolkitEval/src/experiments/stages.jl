@@ -74,8 +74,8 @@ The uniform experiment entrypoint: `--plan` prints the stage table (each stage's
 exits (the structural check); otherwise runs the stages in declaration order (`--stage=NAME` restricts to one, or to a
 comma-separated subset — declaration order is still honored). A producing stage calls its `run` on EVERY one of its items, which
 loads a produced product and produces a pending one; its items are listed when the stage runs, so a product an earlier stage
-re-keyed is the new one. `--force` unmarks the selected stages' products first (their provenance removed), so each is produced
-again. A stage failure aborts the run (later stages depend on earlier ones).
+re-keyed is the new one. `--force` unmarks each product of the selected stages (its provenance removed) just before its item
+runs, so each is produced again and a failure leaves the later ones as they were. A stage failure aborts the run (later stages depend on earlier ones).
 """
 function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = ARGS)
     plan  = "--plan" in argv
@@ -98,8 +98,10 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
             st.run()
         else
             xs = st.items()                                   # listed now: an earlier stage of this run may have re-keyed them
-            force && foreach(x -> _product_unmark!(st.product(x)), xs)
-            foreach(st.run, xs)
+            for x in xs                                       # --force unmarks each product just before its own run
+                force && _product_unmark!(st.product(x))
+                st.run(x)
+            end
         end
         println("== done $(st.name)  ", Dates.format(Dates.now(), "HH:MM:SS"))
         flush(stdout)

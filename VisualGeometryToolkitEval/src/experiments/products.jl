@@ -82,7 +82,7 @@ product_dir(s::Product) = joinpath(results_root(), s.experiment, s.name, s.key)
 product_output(s::Product) = joinpath(product_dir(s), s.output)
 
 """
-    produced(s::Product; gitpath = project_root()) -> Bool
+    produced(s::Product) -> Bool
 
 Whether the product is produced and reused: its output and its `_provenance.toml` with its key are there (the key holds the code
 it runs), its scratch flag is this run's ([`scratch_run`](@ref)) and no code tree it recorded was uncommitted (a scratch run's
@@ -140,6 +140,7 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
         assert_not_input(dir; producer)
         _recorded_code_trees(gitpath, dir)                            # a run of record of uncommitted code is refused before it computes
         rm(joinpath(dir, PROVENANCE_FILE); force = true)
+        rm(product_output(s); force = true)                          # a save that fails never leaves an earlier output standing
     end
     read = String[]                                                   # the inputs f says it read
     DrWatson.produce_or_load(s.record, dirname(dir); filename = _ -> joinpath(s.key, s.output), prefix = "", suffix = "",

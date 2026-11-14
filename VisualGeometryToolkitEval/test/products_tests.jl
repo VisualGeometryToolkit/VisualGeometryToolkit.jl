@@ -102,6 +102,11 @@
             v = E.Product("x", "fit", Dict("k" => 4); output = "fit.json")
             @test_throws r"was not saved" E.produce(d -> 42, v; args...)
             @test !E.produced(v)
+            # … and a forced re-production whose save fails never leaves the earlier output standing as this one's
+            E.produce(d -> [pose(1.0)], v; args...)
+            @test E.produced(v)
+            @test_throws r"was not saved" E.produce(d -> 42, v; args..., force = true)
+            @test !E.produced(v) && !isfile(E.product_output(v))
         end
         E.set_project_root!("")
     end

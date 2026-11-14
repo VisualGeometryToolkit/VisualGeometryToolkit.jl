@@ -45,8 +45,10 @@ the content of the files it reads (`files`; a config's pinned inputs belong in i
 a command line (`parts`); and the CODE it runs (`code`): the source-tree hash of every stack package its environment loads and
 the project's own `src` ([`current_code_trees`](@ref): a path checkout's git trees of `src`, `ext`, `Project.toml`, a registered
 version's Manifest tree hash). A change of any of them is another key, so another directory, produced anew; an unchanged one is
-the same product, loaded. A change of a package re-keys every product that loads it (conservative). A result of an earlier key
-stays where it is.
+the same product, loaded. A change of a package re-keys every product that loads it (conservative). A product whose
+computation runs only some of the environment's packages is keyed by those alone — the per-package rule: `code` restricted to the
+packages its step uses (a step that runs an external tool adds the tool's pinned image to its inputs), never a driver's own source —
+so a commit elsewhere leaves it produced. A result of an earlier key stays where it is.
 """
 struct Product
     experiment::String

@@ -196,20 +196,20 @@ on `buf`; its consensus order is read from the scorer's workspace. The seed
 model's residuals are already in `buf`, so squaring them into the posterior
 buffer avoids a redundant mahalanobis_distances!() sweep. The Student-t scale contributes
 one extra DOF on top of the minimal sample size (ν = (k − m)·dg). A datum whose
-squared residual is not finite weighs 0 (robust weight and inlier posterior).
+squared residual is not finite weighs 0 (robust weight and inlier posterior: Core's
+E-step, `seed_posterior!`).
 """
 function consensus_posterior(L::LoBuffers, problem, cs::ConsensusSet, buf::ScoreBuffers, scoring, a::Float64)
     check_fresh(cs, buf)
     n = data_size(problem)
     square_distances!(L.posterior_sq_r, buf.residuals, n)
-    rws = seed_posterior!(
+    return seed_posterior!(
         L.posterior, L.posterior_sq_r, n, minimal_sample_size(problem) + 1, inlier_count(cs);
         order = consensus_order(scoring, buf.scoring_ws),
         prior = scale_prior(scoring),
         log_two_outlier_halfwidth = log(2 * a),
         codimension = codimension(problem)
     )
-    return _zero_nonfinite_weights!(rws, n)
 end
 
 """

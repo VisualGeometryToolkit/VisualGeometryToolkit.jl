@@ -164,35 +164,17 @@ PosteriorLikelihood(rws::PosteriorWeightState, n::Int;
 # parts. (Subtyping does not separate them — `PosteriorWeightState` IS a
 # `NormalizedWeightPolicy`, which it subtypes for the likelihood-grade
 # `is_inlier`/`inlier_mask` defaults, not to be driven by the loop.)
-# The boundary is asymmetric on purpose: `update_weights!` below stays the one
-# shared VGC generic that RSDR extends at 2-arg, so it needs no qualification;
-# the part updates are RSDR's own, and are qualified so these cross-package
-# calls read as deliberate rather than as a rename that was missed.
+# `update_weights!` below is the same VGC generic at 1 argument (the policy) and
+# at 2 (the state, `update_weights!(pws, n)`: VGC's E-step).
 function update_nuisance!(lh::PosteriorLikelihood)
     update_scale!(lh.rws, lh.n, lh.scale_update)
     update_nu!(lh.rws, lh.n, lh.nu_update)
     update_inlier_prior!(lh.rws, lh.n, lh.prior_update)
     return lh
 end
-function update_weights!(lh::PosteriorLikelihood)
-    update_weights!(lh.rws, lh.n)
-    return _zero_nonfinite_weights!(lh.rws, lh.n)
-end
-
-# Weight 0 — robust weight and inlier posterior — for every datum `i ≤ n` whose
-# squared residual is not finite. The mixture's own E-step already gives an
-# infinite residual 0; a NaN residual it gives NaN, which poisons the cost
-# Σwᵢrᵢ² and every scale and prior update read from the weights. The posterior
-# seeding (`consensus_posterior`) and `PosteriorLikelihood`'s E-step apply it.
-function _zero_nonfinite_weights!(rws::PosteriorWeightState, n::Int)
-    w, p, sq = robust_weight(rws), inlier_weight(rws), sq_distances(rws)
-    @inbounds for i in 1:n
-        isfinite(sq[i]) && continue
-        w[i] = 0.0
-        p[i] = 0.0
-    end
-    return rws
-end
+# The E-step is VisualGeometryToolkitCore's: a datum whose squared residual is not finite
+# (Inf or NaN) gets robust weight and inlier posterior 0 there (`soft_posterior_weights!`).
+update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
 
 # `median_seeded_posterior` is VisualGeometryToolkitCore's: a PosteriorWeightState

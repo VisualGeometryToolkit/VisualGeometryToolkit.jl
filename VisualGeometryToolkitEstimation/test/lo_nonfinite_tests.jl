@@ -69,6 +69,22 @@ end
     @test all(iszero, w[66:68])        # the out-of-reach points
 end
 
+@testset "the LO's posterior seeding zeroes a non-finite residual (Core's E-step)" begin
+    # `consensus_posterior` seeds every posterior-weight LO from the score that just ran:
+    # a NaN point's robust weight and inlier posterior are 0, so the seed cost Σwᵢrᵢ² is finite.
+    pts = [Point2{Float64}(Float64(i), 0.01 * randn(StableRNG(74))) for i in 0:56]
+    push!(pts, Point2{Float64}(NaN, NaN))
+    prob = LineFittingProblem(pts)
+    sc = MsacScoring(prob; threshold = 0.1)
+    ws = RansacWorkspace(prob, sc, Irls{HuberShape}(efficiency_constant = 1.345))
+    VgtkCore.score_model!(ws.buf, sc, prob, SEED)
+    cs = VgtkCore.consensus_set(sc, ws.buf.scoring_ws, ws.buf.residuals; model_dof = 3, d_g = 1, epoch = ws.buf.epoch)
+    rws = VgtkEstimation.consensus_posterior(ws.lo_ws, prob, cs, ws.buf, sc, 1.0)
+    @test isnan(ws.buf.residuals[58])
+    @test robust_weight(rws)[58] === 0.0 && inlier_weight(rws)[58] === 0.0
+    @test isfinite(VgtkCore.weighted_rss(robust_weight(rws), VgtkCore.sq_distances(rws), 58))
+end
+
 @testset "the weight policies zero a non-finite residual" begin
     sq = [0.25, Inf, NaN, 4.0]
     state() = PosteriorWeightState(zeros(4), zeros(4), copy(sq), 5.0, 1.0, log(2 * 10.0), 1, JeffreysPrior())

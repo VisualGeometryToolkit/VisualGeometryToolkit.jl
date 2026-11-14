@@ -101,8 +101,8 @@ sift_nb_octaves(W, H; upsample::Bool = false) =
     GaussianScaleSpace
 
 The octaves' Gaussian levels of an image, built by [`gaussian_scale_space`](@ref)
-(and, one per tilted warp, inside every [`AsiftPlan`](@ref): ASIFT's DoG pyramid is
-the difference of these levels).
+(one slot), and held by every [`AsiftPlan`](@ref) (its `space`, one slot per
+resident tilted warp: ASIFT's DoG pyramid is the difference of these levels).
 
 - `levels[o]`: octave `o`'s `S + 3` levels, a `(W_o, H_o, S + 3, slots)` array on
   the device, `(x, y)` order (x along the first axis, as ASIFT holds images);

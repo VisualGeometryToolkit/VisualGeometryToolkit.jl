@@ -35,8 +35,8 @@ its covariance, after the reference implementation `ip_fop.m`
 [Koethe2003](@cite).
 
 Returns one row per optimal window, a `StructArray` of
-`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F))` (VisualGeometryToolkitCore's
-`PointFrame`: a position, no scale):
+`Detection(Uncertain(PointFrame(x), Σ), (; label, window, F, covariance_status))`
+(VisualGeometryToolkitCore's `PointFrame`: a position, no scale):
 
 - `label`: `:corner` (a junction point), `:circular` (Förstner & Gülch's
   circular point: the centre of a rotationally symmetric pattern, with no size
@@ -100,7 +100,7 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
 1. The image is doubled bilinearly (the package's one 2× upsampling, ASIFT's)
    and every scale and threshold doubled with it (lines 170–180).
 2. The gradient by correlation with the derivative taps (radius `⌈3.3σ⌉`, zero
-   padding, as `imfilter`), its squares and product (the squared gradient),
+   padding, as `imfilter`: [`gaussian_gradient`](@ref)), its squares and product (the squared gradient),
    and their integration by the box (width `2⌈√(12σ² + 1)/2⌉ + 1`) or the
    Gaussian (radius `⌈3.3σ⌉`), zero padded (lines 184–207, 617–678).
 3. The window measure (`det/tr` or the smaller eigenvalue) masked by the tests

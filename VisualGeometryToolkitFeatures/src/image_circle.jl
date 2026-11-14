@@ -45,12 +45,15 @@ the measuring:
    inside the frame down to a fifth of it), at most 1 px apart in radius (`Δ(ln r) ≤ 1/r_max`) and in arc
    (`Δθ ≤ 1/r_max`) at the outer end, so every pixel of the band contributes. The sample rows are grouped into angle
    bins and every (angle bin, radius) reduced to its MEDIAN (one KernelAbstractions kernel), both on `device`. A bin is
-   skipped when a sample's bilinear taps leave the frame or more than half its samples are saturated. The angle bins
+   skipped (`NaN`, `:off_frame` in `rim.bin_reason`) when a sample's bilinear taps leave the frame. A bin more than half
+   of whose samples are saturated is FLAGGED, not skipped: `:saturated` in `rim.bin_reason`, its median kept in the
+   profile and read like any other. The angle bins
    (`rim_angles = :auto`) are chosen from the image: of the binnings doubling from 45 (8°) to 3 sample rows per bin,
    the one whose coverage is the most precise (the smallest standard error of its mean radius, the inliers' rms over
    √(wedges with an inlier), the rms no finer than the edges' own median uncertainty nor the radial grid's spacing over
-   √12, with at least 20 such wedges). Finer bins give more wedges but noisier medians and, in a
-   textured scene, the scene's edges among the candidates;
+   √12, with at least 20 such wedges). When no binning has a fit with 20 such wedges, the finest binning tried is the
+   result (its reasons recorded; without a fit, `nothing` is returned). Finer bins give more wedges but noisier medians
+   and, in a textured scene, the scene's edges among the candidates;
 3. per angle, the CANDIDATES: every EDGE of the profile's OUTER ENVELOPE — the brightest it gets at or beyond each
    radius: where the light ends it does not come back, while a scene edge or a dark object inside the disc is followed
    by light again and leaves the envelope alone. Every radius is in pixels through the log-polar map, its differential
@@ -64,7 +67,10 @@ the measuring:
    floor) gives both (owner ruling 2026-11-14). A drop is significant when it exceeds its noise √(σ(r − 1)² + σ(r + 1)²)
    (σ each bin's noise at its pixels, rows × arc from the map's differential: the sensor model's, or
    the data's) by z = Φ⁻¹(1 − α/m), `α = significance` the family-wise level over the
-   angle's m drops: the floor's noise alone makes an edge in an angle with probability at most α;
+   angle's m drops: the floor's noise alone makes an edge in an angle with probability at most α. A noise of zero (a
+   noise-free image: the data's noise is 0) is used as it is, with no floor: every positive drop is then significant,
+   each edge's uncertainty is 0 (so the `:auto` rule's floor on the rms is 0; its grid term remains), and the log is
+   floored at the angle's darkest level (at least `floatmin`);
 4. the model: `find_ellipse(candidates; scoring, rng)` for `Ellipse`, `find_circle(…)` for `Circle` — RANSAC with the
    robustified-LM local optimization, scored by the Student-t + uniform marginal (the inlier scale marginalized; the
    outliers uniform over ±`outlier_halfwidth`; its priors the stack's default, VisualGeometryToolkitEstimation's
@@ -143,7 +149,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; outlier_halfwi
         throw(ArgumentError("detect_image_circle: rim_band = (inner, outer) needs 0 < inner < 1 and outer ≥ 0, got $rim_band"))
     0 < significance < 1 || throw(ArgumentError("detect_image_circle: significance must be in (0, 1), got $significance"))
     for (k, v) in ((:min_hole_area, min_hole_area), (:smoothing_weight, smoothing_weight), (:border_margin, border_margin))
-        v === nothing || Base.depwarn("detect_image_circle: `$k` was the hull fit's keyword and is ignored since " *
+        v === nothing || Base.depwarn("detect_image_circle: `$k` is deprecated: it was the hull fit's keyword and is ignored since " *
                                       "VisualGeometryToolkitFeatures 0.9.2 (the coverage is measured on the rim's profiles)", :detect_image_circle)
     end
     require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),

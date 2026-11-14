@@ -1,5 +1,56 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.4
+
+A patch: `detect_foerstner`'s F-test at the effective degrees of freedom (a label change: below), RAW inputs for
+`detect_sfop` and the seeded `detect_foerstner`, and the image-circle deprecation text.
+
+- **`detect_foerstner`'s F-test at the residual sums' effective degrees of freedom** (difference 4 from `ip_fop.m`,
+  docs guide). `F = Ω_corner / Ω_circular` was tested against `F(redundancy, redundancy)`, the window's doubled-pixel
+  count less 2, as if the doubled, derivative-filtered samples were independent; at that count the test's level was not
+  the stated one (on white noise 20 % of the windows labelled circular and 25 % corner at 0.999). It is now tested
+  against `F(ν_corner, ν_circular)`, each `ν = (tr Q)²/tr Q²` (Satterthwaite) of the residual sum as the quadratic
+  form `Iᵀ Q I` of the input pixels about the window centre, per window half-width (ν ≈ 87 against 2023 at σ = 6; the estimate's two
+  parameters neglected, a conservative test). Both the image-wide
+  search and the seeded windows. On the THORLABS chrome photographs the SFOP seeds between dots, on line artefacts
+  and on letter strokes (F ≈ 1–3) were labelled circular; they are now unknown. Labels change wherever F lies
+  between the two critical values; positions and covariances do not change. At the image-wide default window (ρ = 6,
+  ν ≈ 12) a noise-free checkerboard X-junction is now unknown at 0.999, a corner at 0.99 (docs guide).
+- **`detect_sfop(L::LinearRaw)` and the seeded `detect_foerstner(T, L::LinearRaw, seeds; sensor_model)`**, additive: SFOP on
+  a RAW's green cells (their values, the cell grid) and the seeded windows under the frame's sensor model, its covariance as
+  the image-wide call's on `L` (bit for bit at the same windows). RC's chrome evaluation detects its RAW sets this way.
+- **`detect_image_circle`'s deprecation warning says "deprecated"** for the hull fit's keywords (`min_hole_area`,
+  `smoothing_weight`, `border_margin`), so `@test_deprecated` and a user's `--depwarn=yes` session recognise it (it
+  read only "is ignored"; tested under `--depwarn=yes`, red first).
+- **`detect_sfop` keeps a maximum beside a failed window.** The extraction's edge test (ASIFT's) was meant to be off in
+  SFOP's precision mode, by an edge threshold of `floatmax`; it was not: next to a −∞ neighbour (a window that failed the
+  λ₂ test or reached the border) the curvature is −∞ and `tr²/det` is NaN (or `det < 0` across a diagonal neighbour), so
+  the maximum was dropped. The edge test is now skipped in the precision mode: such maxima are detections.
+- **`detect_sfop`'s precision is each detection's own.** Adjacent octaves share a level, so two octaves can find a peak at
+  one position and scale with different `w`; the table of `w` was keyed by position and scale alone, and the row the NMS
+  kept could report the other octave's `w`. It is keyed by the octave too.
+- **`detect_sfop`'s `nb_octaves` default is `min(3, sift_nb_octaves(size(img)...; upsample))`**: an image too small for 3
+  octaves is searched on the octaves it holds (it was an `ArgumentError` from `gaussian_scale_space`); a `nb_octaves`
+  beyond them, asked for, is still refused.
+- **The seeded `detect_foerstner(T, img, seeds)` takes its own keywords**: `device`, `noise` (`sensor_model` on a
+  `LinearRaw`), `derivative`, `derivative_sigma` and `significance_level`. The image-wide search's (`method`,
+  `noise_sigma`, `integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) were accepted and
+  ignored; they are now an `ArgumentError` naming them. The seeds are typed: detections of a `Disc`, `OrientedDisc`,
+  `EllipticFrame` or `AffineFrame` (or an uncertain `Disc` / `OrientedDisc`); a point seed, which has no window, is a
+  `MethodError` of `detect_foerstner` (it was one of `characteristic_scale`, inside the call).
+- **`detect_image_circle`: the same outputs, faster** (bit for bit, checked on every real set, the synthetic field stop
+  and a flat image against 0.9.3's code): the bin median of a bin of more than 32 samples by a radix selection (O(m)
+  sweeps, no scratch, every backend) instead of the O(m²) rank count, the same two order statistics bit for bit; the
+  saturation mask's warp skipped when no pixel is saturated (its samples are all 0); the empirical noise's drop noise
+  at unit pixel noise computed once per bin row count, not once per angle.
+- **`detect_image_circle`'s docs say what the code does** (no code change): a bin more than half saturated is FLAGGED
+  (`:saturated` in `rim.bin_reason`) and keeps its median in the profile, read like any other; 0.9.2's and 0.9.3's docs
+  and this CHANGELOG's 0.9.2 entry said such bins were skipped. Also stated: a column's pixel count has no floor of one
+  pixel; the `:auto` ladder's fallback (the finest binning tried); a zero noise used as it is. These are candidates for
+  an owner-reviewed revision (`.release/wave11-removals.md`).
+- **Scheduled for wave 11:** `gaussian_gradient`'s `derivative::Symbol` becomes a type (by dispatch); public since 0.9.1,
+  so unchanged in this patch (`.release/wave11-removals.md`).
+
 ## 0.9.3
 
 A patch: `detect_image_circle`'s rim radii through the log-polar map's differential and inverse (Core 0.10.3).
@@ -22,6 +73,11 @@ A patch: `detect_image_circle`'s rim radii through the log-polar map's different
   1333.768 and 1315.245 raw px; the earlier reference sat 3.5 px high), checked as every other set is; the
   synthetic field stop is at 1310.29 (truth 1309.6, a binary disc: the lit pixels' outer boundary is within √2/2 px).
   Requires VisualGeometryToolkitCore 0.10.3 (its compat floor).
+
+### Not noted at release (added in 0.9.4)
+- **`RimProfile.noise` changed meaning**, a change for any code that reads it: in 0.9.2 it was each angle's noise scale of
+  its BINS (the model's median bin noise, or the empirical one of the profile's samples); from 0.9.3 it is each angle's noise PER PIXEL σ₁ (a bin of m pixels has `σ₁/√m`, m its rows × its cells' arc).
+  The field's name and type are unchanged.
 
 ## 0.9.2
 
@@ -64,8 +120,14 @@ A patch, additive (owner rulings 2026-11-14: the lens coverage is the rim's oute
   - the `VisualGeometryToolkitFeaturesImageSmoothExt` extension and its `ImageSmooth` weak dependency (the L0 smoothing
     fed the MSER path);
   - the `DelaunayTriangulation` dependency (the hull).
+- **Not noted at release (added in 0.9.4): `inlier_mask(fit)` indexes other points.** In 0.9.1 `fit` was the hull's
+  RANSAC and `inlier_mask(fit)` indexed `contour`. From 0.9.2 `fit` is the RANSAC on one candidate per angle that has
+  any, and `inlier_mask(fit)` indexes THOSE points (in angle order); `contour` holds the inliers' edges only, so
+  `contour[inlier_mask(fit)]` is no longer meaningful (and generally a BoundsError or the wrong points).
+- **Not noted at release (corrected in 0.9.4):** a bin more than half saturated was described above as skipped; it is
+  flagged (`:saturated`) and keeps its median.
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-11-14)
 
 A patch, additive, on VisualGeometryToolkitCore 0.10.
 
@@ -98,7 +160,7 @@ A patch, additive, on VisualGeometryToolkitCore 0.10.
 - **`detect_foerstner` is faster** (results unchanged, bit for bit): the squared gradient stays on the device and the
   window centres are compacted there (12 MP photograph on a B200: 587 → 28 ms; on 32 CPU threads 1.2 → 0.42 s).
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-11-13)
 
 A breaking release of the wave after RC 0.8.0, on VisualGeometryToolkitCore 0.10 (`[compat]` "0.10.0").
 

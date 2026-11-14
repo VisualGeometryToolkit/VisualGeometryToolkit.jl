@@ -158,7 +158,7 @@ error below 0.05 px, and the RMS within 5 % of the image-wide search's at
 
 ## Differences from `ip_fop.m`
 
-The implementation follows the reference line for line except in three
+The implementation follows the reference line for line except in four
 places, each recorded here with its evidence.
 
 ### 1. Undoing the doubling: fixed
@@ -233,6 +233,42 @@ The reference's header documents `SIGMA_N = 2.5` grey values and
 (lines 521 and 524). The defaults here are the code's — what `ip_fop.m`
 actually ran. This is a conflict in the reference's documentation, not a
 correction.
+
+### 4. The F-test's degrees of freedom: corrected
+
+The reference labels a window by `F = Ω_corner / Ω_circular` against
+`F(redundancy, redundancy)`, `redundancy = (2ρ + 1)² − 2` the window's doubled
+pixels less two (line 429), as if each pixel's residual were independent. They
+are not: the doubling and the derivative and across taps correlate the doubled
+samples. Under white input noise each residual sum is a quadratic form of the
+input pixels, `Ω = Iᵀ Q I`, so `E[Ω] = σₙ² tr Q`, `Var Ω = 2σₙ⁴ tr Q²`, and its
+effective degrees of freedom (Satterthwaite) are `ν = (tr Q)²/tr Q²`. The
+gradient's components are separable (the rows' and the columns' one-axis
+operators), so `ν` costs O(ρ²) per window half-width; the sums are taken about the window
+centre, neglecting the estimate's two parameters (about 2 of ν), which keeps the test conservative. The test now
+uses `F(ν_corner, ν_circular)` at the same `significance_level`.
+
+| ρ (doubled px) | integration σ (input px) | redundancy | ν_corner | ν_circular | F(ν, ν) at 0.999 |
+|---|---|---|---|---|---|
+| 6 | 1.3 | 167 | 11.9 | 12.5 | 6.76 |
+| 10 | 2.4 | 439 | 25.6 | 24.8 | 3.65 |
+| 15 | 4.0 | 959 | 47.9 | 46.1 | 2.54 |
+| 22 | 6.0 | 2023 | 89.8 | 87.1 | 1.95 |
+
+(`derivative_sigma` 1, Gaussian derivative.) On white noise, seeded windows at
+σ = 6: the mean of `Ω_circular` is `σₙ² tr Q` to 1 %, its measured `ν` 77 ± 5
+(the circular sum is line 423's, see 2) and `Ω_corner`'s 89 ± 5. At the pixel
+count 20 % of the noise windows were labelled circular and 25 % corner at
+0.999; with `ν` none (the two sums are positively correlated, so the ratio
+varies less than `F(ν, ν)`, and the test is conservative). On the chrome
+photographs the windows between dots, on line artefacts and on letter strokes
+(`F` ≈ 1–3) were labelled circular at the pixel count; with `ν` they are
+unknown. The a-posteriori covariance keeps the reference's `Ω/redundancy · N⁻¹`.
+
+At ρ = 6 (the first row; also the image-wide search's default window,
+`integration_sigma` 1.41 at `derivative_sigma` 1) a corner at 0.999 needs `F` < 0.143: a sharp, noise-free
+checkerboard X-junction (`F` ≈ 0.16) is unknown there, a corner at 0.99
+(`F` < 0.241). An unknown row keeps its window centre and a NaN covariance.
 
 ### Also as the reference
 

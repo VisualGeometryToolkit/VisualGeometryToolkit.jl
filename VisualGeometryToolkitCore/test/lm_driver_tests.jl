@@ -437,6 +437,33 @@ end
     @test_throws ArgumentError LmStops(; residual_resolution = -1.0)
 end
 
+# Core 0.10.4: a non-finite operand scale certifies nothing. An Inf Jacobian entry (or one whose square overflows) makes
+# S² = F + Σⱼ uⱼ²‖Jⱼ‖² infinite: the rounding floor (16ε)²·S² would then be Inf and every finite cost an "exact fit", a
+# Success at a point the cosine cannot call stationary (0.10.3: Stalled, by the NaN cosine). A non-finite S² gives no
+# rounding floor, only the data's resolution.
+@testitem "lmsolve_chart!(::LmProblem): a non-finite Jacobian never certifies an exact fit" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: LmProblem, NLLSsolver
+    struct _WildRow <: NLLSsolver.AbstractResidual
+        j::Float64
+    end
+    NLLSsolver.ndeps(::_WildRow) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_WildRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_WildRow) = SVector(1)
+    NLLSsolver.getvars(::_WildRow, vars::Vector) = (vars[1]::SVector{1, Float64},)
+    Base.eltype(::_WildRow) = Float64
+    NLLSsolver.computeresidual(r::_WildRow, x) = SVector(x[1] + 1.0)
+    NLLSsolver.computeresjac(_varflags, r::_WildRow, x) = (SVector(x[1] + 1.0), SMatrix{1, 1, Float64}(r.j))
+    exact = VgtkCore._FinalRounding(0.0)
+    p = LmProblem([SVector(1.0)], [_WildRow(Inf)])            # F = 4 at x = 1, far from any exact fit; J = Inf
+    @test !VgtkCore._lm_problem_stationary!(p, 0.05, exact)   # the cosine is NaN, and no Inf floor certifies it
+    @test VgtkCore._exact_threshold(exact, Inf) == 0          # no rounding floor from a non-finite S² …
+    @test VgtkCore._exact_threshold(VgtkCore._FinalRounding(2.0), Inf) == 4   # … the data's resolution still floors it
+    @test VgtkCore._exact_threshold(exact, NaN) == 0
+    @test VgtkCore._exact_threshold(exact, 1.0) == (16 * eps())^2         # a finite S² unchanged
+end
+
 # Core 0.10.4: the exact-fit threshold is the final point's rounding, never m·ε·F₀ — which, over many residuals from a
 # large start, exceeded a cost the run had merely stalled at. 10⁶ residuals rᵢ = x + dᵢ (dᵢ = ±10⁻³, the minimum
 # F = 1 at x = 0) from x = 10⁶ (F₀ = 10¹⁸, so m·ε·F₀ ≈ 2·10⁸), the Jacobian reported with the wrong sign within 10⁻³
@@ -519,11 +546,17 @@ end
     pm = line(LevenbergDamping())
     x0 = pm.variables[1]
     @test pm.damping === LevenbergDamping()
-    e = try lmsolve_chart!(pm); nothing catch err; err end                    # default stops: MarquardtDamping
+    # an EXPLICIT stops of another damping is refused …
+    e = try lmsolve_chart!(pm, LmStops(; damping = MarquardtDamping())); nothing catch err; err end
     @test e isa ArgumentError && occursin("LevenbergDamping", e.msg) && occursin("MarquardtDamping", e.msg)
     @test pm.variables[1] == x0
     @test lmsolve_chart!(pm, LmStops(; damping = LevenbergDamping())).code === ReturnCode.Success
     @test pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
+    # … and the DEFAULT stops take the problem's damping: 0.10.3's `lmsolve_chart!(p)` on a Levenberg problem solves it,
+    # bit for bit the explicit call's
+    pd = line(LevenbergDamping())
+    @test lmsolve_chart!(pd).code === ReturnCode.Success
+    @test pd.variables[1] == pm.variables[1]
     @test_throws TypeError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
 end
 

@@ -1,9 +1,9 @@
 # Robust Statistics and Solvers API
 
-The robust-statistics toolkit, the generic block-coordinate-descent loop, the
-chart-rows contract and the chart LM (NLLSsolver, through one adapter): the
+The robust-statistics toolkit and the generic block-coordinate-descent loop: the
 shared machinery under the contracts of the
-[Robust Estimation API](estimators.md) page.
+[Robust Estimation API](estimators.md) page. The chart-rows contract and the
+chart LM are on the [Chart LM API](lm_core.md) page.
 
 ```@meta
 CurrentModule = VisualGeometryToolkitCore
@@ -25,14 +25,6 @@ Pages = ["robust/scale.jl", "robust/mixture.jl", "robust/posterior.jl", "robust/
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
 Pages = ["robust/block_coordinate_descent.jl"]
-```
-
-## Chart Rows and the LM Core
-
-```@autodocs
-Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
-Private = false
-Pages = ["robust/rows.jl", "robust/lm_core.jl"]
 ```
 
 ## Index

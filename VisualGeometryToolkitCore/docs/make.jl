@@ -85,7 +85,8 @@ makedocs(;
         # api/student_t_scoring.md. Split on 2026-11-12 (api/estimators.html
         # measured 201.15 KiB, over the 200 KiB limit, once the strategy layer
         # moved to Core): the optimization strategies and the LO contract to
-        # api/optimization_strategies.md.
+        # api/optimization_strategies.md. Split on 2026-11-14 (api/robust_statistics.html
+        # measured 206 KiB with the LM damping types): the chart rows and the LM core to api/lm_core.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
@@ -156,6 +157,7 @@ makedocs(;
             "Pool Selection" => "api/pool_selection.md",
             "Robust Losses" => "api/robust_losses.md",
             "Robust Statistics & Solvers" => "api/robust_statistics.md",
+            "Chart LM" => "api/lm_core.md",
             "Configuration Tags & Stack Contracts" => "api/stack_contracts.md",
             "Manifolds & Uncertainty" => "api/manifolds.md",
             "Core Types" => "api/types.md",

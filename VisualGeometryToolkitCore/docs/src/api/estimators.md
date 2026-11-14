@@ -12,7 +12,7 @@
     pool selection ([Pool Selection API](pool_selection.md)); the robust-loss family and the width axes
     ([Robust Losses API](robust_losses.md)); the robust-statistics toolkit,
     the generic block-coordinate-descent loop, the chart-rows contract and
-    the chart LM ([Robust Statistics and Solvers API](robust_statistics.md));
+    the chart LM ([Chart LM API](lm_core.md));
     the configuration tags, stack contracts and conformance helpers
     ([Configuration Tags and Stack Contracts API](stack_contracts.md)). The
     model manifolds and image-domain confidence regions are on the

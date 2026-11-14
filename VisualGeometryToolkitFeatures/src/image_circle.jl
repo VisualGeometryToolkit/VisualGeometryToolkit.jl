@@ -31,7 +31,9 @@ The frames are gray images (anything `Colors.gray` reads: `Gray`, a real) or cam
   are in GREEN-CELL pixels, the resolution measured on (half the raw's). Every frame must have the same map (one sensor,
   one window), and a cell image on a device is read to the host. Cells read under a sensor model with a variance law
   (an `Uncertain` image) carry each value's variance, and the rim's noise is then the MODEL's
-  ([`SensorModelNoise`](@ref)); otherwise it is the data's ([`EmpiricalNoise`](@ref)). The type decides;
+  ([`SensorModelNoise`](@ref)); otherwise it is the data's ([`EmpiricalNoise`](@ref)). The type decides. A known
+  issue (CHANGELOG 0.9.5): under the model's noise alone the faint light past the coverage (a barrel's reflections,
+  a halo) can give the outermost edges, and the coverage lands on them; measure without a sensor model until fixed;
 - any other image is measured as it is (its white, 1, is its saturation), and its result is in its own pixels.
 
 Each frame lights a different part of the rim, and a scene's own edges move between frames; their union of light does

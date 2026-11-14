@@ -206,6 +206,10 @@ mapped: the coverage, the contour and the standard deviations come back in the
 raw's pixels through the cells' `raw_frame_map`.
 
 Cells read under a sensor model with a variance law are `Uncertain`, and the
-rim's noise is then the model's. The result's `rim` ([`RimProfile`](@ref))
+rim's noise is then the model's. A known issue (CHANGELOG 0.9.5): the model's
+noise is the sensor's alone, so the faint light past the coverage (a lens
+barrel's reflections or a halo, 0.2–1 % of white on the FX3's fisheye) can
+give edges beyond the rim, and the coverage lands on them. Measure the
+coverage without a sensor model until that is fixed. The result's `rim` ([`RimProfile`](@ref))
 records which noise was used, along with the profiles, the candidates and each
 angle's edge.

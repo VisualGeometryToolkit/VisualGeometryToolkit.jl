@@ -1,5 +1,40 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.5
+
+A patch: RAW images stored as Float16 or Float32 (VisualGeometryToolkitCore 0.10.5, now the compat floor), and a
+known issue of `detect_image_circle` under a sensor model, documented.
+
+- **`load_raw([T], path; …)` and `load_raw([T], mosaic; …)`**, additive: the values' element type `T` (a
+  `Base.IEEEFloat`), positional and leading (the stack's signature rule), forwarded to Core 0.10.5's `LinearRaw(T,
+  mosaic; mode, gain, sensor_model)`. Without it the type is Core's default (`Float64`, bit for bit 0.9.4's values),
+  read off Core's public `linearview` (for every mode). The display demosaic is stored as `T` too (computed in Float64,
+  rounded once; a gain and white balance that could overflow `T` refused).
+- **`load_raw`'s cache key names the element type** (any but `Float64`, whose entries keep the plain key: every entry
+  before 0.9.5 is Float64), resolved from Core's default first: a cached Float64 decode is never served for a Float16
+  request, nor for a default request after Core's default changes.
+- **No reduction over a RAW's values accumulates in Float16** (the audit, below). Two fixes:
+  - `box_downsample` of a `Float16` image (or `Gray{Float16}`, …) summed its blocks in Float16; it now sums and scales in
+    Float64 and rounds each output once to `Float16` (a block of 2048 and four 0.25s: 2049/9, not 2048/9).
+  - `detect_foerstner(Float16, …)` would have accumulated the squared gradient's window sums in Float16; a precision
+    narrower than `Float32` is refused (`ArgumentError`). A Float16 image is read in `T`.
+
+  Audited, unchanged (each reads a Float16 image widened): SFOP and ASIFT (the pyramid's `Float32` input,
+  `_asift_input`); the seeded and image-wide Förstner (`ka_upload(T, …)`, the variances `Float32` → `T`);
+  `variance_stabilize` (the Gaussian part and its mean in Float64); `detect_image_circle` (the frames' maximum in
+  Float32, the bin medians order statistics, the bins' mean variance summed in Float64, profiles and drops in
+  Float64); `gaussian_blur` (Float64).
+
+- **Known issue, not fixed here: `detect_image_circle` under a sensor model can take the faint light past the coverage for
+  the rim** (since 0.9.2). With `Uncertain` cells (a RAW read with a Poisson–Gaussian model) each bin's noise is the
+  model's alone, the sensor's photon and read noise. Past the coverage the FX3's fisheye has faint light (the lens
+  barrel's reflections, a halo, 0.2–1 % of white) whose drops lie far above that noise (8–14 % of them beyond 4σ), so
+  each angle's outermost edge, the first fit's, lies out there: a = 1328.6, 1366.2 and 1481.8 raw px on the f/4, f/22
+  and f/32 sets (the f/32 centre 97 px low), against 1086.5, 1340.4 and 1333.8 without a model, in Float64 and Float16
+  storage alike (the 14 mm diffuser set agrees). Measure the coverage without a sensor model (the default path is
+  unaffected) until the rule that picks the coverage under a model is fixed in its own patch. The opt-in real-data item
+  holds the three sets as `@test_broken`.
+
 ## 0.9.4
 
 A patch: `detect_foerstner`'s F-test at the effective degrees of freedom (a label change: below), RAW inputs for

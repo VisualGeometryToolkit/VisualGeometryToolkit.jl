@@ -378,15 +378,21 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     slot = Dict(k => s for (s, k) in enumerate(used))
     offsets = on_device(Float32, backend, _host_stack(Float32, sz, (darks.darks[k].offset for k in used)))
     variances = Dict(k => Array(darks.darks[k].variance) for k in used)   # each used Dark's variance on the host once
-    host_masks = [defect_mask(_frame_defects(defects, t), m; backend = KA.CPU()) for t in times]
-    masked = findall(!isnothing, host_masks)
-    mask_slot = Dict(i => s for (s, i) in enumerate(masked))
+    # each group's defects cut to its exposure: the sites whose onset it reaches, so groups that reach as many sites
+    # share one mask (the cut is monotone in the exposure), built and uploaded once
+    cut = [_frame_defects(defects, t) for t in times]
+    key = map(_site_count, cut)
+    host_masks = Dict(n => defect_mask(cut[findfirst(==(n), key)], m; backend = KA.CPU()) for n in unique(key))
+    masked = sort!([n for (n, h) in host_masks if h !== nothing])
+    mask_slot = Dict(n => s for (s, n) in enumerate(masked))
     masks = isempty(masked) ? nothing :
-            on_device(Bool, backend, _host_stack(Bool, size(host_masks[first(masked)]), (host_masks[i] for i in masked)))
+            on_device(Bool, backend, _host_stack(Bool, size(host_masks[first(masked)]), (host_masks[n] for n in masked)))
+    intercepts = Dict((k, n) => _dark_intercept(variances[k], darks.darks[k].frames, host_masks[n], m, g)
+                      for (k, n) in unique(zip(which, key)))
     levels = map(eachindex(exposures)) do i
-        k = which[i]; d = darks.darks[k]
-        mask = haskey(mask_slot, i) ? view(masks, :, :, mask_slot[i]) : nothing
-        σ0, σ0_se = _dark_intercept(variances[k], d.frames, host_masks[i], m, g)
+        k, n = which[i], key[i]; d = darks.darks[k]
+        mask = haskey(mask_slot, n) ? view(masks, :, :, mask_slot[n]) : nothing
+        σ0, σ0_se = intercepts[(k, n)]
         (; black = _green_black(g, _channel_black(d, m)), dark = view(offsets, :, :, slot[k]), mask, σ0, σ0_se)
     end
     return _ptc_series(frames_of, levels, m, g, block, normalize, significance)
@@ -430,6 +436,10 @@ function _ptc_groups(groups)
     end
     return exposures, frames_of, m
 end
+
+# The number of defect sites of a (cut) defect slot.
+_site_count(::NoDefects) = 0
+_site_count(d::DefectList) = length(d.x)
 
 # A host stack (sz..., n) of eltype T of the matrices `maps` (a device map copied to the host first), uploaded by its
 # caller once.

@@ -33,7 +33,18 @@ uploaded again, so a published file keeps loading forever.
 - A schema change adds a step for the version it replaces (and its file
   form, and a fixture under `test/fixtures/old/` or built in
   `schema_versions_tests.jl`). Never delete a step whose version a published
-  file holds, and never make a writer write an old version.
+  file holds, and never make a writer write an old version — with ONE rule
+  for a kind whose new major version only ADDS a form (owner ruling (a),
+  IO 0.10.2): its writer may write the earlier version for a record that
+  version can hold, the earlier version's very bytes, so a reader of that
+  version keeps reading every such file. The choice dispatches on what the
+  record holds (`sensor_characterisation`: v2.0 iff an entry's black is a
+  `Darks`, else v1.0; `_written_version`), and the versions a writer can emit
+  are ONE table, `_written_versions(kind)` (validate.jl), which the writer's
+  `_write_kind(...; version)` checks and the JSON Schema generator publishes
+  (one schema per written version, none other: json_schema_tests.jl). Such
+  an earlier version keeps its read step but needs no file form: it is
+  still written, so no file of it needs rewriting.
 - A version no published file holds, and one that lacks what the current
   record needs (transforms v1's free-form frame names), keeps a refusal by
   name. Transforms and trajectory v2 have a version step for the one layout a

@@ -37,9 +37,11 @@
 # band's place); the bands are disjoint.
 #
 # VERSIONS: v2.0 (IO 0.10.2) added the "darks" body, a new value of the black slot's
-# `type` (a v1 reader cannot read it, so a major version); a v1.0 file (IO 0.10.1's,
-# at most one Dark per ISO) reads through its step, which only renames the schema:
-# its body is a v2.0 body as it stands.
+# `type` (a v1 reader cannot read it, so a major version). The writer writes v2.0
+# only for a characterisation that holds a Darks and v1.0, IO 0.10.1's bytes,
+# otherwise (`_written_version`, owner ruling (a)), so an IO 0.10.1 reader reads
+# every file without one; a v1.0 file reads through its step, which only renames
+# the schema: its body is a v2.0 body as it stands.
 #
 # Per CFA colour index 0–3 (LibRaw's): `values[c + 1]`, codes. Times — a dark's
 # exposure band, a defect's onset (the shortest exposure at which it is hot) —
@@ -77,12 +79,13 @@ const _DARK_BODY = _Obj(Pair{Symbol, _Spec}[:type => _Tok("dark"), :exposure_ban
                                              :size => _SIZE_INT, :offset => _RASTER_PAYLOAD, :variance => _RASTER_PAYLOAD,
                                              :source => _SENSOR_SOURCE],
                          Pair{Symbol, _Spec}[:black => _CHANNEL_BLACK])
+const _BLACK_V1 = Pair{String, _Spec}["channel" => _CHANNEL_BLACK, "dark" => _DARK_BODY]
 const _BLACK_COMPONENT = _ByType("a black component", Pair{String, _Spec}[
-    "channel" => _CHANNEL_BLACK,
-    "dark" => _DARK_BODY,
+    _BLACK_V1...,
     "darks" => _Obj(Pair{Symbol, _Spec}[:type => _Tok("darks"), :darks => _Vec(_DARK_BODY), :source => _SENSOR_SOURCE],
                     Pair{Symbol, _Spec}[:black => _CHANNEL_BLACK]),
 ])
+const _BLACK_COMPONENT_V1 = _ByType("a black component", _BLACK_V1)   # v1.0: no darks body
 const _NOISE_COMPONENT = _ByType("a noise component", Pair{String, _Spec}[
     "read_noise" => _Obj(Pair{Symbol, _Spec}[:type => _Tok("read_noise"), :sigma => _FOUR, :source => _SENSOR_SOURCE],
                          Pair{Symbol, _Spec}[:std_error => _FOUR]),
@@ -141,20 +144,27 @@ function _entry_problem(e)
 end
 _entries_problem(x) = allunique(Float64(e[:iso]) for e in x[:entries]) ? nothing : "an ISO has one entry"
 
-const _SENSOR_ENTRY = _CheckedSpec(
+# The kind at a version: its entries' black slot `black` (v1.0: a channel black or a dark; v2.0: or a darks body).
+_sensor_entry_spec(black::_Spec, darks_rule::AbstractString) = _CheckedSpec(
     _Obj(Pair{Symbol, _Spec}[:iso => _Real()],
-         Pair{Symbol, _Spec}[:black => _BLACK_COMPONENT, :noise => _NOISE_COMPONENT, :defects => _DEFECT_COMPONENT]),
+         Pair{Symbol, _Spec}[:black => black, :noise => _NOISE_COMPONENT, :defects => _DEFECT_COMPONENT]),
     _entry_problem;
     rule = "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at " *
-           "least 2 frames, and a darks body's darks (at least one) of its source and of one size, their bands disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
+           "least 2 frames$(darks_rule); a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
            "x the column), listed once, its onset positive",
 )
-const _SENSOR_CHARACTERISATION_SPEC = _kind_spec(
+_sensor_characterisation_spec(black::_Spec, darks_rule::AbstractString; major::Int) = _kind_spec(
     "sensor_characterisation",
-    Pair{Symbol, _Spec}[:device => _Obj(:body => _DEVICE_IDENTITY), :entries => _Vec(_SENSOR_ENTRY)];
+    Pair{Symbol, _Spec}[:device => _Obj(:body => _DEVICE_IDENTITY), :entries => _Vec(_sensor_entry_spec(black, darks_rule))];
     check = _entries_problem,
     rule = "each ISO has one entry",
+    major,
 )
+const _SENSOR_CHARACTERISATION_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT,
+    ", and a darks body's darks (at least one) of its source and of one size, their bands disjoint"; major = 2)
+const _SENSOR_CHARACTERISATION_V1_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT_V1, ""; major = 1)   # IO 0.10.1's table
+_older_spec(::Val{:sensor_characterisation}, v::Tuple{Int, Int}) =
+    v == (1, 0) ? _SENSOR_CHARACTERISATION_V1_SPEC : throw(ArgumentError("vgio/sensor_characterisation is not written at $(_version_string(v))"))
 
 # ----------------------------------------------------------------------------- writing
 
@@ -211,9 +221,15 @@ function save(path::AbstractString, c::SensorCharacterisation; provenance::Named
         merge((iso = iso,), NamedTuple(k => b for (k, b) in slots if b !== nothing))
     end
     _write_kind(path, "sensor_characterisation", (device = (body = _identity_json(c.body),), entries = entries), provenance;
-                style = VgioStyle())
+                style = VgioStyle(), version = _written_version(c))
     return nothing
 end
+
+# The version a characterisation is written at, by what its entries' black slots hold (owner ruling (a), IO 0.10.2):
+# v2.0 when one holds a Darks (v2's darks body), else v1.0, IO 0.10.1's very bytes, which an IO 0.10.1 reader reads.
+_written_version(c::SensorCharacterisation) = maximum((_black_version(e.black) for e in values(c.entries)); init = (1, 0))
+_black_version(::VgtkCore.Darks) = (2, 0)
+_black_version(::VgtkCore.BlackComponent) = (1, 0)
 
 # ----------------------------------------------------------------------------- reading
 
@@ -270,9 +286,9 @@ end
 
 # ----------------------------------------------------------------------------- the v1.0 step
 
-# v1.0 (IO 0.10.1) → v2.0: the body is unchanged (v2 only added the "darks" body), so the step renames the schema and
-# states the current generator; the file form reads the file as the characterisation and writes it anew (its rasters
-# beside the output, under its stem), read back equal.
+# v1.0 (IO 0.10.1) → v2.0, on read: the body is unchanged (v2 only added the "darks" body), so the step renames the
+# schema and states the current generator. No file form: v1.0 is still written (a record without a Darks), so a v1.0
+# file needs no rewriting.
 function _sensor_characterisation_v1_to_v2(t::AbstractDict)
     n = Dict{String, Any}(String(k) => v for (k, v) in t)
     n["schema"] = _schema("sensor_characterisation")
@@ -280,9 +296,3 @@ function _sensor_characterisation_v1_to_v2(t::AbstractDict)
     return n
 end
 migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, t::AbstractDict) = _sensor_characterisation_v1_to_v2(t)
-function migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, src::AbstractString, dst::AbstractString)
-    c = load(SensorCharacterisation, src)
-    save(dst, c; provenance = _provenance_of(_raw_tree(src)))
-    _verify(load(SensorCharacterisation, dst) == c, src, "the sensor characterisation")
-    return (; to = _schema("sensor_characterisation"))
-end

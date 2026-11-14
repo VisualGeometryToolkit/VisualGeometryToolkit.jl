@@ -31,7 +31,9 @@
         for f in made
             @test isfile(joinpath(schema_dir(), f)) && read(joinpath(schema_dir(), f), String) == read(joinpath(dir, f), String)
         end
-        @test length(made) == length(VgtkIO._SCHEMA_VERSION)
+        # one schema per version a writer emits (`_written_versions`, the table the writers choose by), none other
+        @test length(made) == sum(length(VgtkIO._written_versions(k)) for k in keys(VgtkIO._SCHEMA_VERSION))
+        @test Set(made) == Set(VgtkIO._json_schema_path(k, v) for k in keys(VgtkIO._SCHEMA_VERSION) for v in VgtkIO._written_versions(k))
     end
     # each kind's schema states its own identity and dialect
     for kind in keys(VgtkIO._SCHEMA_VERSION)

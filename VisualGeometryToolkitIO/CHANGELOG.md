@@ -2,7 +2,8 @@
 
 ## 0.10.2
 
-A patch: one kind's new major version, its previous version read through its step; no other kind changes.
+A patch: one kind gains a major version for a new form, written only for a record that holds it; every other file is
+written as before, byte for byte.
 
 ### Added
 - **`vgio/sensor_characterisation/v2.0`**: the black slot's `"darks"` body, VisualGeometryToolkitCore 0.10.3's `Darks`
@@ -10,10 +11,14 @@ A patch: one kind's new major version, its previous version read through its ste
   each a dark body with its own raster pair, `<stem>.iso<ISO>.band<k>.dark_offset.tiff` and `….dark_variance.tiff`;
   the reader and the validator refuse overlapping bands, a dark of another source and maps of different sizes. A new
   value of a slot's `type` is a major version (a v1 reader cannot read it): v1.0 (IO 0.10.1's, at most one Dark per
-  ISO) reads through its step, which renames the schema and keeps the body, and `vgio_migrate` rewrites a v1.0 file
-  (its rasters beside the output). Tested on a v1.0 file the registered IO 0.10.1 wrote (`test/fixtures/old/`). The
-  published JSON Schema is `schemas/vgio/sensor_characterisation/v2.0.json` (v1.0.json replaced: the generator
-  publishes each kind's current version). Requires VisualGeometryToolkitCore 0.10.3.
+  ISO) reads through its step, which renames the schema and keeps the body.
+- **The writer's version follows what the record holds** (owner ruling (a)): v2.0 only when an entry's black is a
+  `Darks`; every other characterisation is written as v1.0, byte for byte IO 0.10.1's file (its generator's version
+  aside; tested against a v1.0 file the registered IO 0.10.1 wrote, `test/fixtures/old/`), so IO 0.10.1 reads every
+  file without a Darks and this release stays a patch. The versions a writer can emit are one table,
+  `_written_versions(kind)`; the JSON Schemas published are exactly those, so `schemas/vgio/sensor_characterisation/`
+  holds both `v1.0.json` (IO 0.10.1's, unchanged) and `v2.0.json`; every other kind's set is its current version.
+  Requires VisualGeometryToolkitCore 0.10.3.
 
 ## 0.10.1 (2026-11-14)
 

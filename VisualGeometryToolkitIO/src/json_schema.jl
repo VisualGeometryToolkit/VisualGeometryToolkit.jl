@@ -42,7 +42,7 @@ const _JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 const _JSON_SCHEMA_ID_BASE = "https://visualgeometrytoolkit.github.io/schemas/"
 
 # The relative path of a kind's schema (its `$id` below the base): `vgio/<kind>/v<major>.<minor>.json`.
-_json_schema_path(kind::AbstractString) = _schema(kind) * ".json"
+_json_schema_path(kind::AbstractString, v = _schema_version(kind)) = _schema(kind, v) * ".json"
 
 """
     json_schema(kind::AbstractString) -> JSON.Object
@@ -61,16 +61,16 @@ julia> VgtkIO.json_schema("transforms")["title"]
 "vgio/transforms/v5.0"
 ```
 """
-function json_schema(kind::AbstractString)
-    spec = (_schema_version(kind); _spec(kind))     # an unknown kind: the ArgumentError listing the kinds
+function json_schema(kind::AbstractString, v::Tuple{Int, Int} = _schema_version(kind))
+    spec = (_schema_version(kind); _spec(kind, v))  # an unknown kind: the ArgumentError listing the kinds
     defs = JSON.Object{String, Any}()
     body = _json_schema(spec, defs)
-    about = "A $(_schema(kind)) file, as VisualGeometryToolkitIO writes and reads it; generated " *
+    about = "A $(_schema(kind, v)) file, as VisualGeometryToolkitIO writes and reads it; generated " *
             "from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only " *
             "in a `description` is the reader's. A file of a higher minor version of this major may hold keys this " *
             "version does not declare: validate it against its own version's schema."
-    out = JSON.Object{String, Any}("\$schema" => _JSON_SCHEMA_DIALECT, "\$id" => _JSON_SCHEMA_ID_BASE * _json_schema_path(kind),
-                                   "title" => _schema(kind), "description" => about)
+    out = JSON.Object{String, Any}("\$schema" => _JSON_SCHEMA_DIALECT, "\$id" => _JSON_SCHEMA_ID_BASE * _json_schema_path(kind, v),
+                                   "title" => _schema(kind, v), "description" => about)
     for (k, v) in body
         out[k] = k == "description" ? about * " " * v : v
     end
@@ -139,8 +139,9 @@ function _json_schema(s::_CheckedSpec, defs)
     return o
 end
 function _json_schema(s::_SchemaTok, defs)
-    M = first(_schema_version(s.kind))
-    return _jobj("type" => "string", "description" => "$(_schema(s.kind)), or the same major version at any minor",
+    M = s.major
+    v = M == first(_schema_version(s.kind)) ? _schema_version(s.kind) : (M, 0)
+    return _jobj("type" => "string", "description" => "$(_schema(s.kind, v)), or the same major version at any minor",
                  "pattern" => "^vgio/$(s.kind)/v$(M)(\\.[0-9]+)?\$")
 end
 function _json_schema(s::_Cov, defs)
@@ -251,12 +252,14 @@ _named_schema(::typeof(_is_sidecar_length_name)) = Dict("enum" => _unit_names(_i
 _unit_names(ok) = (n = sort!([String(k) for k in keys(VgtkCore.StackUnits.UNITS) if ok(String(k))]);
     ok(_UNKNOWN_SCALE_NAME) ? push!(n, _UNKNOWN_SCALE_NAME) : n)
 
-# Write every kind's schema under `dir` at its `$id` path (docs/src/schemas, the published files).
+# Write the schema of every version a writer emits (`_written_versions`: per kind its current one, and an earlier one
+# a writer still writes for a record that version can hold) under `dir` at its `$id` path (docs/src/schemas, the
+# published files): a file this package writes always has its version's schema, and no other version's is published.
 function _write_json_schemas(dir::AbstractString)
-    for kind in sort!(collect(keys(_SCHEMA_VERSION)))
-        path = joinpath(dir, _json_schema_path(kind))
+    for kind in sort!(collect(keys(_SCHEMA_VERSION))), v in _written_versions(kind)
+        path = joinpath(dir, _json_schema_path(kind, v))
         mkpath(dirname(path))
-        _write_json(path, json_schema(kind))
+        _write_json(path, json_schema(kind, v))
     end
     return dir
 end

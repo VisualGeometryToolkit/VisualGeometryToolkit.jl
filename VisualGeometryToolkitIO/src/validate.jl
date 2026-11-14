@@ -326,16 +326,27 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
 _schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);
     v === nothing ? throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))")) : v)
 _version_string((M, n)::Tuple{Int, Int}) = "v$(M).$(n)"
-_schema(kind) = "vgio/$(kind)/$(_version_string(_schema_version(kind)))"
-# A record's `schema` field accepts its kind's current major at any minor.
+_schema(kind) = _schema(kind, _schema_version(kind))
+_schema(kind, v::Tuple{Int, Int}) = "vgio/$(kind)/$(_version_string(v))"
+
+# THE VERSIONS A WRITER EMITS, per kind: its current version alone, but where a kind's writer writes an earlier one
+# for a record the earlier version can hold (IO 0.10.2, owner ruling (a): a sensor characterisation without a `Darks`
+# is written as v1.0, IO 0.10.1's bytes, so a reader of that version reads it). The writer's choice
+# (`_written_version`) and the published JSON Schemas (`_write_json_schemas`) read this one table: each version a
+# writer can emit has its schema, and none other is published.
+const _OLDER_WRITTEN_VERSIONS = Dict{String, Vector{Tuple{Int, Int}}}("sensor_characterisation" => [(1, 0)])
+_written_versions(kind::AbstractString) = [get(_OLDER_WRITTEN_VERSIONS, kind, Tuple{Int, Int}[]); [_schema_version(kind)]]
+
+# A record's `schema` field accepts its kind's major (by default the current one) at any minor.
 struct _SchemaTok <: _Spec
     kind::String
+    major::Int
 end
-_schema_tok(kind) = _SchemaTok(kind)
+_schema_tok(kind, major = first(_schema_version(kind))) = _SchemaTok(kind, major)
 function _validate(s::_SchemaTok, x, file, at)
     v = _split_schema(x)
-    (v !== nothing && v.kind == s.kind && v.major == first(_schema_version(s.kind))) ||
-        _refuse(file, at, "must be $(repr(_schema(s.kind))) (any minor version), got $(repr(x))")
+    (v !== nothing && v.kind == s.kind && v.major == s.major) ||
+        _refuse(file, at, "must be $(repr(_schema(s.kind, (s.major, 0)))) (any minor version), got $(repr(x))")
     return nothing
 end
 
@@ -435,9 +446,10 @@ _fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, S
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
-                    check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT)
+                    check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT,
+                    major::Int = first(_schema_version(kind)))
     o = _Obj(
-        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
+        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind, major), :generator => _GENERATOR, :units => units,
                                         :conventions => _CONVENTIONS_OBJECT], required),
         _spec_table(optional, _PROVENANCE),
     )
@@ -665,10 +677,12 @@ end
 # `generator`, the `units` and `conventions` objects — is the style's, so no
 # writer can serialize under a unit or pixel frame its file does not declare; a
 # VGC value left in `body` is lowered on `style` (style.jl). `provenance` last.
-function _write_kind(path::AbstractString, kind::AbstractString, body::NamedTuple, provenance::NamedTuple; style::VgioStyle)
-    record = with_provenance(merge(_envelope(kind, style), body), provenance)
+function _write_kind(path::AbstractString, kind::AbstractString, body::NamedTuple, provenance::NamedTuple; style::VgioStyle,
+                     version::Tuple{Int, Int} = _schema_version(kind))
+    version in _written_versions(kind) || throw(ArgumentError("vgio/$(kind) is not written at $(_version_string(version))"))
+    record = with_provenance(merge(_envelope(kind, style), (schema = _schema(kind, version),), body), provenance)
     text = _json_text(record, style)          # serialized once: these bytes are validated and written
-    _validate(_spec(kind), _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
+    _validate(_spec(kind, version), _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
     write(path, text)
     return nothing
 end
@@ -785,6 +799,8 @@ function _spec(kind::AbstractString)
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
+# The validator of a version a writer emits (`_written_versions`): the current one's, or an earlier one's table.
+_spec(kind::AbstractString, v::Tuple{Int, Int}) = v == _schema_version(kind) ? _spec(kind) : _older_spec(Val(Symbol(kind)), v)
 
 """
     validate(path) -> String

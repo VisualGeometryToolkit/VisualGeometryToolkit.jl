@@ -167,11 +167,11 @@ end
 end
 
 # The v1.0 file the REGISTERED IO 0.10.1 wrote (test/fixtures/old/, with its two rasters): read through its step, the
-# characterisation it held; `vgio_migrate` rewrites it as v2.0, read back equal.
-@testitem "sensor_characterisation: a v1.0 file IO 0.10.1 wrote reads through its step; vgio_migrate rewrites it" setup = [VGIoFixtures, SensorFixtures] begin
+# characterisation it held.
+@testitem "sensor_characterisation: a v1.0 file IO 0.10.1 wrote reads through its step" setup = [VGIoFixtures, SensorFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Dark, ChannelBlack, PoissonGaussian, DefectList
-    using VisualGeometryToolkitIO: validate, vgio_migrate
+    using VisualGeometryToolkitIO: validate
     import VisualGeometryToolkitIO as VgtkIO
     src = joinpath(@__DIR__, "fixtures", "old", "sensor_characterisation_v1.0.json")
     @test JSON.parsefile(src)["schema"] == "vgio/sensor_characterisation/v1.0" && JSON.parsefile(src)["generator"]["version"] == "0.10.1"
@@ -182,15 +182,7 @@ end
     @test e.noise.gain == 2.1 && e.defects.x == [5] && e.defects.y == [2]
     @test validate(src) == "sensor_characterisation"
     @test VgtkIO.schema_versions("sensor_characterisation") == ["vgio/sensor_characterisation/v1.0", "vgio/sensor_characterisation/v2.0"]
-    mktempdir() do dir
-        for f in readdir(dirname(src))
-            startswith(f, "sensor_characterisation_v1.0") && cp(joinpath(dirname(src), f), joinpath(dir, f))
-        end
-        p = joinpath(dir, "sensor_characterisation_v1.0.json")
-        r = vgio_migrate(p)
-        @test r.to == "vgio/sensor_characterisation/v2.0" && JSON.parsefile(r.out)["schema"] == "vgio/sensor_characterisation/v2.0"
-        @test load(SensorCharacterisation, r.out) == c
-    end
+    @test VgtkIO._written_versions("sensor_characterisation") == [(1, 0), (2, 0)]
 end
 
 # IO 0.10.2's writer (owner ruling (a), 2026-11-14): the kind version follows what the record holds — v2.0 when an

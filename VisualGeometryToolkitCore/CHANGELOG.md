@@ -1,5 +1,32 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.5
+
+A patch, purely additive: a RAW image's linear values may be stored as Float16 (or Float32). The default is unchanged
+(Float64, bit for bit 0.10.4's values).
+
+### Added
+- **`LinearRaw([T], mosaic; mode, gain, sensor_model)` and `linearview([T], mosaic; sensor_model)`**: the values' element
+  type `T` (a `Base.IEEEFloat`), positional and leading, per the stack's signature rule. Each value is computed in
+  Float64 and rounded once, to nearest, on store, so `LinearRaw(Float16, m; mode).image == Float16.(LinearRaw(m;
+  mode).image)` bit for bit; an uncertain image's variance is computed from the unrounded value and stored as
+  `Float32` beside Float16 values (a Float16 variance underflows: a dark cell's read-noise variance, ≈ 8e-9 in the
+  values' units², is below Float16's smallest subnormal), and includes the variance the store adds, `spacing²/12` at
+  the value (0 for Float64). The FX3 evidence: a photon-transfer fit over Float16-stored green cells gives K = 11.18
+  against 11.30 e⁻/code without the term (≈ 22× K's counts standard error), the added variance per point measured over
+  `spacing²/12` 0.98–1.03, and K = 11.297 with it subtracted. A gain at which a value could exceed `floatmax(T)` is refused. The default is one private constant, `_LINEAR_RAW_ELTYPE =
+  Float64`. The `RawMosaic` stays its `UInt16` codes. `LinearRaw`'s docstring and the Raw images guide derive why
+  Float16 suffices (its step on `[½, 1)` is `d/2048 ≈ 7.75` codes on the FX3's span, under a shot noise of ≈ 26–38
+  codes there; the rounding adds at most 0.71% of the shot variance) and state the rule for consumers: reduce in
+  Float64 (`sum(Float64, A)`, `mean(Float64, A)`).
+- **`linear_quantum` of a Float16 (or Float32) view** is the coarser of one code and the stored value's spacing,
+  `eps(v[i, j])`: the resolution the value carries (`2⁻¹¹`, `span/2048` codes, near the white level in Float16). For
+  the Float64 default it is one code, as before, bit for bit.
+
+### Unchanged
+- `master_dark`, `photon_transfer` and `defect_onsets` read the mosaics' `UInt16` codes and accumulate in Float64; the
+  element type never reaches them.
+
 ## 0.10.4
 
 A patch: photon_transfer against a `Darks` by band, σ_r's standard error from the darks, convergence reported, and the LM

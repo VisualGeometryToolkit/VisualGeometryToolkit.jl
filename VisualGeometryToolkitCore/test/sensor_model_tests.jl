@@ -10,7 +10,7 @@
 @testsetup module SensorFixtures
     using VisualGeometryToolkitCore: RawMosaic
     using Distributions: Poisson, Normal, quantile
-    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame, scene_frame
+    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame, scene_frame, level_of_column
     const RGGB = UInt8[0 1; 3 2]
     const BLACK = 512.0
     const WHITE = 16383.0
@@ -27,6 +27,8 @@
         UInt16(clamp(round(offset + (pois === nothing ? 0.0 : rand(rng, pois) / K_TRUE) + σ * randn(rng)), 0, WHITE))
     # 16 flat levels above black, geometric from 2 to 12000 codes: the low ones pin σ_r², the high ones K.
     const LEVELS = [2.0 * 6000.0^((l - 1) / 15) for l in 1:16]
+    # The level of photosite column j in `ptc_frame` and `scene_frame`: LEVELS[level_of_column(j)] (16-photosite blocks, two per level).
+    level_of_column(j) = cld(cld(j, 16), 2)
     # A photon-transfer scene: 16 × 32 blocks of the estimator's 8 × 8 cells (16 × 16 photosites), block column bj
     # flat at LEVELS[cld(bj, 2)] — 32 blocks per level, so the estimator's 32 groups of 16 blocks hold one level each.
     # `offset` (a per-photosite black, a DSNU) replaces the constant black.
@@ -35,7 +37,7 @@
         pois = [Poisson(μ * K_TRUE) for μ in LEVELS]
         raw = Matrix{UInt16}(undef, H, W)
         for j in 1:W, i in 1:H
-            raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[cld(cld(j, 16), 2)], SIGMA_R)
+            raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[level_of_column(j)], SIGMA_R)
         end
         return synth_mosaic(raw)
     end
@@ -47,7 +49,7 @@
         H, W = 16 * 16, 32 * 16
         raw = Matrix{UInt16}(undef, H, W)
         for j in 1:W, i in 1:H
-            μ = light * levels[cld(cld(j, 16), 2)] * (response === nothing ? 1.0 : response[i, j]) *
+            μ = light * levels[level_of_column(j)] * (response === nothing ? 1.0 : response[i, j]) *
                 (texture === nothing ? 1.0 : texture[i, j])
             raw[i, j] = code(rng, black, Poisson(μ * K_TRUE), σ)
         end

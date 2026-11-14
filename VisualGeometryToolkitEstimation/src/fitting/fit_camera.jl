@@ -101,7 +101,7 @@ The family records:
   held-out pixels dropped (below), the share of the image's area (the full-image
   lattice's) where the fit has no source ray — outside the region, or where the
   source images none — so the penalty alone holds the lattice there
-  (`extrapolated_fraction`), and the tolerance asked for; then the forward
+  (`extrapolated_fraction`; `nothing` for a kept backward, which fits nothing), and the tolerance asked for; then the forward
   spline's knot spacing `h` (radians in the chart), its control counts per chart
   axis, its `λ`, its search's fits and its held-out round trip
   `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
@@ -242,7 +242,8 @@ over the region. The target type selects the family and the solve:
   [`optical_axis`](@ref) rotation (an [`approximate_camera`](@ref); Core's `axis_gauged`, exact; the
   metadata's `rotation`, its `symmetry_residual`), and its backward and forward
   are fitted there. A SplineLens source's backward is then kept exactly (its
-  turned controls `==`) when `grid_size` is `nothing` or its own lattice's, and
+  turned controls `==`) when `grid_size` is `nothing` or its own lattice's (its
+  counts AND its area: Core's full-image layout of those counts), and
   only the forward is fitted; a `grid_size` other than its own RESAMPLES it: the
   backward is fitted on Core's full-image lattice of `grid_size` to the turned
   source's rays over the region by the same penalized solve ([`pspline_grid`](@ref)'s;
@@ -250,7 +251,7 @@ over the region. The target type selects the family and the solve:
   when its held-out maximum meets `tolerance`, else `:max_iterations`. Its fidelity
   to the source is the result's held-out direction error against the source's
   rays (`max_px`, `max_px_edge`, `rms`; over the region where the source images
-  rays), and `extrapolated_fraction` the share of the lattice the penalty holds
+  rays), and `extrapolated_fraction` the share of the image's area the penalty holds
   alone. A physical source's lattice takes its own K and ẑ, already the axis.
   Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
   equidistant direction chart about ẑ to `x`, fitted to the
@@ -1314,12 +1315,12 @@ fit_camera(::Type{SplineLens}, source::NoncentralSplineModel, region; kwargs...)
 
 # The backward of the SplineLens target, from the source `src` on its axis (`source` its bound): a SplineLens source's
 # own, kept exactly (its forward dropped; the held-out direction errors against it, its own) when `grid_size` is
-# `nothing` or its own lattice's; else — any other camera source, or a SplineLens source RESAMPLED onto another
+# `nothing` or its own lattice's (counts and area, `_own_lattice`); else — any other camera source, or a SplineLens source RESAMPLED onto another
 # lattice — the P-spline lattice fitted to its rays (`grid_size`, or the spacing search to `tolerance`). Its camera,
 # its errors and point count, the termination record and the central fields of the family, with the share of the image
 # the fit has no source ray in (`extrapolated_fraction`, below).
 function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics, <:SplineLens}, source, region, grid_size, tolerance, device)
-    if grid_size !== nothing && Int.(Tuple(grid_size)) != VgtkCore.grid_size(src)
+    if grid_size !== nothing && !_own_lattice(src, extent(source), Int.(Tuple(grid_size)))
         return _lattice_backward(source, region, grid_size, tolerance, device)   # resampled onto another lattice
     end
     cam = _without_forward(src)   # refine_spline_camera_and_poses.jl
@@ -1327,7 +1328,7 @@ function _spline_backward(src::CameraModel{<:VgtkCore.Cameras.AbstractIntrinsics
     held = _held_out(SplineLens, cam, q, cam.intrinsics, device)
     errors = _held_out_errors(_direction_errors(cam, held), held.edge)
     family = (; λ = nothing, grid_size = VgtkCore.grid_size(cam), stride = q.stride, outer_iterations = 0, n_held_out_dropped = held.n_dropped,
-              extrapolated_fraction = _extrapolated_fraction(q, extent(source)))
+              extrapolated_fraction = nothing)   # kept: nothing fitted, no share held by a penalty
     return (; camera = cam, errors, n = length(q.fit_px)), (ReturnCode.Success, NoRule), family   # kept: nothing searched
 end
 _spline_backward(::CameraModel, source, region, grid_size, tolerance, device) = _lattice_backward(source, region, grid_size, tolerance, device)
@@ -1340,6 +1341,11 @@ end
 _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
     ArgumentError("fit_camera(SplineLens, …): the source must bound a central CameraModel, got a $(nameof(typeof(src))) (a non-central model fits `NoncentralSplineModel`)")
 )
+
+# Whether `grid_size` is the SplineLens camera `src`'s own lattice: its counts AND its area, the area Core's full-image
+# layout of those counts takes (`spline_lattice`); a lattice over another calibrated area is resampled.
+_own_lattice(src, image_size, grid_size) = grid_size == VgtkCore.grid_size(src) &&
+    lens(src).backward.area == lens(spline_lattice(SplineLens, src, image_size; grid_size)).backward.area
 
 # The share of the image's area — the full-image lattice's — where the fit has no source ray: outside the region, or
 # inside it where the source images none (each fitted quadrature pixel stands for `stride²` of area), so the penalty

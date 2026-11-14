@@ -137,18 +137,15 @@ correction carries the loss; nothing is reweighted during the LM and no inlier s
 formed (the loop's re-score decides the inliers). The model comes back through the
 chart's `recenter` and `_model_at`, as from `refine!`.
 
-Two weight rules, fixed for the one LM (0 or 1 per datum; unit weight on every
-row when neither applies), as for `Irls{K}`:
-
-- a datum whose residual at `model` (`buf.residuals` on entry) is not finite
-  weighs 0 under every shape: its row would make the LM's cost infinite at its
-  start, and the local optimization would hand back its seed;
-- `Triggs{GaussianShape}` (least squares, which no outlier may enter) weighs only
-  the scorer's consensus set `cs` — `consensus_mask!(buf, scoring)`, the first
-  `inlier_count(cs)` of the scorer's `consensus_order` — the LO-RANSAC least
-  squares on the inliers. The robust shapes weigh every finite datum.
+The two weight rules of `Irls{K}`'s `locally_optimize!` fix the one LM's
+per-datum weights, 0 or 1 (unit weight on every row when neither excludes a
+datum): a datum whose residual at `model` (`buf.residuals` on entry) is not
+finite weighs 0 under every shape — its row would make the LM's cost infinite
+at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
+the scorer's consensus set `cs`.
 """
 function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
+    check_fresh(cs, buf)
     loss = lo_loss(lo, cs, scoring, buf)
     weights = _triggs_weights!(L.posterior_w, _lo_consensus(lo, cs, buf, scoring), buf.residuals, data_size(problem))
     return _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, loss; weights)

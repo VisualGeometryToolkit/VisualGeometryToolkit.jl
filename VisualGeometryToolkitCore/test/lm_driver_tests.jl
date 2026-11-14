@@ -397,6 +397,41 @@ end
     @test q.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
 end
 
+@testitem "lmsolve_chart!(::LmProblem): a restart at an exact fit is a Success only to a stated residual_resolution" begin
+    # RC's termination control (RC test/unit/termination_tests.jl:41): a problem solved to its exact fit, then solved
+    # again from there. The restart's F₀ is already rounding, so the run's own resolution m·ε·F₀ is far below it and
+    # the cosine says nothing at rounding: Stalled. With the residual norm the data resolve (`residual_resolution`),
+    # the cost below its square is zero: a Success. The first solve is unchanged by it.
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
+    struct _ExactLine <: NLLSsolver.AbstractResidual
+        s::Float64
+        y::Float64
+    end
+    NLLSsolver.ndeps(::_ExactLine) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_ExactLine) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_ExactLine) = SVector(1)
+    NLLSsolver.getvars(::_ExactLine, vars::Vector) = (vars[1]::SVector{2, Float64},)
+    Base.eltype(::_ExactLine) = Float64
+    NLLSsolver.computeresidual(r::_ExactLine, ab) = SVector(ab[1] * exp(ab[2] * r.s) - r.y)
+    s = collect(range(-1.0, 1.0; length = 400))
+    rows = [_ExactLine(si, 1.7 * exp(0.9 * si) * (1 + 1.0e-16 * sin(37si))) for si in s]   # an exact fit up to rounding
+    p = LmProblem([SVector(1.0, 0.0)], rows)
+    first = lmsolve_chart!(p, LmStops(; ftol = 1.0e-14))
+    @test first.code === ReturnCode.Success                  # from F₀ ≫ rounding: an exact fit by m·ε·F₀
+    @test first.cost < 1.0e-20
+    xstar = p.variables[1]
+    restart(stops) = (q = LmProblem([xstar], rows); (lmsolve_chart!(q, stops), q.variables[1]))
+    r0, x0 = restart(LmStops())                               # the default, residual_resolution = 0
+    @test r0.cost < 1.0e-20
+    @test r0.code === ReturnCode.Stalled                      # F₀ at rounding: not resolved to an exact fit
+    rr, xr = restart(LmStops(; residual_resolution = 1.0e-12))  # the data resolve the residual norm to 1e-12
+    @test rr.code === ReturnCode.Success
+    @test xr == x0 && rr.cost == r0.cost                      # the same iterations: only the success rule reads it
+    @test LmStops().residual_resolution == 0
+    @test_throws ArgumentError LmStops(; residual_resolution = -1.0)
+end
+
 @testitem "lmsolve_chart!(::LmProblem): the damping strategy, the default Core 0.10.1's bit for bit" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, MarquardtDamping,

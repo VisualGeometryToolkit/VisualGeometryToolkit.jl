@@ -98,7 +98,7 @@ _nlls_iterator(::MarquardtDamping) = NLLSsolver.static(:levenbergmarquardt_dtd)
 _nlls_iterator(::LevenbergDamping) = NLLSsolver.static(:levenbergmarquardt)
 
 """
-    LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing, damping = MarquardtDamping())
+    LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing, damping = MarquardtDamping(), residual_resolution = 0)
 
 THE stop settings of every host Levenberg–Marquardt fit of the stack — the one owner of its knobs, which
 [`lmsolve_chart!`](@ref) maps onto NLLSsolver's options in one place. Every keyword defaults to Core's
@@ -111,6 +111,7 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
+| `residual_resolution` | the residual norm the DATA resolve (`0`, the default: the run's own resolution alone). The success rule's exact-fit test reads it — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller passes it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
 | `damping` | the step's damping, a strategy type: [`MarquardtDamping`](@ref) (the default, λ·DᵀD) or [`LevenbergDamping`](@ref) (λ·I) | `iterator`: `:levenbergmarquardt_dtd` / `:levenbergmarquardt` |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
@@ -125,13 +126,17 @@ struct LmStops{D <: LmDamping}
     stationarity_tol::Float64
     max_time::Float64
     damping::D
+    residual_resolution::Float64
 end
 function LmStops(; max_iter::Integer = _LM_MAX_ITER, ftol::Real = _LM_FTOL, xtol::Real = _LM_XTOL,
-        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing, damping::LmDamping = MarquardtDamping())
+        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing, damping::LmDamping = MarquardtDamping(),
+        residual_resolution::Real = 0)
     max_iter >= 0 || throw(ArgumentError("LmStops: max_iter is a count of accepted iterations, ≥ 0; got $max_iter"))
     (ftol >= 0 && xtol >= 0) || throw(ArgumentError("LmStops: ftol and xtol are tolerances, ≥ 0; got ftol = $ftol, xtol = $xtol"))
     0 < stationarity_tol <= 1 || throw(ArgumentError("LmStops: stationarity_tol is a cosine in (0, 1]; got $stationarity_tol"))
-    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(stationarity_tol), _time_cap(max_time), damping)
+    residual_resolution >= 0 || throw(ArgumentError("LmStops: residual_resolution is a residual norm, ≥ 0; got $residual_resolution"))
+    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(stationarity_tol), _time_cap(max_time), damping,
+        Float64(residual_resolution))
 end
 # `max_time` in seconds: `nothing` or `Inf` (or anything past the no-cap value) is
 # no cap; a negative or NaN cap is no cap anyone meant.
@@ -148,7 +153,7 @@ end
         s.ftol, 0.0, s.xtol, _NLLS_MAXFAILS, s.max_iter, UInt64(round(s.max_time * 1.0e9)),
         _nlls_iterator(s.damping), NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
     )
-_nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 1.0, _NLLS_NO_TIME_CAP, d)))
+_nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 1.0, _NLLS_NO_TIME_CAP, d, 0.0)))
 
 """
     ManifoldLmWorkspace{N}
@@ -504,17 +509,20 @@ end
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, callback, p.cache)
     code = nlls_stop_code(result.termination)
-    exact = _exact_fit_threshold(2 * result.startcost, _residual_count(p.blocks))
+    exact = max(_exact_fit_threshold(2 * result.startcost, _residual_count(p.blocks)), stops.residual_resolution^2)
     stationary = (code == 1 || code == 2 || code == 4) ? postcondition(exact)::Bool : true
     stationary || (code = _LM_STALLED)
     return result, code, nlls_termination(result, stationary)
 end
 
-# THE exact-fit threshold of a run (Core 0.10.2; it was `LmStops.ftol`, a RELATIVE tolerance, read as an absolute cost):
+# THE exact-fit threshold of a run (Core 0.10.2; it was `LmStops.ftol`, a RELATIVE tolerance, read as an absolute cost),
+# floored by the caller's `LmStops.residual_resolution`² (the data's resolution: `_lm_run!`):
 # a cost F = Σᵢ rᵢ² of `m` residuals is evaluated to a relative error of about m·ε (each square to ε, their sum's m − 1
 # additions), so at the start, F₀, it is known to m·ε·F₀. A remaining cost below that resolution is zero: an exact fit,
 # whose residuals point in no particular direction (the column cosine says nothing there). Scaled to the problem by F₀
 # and m, it is never a fixed number: a low cost that is merely small (a problem whose costs are all small) is not exact.
+# Relative to F₀, it cannot resolve a run that STARTS at an exact fit (a restart from a solve's minimum: F₀ is itself
+# rounding, so m·ε·F₀ lies far below it) — that run is `Stalled` unless the caller states `residual_resolution`.
 _exact_fit_threshold(F₀::Real, m::Integer) = m * eps(Float64) * F₀
 # The residuals' count m of a run's blocks (NLLSsolver's `nres` of each).
 _residual_count(blocks) = sum(b -> Int(NLLSsolver.dynamic(NLLSsolver.nres(b))), blocks; init = 0)
@@ -686,7 +694,10 @@ the rejection cap alike, stationarity is TESTED at the returned point, and a sto
 `ReturnCode.Stalled` (`converged = -2`) with the rule that fired. A tiny cost decrease or a tiny step proves nothing: a
 run whose damping grew until no step could lower the cost (a wrong-sign Jacobian; a NaN wall the minimizer lies
 behind) stops there. Stationary means the cost is zero by the exact-fit test — below the run's own resolution of its
-starting cost F₀, `F < m·ε·F₀` over `m` residuals (`stops.ftol` is the relative cost-decrease stop, never this test) — or every column of
+starting cost F₀, `F < m·ε·F₀` over `m` residuals, or below the square of the residual norm the data resolve,
+`stops.residual_resolution` (`0` by default; `stops.ftol` is the relative cost-decrease stop, never this test). A run
+that STARTS at an exact fit (a restart from a solve's minimum, F₀ itself rounding) is resolved only by the latter: with
+the default it is `Stalled`. Otherwise stationary means every column of
 the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`
 (√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)). The iteration and time caps are `MaxIters`
 and `MaxTime`, a failed solve `Failure`.
@@ -833,7 +844,7 @@ end
 Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
 
 1. `F < ftol` — the cost is ZERO: `ftol` the run's exact-fit threshold (`_exact_fit_threshold`, the resolution
-   m·ε·F₀ of its starting cost), never the relative `LmStops.ftol`. A zero-
+   m·ε·F₀ of its starting cost, floored by `LmStops.residual_resolution`²), never the relative `LmStops.ftol`. A zero-
    residual fit ends with `r` at its rounding floor, which points in no
    particular direction, so the cosine below says nothing there: measured
    2026-10-01, exact fits (robot-world, lens, relative-pose, essential) ended
@@ -1287,7 +1298,7 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     # gradient floors, the exact-fit floor no finer than the data resolve (`residual_resolution`), or: the undamped Gauss–Newton step from x, (JᵀJ)⁻¹Jᵀr, is below the step tolerance, the
     # IncrementSize test — a root resolved to the step tolerance, or a minimizer whose gradient no step can follow),
     # or the host LM's column cosine (`_column_cosine`, of g = Jᵀr and the squared column norms diag JᵀJ) — and accepted.
-    # The step-tolerance test is the device form of the host's exact-fit test (F < ftol: zero by the cost tolerance):
+    # The step-tolerance test is the device form of the host's exact-fit test (F below the run's resolution: zero):
     # at a root of a square system the rows' rounding points in no direction, so the cosine says nothing there.
     # On the box, stationarity is the bounded problem's (Karush–Kuhn–Tucker): a coordinate held at a bound by a
     # gradient pointing out of the box (the descent −g leaves it) is not free, its gradient component dropped.

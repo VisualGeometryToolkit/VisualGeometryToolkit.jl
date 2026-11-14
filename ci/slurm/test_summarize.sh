@@ -1,6 +1,6 @@
 #!/bin/bash
 # test_summarize.sh — summarize.sh reads the LAST top-level Test Summary of a package log: the fixture's PoseLib log holds
-# its README-example testset's summary (5) before the package total (312 pass, 1 broken, 313). Run from the repository root.
+# its README-example testset's summary (5) before the package total (312 succeeded, 1 broken, 313 in all). Run from the repository root.
 set -euo pipefail
 out=$(bash ci/slurm/summarize.sh ci/slurm/fixtures/summarize-two-blocks)
 row=$(grep '^| PoseLib |' <<< "$out")

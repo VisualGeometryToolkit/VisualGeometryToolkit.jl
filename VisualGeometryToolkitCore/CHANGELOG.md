@@ -2,7 +2,8 @@
 
 ## 0.10.2
 
-A patch: the success rule's exact-fit test, a visible sensor-model fallback, and a choice of LM damping.
+A patch: the success rule's exact-fit test and the data's resolution, a visible sensor-model fallback, and a choice
+of LM damping.
 
 ### Fixed
 - **The LM's exact-fit test has its own threshold.** `LmStops.ftol` is the RELATIVE cost-decrease stop; it was also read
@@ -10,7 +11,10 @@ A patch: the success rule's exact-fit test, a visible sensor-model fallback, and
   however far from stationary (a downstream fixture ending at a cost of about 2e-8). The exact-fit test is now the run's
   own resolution of its starting cost, `F < m·ε·F₀` over `m` residuals (`_exact_fit_threshold`: a cost of `m` squares is
   evaluated to about `m·ε` relative), in the chart, robust and multi-block postconditions alike. A low-cost stop short
-  of stationarity is now `Stalled` (tested); an exact fit is still a `Success`.
+  of stationarity is now `Stalled` (tested); an exact fit is still a `Success`. Measured on RadiometricCamera 0.9's CPU
+  suite (rec bb478c0eb, 68 LM runs): the fixtures that end at about 1e-8 to 2e-8 sit about six orders ABOVE `m·ε·F₀`
+  (F = 9.8e-9 against 4.2e-14, m = 2970). They are still a `Success`, now by the column cosine; their 2e-8 runs stop
+  at the iteration cap, which the rule never reads. One run of 56 changes: a restart from an exact fit (below).
 
 ### Added
 - **`ModelReason` value `DarkOutOfBand`** (public): `sensor_model` matched the body and the ISO, but the frame's exposure
@@ -23,6 +27,13 @@ A patch: the success rule's exact-fit test, a visible sensor-model fallback, and
   (λ·DᵀD, `:levenbergmarquardt_dtd`) is the default, and with it every fit is 0.10.1's bit for bit (tested against
   values measured on 0.10.1). `LevenbergDamping()` (λ·I, `:levenbergmarquardt`) is opt-in. Additive: `LmStops` gains a
   type parameter and a field, and a caller that builds it by keyword is unchanged.
+- **`LmStops(; residual_resolution = 0)`**, the residual norm the data resolve, as in `StaticLmStops`: the exact-fit
+  test is `F < max(m·ε·F₀, residual_resolution²)`. It is needed because the run's own resolution is relative to its
+  start: a run that STARTS at an exact fit (RC's termination control re-solves from a solve's minimum, F₀ = 4.2e-29)
+  has `m·ε·F₀` far below its rounding and the cosine says nothing there, so it is `Stalled`. With the data's
+  resolution stated it is a `Success` (tested). Only the success rule reads it; the iterations are unchanged. The
+  default `0` is the rule above. A caller passes a DERIVED resolution (its data's noise in the residual's units),
+  never a tuned literal.
 - **Measured, so it is not retried blindly:** on RC's refinements, neither damping wins everywhere. λ·DᵀD reaches a
   lower cost on the fisheye case. λ·I converges on a non-central origin fit where DᵀD stalls at 1.2e-8 of its start
   cost, and it reaches a slightly lower cost 1.6–1.8× faster on the Tamron and grid cases. Hence a choice, not a new

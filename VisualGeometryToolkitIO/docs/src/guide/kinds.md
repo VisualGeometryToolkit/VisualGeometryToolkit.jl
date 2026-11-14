@@ -353,9 +353,11 @@ hold); the table is generated from both:
 ```@eval
 import VisualGeometryToolkitIO as VgtkIO
 using Markdown: Markdown
-written(r) = [VgtkIO._schema(r.kind, v) for v in VgtkIO._written_versions(r.kind)]
-rows = ["| `vgio/$(r.kind)` | $(join(("`$(s)`" for s in written(r)), ", ")) | $(join(("`$(s)`" for s in r.reads if !(s in written(r))), ", ")) |"
-        for r in VgtkIO.schema_versions()]
+function row(r)
+    w = [VgtkIO._schema(r.kind, v) for v in VgtkIO._written_versions(r.kind)]
+    return "| `vgio/$(r.kind)` | $(join(("`$(s)`" for s in w), ", ")) | $(join(("`$(s)`" for s in r.reads if !(s in w)), ", ")) |"
+end
+rows = map(row, VgtkIO.schema_versions())
 Markdown.parse(join(["| Kind | Written | Also read |", "|---|---|---|", rows...], "\n"))
 ```
 

@@ -109,9 +109,10 @@ end
         cal = load_matlab_calibration(src; file_unit = mm)
         back = load(Vector{EuclideanMap}, r.poses)
         @test all(((a, b),) -> VgtkIO._same_pose(a, b), zip(back, cal.poses))
+        metres(p) = [Float64(ustrip(m, t)) for t in p.t]
         # the identity of every translation read back is its value's
-        @test all(((a, b),) -> map(t -> VgtkIO._persisted(ustrip(m, t)), a.t) == map(t -> VgtkIO._persisted(ustrip(m, t)), b.t), zip(back, cal.poses))
+        @test all(((a, b),) -> VgtkIO._persisted.(metres(a)) == VgtkIO._persisted.(metres(b)), zip(back, cal.poses))
         # some translation is NOT within 2 ulp (the case the comparison must accept)
-        @test any(((a, b),) -> any(map((x, y) -> abs(ustrip(m, x) - ustrip(m, y)) > 2 * eps(abs(ustrip(m, x))), a.t, b.t)), zip(back, cal.poses))
+        @test any(((a, b),) -> any(abs.(metres(a) .- metres(b)) .> 2 .* eps.(abs.(metres(a)))), zip(back, cal.poses))
     end
 end

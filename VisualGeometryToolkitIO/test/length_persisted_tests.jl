@@ -17,7 +17,6 @@
 @testitem "lengths: a written length reads back as its persisted value" setup = [VGIoFixtures, PersistedLengthClaims] begin
     import VisualGeometryToolkitIO as VgtkIO
     using Random: Xoshiro
-    back(t, u) = ustrip(m, VgtkIO.read_length(VgtkIO.write_length(t * m, u), u))
     # the probe's example: 0.10.0 wrote -167.4265305809965 mm, which read back as
     # -0.1674265305809965 m, whose persisted value is not t's
     t = -0.16742653058099652

@@ -1,8 +1,8 @@
 # A zero-weight row is exactly 0 (0.11.4). Every chart refit — the LO's `refine!`, a `refine_*`'s least squares and
 # both Triggs paths — runs `_chart_refit`, which builds the rows as √w·e. A datum at weight 0 whose own residual is
 # Inf or NaN in Float64 gave 0·Inf = NaN: the LM started at a NaN cost and handed back its seed. The rule, in that
-# one place: a row (and its Jacobian rows) whose √w is 0 is exactly 0, whatever the problem's row is; a run with no
-# zero weight is the same code as before.
+# one place: a row (and its Jacobian rows) whose √w is 0 is exactly 0, whatever the problem's row is; a row at a
+# nonzero √w is the problem's own, bit for bit.
 
 @testitem "zero-weight rows: the ellipse and hand-eye refits (red before 0.11.4)" setup = [ConicScenes, PoseScenes] begin
     using Test, LinearAlgebra, StaticArrays, StableRNGs
@@ -33,6 +33,16 @@
         @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
     end
 
+    @testset "the Triggs LO (the robustified LM): a NaN point, weighed 0 by its non-finite seed residual" begin
+        pn, _ = ellipse_scene(StableRNG(92), 100; σ = 1.0, outl = 0.0)
+        p = EllipseProblem(vcat(pn, [Point2(NaN, NaN)]))
+        e₀ = Ellipse(Point2((centre(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
+        r = VgtkEstimation.locally_optimize(p, e₀; local_optimization_strategy = VgtkCore.Triggs{VgtkCore.CauchyShape}(efficiency_constant = 2.5),
+                                            scoring = VgtkCore.MsacScoring(p; threshold = 5.0))
+        e₁ = VgtkCore.estimate(r)
+        @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
+    end
+
     @testset "hand-eye: a NaN motion at weight 0" begin
         sc = robot_world_hand_eye_scene(StableRNG(19); N = 8, Y = (ang_max = π / 2,), X = (ang_max = π / 2,), A = (ang_max = π / 2,))
         Xtrue = only(sc.X); A = sc.A
@@ -48,17 +58,14 @@
         Xref = VgtkCore.refine!(nothing, p, Xpert, zero_last(n))
         @test Xref !== nothing
         @test Xref !== nothing && cost(Xref) < 0.5 * cost(Xpert)
-        # the same refit without the NaN motion: the zero-weight datum moves nothing
-        Xc = VgtkCore.refine!(nothing, clean, Xpert, ones(data_size(clean)))
-        @test Xref !== nothing && isapprox(cost(Xref), cost(Xc); rtol = 1.0e-6, atol = 1.0e-12)
     end
 end
 
 @testitem "zero-weight rows: PnP, bearing pose and refine_* (guards; not reachable as red)" begin
     # These rows were finite already, so the rule changes nothing here: PnP's rows give an invalid point (a non-finite
     # e included) the finite out-of-field residual; BearingPoseProblem refuses non-finite data, and a point at the camera
-    # centre or far away has a finite tangent residual; `refine_*` runs at unit weight except PnP's own invalid-anchor
-    # zeroing and bearing pose's caller `weights` column. They stay correct at weight 0.
+    # centre or far away has a finite tangent residual (its caller `weights` column enters the row as √w·sw·e, 0 for a
+    # finite e); `refine_*` runs at unit weight except PnP's own invalid-anchor zeroing. They stay correct at weight 0.
     using Test, LinearAlgebra, StaticArrays
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation

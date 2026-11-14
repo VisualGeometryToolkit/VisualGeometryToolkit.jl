@@ -255,18 +255,6 @@ _model_directions(::BearingPoseProblem, _θ) = nothing
 chart_dof(::Type{<:BearingPoseProblem}) = 6
 _chart(::BearingPoseProblem, pose::Extrinsics3) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
 
-# The refit's state: a correspondence the caller weighs 0 (its `weights` column)
-# has √w 0 on both rows too, so the chart refit's zero-weight row rule
-# (`_chart_refit`) holds it at exactly 0 rows (its row is `√w·sw·e`, 0 already
-# whenever `e` is finite: only the code path changes).
-function _refit_state(p::BearingPoseProblem, ch, sqrtw)
-    sw = p.context.sw
-    @inbounds for i in 1:data_size(p)
-        iszero(sw[i]) && (sqrtw[2i - 1] = 0.0; sqrtw[2i] = 0.0)
-    end
-    return _lm_state(p, ch, sqrtw)
-end
-
 # √w-weighted rows in the chart at `δ` (VGC's `residual_rows!`): the LO's √w
 # per row times the caller's fixed √weight per correspondence. The Jacobian is
 # VGC's default, ForwardDiff through these rows.

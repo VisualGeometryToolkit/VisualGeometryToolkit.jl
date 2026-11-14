@@ -130,10 +130,9 @@ NLLSsolver has it.
 ``\sqrt{w_i}\,e_i`` in one place. A datum at weight 0 whose own residual is
 `Inf` or `NaN` would give ``0 \cdot \infty = \mathrm{NaN}`` and stop the LM at
 its start, so the rows (and Jacobian rows) at a zero ``\sqrt{w}`` are set to 0
-whatever the problem's row is. A zero weight is the caller's (`weights`, a
-`BearingPoseProblem`'s `weights` column), the local optimization's, or the
-problem's own (a PnP point out of the camera's reach at the anchor). A refit
-with no zero weight runs exactly as before.
+whatever the problem's row is. A zero weight is the local optimization's or
+the problem's own (a PnP point out of the camera's reach at the anchor). A row
+at a nonzero weight is the problem's own, bit for bit.
 
 | Problem | M-step body | Notes |
 |---------|-------------|-------|

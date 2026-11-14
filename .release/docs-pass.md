@@ -3,7 +3,8 @@ docs-pass: fdbbcb3b
 # VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitFeatures 0.9.6, VisualGeometryToolkitEval 0.9.0 docs pass (julia-docs-pass) — branch patch-feat096
 
 Baseline: GitHub main 29d7492e (Features 0.9.5), main d40a948a and 0005582b merged (Estimation 0.11.4, 0.11.5: no Core,
-Features or Eval change). The gated tree is fdbbcb3b; this record is the only change after it.
+Features or Eval change). The gated tree is fdbbcb3b; after it only this record and one sentence of Eval's CHANGELOG
+(the atomic save is staged in a temporary directory, as the code does) changed; Eval's naming item re-run on that tree.
 
 ## 1. Public API since the last releases
 

@@ -10,8 +10,8 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 - **One cache: the keyed product on DrWatson's `produce_or_load` replaces Eval's own caching.** `Product(experiment, name,
   record; output, files, upstream, parts, code)` and `produce(f, product)` (produce_or_load with `loadfile = false`; `f` may
   return a `Produced`: its record or `nothing`, the inputs it read, the save's keywords). A record `f` returns is saved
-  through `DrWatson._wsave` ATOMICALLY (a temporary file of the same extension in the product's directory, renamed onto the
-  output; a save that throws leaves no output and the product not produced) by the output's saver: a `.jld2` output holds
+  through `DrWatson._wsave` ATOMICALLY (staged under its own name in a fresh temporary directory in the product's directory,
+  then moved onto the output; a save that throws leaves no output and the product not produced) by the output's saver: a `.jld2` output holds
   the record as JLD2's one object `"record"` (any Julia value, a String- or Symbol-keyed `Dict` read back as it was), any
   other goes through `VisualGeometryToolkitIO.save`; `load_output(T, product)` reads it back the same way. An `output` may
   be a directory (a product that writes one: produced while it is there, removed whole when produced again). A product's

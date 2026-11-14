@@ -245,7 +245,7 @@ end
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode_symbol, rms, SplineLens, CameraModel, BoundedCamera, Size2,
         CameraCalibrationMat, Ellipse, ChartSpline, backproject, project, calibration_matrix, lens, rotation, grid_size, model,
-        imaged_region, angle_between
+        imaged_region, angle_between, Rect, spline_lattice
     using VisualGeometryToolkitEstimation: fit_camera, optical_axis
     K0 = calibration_matrix(GRID)
     src = BoundedCamera(CameraModel(GRID, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 520.0, 490.0, 1))), Size2(1000, 1000))
@@ -276,6 +276,18 @@ end
     rs = fit_camera(SplineLens, src, REGION; tolerance = 1.0e-3, grid_size = (40, 40), forward = false)
     @test lens(estimate(rs)).backward.controls == lens(estimate(rk)).backward.controls == map(c -> R * c, lens(GRID).backward.controls)
     @test metadata(rs).family.λ === nothing && retcode_symbol(rs) === :converged
+    # a kept backward fits nothing: no share is held by a penalty (desktop ruling, 2026-11-15)
+    @test metadata(rs).family.extrapolated_fraction === nothing && metadata(rk).family.extrapolated_fraction === nothing
+
+    # 2b. "its own lattice" is its counts AND its area (desktop ruling, 2026-11-15): a source of the same 40 × 40 counts
+    # over a calibrated area other than the full image is resampled onto Core's full-image lattice of 40 × 40
+    ca = Rect(100, 100, 800, 800)
+    sub_src = BoundedCamera(CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (40, 40), calib_area = ca), Size2(1000, 1000))
+    @test grid_size(model(sub_src)) == (40, 40)
+    rc = fit_camera(SplineLens, sub_src, Rect(150, 150, 700, 700); tolerance = 1.0e-3, grid_size = (40, 40), forward = false)
+    full = spline_lattice(SplineLens, model(sub_src), Size2(1000, 1000); grid_size = (40, 40))
+    @test metadata(rc).family.λ isa Float64 && metadata(rc).family.extrapolated_fraction isa Float64
+    @test grid_size(estimate(rc)) == (40, 40) && lens(estimate(rc)).backward.area == lens(full).backward.area
 
     # 3. a source whose lens coverage (300 px) is far smaller than the full-image lattice: the nodes whose support misses
     # it are held by the penalty, finite; the fit converges (measured 2026-11-14 at 30 × 30: 1.2e-4 px)

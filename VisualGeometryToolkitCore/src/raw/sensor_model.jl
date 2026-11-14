@@ -211,7 +211,12 @@ the black slot's form for darks taken at several exposures (Core 0.10.3):
 exposure (`Matched`: the model is the one that Dark alone gives), else to `black`
 with the reason `DarkOutOfBand`. The selection is inside the one component: the
 slot's precedence of sources is unchanged. A single band is a `Darks` of one; a
-bare `Dark` stays a `Dark`. Moved to a device by `Adapt.adapt`.
+bare `Dark` stays a `Dark`. Each Dark keeps its own channel black (its span when
+it serves a frame: the black measured at its exposure); `black` is the fallback
+alone. A `Darks` is a characterisation's, never a frame's: a
+[`SensorModel`](@ref) refuses one (resolve it with `sensor_model`), and the model
+`sensor_model` returns, holding one Dark, is what moves to a device
+(`Adapt.adapt` of a `Darks` moves every band's maps).
 """
 struct Darks{B <: Union{FileBlack, ChannelBlack}, D <: Dark} <: BlackComponent
     black::B
@@ -456,6 +461,11 @@ struct SensorModel{B <: BlackComponent, N <: NoiseComponent, D <: DefectComponen
     defects::D
     reason::ModelReason
     specified_override::Bool
+    function SensorModel(black::B, noise::N, defects::D, reason::ModelReason, specified_override::Bool) where {B <: BlackComponent, N <: NoiseComponent, D <: DefectComponent}
+        black isa Darks && throw(ArgumentError(
+            "SensorModel: a frame's black is one Dark, not a Darks — resolve the characterisation with sensor_model(c, capture, t)"))
+        return new{B, N, D}(black, noise, defects, reason, specified_override)
+    end
 end
 SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent; reason::ModelReason = Matched,
             specified_override::Bool = false) = SensorModel(black, noise, defects, reason, specified_override)
@@ -563,15 +573,14 @@ function _pick(candidates, absent, slot, iso)
 end
 
 # A frame's black: a Dark only when its band serves the exposure, else its channel black; of Darks, the one Dark whose
-# band serves it, else their shared channel black. Whether it fell back: `_out_of_band`.
+# band serves it, else their shared channel black.
 _frame_black(b::BlackComponent, t) = b
 _frame_black(d::Dark, t) = _serves(d, t) ? d : d.black
 function _frame_black(d::Darks, t)
     k = findfirst(x -> _serves(x, t), d.darks)
     return k === nothing ? d.black : d.darks[k]
 end
-_out_of_band(black::Union{Dark, Darks}, fb) = !(fb isa Dark)
-_out_of_band(black, fb) = false
+
 # A frame's defects: the sites whose onset is at most the exposure (none: NoDefects).
 _frame_defects(d::DefectComponent, t) = d
 function _frame_defects(d::DefectList, t)
@@ -634,7 +643,7 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
     defects, od = _pick([e.defects for e in entries], NoDefects(), :defects, ex.iso)
     fb = _frame_black(black, ex.exposure_time)
     return SensorModel(fb, noise, _frame_defects(defects, ex.exposure_time);
-                       reason = _out_of_band(black, fb) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
+                       reason = black isa Union{Dark, Darks} && !(fb isa Dark) ? DarkOutOfBand : Matched, specified_override = ob || on || od)
 end
 
 # ------------------------------------------------------------------------------
@@ -705,7 +714,7 @@ mosaic's window: a window's photosite `(i, j)` is `mask[i + o[1], j + o[2]]`,
 `o = mosaic.window_origin`. A list that does not cover the mosaic's photosites
 is a `DimensionMismatch`.
 """
-defect_mask(model::SensorModel, mosaic::RawMosaic; backend = KA.get_backend(parent(mosaic))) = _defect_mask(model.defects, mosaic, backend)
+defect_mask(model::SensorModel, mosaic::RawMosaic; kw...) = defect_mask(model.defects, mosaic; kw...)
 defect_mask(defects::DefectComponent, mosaic::RawMosaic; backend = KA.get_backend(parent(mosaic))) = _defect_mask(defects, mosaic, backend)
 
 # A pixel value's variance law under the noise slot, as the kernel reads it per cell site k (D11): a value x of a plane

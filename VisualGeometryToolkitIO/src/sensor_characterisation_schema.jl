@@ -101,6 +101,7 @@ function _dark_problem(b)
     b[:frames] >= 2 && return nothing
     return "a dark's temporal variance needs at least 2 frames"
 end
+# (the rule is VisualGeometryToolkitCore's `Darks` constructor's, stated here so `validate` refuses the file without one)
 function _darks_problem(ds)
     isempty(ds) && return "a darks body holds at least one dark"
     for d in ds
@@ -169,15 +170,13 @@ function _component_json(d::VgtkCore.Dark, files)
          size = (width = size(d.offset, 2), height = size(d.offset, 1)),
          offset = _raster_payload_json(files.dir, "$(files.stem).dark_offset.tiff", Array(d.offset)),
          variance = _raster_payload_json(files.dir, "$(files.stem).dark_variance.tiff", Array(d.variance)), source = string(d.source))
-    b = _component_json(d.black, files)
-    return b === nothing ? r : merge((type = r.type, black = b), r)
+    return _with_black(r, d.black, files)
 end
-function _component_json(d::VgtkCore.Darks, files)
-    r = (type = "darks", darks = [_component_json(x, (dir = files.dir, stem = "$(files.stem).band$(k)")) for (k, x) in enumerate(d.darks)],
-         source = string(d.source))
-    b = _component_json(d.black, files)
-    return b === nothing ? r : merge((type = r.type, black = b), r)
-end
+_component_json(d::VgtkCore.Darks, files) =
+    _with_black((type = "darks", darks = [_component_json(x, (dir = files.dir, stem = "$(files.stem).band$(k)")) for (k, x) in enumerate(d.darks)],
+                 source = string(d.source)), d.black, files)
+# A dark's or a darks' body with its channel black after its type (absent when it is the RAW's).
+_with_black(r, black, files) = (b = _component_json(black, files); b === nothing ? r : merge((type = r.type, black = b), r))
 _component_json(c::VgtkCore.ReadNoise, files) = _std_error_json((type = "read_noise", sigma = _four(c.σ), source = string(c.source)), c.std_error)
 _component_json(c::VgtkCore.PoissonGaussian, files) =
     _std_error_json((type = "poisson_gaussian", gain = c.gain, sigma = _four(c.σ), source = string(c.source)), c.std_error)
@@ -218,13 +217,13 @@ _four_from(x) = ntuple(i -> Float64(x[i]::Real), 4)
 _source_from(x) = only(s for s in instances(VgtkCore.SensorSource.T) if string(s) == x::String)
 _std_error_from(b, f) = haskey(b, :std_error) ? f(b.std_error) : nothing
 _channel_black_from(b) = VgtkCore.ChannelBlack(_four_from(b.values), _std_error_from(b, _four_from); source = _source_from(b.source))
+_optional_black_from(b) = haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack()
 function _black_from(path, b)
     b.type == "channel" && return _channel_black_from(b)
-    b.type == "darks" && return VgtkCore.Darks(haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack(),
-                                               [_black_from(path, x) for x in b.darks]; source = _source_from(b.source))
+    b.type == "darks" && return VgtkCore.Darks(_optional_black_from(b), [_black_from(path, x) for x in b.darks]; source = _source_from(b.source))
     sec = parse_unit(_TIME_UNIT)
     W, H = Int(b.size.width::Integer), Int(b.size.height::Integer)
-    return VgtkCore.Dark(haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack(),
+    return VgtkCore.Dark(_optional_black_from(b),
                          _raster_payload_from_json(path, b.offset, Float32, W, H), _raster_payload_from_json(path, b.variance, Float32, W, H),
                          (Float64(b.exposure_band[1]::Real) * sec, Float64(b.exposure_band[2]::Real) * sec), Int(b.frames::Integer);
                          source = _source_from(b.source))

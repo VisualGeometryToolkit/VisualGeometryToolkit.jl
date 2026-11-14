@@ -397,11 +397,13 @@ end
     @test q.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
 end
 
-@testitem "lmsolve_chart!(::LmProblem): a restart at an exact fit is a Success only to a stated residual_resolution" begin
+@testitem "lmsolve_chart!(::LmProblem): a restart at an exact fit is a Success, residual_resolution a floor" begin
     # RC's termination control (RC test/unit/termination_tests.jl:41): a problem solved to its exact fit, then solved
-    # again from there. The restart's F₀ is already rounding, so the run's own resolution m·ε·F₀ is far below it and
-    # the cosine says nothing at rounding: Stalled. With the residual norm the data resolve (`residual_resolution`),
-    # the cost below its square is zero: a Success. The first solve is unchanged by it.
+    # again from there (Core 0.10.4). The exact-fit threshold is the FINAL point's rounding, (16ε)²·Σᵢ sᵢ² over the
+    # residuals' operand scales sᵢ (`_rounding_floor`), never relative to the start: a restart whose F₀ is itself
+    # rounding (until 0.10.3 m·ε·F₀ lay far below the final cost, and the restart was Stalled) is an exact fit, a
+    # Success, from the minimum and from 1e-12 off it. `residual_resolution` floors the threshold at the data's own
+    # resolution and changes no iteration.
     using Test, StaticArrays
     using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
     struct _ExactLine <: NLLSsolver.AbstractResidual
@@ -418,18 +420,53 @@ end
     rows = [_ExactLine(si, 1.7 * exp(0.9 * si) * (1 + 1.0e-16 * sin(37si))) for si in s]   # an exact fit up to rounding
     p = LmProblem([SVector(1.0, 0.0)], rows)
     first = lmsolve_chart!(p, LmStops(; ftol = 1.0e-14))
-    @test first.code === ReturnCode.Success                  # from F₀ ≫ rounding: an exact fit by m·ε·F₀
+    @test first.code === ReturnCode.Success                  # an exact fit: the final cost below its rounding floor
     @test first.cost < 1.0e-20
     xstar = p.variables[1]
-    restart(stops) = (q = LmProblem([xstar], rows); (lmsolve_chart!(q, stops), q.variables[1]))
+    restart(stops, x = xstar) = (q = LmProblem([x], rows); (lmsolve_chart!(q, stops), q.variables[1]))
     r0, x0 = restart(LmStops())                               # the default, residual_resolution = 0
     @test r0.cost < 1.0e-20
-    @test r0.code === ReturnCode.Stalled                      # F₀ at rounding: not resolved to an exact fit
+    @test r0.code === ReturnCode.Success                      # F₀ at rounding: the final point's floor resolves it
+    rn, _ = restart(LmStops(), xstar .+ 1.0e-12)              # near the minimum: F₀ ≈ 1e-21, the final cost rounding
+    @test rn.cost < 1.0e-20
+    @test rn.code === ReturnCode.Success
     rr, xr = restart(LmStops(; residual_resolution = 1.0e-12))  # the data resolve the residual norm to 1e-12
     @test rr.code === ReturnCode.Success
     @test xr == x0 && rr.cost == r0.cost                      # the same iterations: only the success rule reads it
     @test LmStops().residual_resolution == 0
     @test_throws ArgumentError LmStops(; residual_resolution = -1.0)
+end
+
+# Core 0.10.4: the exact-fit threshold is the final point's rounding, never m·ε·F₀ — which, over many residuals from a
+# large start, exceeded a cost the run had merely stalled at. 10⁶ residuals rᵢ = x + dᵢ (dᵢ = ±10⁻³, the minimum
+# F = 1 at x = 0) from x = 10⁶ (F₀ = 10¹⁸, so m·ε·F₀ ≈ 2·10⁸), the Jacobian reported with the wrong sign within 10⁻³
+# of the minimum (and 1.5 outside it): the run descends to F ≈ 1, where no step lowers the cost, and stops there
+# with the gradient far from orthogonal to the residual — Stalled, not an exact fit. The data's own resolution, a
+# residual norm (√m·q for a per-sample quantum q) whose square exceeds that cost, does make it one.
+@testitem "lmsolve_chart!(::LmProblem): a stall below m·ε·F₀ is not an exact fit" begin
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
+    struct _FlippedRow <: NLLSsolver.AbstractResidual
+        d::Float64
+    end
+    NLLSsolver.ndeps(::_FlippedRow) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_FlippedRow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_FlippedRow) = SVector(1)
+    NLLSsolver.getvars(::_FlippedRow, vars::Vector) = (vars[1]::SVector{1, Float64},)
+    Base.eltype(::_FlippedRow) = Float64
+    NLLSsolver.computeresidual(r::_FlippedRow, x) = SVector(x[1] + r.d)
+    NLLSsolver.computeresjac(_varflags, r::_FlippedRow, x) =
+        (SVector(x[1] + r.d), SMatrix{1, 1, Float64}(abs(x[1]) > 1.0e-3 ? 1.5 : -1.0))
+    m = 10^6
+    rows = [_FlippedRow(isodd(i) ? 1.0e-3 : -1.0e-3) for i in 1:m]
+    solve(stops) = (p = LmProblem([SVector(1.0e6)], rows); (lmsolve_chart!(p, stops), p.variables[1][1]))
+    sol, x = solve(LmStops())
+    @test 1 <= sol.cost < 2                                    # stalled near the minimum, F ≈ 1 …
+    @test m * eps() * 1.0e18 > 1.0e8                           # … far below m·ε·F₀ (the threshold until 0.10.3)
+    @test abs(x) > 1.0e-5                                      # off the minimum: the cosine |x|/√(x² + 10⁻⁶) is large
+    @test sol.code === ReturnCode.Stalled
+    sr, xr = solve(LmStops(; residual_resolution = 2.0))       # data resolved to a residual norm of 2: F < 4 is zero
+    @test sr.code === ReturnCode.Success && xr == x && sr.cost == sol.cost
 end
 
 @testitem "lmsolve_chart!(::LmProblem): the damping strategy, the default Core 0.10.1's bit for bit" begin

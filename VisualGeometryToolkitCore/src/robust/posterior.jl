@@ -220,7 +220,8 @@ Allocates its own buffers (`sq[1:n]` is copied). `codimension` is 1 or 2.
 function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
                                  outlier_halfwidth::Real, ν::Real, prior::IGPrior, codimension::Int = 2)
     codimension in (1, 2) || throw(ArgumentError("codimension must be 1 or 2"))
-    s = _mad_scale_norms(; norms = (sqrt(x) for x in view(sq, 1:n)), codimension)
+    # a NaN residual is no inlier candidate: the median runs over the others (an Inf one stays, a large norm)
+    s = _mad_scale_norms(; norms = (sqrt(x) for x in view(sq, 1:n) if !isnan(x)), codimension)
     pws = PosteriorWeightState(
         n; ν, s_hat_sq = s * s,
         log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth)), codimension, prior

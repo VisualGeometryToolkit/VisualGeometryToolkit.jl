@@ -114,9 +114,15 @@ StudentTMixture{T}(m::StudentTMixture) where {T <: AbstractFloat} =
 
 # (P(inlier | r), w): the responsibility and the IRLS weight, the pair the
 # E-step writes. ONE kernel: the public scalars and every vector path call it.
+# A non-finite squared residual is the outlier's, (0, 0): an infinite one by the
+# formulas already, a NaN one (which they make NaN, poisoning every sum read
+# from the E-step) only by the guard. Branch-free, so kernel-lawful; a finite
+# residual's pair is the formulas' bit for bit.
 @inline function _posterior_pair(m::StudentTMixture{T}, sq_r) where {T}
     p = one(T) / (one(T) + exp(m.log_odds_out - _log_inlier_density(m, sq_r)))
-    return p, p * _student_t_weight(m.νdg, m.νs2, m.s2, sq_r)
+    w = p * _student_t_weight(m.νdg, m.νs2, m.s2, sq_r)
+    held = isfinite(sq_r)
+    return ifelse(held, p, zero(p)), ifelse(held, w, zero(w))
 end
 
 """

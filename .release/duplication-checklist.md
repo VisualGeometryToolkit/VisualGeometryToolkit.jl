@@ -1,3 +1,21 @@
+# Core 0.10.5 duplication checklist (patch-core-f16), 2026-11-14
+
+Core is the stack's root, so it has no upstream of its own. The leg's upstream duplication gate (cau-release
+`upstream_duplication.jl`) ran in Core's prep 17223 on the fresh clone of dc54751f for Core, IO and Features: 0 findings.
+`check_duplication(VisualGeometryToolkitCore)` over the monorepo tree and the wave stack paths: 0; `check_naming`: 0.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| the default element type | `Float64` written into `LinearRaw` and `linearview` each | `_LINEAR_RAW_ELTYPE`, which both forward through | [x] |
+| the variance plane's element type | the kernel's `similar` and the lazy view's element type, each composing the rule | `_covariance_eltype(T)` (from `_variance_eltype`) | [x] |
+| the uncertain element type | `_cell_images`' hand-built `Attributed{T, eltype(var)}` beside `_view_eltype` | `_view_eltype(T, law)` for both | [x] |
+| the storage's rounding variance | — (one rule from the start) | `_storage_variance(T, x)`, read by the kernel and the lazy view | [x] |
+| a photosite's linear value | `getindex` and `linear_quantum`'s own spelling of the black rule | `_photosite_value(v, i, j, k)` | [x] |
+| the tests' rounding bound and the PTC column layout | `δ` in three items; `cld(cld(j, 16), 2)` in the fixture and the test | the `Float16Rounding` setup; `SensorFixtures`' `level_of_column` | [x] |
+| the Float16 rationale | the `LinearRaw` docstring, a source comment and the guide | the docstring and the guide (the source comment points to the docstring) | [x] |
+
+---
+
 # Core 0.10.4 duplication checklist (patch-core0104), 2026-11-14
 
 Core is the stack's root, so it has no upstream of its own. The leg's upstream duplication gate (cau-release

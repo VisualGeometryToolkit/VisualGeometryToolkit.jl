@@ -83,7 +83,7 @@ using FlexUnits: Quantity, Units, ustrip, uconvert, dimension, ubase,
 # Functional updates
 using Accessors: Accessors
 using Adapt: Adapt   # a warp's device form (BoundedMap's adapt_structure, geometry/transforms/bounded_map.jl)
-using GPUArrays: GPUArrays   # an eager release of a device buffer (`free_device_buffers!`, base/device.jl): GPUArrays owns `unsafe_free!`
+using GPUArrays: GPUArrays   # an eager release of a device buffer (`free_device_buffers!`, base/device.jl): GPUArrays owns `unsafe_free!`; `@allowscalar`: linear_quantum's one photosite read of a device view
 
 # Colors (still needed for image types, independent of plotting)
 using Colors: Colors, Gray

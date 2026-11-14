@@ -1,5 +1,22 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.3
+
+A patch: 0.11.2's two weight rules for the robustified chart LM, `Triggs{K}`. No API change.
+
+### Fixed
+
+- **The Triggs local optimization weighs a datum with a non-finite residual 0, under every shape.** It ran its one
+  chart LM over every datum at unit weight, so an out-of-reach point (a residual beyond the storage range) made the
+  LM's cost infinite at its start and the local optimization handed back its seed. A datum whose residual at the
+  hypothesis (`residuals(buf)` on entry) is not finite now weighs 0 for that LM; the inliers stay the loop's
+  re-score's, which counts no such datum.
+- **`Triggs{GaussianShape}` refits the scorer's consensus set only**, as `Irls{GaussianShape}` does since 0.11.2:
+  the consensus set of the score the local optimization starts from (`consensus_mask!`, after `check_fresh`) at unit
+  weight, every other datum 0. It fitted every datum, outliers included. No new threshold.
+- With neither rule excluding a datum the LM runs at unit weight on every row, as before: the robust shapes are
+  unchanged on finite data. A `refine_*`'s Triggs (`optimization_strategy`) is unchanged.
+
 ## 0.11.2
 
 A patch: the local optimization's two weight rules. Nothing breaks; the one addition is `LossPlainWeights`'s optional consensus set.

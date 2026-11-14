@@ -2,7 +2,10 @@
 
 ## 0.11.5
 
-A patch: the posterior's non-finite rule is VisualGeometryToolkitCore's. No API change, no result change.
+A patch: the posterior's non-finite rule is VisualGeometryToolkitCore's. No API change; this package's code changes no
+result. The floor brings Core 0.10.6's own NaN fixes with it: a `fit_*` seed outside the LO's seeding (`fit_residual_mixture`,
+`fit_division_camera`'s median-seeded posterior) that held a NaN residual now weighs it 0 (the median skips it) rather
+than turning NaN.
 
 ### Changed
 

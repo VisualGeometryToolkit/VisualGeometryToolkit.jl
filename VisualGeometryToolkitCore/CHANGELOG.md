@@ -2,8 +2,8 @@
 
 ## 0.10.3
 
-A patch, additive: darks at several exposures in one characterisation entry, the defect mask and a linear view's
-quantum public, and the log-polar map's differential and inverse (Float32 through `image_warp`).
+A patch: darks at several exposures in one characterisation entry, the defect mask and a linear view's quantum public,
+the log-polar map's differential and inverse (all additive), and a Float32 log-polar warp single-precision throughout.
 
 ### Added
 - **`Darks`** (public), a black-slot component: the master darks of one body at one ISO, one `Dark` per exposure
@@ -21,8 +21,6 @@ quantum public, and the log-polar map's differential and inverse (Float32 throug
 - **`linear_quantum(view, i, j)`** (public): one RAW code in a linear view's units at photosite `(i, j)`,
   `1 / (white − black[c])` by its colour (the span; a `Dark` changes the black, not the span), so a caller derives a
   resolution in linear units (an LM's `residual_resolution`) without reading the view's private fields.
-- **`image_warp(Float32, …)` of a log-polar chain** keeps both log-polar links single-precision (their stored log
-  radius converted), as every other link already was.
 - **The log-polar map's differential and inverse.** `transform_deriv(::LogPolarToCartesian, p)` (analytic: the radial
   column `r·(−log r_in)/2·(cos θ, sin θ)`, the angular `π·r·(−sin θ, cos θ)`) and `inv(::LogPolarToCartesian)`, a new
   `CartesianToLogPolar` with its own `transform_deriv`. Through CoordinateTransformations' composition rules
@@ -30,6 +28,12 @@ quantum public, and the log-polar map's differential and inverse (Float32 throug
   a kernel. Tested against ForwardDiff, `inv ∘ map = id` through the composed map, and on the device. Additive (before,
   both raised CoordinateTransformations' "not defined" errors). VisualGeometryToolkitFeatures' `detect_image_circle`
   uses them for its radial derivatives and bin areas.
+
+### Changed
+- **`image_warp(Float32, …)` of a log-polar chain is single-precision to the last link**: the log-polar maps' stored
+  log radius is converted with the rest (it stayed Float64 before, so the log-polar link and the affine after it ran in
+  Float64). Results of such a warp move at Float32 rounding (about 2e-4 px at 3450 px; a Float32 against a Float64 warp
+  of the same chain agree within 1e-3 in value); VisualGeometryToolkitFeatures' `detect_image_circle` warps this way.
 
 ## 0.10.2
 

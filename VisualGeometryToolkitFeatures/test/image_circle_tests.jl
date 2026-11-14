@@ -378,7 +378,7 @@ end
 @testitem "detect_image_circle: the coverage's uncertainty at a full-frame radius" begin
     # the axes' σ through Core's ellipse chart (retract_jacobian of EllipseManifold) at a full-frame radius, where the
     # form's entries are ~1/a² (3e-7 at a = 1800 px): a finite-difference Jacobian with an absolute 1e-6 step made the form
-    # indefinite and the eigenvalue's square root a DomainError on the 14 mm (Features 0.9.2's candidate, 2026-11-14)
+    # indefinite and the eigenvalue's square root a DomainError on the 14 mm (Features 0.9.3's candidate, 2026-11-14)
     using Random: Xoshiro
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitFeatures as VgtkFeatures
@@ -411,7 +411,7 @@ end
 end
 
 @testitem "detect_image_circle: a ramp centred exactly on the image centre, at any radius (no ring of the sampling grid)" setup = [RimFixtures] begin
-    # the 14 mm's failure (Features 0.9.2's candidate, 2026-11-14): a drop measured over "the samples to ≥ 2 px" changed
+    # the 14 mm's failure (Features 0.9.3's candidate, 2026-11-14): a drop measured over "the samples to ≥ 2 px" changed
     # its sample count where the log grid's spacing crosses 2/n px (Δr = 2/3 px at r ≈ ⅔·r_max), and every wedge locked
     # onto that radius about ANY origin. The drop is now across exactly 2 px at every radius (the log-polar map's inverse
     # and differential). A 14 mm-like ramp (13 % of the radius wide, its foot a soft tail, an APS-C rim cut by the frame)

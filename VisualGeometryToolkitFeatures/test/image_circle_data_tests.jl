@@ -1,6 +1,6 @@
 # Opt-in, real data: `detect_image_circle` on the paper's image-circle sets, every frame RAW through Features' one RAW
 # path (green cells; the result in raw px). Skipped unless the tiers are under VGTK_DATA_ROOT (dgx01's
-# /raid/data/jpr/rc-vgtk-root). The regression values are this method's on 2026-11-14 (Features 0.9.2's candidate, dgx01
+# /raid/data/jpr/rc-vgtk-root). The regression values are this method's on 2026-11-14 (Features 0.9.3's candidate, dgx01
 # /raid/data/jpr/imgcircle/study2_wip.tsv at 03e48b7e); each tolerance is 3σ of the fit's own uncertainty (`axes_scale`,
 # `center_scale`) plus one green cell (2 raw px, the radial grid the edges are sampled on), each axis on its own.
 # Cross-checks: RC's MEASURED hull of the same frames (the run logs of 2026-11-13), each axis within 1 %; the synthetic

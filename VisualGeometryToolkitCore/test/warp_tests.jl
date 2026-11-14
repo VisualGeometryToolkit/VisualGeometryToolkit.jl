@@ -278,9 +278,14 @@ end
         @test !isempty(ls) && all(x -> x.log_inner_radius isa Float32, ls)
         @test all(x -> x.log_inner_radius isa Float64, filter(x -> x isa L, leaves(image_warp(Float64, math, Rect(0, 0, 400, 1200)).map)))
     end
-    d32 = out(lpm, img); bm64 = image_warp(Float64, lpm, Rect(0, 0, 400, 1200)); d64 = similar(img, Float32, 1200, 400)
+    # against the Float64 warp, on a circle crossing the image's border (the fill region exercised): the same values
+    # within Float32 rounding, the outside region the same but for at most a few border pixels
+    lpb = logpolar_map(Circle(Point2(60.0, 205.0), 180.0), Rect(0, 0, 400, 1200), 0.2)
+    d32 = out(lpb, img); bm64 = image_warp(Float64, lpb, Rect(0, 0, 400, 1200)); d64 = similar(img, Float32, 1200, 400)
     image_warp!(d64, bm64, img; fillvalue = NaN32)
-    @test isequal(isnan.(d32), isnan.(d64)) && maximum(filter(isfinite, abs.(d32 .- d64))) < 1e-3
+    @test count(isnan, d64) > 1000 && count(isnan.(d32) .!= isnan.(d64)) <= 10
+    both = isfinite.(d32) .& isfinite.(d64)
+    @test maximum(abs.(d32[both] .- d64[both])) < 1e-3
     cuda = try
         mod = Base.require(Main, :CUDA)
         (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing

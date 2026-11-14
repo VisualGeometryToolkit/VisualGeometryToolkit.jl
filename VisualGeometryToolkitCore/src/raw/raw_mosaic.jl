@@ -469,7 +469,10 @@ codes of [`linearview`](@ref)'s value there (the channel's span; a
 resolution a code carries, for a caller that derives a resolution in linear
 units from it (an LM's `residual_resolution`).
 """
-linear_quantum(v::LinearRawView, i::Integer, j::Integer) = 1 / v.span[_quad_site(i, j)]
+function linear_quantum(v::LinearRawView, i::Integer, j::Integer)
+    @boundscheck checkbounds(v, i, j)
+    return 1 / v.span[_quad_site(i, j)]
+end
 
 """
     linearview(m::RawMosaic; sensor_model::SensorModel = SensorModel()) -> LinearRawView

@@ -194,8 +194,9 @@ detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = n
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
 
 # A seed of the window estimation: a detection of a frame with a scale, its window's integration scale (a point has
-# none). An uncertain Disc or OrientedDisc is read through its frame (`Disc` of the detection).
-const _SeedDetection = Detection{<:Union{Disc, OrientedDisc, EllipticFrame, AffineFrame, Uncertain{<:Union{Disc, OrientedDisc}, <:CovMat}}}
+# none). An uncertain one is read through its frame (`Disc` of the detection), as `Disc(d)` reads any uncertain frame.
+const _ScaledFrame = Union{Disc, OrientedDisc, EllipticFrame, AffineFrame}
+const _SeedDetection = Detection{<:Union{_ScaledFrame, Uncertain{<:_ScaledFrame, <:CovMat}}}
 
 """
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
@@ -217,7 +218,7 @@ On a RAW's green cells (`L::LinearRaw`, positions on the cell grid; seeds from
 image-wide call on `L`.
 
 The seeds are detections of a frame with a scale (a `Disc`, an `OrientedDisc`, an `EllipticFrame` or
-an `AffineFrame`, its characteristic scale σ; a `Disc` or `OrientedDisc` also with its covariance); a point has no
+an `AffineFrame`, its characteristic scale σ; each also with its covariance); a point has no
 window (a `MethodError`). The keywords are the ones above: the image-wide search's (`method`, `noise_sigma`,
 `integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) are not read at given windows and
 are refused (`ArgumentError`, naming them).
@@ -228,30 +229,26 @@ window lies inside the doubled image, in the order of `seeds`.
 """
 detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:_SeedDetection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
 
-function detect_foerstner(
-        ::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:_SeedDetection}; device::KA.Backend = default_device(),
-        noise::Union{Nothing, Real} = nothing, derivative::Symbol = :gaussian2d, derivative_sigma::Real = 1.0,
-        significance_level::Real = 0.999, unread...
-    ) where {T <: AbstractFloat}
-    _refuse_unread_seed_keywords(unread)
-    return _detect_foerstner(T, img, _pixel_noise(noise); seeds, device, derivative, derivative_sigma, significance_level)
-end
+detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:_SeedDetection}; noise::Union{Nothing, Real} = nothing,
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, img, _pixel_noise(noise), seeds; kw...)
 
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
     _detect_foerstner(T, _raw_inputs(L, sensor_model)...; kw...)
 
 # The seeded windows on a RAW's green cells (positions on the cell grid), under the frame's sensor model as the image-wide call.
-function detect_foerstner(
-        ::Type{T}, L::LinearRaw, seeds::AbstractVector{<:_SeedDetection}; sensor_model::SensorModel = SensorModel(),
-        device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d, derivative_sigma::Real = 1.0,
-        significance_level::Real = 0.999, unread...
-    ) where {T <: AbstractFloat}
+detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:_SeedDetection}; sensor_model::SensorModel = SensorModel(),
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, _raw_inputs(L, sensor_model)..., seeds; kw...)
+
+# The seeded call's keywords, once for both inputs (the pixel noise already resolved): the image-wide search's are not
+# read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.
+function _detect_seeded(
+        ::Type{T}, img, noise, seeds; device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d,
+        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, unread...
+    ) where {T}
     _refuse_unread_seed_keywords(unread)
-    return _detect_foerstner(T, _raw_inputs(L, sensor_model)...; seeds, device, derivative, derivative_sigma, significance_level)
+    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level)
 end
 
-# The seeded call's keywords are its own: the image-wide search's are not read at given windows, and a caller who
-# gives one expects an effect it cannot have.
 _refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
     "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read at given windows (the image-wide " *
     "search's keywords; each window's scale is its seed's σ): the seeded call takes device, noise (sensor_model on a " *

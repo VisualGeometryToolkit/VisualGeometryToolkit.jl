@@ -36,7 +36,7 @@ A patch: `detect_foerstner`'s F-test at the effective degrees of freedom (a labe
   `LinearRaw`), `derivative`, `derivative_sigma` and `significance_level`. The image-wide search's (`method`,
   `noise_sigma`, `integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) were accepted and
   ignored; they are now an `ArgumentError` naming them. The seeds are typed: detections of a `Disc`, `OrientedDisc`,
-  `EllipticFrame` or `AffineFrame` (or an uncertain `Disc` / `OrientedDisc`); a point seed, which has no window, is a
+  `EllipticFrame` or `AffineFrame`, each also uncertain; a point seed, which has no window, is a
   `MethodError` of `detect_foerstner` (it was one of `characteristic_scale`, inside the call).
 - **`detect_image_circle`: the same outputs, faster** (bit for bit, checked on every real set, the synthetic field stop
   and a flat image against 0.9.3's code): the bin median of a bin of more than 32 samples by a radix selection (O(m)

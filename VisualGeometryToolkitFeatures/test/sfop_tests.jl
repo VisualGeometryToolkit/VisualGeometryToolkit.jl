@@ -158,6 +158,11 @@ end
         e = err(() -> detect_foerstner(img, seeds; device = KA.CPU(), (kw => 1)))
         @test e isa ArgumentError && occursin(string(kw), e.msg)
     end
+    # an uncertain frame with a scale is a seed too, read through its frame (`Disc` of the detection): the plain seeds' windows
+    using VisualGeometryToolkitCore: EllipticFrame, Uncertain, CovMat
+    plain = detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5)
+    ellipses = [Detection(Uncertain(EllipticFrame(Disc(Point2(t...), 2.0)), CovMat{5}(σ = 0.1)), (; precision = 1.0)) for t in truth]
+    @test [d.window for d in detect_foerstner(Float32, img, ellipses; device = KA.CPU(), noise = 0.5)] == [d.window for d in plain]
     # a seed without a scale (a point) has no window: a MethodError of detect_foerstner itself, not of a verb inside it
     points = [Detection(PointFrame(Point2(t...)), (; precision = 1.0)) for t in truth]
     e = err(() -> detect_foerstner(Float32, img, points))         # no keywords: the MethodError names the function

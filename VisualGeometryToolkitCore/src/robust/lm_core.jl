@@ -107,11 +107,11 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | knob | meaning | NLLSsolver |
 |---|---|---|
 | `max_iter` | the iteration cap (`[lm]` 1000) | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first, so the cap bounds accepted steps, not work |
-| `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the run's own, `_exact_fit_threshold`) | `reldcost` |
+| `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the final point's rounding, `_exact_fit_threshold`) | `reldcost` |
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
-| `residual_resolution` | the residual norm the DATA resolve (`0`, the default: the run's own resolution alone). The success rule's exact-fit test reads it — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
+| `residual_resolution` | the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
 | `damping` | the step's damping, a strategy type: [`MarquardtDamping`](@ref) (the default, λ·DᵀD) or [`LevenbergDamping`](@ref) (λ·I) | `iterator`: `:levenbergmarquardt_dtd` / `:levenbergmarquardt` |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
@@ -504,28 +504,50 @@ end
 
 # THE solve, every form's: NLLSsolver under the stop settings on the kept problem and cache, its stop code
 # (`nlls_stop_code`) and termination record (`nlls_termination`) under THE success rule — the stationarity
-# postcondition (`postcondition(exact)`, at the returned point, with the run's exact-fit threshold) decides every stop that is not a failure or a cap: the
-# cost-decrease stop, the step-size stop and the rejection cap alike. A stop it fails is `_LM_STALLED`.
+# postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold the final point's
+# `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides every stop that is not a
+# failure or a cap: the cost-decrease stop, the step-size stop and the rejection cap alike. A stop it fails is `_LM_STALLED`.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, callback, p.cache)
     code = nlls_stop_code(result.termination)
-    exact = max(_exact_fit_threshold(2 * result.startcost, _residual_count(p.blocks)), stops.residual_resolution^2)
-    stationary = (code == 1 || code == 2 || code == 4) ? postcondition(exact)::Bool : true
+    stationary = (code == 1 || code == 2 || code == 4) ? postcondition(_FinalRounding(stops.residual_resolution))::Bool : true
     stationary || (code = _LM_STALLED)
     return result, code, nlls_termination(result, stationary)
 end
 
-# THE exact-fit threshold of a run (Core 0.10.2; it was `LmStops.ftol`, a RELATIVE tolerance, read as an absolute cost),
-# floored by the caller's `LmStops.residual_resolution`² (the data's resolution: `_lm_run!`):
-# a cost F = Σᵢ rᵢ² of `m` residuals is evaluated to a relative error of about m·ε (each square to ε, their sum's m − 1
-# additions), so at the start, F₀, it is known to m·ε·F₀. A remaining cost below that resolution is zero: an exact fit,
-# whose residuals point in no particular direction (the column cosine says nothing there). Scaled to the problem by F₀
-# and m, it is never a fixed number: a low cost that is merely small (a problem whose costs are all small) is not exact.
-# Relative to F₀, it cannot resolve a run that STARTS at an exact fit (a restart from a solve's minimum: F₀ is itself
-# rounding, so m·ε·F₀ lies far below it) — that run is `Stalled` unless the caller states `residual_resolution`.
-_exact_fit_threshold(F₀::Real, m::Integer) = m * eps(Float64) * F₀
-# The residuals' count m of a run's blocks (NLLSsolver's `nres` of each).
-_residual_count(blocks) = sum(b -> Int(NLLSsolver.dynamic(NLLSsolver.nres(b))), blocks; init = 0)
+# THE exact-fit threshold (Core 0.10.4) — of the host LM's success rule and of `static_lm`'s, one derivation:
+# a residual evaluated from operands of magnitude s carries a rounding error |δr| ≤ c·ε·s, with c = 16: Higham's
+# γₙ ≈ n·u (u = ε/2, the unit roundoff) over the n ≤ 32 rounded operations one residual's evaluation chains between
+# its operands and its value. At an exact fit the residuals ARE that rounding, so the cost F = Σᵢ rᵢ² is zero to
+# Σᵢ (c·ε·sᵢ)² = (c·ε·S)², S² = Σᵢ sᵢ² over the residuals' operand scales: a cost below it points in no particular
+# direction, and the column cosine says nothing there. S is the FINAL point's — the start says nothing of where a run
+# ends: until 0.10.3 the threshold was m·ε·F₀, which a restart at a minimum (F₀ itself rounding) lay below and a large
+# start (m = 10⁶ residuals from F₀ = 10¹⁸: 2·10⁸) put above a cost the run had merely stalled at. `static_lm`'s caller
+# states S, its `residual_scale` fs; the host LM estimates it at the returned point (`_operand_unit`).
+@inline _rounding_floor(S::T) where {T <: AbstractFloat} = (16 * eps(T) * S)^2
+# … floored by the DATA's own resolution `resolution`, a residual-vector NORM (√m·q over m residuals of a per-sample
+# quantum q): F < max(rounding floor, resolution²).
+@inline _exact_fit_threshold(S::T, resolution::Real) where {T <: AbstractFloat} = max(_rounding_floor(S), T(resolution)^2)
+
+# The host LM's exact-fit threshold, read by the postconditions at the returned point from the residuals' operand
+# scales: to first order a residual is linear in its variables, rᵢ = Σⱼ Jᵢⱼ·xⱼ + cᵢ, so its operands are the terms
+# Jᵢⱼ·xⱼ and the constant cᵢ = rᵢ − Σⱼ Jᵢⱼ·xⱼ (the data), which those terms and rᵢ bound: sᵢ² = rᵢ² + Σⱼ (Jᵢⱼ·uⱼ)²
+# (their root-sum-square, within c's slack), uⱼ = |xⱼ| for a Euclidean coordinate (an `SVector`, a number: NLLSsolver
+# updates it as x + δ) and uⱼ = 1 for a chart's — a chart centred at the variable (a `Manifold`, `recenter`; the chart
+# LMs' chart vector, centred at their linearization point), whose own magnitude is one chart unit (a rotation's
+# radian: Jᵢⱼ is then the rotated operand's size). So S² = F + Σⱼ uⱼ²‖Jⱼ‖², of the columns' squared norms.
+struct _FinalRounding
+    resolution::Float64
+end
+# The threshold `exact` gives at operand scale S² = `S2`: the final point's (`_FinalRounding`), or a caller's stated
+# absolute cost (`is_stationary`'s `ftol`, a number).
+_exact_threshold(e::_FinalRounding, S2) = _exact_fit_threshold(sqrt(S2), e.resolution)
+_exact_threshold(ftol::Real, S2) = ftol
+# uⱼ of coordinate `k` of variable `v` in block `c`'s columns.
+_operand_unit(c, v, k) = _operand_unit(v, k)
+_operand_unit(v::Real, k) = abs(Float64(v))
+_operand_unit(v::AbstractVector{<:Real}, k) = abs(Float64(v[k]))
+_operand_unit(v, k) = 1.0          # a chart centred at the variable
 
 # The linear-algebra failures NLLSsolver's step solve may throw (an indefinite or singular normal system): a
 # multi-block solve maps them to a failed solve, `(ReturnCode.Failure, NonFinite)`. Anything else is a bug and
@@ -693,11 +715,11 @@ THE SUCCESS RULE. A stop is a success only at a STATIONARY point: for the cost-d
 the rejection cap alike, stationarity is TESTED at the returned point, and a stop that fails it is
 `ReturnCode.Stalled` (`converged = -2`) with the rule that fired. A tiny cost decrease or a tiny step proves nothing: a
 run whose damping grew until no step could lower the cost (a wrong-sign Jacobian; a NaN wall the minimizer lies
-behind) stops there. Stationary means the cost is zero by the exact-fit test — below the run's own resolution of its
-starting cost F₀, `F < m·ε·F₀` over `m` residuals, or below the square of the residual norm the data resolve,
-`stops.residual_resolution` (`0` by default; `stops.ftol` is the relative cost-decrease stop, never this test). A run
-that STARTS at an exact fit (a restart from a solve's minimum, F₀ itself rounding) is resolved only by the latter: with
-the default it is `Stalled`. Otherwise stationary means every column of
+behind) stops there. Stationary means the cost is zero by the exact-fit test — below the rounding of the
+final point's residuals, `F < (16ε)²·Σᵢ sᵢ²` over their operand scales sᵢ (`_exact_fit_threshold`, Core 0.10.4: a
+run that starts at an exact fit, a restart from a solve's minimum, ends at one), floored by the square of the
+residual-vector norm the data resolve, `stops.residual_resolution` (`0` by default; `stops.ftol` is the relative
+cost-decrease stop, never this test). Otherwise stationary means every column of
 the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`
 (√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)). The iteration and time caps are `MaxIters`
 and `MaxTime`, a failed solve `Failure`.
@@ -806,6 +828,7 @@ function lmsolve_chart!(
     return x, 2 * result.bestcost, converged, result.niterations, record
 end
 const _ONE_FREE = (true,)      # the chart LMs' one variable, free
+_operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the linearization point: a chart unit
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
@@ -839,12 +862,13 @@ function _robust_stationary_decision(g, w, f2, carried::Bool, tol::Real, ftol::R
 end
 
 """
-    _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol, ftol) -> Bool
+    _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol, exact) -> Bool
 
 Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
 
-1. `F < ftol` — the cost is ZERO: `ftol` the run's exact-fit threshold (`_exact_fit_threshold`, the resolution
-   m·ε·F₀ of its starting cost, floored by `LmStops.residual_resolution`²), never the relative `LmStops.ftol`. A zero-
+1. `F < threshold` — the cost is ZERO: the threshold `exact`'s at the point (`_exact_threshold`; the run's
+   `_FinalRounding`, the final point's rounding (16ε)²·S² floored by `LmStops.residual_resolution`², its operand scale
+   S² = F + tr(JᵀJ), every coordinate a chart unit: `_operand_unit`), never the relative `LmStops.ftol`. A zero-
    residual fit ends with `r` at its rounding floor, which points in no
    particular direction, so the cosine below says nothing there: measured
    2026-10-01, exact fits (robot-world, lens, relative-pose, essential) ended
@@ -858,14 +882,14 @@ Whether `x` is a stationary point of `F = ‖r(x)‖²`. Two ways it is:
    one `tol` serves every problem. An all-zero column (an unknown no row
    depends on) is skipped; a NaN anywhere fails.
 
-It reads the state's two reductions at `x` (`residual_cost!`, then, past the exact-fit test,
-`residual_normal_equations!`: `Jⱼᵀr = gⱼ`, `‖Jⱼ‖² = Hⱼⱼ`), so a device state's rows stay where they are.
+It reads the state's reduction at `x` (`residual_normal_equations!`: `F = 2·cost`, `Jⱼᵀr = gⱼ`, `‖Jⱼ‖² = Hⱼⱼ`), so a
+device state's rows stay where they are.
 """
-function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, ftol::Real)
-    cost = residual_cost!(ews.r, lm, x)
-    2 * cost < ftol && return true
-    _, g, H = residual_normal_equations!(ews.r, ews.J, lm, x)
-    return _column_cosine(g, LinearAlgebra.diag(H), sqrt(2 * cost)) <= tol
+function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, exact)
+    cost, g, H = residual_normal_equations!(ews.r, ews.J, lm, x)
+    F = 2 * cost
+    F < _exact_threshold(exact, F + LinearAlgebra.tr(H)) && return true
+    return _column_cosine(g, LinearAlgebra.diag(H), sqrt(F)) <= tol
 end
 
 # max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)
@@ -942,57 +966,66 @@ _free_offsets(variables, free) =
 # `offsets[v] + 1 : offsets[v] + nvars`. `blocks` is one vector of blocks or a tuple of them: an `LmProblem`'s are its
 # NLLSsolver problem's per-type vectors (`values(p.problem.costs)`, a typed tuple), so each block type is one compiled
 # loop and a problem of several block types allocates nothing per block either.
-_blocks_stationary!(g, w, offsets, blocks::AbstractVector, variables, free, tol::Real, ftol::Real) =
-    _blocks_stationary!(g, w, offsets, (blocks,), variables, free, tol, ftol)
-function _blocks_stationary!(g, w, offsets, groups::Tuple, variables, free, tol::Real, ftol::Real)
+# `exact` is the exact-fit threshold's source (`_exact_threshold`): the run's `_FinalRounding`, or a stated cost.
+_blocks_stationary!(g, w, offsets, blocks::AbstractVector, variables, free, tol::Real, exact) =
+    _blocks_stationary!(g, w, offsets, (blocks,), variables, free, tol, exact)
+function _blocks_stationary!(g, w, offsets, groups::Tuple, variables, free, tol::Real, exact)
     fill!(g, 0.0); fill!(w, 0.0)
-    return _stationary_from(_accumulate_groups!(g, w, offsets, groups, variables, free, (0.0, 0.0, false)), g, w, tol, ftol)
+    return _stationary_from(_accumulate_groups!(g, w, offsets, groups, variables, free, (0.0, 0.0, false, 0.0)), g, w, tol, exact)
 end
 # A problem whose block types are not in its type (NLLSsolver's untyped repository: its vectors are a Dict's values) —
 # one dynamic dispatch per block type, the loop over each type's blocks compiled.
-function _blocks_stationary!(g, w, offsets, groups::Base.ValueIterator, variables, free, tol::Real, ftol::Real)
+function _blocks_stationary!(g, w, offsets, groups::Base.ValueIterator, variables, free, tol::Real, exact)
     fill!(g, 0.0); fill!(w, 0.0)
-    acc = (0.0, 0.0, false)
+    acc = (0.0, 0.0, false, 0.0)
     for blocks in groups
         acc = _accumulate_blocks!(g, w, offsets, blocks, variables, free, acc)
     end
-    return _stationary_from(acc, g, w, tol, ftol)
+    return _stationary_from(acc, g, w, tol, exact)
 end
-_stationary_from((F, f2, carried), g, w, tol, ftol) = F < ftol || _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+function _stationary_from((F, f2, carried, S2), g, w, tol, exact)
+    ftol = _exact_threshold(exact, S2)
+    return F < ftol || _robust_stationary_decision(g, w, f2, carried, tol, ftol)
+end
 # The multi-block LM's postcondition on its own scratch, block types grouped (the solve's and its allocation test's).
-_lm_problem_stationary!(p::LmProblem, tol::Real, ftol::Real) =
-    _blocks_stationary!(p.g, p.w, p.offsets, values(p.problem.costs), p.variables, p.free, tol, ftol)
+_lm_problem_stationary!(p::LmProblem, tol::Real, exact) =
+    _blocks_stationary!(p.g, p.w, p.offsets, values(p.problem.costs), p.variables, p.free, tol, exact)
 _accumulate_groups!(g, w, offsets, ::Tuple{}, variables, free, acc) = acc
 _accumulate_groups!(g, w, offsets, groups::Tuple, variables, free, acc) =
     _accumulate_groups!(g, w, offsets, Base.tail(groups), variables, free,
         _accumulate_blocks!(g, w, offsets, first(groups), variables, free, acc))
-# One vector of blocks into `g`, `w`, with the costs `F = Σ‖r‖²`, `f2 = Σρ′‖r‖²` and whether any ρ′ is positive.
-function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, carried))
+# One vector of blocks into `g`, `w`, with the costs `F = Σ‖r‖²`, `f2 = Σρ′‖r‖²`, whether any ρ′ is positive, and the
+# operand scale `S2 = F + Σⱼ uⱼ²‖Jⱼ‖²` of the exact-fit threshold (`_operand_unit`; a held variable's columns too: its
+# value is an operand of the rows).
+function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, carried, S2))
     for c in blocks
         vi = NLLSsolver.varindices(c)
         # every variable of the block differentiated (static flags, as `nlls_rows_and_jacobian`); a held one's columns skipped
         r, J = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)
         sq = sum(abs2, r)
         ρ′ = max(NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), sq)[2], 0.0)
-        F += sq; f2 += ρ′ * sq; carried |= ρ′ > 0
+        F += sq; f2 += ρ′ * sq; carried |= ρ′ > 0; S2 += sq
         col = 0
         for v in vi
-            nv = Int(NLLSsolver.dynamic(NLLSsolver.nvars(variables[v])))
-            if free[v]
-                o = offsets[v]
-                @inbounds for k in 1:nv
-                    q = o + k; jc = col + k
-                    jr = 0.0; jj = 0.0
-                    for i in eachindex(r)
-                        jr += J[i, jc] * r[i]; jj += J[i, jc]^2
-                    end
+            x = variables[v]
+            nv = Int(NLLSsolver.dynamic(NLLSsolver.nvars(x)))
+            o = offsets[v]
+            @inbounds for k in 1:nv
+                jc = col + k
+                jr = 0.0; jj = 0.0
+                for i in eachindex(r)
+                    jr += J[i, jc] * r[i]; jj += J[i, jc]^2
+                end
+                S2 += _operand_unit(c, x, k)^2 * jj
+                if free[v]
+                    q = o + k
                     g[q] += ρ′ * jr; w[q] += ρ′ * jj
                 end
             end
             col += nv
         end
     end
-    return (F, f2, carried)
+    return (F, f2, carried, S2)
 end
 
 """
@@ -1085,6 +1118,7 @@ end
 Eliminable{E}(value::V) where {E, V} = Eliminable{E, V}(value)
 NLLSsolver.nvars(e::Eliminable) = NLLSsolver.nvars(e.value)
 NLLSsolver.update(e::Eliminable{E}, δ, start = 1) where {E} = Eliminable{E}(NLLSsolver.update(e.value, δ, start))
+_operand_unit(e::Eliminable, k) = _operand_unit(e.value, k)     # the exact-fit threshold's operand unit (`_lm_run!`)
 if _NLLS_HAS_SCHUR
     NLLSsolver.iseliminable(::Type{<:Eliminable{true}}) = NLLSsolver.static(true)
 end
@@ -1162,11 +1196,12 @@ success rule's cosine, the host's), and the floors' neutral values.
   RELATIVE to the coordinate) and the DᵀD clamp (`[1e-12, 1e16]·scale²`) are read.
 - `acceptance`: the cost a solution must be below, F < `acceptance` — a root-finding caller's residual bound; by
   default `[lm] device_acceptance`, `Inf`: success by the stationarity rule alone.
-- `residual_scale`: the residual's scale `fs`, so the absolute cost and gradient floors are what `T` resolves of it,
-  `(16 eps(T) fs)²`.
+- `residual_scale`: the residual's operand scale `fs` (S, with S² = Σᵢ sᵢ² over the residuals' operand magnitudes), so
+  the absolute cost and gradient floors are what `T` resolves of it, `(16 eps(T) fs)²` — THE exact-fit threshold's
+  rounding floor, the host LM's ([`lmsolve_chart!`](@ref)): a residual of operands of size s is rounded to 16·eps(T)·s.
 - `cost_floor`: the absolute floor under those (`0`: resolved to rounding; the spline lenses' reference routine
   stops at `eps(Float64)`).
-- `residual_resolution`: the residual norm the DATA resolve, when they carry less precision than `T` (a Float32 ray
+- `residual_resolution`: the residual-vector NORM the DATA resolve, when they carry less precision than `T` (a Float32 ray
   or Float32 controls in a Float64 solve: `16 eps(Float32)` of a unit residual). The success rule's exact-fit test
   reads it — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction
   and the cosine says nothing — and nothing else: the iteration's stops stay `T`'s.
@@ -1213,9 +1248,10 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     s, fs, cost_floor, maxiter = stops.scale, stops.residual_scale, stops.cost_floor, stops.max_iter
     ϵ = eps(T)
     ϵx = T(1.0e-10 * (eps(T) / eps(Float64))) ./ s   # the reference's 1e-10 at Float64, the same in ulps of T
-    # the absolute stops: the cost floor (the reference's eps(Float64)), or what T resolves of a residual of scale fs
-    ϵF = max(cost_floor, (16 * ϵ * fs)^2)
-    ϵG = max(cost_floor, (16 * ϵ * fs)^2 * maximum(s) / _LM_AREA_UNITS)
+    # the absolute stops: the cost floor (the reference's eps(Float64)), or what T resolves of a residual of operand
+    # scale fs — THE exact-fit threshold's rounding floor (16ε·fs)², the host LM's (`_rounding_floor`)
+    ϵF = max(cost_floor, _rounding_floor(fs))
+    ϵG = max(cost_floor, _rounding_floor(fs) * maximum(s) / _LM_AREA_UNITS)
     λ = T(1.0e-6)
     x = min.(max.(x₀, lb), ub)
     ex = fj(x)
@@ -1308,7 +1344,7 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     JtJ = _fma_tmul(Jx, Jx)
     pgn, info = _static_lm_increment(JtJ, zero(T), LinearAlgebra.diag(JtJ), g)
     resolved = info == 0 && all(>(0), (@. abs(pgn) < ϵx * (ϵx + abs(x))))
-    stationary = F < max(ϵF, stops.residual_resolution^2) || norm(g, Inf) < ϵG || resolved || _column_cosine(g, LinearAlgebra.diag(JtJ), sqrt(F)) <= stops.stationarity_tol
+    stationary = F < max(cost_floor, _exact_fit_threshold(fs, stops.residual_resolution)) || norm(g, Inf) < ϵG || resolved || _column_cosine(g, LinearAlgebra.diag(JtJ), sqrt(F)) <= stops.stationarity_tol
     return x, stationary & (F < stops.acceptance), Jx, ex, rule
 end
 

@@ -1,5 +1,21 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.4
+
+### Changed
+- **The LM success rule's exact-fit threshold is the FINAL point's rounding, one derivation for the host and the device
+  LM.** A residual evaluated from operands of magnitude s is rounded to 16·ε·s (c = 16: γₙ ≈ n·ε/2 over at most 32
+  rounded operations), so a cost below (16ε)²·Σᵢ sᵢ² is zero — `_exact_fit_threshold`, which `lmsolve_chart!` (every
+  form) and `static_lm` both read (`static_lm`'s `(16ε·fs)²` floor is the same function, `fs` its caller's operand
+  scale). The host LM estimates each residual's operand scale at the returned point to first order, sᵢ² = rᵢ² +
+  Σⱼ (Jᵢⱼ·uⱼ)², uⱼ = |xⱼ| for a Euclidean coordinate and one chart unit for a manifold's (or a chart LM's) coordinate,
+  at the cost of one more linearization. It was m·ε·F₀, relative to the START: a restart at or near a minimum (F₀
+  itself rounding) was `Stalled`, and a large problem from a large start (10⁶ residuals from F₀ = 10¹⁸: m·ε·F₀ ≈ 2·10⁸)
+  reported `Success` at a cost it had merely stalled at. Both now go the other way: the restart is a `Success` with the
+  default stops, the stall is `Stalled`. `LmStops`/`StaticLmStops`' `residual_resolution` stays the data's own floor,
+  `F < max(rounding floor, residual_resolution²)`, documented as a residual-vector NORM (√m·q over m residuals of a
+  per-sample `linear_quantum` q). `is_stationary`'s `ftol` is unchanged: the caller's stated threshold.
+
 ## 0.10.3
 
 A patch, additive: darks at several exposures in one characterisation entry, the defect mask and a linear view's

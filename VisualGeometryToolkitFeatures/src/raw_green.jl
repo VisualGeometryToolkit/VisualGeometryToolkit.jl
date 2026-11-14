@@ -33,7 +33,6 @@
 
 using KernelAbstractions: @kernel, @index, @Const
 using VisualGeometryToolkitCore: photosite_colors, saturationview, defect_mask, value_variance, Adapt
-using VisualGeometryToolkitCore: _masked   # THE defect lookup of the visible raw (Core's kernels' own)
 
 # The bilinear green image's blur, raw pixels (per axis, by its second moment): the photosite's box integration,
 # variance 1/12, plus the interpolation's — a green site is its own value (variance 0), a red or blue site the mean of
@@ -56,7 +55,9 @@ const _SUPPORT_3X3 = 0x80
 # Photosite (i, j) is a usable green: a green colour index (1 or 3, LibRaw's G and G2), not a defect (the defect mask is
 # over the visible raw: the photosite at the mosaic's window offset `origin`). A saturated green is usable (censored).
 @inline _usable_green(colors, defects, origin, i, j) =
-    @inbounds ((colors[i, j] == 0x01) | (colors[i, j] == 0x03)) && !_masked(defects, i + origin[1], j + origin[2])
+    @inbounds ((colors[i, j] == 0x01) | (colors[i, j] == 0x03)) && !_defect_at(defects, i + origin[1], j + origin[2])
+@inline _defect_at(::Nothing, r, c) = false
+@inline _defect_at(mask::AbstractMatrix{Bool}, r, c) = @inbounds mask[r, c]
 
 # A usable green's sample (value, variance, saturated): its linear value and the law's variance there, or, saturated
 # (censored), 1 and the law's variance at 1 (`value_variance`; 0 without a law, as for a plain value).

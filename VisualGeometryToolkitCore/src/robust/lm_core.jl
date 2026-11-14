@@ -96,6 +96,8 @@ abstract type LmDamping end
 @doc (@doc LmDamping) struct LevenbergDamping <: LmDamping end
 _nlls_iterator(::MarquardtDamping) = NLLSsolver.static(:levenbergmarquardt_dtd)
 _nlls_iterator(::LevenbergDamping) = NLLSsolver.static(:levenbergmarquardt)
+_same_damping(::D, ::D) where {D <: LmDamping} = true
+_same_damping(::LmDamping, ::LmDamping) = false
 
 """
     LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing, damping = MarquardtDamping(), residual_resolution = 0)
@@ -427,9 +429,9 @@ as constants the blocks read (NLLSsolver's unfixed mask); the stationarity postc
 columns only. `nothing` (the default) holds none, the problem as without the keyword, bit for bit. An index outside
 `variables`, or every variable held, is an `ArgumentError`.
 
-`damping` ([`MarquardtDamping`](@ref), the default, or [`LevenbergDamping`](@ref)) is the damping the problem's kept
-NLLSsolver cache is built for: solve it with the same `LmStops(; damping)` (another damping is correct but rebuilds
-the cache, as a changed problem does).
+`damping` ([`MarquardtDamping`](@ref), the default, or [`LevenbergDamping`](@ref)) is THE problem's damping (its one
+owner, Core 0.10.4: `p.damping`), the one its kept NLLSsolver cache is built for: [`lmsolve_chart!`](@ref) refuses
+stops of another damping (`ArgumentError`, naming both), the problem left as it was.
 """
 struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     problem::P
@@ -443,6 +445,7 @@ struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     g::Vector{Float64}
     w::Vector{Float64}
     free::BitVector
+    damping::LmDamping    # THE damping (Core 0.10.4: its one owner): the kept cache is built for it
 end
 function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing, damping::LmDamping = MarquardtDamping())
     isempty(variables) && throw(ArgumentError("LmProblem: no variables"))
@@ -479,13 +482,13 @@ function _lm_problem(problem, blocks, unfixed, damping::LmDamping)
     free = unfixed === nothing ? trues(length(problem.variables)) : BitVector(unfixed)
     offsets = _free_offsets(problem.variables, free)
     return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), unfixed), blocks, unfixed,
-        offsets, zeros(offsets[end]), zeros(offsets[end]), free)
+        offsets, zeros(offsets[end]), zeros(offsets[end]), free, damping)
 end
 # A chart LM's run, of its concrete type `R` (the typed cache converted to the inferred cache type, as `_kept_run` asserts)
 _chart_lm_problem(::Type{R}, problem, blocks, damping::LmDamping) where {R} =
-    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), 1), blocks, 1, Int[], Float64[], Float64[], falses(0))
+    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), 1), blocks, 1, Int[], Float64[], Float64[], falses(0), damping)
 Base.getproperty(p::LmProblem, s::Symbol) = s === :variables ? getfield(p, :problem).variables : getfield(p, s)
-Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :offsets, :g, :w, :free, :variables)
+Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :offsets, :g, :w, :free, :damping, :variables)
 
 # The concrete LmProblem of a problem type `P` with blocks `B` and one free variable — the chart LMs' runs, whose
 # typed cache's type is the constructor's inferred return type (a constant of the types).
@@ -832,6 +835,10 @@ _operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the lin
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
+    _same_damping(p.damping, stops.damping) || throw(ArgumentError(
+        "lmsolve_chart!: the problem was built for $(nameof(typeof(p.damping)))() (its kept cache) and the stops say " *
+        "$(nameof(typeof(stops.damping)))(): solve it with LmStops(; damping = $(nameof(typeof(p.damping)))()), or build " *
+        "the problem with LmProblem(…; damping = $(nameof(typeof(stops.damping)))())"))
     cb = callback === nothing ? NLLSsolver.nullcallback : callback
     out = try
         _lm_run!(p, stops, cb, exact -> _lm_problem_stationary!(p, stops.stationarity_tol, exact))

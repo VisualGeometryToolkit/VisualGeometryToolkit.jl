@@ -88,7 +88,6 @@ function detect_sfop(
         throw(ArgumentError("detect_sfop: noise_sigma must be positive and finite, got $noise_sigma"))
     space = gaussian_scale_space(img; device, nb_scales, seed_sigma, input_blur, upsample, nb_octaves)
     W, H = space.dims[1] .>> (space.first_octave < 0 ? 1 : 0)
-    K = _scheduled(_asift_kernels, device)
     S = space.nb_scales
     capacity = 1 << 16
     while true
@@ -97,16 +96,7 @@ function detect_sfop(
         ends = Int[]                                        # the pool's last row of each octave
         for o in eachindex(space.levels)
             precision = _sfop_precision(device, space, o, noise_sigma, significance_level)
-            Wo, Ho = space.dims[o]
-            t, _ = _tile_lists(Wo, Ho, Int32[Wo], Int32[Ho])
-            K.ext(
-                pool, count, precision, 0.0f0, floatmax(Float32), Float32(space.seed_sigma),
-                Int32(o - 1 + space.first_octave), Int32(S), Int32(capacity),
-                ka_upload(Int32, device, Int32[Wo]), ka_upload(Int32, device, Int32[Ho]), nothing,
-                ka_upload(Int32, device, t), Val(S + 3), Val(_TILE_NY), Val(true);
-                ndrange = (32, _TILE_NY * (length(t) ÷ 3))
-            )
-            KA.synchronize(device)
+            _sfop_maxima!(pool, count, device, precision, Float32(space.seed_sigma), Int32(o - 1 + space.first_octave), Int32(S))
             push!(ends, Int(Array(count)[1]))
         end
         n = last(ends)
@@ -117,6 +107,22 @@ end
 
 # A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid.
 detect_sfop(L::LinearRaw; kw...) = detect_sfop(_green_values(green_plane(L)); kw...)
+
+# The maxima of one octave's precision cube `cube` ((W_o, H_o, S + 3, 1), −1/w: `_sfop_precision`) appended to the
+# pool `pool` (5 × capacity) by ASIFT's extraction in its precision mode (maxima only, no edge test, an unrefined
+# maximum kept), `count[1]` its rows (past the capacity when it overflowed).
+function _sfop_maxima!(pool, count, device, cube, seed_sigma::Float32, octave_idx::Int32, S::Int32)
+    Wo, Ho = size(cube, 1), size(cube, 2)
+    t, _ = _tile_lists(Wo, Ho, Int32[Wo], Int32[Ho])
+    _scheduled(_asift_kernels, device).ext(
+        pool, count, cube, 0.0f0, floatmax(Float32), seed_sigma, octave_idx, S, Int32(size(pool, 2)),
+        ka_upload(Int32, device, Int32[Wo]), ka_upload(Int32, device, Int32[Ho]), nothing,
+        ka_upload(Int32, device, t), Val(Int(S) + 3), Val(_TILE_NY), Val(true);
+        ndrange = (32, _TILE_NY * (length(t) ÷ 3))
+    )
+    KA.synchronize(device)
+    return pool
+end
 
 # The extracted maxima (`raw`, ASIFT's 5 × n rows: 0-based input x, y, the slice σ, w, slot; octave o's rows end at
 # `ends[o]`) as detections: the level's blur from the slice σ (`_slice_sigma` reports the geometric mean of a DoG

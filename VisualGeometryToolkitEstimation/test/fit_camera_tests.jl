@@ -285,9 +285,11 @@ end
     sub_src = BoundedCamera(CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (40, 40), calib_area = ca), Size2(1000, 1000))
     @test grid_size(model(sub_src)) == (40, 40)
     rc = fit_camera(SplineLens, sub_src, Rect(150, 150, 700, 700); tolerance = 1.0e-3, grid_size = (40, 40), forward = false)
-    full = spline_lattice(SplineLens, model(sub_src), Size2(1000, 1000); grid_size = (40, 40))
+    # Core's full-image layout in the result's own (axis-turned) K: its area is in normalized coordinates
+    full = spline_lattice(SplineLens, estimate(rc), Size2(1000, 1000); grid_size = (40, 40))
     @test metadata(rc).family.λ isa Float64 && metadata(rc).family.extrapolated_fraction isa Float64
     @test grid_size(estimate(rc)) == (40, 40) && lens(estimate(rc)).backward.area == lens(full).backward.area
+    @test lens(estimate(rc)).backward.area != lens(model(sub_src)).backward.area
 
     # 3. a source whose lens coverage (300 px) is far smaller than the full-image lattice: the nodes whose support misses
     # it are held by the penalty, finite; the fit converges (measured 2026-11-14 at 30 × 30: 1.2e-4 px)

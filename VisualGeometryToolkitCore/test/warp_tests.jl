@@ -374,3 +374,29 @@ end
         @test Base.invokelatest(Array, d) ≈ dst rtol = 1e-12
     end
 end
+
+# Core 0.10.4: `_precision`'s fallback is not silent. A link that holds floats of another precision and has no
+# conversion warns once by type; the log-polar maps and intrinsics are kept on purpose (no warning), the log-polar
+# coordinates Float64 in a Float32 warp; a link with no floats, and a chain already in T, say nothing.
+@testitem "image_warp(Float32, …): a link left in another precision is named, the kept ones are not" begin
+    using Test, StaticArrays
+    using GeometryBasics: Point2, Rect
+    import CoordinateTransformations
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: LogPolarToCartesian, Circle
+    struct _Float64Shift <: CoordinateTransformations.Transformation
+        dx::Float64
+    end
+    (t::_Float64Shift)(x) = SVector(x[1] + t.dx, x[2])
+    VgtkCore = VisualGeometryToolkitCore
+    @test_logs (:warn, r"_Float64Shift link holds floats of another precision") VgtkCore._precision(Float32, _Float64Shift(0.5))
+    @test_logs VgtkCore._precision(Float64, _Float64Shift(0.5))                       # already Float64: silent
+    @test_logs VgtkCore._precision(Float32, CoordinateTransformations.IdentityTransformation())   # no floats: silent
+    lpm = logpolar_map(Circle(Point2(310.0, 205.0), 180.0), Rect(0, 0, 400, 1200), 0.2)
+    leaves(x) = x isa CoordinateTransformations.ComposedTransformation ? [leaves(x.t1); leaves(x.t2)] : [x]
+    bm = @test_logs image_warp(Float32, lpm, Rect(0, 0, 400, 1200))                   # no warning for the kept link
+    lp = filter(x -> x isa LogPolarToCartesian, leaves(bm.map))
+    @test !isempty(lp) && all(x -> x.log_inner_radius isa Float64, lp)                # its coordinates stay Float64
+    @test image_warp(Float32, lpm, Rect(0, 0, 400, 1200)).map == image_warp(Float64, lpm, Rect(0, 0, 400, 1200)).map ||
+          all(x -> x isa LogPolarToCartesian, filter(x -> !(x isa CoordinateTransformations.AffineMap), leaves(bm.map)))
+end

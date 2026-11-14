@@ -125,6 +125,8 @@ convert_eltype(::Type{T}, m::NoncentralSplineModel) where {T <: AbstractFloat} =
 # (`_precision`'s identity fallback), and still does.
 _precision(::Type{T}, x::Union{AbstractLensModel, NoncentralSplineModel}) where {T <: AbstractFloat} =
     convert_eltype(T, x)
+# the intrinsics, kept on purpose (above): no warning for them
+_precision(::Type{T}, x::AbstractIntrinsics) where {T <: AbstractFloat} = x
 
 # The direction lens of the model: a SplineLens of its directions and mask (already
 # through `_present_mask`, so not re-checked or copied).

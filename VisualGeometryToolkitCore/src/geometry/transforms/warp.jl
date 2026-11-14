@@ -178,8 +178,29 @@ fuse(bm::BoundedMap) = BoundedMap(fuse(bm.map), bm.rect)
 # precision `T`.  Leaves that carry no floats are returned unchanged; a lens or
 # a non-central spline model forwards to the public `convert_eltype` (the one bridge
 # is in cameras/noncentral_spline_model.jl), so a downstream lens's method reaches the kernels.
+# A leaf that holds floats of ANOTHER precision and has no method here stays as it
+# is — not silently (Core 0.10.4): a warning names its type, once, so a chain asked
+# for `T` that is not `T` throughout is visible. The leaves kept on purpose are
+# declared below, each with its reason.
 
-_precision(::Type{T}, x) where {T <: AbstractFloat} = x
+function _precision(::Type{T}, x) where {T <: AbstractFloat}
+    _holds_other_floats(T, typeof(x), 3) &&
+        @warn "image_warp($T, …): a $(nameof(typeof(x))) link holds floats of another precision and has no precision " *
+              "conversion: it stays as it is (add a `_precision` method for it)" maxlog = 1 _id = (:_precision, nameof(typeof(x)))
+    return x
+end
+# Whether a type stores floats of a precision other than `T` (its fields, to depth `d`; arrays by element type).
+_holds_other_floats(::Type{T}, ::Type{F}, d) where {T, F <: AbstractFloat} = F !== T
+_holds_other_floats(::Type{T}, ::Type{A}, d) where {T, A <: AbstractArray} = _holds_other_floats(T, eltype(A), d)
+function _holds_other_floats(::Type{T}, ::Type{X}, d) where {T, X}
+    (d <= 0 || !isconcretetype(X) || X <: Number || X <: Function) && return false
+    return any(F -> _holds_other_floats(T, F, d - 1), fieldtypes(X))
+end
+# Kept on purpose. The log-polar maps keep their Float64 log radius, so their coordinates are Float64 in a Float32
+# warp: a Float32 log radius moved VisualGeometryToolkitFeatures' `detect_image_circle` (measured for Core 0.10.3:
+# a flat image fit an ellipse; the real sets' coverages moved), which the owner's acceptance forbids. Intrinsics keep
+# their precision as they always have (cameras/noncentral_spline_model.jl: they are not bridged).
+_precision(::Type{T}, x::Union{LogPolarToCartesian, CartesianToLogPolar}) where {T <: AbstractFloat} = x
 _precision(::Type{T}, x::Translation) where {T <: AbstractFloat} =
     Translation(T.(x.translation))
 _precision(::Type{T}, x::LinearMap) where {T <: AbstractFloat} =

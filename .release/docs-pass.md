@@ -1,14 +1,15 @@
-docs-pass: 64266595
+docs-pass: e548389b
 
 # VisualGeometryToolkitCore 0.10.6 docs pass (julia-docs-pass) — branch patch-core0106
 
-Baseline: GitHub main dc983c78 (Estimation 0.11.2 records; Core 0.10.4 as registered; 0.10.5, branch patch-core-f16,
-merged before the gate). 64266595 is patch-core0106: the red tests (d9e6f5d1), the fix (3bde6291), version and docs
-(10a7d20f), the /simplify (08c51602) and /code-review (64266595) fixes. The bug (found reviewing Estimation 0.11.2):
+Baseline: GitHub main dc983c78 (Estimation 0.11.2 records; Core 0.10.4 as registered). e548389b is patch-core0106: the
+red tests (d9e6f5d1), the fix (3bde6291), version and docs (10a7d20f), the /simplify (08c51602) and /code-review
+(64266595) fixes, and the merge of GitHub main 8f28fde7 (Core 0.10.5 posted: the Float16 LinearRaw; no file of this
+patch touched by it but the version, the CHANGELOG and this record). The bug (found reviewing Estimation 0.11.2):
 Core's mixture kernel `_posterior_pair` gave NaN for a NaN squared residual, so the `fit_*` seeds built outside
 Estimation's `consensus_posterior` and every E-step outside Estimation's guards made the whole posterior state NaN.
 
-## 1. Public API since 0.10.4
+## 1. Public API since 0.10.5
 
 - **Added / removed / exports:** nothing.
 - **Behaviour:** a non-finite squared residual's inlier posterior and weight are 0 (`inlier_posterior`,

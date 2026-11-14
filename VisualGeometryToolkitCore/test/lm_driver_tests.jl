@@ -514,9 +514,15 @@ end
     sql = lmsolve_chart!(ql, LmStops(; damping = LevenbergDamping()))
     @test sql.code === ReturnCode.Success
     @test ql.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
-    # a problem built for one damping solved with the other: correct (its cache rebuilt)
+    # Core 0.10.4: the damping has ONE owner, the problem (its kept cache is built for it); stops of another damping
+    # are refused by name, the problem left as it was
     pm = line(LevenbergDamping())
-    @test lmsolve_chart!(pm).code === ReturnCode.Success
+    x0 = pm.variables[1]
+    @test pm.damping === LevenbergDamping()
+    e = try lmsolve_chart!(pm); nothing catch err; err end                    # default stops: MarquardtDamping
+    @test e isa ArgumentError && occursin("LevenbergDamping", e.msg) && occursin("MarquardtDamping", e.msg)
+    @test pm.variables[1] == x0
+    @test lmsolve_chart!(pm, LmStops(; damping = LevenbergDamping())).code === ReturnCode.Success
     @test pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
     @test_throws TypeError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
 end

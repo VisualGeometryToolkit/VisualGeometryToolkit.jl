@@ -1,57 +1,56 @@
-# stage_runner_tests.jl — run_stages re-evaluates each stage's done() at
-# EXECUTION time. The printed table is a snapshot taken before anything runs,
-# so a stage whose input an earlier stage of the same run (re)writes must not
-# be skipped on the strength of that snapshot.
+# stage_runner_tests.jl — run_stages over stages that declare their keyed steps: every step's run is called (a produced step
+# loads, a pending one is produced), the steps are listed when the stage runs (an earlier stage may have re-keyed them),
+# --force unmarks them first, a check stage runs every time, and the retired done-closure form is refused by name.
 
-@testitem "stage_runner" begin
+@testitem "stage_runner" setup = [GitFixture] begin
     using Test
-    using VisualGeometryToolkitEval.Experiments: Stage, run_stages
+    import VisualGeometryToolkitEval as VgtkEval
+    using VisualGeometryToolkitEval.Experiments: Stage, run_stages, Step, produce, produced
+    const E = VgtkEval.Experiments
 
-    @testset "run_stages: done() is re-evaluated at execution time" begin
-        mktempdir() do d
-            produced = joinpath(d, "input.txt")
-            write(produced, "old")          # exists at plan time
-            consumed = joinpath(d, "table.txt")
-            write(consumed, "stale")        # newer than nothing; done() below compares mtimes
-            ran = Symbol[]
-            stages = [
-                Stage(:produce, "rewrite the input", () -> false,
-                      () -> (push!(ran, :produce); sleep(0.01); write(produced, "new"))),
-                # DONE at plan time (table newer than input), pending once :produce runs
-                Stage(:consume, "rebuild the table from the input",
-                      () -> isfile(consumed) && mtime(consumed) >= mtime(produced),
-                      () -> (push!(ran, :consume); write(consumed, "fresh"))),
-            ]
+    repo = gitrepo()
+    mkpath(joinpath(repo, "src")); write(joinpath(repo, "src", "M.jl"), "module M end\n")
+    git!(repo, "add", "-A"); git!(repo, "commit", "-qm", "code")
+    E.set_project_root!(repo)
+    withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+        ran = String[]
+        write_n(n) = d -> (push!(ran, n); write(joinpath(d, "out.txt"), n); nothing)
+        step(n) = Step("t", "a", Dict("n" => n); output = "out.txt")
+        prod(s) = produce(write_n(s.record["n"]), s; driver = "t.jl", config_source = "t.toml")
+        n_steps = Ref(["x", "y"])
+        stages = [Stage(:a, "two steps"; steps = () -> step.(n_steps[]), run = prod),
+                  Stage(:c, "a check"; check = () -> push!(ran, "check"))]
+
+        @testset "every step produced once, then loaded; a check runs every time" begin
             run_stages("t", stages; argv = String[])
-            @test ran == [:produce, :consume]
-            @test read(consumed, String) == "fresh"
+            @test ran == ["x", "y", "check"] && all(produced, step.(["x", "y"]))
+            empty!(ran)
+            run_stages("t", stages; argv = String[])
+            @test ran == ["check"]                                    # produced: loaded, nothing recomputed
         end
 
-        # a genuinely done stage is still skipped, and --force runs everything
-        mktempdir() do d
-            f = joinpath(d, "out.txt"); write(f, "x")
-            ran = Symbol[]
-            stages = [Stage(:a, "done already", () -> isfile(f), () -> push!(ran, :a))]
-            run_stages("t", stages; argv = String[])
-            @test isempty(ran)
-            run_stages("t", stages; argv = ["--force"])
-            @test ran == [:a]
+        @testset "the steps are listed when the stage runs; --force unmarks them; --plan runs nothing" begin
+            empty!(ran); n_steps[] = ["x", "z"]                       # a re-keyed step (an earlier stage's output changed)
+            run_stages("t", stages; argv = ["--stage=a"])
+            @test ran == ["z"]
             empty!(ran)
-            run_stages("t", stages; argv = ["--plan"])
+            run_stages("t", stages; argv = ["--stage=a", "--force"])
+            @test ran == ["x", "z"]
+            empty!(ran)
+            out = mktemp() do path, io
+                redirect_stdout(() -> run_stages("t", stages; argv = ["--plan"]), io)
+                close(io); read(path, String)
+            end
             @test isempty(ran)
+            @test occursin(r"^\s+a\s+2/2 produced\s+two steps$"m, out) && occursin(r"^\s+c\s+check\s+a check$"m, out)
         end
     end
+    E.set_project_root!("")
 
-    @testset "the plan separates a stage's name from its status" begin
-        stages = [Stage(:panorama_stitching, "a long name", () -> false, () -> nothing),
-                  Stage(:a, "a short one", () -> true, () -> nothing)]
-        out = mktemp() do path, io
-            redirect_stdout(() -> run_stages("t", stages; argv = ["--plan"]), io)
-            close(io)
-            read(path, String)
-        end
-        @test occursin(r"^\s+panorama_stitching\s+pending\s+a long name$"m, out)
-        @test occursin(r"^\s+a\s+DONE\s+a short one$"m, out)
-        @test !occursin("stitchingpending", out)
+    @testset "the done-closure form is retired; a stage is steps + run, or a check" begin
+        e = try Stage(:a, "d", () -> true, () -> nothing); nothing catch err; err end
+        @test e isa ArgumentError && occursin("Stage(name, desc, done, run) is retired", e.msg) && occursin("steps = () ->", e.msg)
+        @test_throws ArgumentError Stage(:a, "d"; steps = () -> [])                       # no run
+        @test_throws ArgumentError Stage(:a, "d"; check = () -> nothing, run = identity)   # both kinds
     end
 end

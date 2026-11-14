@@ -52,8 +52,8 @@
         git("add", "-A"); git("commit", "-q", "-m", "The paper with its example assets")
         write_edit(f, p) = write(p, f(read(p, String)))
         write_edit(s -> replace(s, "n = 40" => "n = 60"), joinpath($(repr(root)), "configs", "example.toml"))
-        write_edit(s -> replace(s, "    write_numbers(MACROS, nums)" =>
-            "    add_number!(nums, \\"ExampleIntercept\\", f[\\"intercept\\"]; digits = 2, better = :none)\\n    write_numbers(MACROS, nums)"),
+        write_edit(s -> replace(s, "    write_numbers(joinpath(dir, CFG[\\"render\\"][\\"macros\\"]), nums)" =>
+            "    add_number!(nums, \\"ExampleIntercept\\", f[\\"intercept\\"]; digits = 2, better = :none)\\n    write_numbers(joinpath(dir, CFG[\\"render\\"][\\"macros\\"]), nums)"),
             joinpath($(repr(root)), "scripts", "example_stage.jl"))
         git("commit", "-q", "-am", "More samples; the intercept as a number")
         empty!(ARGS); push!(ARGS, "--results-branch")
@@ -75,11 +75,14 @@
     for f in ("example_fit.tex", "example_fit_caption.tex", "example_numbers.tex")
         @test isfile(joinpath(root, "paper", "figures", f))
     end
-    runs = readdir(joinpath(root, "data", "exp_pro", "example"))
-    @test length(runs) == 2 && all(startswith("example-"), runs)    # n = 40, then n = 60: two run keys
-    for r in runs
-        @test isfile(joinpath(root, "data", "exp_pro", "example", r, "_provenance.toml"))
-        @test isfile(joinpath(root, "data", "exp_pro", "example", r, "_config.toml"))
+    # each step under DrWatson's datadir("exp_pro", "example", <step>, <key>): n = 40, then n = 60, two keys of every step
+    for step in ("simulate", "fit", "figure")
+        runs = readdir(joinpath(root, "data", "exp_pro", "example", step))
+        @test length(runs) == 2
+        for r in runs
+            @test isfile(joinpath(root, "data", "exp_pro", "example", step, r, "_provenance.toml"))
+            @test isfile(joinpath(root, "data", "exp_pro", "example", step, r, "_config.toml"))
+        end
     end
     @test isempty(paper_project_violations(root))
     # --results-branch: the run's paper assets on a results branch in a worktree beside the project
@@ -98,7 +101,7 @@
     @test manifest["commit"] == head && manifest["dirty"] == false
     @test manifest["base_commit"] == head
     key = only(manifest["run_keys"])
-    samples = joinpath(root, "data", "exp_pro", "example", "example-" * key, "samples.tsv")
+    samples = joinpath(root, "data", "exp_pro", "example", "simulate", key, "samples.tsv")
     @test manifest["tiers"] == Dict("example_samples" => Dict("hash" => bytes2hex(open(sha256, samples)),
                                                               "of" => "samples.tsv sha256"))
     @test !("tiers" in manifest["missing"])
@@ -124,7 +127,7 @@
     @test breach(d -> edit(s -> replace(s, "\\end{document}" => "\\input{figures/unlisted}\n\\end{document}"),
                            joinpath(d, "paper", "main.tex"))) == Set([:reproduce])
     @test breach(d -> edit(s -> replace(s, "rng = StableRNG(s[\"seed\"])" => "rng = StableRNG(1)"), stage(d))) == Set([:configs])
-    @test breach(d -> edit(s -> replace(s, r"    write_run_records\(.*\n" => ""), stage(d))) == Set([:provenance])
+    @test breach(d -> edit(s -> replace(s, r".*produce\(.*\n" => ""), stage(d))) == Set([:provenance])
     @test breach(d -> write(joinpath(d, "Artifacts.toml"),
         "[x]\ngit-tree-sha1 = \"$(repeat("a", 40))\"\nlazy = true\n")) == Set([:catalog])
 end

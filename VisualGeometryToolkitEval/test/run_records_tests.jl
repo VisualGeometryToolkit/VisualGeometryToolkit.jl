@@ -88,22 +88,20 @@
         end
         withenv("VGTK_RESULTS_ROOT" => "/tmp/x") do
             @test RR.results_root() == "/tmp/x"
-            cfg = Dict("experiment" => Dict("dataset" => "pt", "matcher" => "sift", "problem" => "E"))
-            @test RR.experiment_dir(cfg) == joinpath("/tmp/x", "pt", "sift", "E")
+            # a step's directory is DrWatson's datadir("exp_pro", experiment, step, key) under the results root
+            s = RR.Step(joinpath("pt", "sift", "E"), "cv", Dict("n" => 1); output = "result.json")
+            @test RR.step_dir(s) == joinpath("/tmp/x", "pt", "sift", "E", "cv", RR.run_key(Dict("n" => 1)))
+            @test !RR.produced(s)
         end
-        # the result sidecar is the caller's to name: there is no default
-        @test_throws UndefKeywordError RR.run_complete(dir)
-        @test !RR.run_complete(dir; sidecar = "result.jld2")
         RR.set_project_root!("")
     end
 end
 
-@testitem "run_records: config_of_record, keyed_cell_dir" begin
+@testitem "run_records: config_of_record, a cell's step" begin
     # The configs of record of a project (configs/<name>.toml, loaded as run
-    # configs) and the keyed directory of one cell under its experiment's
-    # results: accv2026's protocol_folds.jl defined both; every paper project
-    # spells a keyed run directory `<experiment_dir>/<experiment>/<kind>-<run_key>`.
-    using VisualGeometryToolkitEval.Experiments: config_of_record, keyed_cell_dir, experiment_dir, run_key,
+    # configs) and the keyed step of one cell under its experiment's
+    # results: `<results root>/<experiment>/<step>/<run_key>`.
+    using VisualGeometryToolkitEval.Experiments: config_of_record, Step, step_dir, run_key,
         set_project_root!
     root = mktempdir()
     mkpath(joinpath(root, "configs"))
@@ -120,8 +118,8 @@ end
     @test cfg["experiment"]["problem"] == "E"
     @test_throws ErrorException config_of_record("absent"; root)
     withenv("VGTK_RESULTS_ROOT" => joinpath(root, "results")) do
-        dir = keyed_cell_dir(cfg, "fig2", "budget")
-        @test dir == joinpath(experiment_dir(cfg), "fig2", "budget-" * run_key(cfg))
+        dir = step_dir(Step(joinpath("d", "m", "E", "fig2"), "budget", cfg; output = "budget.json"))
+        @test dir == joinpath(root, "results", "d", "m", "E", "fig2", "budget", run_key(cfg))
         @test startswith(dir, joinpath(root, "results"))
     end
     set_project_root!(root)

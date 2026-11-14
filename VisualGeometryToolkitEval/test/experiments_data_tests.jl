@@ -1,11 +1,11 @@
-# The shared data/results binding, provenance record, keyed cache and data
+# The shared data/results binding, provenance record and data
 # policy (src/experiments/data.jl, provenance.jl, data_policy.jl).
 
 @testitem "experiments_data" setup = [GitFixture] begin
     import VisualGeometryToolkitEval as VgtkEval
     import VisualGeometryToolkitCore as VgtkCore
     using Test, TOML
-    using DrWatson: gitdescribe, produce_or_load
+    using DrWatson: gitdescribe
     using Pkg.Artifacts: create_artifact, bind_artifact!
     import Pkg, StableRNGs   # a registered install (code_trees of a depot package)
     using VisualGeometryToolkitEval
@@ -135,27 +135,27 @@
             @test first(VgtkEval.tier_data_root("tier_e", root; env = Dict{String,String}(),
                         view_mount = VgtkEval.catalog_view_mount(root, joinpath(dir, "configs", "data_artifacts.toml")))) == joinpath(root, "sub")
             # S3: a producer never installs and never writes into a view tier; with its root bound it writes there
-            @test_throws r"tier tier_n is published read-only by the artifact view; bind VGTK_DATA_ROOT_TIER_N" E.keyed_data_dir(cfg, "tier_n", "k")
-            @test_throws r"tier tier_e is published read-only" E.keyed_data_dir(cfg, "tier_e", "k")
+            @test_throws r"tier tier_n is published read-only by the artifact view; bind VGTK_DATA_ROOT_TIER_N" joinpath(E._tier_root("tier_n"; write = true), "tier_n", "k-" * k)
+            @test_throws r"tier tier_e is published read-only" joinpath(E._tier_root("tier_e"; write = true), "tier_e", "k-" * k)
             run = joinpath(mktempdir(), "run"); mkpath(run); E.write_provenance(run, Dict("run_key" => k); driver = "d")
             @test_throws r"tier tier_e is published read-only" E.promote_run(run, "tier_e")
             # a tier the view does not publish: the data root IS the view, read-only, so producing it is refused too
-            @test_throws r"the data root is an artifact view \(read-only\); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_LOCAL_TIER" E.keyed_data_dir(cfg, "local_tier", "k")
+            @test_throws r"the data root is an artifact view \(read-only\); bind VGTK_DATA_ROOT or VGTK_DATA_ROOT_LOCAL_TIER" joinpath(E._tier_root("local_tier"; write = true), "local_tier", "k-" * k)
             @test_throws r"the data root is an artifact view" E.promote_run(run, "local_tier")
-            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT" => root)
-            @test_throws r"the data root is an artifact view" withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"),
+            @test_throws r"the data root is an artifact view" withenv(() -> joinpath(E._tier_root("local_tier"; write = true), "local_tier", "k-" * k), "VGTK_DATA_ROOT" => root)
+            @test_throws r"the data root is an artifact view" withenv(() -> joinpath(E._tier_root("local_tier"; write = true), "local_tier", "k-" * k),
                                                                       "VGTK_DATA_ROOT_LOCAL_TIER" => joinpath(root, "sub"))   # a root inside the view
             writable = mktempdir()
-            @test withenv(() -> E.keyed_data_dir(cfg, "local_tier", "k"), "VGTK_DATA_ROOT_LOCAL_TIER" => writable) == joinpath(writable, "local_tier", "k-" * k)
+            @test withenv(() -> joinpath(E._tier_root("local_tier"; write = true), "local_tier", "k-" * k), "VGTK_DATA_ROOT_LOCAL_TIER" => writable) == joinpath(writable, "local_tier", "k-" * k)
             withenv("VGTK_DATA_ROOT_TIER_N" => envdir) do
-                @test E.keyed_data_dir(cfg, "tier_n", "k") == joinpath(envdir, "tier_n", "k-" * k)
+                @test joinpath(E._tier_root("tier_n"; write = true), "tier_n", "k-" * k) == joinpath(envdir, "tier_n", "k-" * k)
             end
             # S4: env beats site beats the view, for reading and producing
             withenv("VGTK_SITE" => "m") do
                 @test E.data_root(; tier = "tier_e") == sitedir
-                @test E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(sitedir, "tier_e", "k-" * k)
+                @test joinpath(E._tier_root("tier_e"; write = true), "tier_e", "k-" * k) == joinpath(sitedir, "tier_e", "k-" * k)
                 withenv("VGTK_DATA_ROOT_TIER_E" => envdir) do
-                    @test E.data_root(; tier = "tier_e") == envdir && E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(envdir, "tier_e", "k-" * k)
+                    @test E.data_root(; tier = "tier_e") == envdir && joinpath(E._tier_root("tier_e"; write = true), "tier_e", "k-" * k) == joinpath(envdir, "tier_e", "k-" * k)
                 end
             end
             # the graph's data_env names the tier variables, for the drivers as for the runner (its own reader, load_stage_graph)
@@ -171,7 +171,7 @@
             flat = mktempdir(); mkpath(joinpath(flat, "run1")); write(joinpath(flat, "run1", "e.json"), "1")
             withenv("VGTK_DATA_ROOT" => flat) do
                 @test E.data_root(; tier = "tier_e") == flat && E.input_path(TOML.parsefile(joinpath(dir, "configs", "e.toml")), "e") == joinpath(flat, "run1", "e.json")
-                @test E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(flat, "tier_e", "k-" * k)          # unmoved
+                @test joinpath(E._tier_root("tier_e"; write = true), "tier_e", "k-" * k) == joinpath(flat, "tier_e", "k-" * k)          # unmoved
                 @test isempty(VgtkEval.Reproduce.missing_inputs(g, ["s"]; data_root = flat, env = Dict{String,String}()))
             end
             own = mktempdir(); proj2 = mktempdir(); mkpath(joinpath(proj2, "data")); symlink(own, joinpath(proj2, "data", "exp_raw"))
@@ -179,7 +179,7 @@
             @test E.data_root(; tier = "tier_e") == joinpath(proj2, "data", "exp_raw")
             fb = mktempdir()
             E.set_project_root!(mktempdir(); data_fallback = () -> fb, artifacts = E.ArtifactView(toml; mount = _ -> "sub"))
-            @test E.data_root(; tier = "tier_e") == fb && E.keyed_data_dir(cfg, "tier_e", "k") == joinpath(fb, "tier_e", "k-" * k)
+            @test E.data_root(; tier = "tier_e") == fb && joinpath(E._tier_root("tier_e"; write = true), "tier_e", "k-" * k) == joinpath(fb, "tier_e", "k-" * k)
             E.set_project_root!("")
         end
     end
@@ -195,17 +195,14 @@
         end
     end
 
-    @testset "a scratch run never completes, caches or promotes a run of record, nor the reverse" begin
-        out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
-        withenv("VGTK_SCRATCH" => nothing) do
+    @testset "a scratch run never reuses or promotes a run of record, nor the reverse" begin
+        withenv("VGTK_SCRATCH" => nothing, "VGTK_RESULTS_ROOT" => mktempdir()) do
             E.set_project_root!(mktempdir())
-            E.write_provenance(out; driver = "d")
-            @test E.run_complete(out; sidecar = "r.jld2")
-            @test !withenv(() -> (@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2")), "VGTK_SCRATCH" => "1")
-            s = mktempdir(); write(joinpath(s, "r.jld2"), "x")
-            withenv(() -> E.write_provenance(s; driver = "d"), "VGTK_SCRATCH" => "1")
-            @test withenv(() -> E.run_complete(s; sidecar = "r.jld2"), "VGTK_SCRATCH" => "1")
-            @test !(@test_logs (:info, r"its code changed") E.run_complete(s; sidecar = "r.jld2"))
+            st = E.Step("e", "run", Dict("n" => 1); output = "r.txt")
+            mkpath(E.step_dir(st)); write(E.step_output(st), "x")
+            E.write_provenance(E.step_dir(st), Dict("run_key" => st.key); driver = "d")
+            @test E.produced(st)
+            @test !withenv(() -> (@test_logs (:info, r"its code changed") E.produced(st)), "VGTK_SCRATCH" => "1")
             cfg = Dict{String,Any}("n" => 2)
             @test withenv(() -> E.run_key(cfg), "VGTK_SCRATCH" => "1") != E.run_key(cfg)
             E.set_project_root!("")
@@ -221,7 +218,7 @@
             @test E.assert_not_input(mktempdir()) === nothing
             # every writer is guarded
             @test_throws ErrorException E.write_provenance(joinpath(data, "x"); driver = "t")
-            @test_throws ErrorException E.cached_result(_ -> Dict("a" => 1), "p", Dict("k" => 1), joinpath(data, "c"))
+            @test_throws ErrorException E.write_run_records(joinpath(data, "c"), Dict{String,Any}(); driver = "t", config_source = "c", key = "k")
             @test !ispath(joinpath(data, "x")) && !ispath(joinpath(data, "c"))
         end
         withenv("VGTK_DATA_ROOT" => nothing) do
@@ -324,20 +321,17 @@
         @test_throws ErrorException E.read_provenance(mktempdir())
     end
 
-    @testset "run_complete and commit drift" begin
+    @testset "commit drift" begin
         repo = gitrepo()
         git!(repo, "tag", "-a", "v0.1.0", "-m", "release")          # an ANNOTATED tag: describe names it
         write(joinpath(repo, "a.txt"), "b\n"); git!(repo, "commit", "-qam", "two")
         E.set_project_root!(repo)
         out = mktempdir()
-        @test !E.run_complete(out; sidecar = "r.jld2")
-        write(joinpath(out, "r.jld2"), "x")
-        @test !E.run_complete(out; sidecar = "r.jld2")                 # no record: not complete
         E.write_provenance(out; driver = "d")
         rec = E.read_provenance(out)["gitcommit"]
         @test startswith(rec, "v0.1.0-1-g")                           # the annotated-tag form
         # same commit: no warning (the retired split('-')[1] parse compared "v0.1.0" with a sha and always warned)
-        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
+        @test E.commit_drift(Dict("gitcommit" => rec)) === nothing
         @test E.commit_drift(Dict("gitcommit" => rec * "-dirty")) === nothing
         @test E.commit_drift(Dict("gitcommit" => gitdescribe(repo; warn = false))) === nothing
         @test E.commit_drift(Dict{String,Any}()) === nothing
@@ -348,42 +342,6 @@
         # a new commit that changes no code tree (this repository has no src): the same code, complete, no warning
         write(joinpath(repo, "a.txt"), "c\n"); git!(repo, "commit", "-qam", "three")
         @test E.commit_drift(Dict("gitcommit" => rec)) isa Tuple
-        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
-        E.set_project_root!("")
-    end
-
-    @testset "run_complete and the keyed cache reuse a result only while its code trees are the current ones" begin
-        repo = gitrepo()
-        mkpath(joinpath(repo, "src")); mkpath(joinpath(repo, "docs"))
-        write(joinpath(repo, "src", "M.jl"), "module M end\n"); write(joinpath(repo, "docs", "x.md"), "x\n")
-        git!(repo, "add", "-A"); git!(repo, "commit", "-qm", "code")
-        E.set_project_root!(repo)
-        out = mktempdir(); write(joinpath(out, "r.jld2"), "x")
-        E.write_provenance(out; driver = "d")
-        trees = E.read_provenance(out)["code_trees"]
-        @test trees == E.current_code_trees(repo) && collect(keys(trees)) == ["src"]
-        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
-        # a docs-only commit: no tree changed
-        write(joinpath(repo, "docs", "x.md"), "y\n"); git!(repo, "commit", "-qam", "docs")
-        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
-        # src changes: not complete, the tree named
-        write(joinpath(repo, "src", "M.jl"), "module M\nf() = 1\nend\n"); git!(repo, "commit", "-qam", "src")
-        @test !(@test_logs (:info, r"rerunning .*its code changed") E.run_complete(out; sidecar = "r.jld2"))
-        chg = VgtkEval.code_tree_changes(trees, E.current_code_trees(repo))
-        @test length(chg) == 1 && occursin(r"^src: [0-9a-f]{10} → [0-9a-f]{10}$", chg[1])
-        E.write_provenance(out; driver = "d")                         # the rerun records the new trees
-        @test (@test_logs E.run_complete(out; sidecar = "r.jld2"))
-        # a record from before the trees were kept: runs once more
-        p = joinpath(out, "_provenance.toml"); d = TOML.parsefile(p); delete!(d, "code_trees"); open(io -> TOML.print(io, d), p, "w")
-        @test !(@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2"))
-        # the keyed cache: computed once, reused, computed again when src changes (the old version kept)
-        dir = mktempdir(); cfg = Dict{String,Any}("a" => 1)
-        d1, f1 = E.cached_result(c -> Dict{String,Any}("v" => 1), "r", cfg, dir)
-        @test d1["code_trees"] == E.current_code_trees(repo)
-        @test E.cached_result(c -> error("must not recompute"), "r", cfg, dir)[1]["v"] == 1
-        write(joinpath(repo, "src", "M.jl"), "module M\nf() = 2\nend\n"); git!(repo, "commit", "-qam", "src again")
-        d2, _ = @test_logs (:info, r"recomputing .*its code changed") match_mode = :any E.cached_result(c -> Dict{String,Any}("v" => 2), "r", cfg, dir)
-        @test d2["v"] == 2 && isfile(replace(f1, ".jld2" => "_#1.jld2"))
         E.set_project_root!("")
     end
 
@@ -396,21 +354,15 @@
         write(joinpath(repo, "src", "M.jl"), "module M\nf() = 1\nend\n")              # an uncommitted edit
         @test_throws r"a run of record runs committed code, and src has uncommitted changes" E.write_provenance(out; driver = "d")
         @test !isfile(joinpath(out, "_provenance.toml"))
-        dir = mktempdir()
-        @test_throws r"a run of record runs committed code" E.cached_result(c -> error("must not compute"), "r", Dict("a" => 1), dir)
-        @test isempty(readdir(dir))
         write(joinpath(repo, "src", "N.jl"), "# untracked\n"); git!(repo, "checkout", "-q", "--", "src/M.jl")
         @test_throws r"src has uncommitted changes" E.write_provenance(out; driver = "d")                 # an untracked file too
         # a scratch run records it, warned, its tree marked: never reused once the code is committed (or reverted)
         withenv("VGTK_SCRATCH" => "1") do
             @test E.scratch_run()
             @test_logs (:warn, r"scratch run records .* of uncommitted code") match_mode = :any E.write_provenance(out; driver = "d")
-            # never reused, not even by a scratch run of the same marked tree (other edits carry the same mark)
-            @test !(@test_logs (:info, r"its code changed") match_mode = :any E.run_complete(out; sidecar = "r.jld2"))
         end
         @test endswith(E.read_provenance(out)["code_trees"]["src"], "+uncommitted")
         rm(joinpath(repo, "src", "N.jl"))
-        @test !(@test_logs (:info, r"its code changed") E.run_complete(out; sidecar = "r.jld2"))
         # code in no git checkout cannot be named: refused, and a scratch run records "uncommitted"
         loose = mktempdir(); mkpath(joinpath(loose, "src")); write(joinpath(loose, "src", "M.jl"), "module M end\n")
         E.set_project_root!(loose)
@@ -436,7 +388,7 @@
         E.set_project_root!("")
     end
 
-    @testset "run_key folds files, upstream keys and parts; keyed data dirs, promote_run, verify_inputs, require_input's sha256" begin
+    @testset "run_key folds files, upstream keys and parts; promote_run, verify_inputs, require_input's sha256" begin
         data = mktempdir(); res = mktempdir()
         withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res) do
             E.set_project_root!(mktempdir())
@@ -453,31 +405,17 @@
             kp = E.run_key(cfg; parts = (; frame_limit = 10))
             @test kp != k0 && kp == E.run_key(cfg; parts = Dict("frame_limit" => 10)) && kp != E.run_key(cfg; parts = (; frame_limit = 0))
             @test_throws r"keyed_with" E.run_key(merge(cfg, Dict{String,Any}("keyed_with" => 1)))
-            @test basename(E.keyed_cell_dir(cfg, "e", "pose"; parts = (; frame_limit = 10))) == "pose-" * kp
-            # a project laid out by its own config, not by pool: [experiment] layout, or a base under the results root
-            lay = Dict{String,Any}("experiment" => Dict{String,Any}("layout" => ["mocap", "cam0"]), "n" => 3)
-            @test E.experiment_dir(lay) == joinpath(res, "mocap", "cam0")
-            @test E.keyed_cell_dir(lay, "selfcal", "run") == joinpath(res, "mocap", "cam0", "selfcal", "run-" * E.run_key(lay))
-            b = joinpath(res, "absolute_pose_experiments", "set1")
-            @test E.keyed_cell_dir(cfg, "tune_radial_camera", "run"; base = b) == joinpath(b, "tune_radial_camera", "run-" * k0)
-            @test E.keyed_cell_dir(cfg, "figures", "fig_sensitivity"; base = res) == joinpath(res, "figures", "fig_sensitivity-" * k0)   # a run over several datasets
-            @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = mktempdir())
-            @test_throws r"is not under the results root" E.keyed_cell_dir(cfg, "x", "run"; base = joinpath(res, "..", "elsewhere"))
-            for bad in (String[], ["a", ".."], ["/abs"], ["a/b"], [""], "mocap")
-                @test_throws r"layout" E.experiment_dir(Dict{String,Any}("experiment" => Dict{String,Any}("layout" => bad)))
-            end
+            @test E.Step("e", "pose", cfg; output = "p.json", parts = (; frame_limit = 10)).key == kp
+            # a project laid out by its own config, not by pool: [experiment] layout
             p = joinpath(mktempdir(), "lay.toml")
             write(p, "[experiment]\nlayout = [\"mocap\", \"cam0\"]\n")
             @test E.load_run_config(p)["experiment"]["layout"] == ["mocap", "cam0"]               # no pool fields needed
             write(p, "[experiment]\ndataset = \"d\"\n")
             @test_throws r"lacks `matcher` \(or a `layout`\)" E.load_run_config(p)
-            # a producer's keyed directory under the data root
-            @test E.keyed_data_dir(cfg, "annotations", "train") == joinpath(data, "annotations", "train-" * k0)
-            # producer and consumer agree under a tier root set elsewhere: one path of record, `<tier>/<kind>-<key>`
+            # a promoted run read under a tier root set elsewhere: one path of record, `<tier>/<name>`
             derived = mktempdir()
             withenv("VGTK_DATA_ROOT_DERIVED" => derived) do
-                out = E.keyed_data_dir(cfg, "derived", "pool")
-                @test out == joinpath(derived, "derived", "pool-" * k0)
+                out = joinpath(derived, "derived", "pool-" * k0)
                 mkpath(out); write(joinpath(out, "pool.jld2"), "p")
                 c = Dict{String,Any}("inputs" => Dict{String,Any}("pool" => Dict{String,Any}("tier" => "derived", "path" => "derived/pool-" * k0)))
                 @test E.input_path(c, "pool") == out
@@ -563,22 +501,18 @@
         withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SCRATCH" => nothing) do
             E.set_project_root!(mktempdir())
             cfg = Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d", "matcher" => "m", "problem" => "p"), "n" => 1)
-            rec_dir = E.keyed_cell_dir(cfg, "e", "run")
+            rec_dir = E.step_dir(E.Step("e", "run", cfg; output = "r.csv"))
             E.write_provenance(rec_dir, Dict("run_key" => E.run_key(cfg)); driver = "d")
             @test E.read_provenance(rec_dir)["scratch"] === false && !VgtkEval.scratch_record(rec_dir)
-            scr_dir, scr_key, scr_file = withenv("VGTK_SCRATCH" => "1") do
-                d = E.keyed_cell_dir(cfg, "e", "run")
+            scr_dir, scr_key = withenv("VGTK_SCRATCH" => "1") do
+                d = E.step_dir(E.Step("e", "run", cfg; output = "r.csv"))
                 E.write_provenance(d, Dict("run_key" => E.run_key(cfg)); driver = "d")
-                _, f = E.cached_result(c -> Dict{String,Any}("v" => 1), "r", cfg, joinpath(res, "cache"))
-                d, E.run_key(cfg), f
+                d, E.run_key(cfg)
             end
-            # marked, and never the directory, key or cache file of the run of record
+            # marked, and never the directory or key of the run of record
             @test E.read_provenance(scr_dir)["scratch"] === true && VgtkEval.scratch_record(scr_dir)
             @test VgtkEval.scratch_record(joinpath(scr_dir, "anything.csv"))                  # a file in a scratch run's directory
             @test scr_dir != rec_dir && scr_key != E.run_key(cfg)
-            @test occursin("r-scratch_", basename(scr_file))
-            _, f2 = E.cached_result(c -> Dict{String,Any}("v" => 2), "r", cfg, joinpath(res, "cache"))
-            @test f2 != scr_file && E.cached_result(c -> error("cached"), "r", cfg, joinpath(res, "cache"))[1]["scratch"] === false
             # refused to a run of record: as an upstream run, an input of its record, a promoted run, a config input
             @test_throws r"scratch run's output .*never an upstream run of record" E.run_key(cfg; upstream = Dict("poses" => scr_dir))
             @test E.run_key(cfg; upstream = Dict("poses" => rec_dir)) == E.run_key(cfg; upstream = Dict("poses" => E.run_key(cfg)))
@@ -606,18 +540,8 @@
         end
     end
 
-    @testset "cached_result through another codec; write_run_records with a payload" begin
+    @testset "write_run_records with a payload" begin
         E.set_project_root!(mktempdir())
-        dir = mktempdir(); cfg = Dict{String,Any}("a" => 1)
-        codec = (; ext = ".toml", load = TOML.parsefile, save = (f, d) -> open(io -> TOML.print(io, d), f, "w"))
-        d1, f1 = E.cached_result(c -> Dict{String,Any}("pose" => [1.0, 2.0]), "he", cfg, dir; codec...)
-        @test endswith(f1, ".toml") && TOML.parsefile(f1)["pose"] == [1.0, 2.0] && haskey(TOML.parsefile(f1), "code_trees")
-        @test E.cached_result(c -> error("cached"), "he", cfg, dir; codec...)[1]["pose"] == [1.0, 2.0]
-        d3, _ = E.cached_result(c -> Dict{String,Any}("pose" => [3.0]), "he", cfg, dir; force = true, codec...)
-        @test d3["pose"] == [3.0] && isfile(replace(f1, ".toml" => "_#1.toml"))                   # the previous version kept
-        E.cached_result(c -> Dict{String,Any}("pose" => [4.0]), "he", cfg, dir; force = true, codec...)
-        # DrWatson safesave's numbering: the newest previous version is _#1, the older renumbered up
-        @test TOML.parsefile(replace(f1, ".toml" => "_#1.toml"))["pose"] == [3.0] && TOML.parsefile(replace(f1, ".toml" => "_#2.toml"))["pose"] == [1.0, 2.0]
         out = joinpath(mktempdir(), "run")
         E.write_run_records(out, Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d")); driver = "d",
                             config_source = "c.toml", key = "k", fields = Dict("folds" => 5, "replayed" => "detection_cv"))
@@ -625,27 +549,6 @@
         @test r["folds"] == 5 && r["replayed"] == "detection_cv" && r["run_key"] == "k"
         @test_throws r"are the records' own" E.write_run_records(out, Dict{String,Any}(); driver = "d", config_source = "c",
                                                                   key = "k", fields = Dict("run_key" => "x"))
-        E.set_project_root!("")
-    end
-
-    @testset "keyed cache" begin
-        repo = gitrepo()
-        E.set_project_root!(repo)
-        cfg = Dict{String,Any}("dataset" => "260527", "system" => "bb", "level" => "none", "pose_run" => "abc")
-        @test E.legacy_hash_key(cfg) == string(hash(cfg))
-        dir = mktempdir()
-        # the file DrWatson's produce_or_load(…; filename = hash, prefix) wrote is found; it keeps no code trees (it
-        # predates them), so it is computed once more (the old version kept), then reused
-        _, f0 = produce_or_load(c -> Dict("v" => 1), cfg, dir; filename = hash, prefix = "pose", tag = false, verbose = false)
-        data, f1 = @test_logs (:info, r"recomputing") match_mode = :any E.cached_result(c -> Dict("v" => 1), "pose", cfg, dir)
-        @test f1 == f0 && data["v"] == 1 && isfile(replace(f0, ".jld2" => "_#1.jld2"))
-        @test E.cached_result(c -> error("must not recompute"), "pose", cfg, dir)[1]["v"] == 1
-        # a new config computes, tags and saves; force keeps the previous version (DrWatson safesave's _#1)
-        c2 = merge(cfg, Dict("level" => "o10"))
-        d2, f2 = E.cached_result(c -> Dict("v" => 2), "pose", c2, dir)
-        @test d2["v"] == 2 && isfile(f2) && E.cached_result(c -> error(), "pose", c2, dir)[1]["gitcommit"] isa String
-        d3, _ = E.cached_result(c -> Dict("v" => 3), "pose", c2, dir; force = true)
-        @test d3["v"] == 3 && isfile(replace(f2, ".jld2" => "_#1.jld2"))
         E.set_project_root!("")
     end
 

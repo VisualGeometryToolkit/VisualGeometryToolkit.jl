@@ -46,23 +46,33 @@ from the data layer of `Experiments`, never from a literal machine path.
   DrWatson's `savename` is the equivalent for flat configs; run configs are
   nested, hence the hash. What a run depends on beyond its config is folded
   in, never hashed privately: `run_key(cfg; files, upstream, parts)` (a file's
-  content, an upstream run's key, a frame limit). The directory is
-  `keyed_cell_dir(cfg, experiment, kind)` under the config's `experiment_dir`:
-  `<results root>/<dataset>/<matcher>/<problem>`, or the config's own
-  `[experiment] layout = ["mocap", "cam0"]` for results not laid out by pool;
-  `keyed_cell_dir(…; base)` takes another base, which must lie under the
-  results root. A run that produces data writes it to `keyed_data_dir(cfg,
-  tier, kind)`, and a run of record another run reads is made an input of
-  record with `promote_run(run_dir, tier)`.
+  content, an upstream run's key, a frame limit).
+- **Every step a keyed step, through `produce_or_load`.** Each step of a
+  pipeline (decode, detect, index, a start state, a refinement, an evaluation,
+  a figure) is a `Step(experiment, name, record; output, files, upstream,
+  parts)`, keyed by ONLY what it reads — its own config section, its inputs,
+  the keys of the steps it reads (`upstream = ("start" => start_step,)`) — so
+  a later step's setting never recomputes an earlier one. `produce(f, step)`
+  is DrWatson's `produce_or_load` on the step's output: produced once, loaded
+  after; a record `f` returns is saved through `VisualGeometryToolkitIO.save`
+  (`DrWatson._wsave`) and read with `load_output`; a step that writes a
+  directory of outputs returns `nothing`, its `output` the file it writes
+  last. Its directory is DrWatson's
+  `datadir("exp_pro", experiment, name, key)` (`results_root()` is
+  `datadir("exp_pro")`, `VGTK_RESULTS_ROOT` relocates it); a deeper layout is
+  the experiment path (`joinpath(dataset, matcher, problem, experiment)`).
+  A step of record another project reads is made an input of record with
+  `promote_run(step_dir(step), tier)`.
 - **Provenance per result.** Every result directory carries `_config.toml` and
   `_provenance.toml`, written by `write_run_records` and `write_provenance`.
   The provenance is DrWatson's `tag!` record: the commit, the patch of a dirty
-  tree, and the declared inputs relative to their roots. `cached_result` is the
-  keyed cache, with DrWatson's `produce_or_load` file names, tagged.
+  tree, and the declared inputs relative to their roots; a step's
+  provenance is written last, so a half-written step never reads as produced.
 - **Stage runner.** A driver declares its inputs (`require_input`) and its
-  stages (`Stage(name, desc, done, run)`), and it ends with `run_stages`.
-  `--plan` prints what is done, `--stage=NAME` runs one stage and `--force`
-  runs stages again.
+  stages (`Stage(name, desc; steps, run)`, a stage's keyed steps, or
+  `Stage(name, desc; check)`), and it ends with `run_stages`. `--plan` prints
+  each stage's produced steps, `--stage=NAME` runs one stage and `--force`
+  produces its steps again.
 - **Data policy.** Inputs under `data_root()` are immutable, and the writers
   refuse them (`assert_not_input`). Results under `results_root()` are
   add-only. Code holds no machine path and no `artifact"…"` string macro

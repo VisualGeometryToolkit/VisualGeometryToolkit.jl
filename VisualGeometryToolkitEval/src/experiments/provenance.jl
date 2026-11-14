@@ -1,7 +1,7 @@
 # =============================================================================
 # provenance.jl — the provenance record of a derived artifact directory, the
-# skip-if-complete commit-drift check, the legacy cache key and the keyed
-# result cache (hoisted 2026-10-07: VisualGeometryToolkitEval `write_run_records`,
+# commit-drift check and the reuse rule of a keyed step (steps.jl)
+# (hoisted 2026-10-07: VisualGeometryToolkitEval `write_run_records`,
 # bmvc2026 src/provenance.jl `write_provenance`/`read_provenance`, bmvc2026
 # src/cache.jl `cached`, bmvc2026 sweep.jl's drift warning).
 #
@@ -25,7 +25,7 @@
 # `[config]` payload table); [`read_provenance`](@ref) returns every layout as
 # the one flat dict.
 # =============================================================================
-using DrWatson: DrWatson, tag!, safesave, gitdescribe, wload
+using DrWatson: DrWatson, tag!, gitdescribe
 using LibGit2: LibGit2
 
 # DrWatson's `tag!(d; storepatch = true)` — except inside a git WORKTREE, where
@@ -72,9 +72,8 @@ end
 
 The code trees a result computed now records (`code_trees` of the top module):
 the project's `src` (of `gitpath`) and every stack package its environment
-(`gitpath`'s, or the Manifest above it) loads. [`write_provenance`](@ref) and
-[`cached_result`](@ref) store them; [`run_complete`](@ref) and
-[`cached_result`](@ref) reuse a stored result only while they are unchanged
+(`gitpath`'s, or the Manifest above it) loads. [`write_provenance`](@ref) stores
+them; [`produced`](@ref) reuses a stored step only while they are unchanged
 (`code_tree_changes`).
 """
 current_code_trees(gitpath::AbstractString = project_root()) = _code_identity(gitpath).trees
@@ -179,7 +178,7 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     if isfile(old)
         was = get(TOML.parsefile(old), "scratch", false) === true
         was == prov["scratch"] || throw(ArgumentError("write_provenance: $dir holds the record of a $(was ? "scratch run" : "run of record"), " *
-            "and this is a $(was ? "run of record" : "scratch run"): the two never share a directory (key it, keyed_cell_dir)"))
+            "and this is a $(was ? "run of record" : "scratch run"): the two never share a directory (a scratch Step has a key of its own)"))
     end
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
@@ -286,101 +285,11 @@ function warn_commit_drift(prov::AbstractDict, what; gitpath::AbstractString = p
     return true
 end
 
-"""
-    run_complete(outdir; sidecar, gitpath = project_root()) -> Bool
-
-Keyed skip-if-complete: a run counts as done only when its result `sidecar`
-(a file name under `outdir`) AND its `_provenance.toml` exist, and the code
-trees that record keeps are the current ones (`code_tree_changes` of the
-recorded `code_trees` and [`current_code_trees`](@ref)`(gitpath)`). When a
-tree changed, the run is not complete: it runs again, and an `@info` names
-each tree that changed. A record from before the trees were kept has none and
-runs once more. Another commit with the same trees (docs, tests, the paper) is
-the same code: complete, without a warning.
-"""
-function run_complete(outdir::AbstractString; sidecar::AbstractString, gitpath::AbstractString = project_root())
-    isfile(joinpath(outdir, sidecar)) || return false
-    isfile(joinpath(outdir, PROVENANCE_FILE)) || return false
-    prov = try read_provenance(outdir) catch; return false end
-    changes = _reuse_changes(prov, current_code_trees(gitpath), scratch_run())
-    isempty(changes) && return true
-    @info "rerunning $outdir: its code changed" changes = join(changes, "; ")
-    return false
-end
-
-# Why a stored result (its record `rec`: a run's provenance, a cached file's data) is not reused now: the code trees
-# that changed since it was computed (`code_tree_changes` against `trees`), and a scratch flag that differs from
-# `scratch` (a scratch run's result never stands for a run of record, nor the reverse). Empty: reuse it. The one reuse
-# rule of `run_complete` and `cached_result`.
+# Why a stored step (its provenance record `rec`) is not reused now: the code trees that changed since it was produced
+# (`code_tree_changes` against `trees`), and a scratch flag that differs from `scratch` (a scratch run's result never stands
+# for a run of record, nor the reverse). Empty: reuse it. The one reuse rule (`produced`, steps.jl).
 function _reuse_changes(rec, trees, scratch::Bool)
     changes = code_tree_changes(get(rec, "code_trees", nothing), trees)
     get(rec, "scratch", false) === scratch || push!(changes, "scratch: $(get(rec, "scratch", false)) → $scratch")
     return changes
-end
-
-"""
-    legacy_hash_key(x) -> String
-
-LEGACY, version-UNSTABLE key: `string(hash(x))`. It names the existing caches of
-bmvc2026 and other paper projects (`<prefix>_<hash(cfg)>.jld2`, bmvc2026's detection
-`run_key`), which must not move before their next full regeneration — that one
-re-keys them to [`run_key`](@ref) (SHA-256 of the canonical JSON). Never use it
-for a new key.
-"""
-legacy_hash_key(x) = string(hash(x))
-
-"""
-    cached_result(f, prefix, cfg, dir; key = legacy_hash_key, force = false,
-                  gitpath = project_root(), ext = ".jld2", load = wload, save = nothing) -> (data, file)
-
-The keyed result cache: `<dir>/<prefix>_<key(cfg)>.jld2` is loaded (DrWatson
-`wload`) when present and its `code_trees` are the current ones
-([`current_code_trees`](@ref), `code_tree_changes`; a file without them, from
-before they were kept, is computed once more), else `f(cfg)` (a String-keyed
-Dict) is computed and saved tagged like DrWatson's `tagsave` (gitcommit +
-gitpatch ride along, and `code_trees`; uncommitted code is refused before
-computing, as by [`write_provenance`](@ref)) and written
-with DrWatson's `safesave`, so a forced re-run keeps the previous version as
-`_#n`. The file name is
-exactly the one DrWatson's `produce_or_load(…; filename = hash, prefix)` builds,
-so its existing caches are found. Justified extension: `produce_or_load` itself
-swallows save errors (DrWatson saving_files.jl:107-116 — a failed write returns
-the data as if cached) and forces `safe = false`; here a save error propagates.
-
-Another format (a vgio record) is cached through a codec: `ext` names the file's
-extension, `load(file) -> Dict` reads it back and `save(file, data)` writes the
-String-keyed Dict (code trees and DrWatson's tag included); the previous version
-is kept as safesave keeps it (DrWatson's own `recursively_clear_path`: the newest
-previous version is `<name>_#1<ext>`, older ones renumbered up). A [`scratch_run`](@ref)
-caches as `<prefix>-scratch_<key><ext>`, never in a run of record's file, and
-its data say `scratch = true`.
-"""
-function cached_result(f, prefix::AbstractString, cfg, dir::AbstractString;
-                       key = legacy_hash_key, force::Bool = false,
-                       gitpath::AbstractString = project_root(),
-                       ext::AbstractString = ".jld2", load = wload, save = nothing)
-    assert_not_input(dir)
-    scratch = scratch_run()
-    # a scratch run's cache is never a run of record's file
-    file = joinpath(dir, string(prefix, scratch ? "-scratch" : "", "_", key(cfg), ext))
-    if !force && isfile(file)
-        trees = current_code_trees(gitpath)
-        stored = load(file)
-        changes = _reuse_changes(stored, trees, scratch)
-        isempty(changes) && return stored, file
-        @info "recomputing $file: its code changed" changes = join(changes, "; ")
-    end
-    trees = _recorded_code_trees(gitpath, file)                    # before computing: a refusal costs nothing
-    data = f(cfg)
-    mkpath(dir)
-    data = _tag!(data; gitpath)
-    data["code_trees"] = trees
-    data["scratch"] = scratch
-    if save === nothing
-        safesave(file, copy(data))
-    else
-        DrWatson.recursively_clear_path(file)                         # safesave's own versioning (newest `_#1`), for any codec
-        save(file, copy(data))
-    end
-    return data, file
 end

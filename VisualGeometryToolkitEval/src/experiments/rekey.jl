@@ -113,3 +113,39 @@ The old-key → new-key map of a written re-key file (moved keys only).
 """
 read_rekey_map(path::AbstractString) =
     Dict{String, String}(c["old_key"] => c["new_key"] for c in TOML.parsefile(path)["configs"] if c["moved"])
+
+"""
+    migrate_keyed_dirs(root = results_root(); dry_run = true) -> Vector{Pair{String,String}}
+
+The one-shot move of a results tree from the retired layout to the keyed step's (VisualGeometryToolkitEval 0.9):
+every directory `<experiment…>/<kind>-<key>` under `root` (`key` 16 hex digits) whose `_provenance.toml` records that
+`run_key` moves to `<experiment…>/<kind>/<key>`, [`step_dir`](@ref)'s layout, where a `Step` of the same record finds it
+(the key of an unchanged record is unchanged). A directory whose record names no key or another key is left and
+reported; a destination that exists is refused (`ArgumentError`, nothing moved). `dry_run` (the default) moves nothing
+and returns the moves it would make (`old => new`).
+"""
+function migrate_keyed_dirs(root::AbstractString = results_root(); dry_run::Bool = true)
+    moves = Pair{String, String}[]
+    for (dir, subdirs, _) in walkdir(root)
+        for d in subdirs
+            m = match(r"^(.+)-([0-9a-f]{16})$", d)
+            m === nothing && continue
+            src = joinpath(dir, d)
+            isfile(joinpath(src, PROVENANCE_FILE)) || continue
+            key = get(read_provenance(src), "run_key", "")
+            if key != m.captures[2]
+                @warn "migrate_keyed_dirs: left in place, its record names another run key" dir = src recorded = key
+                continue
+            end
+            push!(moves, src => joinpath(dir, String(m.captures[1]), key))
+        end
+    end
+    taken = [b for (_, b) in moves if ispath(b)]
+    isempty(taken) || throw(ArgumentError("migrate_keyed_dirs: the destination(s) exist, nothing moved: $(join(taken, ", "))"))
+    dry_run && return moves
+    for (a, b) in sort(moves; by = m -> -count(==('/'), m.first))       # a keyed directory nested in another moves first
+        mkpath(dirname(b))
+        mv(a, b)
+    end
+    return moves
+end

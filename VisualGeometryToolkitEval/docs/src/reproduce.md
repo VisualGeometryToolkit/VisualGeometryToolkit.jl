@@ -307,10 +307,10 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256): the SHA-256 of
   its sorted `(relative path, file sha256)` lines, with `sha256_exclude`
   globs left out; it is streamed and cached per file.
-- **Producers.** A run that produces input data writes it to
-  `keyed_data_dir(cfg, tier, kind)`, `<tier root>/<tier>/<kind>-<key>`, so
-  its consumers' `[inputs.<id>] path = "<tier>/<kind>-<key>"` finds it on
-  every machine. A path in a tier that no config declares is
+- **Producers.** A step that produces input data is produced under the
+  results root and promoted, `promote_run(step_dir(step), tier)`, to
+  `<tier root>/<tier>/<name>`, so its consumers' `[inputs.<id>] path =
+  "<tier>/<name>"` finds it on every machine. A path in a tier that no config declares is
   `tier_path(tier, parts...)`.
 - **Unpublished inputs.** Data of record that no artifact publishes (a
   capture kept on one machine) takes the reserved tier `unpublished`
@@ -441,11 +441,10 @@ it computed.
 The rule is one function,
 [`code_tree_changes`](@ref VisualGeometryToolkitEval.code_tree_changes)`(recorded,
 current)`: a stored result is reused only when it returns nothing. Every
-consumer goes through it — the runner's stage reuse,
-[`run_complete`](@ref VisualGeometryToolkitEval.Experiments.run_complete) (a
-driver's skip-if-complete) and
-[`cached_result`](@ref VisualGeometryToolkitEval.Experiments.cached_result) —
-and each change it returns names the tree:
+consumer goes through it — the runner's stage reuse and
+[`produced`](@ref VisualGeometryToolkitEval.Experiments.produced) (a driver's
+keyed step, DrWatson's `produce_or_load`) — and each change it returns names
+the tree:
 
 ```text
 setup                            rerun: code changed: VisualGeometryToolkitCore: src 3fa29c01e2 → b71d0e44a9
@@ -458,7 +457,7 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
   one error,
   [`refuse_uncommitted_code`](@ref VisualGeometryToolkitEval.refuse_uncommitted_code):
   by a launch (exit 2; the dry run marks it `DIRTY`) and by a driver's records
-  (`write_provenance`, `write_run_records`, `cached_result`). Scratch work sets
+  (`write_provenance`, `write_run_records`, `produce`). Scratch work sets
   `VGTK_SCRATCH=1`
   ([`scratch_run`](@ref VisualGeometryToolkitEval.Experiments.scratch_run)):
   its results are recorded with a warning, their trees marked `+uncommitted`,
@@ -473,8 +472,8 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
 
 For a paper project (RadiometricCamera's cvpr2027, CaliBlobs' icra2026,
 BlobBoards' bmvc2026, RANSACScoringDoneRight, LocalOptimizationDoneRight) this
-needs nothing new: its drivers' `write_provenance`/`write_run_records` and
-`run_complete` record and compare the trees, and its graph's `code` lists the
+needs nothing new: its drivers' steps (`produce`, `produced`) record and
+compare the trees, and its graph's `code` lists the
 project's own code. List the code a stage runs there, not the docs: a path in
 `code` that holds the paper reruns every stage on a text edit.
 

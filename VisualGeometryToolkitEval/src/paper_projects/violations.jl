@@ -24,7 +24,7 @@
 #                 C3 a script names a config under configs/ that does not exist
 #   :provenance   P1 a producing script writes no provenance record through the
 #                    shared writer (write_provenance / write_run_records /
-#                    cached_result), itself or in what it includes or launches
+#                    produce), itself or in what it includes or launches
 #                 P2 a producing script keys no output by a run key (run_key)
 #                 S1 a generator of the index has no stage runner (run_stages)
 #   :catalog      A1 the DataArtifacts catalog disagrees with Artifacts.toml
@@ -143,9 +143,9 @@ _opted_line(marks, rule, i) = any(j -> j == i || j == i - 1, get(marks, rule, In
 
 # ---- producers -------------------------------------------------------------------------
 
-const _RESULT_WRITERS = r"\b(write_provenance|write_run_records|cached_result|produce_or_load|wsave|tagsave|safesave|jldsave)\("
-const _PROVENANCE_WRITERS = r"\b(write_provenance|write_run_records|cached_result)\("
-const _RUN_KEYS = r"\b(run_key|write_run_records|cached_result)\("
+const _RESULT_WRITERS = r"\b(write_provenance|write_run_records|produce|produce_or_load|wsave|tagsave|safesave|jldsave)\("
+const _PROVENANCE_WRITERS = r"\b(write_provenance|write_run_records|produce)\("
+const _RUN_KEYS = r"\b(run_key|write_run_records|produce|Step)\("
 
 _scripts(root::String, scripts::AbstractString) = (d = joinpath(root, scripts); isdir(d) ?
     sort!([joinpath(r, f) for (r, _, fs) in walkdir(d) for f in fs if endswith(f, ".jl")]) : String[])
@@ -440,7 +440,7 @@ function _scripts!(add!, root::String, scripts::AbstractString, configs::Abstrac
             reached_code = join((_code(read(f, String)) for f in reached), '\n')
             occursin(_PROVENANCE_WRITERS, reached_code) || haskey(marks, "P1") ||
                 add!(:provenance, "P1", rel, 0,
-                     "writes no provenance record through the shared writer (write_provenance / write_run_records / cached_result)")
+                     "writes no provenance record through the shared writer (write_provenance / write_run_records / produce)")
             occursin(_RUN_KEYS, reached_code) || haskey(marks, "P2") ||
                 add!(:provenance, "P2", rel, 0, "keys no output directory by the run key of its config (run_key)")
             rel in generators && !occursin("run_stages(", code) && !haskey(marks, "S1") &&

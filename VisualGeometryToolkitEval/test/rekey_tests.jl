@@ -30,3 +30,31 @@ rows = rekey_map([moved, kept, bad]; renames, keyed_table = TOML.parsefile, key 
 p = write_rekey_map(joinpath(dir, "_rekey", "map.toml"), rows; project = "test", renames, commits = Dict("X" => "abc"))
 @test read_rekey_map(p) == Dict(rows[1].old_key => rows[1].new_key)
 end
+
+@testitem "migrate_keyed_dirs: the retired <kind>-<key> layout to the step's <kind>/<key>" begin
+    using Test
+    import VisualGeometryToolkitEval as VgtkEval
+    const E = VgtkEval.Experiments
+    E.set_project_root!(mktempdir())
+    root = mktempdir()
+    withenv("VGTK_RESULTS_ROOT" => root, "VGTK_SCRATCH" => "1") do               # scratch: the records need no git checkout
+        rec = Dict{String, Any}("case" => "a")
+        k = E.run_key(rec)
+        old = joinpath(root, "calibrate", "refine-" * k); mkpath(old); write(joinpath(old, "parameters.json"), "{}")
+        E.write_provenance(old, Dict("run_key" => k); driver = "d")
+        other = joinpath(root, "calibrate", "refine-" * "0"^16); mkpath(other)
+        E.write_provenance(other, Dict("run_key" => "f"^16); driver = "d")          # its record names another key: left
+        plain = joinpath(root, "calibrate", "notes"); mkpath(plain)
+        moves = (@test_logs (:warn, r"left in place") E.migrate_keyed_dirs(root))
+        @test moves == [old => joinpath(root, "calibrate", "refine", k)] && isdir(old)   # dry run: nothing moved
+        @test (@test_logs (:warn, r"left in place") E.migrate_keyed_dirs(root; dry_run = false)) == moves
+        @test !isdir(old) && isdir(other) && isdir(plain)
+        s = E.Step("calibrate", "refine", rec; output = "parameters.json")
+        @test E.step_dir(s) == joinpath(root, "calibrate", "refine", k) && isfile(E.step_output(s))
+        # an occupied destination is refused, nothing moved
+        again = joinpath(root, "calibrate", "refine-" * k); mkpath(again); E.write_provenance(again, Dict("run_key" => k); driver = "d")
+        @test_throws r"destination\(s\) exist, nothing moved" E.migrate_keyed_dirs(root; dry_run = false)
+        @test isdir(again)
+    end
+    E.set_project_root!("")
+end

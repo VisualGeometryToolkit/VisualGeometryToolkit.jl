@@ -57,8 +57,8 @@ refusal); a scratch run records it with a warning, its trees marked `+uncommitte
 mark names HEAD, not the edits).
 
 A scratch run is kept apart from the runs of record: its record says `scratch = true` ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.write_provenance),
-[`cached_result`](@ref VisualGeometryToolkitEval.Experiments.cached_result)); its keys fold `scratch` ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)), so it never shares a keyed directory or a
-cache file with a run of record; and its output is refused as an input of record ([`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs),
+[`produce`](@ref VisualGeometryToolkitEval.Experiments.produce)); its keys fold `scratch` ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)), so it never shares a
+step's directory with a run of record; and its output is refused as an input of record ([`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs),
 [`input_path`](@ref VisualGeometryToolkitEval.Experiments.input_path), `missing_inputs`), an upstream run of record ([`run_key`](@ref VisualGeometryToolkitEval.Experiments.run_key)'s `upstream`), an input of a
 run of record ([`write_provenance`](@ref VisualGeometryToolkitEval.Experiments.write_provenance)'s `inputs`) and a promoted run ([`promote_run`](@ref VisualGeometryToolkitEval.Experiments.promote_run)).
 """
@@ -481,7 +481,7 @@ const PROVENANCE_FILE = "_provenance.toml"
                    view_mount = nothing, write = false) -> (root, source)
 
 THE root of an input tier: the one resolver of every tier lookup, read and write — the runner's `missing_inputs`,
-and `Experiments.data_root(; tier)`, `input_path`, `verify_inputs`, `keyed_data_dir`, `promote_run` and `tier_path`.
+and `Experiments.data_root(; tier)`, `input_path`, `verify_inputs`, `promote_run` and `tier_path`.
 In order:
 
 1. the environment's [`tier_variable`](@ref)`(tier)` (`source = "env"`);

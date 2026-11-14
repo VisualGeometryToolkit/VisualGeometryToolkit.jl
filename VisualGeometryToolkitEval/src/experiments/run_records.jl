@@ -24,11 +24,9 @@
 #                            re-keys an experiment. CODE is not keyed: the
 #                            record keeps it (DrWatson's tag!: gitcommit +
 #                            dirty patch; and the code's git trees), and
-#                            run_complete reruns a run whose trees changed.
-#   run_complete(outdir; sidecar)  keyed skip-if-complete: sidecar AND
-#                            records present, and the recorded code trees the
-#                            current ones (experiments/provenance.jl)
-#   experiment_dir(cfg)      <results root>/<dataset>/<matcher>/<problem>
+#                            a Step whose trees changed is not `produced`.
+#   Step / produce           the keyed step (experiments/steps.jl): its
+#                            directory datadir("exp_pro", experiment, step, key)
 #   write_run_records(outdir, cfg; ...)  `_config.toml` (effective config) +
 #                            `_provenance.toml` (write_provenance: DrWatson's
 #                            tagged dict — gitcommit, gitpatch — with driver,
@@ -47,7 +45,7 @@ using FileWatching.Pidfile: mkpidlock
 using ..Stats: maa_threshold
 
 # The data/results binding (root ladder, artifact view, write guard) and the
-# provenance record (writer/reader, commit drift, run_complete, the keyed cache).
+# provenance record (writer/reader, commit drift, the reuse rule of a step).
 include("data.jl")
 include("provenance.jl")
 
@@ -167,7 +165,7 @@ end
 
 Parse a run config: it must carry `[experiment]` with `dataset`, `matcher`,
 `problem` and `pool_dir` — or, for a project whose results are not laid out by
-pool, a `layout` ([`experiment_dir`](@ref)) — and an unknown key in a section
+pool, a `layout` (an array of path segments: the project's `Step` experiment path) — and an unknown key in a section
 this package owns ([`RUN_CONFIG_KEYS`](@ref)) is refused.
 """
 function load_run_config(path::AbstractString)
@@ -249,66 +247,6 @@ function _upstream_key(name::AbstractString, v::AbstractString)
     isempty(k) && throw(ArgumentError("run_key: upstream $name = $v records no run_key"))
     return String(k)
 end
-
-"""
-    experiment_dir(cfg) -> String
-
-The results directory of the config's `[experiment]`:
-`<results root>/<dataset>/<matcher>/<problem>`, or, when it names a `layout`
-(an array of path segments, `layout = ["mocap", "cam0"]`, for a project whose
-results are not laid out by dataset, matcher and problem), `<results
-root>/<layout…>`. The layout is the config's, never the code's; a segment that
-is empty, absolute, `.` or `..` is refused. A run's keyed directory lives under
-it ([`keyed_cell_dir`](@ref)).
-"""
-function experiment_dir(cfg::AbstractDict)
-    e = cfg["experiment"]
-    haskey(e, "layout") || return joinpath(results_root(), e["dataset"], e["matcher"], e["problem"])
-    seg = e["layout"]
-    (seg isa AbstractVector && !isempty(seg) && all(s -> s isa AbstractString && !isempty(s) && !isabspath(s) &&
-         !(s in (".", "..")) && !occursin('/', s) && !occursin('\\', s), seg)) ||
-        throw(ArgumentError("[experiment] layout = $(repr(seg)): a non-empty array of path segments (no `/`, `.`, `..`)"))
-    return joinpath(results_root(), String.(seg)...)
-end
-
-"""
-    keyed_cell_dir(cfg, experiment, kind; base = experiment_dir(cfg), files, upstream, parts) -> String
-
-The keyed directory of one cell of `kind` under the results of `experiment`:
-`<base>/<experiment>/<kind>-<run_key(cfg; files, upstream, parts)>`, `base`
-by default the config's [`experiment_dir`](@ref) (its `[experiment] layout`,
-else dataset, matcher and problem). A `base` given must lie under the results
-root (`ArgumentError` otherwise). A changed config (or a folded file, upstream
-key or part, [`run_key`](@ref)) is a new directory, never an overwrite; the
-config is keyed as given (fold the protocols of record into it first).
-"""
-function keyed_cell_dir(cfg::AbstractDict, experiment::AbstractString, kind::AbstractString;
-                        base::Union{Nothing,AbstractString} = nothing, files = nothing, upstream = nothing, parts = nothing)
-    b = base === nothing ? experiment_dir(cfg) : String(base)
-    root = results_root()
-    _is_under(b, root) ||
-        throw(ArgumentError("keyed_cell_dir: base $b is not under the results root $root"))
-    return joinpath(b, experiment, kind * "-" * run_key(cfg; files, upstream, parts))
-end
-
-"""
-    keyed_data_dir(cfg, tier, kind; files, upstream, parts) -> String
-
-The keyed directory of a run that PRODUCES data of the tier `tier` (training
-annotations, a derived pool): `<the tier's root>/<tier>/<kind>-<run_key(cfg; …)>`,
-the tier's root resolved by the consumers' resolver (`tier_data_root`:
-`VGTK_DATA_ROOT_<TIER>`, the site's `[sites.<site>.tiers]`, the data root) as a
-WRITE root: it never installs an artifact, and a tier an artifact view
-publishes read-only is refused until its root is bound. A
-consumer declares it as `[inputs.<id>] tier = "<tier>", path =
-"<tier>/<kind>-<key>"`, the same path on every machine: producer and consumer
-agree wherever the tier's root is. The one place a producer writes input data;
-it writes its records with `producer = true` ([`write_run_records`](@ref),
-[`assert_not_input`](@ref)). A changed config is a new directory, never a
-resumed or overwritten one.
-"""
-keyed_data_dir(cfg::AbstractDict, tier::AbstractString, kind::AbstractString; files = nothing, upstream = nothing, parts = nothing) =
-    joinpath(_tier_root(tier; write = true), tier, kind * "-" * run_key(cfg; files, upstream, parts))
 
 """
     tier_path(tier, parts...) -> String

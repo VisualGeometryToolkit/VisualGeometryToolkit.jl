@@ -6,15 +6,16 @@
 # One experiment file = one figure/table; each file declares
 #
 #   * its DATA INPUTS  (require_input — hard error with provenance message),
-#   * its STAGES       (Stage(name, desc, done, run) — idempotent: a stage
-#                       whose `done()` is true is skipped unless --force),
+#   * its STAGES       (Stage(name, desc; steps, run) — each step keyed by only
+#                       what it reads, produced or loaded by `produce`,
+#                       DrWatson's produce_or_load),
 #   * and ends by RENDERING its artifact into the paper repo's figures/.
 #
 # CLI (uniform across every experiment file):
 #   --plan          print the stage plan (done/pending) and exit — the
 #                   structural check gate before any sbatch launch
-#   --stage=NAME    run exactly one stage (still skip-if-done; add --force)
-#   --force         re-run stages even when their done-predicate holds
+#   --stage=NAME    run exactly one stage (its produced steps load)
+#   --force         produce the selected stages' steps again
 #
 # CV DISCIPLINE: no experiment file implements a sweep/argmin. All tuning is
 # The single CV path (package Evaluation cv_probe.jl, with boundary_hits
@@ -25,7 +26,7 @@
 # is executable: `contract_violations(file)` backs test/contracts_tests.jl and
 # the paper repos' contract suites.
 #
-# The stage runner (Stage / run_stages / require_input / fresher) lives in the
+# The stage runner (Stage / run_stages / require_input) lives in the
 # dependency-free experiments/stages.jl, which the papers' external-arm
 # environments include by path; this module includes the same file.
 # =============================================================================
@@ -34,14 +35,13 @@
 
 The paper-generic experiment-codification framework: the [`Stage`](@ref)
 table + [`run_stages`](@ref) entrypoint (`--plan`/`--stage`/`--force`), the
-[`run_driver`](@ref) shell-out and its in-process form [`run_isolated`](@ref), [`require_input`](@ref)/[`fresher`](@ref)
-declarations, the run records (the configuration-of-record layer), the
+[`run_driver`](@ref) shell-out and its in-process form [`run_isolated`](@ref), [`require_input`](@ref)
+declarations, the keyed step ([`Step`](@ref), [`produce`](@ref): DrWatson's `produce_or_load`), the run records (the configuration-of-record layer), the
 executable codification contract ([`contract_violations`](@ref)) and the one
 data layer of every paper project: the root ladder and artifact view
 ([`set_project_root!`](@ref), [`data_root`](@ref), [`ArtifactView`](@ref)),
 the input write guard ([`assert_not_input`](@ref)), the provenance record
-([`write_provenance`](@ref), [`read_provenance`](@ref)), the keyed cache
-([`cached_result`](@ref)) and the data policy ([`data_policy_violations`](@ref)).
+([`write_provenance`](@ref), [`read_provenance`](@ref)) and the data policy ([`data_policy_violations`](@ref)).
 
 This module holds what every paper uses unchanged: the runner mechanics and
 the contract rules. A paper's own decisions stay in that paper's project: its
@@ -53,15 +53,18 @@ module Experiments
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using VisualGeometryToolkitCore: SensorModel, component_sources   # a run record's sensor provenance (provenance.jl)
+import VisualGeometryToolkitIO as VgtkIO   # a step's record saved and loaded (steps.jl)
 using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
-       fresher, contract_violations,
+       contract_violations,
+       # the keyed step (experiments/steps.jl): the one cache, DrWatson's produce_or_load
+       Step, step_dir, step_output, produced, produce, Saved, load_output,
        # run records (experiments/run_records.jl): the configuration-of-record layer
-       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS, experiment_dir, keyed_cell_dir, keyed_data_dir,
+       load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS,
        promote_run, verify_inputs, input_path, tier_path, config_of_record,
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
        write_oracle_floor, oracle_floor_done,
@@ -71,11 +74,12 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        artifact_view!, is_artifact_view,
        # the provenance record (experiments/provenance.jl)
        write_provenance, read_provenance, current_code_trees, scratch_run, provenance_inputs, commit_drift, warn_commit_drift,
-       run_complete, legacy_hash_key, cached_result,
+       # retired, refused by name with their replacement (experiments/retired.jl)
+       fresher, run_complete, cached_result, legacy_hash_key, keyed_cell_dir, keyed_data_dir, experiment_dir,
        # the data policy (experiments/data_policy.jl)
        DataPolicyAllow, data_policy_violations,
        # re-keying (experiments/rekey.jl): the old → new key map of a tag rename
-       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map,
+       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map, migrate_keyed_dirs,
        # paper support (experiments/paper_support.jl)
        assert_active_project, save_hand_eye, load_hand_eye, hand_eye_mount_file
 
@@ -103,7 +107,7 @@ end
 
 public cancelled, progress
 
-# The stage runner — Stage, run_stages, require_input, fresher.
+# The stage runner — Stage, run_stages, require_input.
 include("experiments/stages.jl")
 
 # -----------------------------------------------------------------------------
@@ -285,6 +289,10 @@ end
 # The configuration-of-record layer (run keys, data/results roots, provenance records).
 include("experiments/run_records.jl")
 include("experiments/data_policy.jl")
+
+# The one cache: a keyed step, produced or loaded by DrWatson's produce_or_load; the names it replaced, refused.
+include("experiments/steps.jl")
+include("experiments/retired.jl")
 
 # Re-keying: the old-key → new-key map of a tag rename (computed before it lands).
 include("experiments/rekey.jl")

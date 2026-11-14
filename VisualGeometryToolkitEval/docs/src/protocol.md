@@ -59,7 +59,7 @@ it calls, for example `cv::CrossValidation{<:SceneSplit, StratifiedSampling}`.
 An unsupported spec is then a `MethodError` and is never silently
 reinterpreted. No driver, paper config or package source states a scene list,
 a split, a pair prefix or a sampling seed in code. Run directories come from
-the run records ([`run_key`](@ref), [`experiment_dir`](@ref),
+the keyed steps ([`run_key`](@ref), [`step_dir`](@ref),
 [`results_root`](@ref)).
 
 ## 1. The fairness axis: the efficiency constant

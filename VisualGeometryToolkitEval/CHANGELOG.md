@@ -1,6 +1,28 @@
 # VisualGeometryToolkitEval changelog
 
-## 0.8.0 (unreleased)
+## 0.9.0 (unreleased)
+
+### Breaking
+
+- **One cache: the keyed step, on DrWatson's `produce_or_load`** (the owner's rule of 2026-11-14: every step of every
+  pipeline caches its intermediate, keyed by only the config fields and inputs it reads). `Step(experiment, name, record;
+  output, files, upstream, parts)` — its key `run_key(record; …)`, an upstream `Step`'s key folded in — and `produce(f,
+  step)`: `produce_or_load` with `loadfile = false`, a record `f` returns saved through `DrWatson._wsave` →
+  `VisualGeometryToolkitIO.save` (`Saved` keeps its keywords) and read back with `load_output`
+  (`VisualGeometryToolkitIO.load`); a step that writes a directory returns `nothing`, its `output` the file it writes
+  last. Its directory is DrWatson's `datadir("exp_pro", experiment, name, key)` (`step_dir`); its `_config.toml` and
+  `_provenance.toml` are written last. `produced(step)` is the one reuse rule (the output, the provenance, the code trees
+  current, the scratch flag). A failed save is an error (produce_or_load only warns).
+- **Retired, refused by name with their replacement** (no alias): `fresher`, `run_complete`, `cached_result`,
+  `legacy_hash_key`, `keyed_cell_dir`, `keyed_data_dir`, `experiment_dir`.
+- **`Stage` declares its steps**: `Stage(name, desc; steps, run)` (`run(step)` called for every step: a produced one
+  loads) or `Stage(name, desc; check)`; the done-closure `Stage(name, desc, done, run)` is refused. `--plan` prints each
+  stage's produced steps; `--force` unmarks the selected stages' steps.
+- **Keyed directories move** from `<results>/<experiment>/<kind>-<key>` to `<results>/<experiment>/<step>/<key>`; the keys
+  of an unchanged record are unchanged. `migrate_keyed_dirs(root; dry_run = true)` moves a tree's directories whose
+  provenance records their key.
+
+## 0.8.0
 
 The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO 0.10 and VisualGeometryToolkitEstimation 0.11.
 

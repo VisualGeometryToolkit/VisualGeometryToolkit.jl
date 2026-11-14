@@ -31,7 +31,7 @@ module VisualGeometryToolkitFeatures
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray, components
-using Statistics: var, cov   # an Uncertain pixel's scalar variance, a detection's covariance (VisualGeometryToolkitCore extends both)
+using Statistics: var   # an Uncertain pixel's scalar variance (VisualGeometryToolkitCore extends it)
 using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray, base_colorant_type   # base_colorant_type: a Float16 colour's Float64 accumulator (box_downsample)
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser

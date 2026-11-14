@@ -139,52 +139,43 @@ and skips the image-wide search:
 
 ```julia
 seeds  = detect_sfop(img; noise_sigma = 2)        # discs: the selected σ per dot
-points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose window lies inside the image, one :circular per blob
+points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose window lies inside the image
 ```
 
-The rows are those of `detect_foerstner(img)`, one per seed whose window lies inside
-the image, except a second `:circular` row of one blob (below); at the windows
-`detect_foerstner(img)` chose, the seeded form returns its rows bit for bit (a test
-item: those windows' points are distinct blobs). The seeded form
+The rows are those of `detect_foerstner(img)`; at the windows `detect_foerstner(img)`
+chose, the seeded form returns its rows bit for bit (a test item). The seeded form
 takes only the window estimation's keywords (`device`, `noise`, `derivative`,
 `derivative_sigma`, `significance_level`) and `polarity` (below); the image-wide search's are refused by
 name. On a RAW's green cells both take the `LinearRaw`: `detect_sfop(L)` and
 `detect_foerstner(Float64, L, seeds; sensor_model)`, positions on the cell grid and
 the covariance under the frame's sensor model.
 
-### Polarity and one detection per blob
+### Polarity
 
 The structure tensor `Σ∇g∇gᵀ` does not see the sign of a blob: SFOP finds a dark
-spot as readily as a bright dot. Two rules keep its rows to the blobs asked for,
-one row each.
-
-- **Polarity.** `detect_sfop(img; polarity = :light)` keeps the light blobs,
-  `:dark` the dark ones (ASIFT's vocabulary and sign, [`is_dark`](@ref)). The sign
-  is the scale-normalised Laplacian of Gaussian `σ²∇²(G_σ ⋆ I)` at each candidate's
-  selected σ, positive at a dark blob, and it is tested one-sided at
-  `significance_level` under the λ₂ test's noise. A candidate whose sign the noise
-  could have given (a window on flat background between dots) is kept for neither
-  polarity: a missed blob, never one of the wrong sign. SFOP applies the gate
-  before its NMS, so a blob of the other sign never suppresses a kept one. The
-  seeded `detect_foerstner(img, seeds; polarity)` gates its seeds by the same test;
-  it needs the pixel noise (`noise`, or a gain-carrying `sensor_model` on a
-  `LinearRaw`) and is refused without it. `:none`, the default, applies no gate.
-- **One `:circular` row per blob.** The seeded `detect_foerstner` keeps one
-  `:circular` row per blob: two such rows closer than the larger of their blobs'
-  radii (`σ/√2` of each row's seed, SFOP's NMS footprint) are one blob found from
-  two seeds, and the better-determined row (the smaller trace of its covariance)
-  is kept, greedily, best first, so a row is dropped only by a kept row. This
-  catches one dot SFOP finds at two scales more than a half-octave band apart (the
-  NMS keeps both seeds) and a coarse window whose estimate lands on, or beside, a
-  dot. Nothing acts on the seeds: a seed whose own row is not `:circular` never
-  removes another.
+spot as readily as a bright dot. `detect_sfop(img; polarity = :light)` keeps the light blobs,
+`:dark` the dark ones (ASIFT's vocabulary and sign, [`is_dark`](@ref)). The sign
+is the scale-normalised Laplacian of Gaussian `σ²∇²(G_σ ⋆ I)` at each candidate's
+selected σ, positive at a dark blob, and it is tested one-sided at
+`significance_level` under the λ₂ test's noise. A candidate whose sign the noise
+could have given (a window on flat background between dots) is kept for neither
+polarity: a missed blob, never one of the wrong sign. SFOP applies the gate
+before its NMS, so a blob of the other sign never suppresses a kept one. The
+seeded `detect_foerstner(img, seeds; polarity)` gates its seeds by the same test;
+it needs the pixel noise (`noise`, or a gain-carrying `sensor_model` on a
+`LinearRaw`) and is refused without it. `:none`, the default, applies no gate.
 
 On 295 photographs of the five FX3 chrome sets (RAW green cells),
 `detect_sfop(L; polarity = :light)` followed by the seeded `detect_foerstner`
 loses no significantly light `:circular` row of Features 0.9.5: each row it
-drops is a same-blob duplicate, significantly dark, or of a sign the noise could
-have given (an opt-in real-data test item holds this on a sample of those
-photographs).
+drops is significantly dark or of a sign the noise could have given, and every
+pair of rows within 1 px (one blob seen from two seeds) is kept (an opt-in
+real-data test item holds this on a sample of those photographs).
+
+Duplicates are not removed here: one blob seen from two seeds (SFOP finds a sharp
+dot at two scales more than a half-octave band apart, and the NMS keeps both)
+gives two rows, and the consumer resolves them by its own geometry (an
+assignment to the target's points, say).
 
 **A measured limitation, accepted (owner, 2026-11-14).** At a dot radius of about
 1.8 px the window SFOP selects is 0.0008 px RMS worse than the best fixed window

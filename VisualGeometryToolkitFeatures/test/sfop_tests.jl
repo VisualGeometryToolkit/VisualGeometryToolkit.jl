@@ -241,30 +241,6 @@ end
     @test isempty(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :dark))
 end
 
-@testitem "the seeded detect_foerstner: one :circular row per blob (a sharp dot SFOP finds at two scales)" setup = [SfopFixture] begin
-    import KernelAbstractions as KA
-    VGF = VisualGeometryToolkitFeatures
-    # a sharp disc of radius 1 px: w peaks at σ ≈ 3.3 and again at σ ≈ 9.5, more than a half-octave band apart, so the
-    # NMS keeps both seeds; nothing acts on the seeds, and the seeded estimate keeps one :circular row, at the dot
-    img = sharp_disc(47.0, 48.6, 1.0)
-    seeds = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)
-    @test length(seeds) == 2
-    points = filter(d -> d.label === :circular, detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5))
-    @test length(points) == 1 && hypot((only(points).center .- (47.0, 48.6))...) < 0.5
-    # the rule itself: two :circular rows closer than max(σ)/√2 are one blob, the smaller covariance trace kept (a tie
-    # to the earlier row); farther apart both kept; another label never drops a row
-    one(xs, σs, spreads; labels = fill(:circular, length(xs))) =
-        VGF._one_per_blob_mask([VGF.Point2(x, 50.0) for x in xs], σs, labels, spreads)
-    @test one([50.0, 54.0], [3.0, 6.0], [1.0, 2.0]) == [true, false]      # 4 < 6/√2 ≈ 4.24
-    @test one([50.0, 54.0], [3.0, 6.0], [2.0, 1.0]) == [false, true]
-    @test one([50.0, 56.0], [3.0, 3.0], [1.0, 2.0]) == [true, true]       # 6 > 3/√2
-    @test one([50.0, 51.0], [3.0, 3.0], [1.0, 1.0]) == [true, false]
-    @test one([50.0, 51.0], [3.0, 3.0], [1.0, 2.0]; labels = [:corner, :circular]) == [true, true]
-    # only a KEPT row drops another: B (dropped by A) does not take C with it (4 < 6/√2 from B, but B is gone and C
-    # lies 8 px from A, past max(3, 6)/√2)
-    @test one([50.0, 54.0, 58.0], [3.0, 6.0, 6.0], [1.0, 2.0, 3.0]) == [true, false, true]
-end
-
 @testitem "detect_sfop and the seeded detect_foerstner on a Float16 image: its values in Float32, within its rounding" setup = [SfopFixture] begin
     import KernelAbstractions as KA
     using LinearAlgebra: norm, tr

@@ -75,9 +75,8 @@ each point at full resolution in its own window.
 - **Suppression:** ASIFT's elliptical NMS ([`cross_warp_nms`](@ref)), the
   paper's eq. (8) with its defaults (fp = 1, fs = ½, T_r = 1) as footprint
   overlap: a footprint of radius `σ/√2` and half-octave scale bands, ± 1 band.
-  The seeds are not deduplicated: one blob found at two scales more than a band apart
-  (the NMS keeps both) gives two seeds, and the seeded [`detect_foerstner`](@ref) keeps
-  one row per blob (its docstring).
+  No further deduplication: one blob found at two scales more than a band apart (the
+  NMS keeps both) gives two rows, which the consumer resolves by its own geometry.
 - **Polarity** (`polarity = :none | :dark | :light`, ASIFT's vocabulary and sign):
   `:dark` keeps the dark blobs, `:light` the light ones, by the sign of the
   scale-normalised Laplacian of Gaussian `σ²∇²(G_σ ⋆ I)` at each candidate's selected

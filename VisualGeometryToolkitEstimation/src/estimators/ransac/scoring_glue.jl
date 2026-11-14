@@ -174,25 +174,9 @@ function update_nuisance!(lh::PosteriorLikelihood)
     update_inlier_prior!(lh.rws, lh.n, lh.prior_update)
     return lh
 end
-function update_weights!(lh::PosteriorLikelihood)
-    update_weights!(lh.rws, lh.n)
-    return _zero_nonfinite_weights!(lh.rws, lh.n)
-end
-
-# Weight 0 — robust weight and inlier posterior — for every datum `i ≤ n` whose
-# squared residual is not finite. The mixture's own E-step already gives an
-# infinite residual 0; a NaN residual it gives NaN, which poisons the cost
-# Σwᵢrᵢ² and every scale and prior update read from the weights. The posterior
-# seeding (`consensus_posterior`) and `PosteriorLikelihood`'s E-step apply it.
-function _zero_nonfinite_weights!(rws::PosteriorWeightState, n::Int)
-    w, p, sq = robust_weight(rws), inlier_weight(rws), sq_distances(rws)
-    @inbounds for i in 1:n
-        isfinite(sq[i]) && continue
-        w[i] = 0.0
-        p[i] = 0.0
-    end
-    return rws
-end
+# The E-step is VisualGeometryToolkitCore's: a datum whose squared residual is not finite
+# (Inf or NaN) gets robust weight and inlier posterior 0 there (`_posterior_pair`, Core 0.10.6).
+update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
 
 # `median_seeded_posterior` is VisualGeometryToolkitCore's: a PosteriorWeightState

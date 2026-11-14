@@ -1,5 +1,21 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.5
+
+A patch: the posterior's non-finite rule is VisualGeometryToolkitCore's. No API change, no result change.
+
+### Changed
+
+- **Core compat floor `"0.10.6"`** (package, test and docs environments): Core 0.10.6's mixture E-step
+  (`_posterior_pair`, every `soft_posterior_weights!`, `seed_posterior!` and `update_weights!(pws, n)`) gives a datum
+  whose squared residual is `Inf` or `NaN` robust weight and inlier posterior 0.
+- **The duplicate `_zero_nonfinite_weights!` (0.11.2) is removed.** Its two sites, the LO's posterior seeding
+  (`consensus_posterior`, after `seed_posterior!`) and `PosteriorLikelihood`'s E-step (after Core's `update_weights!`),
+  rewrote to 0.0 exactly the entries Core 0.10.6 now writes as 0.0: the same weights, from one rule. The non-posterior
+  policies keep their own guards, which Core's kernel does not reach: `LossPlainWeights` (every `Irls{K}`: a
+  non-finite residual weighs 0 and is no inlier), the Triggs LO's 0/1 weights (`_triggs_weights!`) and the chart
+  refit's zero-weight rows.
+
 ## 0.11.4
 
 A patch: a zero-weight row is exactly 0, in the one chart refit. No API change.

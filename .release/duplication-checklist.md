@@ -1,3 +1,22 @@
+# Core 0.10.4 duplication checklist (patch-core0104), 2026-11-14
+
+Core is the stack's root, so it has no upstream of its own. The leg's upstream duplication gate (cau-release
+`upstream_duplication.jl`) ran in Core's prep 17010 on the fresh clone of eb5efb43 for Core, IO and Features: 0 findings.
+`check_duplication(VisualGeometryToolkitCore)` over the monorepo tree and the wave stack paths: 0; `check_naming`: 0.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| the exact-fit threshold | the host LM's m·ε·F₀ beside `static_lm`'s `(16ε·fs)²` floor | `_rounding_floor` / `_exact_fit_threshold`, read by `_lm_run!`'s `_FinalRounding` and by `static_lm` | [x] |
+| the LM damping | `LmStops.damping` and the cache's damping, two owners | the `LmProblem`'s `damping`; the default stops take it, an explicit mismatch refused | [x] |
+| the Darks band rule | `findfirst(_serves …)` in `_frame_black` and in the series | `_serving_dark(darks, t)` | [x] |
+| a map's coverage of the frames | the series' own `DimensionMismatch` beside `_photosite_map`'s | `_check_covers` | [x] |
+| the frame stacking and temporal moments | `master_dark`'s kernel and the series' cell rule each | `_frame_stack`, `_stack_frames!`, `_temporal_moments` (the white test in its one read) | [x] |
+| the defect mask | the internal `_defect_mask` beside the public `defect_mask` | the public `defect_mask` method pair | [x] |
+| the rms and the Birge ratio | `_ptc_rms` beside `_birge_ratio` | `_birge_ratio` (the rms at 0 parameters) | [x] |
+| master_dark's σ² standard error | `_dark_intercept`'s variance form beside `master_dark`'s σ form | recorded: two forms of one rule (master_dark's guards σ = 0) | [ ] |
+
+---
+
 # IO 0.10.3 duplication checklist (patch-io0103), 2026-11-14
 
 The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in IO's prep

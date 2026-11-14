@@ -1,3 +1,66 @@
+docs-pass: eb5efb43
+
+# VisualGeometryToolkitCore 0.10.4 docs pass (julia-docs-pass) — branch patch-core0104
+
+Baseline: GitHub main 300794c3 (Core 0.10.3). eb5efb43 is patch-core0104 (the Core 0.10.4 delta, its /simplify and
+/code-review fixes, 0e7406e0) with GitHub main b0655d56 merged (Features 0.9.4 and IO 0.10.3 as posted, byte for byte;
+Core's `conventions/units.md` persisted-form paragraph from IO 0.10.3), so the gate runs on the tree that is pushed.
+Owner and coordinator rulings 2026-11-14: the exact-fit rule (the final point's rounding) and the accepted RC verdict
+change; a non-finite operand scale gives no rounding floor; `lmsolve_chart!(p)`'s default stops take `p.damping`, only
+an explicit mismatch refused.
+
+## 1. Public API since 0.10.3
+
+- **Added:** `photon_transfer(groups, darks::Darks; defects, block, normalize, significance)`; `LogPolarToCartesian`,
+  `CartesianToLogPolar` public (not exported); `LmProblem`'s property `damping`; `[photon_transfer] significance` in
+  `configs/default.toml`. Exports: unchanged. Removed: nothing (`_defect_mask` was internal).
+- **Behaviour:** the LM exact-fit threshold is the final point's rounding, (16ε)²·Σsᵢ², floored by
+  `residual_resolution`² (a restart at an exact fit is a `Success`; a stall below m·ε·F₀ is `Stalled`); a non-finite
+  operand scale certifies nothing; an explicit `LmStops` of another damping than the problem's is an `ArgumentError`
+  (the default stops take the problem's); the series `photon_transfer` reports its line's convergence
+  (`IncrementSize`/`MaxIters`) and σ_r's standard error; one frame of fewer than 4 points is refused; `image_warp(T, …)`
+  warns once per type for a link left in another precision.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` items green in CPU group 9 and depwarn=yes group 25; `lmsolve_chart!(p::LmProblem, stops = LmStops(; damping = p.damping))` in its docstring as the method |
+| `checkdocs = :public`, doctests, cross-references, link check | Core docs 17014: strict build green; the log-polar types reach the manual through the transforms page |
+| README and landing page | unchanged: nothing they show moved (no LM stop, damping or photon_transfer example); the readme items stand as run |
+| guides | estimators.md: the `LmProblem`'s damping (its own; the default stops take it, an explicit mismatch refused) and the exact-fit rule (the final point's rounding, floored by `residual_resolution`²). raw-images.md, imaging-chain.md: no photon_transfer statement to change |
+| docstrings | `LmStops` (`ftol` never the exact-fit test; `residual_resolution` a residual-vector norm), `LmProblem` (`damping`), `lmsolve_chart!` (the success rule), `_lm_stationary`, `StaticLmStops` (`residual_scale` the same floor), `photon_transfer` (both darks forms, the line's convergence, the refusals), `defect_mask` |
+| check_naming | 0 in the prep (17010) |
+| CHANGELOG | Core `## 0.10.4`: Added (the Darks method, the significance key, the public log-polar types), Fixed (σ_r's standard error, the line's convergence, the non-finite operand scale, the single frame's 4 points), Changed (the series' stop rule, the Dict method kept until wave 11, the damping's owner, the precision warning, the exact-fit rule with the accepted RC change, internal cleanups), and the 0.10.1/0.10.2 behaviour changes recorded |
+| version | Core 0.10.4 |
+
+Review (/simplify, /code-review high) findings recorded, not fixed: the Darks intercept is the plain mean over the sites
+`defects` leaves (master_dark's ReadNoise drops its flagged sites; the caller supplies `defects`); the operand unit is 1
+for a chart or a non-SVector variable (`EuclideanManifold`: the owner's rule, unchanged); the single frame tests μ²
+before it reads the line's convergence (no frame that fails to converge was constructible); `_ptc_range` reads
+unconverged intermediate lines; the metadata's level fraction uses the first group's black (equal blacks in every
+fixture; per-band blacks need a fixture extension); the log-polar exemption covers every precision; the `_precision`
+fallback's field walk runs per call; S² is accumulated when a stated `ftol` makes it unused.
+
+## 3. Executed on eb5efb43
+
+Julia 1.13.3, fresh clones, nice 0, the wave stack paths:
+
+| gate | job | result |
+|---|---|---|
+| Core prep | 17010 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 (Core, IO, Features) |
+| Core CPU (--depwarn=error) | 17011 | groups 1–16 green: 414,074 pass, 33 broken, 414,107 total |
+| Core CPU (--depwarn=yes) | 17012 | groups 17–32 green: 414,074 pass, 33 broken, 414,107 total |
+| Core GPU | 17013 | groups 33–38 green: 54,822 pass |
+| Core docs | 17014 | green |
+| RC 0.10.0 (4fa0f62a) on Core eb5efb43, instrumented | 17015–17018 | 17,191 pass, 2 broken, 17,193 total; 398 postconditions, 1 verdict changed: termination_tests.jl:46, a restart AT an exact fit, Stalled → Success (the accepted change) |
+| RC 0.10.0 (4fa0f62a) on registered Core 0.10.3 | 16940, 16944–16946 | 17,191 pass, 2 broken, 17,193 total |
+
+Development runs (the worktree): 16870 (after /simplify), 16878 (red: the non-finite Jacobian, the default damping),
+16903 (green).
+
+---
+
 docs-pass: f5e77eca
 
 # VisualGeometryToolkitIO 0.10.3 docs pass (julia-docs-pass) — branch patch-io0103

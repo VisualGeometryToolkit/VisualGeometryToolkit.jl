@@ -1,3 +1,9 @@
+docs-pass: 884058c9
+
+# VisualGeometryToolkitEval 0.9.0 docs pass addendum — branch patch-feat096
+
+One docstring paragraph folded after the combined pass (fdbbcb3b): the `Product` docstring states the per-package code rule (a product is keyed by the packages its step uses). Nothing else changed since fdbbcb3b in Eval, Core or Features (`git diff 43a4a9b4 884058c9` = products.jl only). Re-run in a real clone: Eval prep 18173 all 0; docs_tests, agent_docs_tests, quality_naming 18174 17/17; strict docs build 18175 green.
+
 docs-pass: fdbbcb3b
 
 # VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitFeatures 0.9.6, VisualGeometryToolkitEval 0.9.0 docs pass (julia-docs-pass) — branch patch-feat096

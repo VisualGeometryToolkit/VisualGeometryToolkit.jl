@@ -32,7 +32,7 @@ of LM damping.
   start: a run that STARTS at an exact fit (RC's termination control re-solves from a solve's minimum, F₀ = 4.2e-29)
   has `m·ε·F₀` far below its rounding and the cosine says nothing there, so it is `Stalled`. With the data's
   resolution stated it is a `Success` (tested). Only the success rule reads it; the iterations are unchanged. The
-  default `0` is the rule above. A caller passes a DERIVED resolution (its data's noise in the residual's units),
+  default `0` is the rule above. A caller states a DERIVED resolution (its data's noise in the residual's units),
   never a tuned literal.
 - **Measured, so it is not retried blindly:** on RC's refinements, neither damping wins everywhere. λ·DᵀD reaches a
   lower cost on the fisheye case. λ·I converges on a non-central origin fit where DᵀD stalls at 1.2e-8 of its start

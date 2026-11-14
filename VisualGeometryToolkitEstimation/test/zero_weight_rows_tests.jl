@@ -8,9 +8,9 @@
     using Test, LinearAlgebra, StaticArrays, StableRNGs
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: Point2, Ellipse, EuclideanMap, ChartLm, RigidExpManifold6, residual_rows!,
+    using VisualGeometryToolkitCore: Point2, Ellipse, EuclideanMap, RigidExpManifold6, residual_rows!,
         rotation, translation
-    using VisualGeometryToolkitEstimation: EllipseProblem, HandEyeProblem, data_size
+    using VisualGeometryToolkitEstimation: EllipseProblem, HandEyeProblem, data_size, ChartLm
 
     # the rows of datum k at the anchor of θ, at unit weight (the scenario's precondition)
     function rows_at(p, θ, k)

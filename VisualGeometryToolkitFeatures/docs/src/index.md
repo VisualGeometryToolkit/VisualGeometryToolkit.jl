@@ -18,8 +18,11 @@ them.
   runs on the CPU or any KernelAbstractions GPU backend and returns
   [`Detection`](@ref)s (a feature frame plus the detector's metadata),
   optionally with each detection's covariance ([`FeatureCovariance`](@ref)).
-  Beside it: MSER ([`detect_mser`](@ref)) and the Förstner operator
-  ([`detect_foerstner`](@ref)). See [Detection](guide/detection.md) and
+  Beside it: MSER ([`detect_mser`](@ref)), the Förstner operator
+  ([`detect_foerstner`](@ref)) and SFOP's scale selection for circular points
+  ([`detect_sfop`](@ref)), on the image's Gaussian scale space
+  ([`gaussian_scale_space`](@ref)) and gradient ([`gaussian_gradient`](@ref)).
+  See [Detection](guide/detection.md) and
   [The Förstner operator](guide/foerstner.md).
 - **Image input.** The grayscale ladders ([`gray_f32`](@ref),
   [`gray_u8`](@ref)), a PNG as linear radiance ([`load_linear_image`](@ref))

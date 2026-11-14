@@ -1,5 +1,22 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.4
+
+A patch: a zero-weight row is exactly 0, in the one chart refit. No API change.
+
+### Fixed
+
+- **A datum at weight 0 can no longer stop a chart refit.** Every chart LM of a RANSAC problem's model — the local
+  optimization's `refine!`, a `refine_*`'s least squares, the Triggs local optimization and a `refine_*`'s Triggs —
+  runs `_chart_refit`, whose rows are `√wᵢ·eᵢ`. A datum at weight 0 whose own residual is `Inf` or `NaN` in Float64
+  (a NaN point of an ellipse, a NaN motion of a hand-eye set) gave `0·Inf = NaN`: the LM started at a NaN cost and the
+  refit handed back its seed, or nothing. The rows and Jacobian rows at a zero `√w` are now exactly 0, whatever the
+  problem's row is; a refit with no zero weight runs the same code as before, bit for bit.
+- **`BearingPoseProblem`'s caller weights feed the same rule.** A correspondence its `weights` column weighs 0 gets
+  `√w = 0` on both rows of the refit (its rows were `√w·sw·e`, already 0 for a finite `e`), so the one rule covers it.
+  PnP's own zero weights (a point out of the camera's reach at the anchor) go through it unchanged. The PnP and bearing
+  rows were already finite for every input the problems accept: there the rule changes no result.
+
 ## 0.11.3
 
 A patch: 0.11.2's two weight rules for the robustified chart LM, `Triggs{K}`. No API change.

@@ -125,6 +125,16 @@ VisualGeometryToolkitCore's one LM adapter (`lmsolve_chart!`, its stop settings
 it too (`LmProblem`), with the structure eliminated by the Schur complement where the loaded
 NLLSsolver has it.
 
+**A zero-weight row is exactly 0.** Every chart refit — this M-step, a
+`refine_*`'s least squares and both Triggs paths — builds the rows as
+``\sqrt{w_i}\,e_i`` in one place. A datum at weight 0 whose own residual is
+`Inf` or `NaN` would give ``0 \cdot \infty = \mathrm{NaN}`` and stop the LM at
+its start, so the rows (and Jacobian rows) at a zero ``\sqrt{w}`` are set to 0
+whatever the problem's row is. A zero weight is the caller's (`weights`, a
+`BearingPoseProblem`'s `weights` column), the local optimization's, or the
+problem's own (a PnP point out of the camera's reach at the anchor). A refit
+with no zero weight runs exactly as before.
+
 | Problem | M-step body | Notes |
 |---------|-------------|-------|
 | `HomographyProblem` | LM on the minimal 8-dof sl(3) chart ``H(x) = H_0 (I + \sum_q x_q G_q)`` (``G_q`` a traceless basis) — minimizes ``\sum_i w_i \|L_i^{-1}(\pi(H x_{1i}) - x_{2i})\|^2`` with ``L_i L_i^\top = \tilde\Sigma_{g_i}`` the Sampson covariance shape of the transfer error at ``H_0``. VisualGeometryToolkitCore's chart LM (NLLSsolver, through `lmsolve_chart!`) on a `ManifoldLmWorkspace{8}`. | Analytic Jacobian (``\partial H / \partial x_q = H_0 G_q`` is constant). ``\tilde\Sigma_{g_i}`` is computed from the incoming ``\theta`` and frozen for the solve. |

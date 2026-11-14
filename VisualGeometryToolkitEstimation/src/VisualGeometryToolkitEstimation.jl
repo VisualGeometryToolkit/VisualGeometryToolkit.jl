@@ -251,7 +251,7 @@ using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
     mean_positive_eigenvalue, penalty_scale   # the penalty weight's normalization (Core)
-using VisualGeometryToolkitCore: nearest_point, backproject_with_jacobian
+using VisualGeometryToolkitCore: nearest_point
 
 
 # =============================================================================

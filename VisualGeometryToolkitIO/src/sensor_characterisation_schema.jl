@@ -300,7 +300,7 @@ function _sensor_characterisation_v1_to_v2(t::AbstractDict)
         get(b, "type", nothing) == "darks" && throw(ArgumentError("a v1.0 entry's black is a channel black or a dark: a darks body is v2.0's"))
     end
     n = Dict{String, Any}(String(k) => v for (k, v) in t)
-    n["schema"] = _schema("sensor_characterisation")
+    n["schema"] = _schema("sensor_characterisation", (2, 0))   # v2.0, not the current version: a later step runs after it
     n["generator"] = _lower(_generator_json())
     return n
 end

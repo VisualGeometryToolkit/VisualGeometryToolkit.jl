@@ -3,7 +3,9 @@
 ## 0.10.3
 
 A patch: no API change, no schema change; no file is written differently, but where IO 0.10.2 returned the nearest
-number for a length no number of its unit has the identity of (no length unit; see below).
+number for a length no number of its unit has the identity of (no length unit; see below). `vgio_migrate` of a
+`vgio/sensor_characterisation/v1.0` file refuses ("nothing to migrate": the version is one the writer emits) where
+0.10.2 rewrote it as v1.0 again, and the validator refuses a darks body listed out of band order.
 
 ### Fixed
 
@@ -27,7 +29,8 @@ number for a length no number of its unit has the identity of (no length unit; s
 - A v1.0 sensor characterisation whose `black` is not an object is an `ArgumentError` from its step (was a
   `MethodError` from `migrate_record`).
 - The validator requires a darks body's darks in increasing band, as the writer writes them (it accepted any order).
-- `_black_version(::Darks)` is `(2, 0)`, the version that added the darks body, not the kind's current version.
+- `_black_version(::Darks)` is `(2, 0)`, the version that added the darks body, not the kind's current version; the
+  v1 step names v2.0, not the current version, so a later version's step runs after it.
 - `write_length` (and every writer's length) in a unit that is not a power of ten refuses, with an `ArgumentError`
   naming the length and the unit, a length no number of the unit has the identity of, instead of returning the
   nearest number (no length unit has such a length; a unit in which its numbers are subnormal does). Its docstring
@@ -48,7 +51,7 @@ number for a length no number of its unit has the identity of (no length unit; s
   holding a Dark is never rewritten without its rasters, a `v1` schema reads, a non-dict black and darks out of band
   order are refused (`sensor_characterisation_schema_tests.jl`); a length with no number of its unit's identity is
   refused (`lengths_tests.jl`); the docs generate the written versions and state the rule in Core
-  (`docs_tests.jl`).
+  (`docs_tests.jl`; Core's paragraph read where Core is the monorepo's, as a registered Core 0.10.3 predates it).
 - The 200 000-value batch of `length_persisted_tests.jl` runs only with `VGTK_BENCHMARK_TESTS=1`; the default suite
   checks the same claims on 2 000 values.
 - Restated: the v1.0 test's `vgio_migrate` now refuses (nothing to migrate) instead of rewriting.

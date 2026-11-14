@@ -26,8 +26,12 @@ end
     guide = joinpath(pkgdir(VgtkIO), "docs", "src", "guide")
     kinds = read(joinpath(guide, "kinds.md"), String)
     @test occursin("_written_versions(r.kind)", kinds)
-    units = read(joinpath(pkgdir(VgtkCore), "conventions", "units.md"), String)
-    exact = something(match(r"\*\*What is exact\.\*\*(.*?)\n\n"s, units))[1]
-    @test occursin("persisted", exact) && occursin("15 significant", exact)
+    # Core's paragraph, where Core is this monorepo's (its text ships with Core's next release; a registered Core
+    # 0.10.3 holds the earlier paragraph, so IO's suite does not read it there)
+    if dirname(pkgdir(VgtkCore)) == dirname(pkgdir(VgtkIO))
+        units = read(joinpath(pkgdir(VgtkCore), "conventions", "units.md"), String)
+        exact = something(match(r"\*\*What is exact\.\*\*(.*?)\n\n"s, units))[1]
+        @test occursin("persisted", exact) && occursin("15 significant", exact)
+    end
     @test occursin("conventions/units.md", read(joinpath(guide, "conventions.md"), String))
 end

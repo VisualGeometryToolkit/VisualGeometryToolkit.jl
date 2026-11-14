@@ -23,12 +23,13 @@ const _SfopDetection = Attributed{Disc{Float64}, @NamedTuple{precision::Float64}
     detect_sfop(img; device = default_device(), noise_sigma = 2.0, significance_level = 0.999,
                 precision_threshold = 0.5, nb_octaves = 3, nb_scales = 3, input_blur = 0.5,
                 upsample = true, seed_sigma = (upsample ? 2 : 1) * input_blur) -> StructArray{<:Detection}
+    detect_sfop(L::LinearRaw; kwargs...)
 
 SFOP scale selection [Foerstner2009](@cite) for CIRCULAR points (the spiral
 model at α = 90°): each point where the precision `w` of a circular point's
 estimate peaks in position and scale, with the integration scale `σ` it peaks
 at. Rows `Detection(Disc(x, σ), (; precision))`, COLMAP pixel centres of the
-input and σ in input pixels; `precision` is `w` (px⁻²). Seed
+input (of a RAW's green cells, `L::LinearRaw`: the cell grid, their values) and σ in input pixels; `precision` is `w` (px⁻²). Seed
 [`detect_foerstner(img, seeds)`](@ref detect_foerstner) with them to localise
 each point at full resolution in its own window.
 
@@ -113,6 +114,9 @@ function detect_sfop(
         return _sfop_detections(device, space, Array(view(pool, :, 1:n)), ends, W, H, 1 / precision_threshold^2)
     end
 end
+
+# A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid.
+detect_sfop(L::LinearRaw; kw...) = detect_sfop(_green_values(green_plane(L)); kw...)
 
 # The extracted maxima (`raw`, ASIFT's 5 × n rows: 0-based input x, y, the slice σ, w, slot; octave o's rows end at
 # `ends[o]`) as detections: the level's blur from the slice σ (`_slice_sigma` reports the geometric mean of a DoG

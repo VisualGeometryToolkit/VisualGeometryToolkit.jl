@@ -580,9 +580,12 @@ _frame_black_only(::Darks) = throw(ArgumentError(
 _frame_black(b::BlackComponent, t) = b
 _frame_black(d::Dark, t) = _serves(d, t) ? d : d.black
 function _frame_black(d::Darks, t)
-    k = findfirst(x -> _serves(x, t), d.darks)
+    k = _serving_dark(d, t)
     return k === nothing ? d.black : d.darks[k]
 end
+# THE band rule of a Darks: the index of the one Dark whose band serves the exposure `t`, or `nothing` (read by
+# `sensor_model` and the series `photon_transfer`).
+_serving_dark(d::Darks, t) = findfirst(x -> _serves(x, t), d.darks)
 
 # A frame's defects: the sites whose onset is at most the exposure (none: NoDefects).
 _frame_defects(d::DefectComponent, t) = d
@@ -667,10 +670,11 @@ end
 # `nothing` stays `nothing`. A packed BitMatrix is unpacked to Bools beforehand, on every backend (a device copy reads
 # dense memory; the kernel then reads one layout everywhere).
 _photosite_map(::Nothing, m, backend, ::Type, what) = nothing
+# A map of size `sz` over the visible raw covers the mosaic's photosites at its window offset, else a DimensionMismatch.
+_check_covers(sz, m::RawMosaic, what) = all(m.window_origin .+ size(m) .<= sz) || throw(DimensionMismatch(
+    "$what is $(join(sz, '×')) over the visible raw; the mosaic's photosites reach $(join(m.window_origin .+ size(m), '×'))"))
 function _photosite_map(A::AbstractMatrix, m::RawMosaic, backend, ::Type{T}, what) where {T}
-    all(m.window_origin .+ size(m) .<= size(A)) || throw(DimensionMismatch(
-        "$what is $(join(size(A), '×')) over the visible raw; the mosaic's photosites reach $(join(m.window_origin .+ size(m), '×'))"
-    ))
+    _check_covers(size(A), m, what)
     return on_device(T, backend, A isa BitArray ? Array{Bool}(A) : A)
 end
 

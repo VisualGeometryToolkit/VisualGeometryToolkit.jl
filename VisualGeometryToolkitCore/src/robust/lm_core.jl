@@ -96,8 +96,6 @@ abstract type LmDamping end
 @doc (@doc LmDamping) struct LevenbergDamping <: LmDamping end
 _nlls_iterator(::MarquardtDamping) = NLLSsolver.static(:levenbergmarquardt_dtd)
 _nlls_iterator(::LevenbergDamping) = NLLSsolver.static(:levenbergmarquardt)
-_same_damping(::D, ::D) where {D <: LmDamping} = true
-_same_damping(::LmDamping, ::LmDamping) = false
 
 """
     LmStops(; max_iter, ftol, xtol, stationarity_tol, max_time = nothing, damping = MarquardtDamping(), residual_resolution = 0)
@@ -835,7 +833,7 @@ _operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the lin
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
-    _same_damping(p.damping, stops.damping) || throw(ArgumentError(
+    p.damping === stops.damping || throw(ArgumentError(
         "lmsolve_chart!: the problem was built for $(nameof(typeof(p.damping)))() (its kept cache) and the stops say " *
         "$(nameof(typeof(stops.damping)))(): solve it with LmStops(; damping = $(nameof(typeof(p.damping)))()), or build " *
         "the problem with LmProblem(…; damping = $(nameof(typeof(stops.damping)))())"))
@@ -1019,12 +1017,16 @@ function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, car
             o = offsets[v]
             @inbounds for k in 1:nv
                 jc = col + k
-                jr = 0.0; jj = 0.0
+                jj = 0.0
                 for i in eachindex(r)
-                    jr += J[i, jc] * r[i]; jj += J[i, jc]^2
+                    jj += J[i, jc]^2
                 end
                 S2 += _operand_unit(c, x, k)^2 * jj
                 if free[v]
+                    jr = 0.0
+                    for i in eachindex(r)
+                        jr += J[i, jc] * r[i]
+                    end
                     q = o + k
                     g[q] += ρ′ * jr; w[q] += ρ′ * jj
                 end

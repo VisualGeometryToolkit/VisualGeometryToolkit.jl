@@ -101,30 +101,31 @@ end
 # white level there or the photosite is masked.
 @inline function _site_moments(r::_FrameStack, row, col, dark, mask, black, white, origin)
     _masked(mask, row + origin[1], col + origin[2]) && return (0, 0.0, 0.0)
-    for k in 1:size(r.stack, 3)
-        @inbounds _at_white(r.stack[row, col, k], white) && return (0, 0.0, 0.0)
-    end
-    μ, q = _temporal_moments(r.stack, row, col, _black_at(dark, black, row + origin[1], col + origin[2]), r.scale)
-    return (1, μ, q)
+    ok, μ, q = _temporal_moments(r.stack, row, col, _black_at(dark, black, row + origin[1], col + origin[2]), r.scale, white)
+    return ok ? (1, μ, q) : (0, 0.0, 0.0)
 end
 
 # THE temporal moments of one photosite of stacked frames (H × W × n), read by master_dark's kernel and the series' cell
 # rule alike: the mean over the frames of its codes less `b`, each frame's times its scale (`nothing`: 1), and the sum
-# of squares about that mean.
+# of squares about that mean; `(false, 0, 0)` when a frame's code is at the white level `white` (`nothing`: none is),
+# tested in the same read of the frames as the sum.
 @inline _frame_scale(::Nothing, k) = 1.0
 @inline _frame_scale(scale, k) = @inbounds scale[k]
-@inline function _temporal_moments(stack, row, col, b::Float64, scale)
+@inline _at_white(code, ::Nothing) = false
+@inline function _temporal_moments(stack, row, col, b::Float64, scale, white)
     nf = size(stack, 3)
     s = 0.0
     for k in 1:nf
-        @inbounds s += (Float64(stack[row, col, k]) - b) * _frame_scale(scale, k)
+        @inbounds x = stack[row, col, k]
+        _at_white(x, white) && return (false, 0.0, 0.0)
+        s += (Float64(x) - b) * _frame_scale(scale, k)
     end
     μ = s / nf
     q = 0.0
     for k in 1:nf
         @inbounds q += ((Float64(stack[row, col, k]) - b) * _frame_scale(scale, k) - μ)^2
     end
-    return μ, q
+    return (true, μ, q)
 end
 
 # THE stacking of frames: an H × W × n buffer on the frames' device (`_frame_stack`), filled frame k into slice k
@@ -332,7 +333,7 @@ function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel()
     ))
     A = hcat(p.xs, ones(np))
     l = _ptc_line(A, p.ys, p.os, p.ms, p.rel)
-    β, C = l.β, l.C
+    (; β, C) = l
     z = Distributions.quantile(Distributions.Normal(), 1 - significance / 2)
     c, t = _ptc_curvature(A, p, A * β .+ p.os)
     abs(t) > z && throw(NoiseEstimateFailed(
@@ -363,7 +364,7 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     # each group's Dark: the one whose band serves its exposure (the Darks' own rule), never the shared black
     times = [Cameras._positive_quantity(t, _SECOND, :exposure) for t in exposures]
     which = map(times) do t
-        k = findfirst(d -> _serves(d, t), darks.darks)
+        k = _serving_dark(darks, t)
         k === nothing && throw(ArgumentError(
             "photon_transfer: no Dark of the darks serves the exposure $(ustrip(_SECOND, t)) s (their bands: " *
             "$(join((map(b -> ustrip(_SECOND, b), d.exposure_band) for d in darks.darks), ", ")) s): every group is " *
@@ -371,23 +372,22 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
         k
     end
     sz = size(first(darks.darks).offset)
-    all(m.window_origin .+ size(m) .<= sz) || throw(DimensionMismatch(
-        "photon_transfer: the darks' maps are $(join(sz, '×')) over the visible raw; the frames' photosites reach " *
-        "$(join(m.window_origin .+ size(m), '×'))"))
+    _check_covers(sz, m, "photon_transfer: the darks' maps")
     # the maps, uploaded ONCE each into one stack on the frames' device: the used Darks' offsets, the groups' masks
     used = unique(which)
+    slot = Dict(k => s for (s, k) in enumerate(used))
     offsets = on_device(Float32, backend, _host_stack(Float32, sz, (darks.darks[k].offset for k in used)))
-    cut = [_frame_defects(defects, t) for t in times]
-    host_masks = [Array(something(defect_mask(d, m; backend = KA.CPU()), falses(0, 0))) for d in cut]
-    masked = findall(!isempty, host_masks)
+    variances = Dict(k => Array(darks.darks[k].variance) for k in used)   # each used Dark's variance on the host once
+    host_masks = [defect_mask(_frame_defects(defects, t), m; backend = KA.CPU()) for t in times]
+    masked = findall(!isnothing, host_masks)
+    mask_slot = Dict(i => s for (s, i) in enumerate(masked))
     masks = isempty(masked) ? nothing :
             on_device(Bool, backend, _host_stack(Bool, size(host_masks[first(masked)]), (host_masks[i] for i in masked)))
     levels = map(eachindex(exposures)) do i
-        d = darks.darks[which[i]]
-        j = findfirst(==(i), masked)
-        mask = j === nothing ? nothing : view(masks, :, :, j)
-        σ0, σ0_se = _dark_intercept(d, j === nothing ? nothing : host_masks[i], m, g)
-        (; black = _green_black(g, _channel_black(d, m)), dark = view(offsets, :, :, findfirst(==(which[i]), used)), mask, σ0, σ0_se)
+        k = which[i]; d = darks.darks[k]
+        mask = haskey(mask_slot, i) ? view(masks, :, :, mask_slot[i]) : nothing
+        σ0, σ0_se = _dark_intercept(variances[k], d.frames, host_masks[i], m, g)
+        (; black = _green_black(g, _channel_black(d, m)), dark = view(offsets, :, :, slot[k]), mask, σ0, σ0_se)
     end
     return _ptc_series(frames_of, levels, m, g, block, normalize, significance)
 end
@@ -431,12 +431,13 @@ function _ptc_groups(groups)
     return exposures, frames_of, m
 end
 
-# A host stack (sz..., n) of eltype T of the matrices `maps` (each copied to the host first), uploaded by its caller once.
+# A host stack (sz..., n) of eltype T of the matrices `maps` (a device map copied to the host first), uploaded by its
+# caller once.
 function _host_stack(::Type{T}, sz, maps) where {T}
     ms = collect(maps)
     out = Array{T}(undef, sz..., length(ms))
     for (k, a) in enumerate(ms)
-        out[:, :, k] .= Array(a)
+        out[:, :, k] .= a isa Array ? a : Array(a)
     end
     return out
 end
@@ -450,10 +451,10 @@ function _read_noise_intercept(rn::ReadNoise, g)
     return σ0, g.colors[1] == g.colors[2] ? (d[1] + d[2]) / 2 : sqrt(d[1]^2 + d[2]^2) / 2
 end
 
-# σ₀² of a Dark (its mean variance over the mosaic's green photosites that `mask`, on the host, leaves) and its standard
-# error by first order from its frame and photosite counts, √(2/((n − 1)N))·σ₀² (master_dark's rule).
-function _dark_intercept(d::Dark, mask, m::RawMosaic, g)
-    v = Array(d.variance)
+# σ₀² of a Dark (its mean variance `v`, on the host, over the mosaic's green photosites that `mask`, on the host, leaves)
+# and its standard error by first order from its frame count `frames` and photosite count, √(2/((n − 1)N))·σ₀²
+# (master_dark's rule).
+function _dark_intercept(v::Array, frames::Integer, mask, m::RawMosaic, g)
     o = m.window_origin
     H2, W2 = size(m, 1) ÷ 2, size(m, 2) ÷ 2
     s = 0.0; N = 0
@@ -463,7 +464,7 @@ function _dark_intercept(d::Dark, mask, m::RawMosaic, g)
         s += Float64(v[r, c]); N += 1
     end
     σ0 = s / N
-    return σ0, sqrt(2 / ((d.frames - 1) * N)) * σ0
+    return σ0, sqrt(2 / ((frames - 1) * N)) * σ0
 end
 
 # THE series fit, of both forms of the darks: per group (in increasing exposure) its frames and its `levels` — its
@@ -490,7 +491,7 @@ function _ptc_series(frames_of, levels, m::RawMosaic, g, block::Integer, normali
         length(ks) >= _PTC_BLOCKS_PER_POINT || return nothing
         pt = _ptc_points([sm[k] / full for k in ks], [sq[k] / (full * (N - 1)) for k in ks], fill(levels[i].σ0, length(ks)),
                          full * (N - 1))
-        (; xs = pt.xs, ys = pt.ys, ms = pt.ms, os = pt.os, rel = pt.rel, gs = fill(i, length(pt.xs)))
+        (; pt..., gs = fill(i, length(pt.xs)))
     end
     held = filter(!isnothing, parts)
     isempty(held) && throw(NoiseEstimateFailed("no exposure holds $(_PTC_BLOCKS_PER_POINT) whole blocks"))
@@ -526,7 +527,7 @@ end
 function _series_slope(q; max_iter::Integer = _PTC_LINE_MAX_ITER)
     A = reshape(q.xs, :, 1)
     l = _ptc_line(A, q.ys, q.os, q.ms, q.rel; max_iter)
-    β, C = l.β, l.C
+    (; β, C) = l
     β[1] > 0 || throw(NoiseEstimateFailed("the photon-transfer line is not physical: slope $(β[1]) (1/K) over the range"))
     pred = A * β .+ q.os
     c, t = _ptc_curvature(A, q, pred)
@@ -681,7 +682,7 @@ end
 # Per photosite of the stacked frames (H × W × n), the temporal mean and sample variance, one work item each.
 @kernel function _dark_moments_kernel!(offset, variance, @Const(stack))
     i, j = @index(Global, NTuple)
-    μ, q = _temporal_moments(stack, i, j, 0.0, nothing)
+    _, μ, q = _temporal_moments(stack, i, j, 0.0, nothing, nothing)
     @inbounds offset[i, j] = Float32(μ)
     @inbounds variance[i, j] = Float32(q / (size(stack, 3) - 1))
 end

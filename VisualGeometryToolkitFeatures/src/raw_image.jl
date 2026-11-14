@@ -183,14 +183,13 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
   demosaic, with its own metadata.
 
 `T`, a `Base.IEEEFloat` (positional and leading, the stack's signature rule): the element type
-the values are stored as, forwarded to Core's `LinearRaw(T, mosaic; …)` (each value computed in
-Float64 and rounded once on store; an uncertain image's variance plane is `Float32` beside
-`Float16` values and includes the store's `spacing²/12`). Without it the default is Core's
-(`LinearRaw(mosaic; …)`'s: `Float64`, bit for bit the values before Core 0.10.5), for every
-mode: the display demosaic too follows Core's default. The display demosaic is stored as `T` (computed in Float64, rounded once); a `gain` times the white
-balance at which a value could exceed `floatmax(T)` is refused there, as Core refuses it.
-Reduce a Float16 image's values in Float64 (`sum(Float64, A)`, `mean(Float64, A)`), as every
-reduction in this package does.
+the values are stored as, in every mode, each value computed in Float64 and rounded once. The
+exact modes forward it to Core's `LinearRaw(T, mosaic; …)` (an uncertain image's variance plane
+is `Float32` beside `Float16` values and includes the store's `spacing²/12`); the display
+demosaic refuses a `gain` times white balance that could exceed `floatmax(T)`, as Core does.
+Without it the type is Core's default (`LinearRaw(mosaic; …)`'s: `Float64`, bit for bit the
+values before Core 0.10.5). Reduce a Float16 image's values in Float64 (`sum(Float64, A)`),
+as every reduction in this package does.
 
 `white_balance` is accepted with `:demosaic` only: the exact modes are camera
 raw colour, white balance 1.

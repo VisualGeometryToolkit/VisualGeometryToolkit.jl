@@ -17,7 +17,7 @@ known issue of `detect_image_circle` under a sensor model, documented.
   - `box_downsample` of a `Float16` image (or `Gray{Float16}`, …) summed its blocks in Float16; it now sums and scales in
     Float64 and rounds each output once to `Float16` (a block of 2048 and four 0.25s: 2049/9, not 2048/9).
   - `detect_foerstner(Float16, …)` would have accumulated the squared gradient's window sums in Float16; a precision
-    narrower than `Float32` is refused (`ArgumentError`). A Float16 image is read in `T`.
+    other than `Float32` or `Float64` is refused (`ArgumentError`). A Float16 image is read in `T`.
 
   Audited, unchanged (each reads a Float16 image widened): SFOP and ASIFT (the pyramid's `Float32` input,
   `_asift_input`); the seeded and image-wide Förstner (`ka_upload(T, …)`, the variances `Float32` → `T`);
@@ -25,8 +25,8 @@ known issue of `detect_image_circle` under a sensor model, documented.
   Float32, the bin medians order statistics, the bins' mean variance summed in Float64, profiles and drops in
   Float64); `gaussian_blur` (Float64).
 
-- **Known issue, not fixed here: `detect_image_circle` under a sensor model can take the faint light past the coverage for
-  the rim** (since 0.9.2). With `Uncertain` cells (a RAW read with a Poisson–Gaussian model) each bin's noise is the
+- **Known issue, not fixed here: `detect_image_circle` under a sensor model can take the halo or barrel-reflection light
+  beyond the rim for the rim** (since 0.9.2; the default path, without a sensor model, is unaffected). With `Uncertain` cells (a RAW read with a Poisson–Gaussian model) each bin's noise is the
   model's alone, the sensor's photon and read noise. Past the coverage the FX3's fisheye has faint light (the lens
   barrel's reflections, a halo, 0.2–1 % of white) whose drops lie far above that noise (8–14 % of them beyond 4σ), so
   each angle's outermost edge, the first fit's, lies out there: a = 1328.6, 1366.2 and 1481.8 raw px on the f/4, f/22

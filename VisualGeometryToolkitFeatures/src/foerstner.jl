@@ -62,7 +62,7 @@ is a point's 1σ error ellipse (`ip_errell.m`'s default).
 as MATLAB's `im2double`); it is not stretched to its own range. The image-wide
 steps run on `device`, any KernelAbstractions backend, in precision `T`
 (the reference computes in `Float64`; supply `Float64` for that): `Float32` or
-`Float64`. A narrower type (`Float16`) is refused (an `ArgumentError`): the squared
+`Float64`, any other refused (an `ArgumentError`): in `Float16` the squared
 gradient's window sums would accumulate in it. A Float16-stored image (`LinearRaw(Float16, …)`)
 is read in `T`.
 
@@ -295,8 +295,8 @@ function _detect_foerstner(
         significance_level::Real = 0.999,
         seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing
     ) where {T <: AbstractFloat}
-    precision(T) < precision(Float32) && throw(ArgumentError(
-        "detect_foerstner: the precision T = $T would accumulate the window sums in it: give Float32 or Float64 (a Float16 image is read in T)"))
+    (T === Float32 || T === Float64) || throw(ArgumentError(
+        "detect_foerstner: the precision T must be Float32 or Float64, got $T (Float16 would accumulate the window sums in it; a Float16 image is read in T)"))
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
     # a float matrix at its own precision (gray_f32 would round a Float64 one), anything else as gray_f32 reads it

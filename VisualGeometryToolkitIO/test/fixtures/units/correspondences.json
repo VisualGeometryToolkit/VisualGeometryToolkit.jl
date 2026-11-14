@@ -2,7 +2,7 @@
     "schema": "export/correspondences/v2",
     "generator": {
         "name": "VisualGeometryToolkitIO",
-        "version": "0.10.1"
+        "version": "0.10.2"
     },
     "units": {
         "length": "mm",

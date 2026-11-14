@@ -11,7 +11,9 @@
   parameters neglected, a conservative test). Both the image-wide
   search and the seeded windows. On the THORLABS chrome photographs the SFOP seeds between dots, on line artefacts
   and on letter strokes (F ≈ 1–3) were labelled circular; they are now unknown. Labels change wherever F lies
-  between the two critical values; positions and covariances do not change.
+  between the two critical values; positions and covariances do not change. The image-wide default window (ρ = 6
+  doubled px) has ν ≈ 12, its 0.999 corner bound F < 0.143: a noise-free checkerboard X-junction (F ≈ 0.16) is now
+  unknown (its window centre, a NaN covariance), a corner at `significance_level = 0.99`.
 - **`detect_sfop(L::LinearRaw)` and the seeded `detect_foerstner(T, L::LinearRaw, seeds; sensor_model)`**, additive: SFOP on
   a RAW's green cells (their values, the cell grid) and the seeded windows under the frame's sensor model, its covariance as
   the image-wide call's on `L` (bit for bit at the same windows). RC's chrome evaluation detects its RAW sets this way.

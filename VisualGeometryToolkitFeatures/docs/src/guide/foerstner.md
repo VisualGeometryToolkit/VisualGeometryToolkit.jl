@@ -250,6 +250,7 @@ uses `F(ν_corner, ν_circular)` at the same `significance_level`.
 
 | ρ (doubled px) | integration σ (input px) | redundancy | ν_corner | ν_circular | F(ν, ν) at 0.999 |
 |---|---|---|---|---|---|
+| 6 | 1.3 | 167 | 11.9 | 12.5 | 6.76 |
 | 10 | 2.4 | 439 | 25.6 | 24.8 | 3.65 |
 | 15 | 4.0 | 959 | 47.9 | 46.1 | 2.54 |
 | 22 | 6.0 | 2023 | 89.8 | 87.1 | 1.95 |
@@ -263,6 +264,11 @@ varies less than `F(ν, ν)`, and the test is conservative). On the chrome
 photographs the windows between dots, on line artefacts and on letter strokes
 (`F` ≈ 1–3) were labelled circular at the pixel count; with `ν` they are
 unknown. The a-posteriori covariance keeps the reference's `Ω/redundancy · N⁻¹`.
+
+The image-wide search's default window (ρ = 6, `integration_sigma` 1.41) has
+`ν` ≈ 12, so a corner at 0.999 needs `F` < 0.143: a sharp, noise-free
+checkerboard X-junction (`F` ≈ 0.16) is unknown there, a corner at 0.99
+(`F` < 0.253). An unknown row keeps its window centre and a NaN covariance.
 
 ### Also as the reference
 

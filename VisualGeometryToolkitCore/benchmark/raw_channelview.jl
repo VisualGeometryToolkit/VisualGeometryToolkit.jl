@@ -31,7 +31,7 @@ struct View end;     struct Permuted end;     struct Packed end;     struct Held
     @inbounds begin
         x = ntuple(k -> photosite(how, a, k, i, j), Val(4))
         v = ntuple(k -> linear_value(x[k], black[k], span[k]), Val(4))
-        VgtkCore._store_planes!(img, i, j, v, planes, gain, 1)
+        VgtkCore._store_planes!(img, i, j, VgtkCore._plane_values(v, planes, gain), 1)
         sat[i, j] = any(k -> x[k] >= white, sites)
     end
 end

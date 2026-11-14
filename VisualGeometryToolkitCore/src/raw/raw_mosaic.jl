@@ -487,7 +487,15 @@ the quantum is the code's, as before.
 """
 function linear_quantum(v::LinearRawView, i::Integer, j::Integer)
     @boundscheck checkbounds(v, i, j)
-    return max(1 / v.span[_quad_site(i, j)], Float64(eps(value_of(@inbounds v[i, j]))))
+    return _stored_quantum(_value_eltype(v), v, i, j, _quad_site(i, j))
+end
+# One code, or the stored value's spacing where that is coarser: read from the value alone (no variance), and for the
+# Float64 default not at all (its spacing is always finer than a code: the quantum is the span's, bit for bit as before).
+_stored_quantum(::Type{Float64}, v::LinearRawView, i, j, k) = 1 / v.span[k]
+function _stored_quantum(::Type{T}, v::LinearRawView, i, j, k) where {T}
+    # one photosite (and its dark offset) of a possibly device-held view, read to the host: the one black rule
+    code, b = GPUArrays.@allowscalar (@inbounds(v.raw[i, j]), _black_at(v.dark, v.black[k], i + v.origin[1], j + v.origin[2]))
+    return max(1 / v.span[k], Float64(eps(T(_linear_value(code, b, v.span[k])))))
 end
 
 """
@@ -517,7 +525,7 @@ sites' (`k = di + 2dj + 1`).
 black (the span `white − black[c]`), and a [`Dark`](@ref)'s offset in place of
 the black per photosite. Its defects are not values: they join `LinearRaw`'s
 mask, not this view. Its noise is: under a [`PoissonGaussian`](@ref) or a
-[`RelativeNoise`](@ref) each element is an `Uncertain{Float64}`, the value and
+[`RelativeNoise`](@ref) each element is an `Uncertain{T}`, the value and
 its scalar variance (`Statistics.var(x)`, computed on the read by the law
 `LinearRaw`'s kernel writes per plane, one site at gain 1: owner ruling D14,
 the default uncertain image of the photosites; the binned cell image,

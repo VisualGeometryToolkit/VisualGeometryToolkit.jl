@@ -6,14 +6,20 @@
 # one rounding: per value |x̂ − x| ≤ δ(x) = max(eps(Float16)·|x|/2, s/2), s the subnormal spacing 2⁻²⁴ (round to nearest
 # within a binade; half the fixed spacing below the smallest normal).
 
-@testitem "linear raw eltype: a Float16 value is the Float64 value rounded once; the variance plane Float32" setup = [SensorFixtures] begin
+@testsetup module Float16Rounding
+    export δ
+    # The bound of one rounding to nearest of a Float64 value x to Float16: half a spacing, eps(Float16)·|x|/2 for a
+    # normal value, half the subnormal spacing 2⁻²⁴ below the smallest normal.
+    δ(x) = max(eps(Float16) * abs(x) / 2, nextfloat(Float16(0)) / 2)
+end
+
+@testitem "linear raw eltype: a Float16 value is the Float64 value rounded once; the variance plane Float32" setup = [SensorFixtures, Float16Rounding] begin
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: sensor_fixture, Uncertain, value_of, green_plane, LinearRawView, linear_quantum
     using Statistics: var
     using StructArrays: StructArray, components
     using StableRNGs: StableRNG
     using Adapt: adapt
-    δ(x) = max(eps(Float16) * abs(x) / 2, nextfloat(Float16(0)) / 2)
     rng = StableRNG(31)
     H, W = 64, 80
     # every code: below the black level, the subnormal range just above it, every binade up to the white level (saturated)
@@ -70,7 +76,7 @@
     @test_throws MethodError linearview(Int, m)
 end
 
-@testitem "linear raw eltype: dark and photon-transfer statistics over Float16 storage agree with Float64 to the rounding's bound" setup = [SensorFixtures] begin
+@testitem "linear raw eltype: dark and photon-transfer statistics over Float16 storage agree with Float64 to the rounding's bound" setup = [SensorFixtures, Float16Rounding] begin
     using VisualGeometryToolkitCore
     using Statistics: mean, var, std
     using StableRNGs: StableRNG
@@ -83,7 +89,6 @@ end
     #   variance  s²(x + e) − s²(x) = 2·c(x, e) + s²(e), |c(x, e)| ≤ s(x)·s(e) (Cauchy–Schwarz) and
     #             s(e) ≤ ε = √(Σ δ_k²/(n − 1)), so |Δs²| ≤ 2·s(x)·ε + ε²
     # and in expectation the rounding ADDS its variance, step²/12 per sample (e uniform over one step, uncorrelated with x).
-    δ(x) = max(eps(Float16) * abs(x) / 2, nextfloat(Float16(0)) / 2)
     Z = quantile(Normal(), 1 - 0.001 / 2)
     cells(T, frames) = cat((Float64.(LinearRaw(T, f; mode = :green_cells).image[:, :, 1]) for f in frames)...; dims = 3)
     function moments(X)
@@ -118,7 +123,7 @@ end
     m64, w64 = moments(F64); m16, w16 = moments(F16)
     cμ, cv = bounds(F64)
     @test all(abs.(m16 .- m64) .<= cμ) && all(abs.(w16 .- w64) .<= cv)
-    level = [cld(cld(2j, 16), 2) for j in axes(F64, 2)]                      # cell column j holds photosite columns 2j − 1, 2j
+    level = [level_of_column(2j) for j in axes(F64, 2)]                       # cell column j holds photosite columns 2j − 1, 2j
     pool(A, l) = mean(A[:, level .== l])
     L = length(LEVELS)
     μ_l64, v_l64 = [pool(m64, l) for l in 1:L], [pool(w64, l) for l in 1:L]
@@ -146,7 +151,7 @@ end
     @test abs(mean(w16[:, top] .- w64[:, top]) - σe²) <= Z * se
 end
 
-@testitem "linear raw eltype: a Float16 image reduced in Float64 — the sum of a million values to its derived bound" setup = [SensorFixtures] begin
+@testitem "linear raw eltype: a Float16 image reduced in Float64 — the sum of a million values to its derived bound" setup = [SensorFixtures, Float16Rounding] begin
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: green_plane
     using Statistics: mean
@@ -155,7 +160,6 @@ end
     # a Float16 accumulation cannot hold it; a consumer reduces the stored values in Float64 (`sum(Float64, A)`). The
     # Float64 sum of the stored values differs from the Float64 values' sum by at most Σ δ_k (the storage's roundings)
     # plus each sum's own accumulation error, ≤ (n − 1)·eps(Float64)·Σ|x| for a sum of n terms in any order.
-    δ(x) = max(eps(Float16) * abs(x) / 2, nextfloat(Float16(0)) / 2)
     rng = StableRNG(53)
     m = synth_mosaic(UInt16[rand(rng, 11000:16000) for i in 1:2048, j in 1:2048])
     G64 = green_plane(LinearRaw(m; mode = :green_cells))
@@ -182,13 +186,13 @@ end
     if CUDA.functional()
         rng = StableRNG(61)
         H, W = 24, 32
-        m = synth_mosaic(UInt16[rand(rng, 0:16383) for i in 1:H, j in 1:W])
+        mh = synth_mosaic(UInt16[rand(rng, 0:16383) for i in 1:H, j in 1:W])   # (not `m`: Core exports the metre)
         dark = (; offset = Float32.(BLACK .+ 3 .* randn(rng, H, W)), variance = rand(rng, Float32, H, W) .+ 5.0f0,
                 exposure_band = (0.5s, 1.0s), frames = 8)
         models = [SensorModel(), sensor_fixture(; gain = K_TRUE, read_noise = (2.5, 2.4, 2.6, 2.5)).model,
                   sensor_fixture(; black = (500.0, 505, 510, 515), dark, gain = 1.6, read_noise = (2.5, 2.4, 2.6, 2.5), exposure = 0.8s).model]
-        d = adapt(CUDA.CuArray, m)
-        for T in (Float16, Float32), model in models, (wh, wd) in ((m, d), (view(m, 3:20, 2:29), view(d, 3:20, 2:29))),
+        d = adapt(CUDA.CuArray, mh)
+        for T in (Float16, Float32), model in models, (wh, wd) in ((mh, d), (view(mh, 3:20, 2:29), view(d, 3:20, 2:29))),
             mode in (:green_cells, :bin2)
             Lh = LinearRaw(T, wh; mode, gain = 1.5, sensor_model = model)
             Ld = LinearRaw(T, wd; mode, gain = 1.5, sensor_model = adapt(CUDA.CuArray, model))
@@ -196,7 +200,7 @@ end
             @test (Ld.image isa CUDA.CuArray ? eltype(Ld.image) : eltype(components(Ld.image)[1])) === T
             @test adapt(Array, copy(linearview(T, wd; sensor_model = model))) == copy(linearview(T, wh; sensor_model = model))
         end
-        @test linear_quantum(linearview(Float16, d), 3, 4) == linear_quantum(linearview(Float16, m), 3, 4)
+        @test linear_quantum(linearview(Float16, d), 3, 4) == linear_quantum(linearview(Float16, mh), 3, 4)
     else
         @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
     end

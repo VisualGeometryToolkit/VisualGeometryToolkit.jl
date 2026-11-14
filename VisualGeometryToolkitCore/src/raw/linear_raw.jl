@@ -219,10 +219,11 @@ end
 # linear values, times the gain (a tuple over the planes, unrolled). The kernel stores each rounded ONCE to the image's
 # element type and reads the variance from it unrounded.
 @inline _plane_values(v, planes::Tuple, gain) = map(ks -> (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain, planes)
-@inline _store_planes!(img, i, j, xs::Tuple{}, p) = nothing
-@inline function _store_planes!(img, i, j, xs::Tuple, p)
-    @inbounds img[i, j, p] = first(xs)
-    return _store_planes!(img, i, j, Base.tail(xs), p + 1)
+@inline function _store_planes!(img, i, j, xs::NTuple{P, Float64}, p0) where {P}
+    for p in 1:P
+        @inbounds img[i, j, p0 + p - 1] = xs[p]
+    end
+    return nothing
 end
 
 # THE Poisson slope α of a plane's value (its variance's `α·x` term): the gain over m² K times Σ 1/d over its m
@@ -311,7 +312,7 @@ function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, mode
     P = length(used)
     # on the photosites' device: the kernel reads the held array (the channel view's photosites), never the wrapper
     img = similar(raw, T, H2, W2, P)
-    var = law === nothing ? nothing : similar(raw, _value_covariance_type(_variance_eltype(T)), H2, W2, P)
+    var = law === nothing ? nothing : similar(raw, _covariance_eltype(T), H2, W2, P)
     sat = similar(raw, Bool, H2, W2)
     OnBackend(backend)(_cells_kernel!)(img, var, sat, raw, used, sites, black, span, gain, m.white, dark, defects, m.window_origin,
                                        law; ndrange = (H2, W2))
@@ -322,7 +323,7 @@ function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, mode
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
     plane_sites = map(ks -> map(k -> (color = Int(cell[k]), dn = span[k]), ks), used)
     geometry = (plane_maps = maps, green_offsets, plane_sites)
-    image = var === nothing ? img : StructArrays.StructArray{Attributed{T, eltype(var)}}((img, var))
+    image = var === nothing ? img : StructArrays.StructArray{_view_eltype(T, law)}((img, var))
     return LinearRaw{mode}(image, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 

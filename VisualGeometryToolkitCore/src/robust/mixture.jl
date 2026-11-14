@@ -130,6 +130,10 @@ end
 
 The posterior probability that a residual with squared norm `sq_r` is an
 inlier, `π·t / (π·t + (1−π)·p_out)`. Scalar and kernel-callable.
+
+A non-finite `sq_r` (Inf or NaN) is the outlier's: its posterior is 0, so it is
+no inlier ([`is_map_inlier`](@ref)), and its [`posterior_weight`](@ref) is 0.
+(An infinite residual gives 0 by the formula; a NaN one gave NaN before 0.10.6.)
 """
 @inline inlier_posterior(m::StudentTMixture, sq_r) = first(_posterior_pair(m, sq_r))
 
@@ -138,6 +142,7 @@ inlier, `π·t / (π·t + (1−π)·p_out)`. Scalar and kernel-callable.
 
 The IRLS weight of the mixture at `sq_r`: `P(inlier | r) · (ν + d_g)/(ν·ŝ² + r²)`,
 the responsibility times the Student-t's own weight. Scalar and kernel-callable.
+`0` for a non-finite `sq_r` (Inf or NaN), as [`inlier_posterior`](@ref) is.
 """
 @inline posterior_weight(m::StudentTMixture, sq_r) = last(_posterior_pair(m, sq_r))
 
@@ -179,6 +184,10 @@ Stores `inlier_posterior[i] = P(inlier | r_i)` separately for the ν M-step,
 and `w[i] = inlier_posterior[i] · u_i` (combined weight for the θ solve).
 
 `d_g` is the constraint codimension (1 for scalar residuals, 2 for 2D).
+
+A datum whose squared residual is not finite (Inf or NaN) gets
+`inlier_posterior[i] = w[i] = 0`: it is no inlier, and every sum read from the
+E-step (the ŝ² and inlier-prior blocks, ν's sums, the cost `Σwᵢrᵢ²`) skips it.
 
 The separation is critical: the ν Newton update must use fixed E-step weights
 (not recomputed from the changing ν), otherwise ν and `inlier_posterior`

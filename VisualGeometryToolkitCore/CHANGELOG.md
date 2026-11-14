@@ -1,5 +1,30 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.6
+
+A patch: the mixture kernel's non-finite rule. A datum whose squared residual is Inf or NaN gets inlier posterior 0 and
+weight 0, and is no inlier: the rule VisualGeometryToolkitEstimation 0.11.2 applies in its own callers, now held where
+every caller reads it.
+
+### Fixed
+- **A NaN residual's inlier posterior and weight are 0, as an infinite residual's always were.** The kernel
+  `_posterior_pair`, which `inlier_posterior`, `posterior_weight`, `soft_posterior_weights!` (and so
+  `update_weights!` and `seed_posterior!`), `posterior_weights!` and `posterior_inlier_probs!` all call, gave NaN for a
+  NaN squared residual. The NaN reached every sum read from the E-step (`update_scale!`'s ŝ², `update_nu!`'s ν,
+  `update_inlier_prior!`'s π, a cost Σwᵢrᵢ²), so one NaN datum made the whole state NaN. That reached the seeds built
+  outside VisualGeometryToolkitEstimation's `consensus_posterior` (`fit_residual_mixture`'s, `fit_division_camera`'s)
+  and its E-steps unguarded. An infinite residual already gave 0 by the formulas and is unchanged; a finite residual's
+  posterior and weight are unchanged bit for bit (tested against the unguarded formula, Float64 and Float32; measured
+  over Core's and Estimation's suites: no posterior value moves but a NaN input's).
+- **`median_seeded_posterior`'s median skips a NaN residual.** The median of norms holding a NaN was NaN, so the seed
+  scale ŝ² and every posterior were NaN. The median is now over the residuals that are not NaN; an infinite residual
+  stays in it (an outlier's large norm), as before.
+
+### Changed
+- **`Irls{GaussianShape}`'s docstring states the refit set.** It said "plain least squares over all points"; since
+  VisualGeometryToolkitEstimation 0.11.2 the Gaussian LO refits the scorer's consensus set, a datum outside it or with a
+  non-finite squared residual at weight 0. Documentation only.
+
 ## 0.10.4
 
 A patch: photon_transfer against a `Darks` by band, σ_r's standard error from the darks, convergence reported, and the LM

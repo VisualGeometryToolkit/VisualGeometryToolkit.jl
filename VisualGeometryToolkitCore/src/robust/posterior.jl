@@ -216,6 +216,9 @@ partition to seed from. Every point starts an inlier candidate at the scale
 near-Gaussian start) under the scale prior `prior`, both required (a
 configuration's values, not this function's), and the E-step run once.
 Allocates its own buffers (`sq[1:n]` is copied). `codimension` is 1 or 2.
+A NaN residual is no inlier candidate: the median is over the others, and the
+E-step gives it weight 0 ([`soft_posterior_weights!`](@ref)); an infinite
+residual stays in the median, as an outlier's large norm.
 """
 function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
                                  outlier_halfwidth::Real, ν::Real, prior::IGPrior, codimension::Int = 2)

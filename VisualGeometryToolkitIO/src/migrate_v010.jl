@@ -502,13 +502,12 @@ migrate_schema(::Val{Symbol("vgio/units/v2")}, t::AbstractDict) = _units_v2_to_v
 # The test pins it on the identities IO 0.9 pinned (migrate_identity_tests.jl).
 
 # 0.9's persisted form of a base-unit number of length power `n` (lengths.jl at IO 0.9.3).
-# Every reproduction of 0.9's identities runs under `_v09`: the writer's millimetre numbers as 0.10.0 wrote them (the
-# unrounded value's nearest file number, the numbers 0.9's `_persisted` read back), not 0.10.1's persisted ones.
-_v09(f) = Base.ScopedValues.with(f, _WRITE_UNROUNDED => true)
-_persisted_v09(y::Real, n::Int = 1) = _v09(() -> _read_power(_write_power(Float64(y), mm, n), mm, n))
+# Every reproduction of 0.9's identities writes its millimetre numbers through `_LEGACY_MM` (lengths.jl): IO 0.10.0's
+# writer, whose last resort is the nearest file number, the numbers 0.9's `_persisted` read back.
+_persisted_v09(y::Real, n::Int = 1) = _read_power(_leaf_power(Float64(y), _LEGACY_MM, n), mm, n)
 # …the same, of the millimetre number `x` a millimetre file holds for it.
 _leaf_v09(x::Real, n::Int) = _read_power(x, mm, n)
-const _V09_MM = VgioStyle(; length_unit = mm)
+const _V09_MM = VgioStyle(; length_unit = _LEGACY_MM)
 
 # IO 0.9's canonical JSON (canonical.jl at IO 0.9.3): keys sorted bytewise, an
 # integral Float64 printed as an integer, any other by Julia's `print`.
@@ -623,7 +622,7 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     haskey(b, "nominal") && (n["nominal"] = Any[_lengths_v09(p, leaf) for p in b["nominal"]])
     if layout_points && haskey(b, "layout")
         delete!(n, "layout")
-        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
+        n["nominal"] = Any[Any[leaf(write_length(c, _LEGACY_MM), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
     end
     placed = haskey(b, "placement")
     n["calibration"] = _calibration_v09(b["calibration"], placed ? (x, k) -> x : leaf)   # a placed one: chart numbers
@@ -637,12 +636,11 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     return n
 end
 # The 0.10 writer's millimetre record of a value, as plain JSON.
-_mm_record(x) = _v09(() -> _lower(JSON.parse(JSON.json(x; style = _V09_MM))))
+_mm_record(x) = _lower(JSON.parse(JSON.json(x; style = _V09_MM)))
 # A rig's body as IO 0.9's rig record held it (its frame, sensors and targets;
 # no envelope), every millimetre number (the file number of `style`'s unit)
 # through `leaf`.
-_rig_record_v09(rig::Rig, leaf, layout_points::Bool; style::VgioStyle = _V09_MM) = _v09(() -> _rig_record_v09_(rig, leaf, layout_points, style))
-function _rig_record_v09_(rig::Rig, leaf, layout_points::Bool, style::VgioStyle)
+function _rig_record_v09(rig::Rig, leaf, layout_points::Bool; style::VgioStyle = _V09_MM)
     b = _lower(JSON.parse(JSON.json(_rig_body(rig, style); style)))
     r = Dict{String, Any}("frame" => _frame_name_v09(b["frame"]))
     haskey(b, "sensors") && (r["sensors"] = Any[
@@ -688,7 +686,7 @@ function _id_camera_v09(c::AbstractDict)
     return d
 end
 function _identity_tree_v09(rig::Rig)
-    r = _rig_record_v09(rig, _leaf_v09, true)   # under `_v09`
+    r = _rig_record_v09(rig, _leaf_v09, true)
     d = Dict{String, Any}("frame" => r["frame"])
     haskey(r, "sensors") && (d["sensors"] = Any[
         Dict{String, Any}("id" => s["id"], "camera" => _id_camera_v09(s["camera"]), "extrinsics" => s["extrinsics"]) for s in r["sensors"]])
@@ -696,7 +694,7 @@ function _identity_tree_v09(rig::Rig)
         Dict{String, Any}("id" => x["id"], "target" => _id_target_v09(x["target"]), "pose" => x["pose"]) for x in r["targets"]])
     return d
 end
-_identity_tree_v09(t::AbstractTarget) = _v09(() -> _id_target_v09(_target_body_v09(_mm_record(JSON.lower(_V09_MM, t)), t, _leaf_v09, true)))
+_identity_tree_v09(t::AbstractTarget) = _id_target_v09(_target_body_v09(_mm_record(JSON.lower(_V09_MM, t)), t, _leaf_v09, true))
 
 """
     _v09_id(x) -> String

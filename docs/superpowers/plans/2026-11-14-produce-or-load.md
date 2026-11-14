@@ -9,7 +9,7 @@ setting never recomputes an earlier step.
 
 **Architecture:** VisualGeometryToolkitEval replaces its own caching (`keyed_cell_dir`, `keyed_data_dir`, `fresher`,
 `run_complete`, `cached_result`, `legacy_hash_key`, the `Stage(name, desc, done, run)` done-closures) by ONE keyed step,
-`Step` + `produce`, built on `DrWatson.produce_or_load` (`loadfile = false`, the save through a `DrWatson._wsave` method that
+`Product` + `produce`, built on `DrWatson.produce_or_load` (`loadfile = false`, the save through a `DrWatson._wsave` method that
 calls `VisualGeometryToolkitIO.save`). `run_key` stays the key function; `run_stages` stays the orchestrator, its stages now
 declare their steps. RadiometricCamera's refinement splits its start (front end, start lens with its image circle, PnP poses,
 masks, vignetting centre, focus start, the closed-form radiometric start, the GCV weights) into its own step, written as a start
@@ -23,7 +23,7 @@ record by `bin/refine.jl --stage=start` and the ONLY input of every refinement (
 ## Global Constraints
 
 - REPLACE, don't add: no alias, no forwarding wrapper, no second mechanism beside the step. Every name that leaves is refused BY
-  NAME with its replacement (`Experiments.<name>` → an `ArgumentError`/`error` naming `Step`/`produce`/`produced`).
+  NAME with its replacement (`Experiments.<name>` → an `ArgumentError`/`error` naming `Product`/`produce`/`produced`).
 - Everything through VGTK IO: records saved with `VisualGeometryToolkitIO.save` (through `DrWatson._wsave`), loaded with
   `VisualGeometryToolkitIO.load`; never JLD2/BSON/FileIO for records.
 - Each step's key = only its own dependencies (its config section, its inputs, its upstream steps' keys).
@@ -40,6 +40,9 @@ record by `bin/refine.jl --stage=start` and the ONLY input of every refinement (
 
 ## Design decisions (the implementer cannot make these alone)
 
+0. **Naming.** The stack's check_naming reserves the word `step` for `<fit>_step` of a `fit_<fit>`: the keyed unit of a
+   pipeline step is a `Product` (`Product`, `product_dir`, `product_output`, `produce`, `produced`, `Stage(…; products, run)`).
+
 1. **The unit is the step's keyed directory.** `produce_or_load`'s file is `<step dir>/<output>` (`filename = _ ->
    joinpath(key, output)`, `prefix = ""`, `suffix = ""`, under `path = <exp_pro>/<experiment>/<step>`). `f(dir)` either returns a
    record (saved by produce_or_load through `_wsave(file, ::Saved)` → `VgtkIO.save(file, record)`) or `nothing` after writing
@@ -47,16 +50,16 @@ record by `bin/refine.jl --stage=start` and the ONLY input of every refinement (
    step that writes a directory of outputs (detections/<photo>.tsv, a decoded set) is ONE unit per step (not per photo): its
    `output` is the file it writes last (`summary.tsv`, `conversion.json`, `parameters.json`), so a half-written directory never
    reads as produced.
-2. **Reuse** (`produced(step)`): `<output>` and `_provenance.toml` present, the recorded `code_trees` the current ones and the
+2. **Reuse** (`produced(product)`): `<output>` and `_provenance.toml` present, the recorded `code_trees` the current ones and the
    scratch flag this run's — the one reuse rule `run_complete` and `cached_result` applied, now in one place. `produce` passes
-   `force = !produced(step)` to `produce_or_load`. DrWatson swallows a failed save (saving_files.jl:107-116): `produce` checks
+   `force = !produced(product)` to `produce_or_load`. DrWatson swallows a failed save (saving_files.jl:107-116): `produce` checks
    the file after the call and throws.
-3. **Stages declare steps.** `Stage(name, desc; steps, run)`: `steps()` the stage's `Step`s, `run(step)` produces one (calls
+3. **Stages declare steps.** `Stage(name, desc; products, run)`: `products()` the stage's `Product`s, `run(product)` produces one (calls
    `produce`); `Stage(name, desc; check)` a stage with no product (an input check), run every time. `run_stages` prints
-   `produced/total` per stage under `--plan`, and calls `run(step)` for every step of a selected stage — `produce` loads or
+   `produced/total` per stage under `--plan`, and calls `run(product)` for every step of a selected stage — `produce` loads or
    produces (the produce_or_load spirit); `--force` is passed by the driver (`produce(…; force)`). The positional
    `Stage(name, desc, done, run)` is refused by name.
-4. **Upstream** is a `Step` (or a key string): `Step(…; upstream = ("start" => start_step,))` folds `start_step.key` into
+4. **Upstream** is a `Product` (or a key string): `Product(…; upstream = ("start" => start_product,))` folds `start_product.key` into
    `run_key`'s `keyed_with.upstream`.
 5. **Keys of record are unchanged where the record is.** A step's key is `run_key(record; files, upstream, parts)` exactly as
    before, so a step whose record did not change keeps its key; only its directory moves (`<exp>/<stage>-<key>` →
@@ -83,17 +86,17 @@ record by `bin/refine.jl --stage=start` and the ONLY input of every refinement (
 ## File structure
 
 Monorepo (`~/src/vgtk-pol`, branch `produce-or-load`):
-- Create `VisualGeometryToolkitEval/src/experiments/steps.jl` — `Step`, `step_dir`, `produced`, `produce`, `Saved`, `Written`,
+- Create `VisualGeometryToolkitEval/src/experiments/products.jl` — `Product`, `product_dir`, `produced`, `produce`, `Saved`, `Written`,
   the `_wsave` methods, `load_output`.
-- Modify `src/experiments/stages.jl` — `Stage(name, desc; steps, run)` / `Stage(name, desc; check)`, `run_stages`; `fresher`
+- Modify `src/experiments/stages.jl` — `Stage(name, desc; products, run)` / `Stage(name, desc; check)`, `run_stages`; `fresher`
   leaves (refused).
 - Modify `src/experiments/run_records.jl` — `keyed_cell_dir`, `keyed_data_dir`, `experiment_dir` leave (refused);
-  `_upstream_key` takes a `Step`.
+  `_upstream_key` takes a `Product`.
 - Modify `src/experiments/provenance.jl` — `run_complete`, `cached_result`, `legacy_hash_key` leave (refused); `_reuse_changes`
   is `produced`'s.
 - Modify `src/experiments/rekey.jl` — `migrate_keyed_dirs`.
 - Modify `src/Experiments.jl` exports, `src/experiments/data_policy.jl`, templates, docs, CHANGELOG, Eval version 0.8.0 → 0.9.0.
-- Tests: `test/steps_tests.jl` (new), `test/stage_runner_tests.jl`, `test/experiments_data_tests.jl`, `test/run_records_tests.jl`,
+- Tests: `test/products_tests.jl` (new), `test/stage_runner_tests.jl`, `test/experiments_data_tests.jl`, `test/run_records_tests.jl`,
   `test/rekey_tests.jl`.
 
 RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
@@ -101,7 +104,7 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 - Modify `src/calibration_pipeline/pipeline.jl` — `prepare_start(opts)` (the start, saved) and
   `prepare_refinement(opts, start)` (the state rebuilt from a start record; front ends take the stored start).
 - Modify `bin/refine.jl` — `--stage=start`, `--start=<dir>`; without either: start into `io.out/start`, then refine from it.
-- cvpr2027: `src/drivers.jl` (`keyed_run` → `Step`s; `start_step`, `refine_step`; `REFINE_ONLY_KEYS` from RC), every
+- cvpr2027: `src/drivers.jl` (`keyed_run` → `Product`s; `start_product`, `refine_product`; `REFINE_ONLY_KEYS` from RC), every
   `scripts/*.jl` stage table, `src/chrome_evaluation.jl` / `src/frontends*.jl` run lookups, tests.
 
 ## Review Focus
@@ -117,28 +120,28 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 
 ---
 
-### Task 1: Eval `Step` / `produce` / `produced` on DrWatson.produce_or_load
+### Task 1: Eval `Product` / `produce` / `produced` on DrWatson.produce_or_load
 
-**Files:** Create `src/experiments/steps.jl`; modify `src/Experiments.jl`; Test `test/steps_tests.jl`.
+**Files:** Create `src/experiments/products.jl`; modify `src/Experiments.jl`; Test `test/products_tests.jl`.
 
 **Interfaces — Produces:**
-- `Step(experiment::AbstractString, name::AbstractString, record::AbstractDict; output::AbstractString, files = nothing,
+- `Product(experiment::AbstractString, name::AbstractString, record::AbstractDict; output::AbstractString, files = nothing,
   upstream = nothing, parts = nothing) -> Step` (fields `experiment, name, record, key, output`; `key = run_key(record; files,
-  upstream, parts)`, an upstream value a `Step` or a key).
-- `step_dir(s::Step) -> String` = `joinpath(results_root(), s.experiment, s.name, s.key)`.
+  upstream, parts)`, an upstream value a `Product` or a key).
+- `product_dir(s::Step) -> String` = `joinpath(results_root(), s.experiment, s.name, s.key)`.
 - `produced(s::Step; gitpath = project_root()) -> Bool`.
 - `produce(f, s::Step; driver, config_source, inputs = String[], producer = false, fields = Dict(), force = false,
   gitpath = project_root()) -> String` (the step directory; `f(dir)` returns a record or `nothing`).
-- `load_output(T, s::Step; kwargs...)` = `VgtkIO.load(T, joinpath(step_dir(s), s.output); kwargs...)`.
+- `load_output(T, s::Step; kwargs...)` = `VgtkIO.load(T, joinpath(product_dir(s), s.output); kwargs...)`.
 
 - [ ] Step 1: tests — `produce` computes once and loads after (a counter in `f` stays 1 on the second call); the file is
   `<results_root>/<exp>/<step>/<key>/<output>`; a record returned is written by `VgtkIO.save` and read back by `load_output`
   (a `VgtkCore.EuclideanMap`/camera record round trip); `f` returning `nothing` without writing `<output>` throws; a changed
-  `record` field is another key/directory, an unchanged one the same; an upstream `Step`'s key folds in (changing upstream's
+  `record` field is another key/directory, an unchanged one the same; an upstream `Product`'s key folds in (changing upstream's
   record changes the downstream key, changing the downstream record leaves upstream's key); a failing `f` leaves no
   `_provenance.toml`; `force = true` recomputes; a recorded `code_trees` that differs from the current ones recomputes; a
   scratch run's key differs from a run of record's.
-- [ ] Step 2: run them on dgx01 (fail: `Step` undefined).
+- [ ] Step 2: run them on dgx01 (fail: `Product` undefined).
 - [ ] Step 3: implement; `produce_or_load(…; loadfile = false, tag = false, verbose = false)`.
 - [ ] Step 4: tests pass; commit "Eval: Step and produce — one keyed step on DrWatson's produce_or_load".
 
@@ -149,9 +152,9 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 
 - [ ] Step 1: tests — `Stage(:a, "d"; steps = () -> [s1, s2], run = s -> produce(...))` runs each step once, `--plan` prints
   `1/2 produced`; `Stage(:c, "d"; check = () -> ...)` runs every time; `Stage(:a, "d", () -> true, () -> nothing)` throws
-  naming `Stage(name, desc; steps, run)`; `fresher`, `run_complete`, `cached_result`, `legacy_hash_key`, `keyed_cell_dir`,
+  naming `Stage(name, desc; products, run)`; `fresher`, `run_complete`, `cached_result`, `legacy_hash_key`, `keyed_cell_dir`,
   `keyed_data_dir`, `experiment_dir` each throw naming its replacement; the contract rule R3 accepts `run_stages(`.
-- [ ] Step 2-4: implement, migrate the Eval tests that used the old names to `Step`/`produce`, pass, commit.
+- [ ] Step 2-4: implement, migrate the Eval tests that used the old names to `Product`/`produce`, pass, commit.
 
 ### Task 3: `migrate_keyed_dirs`, docs, templates, version
 
@@ -184,8 +187,8 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 
 ### Task 7: cvpr2027 drivers on steps
 
-- `src/drivers.jl`: `keyed_run` → `driver_step(stage, record; experiment, output, upstream)`; `prepare_step`, `start_step`
-  (record = `init_settings` of the case with RC's `REFINE_ONLY_KEYS`, the inputs, the prepare/init upstream), `refine_step`
+- `src/drivers.jl`: `keyed_run` → `driver_product(stage, record; experiment, output, upstream)`; `prepare_product`, `start_product`
+  (record = `init_settings` of the case with RC's `REFINE_ONLY_KEYS`, the inputs, the prepare/init upstream), `refine_product`
   (record = the case's refine-only settings + views, upstream = its start step), `run_start`, `run_refine` through `produce`;
   `prepare_done`/`refine_done`/`figures_done`/`pending` leave.
 - every `scripts/*.jl` stage table to `Stage(…; steps, run)` / `Stage(…; check)`: calibrate, radiometric_refinement,

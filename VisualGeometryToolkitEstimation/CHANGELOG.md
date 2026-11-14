@@ -23,7 +23,6 @@ A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source onto anot
 
 - The SplineLens target turns a gauge-`K` source onto its axis before its backward is kept or fitted (it turned the
   kept backward after): the same camera, rotation and metadata for every source it accepted before.
-- Test environment: VisualGeometryToolkitIO (`"0.10.3"`), for the resampled camera's store round trip.
 
 ## 0.11.5
 

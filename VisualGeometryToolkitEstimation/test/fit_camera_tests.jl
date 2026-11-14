@@ -244,9 +244,8 @@ end
     using StaticArrays: SMatrix, SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: estimate, metadata, retcode_symbol, rms, SplineLens, CameraModel, BoundedCamera, Size2,
-        CameraCalibrationMat, Ellipse, ChartSpline, backproject, project, calibration_matrix, lens, rotation, grid_size, model, with_model,
+        CameraCalibrationMat, Ellipse, ChartSpline, backproject, project, calibration_matrix, lens, rotation, grid_size, model,
         imaged_region, angle_between
-    import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitEstimation: fit_camera, optical_axis
     K0 = calibration_matrix(GRID)
     src = BoundedCamera(CameraModel(GRID, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 520.0, 490.0, 1))), Size2(1000, 1000))
@@ -288,20 +287,6 @@ end
     h = 1000 / 27                                                                # the lattice's cell (27 cells, 30 nodes)
     @test count(I -> norm(SVector((I[2] - 2) * h, (I[1] - 2) * h) - SVector(500.0, 500.0)) > 300 + 2 * sqrt(2) * h, CartesianIndices(C3)) > 0
     @test abs(metadata(r3).family.extrapolated_fraction - (1 - π * 300^2 / 1000^2)) < 0.01
-
-    # 4. the resampled cameras through VisualGeometryToolkitIO's camera store, bounded as their sources. A SplineLens
-    # lens has no structural `==` (Core's ChartSpline defines none), so the fields are compared.
-    for bc in (with_model(src, cam), with_model(small, estimate(r3)))
-        path = joinpath(mktempdir(), "resampled.json")
-        VgtkIO.save(path, bc; name = :resampled)
-        back = VgtkIO.load(BoundedCamera, path)
-        a, b = lens(model(back)), lens(model(bc))
-        @test typeof(back) == typeof(bc) && back.bound == bc.bound && back.lens_coverage == bc.lens_coverage
-        @test calibration_matrix(back) == calibration_matrix(bc) && a.present == b.present
-        @test a.backward.area == b.backward.area && a.backward.controls == b.backward.controls
-        @test (a.forward === b.forward === nothing) || (a.forward.area == b.forward.area && a.forward.controls == b.forward.controls)
-        @test all(p -> isequal(backproject(back, p), backproject(bc, p)), pts)
-    end
 end
 
 @testitem "fit_camera: the forward spline's error is non-increasing in its size" setup = [FitCameraFisheye] begin

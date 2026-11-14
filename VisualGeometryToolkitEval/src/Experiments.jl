@@ -6,7 +6,7 @@
 # One experiment file = one figure/table; each file declares
 #
 #   * its DATA INPUTS  (require_input — hard error with provenance message),
-#   * its STAGES       (Stage(name, desc; steps, run) — each step keyed by only
+#   * its STAGES       (Stage(name, desc; products, run) — each step keyed by only
 #                       what it reads, produced or loaded by `produce`,
 #                       DrWatson's produce_or_load),
 #   * and ends by RENDERING its artifact into the paper repo's figures/.
@@ -14,8 +14,8 @@
 # CLI (uniform across every experiment file):
 #   --plan          print the stage plan (done/pending) and exit — the
 #                   structural check gate before any sbatch launch
-#   --stage=NAME    run exactly one stage (its produced steps load)
-#   --force         produce the selected stages' steps again
+#   --stage=NAME    run exactly one stage (its produced products load)
+#   --force         produce the selected stages' products again
 #
 # CV DISCIPLINE: no experiment file implements a sweep/argmin. All tuning is
 # The single CV path (package Evaluation cv_probe.jl, with boundary_hits
@@ -36,7 +36,7 @@
 The paper-generic experiment-codification framework: the [`Stage`](@ref)
 table + [`run_stages`](@ref) entrypoint (`--plan`/`--stage`/`--force`), the
 [`run_driver`](@ref) shell-out and its in-process form [`run_isolated`](@ref), [`require_input`](@ref)
-declarations, the keyed step ([`Step`](@ref), [`produce`](@ref): DrWatson's `produce_or_load`), the run records (the configuration-of-record layer), the
+declarations, the keyed product ([`Product`](@ref), [`produce`](@ref): DrWatson's `produce_or_load`), the run records (the configuration-of-record layer), the
 executable codification contract ([`contract_violations`](@ref)) and the one
 data layer of every paper project: the root ladder and artifact view
 ([`set_project_root!`](@ref), [`data_root`](@ref), [`ArtifactView`](@ref)),
@@ -53,7 +53,7 @@ module Experiments
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore   # check_keys (run_records.jl)
 using VisualGeometryToolkitCore: SensorModel, component_sources   # a run record's sensor provenance (provenance.jl)
-import VisualGeometryToolkitIO as VgtkIO   # a step's record saved and loaded (steps.jl)
+import VisualGeometryToolkitIO as VgtkIO   # a product's record saved and loaded (products.jl)
 using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
@@ -61,8 +61,8 @@ import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha2
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        contract_violations,
-       # the keyed step (experiments/steps.jl): the one cache, DrWatson's produce_or_load
-       Step, step_dir, step_output, produced, produce, Saved, load_output,
+       # the keyed product (experiments/products.jl): the one cache, DrWatson's produce_or_load
+       Product, product_dir, product_output, produced, produce, Saved, load_output,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS,
        promote_run, verify_inputs, input_path, tier_path, config_of_record,
@@ -290,8 +290,8 @@ end
 include("experiments/run_records.jl")
 include("experiments/data_policy.jl")
 
-# The one cache: a keyed step, produced or loaded by DrWatson's produce_or_load; the names it replaced, refused.
-include("experiments/steps.jl")
+# The one cache: a keyed product, produced or loaded by DrWatson's produce_or_load; the names it replaced, refused.
+include("experiments/products.jl")
 include("experiments/retired.jl")
 
 # Re-keying: the old-key → new-key map of a tag rename (computed before it lands).

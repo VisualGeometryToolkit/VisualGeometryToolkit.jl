@@ -117,9 +117,9 @@ read_rekey_map(path::AbstractString) =
 """
     migrate_keyed_dirs(root = results_root(); dry_run = true) -> Vector{Pair{String,String}}
 
-The one-shot move of a results tree from the retired layout to the keyed step's (VisualGeometryToolkitEval 0.9):
+The one-shot move of a results tree from the retired layout to the keyed product's (VisualGeometryToolkitEval 0.9):
 every directory `<experiment…>/<kind>-<key>` under `root` (`key` 16 hex digits) whose `_provenance.toml` records that
-`run_key` moves to `<experiment…>/<kind>/<key>`, [`step_dir`](@ref)'s layout, where a `Step` of the same record finds it
+`run_key` moves to `<experiment…>/<kind>/<key>`, [`product_dir`](@ref)'s layout, where a `Product` of the same record finds it
 (the key of an unchanged record is unchanged). A directory whose record names no key or another key is left and
 reported; a destination that exists is refused (`ArgumentError`, nothing moved). `dry_run` (the default) moves nothing
 and returns the moves it would make (`old => new`).

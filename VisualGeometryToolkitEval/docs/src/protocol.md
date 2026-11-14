@@ -59,7 +59,7 @@ it calls, for example `cv::CrossValidation{<:SceneSplit, StratifiedSampling}`.
 An unsupported spec is then a `MethodError` and is never silently
 reinterpreted. No driver, paper config or package source states a scene list,
 a split, a pair prefix or a sampling seed in code. Run directories come from
-the keyed steps ([`run_key`](@ref), [`step_dir`](@ref),
+the keyed products ([`run_key`](@ref), [`product_dir`](@ref),
 [`results_root`](@ref)).
 
 ## 1. The fairness axis: the efficiency constant
@@ -101,7 +101,7 @@ hold. `d_g` has no default anywhere, and every tuning artifact persists it as
 
 Every hyperparameter is cross-validated by one discipline, the coarse-to-fine
 search ([`coarse_fine_search`](@ref), with a `[tuning.<name>]` spec of scheme
-`joint_coarse_fine`, or `coarse_fine` for one scalar). It runs in three steps:
+`joint_coarse_fine`, or `coarse_fine` for one scalar). It runs in three products:
 
 1. It evaluates a coarse product grid. Whenever the joint argmin lies within
    `edge_margin` points of a face, the grid extends that axis.

@@ -24,9 +24,9 @@
 #                            re-keys an experiment. CODE is not keyed: the
 #                            record keeps it (DrWatson's tag!: gitcommit +
 #                            dirty patch; and the code's git trees), and
-#                            a Step whose trees changed is not `produced`.
-#   Step / produce           the keyed step (experiments/steps.jl): its
-#                            directory datadir("exp_pro", experiment, step, key)
+#                            a Product whose trees changed is not `produced`.
+#   Product / produce        the keyed product (experiments/products.jl): its
+#                            directory datadir("exp_pro", experiment, name, key)
 #   write_run_records(outdir, cfg; ...)  `_config.toml` (effective config) +
 #                            `_provenance.toml` (write_provenance: DrWatson's
 #                            tagged dict — gitcommit, gitpatch — with driver,
@@ -45,7 +45,7 @@ using FileWatching.Pidfile: mkpidlock
 using ..Stats: maa_threshold
 
 # The data/results binding (root ladder, artifact view, write guard) and the
-# provenance record (writer/reader, commit drift, the reuse rule of a step).
+# provenance record (writer/reader, commit drift, the reuse rule of a product).
 include("data.jl")
 include("provenance.jl")
 
@@ -165,7 +165,7 @@ end
 
 Parse a run config: it must carry `[experiment]` with `dataset`, `matcher`,
 `problem` and `pool_dir` — or, for a project whose results are not laid out by
-pool, a `layout` (an array of path segments: the project's `Step` experiment path) — and an unknown key in a section
+pool, a `layout` (an array of path segments: the project's `Product` experiment path) — and an unknown key in a section
 this package owns ([`RUN_CONFIG_KEYS`](@ref)) is refused.
 """
 function load_run_config(path::AbstractString)

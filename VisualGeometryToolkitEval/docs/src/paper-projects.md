@@ -47,32 +47,32 @@ from the data layer of `Experiments`, never from a literal machine path.
   nested, hence the hash. What a run depends on beyond its config is folded
   in, never hashed privately: `run_key(cfg; files, upstream, parts)` (a file's
   content, an upstream run's key, a frame limit).
-- **Every step a keyed step, through `produce_or_load`.** Each step of a
+- **Every step a keyed product, through `produce_or_load`.** Each step of a
   pipeline (decode, detect, index, a start state, a refinement, an evaluation,
-  a figure) is a `Step(experiment, name, record; output, files, upstream,
+  a figure) is a `Product(experiment, name, record; output, files, upstream,
   parts)`, keyed by ONLY what it reads — its own config section, its inputs,
-  the keys of the steps it reads (`upstream = ("start" => start_step,)`) — so
-  a later step's setting never recomputes an earlier one. `produce(f, step)`
+  the keys of the products it reads (`upstream = ("start" => start_product,)`) — so
+  a later step's setting never recomputes an earlier one. `produce(f, product)`
   is DrWatson's `produce_or_load` on the step's output: produced once, loaded
   after; a record `f` returns is saved through `VisualGeometryToolkitIO.save`
-  (`DrWatson._wsave`) and read with `load_output`; a step that writes a
+  (`DrWatson._wsave`) and read with `load_output`; a product that writes a
   directory of outputs returns `nothing`, its `output` the file it writes
   last. Its directory is DrWatson's
   `datadir("exp_pro", experiment, name, key)` (`results_root()` is
   `datadir("exp_pro")`, `VGTK_RESULTS_ROOT` relocates it); a deeper layout is
   the experiment path (`joinpath(dataset, matcher, problem, experiment)`).
   A step of record another project reads is made an input of record with
-  `promote_run(step_dir(step), tier)`.
+  `promote_run(product_dir(product), tier)`.
 - **Provenance per result.** Every result directory carries `_config.toml` and
   `_provenance.toml`, written by `write_run_records` and `write_provenance`.
   The provenance is DrWatson's `tag!` record: the commit, the patch of a dirty
-  tree, and the declared inputs relative to their roots; a step's
+  tree, and the declared inputs relative to their roots; a product's
   provenance is written last, so a half-written step never reads as produced.
 - **Stage runner.** A driver declares its inputs (`require_input`) and its
-  stages (`Stage(name, desc; steps, run)`, a stage's keyed steps, or
+  stages (`Stage(name, desc; products, run)`, a stage's keyed products, or
   `Stage(name, desc; check)`), and it ends with `run_stages`. `--plan` prints
-  each stage's produced steps, `--stage=NAME` runs one stage and `--force`
-  produces its steps again.
+  each stage's produced products, `--stage=NAME` runs one stage and `--force`
+  produces its products again.
 - **Data policy.** Inputs under `data_root()` are immutable, and the writers
   refuse them (`assert_not_input`). Results under `results_root()` are
   add-only. Code holds no machine path and no `artifact"…"` string macro

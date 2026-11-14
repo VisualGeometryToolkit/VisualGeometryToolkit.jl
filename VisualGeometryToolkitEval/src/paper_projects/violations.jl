@@ -145,7 +145,7 @@ _opted_line(marks, rule, i) = any(j -> j == i || j == i - 1, get(marks, rule, In
 
 const _RESULT_WRITERS = r"\b(write_provenance|write_run_records|produce|produce_or_load|wsave|tagsave|safesave|jldsave)\("
 const _PROVENANCE_WRITERS = r"\b(write_provenance|write_run_records|produce)\("
-const _RUN_KEYS = r"\b(run_key|write_run_records|produce|Step)\("
+const _RUN_KEYS = r"\b(run_key|write_run_records|produce|Product)\("
 
 _scripts(root::String, scripts::AbstractString) = (d = joinpath(root, scripts); isdir(d) ?
     sort!([joinpath(r, f) for (r, _, fs) in walkdir(d) for f in fs if endswith(f, ".jl")]) : String[])

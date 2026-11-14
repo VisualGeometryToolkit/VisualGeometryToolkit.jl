@@ -308,7 +308,7 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   its sorted `(relative path, file sha256)` lines, with `sha256_exclude`
   globs left out; it is streamed and cached per file.
 - **Producers.** A step that produces input data is produced under the
-  results root and promoted, `promote_run(step_dir(step), tier)`, to
+  results root and promoted, `promote_run(product_dir(product), tier)`, to
   `<tier root>/<tier>/<name>`, so its consumers' `[inputs.<id>] path =
   "<tier>/<name>"` finds it on every machine. A path in a tier that no config declares is
   `tier_path(tier, parts...)`.
@@ -443,7 +443,7 @@ The rule is one function,
 current)`: a stored result is reused only when it returns nothing. Every
 consumer goes through it — the runner's stage reuse and
 [`produced`](@ref VisualGeometryToolkitEval.Experiments.produced) (a driver's
-keyed step, DrWatson's `produce_or_load`) — and each change it returns names
+keyed product, DrWatson's `produce_or_load`) — and each change it returns names
 the tree:
 
 ```text
@@ -472,7 +472,7 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
 
 For a paper project (RadiometricCamera's cvpr2027, CaliBlobs' icra2026,
 BlobBoards' bmvc2026, RANSACScoringDoneRight, LocalOptimizationDoneRight) this
-needs nothing new: its drivers' steps (`produce`, `produced`) record and
+needs nothing new: its drivers' products (`produce`, `produced`) record and
 compare the trees, and its graph's `code` lists the
 project's own code. List the code a stage runs there, not the docs: a path in
 `code` that holds the paper reruns every stage on a text edit.

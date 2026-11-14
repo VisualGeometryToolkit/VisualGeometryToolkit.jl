@@ -3,13 +3,13 @@
 # `@quickactivate "{{NAME}}"`: `include(srcdir("{{NAME}}.jl"))`. It binds the
 # project's data trees (VisualGeometryToolkitEval Experiments: data_root() for the
 # read-only inputs, results_root() for the results) and brings in the stage
-# runner and the keyed step (produce: DrWatson's produce_or_load). Project code shared by several
+# runner and the keyed product (produce: DrWatson's produce_or_load). Project code shared by several
 # drivers goes here, never a data constant (those are configs/).
 # =============================================================================
 using DrWatson
 using TOML: TOML
 using StableRNGs: StableRNG
-using VisualGeometryToolkitEval.Experiments: Stage, run_stages, require_input, Step, produce, produced, step_dir, step_output,
+using VisualGeometryToolkitEval.Experiments: Stage, run_stages, require_input, Product, produce, produced, product_dir, product_output,
     set_project_root!, data_root, results_root, read_provenance
 using VisualGeometryToolkitEval.Reproduce: PaperNumbers, add_number!, write_numbers, assets_deployed, deploy_assets, results_branch
 using VisualGeometryToolkitEval.Render: HOUSE_AXIS_COMMON, HOUSE_LINE_WIDTH, HOUSE_MARK_SIZE

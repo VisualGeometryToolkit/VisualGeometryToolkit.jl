@@ -49,8 +49,8 @@ end
         @test moves == [old => joinpath(root, "calibrate", "refine", k)] && isdir(old)   # dry run: nothing moved
         @test (@test_logs (:warn, r"left in place") E.migrate_keyed_dirs(root; dry_run = false)) == moves
         @test !isdir(old) && isdir(other) && isdir(plain)
-        s = E.Step("calibrate", "refine", rec; output = "parameters.json")
-        @test E.step_dir(s) == joinpath(root, "calibrate", "refine", k) && isfile(E.step_output(s))
+        s = E.Product("calibrate", "refine", rec; output = "parameters.json")
+        @test E.product_dir(s) == joinpath(root, "calibrate", "refine", k) && isfile(E.product_output(s))
         # an occupied destination is refused, nothing moved
         again = joinpath(root, "calibrate", "refine-" * k); mkpath(again); E.write_provenance(again, Dict("run_key" => k); driver = "d")
         @test_throws r"destination\(s\) exist, nothing moved" E.migrate_keyed_dirs(root; dry_run = false)

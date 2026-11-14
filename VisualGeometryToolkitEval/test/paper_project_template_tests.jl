@@ -76,12 +76,12 @@
         @test isfile(joinpath(root, "paper", "figures", f))
     end
     # each step under DrWatson's datadir("exp_pro", "example", <step>, <key>): n = 40, then n = 60, two keys of every step
-    for step in ("simulate", "fit", "figure")
-        runs = readdir(joinpath(root, "data", "exp_pro", "example", step))
+    for name in ("simulate", "fit", "figure")
+        runs = readdir(joinpath(root, "data", "exp_pro", "example", name))
         @test length(runs) == 2
         for r in runs
-            @test isfile(joinpath(root, "data", "exp_pro", "example", step, r, "_provenance.toml"))
-            @test isfile(joinpath(root, "data", "exp_pro", "example", step, r, "_config.toml"))
+            @test isfile(joinpath(root, "data", "exp_pro", "example", name, r, "_provenance.toml"))
+            @test isfile(joinpath(root, "data", "exp_pro", "example", name, r, "_config.toml"))
         end
     end
     @test isempty(paper_project_violations(root))

@@ -3,7 +3,7 @@
 #
 # One experiment file = one deliverable; each file declares its DATA INPUTS
 # (`require_input` — hard error with a provenance message) and its STAGES
-# (`Stage(name, desc; steps, run)` — the stage's keyed steps, each produced or
+# (`Stage(name, desc; products, run)` — the stage's keyed products, each produced or
 # loaded by `produce`; `Stage(name, desc; check)` — a check run every time),
 # and ends with `run_stages(name, STAGES)`.
 #
@@ -11,7 +11,7 @@
 #   --plan          print the stage plan (done/pending) and exit — the
 #                   structural check gate before any sbatch launch
 #   --stage=NAME    run exactly one stage, or a comma-separated subset
-#   --force         produce the selected stages' steps again
+#   --force         produce the selected stages' products again
 #
 # DEPENDENCY-FREE BY CONTRACT (Dates is a stdlib; `cli_option` comes from the
 # includer — src/cli.jl): the Experiments module includes it, AND the
@@ -22,45 +22,45 @@
 using Dates: Dates
 
 """
-    Stage(name::Symbol, desc::String; steps, run)
+    Stage(name::Symbol, desc::String; products, run)
     Stage(name::Symbol, desc::String; check)
 
-One stage of a codified experiment. A stage that PRODUCES declares its keyed steps: `steps()` returns them (an experiment's
-`Step`s, cheap to build: no GPU, no heavy loads) and `run(step)` produces one — it calls `produce`, which loads a produced
-step and produces a pending one (DrWatson's `produce_or_load`), so `run` is called for every step of the stage, and a stage
-whose steps are all produced costs their checks only. A stage that only CHECKS (its inputs present, a refusal) declares
+One stage of a codified experiment. A stage that PRODUCES declares its keyed products: `products()` returns them (an experiment's
+`Product`s, cheap to build: no GPU, no heavy loads) and `run(product)` produces one — it calls `produce`, which loads a produced
+product and produces a pending one (DrWatson's `produce_or_load`), so `run` is called for every product of the stage, and a stage
+whose products are all produced costs their checks only. A stage that only CHECKS (its inputs present, a refusal) declares
 `check()`, run every time. Declared in figure/table order and executed by [`run_stages`](@ref).
 
-The done-closure form `Stage(name, desc, done, run)` is retired: a step's own record says whether it is produced.
+The done-closure form `Stage(name, desc, done, run)` is retired: a product's own record says whether it is produced.
 """
 struct Stage
     name::Symbol
     desc::String
-    steps::Union{Nothing, Function}   # () -> the stage's steps (a producing stage); nothing for a check
-    run::Function                     # step -> nothing (produce it), or () -> nothing (a check)
-    function Stage(name::Symbol, desc::AbstractString; steps = nothing, run = nothing, check = nothing)
-        check === nothing && steps isa Function && run isa Function && return new(name, String(desc), steps, run)
-        check isa Function && steps === nothing && run === nothing && return new(name, String(desc), nothing, check)
-        throw(ArgumentError("Stage $name: give `steps` and `run` (a stage that produces keyed steps), or `check` alone"))
+    products::Union{Nothing, Function}   # () -> the stage's products (a producing stage); nothing for a check
+    run::Function                     # product -> nothing (produce it), or () -> nothing (a check)
+    function Stage(name::Symbol, desc::AbstractString; products = nothing, run = nothing, check = nothing)
+        check === nothing && products isa Function && run isa Function && return new(name, String(desc), products, run)
+        check isa Function && products === nothing && run === nothing && return new(name, String(desc), nothing, check)
+        throw(ArgumentError("Stage $name: give `products` and `run` (a stage that produces keyed products), or `check` alone"))
     end
 end
 Stage(name::Symbol, desc::AbstractString, done, run) =
-    throw(ArgumentError("Stage(name, desc, done, run) is retired: a stage declares its keyed steps, " *
-                        "Stage(name, desc; steps = () -> [Step(…), …], run = step -> produce(…)), or Stage(name, desc; check)"))
+    throw(ArgumentError("Stage(name, desc, done, run) is retired: a stage declares its keyed products, " *
+                        "Stage(name, desc; products = () -> [Product(…), …], run = product -> produce(…)), or Stage(name, desc; check)"))
 
-# Whether a step is produced, and the unmarking of a step that --force reruns: methods for the experiments' Step
-# (steps.jl), so this file stays dependency-free.
-function _step_produced end
-function _step_unmark! end
+# Whether a product is produced, and the unmarking of a product that --force reruns: methods for the experiments' Product
+# (products.jl), so this file stays dependency-free.
+function _product_produced end
+function _product_unmark! end
 
-# A stage's status for the plan: "check", or "<produced>/<steps> produced"; a steps() that throws is "?" (the plan must print).
+# A stage's status for the plan: "check", or "<produced>/<products> produced"; a products() that throws is "?" (the plan must print).
 function _stage_status(st::Stage)
-    st.steps === nothing && return "check"
+    st.products === nothing && return "check"
     try
-        xs = st.steps()
-        return "$(count(_step_produced, xs))/$(length(xs)) produced"
+        xs = st.products()
+        return "$(count(_product_produced, xs))/$(length(xs)) produced"
     catch err
-        println("   [$(st.name)] steps ERROR: $(sprint(showerror, err))")
+        println("   [$(st.name)] products ERROR: $(sprint(showerror, err))")
         return "?"
     end
 end
@@ -68,11 +68,11 @@ end
 """
     run_stages(experiment::AbstractString, stages; argv = ARGS)
 
-The uniform experiment entrypoint: `--plan` prints the stage table (each stage's produced steps of its steps, or `check`) and
+The uniform experiment entrypoint: `--plan` prints the stage table (each stage's produced products of its products, or `check`) and
 exits (the structural check); otherwise runs the stages in declaration order (`--stage=NAME` restricts to one, or to a
-comma-separated subset — declaration order is still honored). A producing stage calls its `run` on EVERY one of its steps,
-which loads a produced step and produces a pending one; its steps are listed when the stage runs, so a step an earlier stage
-re-keyed is the new one. `--force` unmarks the selected stages' steps first (their provenance removed), so each is produced
+comma-separated subset — declaration order is still honored). A producing stage calls its `run` on EVERY one of its products,
+which loads a produced product and produces a pending one; its products are listed when the stage runs, so a product an earlier stage
+re-keyed is the new one. `--force` unmarks the selected stages' products first (their provenance removed), so each is produced
 again. A stage failure aborts the run (later stages depend on earlier ones).
 """
 function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = ARGS)
@@ -92,11 +92,11 @@ function run_stages(experiment::AbstractString, stages::Vector{Stage}; argv = AR
         isempty(only) || String(st.name) in only || continue
         println("== run  $(st.name)  ", Dates.format(Dates.now(), "HH:MM:SS"))
         flush(stdout)
-        if st.steps === nothing
+        if st.products === nothing
             st.run()
         else
-            xs = st.steps()                                   # listed now: an earlier stage of this run may have re-keyed them
-            force && foreach(_step_unmark!, xs)
+            xs = st.products()                                   # listed now: an earlier stage of this run may have re-keyed them
+            force && foreach(_product_unmark!, xs)
             foreach(st.run, xs)
         end
         println("== done $(st.name)  ", Dates.format(Dates.now(), "HH:MM:SS"))

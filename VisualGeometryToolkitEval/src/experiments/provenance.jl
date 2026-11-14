@@ -1,6 +1,6 @@
 # =============================================================================
 # provenance.jl — the provenance record of a derived artifact directory, the
-# commit-drift check and the reuse rule of a keyed step (steps.jl)
+# commit-drift check and the reuse rule of a keyed product (products.jl)
 # (hoisted 2026-10-07: VisualGeometryToolkitEval `write_run_records`,
 # bmvc2026 src/provenance.jl `write_provenance`/`read_provenance`, bmvc2026
 # src/cache.jl `cached`, bmvc2026 sweep.jl's drift warning).
@@ -73,7 +73,7 @@ end
 The code trees a result computed now records (`code_trees` of the top module):
 the project's `src` (of `gitpath`) and every stack package its environment
 (`gitpath`'s, or the Manifest above it) loads. [`write_provenance`](@ref) stores
-them; [`produced`](@ref) reuses a stored step only while they are unchanged
+them; [`produced`](@ref) reuses a stored product only while they are unchanged
 (`code_tree_changes`).
 """
 current_code_trees(gitpath::AbstractString = project_root()) = _code_identity(gitpath).trees
@@ -178,7 +178,7 @@ function write_provenance(dir::AbstractString, fields::AbstractDict = Dict{Strin
     if isfile(old)
         was = get(TOML.parsefile(old), "scratch", false) === true
         was == prov["scratch"] || throw(ArgumentError("write_provenance: $dir holds the record of a $(was ? "scratch run" : "run of record"), " *
-            "and this is a $(was ? "run of record" : "scratch run"): the two never share a directory (a scratch Step has a key of its own)"))
+            "and this is a $(was ? "run of record" : "scratch run"): the two never share a directory (a scratch Product has a key of its own)"))
     end
     prov = _tag!(prov; gitpath)
     haskey(prov, "gitpatch") && (prov["uncommitted_files"] = _patch_files(prov["gitpatch"]))
@@ -285,9 +285,9 @@ function warn_commit_drift(prov::AbstractDict, what; gitpath::AbstractString = p
     return true
 end
 
-# Why a stored step (its provenance record `rec`) is not reused now: the code trees that changed since it was produced
+# Why a stored product (its provenance record `rec`) is not reused now: the code trees that changed since it was produced
 # (`code_tree_changes` against `trees`), and a scratch flag that differs from `scratch` (a scratch run's result never stands
-# for a run of record, nor the reverse). Empty: reuse it. The one reuse rule (`produced`, steps.jl).
+# for a run of record, nor the reverse). Empty: reuse it. The one reuse rule (`produced`, products.jl).
 function _reuse_changes(rec, trees, scratch::Bool)
     changes = code_tree_changes(get(rec, "code_trees", nothing), trees)
     get(rec, "scratch", false) === scratch || push!(changes, "scratch: $(get(rec, "scratch", false)) → $scratch")

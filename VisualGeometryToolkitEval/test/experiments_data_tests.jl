@@ -198,9 +198,9 @@
     @testset "a scratch run never reuses or promotes a run of record, nor the reverse" begin
         withenv("VGTK_SCRATCH" => nothing, "VGTK_RESULTS_ROOT" => mktempdir()) do
             E.set_project_root!(mktempdir())
-            st = E.Step("e", "run", Dict("n" => 1); output = "r.txt")
-            mkpath(E.step_dir(st)); write(E.step_output(st), "x")
-            E.write_provenance(E.step_dir(st), Dict("run_key" => st.key); driver = "d")
+            st = E.Product("e", "run", Dict("n" => 1); output = "r.txt")
+            mkpath(E.product_dir(st)); write(E.product_output(st), "x")
+            E.write_provenance(E.product_dir(st), Dict("run_key" => st.key); driver = "d")
             @test E.produced(st)
             @test !withenv(() -> (@test_logs (:info, r"its code changed") E.produced(st)), "VGTK_SCRATCH" => "1")
             cfg = Dict{String,Any}("n" => 2)
@@ -405,7 +405,7 @@
             kp = E.run_key(cfg; parts = (; frame_limit = 10))
             @test kp != k0 && kp == E.run_key(cfg; parts = Dict("frame_limit" => 10)) && kp != E.run_key(cfg; parts = (; frame_limit = 0))
             @test_throws r"keyed_with" E.run_key(merge(cfg, Dict{String,Any}("keyed_with" => 1)))
-            @test E.Step("e", "pose", cfg; output = "p.json", parts = (; frame_limit = 10)).key == kp
+            @test E.Product("e", "pose", cfg; output = "p.json", parts = (; frame_limit = 10)).key == kp
             # a project laid out by its own config, not by pool: [experiment] layout
             p = joinpath(mktempdir(), "lay.toml")
             write(p, "[experiment]\nlayout = [\"mocap\", \"cam0\"]\n")
@@ -501,11 +501,11 @@
         withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => res, "VGTK_SCRATCH" => nothing) do
             E.set_project_root!(mktempdir())
             cfg = Dict{String,Any}("experiment" => Dict{String,Any}("dataset" => "d", "matcher" => "m", "problem" => "p"), "n" => 1)
-            rec_dir = E.step_dir(E.Step("e", "run", cfg; output = "r.csv"))
+            rec_dir = E.product_dir(E.Product("e", "run", cfg; output = "r.csv"))
             E.write_provenance(rec_dir, Dict("run_key" => E.run_key(cfg)); driver = "d")
             @test E.read_provenance(rec_dir)["scratch"] === false && !VgtkEval.scratch_record(rec_dir)
             scr_dir, scr_key = withenv("VGTK_SCRATCH" => "1") do
-                d = E.step_dir(E.Step("e", "run", cfg; output = "r.csv"))
+                d = E.product_dir(E.Product("e", "run", cfg; output = "r.csv"))
                 E.write_provenance(d, Dict("run_key" => E.run_key(cfg)); driver = "d")
                 d, E.run_key(cfg)
             end

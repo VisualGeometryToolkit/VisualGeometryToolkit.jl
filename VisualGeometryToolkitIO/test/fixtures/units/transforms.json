@@ -2,7 +2,7 @@
     "schema": "vgio/transforms/v5.0",
     "generator": {
         "name": "VisualGeometryToolkitIO",
-        "version": "0.10.0"
+        "version": "0.10.1"
     },
     "units": {
         "length": "mm",

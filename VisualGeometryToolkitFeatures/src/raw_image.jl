@@ -65,15 +65,20 @@ _decode_demosaic(decoder::RawDecoder, mosaic::RawMosaic) = _require_decoder(_dec
 _decoder_version(::RawDecoder) = nothing
 
 # The display image: LibRaw's demosaic (16-bit, linear, camera colour, white
-# balance 1) as Float64 in [0, 1], the white balance (per channel, if asked) and
-# the gain applied here. A pixel LibRaw clipped (65535 in any channel) is flagged.
-function _demosaic_image(rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Float64,
-        white_balance::Union{Nothing, NTuple{3, Real}})
+# balance 1) as T (Float64 by default) in [0, 1], the white balance (per channel, if asked) and
+# the gain applied here, each value computed in Float64 and rounded once to T. A gain and white
+# balance at which a value could exceed floatmax(T) is refused. A pixel LibRaw clipped (65535 in
+# any channel) is flagged.
+function _demosaic_image(::Type{T}, rgb::Array{UInt16, 3}, metadata::NamedTuple, gain::Float64,
+        white_balance::Union{Nothing, NTuple{3, Real}}) where {T <: Base.IEEEFloat}
     wb = white_balance === nothing ? (1.0, 1.0, 1.0) : Float64.(white_balance)
     all(w -> isfinite(w) && w > 0, wb) || throw(ArgumentError("load_raw: the white balance must be positive and finite, got $white_balance"))
-    img = Array{Float64, 3}(undef, size(rgb))
+    isfinite(gain) && gain > 0 || throw(ArgumentError("load_raw: the gain must be positive and finite, got $gain"))
+    maximum(wb) * gain <= floatmax(T) ||
+        throw(ArgumentError("load_raw: a gain of $gain times the white balance $wb could exceed floatmax($T) = $(floatmax(T))"))
+    img = Array{T, 3}(undef, size(rgb))
     for c in 1:3, j in axes(rgb, 2), i in axes(rgb, 1)
-        img[i, j, c] = (Float64(rgb[i, j, c]) / 65535) * wb[c] * gain
+        img[i, j, c] = T((Float64(rgb[i, j, c]) / 65535) * wb[c] * gain)
     end
     sat = BitMatrix(dropdims(any(==(typemax(UInt16)), rgb; dims = 3); dims = 3))
     # no sample positions: every pixel is interpolated
@@ -143,9 +148,9 @@ function load_raw_mosaic(path::AbstractString; decoder::RawDecoder = LibRawDecod
 end
 
 """
-    load_raw(path; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
+    load_raw([T], path; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
              decoder::RawDecoder = LibRawDecoder(), cache = nothing) -> LinearRaw
-    load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
+    load_raw([T], mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model = SensorModel(), white_balance = nothing,
              decoder::RawDecoder = LibRawDecoder()) -> LinearRaw
 
 A camera RAW file — or a mosaic already in memory, decoded or corrected
@@ -155,7 +160,7 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
 `mode`:
 
 - `:green_cells` or `:bin2` — exact: [`load_raw_mosaic`](@ref) (for a file),
-  then Core's `LinearRaw(mosaic; mode, gain, sensor_model)`, on the half-resolution cell grid
+  then Core's `LinearRaw(T, mosaic; mode, gain, sensor_model)`, on the half-resolution cell grid
   that `raw_frame_map` maps onto the raw. `:green_cells` is THE image
   for geometry and radiometry. Rounded to 16 bits
   (`round(UInt16, clamp(x, 0, 1) * 65535)`), `:bin2` equals the linear PNG of
@@ -177,6 +182,15 @@ orientation (the EXIF flip is never applied, in any mode). `LinearRaw`,
   `ArgumentError` otherwise): a corrected mosaic is displayed through the one
   demosaic, with its own metadata.
 
+`T`, a `Base.IEEEFloat` (positional and leading, the stack's signature rule): the element type
+the values are stored as, in every mode, each value computed in Float64 and rounded once. The
+exact modes forward it to Core's `LinearRaw(T, mosaic; …)` (an uncertain image's variance plane
+is `Float32` beside `Float16` values and includes the store's `spacing²/12`); the display
+demosaic refuses a `gain` times white balance that could exceed `floatmax(T)`, as Core does.
+Without it the type is Core's default (`LinearRaw(mosaic; …)`'s: `Float64`, bit for bit the
+values before Core 0.10.5). Reduce a Float16 image's values in Float64 (`sum(Float64, A)`),
+as every reduction in this package does.
+
 `white_balance` is accepted with `:demosaic` only: the exact modes are camera
 raw colour, white balance 1.
 
@@ -191,7 +205,9 @@ own and takes none.
 
 `cache` (a file only; a [`FileCache`](@ref), `using JLD2` provides it): each RAW is
 decoded once per content and settings — the entry is keyed by the file's
-SHA-256, `mode`, `gain`, `white_balance`, the decoder's type and its library's
+SHA-256, `mode`, `gain`, `white_balance`, the element type `T` (the default
+resolved to Core's first, so a change of Core's default never serves an entry of the
+old type; `Float64` keeps the plain key, the entries before 0.9.5 being Float64), the decoder's type and its library's
 version (LibRaw's, `libraw_version`) ([`cache_key`](@ref)), so an edited file,
 another setting or an upgraded LibRaw decodes again and
 a hit returns the `LinearRaw` as decoded, value for value. `nothing` (the
@@ -199,15 +215,23 @@ default) decodes every call. A sensor model other than the absent one is part of
 the key by its content (Core's `content_digest`), so an entry is never served
 for another model; the absent model keeps the plain key.
 """
-function load_raw(path::AbstractString; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
-                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder(), cache = nothing)
+load_raw(path::AbstractString; kw...) = load_raw(_DEFAULT_RAW_ELTYPE, path; kw...)
+function load_raw(::Type{T}, path::AbstractString; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
+                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder(), cache = nothing) where {T <: Base.IEEEFloat}
     _check_raw_options(mode, white_balance, sensor_model)
-    cache === nothing && return _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
+    cache === nothing && return _load_raw(T, path, mode, gain, sensor_model, white_balance, decoder)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     key = cache_key("load_raw", open(sha256_hex, path), mode, Float64(gain), white_balance, string(typeof(decoder)),
-                    _decoder_version(decoder), (_absent(sensor_model) ? () : (content_digest(sensor_model),))...)
-    return get!(() -> _load_raw(path, mode, gain, sensor_model, white_balance, decoder), cache, key)
+                    _decoder_version(decoder), (_absent(sensor_model) ? () : (content_digest(sensor_model),))...,
+                    (T === Float64 ? () : (string(T),))...)
+    return get!(() -> _load_raw(T, path, mode, gain, sensor_model, white_balance, decoder), cache, key)
 end
+
+# Core's default element type of a RAW image's values (what `LinearRaw(mosaic; mode)` stores), for a file before its
+# mosaic is decoded (the cache key names it): read once off Core's public lazy view of a 2 × 2 mosaic (no photosite is
+# read; Core holds the default as a private constant), so `load_raw` without a type follows Core's one default.
+const _DEFAULT_RAW_ELTYPE = eltype(linearview(RawMosaic(zeros(UInt16, 2, 2), UInt8[0 1; 3 2], (0.0, 0.0, 0.0, 0.0), 1.0,
+                                                        (0, 0), (2, 2), (;))))
 
 # The absent sensor model (the file's black, no noise, no defects): today's image, bit for bit, whatever its reason.
 _absent(m::SensorModel) = m.black isa FileBlack && m.noise isa NoNoise && m.defects isa NoDefects
@@ -221,19 +245,20 @@ function _check_raw_options(mode, white_balance, sensor_model)
     return nothing
 end
 
-function _load_raw(path, mode, gain, sensor_model, white_balance, decoder)
-    mode === :demosaic || return LinearRaw(load_raw_mosaic(path; decoder); mode, gain, sensor_model)
+function _load_raw(::Type{T}, path, mode, gain, sensor_model, white_balance, decoder) where {T}
+    mode === :demosaic || return LinearRaw(T, load_raw_mosaic(path; decoder); mode, gain, sensor_model)
     isfile(path) || throw(ArgumentError("load_raw: no file at $path"))
     rgb, metadata = _decode_demosaic(decoder, String(path))
-    return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
+    return _demosaic_image(T, rgb, metadata, Float64(gain), white_balance)
 end
 
-function load_raw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
-                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder())
+load_raw(mosaic::RawMosaic; kw...) = load_raw(_DEFAULT_RAW_ELTYPE, mosaic; kw...)
+function load_raw(::Type{T}, mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel(),
+                  white_balance = nothing, decoder::RawDecoder = LibRawDecoder()) where {T <: Base.IEEEFloat}
     _check_raw_options(mode, white_balance, sensor_model)
-    mode === :demosaic || return LinearRaw(mosaic; mode, gain, sensor_model)
+    mode === :demosaic || return LinearRaw(T, mosaic; mode, gain, sensor_model)
     rgb, metadata = _decode_demosaic(decoder, mosaic)
-    return _demosaic_image(rgb, metadata, Float64(gain), white_balance)
+    return _demosaic_image(T, rgb, metadata, Float64(gain), white_balance)
 end
 
 # -----------------------------------------------------------------------------

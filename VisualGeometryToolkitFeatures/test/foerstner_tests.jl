@@ -411,6 +411,38 @@ end
                   collect(detect_foerstner(Float32, L, seeds; sensor_model = model, device = KA.CPU())))
 end
 
+# A Float16-stored RAW (Core 0.10.5's LinearRaw(Float16, …)) reaches every detector widened, never reduced in Float16:
+# SFOP reads it as Float32 (the pyramid's), Förstner in its precision T (Float16 refused), variance_stabilize in
+# Float64; each the numbers of the same values given widened.
+@testitem "the detectors on a Float16-stored LinearRaw: read widened, reduced in Float32 or Float64" setup = [NoisyMosaic] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: LinearRaw, green_plane, value_of
+    using VisualGeometryToolkitFeatures: variance_stabilize
+    using Statistics: var
+    using Random: Xoshiro
+    using Test
+    dot(i, j) = any(hypot((j + 1) ÷ 2 - a, (i + 1) ÷ 2 - b) < 3 for (a, b) in ((60.3, 58.7), (85.6, 81.2))) ? 6000.0 : 600.0
+    m = noisy_mosaic(Xoshiro(9), dot, 280, 280; electrons_per_dn = 2.5, read_dn = 3.0)
+    model = pg_model(2.5, 3.0)
+    L = LinearRaw(Float16, m; mode = :green_cells, sensor_model = model)
+    G = green_plane(L)
+    x = Array(map(value_of, G)); v = Array(map(var, G))
+    @test eltype(x) === Float16 && eltype(v) === Float32
+    # SFOP: the values as Float32
+    @test isequal(collect(detect_sfop(L; device = KA.CPU(), noise_sigma = 2.0)), collect(detect_sfop(Float32.(x); device = KA.CPU(), noise_sigma = 2.0)))
+    # Förstner in T: the widened values and variances' numbers, bit for bit; T = Float16 refused
+    for T in (Float32, Float64)
+        a = detect_foerstner(T, L; sensor_model = model, device = KA.CPU())
+        b = VisualGeometryToolkitFeatures._detect_foerstner(T, T.(x), (T.(v), :propagated_measured); device = KA.CPU())
+        @test !isempty(a) && length(a) == length(b) && all(isequal(p, q) for (p, q) in zip(a, b))
+    end
+    @test_throws ArgumentError detect_foerstner(Float16, L; sensor_model = model, device = KA.CPU())
+    @test_throws ArgumentError detect_foerstner(Float16, Float32.(x); device = KA.CPU())
+    # variance_stabilize: a Float64 image, its white level from a Float64 mean
+    s = variance_stabilize(L, model)
+    @test eltype(s.image) === Float64 && isfinite(s.white)
+end
+
 @testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin
     n = 32
     for (_, r) in foerstner_calibration(n, render, mc_summary)

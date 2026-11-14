@@ -33,7 +33,7 @@ using ImageCore: channelview
 using StructArrays: StructArray, components
 using Statistics: var   # an Uncertain pixel's scalar variance (VisualGeometryToolkitCore extends it)
 using FixedPointNumbers: N0f8, FixedPoint
-using Colors: Gray, Colorant, RGB, gray
+using Colors: Gray, Colorant, RGB, gray, base_colorant_type   # base_colorant_type: a Float16 colour's Float64 accumulator (box_downsample)
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
 using Distributions: FDist, Chisq, quantile   # the F-test of detect_foerstner, detect_sfop's λ₂ significance test
 using Random: Random, AbstractRNG   # detect_image_circle's RANSAC draws (image_circle.jl)
@@ -54,7 +54,7 @@ using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, CaptureSettings, parse_unit, mm, m   # a RAW's EXIF, typed (raw_image.jl)
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
-using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
+using VisualGeometryToolkitCore: RawMosaic, LinearRaw, linearview, raw_frame_map   # linearview: Core's default element type, read off its lazy view (raw_image.jl)
 using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, poisson_slope, value_of, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
 using LinearAlgebra: isposdef, tr, dot   # tr, dot: the residual sums' effective degrees of freedom (foerstner.jl _residual_dof)
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty

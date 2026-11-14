@@ -68,7 +68,7 @@ end
     @test (large[4] - small[4]) / (3H * W) < 7                       # bytes per added pixel: the image's 6, not 6 + 2
     for flip in (3, 5, 6)
         m, rgb, md, _ = demosaic_with_flip(flip)
-        L = VGF._demosaic_image(rgb, md, 1.0, nothing)
+        L = VGF._demosaic_image(Float64, rgb, md, 1.0, nothing)
         @test L isa LinearRaw{:demosaic} && L.geometry === nothing
         @test size(L.image) == (H, W, 3)          # the sensor's grid: the flip is never applied
         g = L.image[:, :, 2]
@@ -81,13 +81,13 @@ end
         @test isapprox(g[40, 50], linearview(m)[i, j]; rtol = 1e-3)
     end
     m, rgb, md = demosaic_with_flip(0)
-    L = VGF._demosaic_image(rgb, md, 1.0, nothing)
+    L = VGF._demosaic_image(Float64, rgb, md, 1.0, nothing)
     # the one demosaic of a mosaic in memory: LibRaw's, on the mosaic's photosites, phase and levels — bit for bit the
     # demosaic of the same buffer opened as a file is, with the mosaic's own metadata
     Lm = load_raw(m; mode = :demosaic)
     @test Lm isa LinearRaw{:demosaic} && Lm.image == L.image && Lm.saturated == L.saturated && Lm.metadata === m.metadata
     @test load_raw(m; mode = :demosaic, gain = 2.0, white_balance = (2.0, 1.0, 0.5)).image ==
-          VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5)).image
+          VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5)).image
     # a corrected mosaic (its photosites changed in memory) is displayed through it: brighter photosites, a brighter image
     bright = RawMosaic(parent(m) .+ UInt16(1000), m.pattern, m.black, m.white, m.visible_origin, m.raw_size, m.metadata)
     @test sum(load_raw(bright; mode = :demosaic).image) > sum(Lm.image)
@@ -109,7 +109,7 @@ end
     @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
     @test startswith(raw_provenance(L).libraw_version, "0.22")
     # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
-    Lw = VGF._demosaic_image(rgb, md, 2.0, (2.0, 1.0, 0.5))
+    Lw = VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
     @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
 end
 
@@ -407,4 +407,44 @@ end
     @test load_raw(@__FILE__; mode = :green_cells, sensor_model = SensorModel(), decoder = SyntheticDecoder(), cache) === c   # the absent model: that key
     @test length(cache) == 3 && DECODES[] == 3
     @test a.image == LinearRaw(MOSAIC; mode = :green_cells, sensor_model = m1).image
+end
+
+# load_raw([T], …) forwards the element type to Core's LinearRaw(T, …), the default Core's; the cache keys the type, so
+# a cached Float64 decode is never served for a Float16 request (nor, after Core's default changes, for a default one).
+@testitem "raw: load_raw's element type, forwarded and in the cache key" setup = [NoisyMosaic] begin
+    using VisualGeometryToolkitCore: LinearRaw, SensorModel, linearview, green_plane, value_of
+    using VisualGeometryToolkitFeatures: load_raw
+    using Random: Xoshiro
+    using Test
+    const VGF = VisualGeometryToolkitFeatures
+    struct TypedDecoder <: VGF.RawDecoder end
+    const DECODES = Ref(0)
+    const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
+    VGF._decode_raw(::TypedDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
+    model = pg_model(2.5, 3.0)
+    # forwarded: the mosaic and the file forms, every exact mode, with and without a model
+    for mode in (:green_cells, :bin2), sm in (SensorModel(), model), T in (Float16, Float32, Float64)
+        @test isequal(load_raw(T, MOSAIC; mode, sensor_model = sm).image, LinearRaw(T, MOSAIC; mode, sensor_model = sm).image)
+        @test isequal(load_raw(T, @__FILE__; mode, sensor_model = sm, decoder = TypedDecoder()).image, LinearRaw(T, MOSAIC; mode, sensor_model = sm).image)
+    end
+    # the default: Core's (its lazy view's element type), today Float64, bit for bit
+    @test VGF._DEFAULT_RAW_ELTYPE === eltype(linearview(MOSAIC)) === Float64
+    @test load_raw(MOSAIC; mode = :green_cells).image == LinearRaw(MOSAIC; mode = :green_cells).image
+    @test eltype(load_raw(MOSAIC; mode = :green_cells).image) === Float64
+    # the cache: Float64, then Float16 — two entries, two element types, the default the Float64 one
+    cache = Dict{String, Any}(); DECODES[] = 0
+    a = load_raw(Float64, @__FILE__; mode = :green_cells, decoder = TypedDecoder(), cache)
+    b = load_raw(Float16, @__FILE__; mode = :green_cells, decoder = TypedDecoder(), cache)
+    @test eltype(a.image) === Float64 && eltype(b.image) === Float16
+    @test length(cache) == 2 && DECODES[] == 2
+    @test load_raw(@__FILE__; mode = :green_cells, decoder = TypedDecoder(), cache) === a && DECODES[] == 2
+    @test load_raw(Float16, @__FILE__; mode = :green_cells, decoder = TypedDecoder(), cache) === b && DECODES[] == 2
+    c = load_raw(Float16, @__FILE__; mode = :green_cells, sensor_model = model, decoder = TypedDecoder(), cache)
+    @test length(cache) == 3 && eltype(value_of.(green_plane(c))) === Float16
+    # the display demosaic in T, each value rounded once; a gain that could overflow T refused
+    rgb = rand(Xoshiro(3), UInt16, 4, 6, 3); md = (; black = 0, white = 65535)
+    d64 = VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
+    @test VGF._demosaic_image(Float16, rgb, md, 2.0, (2.0, 1.0, 0.5)).image == Float16.(d64.image)
+    @test_throws ArgumentError VGF._demosaic_image(Float16, rgb, md, 7.0e4, nothing)
+    @test_throws MethodError load_raw(Int, MOSAIC; mode = :green_cells)
 end

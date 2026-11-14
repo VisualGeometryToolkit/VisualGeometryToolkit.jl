@@ -1,3 +1,41 @@
+docs-pass: b8e1f41c
+
+# VisualGeometryToolkitFeatures 0.9.5 docs pass (julia-docs-pass) — branch patch-feat095c
+
+Baseline: GitHub main 8f28fde7 (Core 0.10.5 as posted; Features 0.9.4). b8e1f41c is patch-feat095c: the element type
+and the Float16 audit (b43cf9fb), the model-path image-circle red test (85d8273e) kept as `@test_broken` with the known
+issue documented (3bdff6e8), the /code-review high fixes (b8e1f41c), with GitHub main 5f02071c and 57294039 merged (Core
+0.10.6 and Estimation 0.11.3 as posted; no Features file changed). Owner ruling 2026-11-14: variant (c) — 0.9.5 ships
+WITHOUT a fix of the image circle under a sensor model (rule A, the noise floor max(model, data), rejected; the
+selection rule is its own later patch); the failure is documented and its item held `@test_broken`.
+
+## 1. Public API since 0.9.4
+
+- **Added:** the methods `load_raw(T, path; …)` and `load_raw(T, mosaic; …)`, `T` a `Base.IEEEFloat`, leading and
+  positional (conventions/signatures.md). Names: unchanged (no export, no new public name).
+- **Behaviour:** none at the default (Float64, bit for bit). `load_raw`'s cache key names `T` when it is not Float64.
+  `box_downsample` of a Float16 image sums in Float64. `detect_foerstner(T, …)` refuses a `T` other than Float32 or
+  Float64. `detect_image_circle` unchanged (its model-path failure documented).
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` items green in gate CPU task 4 and depwarn=yes task 10 (`load_raw([T], path; …)`, `load_raw([T], mosaic; …)`) |
+| `checkdocs = :public`, doctests, cross-references, link check | Features docs, gate task 14 (17611_14): strict build green |
+| README and landing page | unchanged: neither shows an element type; the readme items green (tasks 4, 10) |
+| guides | raw-images.md: "The element type" bullet (`load_raw(T, …)`, the default Core's, the cache key, the detectors' working precisions, reduce in Float64); detection.md: the known issue of the image circle under a sensor model (measure without one) |
+| docstrings | `load_raw` (`T`, the cache key's type), `detect_foerstner` (`T` Float32 or Float64), `box_downsample` (Float16 summed in Float64), `detect_image_circle` (the known issue: halo or barrel-reflection light beyond the rim taken as the rim under a sensor model; the default path unaffected) |
+| check_naming, check_duplication, upstream duplication | 0, 0, clean (prep 17607_0) |
+| CHANGELOG | Features `## 0.9.5`: the element type, the cache key, the Float16 audit (two fixes, the audited sites), the known issue |
+| version | Features 0.9.5, Core compat floor "0.10.5" (package, test and docs environments) |
+
+Review (/simplify on the full 0.9.5 delta, /code-review high on it and on the (c) delta) findings recorded, not fixed:
+`_DEFAULT_RAW_ELTYPE` read off a 2 × 2 dummy mosaic's `linearview` (Core holds the default privately: a public
+accessor in Core is the fix, a wave-11 candidate); the path and mosaic `load_raw` bodies not merged; the demosaic's
+gain and overflow checks run after the decode (an error path); the conditional cache key kept (pre-0.9.5 entries are
+Float64). The image circle's model path: diagnosis and rule A on patch-feat095 (75787254), not shipped.
+
 docs-pass: e548389b
 
 # VisualGeometryToolkitCore 0.10.6 docs pass (julia-docs-pass) — branch patch-core0106

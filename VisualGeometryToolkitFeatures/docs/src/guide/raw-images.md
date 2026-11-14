@@ -24,8 +24,8 @@ What stays here is what needs LibRaw:
   refused) and the white level, and the EXIF fields
   ([`exposure_settings`](@ref), [`lens_settings`](@ref), …;
   [`load_raw_metadata`](@ref) reads them without the photosites).
-- **The one RAW entry.** [`load_raw`](@ref)`(path; mode, gain)` is the decode
-  followed by Core's `LinearRaw(mosaic; mode, gain)` for the exact cell modes,
+- **The one RAW entry.** [`load_raw`](@ref)`([T], path; mode, gain)` is the decode
+  followed by Core's `LinearRaw([T], mosaic; mode, gain)` for the exact cell modes,
   with an optional decode cache ([`FileCache`](@ref)).
 - **The display demosaic.** `load_raw(path; mode = :demosaic)` is LibRaw's
   AHD interpolation of the visible area at full resolution, linear, for display
@@ -42,6 +42,18 @@ What stays here is what needs LibRaw:
   returns each value with its variance.
 - **The detection image.** [`variance_stabilize`](@ref)`(L, sensor_model)` of
   the green cells, which needs the model's gain.
+- **The element type.** `load_raw(T, path; mode)` stores the values as `T`
+  (`Float16`, `Float32` or `Float64`), Core's `LinearRaw(T, mosaic; mode)`
+  (VisualGeometryToolkitCore 0.10.5): each value computed in Float64 and
+  rounded once; under a Poisson–Gaussian model a Float16 value carries a
+  Float32 variance that includes the store's `spacing²/12`. Without `T` the
+  type is Core's default (`Float64`, the values before 0.10.5 bit for bit). A
+  decode cache keys the type, so a Float64 entry is never served for a Float16
+  request. The detectors read a Float16 image widened and reduce it in their
+  working precision, never in Float16: SFOP, ASIFT and the image circle in
+  Float32 (its variance sums in Float64), Förstner in its `T` (`Float16`
+  refused), [`variance_stabilize`](@ref) and `box_downsample` sums in
+  Float64. Reduce a Float16 image yourself the same way (`sum(Float64, A)`).
 
 ## How detectors report positions
 

@@ -187,15 +187,25 @@ function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
     p = _persisted(y, n)
     c = _write_scaled(_NearestLastResort(), p, scale, n)
     _read_scaled(c, scale, k, n) === p && return c
+    # the search starts from the persisted value, not `y`: every value of one identity (`y` and what its number reads
+    # back to) searches the same numbers in the same order, so a rewrite finds the same number
     same_identity(c) = _persisted(_read_scaled(c, scale, k, n), n) === p
+    vp = p / scale^n
     for d in 1:17
-        candidate = round(value; sigdigits = d)
-        same_identity(candidate) && return candidate
+        candidate = round(vp; sigdigits = d)
+        same_identity(candidate) && return _fixed_point(candidate, scale, k, n)
     end
-    for j in 1:3, c2 in (prevfloat(value, j), nextfloat(value, j))
-        same_identity(c2) && return c2
+    for j in 1:3, c2 in (prevfloat(vp, j), nextfloat(vp, j))
+        same_identity(c2) && return _fixed_point(c2, scale, k, n)
     end
     return value          # within an ulp (no number of this unit has `y`'s identity: not seen)
+end
+# The number a rewrite of `c`'s value writes: the exact search's for that value when it has one, else `c` (whose
+# value's rewrite comes back to this last resort, and to `c`). So write ∘ read ∘ write is write.
+function _fixed_point(c, scale, k, n)
+    r = _read_scaled(c, scale, k, n)
+    e = _write_scaled(_NearestLastResort(), r, scale, n)
+    return _read_scaled(e, scale, k, n) === r ? e : c
 end
 _scaled_last_resort(::_NearestLastResort, value, y, scale, k, n) = value
 

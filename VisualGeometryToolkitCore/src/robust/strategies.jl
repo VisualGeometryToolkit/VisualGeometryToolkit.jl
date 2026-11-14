@@ -64,7 +64,9 @@ swapped per loss:
 - `Irls{GemanMcclureShape}`: `wᵢ = (loss_width²/(loss_width²+rᵢ²))²`,
   `loss_width = efficiency_constant·ŝ` — the GM static-reweighting arm
 - `Irls{GaussianShape}`: unit weights, no scale and NO efficiency constant —
-  plain least squares over all points, the coverage extreme. It takes no
+  plain least squares over the scorer's consensus set (LO-RANSAC's least
+  squares on the inliers; VisualGeometryToolkitEstimation ≥ 0.11.2), a datum
+  outside it or with a non-finite squared residual at weight 0. It takes no
   `efficiency_constant`; supplying one is an `ArgumentError` (a width it would
   silently ignore)
 

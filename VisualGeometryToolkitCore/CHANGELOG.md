@@ -1,5 +1,33 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.6
+
+A patch: the mixture kernel's non-finite rule. A datum whose squared residual is Inf or NaN gets inlier posterior 0 and
+weight 0, and is no inlier: the rule VisualGeometryToolkitEstimation 0.11.2 applies in its own callers, now held where
+every caller reads it.
+
+### Fixed
+- **A non-finite squared residual's inlier posterior and weight are 0 in the mixture kernel**, whatever the mixture's
+  constants. The kernel `_posterior_pair`, which `inlier_posterior`, `posterior_weight`, `soft_posterior_weights!` (and
+  so `update_weights!` and `seed_posterior!`), `posterior_weights!` and `posterior_inlier_probs!` all call, gave NaN for
+  a NaN squared residual. The NaN reached every sum read from the E-step (`update_scale!`'s ŝ², `update_nu!`'s ν,
+  `update_inlier_prior!`'s π, a cost Σwᵢrᵢ²), so one NaN datum made the whole state NaN. That reached the seeds built
+  outside VisualGeometryToolkitEstimation's `consensus_posterior` (`fit_residual_mixture`'s, `fit_division_camera`'s)
+  and its E-steps unguarded. An infinite residual already gave 0 by the formulas at every mixture with finite constants
+  and is unchanged there; it gave NaN at a degenerate one (an inlier prior of 1, an infinite scale) and gives 0 now. A
+  finite residual's posterior and weight are unchanged bit for bit (tested against the unguarded formulas, Float64 and
+  Float32; measured over Core's and Estimation's suites: no posterior value moves but a non-finite input's).
+  `mixture_nll` and `posterior_weight_derivative` are unchanged: a NaN residual's NLL stays NaN, so an NLL-driven
+  incumbent never accepts an iterate whose residuals went NaN.
+- **`median_seeded_posterior`'s median skips NaN residuals.** The median of norms holding a NaN was NaN, so the seed
+  scale ŝ² and every posterior were NaN. The median is now over the residuals that are not NaN, however many are; an
+  infinite residual stays in it (an outlier's large norm), as before. With every residual NaN, ŝ² is NaN, as before.
+
+### Changed
+- **`Irls{GaussianShape}`'s docstring states the refit set.** It said "plain least squares over all points"; since
+  VisualGeometryToolkitEstimation 0.11.2 the Gaussian LO refits the scorer's consensus set, a datum outside it or with a
+  non-finite squared residual at weight 0. Documentation only.
+
 ## 0.10.5
 
 A patch, purely additive: a RAW image's linear values may be stored as Float16 (or Float32). The default is unchanged

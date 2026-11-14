@@ -198,11 +198,11 @@
     @testset "a scratch run never reuses or promotes a run of record, nor the reverse" begin
         withenv("VGTK_SCRATCH" => nothing, "VGTK_RESULTS_ROOT" => mktempdir()) do
             E.set_project_root!(mktempdir())
-            st = E.Product("e", "run", Dict("n" => 1); output = "r.txt")
+            st = E.Product("e", "run", Dict("n" => 1); output = "r.txt", code = Dict{String, String}())
             mkpath(E.product_dir(st)); write(E.product_output(st), "x")
             E.write_provenance(E.product_dir(st), Dict("run_key" => st.key); driver = "d")
             @test E.produced(st)
-            @test !withenv(() -> (@test_logs (:info, r"its code changed") E.produced(st)), "VGTK_SCRATCH" => "1")
+            @test !withenv(() -> E.produced(st), "VGTK_SCRATCH" => "1")                       # a scratch run never reuses a run of record's
             cfg = Dict{String,Any}("n" => 2)
             @test withenv(() -> E.run_key(cfg), "VGTK_SCRATCH" => "1") != E.run_key(cfg)
             E.set_project_root!("")

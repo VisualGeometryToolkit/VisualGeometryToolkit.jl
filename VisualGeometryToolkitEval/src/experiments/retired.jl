@@ -8,8 +8,8 @@
 _retired(old::AbstractString, new::AbstractString) =
     throw(ArgumentError("Experiments.$old is retired (VisualGeometryToolkitEval 0.9): $new"))
 
-"Retired: a stage's done-predicate is its products' own record — `Stage(name, desc; products, run)`, `produced(product)`."
-fresher(args...; kwargs...) = _retired("fresher", "declare the stage's keyed products, Stage(name, desc; products, run); a product is produced(product)")
+"Retired: a stage's done-predicate is its products' own record — `Stage(name, desc; items, product, run)`, `produced(product)`."
+fresher(args...; kwargs...) = _retired("fresher", "declare the stage's keyed products, Stage(name, desc; items, product, run); a product is produced(product)")
 
 "Retired: `produced(product)` (a `Product`'s output, its provenance and its code trees)."
 run_complete(args...; kwargs...) = _retired("run_complete", "a Product's reuse is produced(product); produce(f, product) loads or produces it")

@@ -18,7 +18,7 @@
         product(n) = Product("t", "a", Dict("n" => n); output = "out.txt")
         prod(s) = produce(write_n(s.record["n"]), s; driver = "t.jl", config_source = "t.toml")
         n_products = Ref(["x", "y"])
-        stages = [Stage(:a, "two products"; products = () -> product.(n_products[]), run = prod),
+        stages = [Stage(:a, "two products"; items = () -> n_products[], product, run = n -> prod(product(n))),
                   Stage(:c, "a check"; check = () -> push!(ran, "check"))]
 
         @testset "every product produced once, then loaded; a check runs every time" begin
@@ -49,8 +49,8 @@
 
     @testset "the done-closure form is retired; a stage is products + run, or a check" begin
         e = try Stage(:a, "d", () -> true, () -> nothing); nothing catch err; err end
-        @test e isa ArgumentError && occursin("Stage(name, desc, done, run) is retired", e.msg) && occursin("products = () ->", e.msg)
-        @test_throws ArgumentError Stage(:a, "d"; products = () -> [])                       # no run
+        @test e isa ArgumentError && occursin("Stage(name, desc, done, run) is retired", e.msg) && occursin("items = () ->", e.msg)
+        @test_throws ArgumentError Stage(:a, "d"; items = () -> [], product = identity)       # no run
         @test_throws ArgumentError Stage(:a, "d"; check = () -> nothing, run = identity)   # both kinds
     end
 end

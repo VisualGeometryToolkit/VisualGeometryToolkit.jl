@@ -25,7 +25,7 @@
         repo = project()
         withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
             s = E.Product("calibrate", "start", Dict("pipeline" => Dict("grid" => Dict("size" => [35, 25]))); output = "poses.json")
-            @test s.key == E.run_key(Dict("pipeline" => Dict("grid" => Dict("size" => [35, 25]))))
+            @test s.key == E.run_key(Dict("pipeline" => Dict("grid" => Dict("size" => [35, 25]))); code = E.current_code_trees(E.project_root()))
             @test E.product_dir(s) == joinpath(E.results_root(), "calibrate", "start", s.key)    # datadir("exp_pro", experiment, product, key)
             @test !E.produced(s)
             n = Ref(0)
@@ -37,9 +37,11 @@
             @test TOML.parsefile(joinpath(dir, "_config.toml"))["pipeline"]["grid"]["size"] == [35, 25]
             prov = E.read_provenance(dir)
             @test prov["run_key"] == s.key && prov["driver"] == "scripts/x.jl" && haskey(prov, "code_trees")
-            # a Saved keeps its keywords (VisualGeometryToolkitIO.save's)
+            # a Produced keeps the save's keywords (VisualGeometryToolkitIO.save's) and the inputs f read
             s2 = E.Product("calibrate", "poses", Dict("a" => 1); output = "poses.json")
-            E.produce(d -> E.Saved([pose(3.0)]; provenance = (; source = "test")), s2; args...)
+            inp = mktempdir()
+            E.produce(d -> E.Produced([pose(3.0)]; inputs = [inp], provenance = (; source = "test")), s2; args...)
+            @test inp in E.provenance_inputs(E.read_provenance(E.product_dir(s2)))
             @test x(E.load_output(Vector{VgtkCore.EuclideanMap}, s2)[1]) ≈ SVector(3.0, 0.0, 0.0)
             # force produces again
             E.produce(d -> (n[] += 1; [pose(1.0)]), s; args..., force = true)
@@ -65,7 +67,7 @@
             @test_throws ArgumentError E.Product("../x", "refine", Dict(); output = "r.json")
             @test_throws ArgumentError E.Product("x", "refine", Dict(); output = "../r.json")
             @test E.product_dir(E.Product("ETH/sift/H/fig4", "cv", Dict(); output = "r.json")) ==
-                  joinpath(E.results_root(), "ETH", "sift", "H", "fig4", "cv", E.run_key(Dict()))   # a deeper layout
+                  joinpath(E.results_root(), "ETH", "sift", "H", "fig4", "cv", E.run_key(Dict(); code = E.current_code_trees(E.project_root())))   # a deeper layout
         end
         E.set_project_root!("")
     end
@@ -79,12 +81,12 @@
                 write(joinpath(d, "summary.tsv"), "n\n1\n"); nothing                            # the file it writes last
             end
             @test E.produced(s) && isfile(joinpath(dir, "detections", "a.tsv"))
-            # the inputs as a function: listed once the product ran, recorded in its provenance
+            # the inputs f read, returned with nothing (f wrote its output): recorded in its provenance
             w = E.Product("x", "detect", Dict("k" => 5); output = "summary.tsv")
             inp = joinpath(mktempdir(), "photos"); mkpath(inp)
-            E.produce(d -> (write(joinpath(d, "summary.tsv"), "n\n"); nothing), w; args..., inputs = () -> [inp])
+            E.produce(d -> (write(joinpath(d, "summary.tsv"), "n\n"); E.Produced(; inputs = [inp])), w; args...)
             @test E.provenance_inputs(E.read_provenance(E.product_dir(w))) == [inp]
-            @test E.produce(d -> error("must not run"), w; args..., inputs = () -> error("a produced product lists no inputs")) == E.product_dir(w)
+            @test E.produce(d -> error("must not run"), w; args...) == E.product_dir(w)
             # f returns nothing without writing its output: an error, and no provenance
             t = E.Product("x", "detect", Dict("k" => 2); output = "summary.tsv")
             @test_throws ErrorException E.produce(d -> nothing, t; args...)
@@ -104,18 +106,21 @@
         E.set_project_root!("")
     end
 
-    @testset "reused only while its code trees are the current ones; a scratch run keys apart" begin
+    @testset "the code it runs keys it: a code change is another product, the old one kept; a scratch run keys apart" begin
         repo = project()
         withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
-            s = E.Product("x", "fit", Dict("k" => 1); output = "fit.json")
+            fit() = E.Product("x", "fit", Dict("k" => 1); output = "fit.json")
+            s = fit()
+            @test s.key == E.run_key(Dict("k" => 1); code = E.current_code_trees(repo))       # the code trees in the key
             n = Ref(0)
             E.produce(d -> (n[] += 1; [pose(1.0)]), s; args...)
             write(joinpath(repo, "a.txt"), "docs only\n"); git!(repo, "commit", "-qam", "docs")
-            @test E.produced(s)                                                                  # no code tree changed
+            @test fit().key == s.key && E.produced(fit())                                       # no code tree changed: the same product
             write(joinpath(repo, "src", "M.jl"), "module M\nf() = 1\nend\n"); git!(repo, "commit", "-qam", "src")
-            @test !(@test_logs (:info, r"its code changed") E.produced(s))
-            E.produce(d -> (n[] += 1; [pose(1.0)]), s; args...)
-            @test n[] == 2 && E.produced(s)
+            s2 = fit()
+            @test s2.key != s.key && !E.produced(s2) && E.produced(s)                           # another product; the old one stays
+            E.produce(d -> (n[] += 1; [pose(1.0)]), s2; args...)
+            @test n[] == 2 && E.produced(s2) && isdir(E.product_dir(s))
             sc = withenv(() -> E.Product("x", "fit", Dict("k" => 1); output = "fit.json"), "VGTK_SCRATCH" => "1")
             @test sc.key != s.key                                                                # never a run of record's directory
             # uncommitted code: a run of record refuses before computing
@@ -126,7 +131,7 @@
     end
 
     @testset "the retired names are refused by name with their replacement" begin
-        for (f, new) in ((E.fresher, "Stage(name, desc; products, run)"), (E.run_complete, "produced(product)"), (E.cached_result, "produce(f, Product"),
+        for (f, new) in ((E.fresher, "Stage(name, desc; items, product, run)"), (E.run_complete, "produced(product)"), (E.cached_result, "produce(f, Product"),
                          (E.legacy_hash_key, "run_key"), (E.keyed_cell_dir, "product_dir(Product"), (E.keyed_data_dir, "promote_run(product_dir"),
                          (E.experiment_dir, "Product(joinpath("))
             e = try f(Dict(), "a", "b"); nothing catch err; err end

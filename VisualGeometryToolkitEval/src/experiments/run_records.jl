@@ -216,15 +216,18 @@ keys it here instead of in a private hash:
   key in the key of the evaluation that reads its poses), or `name => run
   directory`, read for its recorded `run_key` (a scratch run's is refused);
 - `parts`: `name => value` (a `Dict` or a `NamedTuple`, TOML values), a choice
-  of the run that is not in its config (a frame limit of a smoke run).
+  of the run that is not in its config (a frame limit of a smoke run);
+- `code`: `package => tree`, the code version of what the run loads
+  ([`current_code_trees`](@ref): a path checkout's git trees, a registered
+  version's Manifest tree hash) — a [`Product`](@ref)'s key always folds it.
 
-They are keyed as the table `keyed_with` (`files`, `upstream`, `parts`, each
+They are keyed as the table `keyed_with` (`files`, `upstream`, `parts`, `code`, each
 present when given; and `scratch` in a [`scratch_run`](@ref), so its outputs
 never share a run of record's directory), which a config therefore may not
 hold; without them the key is the config's alone, as before. A value of record belongs in the config:
 `parts` is for a choice made on the command line of a driver.
 """
-function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts = nothing)
+function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts = nothing, code = nothing)
     d = Dict{String,Any}(k => v for (k, v) in resolve_tuning!(deepcopy(cfg)) if !(k in RUN_KEY_EXCLUDED))
     haskey(d, "keyed_with") && throw(ArgumentError("run_key: a config may not hold `keyed_with`, the table of what the key folds in"))
     folded = Dict{String,Any}()
@@ -232,6 +235,7 @@ function run_key(cfg::AbstractDict; files = nothing, upstream = nothing, parts =
     upstream === nothing || (folded["upstream"] = Dict{String,Any}(String(k) => _upstream_key(String(k), String(v)) for (k, v) in pairs(upstream)))
     scratch_run() && (folded["scratch"] = true)          # a scratch run never shares a run of record's key
     parts === nothing || (folded["parts"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(parts)))
+    code === nothing || (folded["code"] = Dict{String,Any}(String(k) => String(v) for (k, v) in pairs(code)))
     isempty(folded) || (d["keyed_with"] = folded)
     return _content_key(d)
 end

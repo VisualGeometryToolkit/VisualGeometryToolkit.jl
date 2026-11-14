@@ -107,9 +107,9 @@ function publish(product)
 end
 
 const STAGES = [
-    Stage(:simulate, "the samples of [simulate]"; products = () -> [SIMULATE], run = s -> produce(simulate, s; RECORDS...)),
-    Stage(:fit, "the least-squares line"; products = () -> [FIT], run = s -> produce(fit, s; RECORDS..., inputs = [SAMPLES])),
-    Stage(:figure, "the panel, its caption and the numbers the prose quotes"; products = () -> [FIGURE], run = publish),
+    Stage(:simulate, "the samples of [simulate]"; items = () -> [SIMULATE], product = identity, run = p -> produce(simulate, p; RECORDS...)),
+    Stage(:fit, "the least-squares line"; items = () -> [FIT], product = identity, run = p -> produce(fit, p; RECORDS..., inputs = [SAMPLES])),
+    Stage(:figure, "the panel, its caption and the numbers the prose quotes"; items = () -> [FIGURE], product = identity, run = publish),
     Stage(:deploy, "the renders into the paper (a changed submitted asset needs --replace-submitted)";
           check = () -> deploy_assets(RENDERS, PAPER_FIGURES, ASSETS; replace_submitted = "--replace-submitted" in ARGS)),
 ]

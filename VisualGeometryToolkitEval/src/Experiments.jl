@@ -6,7 +6,7 @@
 # One experiment file = one figure/table; each file declares
 #
 #   * its DATA INPUTS  (require_input — hard error with provenance message),
-#   * its STAGES       (Stage(name, desc; products, run) — each step keyed by only
+#   * its STAGES       (Stage(name, desc; items, product, run) — each product keyed by only
 #                       what it reads, produced or loaded by `produce`,
 #                       DrWatson's produce_or_load),
 #   * and ends by RENDERING its artifact into the paper repo's figures/.
@@ -57,12 +57,12 @@ import VisualGeometryToolkitIO as VgtkIO   # a product's record saved and loaded
 using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
-import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
+import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        contract_violations,
        # the keyed product (experiments/products.jl): the one cache, DrWatson's produce_or_load
-       Product, product_dir, product_output, produced, produce, Saved, load_output,
+       Product, product_dir, product_output, produced, produce, Produced, load_output,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS,
        promote_run, verify_inputs, input_path, tier_path, config_of_record,
@@ -79,7 +79,7 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        # the data policy (experiments/data_policy.jl)
        DataPolicyAllow, data_policy_violations,
        # re-keying (experiments/rekey.jl): the old → new key map of a tag rename
-       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map, migrate_keyed_dirs,
+       TagRename, rename_tags, rekey_map, write_rekey_map, read_rekey_map,
        # paper support (experiments/paper_support.jl)
        assert_active_project, save_hand_eye, load_hand_eye, hand_eye_mount_file
 

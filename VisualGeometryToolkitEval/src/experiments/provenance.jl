@@ -13,7 +13,7 @@
 # touches; and `code_trees`, the git trees of the code the run loaded
 # (`code_trees` of src/code_identity.jl: the project's src, every stack
 # package). A stored result is reused only while those trees are the current
-# ones (`code_tree_changes`, the one rule): the run key names the configuration
+# ones: a keyed product folds them into its key (products.jl); the run key names the configuration
 # only, the trees the code. Declared inputs are recorded RELATIVE to the roots they live under,
 # with the roots beside them, so a record is machine-portable.
 # Justified extension: the file is TOML, written with TOML.print, because
@@ -73,8 +73,8 @@ end
 The code trees a result computed now records (`code_trees` of the top module):
 the project's `src` (of `gitpath`) and every stack package its environment
 (`gitpath`'s, or the Manifest above it) loads. [`write_provenance`](@ref) stores
-them; [`produced`](@ref) reuses a stored product only while they are unchanged
-(`code_tree_changes`).
+them; a [`Product`](@ref) folds them into its key, so a product of other code is
+another product.
 """
 current_code_trees(gitpath::AbstractString = project_root()) = _code_identity(gitpath).trees
 
@@ -283,13 +283,4 @@ function warn_commit_drift(prov::AbstractDict, what; gitpath::AbstractString = p
     d === nothing && return false
     @warn "skipping a complete run recorded under a DIFFERENT commit — re-run with force if the change was result-affecting" what recorded = d[1] current = d[2] maxlog = 4
     return true
-end
-
-# Why a stored product (its provenance record `rec`) is not reused now: the code trees that changed since it was produced
-# (`code_tree_changes` against `trees`), and a scratch flag that differs from `scratch` (a scratch run's result never stands
-# for a run of record, nor the reverse). Empty: reuse it. The one reuse rule (`produced`, products.jl).
-function _reuse_changes(rec, trees, scratch::Bool)
-    changes = code_tree_changes(get(rec, "code_trees", nothing), trees)
-    get(rec, "scratch", false) === scratch || push!(changes, "scratch: $(get(rec, "scratch", false)) → $scratch")
-    return changes
 end

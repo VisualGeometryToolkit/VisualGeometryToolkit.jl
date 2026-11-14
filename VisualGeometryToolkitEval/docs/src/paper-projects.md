@@ -69,7 +69,7 @@ from the data layer of `Experiments`, never from a literal machine path.
   tree, and the declared inputs relative to their roots; a product's
   provenance is written last, so a half-written step never reads as produced.
 - **Stage runner.** A driver declares its inputs (`require_input`) and its
-  stages (`Stage(name, desc; products, run)`, a stage's keyed products, or
+  stages (`Stage(name, desc; items, product, run)`, each item's keyed product, or
   `Stage(name, desc; check)`), and it ends with `run_stages`. `--plan` prints
   each stage's produced products, `--stage=NAME` runs one stage and `--force`
   produces its products again.

@@ -8,19 +8,21 @@
   pipeline caches its intermediate, keyed by only the config fields and inputs it reads). `Product(experiment, name, record;
   output, files, upstream, parts)` — its key `run_key(record; …)`, an upstream `Product`'s key folded in — and `produce(f,
   product)`: `produce_or_load` with `loadfile = false`, a record `f` returns saved through `DrWatson._wsave` →
-  `VisualGeometryToolkitIO.save` (`Saved` keeps its keywords) and read back with `load_output`
+  `VisualGeometryToolkitIO.save` and read back with `load_output`; `f` may return a `Produced` (its record or `nothing`, the inputs it read, the save's keywords)
   (`VisualGeometryToolkitIO.load`); a step that writes a directory returns `nothing`, its `output` the file it writes
   last. Its directory is DrWatson's `datadir("exp_pro", experiment, name, key)` (`product_dir`); its `_config.toml` and
   `_provenance.toml` are written last. `produced(product)` is the one reuse rule (the output, the provenance, the code trees
   current, the scratch flag). A failed save is an error (produce_or_load only warns).
 - **Retired, refused by name with their replacement** (no alias): `fresher`, `run_complete`, `cached_result`,
   `legacy_hash_key`, `keyed_cell_dir`, `keyed_data_dir`, `experiment_dir`.
-- **`Stage` declares its products**: `Stage(name, desc; products, run)` (`run(product)` called for every step: a produced one
+- **`Stage` declares its products**: `Stage(name, desc; items, product, run)` (`run(item)` called for every item: a produced one
   loads) or `Stage(name, desc; check)`; the done-closure `Stage(name, desc, done, run)` is refused. `--plan` prints each
   stage's produced products; `--force` unmarks the selected stages' products.
-- **Keyed directories move** from `<results>/<experiment>/<kind>-<key>` to `<results>/<experiment>/<step>/<key>`; the keys
-  of an unchanged record are unchanged. `migrate_keyed_dirs(root; dry_run = true)` moves a tree's directories whose
-  provenance records their key.
+- **The key is the dependency tracking**: a `Product`'s key folds its record, its upstream products' keys (a Merkle chain), its
+  pinned inputs and the CODE it runs (`current_code_trees`: every stack package's source tree — a path checkout's git trees, a
+  registered version's Manifest tree hash — and the project's `src`; `run_key(…; code)`). A change of any of them is a new product;
+  a result of an earlier key stays where it is (`<results>/<experiment>/<step>/<key>`; the retired `<kind>-<key>` directories are
+  left as they are).
 
 ## 0.8.0
 

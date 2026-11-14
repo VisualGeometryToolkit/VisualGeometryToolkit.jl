@@ -115,7 +115,10 @@ import VisualGeometryToolkitCore as VgtkCore
 
 # The circle (100, 80), radius 50: 60 inliers (σ = 0.1); `outliers`: 8 points 3 px
 # outside it on one arc (out of the scorer's 1 px threshold); `out_of_reach`: 3
-# points whose residual overflows the Float32 residual storage (Inf).
+# points 1e200 out. (The circle's Sampson distance is degenerate there — Core's
+# rule — so their residuals stay finite and their rows are zero rows: these fits
+# check that such points move nothing; the non-finite rule itself is checked on
+# the LM's weights, "the Triggs weights" below.)
 function circle_points(rng; outliers::Bool, out_of_reach::Bool)
     pts = [Point2{Float64}(100 + 50cos(t) + 0.1randn(rng), 80 + 50sin(t) + 0.1randn(rng)) for t in range(0, 2π, length = 61)[1:60]]
     outliers && append!(pts, [Point2{Float64}(100 + 53cos(t), 80 + 53sin(t)) for t in range(0.0, 0.7, length = 8)])

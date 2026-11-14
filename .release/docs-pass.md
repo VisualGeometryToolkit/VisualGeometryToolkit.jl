@@ -1,3 +1,68 @@
+docs-pass: ca3311df
+
+# VisualGeometryToolkitEstimation 0.11.3 docs pass (julia-docs-pass) — branch patch-est0113
+
+Baseline: GitHub main dc983c78 (Estimation 0.11.2, posted). ca3311df is patch-est0113: the red tests (c5d7c582,
+reworked in a4778de6/b75d48ea), the fix (f415bb71), version and docs (6c017264), the /simplify (0c9827c6) and
+/code-review (a4d5b600, ca3311df) fixes. The record's commit also corrects one test comment (no code). The change:
+0.11.2's two Irls weight rules for the Triggs LO — the chart LM lives in Estimation (`_triggs_lm`, `_chart_refit`,
+manifold_providers.jl), Core's `lmsolve_chart!` takes its weights unchanged.
+
+## 1. Public API since 0.11.2
+
+- **Added / removed:** nothing. Exports unchanged.
+- **Behaviour:** the Triggs LO (`locally_optimize!(L, ::Triggs, …)`) weighs a datum whose seed residual is not finite
+  0, under every shape, and `Triggs{GaussianShape}` weighs only the scorer's consensus set (`check_fresh`, then
+  `consensus_mask!`); the weights are fixed at the hypothesis for the one LM; with neither rule excluding a datum the
+  LM is unchanged (unit weight, `weights = nothing`). `refine_*`'s Triggs is unchanged.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` item green (gate CPU group 2, depwarn=yes group 12) |
+| `checkdocs = :public`, doctests, cross-references | Estimation docs 17391: strict build green |
+| README and landing page | unchanged: nothing they show moved |
+| guides | ransac.md: a `Triggs{K}` section (the two rules, fixed at the hypothesis; `0·Inf`) |
+| docstrings | `locally_optimize!(::Triggs)` (the rules, by reference to Irls's; the weights fixed at the hypothesis; `0·Inf`), `_triggs_lm`, `_triggs_weights!`, `_weighs`, `_lo_consensus` |
+| check_naming | 0 in the prep (17387); two R7 hits in this delta's prose caught in development (17358) and fixed |
+| CHANGELOG | Estimation `## 0.11.3`: Fixed (the non-finite rule for Triggs, the Gaussian Triggs consensus rule, unchanged otherwise) |
+| version | Estimation 0.11.3; Core compat unchanged ("0.10.0") |
+
+Review findings recorded, not fixed: a row non-finite in Float64 stays NaN at weight 0 (`0·Inf`, built by each
+problem's `sqrtw·e` rows) — a property of every chart refit (Irls's included), whose general fix (a zero-weight row
+exactly 0) belongs in `_chart_refit` or Core's row adapter and changes `refine_*` too; `refine_*`'s Triggs keeps unit
+weight (no consensus set; its non-finite seeds are a separate decision); Core's `Triggs` docstring
+(`strategies.jl:100, 122`: "the plain chart LM over every datum") is stale — routed with 0.11.2's `Irls` docstring to
+Core 0.10.5; `_triggs_weights!` writes `posterior_w` (documented; a dedicated buffer is a struct change); the
+`nothing` fast path's extra finiteness scan, and two `check_fresh` calls on the Gaussian path (kept: one rule per
+strategy); no end-to-end Triggs test reaches a non-finite row (the circle's far points are degenerate Sampson rows):
+the rule is tested on the LM's weights.
+
+## 3. Executed on ca3311df
+
+Julia 1.13.3, fresh clones, nice 0, the per-agent depot (`depot-est0113`; General a GitHub clone, `JULIA_PKG_SERVER=""`):
+
+| gate | job | result |
+|---|---|---|
+| prep | 17387 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 |
+| CPU (--depwarn=error) | 17388 | groups 1–10 green: 8,883 pass, 2 broken, 8,885 total |
+| CPU (--depwarn=yes) | 17389 | groups 11–20 green: 8,883 pass, 2 broken, 8,885 total |
+| GPU | 17390 | group 21 green: 66 pass |
+| docs | 17391 | green |
+
+Red → green: 17266 (c5d7c582 on 0.11.2's code: Gaussian Triggs 0.519/0.528 px off — the outliers fitted) and 17301
+(the final tests on 0.11.2's code, 10870d5c: 2 failed, 3 errored) → 17299 (b75d48ea, 24 pass) → 17384 (ca3311df,
+165 pass, 2 broken).
+
+"Nothing else moved" (instrumented scratch clones: every posterior-IRLS and every Triggs LO call logged; the suite and
+the LO timing bench): old dc983c78 (17268/17269, again 17270/17271) vs new ca3311df (17392/17393). Identical:
+Triggs-Welsch 148, Triggs-Cauchy 49, TLS 7,510, Welsch 540, GM 144, Gaussian 2, Huber 2 (8,395 calls). New only:
+the new item's 2 Triggs-Gaussian calls (outliers present) and 2 Triggs-Cauchy calls. Test group 9 is not run-to-run
+deterministic on the baseline itself (old vs old: 34 TLS calls unmatched; old vs new 24 and 42; none Triggs, none
+Gaussian, none with a non-finite seed). The bench: outcomes identical, bytes per call identical; µs per call within
+noise (Welsch 639/639/646, GM 566/567/586).
+
 docs-pass: e20a176e
 
 # VisualGeometryToolkitEstimation 0.11.2 docs pass (julia-docs-pass) — branch patch-est0112

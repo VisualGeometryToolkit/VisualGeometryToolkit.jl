@@ -31,11 +31,11 @@ module VisualGeometryToolkitFeatures
 using StaticArrays: SVector, SMatrix
 using ImageCore: channelview
 using StructArrays: StructArray, components
-using Statistics: var   # an Uncertain pixel's scalar variance (VisualGeometryToolkitCore extends it)
+using Statistics: var, cov   # an Uncertain pixel's scalar variance, a detection's covariance (VisualGeometryToolkitCore extends both)
 using FixedPointNumbers: N0f8, FixedPoint
 using Colors: Gray, Colorant, RGB, gray, base_colorant_type   # base_colorant_type: a Float16 colour's Float64 accumulator (box_downsample)
 using ImageMorphology: MaxTree, areas   # the component tree behind detect_mser
-using Distributions: FDist, Chisq, quantile   # the F-test of detect_foerstner, detect_sfop's λ₂ significance test
+using Distributions: FDist, Chisq, Normal, quantile   # the F-test of detect_foerstner, detect_sfop's λ₂ significance test, the polarity gate's sign test
 using Random: Random, AbstractRNG   # detect_image_circle's RANSAC draws (image_circle.jl)
 using VisualGeometryToolkitCore: Circle, found_model, estimate, inlier_mask, map_estimate, unlabel, require_extension   # detect_image_circle: its models, the fit's accessors, the RAW cells' map (image_circle.jl)
 using PNGFiles: PNGFiles     # load_linear_image: a PNG read without gamma re-encoding
@@ -92,6 +92,7 @@ import VisualGeometryToolkitCore: propagate   # a detection's uncertain centre t
 # synthetic_correspondences.jl were dead code.
 
 include("detection_types.jl")
+include("polarity.jl")       # the polarity gate: one sign (the scale-normalised Laplacian, ASIFT's DoG sign) for every detector
 include("image_input.jl")    # gray_f32 / gray_u8 — the input ladders (hoisted from BlobBoards)
 include("mser.jl")           # detect_mser — VLFeat's MSER selection on ImageMorphology's MaxTree
 include("linear_image.jl")   # load_linear_image — a PNG as linear radiance (hoisted from RadiometricCamera)

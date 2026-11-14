@@ -1,5 +1,9 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.6
+
+POLARITY_PLACEHOLDER
+
 ## 0.9.5
 
 A patch: RAW images stored as Float16 or Float32 (VisualGeometryToolkitCore 0.10.5, now the compat floor), and a

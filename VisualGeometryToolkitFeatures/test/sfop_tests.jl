@@ -3,7 +3,7 @@
 
 @testsetup module SfopFixture
 using Random: Xoshiro, rand, randn
-export dot_grid
+export dot_grid, signed_grid, sharp_disc
 
 # An n×n grid of discs of radius `radius` at pitch 30 px (sub-pixel phases), blurred by a Gaussian PSF of 1.5 px,
 # background 0.0015, plateau 1.4 clipped at 1 (the Thorlabs dots as the chrome photographs show them), one empty
@@ -23,6 +23,33 @@ function dot_grid(n, radius; σn = 0.5, seed = 1, ss = 4)
     blur1(a, d) = [sum(k[t + 7] * (d == 1 ? a[clamp(i + t, 1, H), j] : a[i, clamp(j + t, 1, W)]) for t in -6:6) for i in 1:H, j in 1:W]
     clean = min.(0.0015 .+ (1.4 - 0.0015) .* blur1(blur1(disc, 1), 2), 1.0)
     return truth, Float32.(clean .+ (σn / 255) .* randn(rng, H, W))
+end
+
+# An n×n grid at pitch 30 px of bright dots (light, +0.35 on a 0.5 background) and dark holes (−0.35), alternating
+# like a checkerboard, radius 2.5, the same PSF and margin as `dot_grid`. Returns the light and the dark centres.
+function signed_grid(n; σn = 0.5, seed = 2, ss = 4, radius = 2.5)
+    rng = Xoshiro(seed)
+    cells = [(tx, ty, 30tx + 15 + rand(rng) - 0.5, 30ty + 15 + rand(rng) - 0.5) for tx in 1:n for ty in 1:n]
+    H = W = 30(n + 2)
+    a = fill(0.5, H, W)
+    for r in 1:H, c in 1:W, (tx, ty, x, y) in cells
+        (fld(c - 1, 30), fld(r - 1, 30)) == (tx, ty) || continue
+        cover = sum((c - 1 + (i - 0.5) / ss - x)^2 + (r - 1 + (j - 0.5) / ss - y)^2 < radius^2 for i in 1:ss, j in 1:ss) / ss^2
+        a[r, c] += (iseven(tx + ty) ? 0.35 : -0.35) * cover
+    end
+    k = [exp(-x^2 / (2 * 1.5^2)) for x in -6:6]; k ./= sum(k)
+    blur1(b, d) = [sum(k[t + 7] * (d == 1 ? b[clamp(i + t, 1, H), j] : b[i, clamp(j + t, 1, W)]) for t in -6:6) for i in 1:H, j in 1:W]
+    img = Float32.(blur1(blur1(a, 1), 2) .+ (σn / 255) .* randn(rng, H, W))
+    light = [(x, y) for (tx, ty, x, y) in cells if iseven(tx + ty)]
+    dark = [(x, y) for (tx, ty, x, y) in cells if isodd(tx + ty)]
+    return light, dark, img
+end
+
+# One sharp bright disc of radius `radius` at COLMAP (x, y) on a 96 × 96 image (4×4 supersampled, no PSF).
+function sharp_disc(x, y, radius; σn = 0.5, seed = 1, ss = 4)
+    img = [sum(hypot(c - 1 + (i - 0.5) / ss - x, r - 1 + (j - 0.5) / ss - y) < radius for i in 1:ss, j in 1:ss) / ss^2
+           for r in 1:96, c in 1:96]
+    return Float32.(0.1 .+ 0.6 .* img .+ (σn / 255) .* randn(Xoshiro(seed), 96, 96))
 end
 end
 
@@ -173,4 +200,147 @@ end
     @test [d.window for d in detect_foerstner(Float32, img, mixed; device = KA.CPU(), noise = 0.5)] == [d.window for d in plain]
     e = err(() -> detect_foerstner(Float32, img, Detection[seeds[1:2]; points[3:end]]))
     @test e isa ArgumentError && occursin("PointFrame", e.msg)
+end
+
+@testitem "detect_sfop and the seeded detect_foerstner: polarity keeps each sign's own blobs" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using LinearAlgebra: norm
+    light, dark, img = signed_grid(4)
+    near(ds, ts) = all(any(norm(d.center .- t) < 1.5 for t in ts) for d in ds)
+    found(ds, ts) = all(any(norm(d.center .- t) < 1.5 for d in ds) for t in ts)
+    both = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)
+    # :none is the default, bit for bit, and finds both signs (the structure tensor is sign-invariant)
+    @test isequal(collect(both), collect(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :none)))
+    @test found(both, light) && found(both, dark)
+    l = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :light)
+    d = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :dark)
+    @test near(l, light) && found(l, light)
+    @test near(d, dark) && found(d, dark)
+    # the seeded windows: each polarity keeps its own seeds, :none every one; the sign test needs the pixel noise
+    rows(pol) = detect_foerstner(Float32, img, both; device = KA.CPU(), noise = 0.5, polarity = pol)
+    @test isequal(collect(rows(:none)), collect(detect_foerstner(Float32, img, both; device = KA.CPU(), noise = 0.5)))
+    @test near(rows(:light), light) && found(rows(:light), light)
+    @test near(rows(:dark), dark) && found(rows(:dark), dark)
+    @test_throws ArgumentError detect_foerstner(Float32, img, both; device = KA.CPU(), polarity = :dark)   # no noise known
+    @test_throws ArgumentError detect_foerstner(Float32, img; device = KA.CPU(), noise = 0.5, polarity = :dark)   # image-wide
+    @test_throws ArgumentError detect_sfop(img; device = KA.CPU(), polarity = :bright)
+    @test_throws ArgumentError detect_foerstner(Float32, img, both; device = KA.CPU(), noise = 0.5, polarity = :bright)
+end
+
+@testitem "detect_sfop: polarity drops the windows between bright dots (no sign significant there)" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using LinearAlgebra: norm
+    # between the dots of a 3×3 grid SFOP finds windows on the dots' tails (w just past the precision test); their
+    # Laplacian's sign is the noise's, so the one-sided sign test keeps them for neither polarity: :light is the dots
+    truth, img = dot_grid(3, 2.2)
+    all_ = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)
+    isdot(d) = any(norm(d.center .- t) < 1.5 for t in truth)
+    @test count(!isdot, all_) > 0
+    l = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :light)
+    @test length(l) == length(truth) && all(isdot, l)
+    @test isempty(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, polarity = :dark))
+end
+
+@testitem "the seeded detect_foerstner: one :circular row per blob (a sharp dot SFOP finds at two scales)" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    VGF = VisualGeometryToolkitFeatures
+    # a sharp disc of radius 1 px: w peaks at σ ≈ 3.3 and again at σ ≈ 9.5, more than a half-octave band apart, so the
+    # NMS keeps both seeds; nothing acts on the seeds, and the seeded estimate keeps one :circular row, at the dot
+    img = sharp_disc(47.0, 48.6, 1.0)
+    seeds = detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)
+    @test length(seeds) == 2
+    points = filter(d -> d.label === :circular, detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5))
+    @test length(points) == 1 && hypot((only(points).center .- (47.0, 48.6))...) < 0.5
+    # the rule itself: two :circular rows closer than max(σ)/√2 are one blob, the smaller covariance trace kept (a tie
+    # to the earlier row); farther apart both kept; another label never drops a row
+    one(xs, σs, spreads; labels = fill(:circular, length(xs))) =
+        VGF._one_per_blob_mask([VGF.Point2(x, 50.0) for x in xs], σs, labels, spreads)
+    @test one([50.0, 54.0], [3.0, 6.0], [1.0, 2.0]) == [true, false]      # 4 < 6/√2 ≈ 4.24
+    @test one([50.0, 54.0], [3.0, 6.0], [2.0, 1.0]) == [false, true]
+    @test one([50.0, 56.0], [3.0, 3.0], [1.0, 2.0]) == [true, true]       # 6 > 3/√2
+    @test one([50.0, 51.0], [3.0, 3.0], [1.0, 1.0]) == [true, false]
+    @test one([50.0, 51.0], [3.0, 3.0], [1.0, 2.0]; labels = [:corner, :circular]) == [true, true]
+    # only a KEPT row drops another: B (dropped by A) does not take C with it (4 < 6/√2 from B, but B is gone and C
+    # lies 8 px from A, past max(3, 6)/√2)
+    @test one([50.0, 54.0, 58.0], [3.0, 6.0, 6.0], [1.0, 2.0, 3.0]) == [true, false, true]
+end
+
+@testitem "detect_sfop and the seeded detect_foerstner on a Float16 image: its values in Float32, within its rounding" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using LinearAlgebra: norm, tr
+    using Statistics: cov
+    using Colors: Gray
+    truth, img = dot_grid(5, 2.2; seed = 3)
+    h = Float16.(img)
+    # the Float16 storage is the only difference: bit for bit the same as its values in Float32, as Gray{Float16} too
+    seeds = detect_sfop(h; device = KA.CPU(), noise_sigma = 0.5)
+    @test isequal(collect(seeds), collect(detect_sfop(Float32.(h); device = KA.CPU(), noise_sigma = 0.5)))
+    @test isequal(collect(seeds), collect(detect_sfop(Gray.(h); device = KA.CPU(), noise_sigma = 0.5)))
+    @test isequal(collect(detect_sfop(h; device = KA.CPU(), noise_sigma = 0.5, polarity = :light)),
+                  collect(detect_sfop(Float32.(h); device = KA.CPU(), noise_sigma = 0.5, polarity = :light)))
+    rows16 = detect_foerstner(Float32, h, seeds; device = KA.CPU(), noise = 0.5)
+    @test isequal(collect(rows16), collect(detect_foerstner(Float32, Float32.(h), seeds; device = KA.CPU(), noise = 0.5)))
+    # against the Float32 image: the rounding to Float16 is noise of σ ≤ eps(Float16(1))/√12 on [0, 1] (the values are
+    # below 1); each circular point moves by at most 4 of its standard deviations under that noise (propagated)
+    rows32 = detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5)
+    σr = 255 * eps(Float16(1)) / sqrt(12)
+    under = detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = σr)
+    moves = [norm(a.center - b.center) / sqrt(tr(cov(c.value))) for (a, b, c) in zip(rows16, rows32, under) if c.label === :circular]
+    @test length(moves) >= length(truth) && maximum(moves) < 4
+end
+
+@testitem "detect_sfop on a LinearRaw: the λ₂ test under the frame's sensor model, no blob from shot noise" setup = [NoisyMosaic] begin
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: LinearRaw
+    using LinearAlgebra: norm
+    using Random: Xoshiro
+    # three bright dots on a dark left half (300 e⁻), a flat bright right half (30 000 e⁻, shot noise ≈ 1.1 grey levels)
+    dots = ((40.3, 38.7), (70.6, 101.2), (110.2, 60.4))
+    scene(i, j) = (c = ((j + 1) ÷ 2, (i + 1) ÷ 2);
+                   j > 280 ? 30000.0 : any(hypot(c[1] - a, c[2] - b) < 3 for (a, b) in dots) ? 6000.0 : 300.0)
+    model = pg_model(2.5, 3.0)
+    L = LinearRaw(noisy_mosaic(Xoshiro(4), scene, 280, 560; electrons_per_dn = 2.5, read_dn = 3.0); mode = :green_cells, sensor_model = model)
+    # a window wholly on the flat bright half (the integration taps ⌈3.3σ⌉ and the gradient's, ≈ 4.5σ, past the edge at
+    # cell 140): the step edge's own windows are structure, which the polarity test removes (below), not noise
+    bright(d) = d.center[1] - 4.5 * d.σ > 141
+    # one noise level for the whole frame, the dark half's: the λ₂ test takes the bright half's shot noise for blobs
+    @test count(bright, detect_sfop(L; device = KA.CPU(), noise_sigma = 0.3)) > 0
+    # each pixel's variance (the sensor model's law): nothing on the bright half; with the polarity, the dots alone
+    rows = detect_sfop(L; device = KA.CPU(), sensor_model = model)
+    @test !any(bright, rows)
+    l = detect_sfop(L; device = KA.CPU(), sensor_model = model, polarity = :light)
+    # (a dot SFOP sees at two scales gives two seeds: the seeded rows keep one per blob, below)
+    @test all(any(norm(d.center .- t) < 1.5 for t in dots) for d in l) && all(any(norm(d.center .- t) < 1.5 for d in l) for t in dots)
+    # the seeded windows under the same model: each a dot, once
+    pts = detect_foerstner(Float32, L, l; sensor_model = model, device = KA.CPU(), polarity = :light)
+    @test length(pts) == length(dots) && all(d -> d.label === :circular, pts)
+    # no gain, no variances: noise_sigma's test, as on the matrix of the values
+    @test isequal(collect(detect_sfop(L; device = KA.CPU())), collect(detect_sfop(L; device = KA.CPU(), sensor_model = VisualGeometryToolkitCore.SensorModel())))
+end
+
+# GPU: polarity, the single-detection rule and a Float16 image as on the CPU. Runs only with a functional CUDA device.
+@testitem "detect_sfop polarity, single detections and Float16: CUDA matches the CPU" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using LinearAlgebra: norm
+    cuda = try
+        m = Base.require(Main, :CUDA)
+        (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip cuda !== nothing
+    else
+        backend = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        light, dark, img = signed_grid(4)
+        for im in (img, Float16.(img), sharp_disc(47.0, 48.6, 1.0)), pol in (:none, :light, :dark)
+            c = detect_sfop(im; device = KA.CPU(), noise_sigma = 0.5, polarity = pol)
+            g = Base.invokelatest(detect_sfop, im; device = backend, noise_sigma = 0.5, polarity = pol)
+            @test length(c) == length(g)
+            @test maximum(norm(a.center - b.center) for (a, b) in zip(c, g); init = 0.0) < 1.0e-3
+            seeded(dev) = Base.invokelatest(detect_foerstner, Float32, im, c; device = dev, noise = 0.5, polarity = pol)
+            @test length(seeded(KA.CPU())) == length(seeded(backend))
+        end
+    end
 end

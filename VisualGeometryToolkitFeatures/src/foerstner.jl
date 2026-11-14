@@ -205,7 +205,7 @@ const _SeedDetection = Detection{<:Union{_ScaledFrame, Uncertain{<:_ScaledFrame,
 """
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
                      noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
-                     significance_level = 0.999) -> StructArray{<:Detection}
+                     significance_level = 0.999, polarity = :none) -> StructArray{<:Detection}
     detect_foerstner([T = Float32], L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner operator's window estimation (steps 4–6 of the method above, its
@@ -227,9 +227,18 @@ window (an `ArgumentError` naming its frame). The keywords are the ones above: t
 `integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) are not read at given windows and
 are refused (`ArgumentError`, naming them).
 
+`polarity = :dark | :light` keeps only the seeds whose blob has that sign, [`detect_sfop`](@ref)'s test: the
+scale-normalised Laplacian of Gaussian at the seed's σ, its sign significant at `significance_level` under the pixel
+noise (`noise` on a matrix, the gain-carrying `sensor_model` on a `LinearRaw`; with none known the call is refused).
+`:none` (the default) keeps every seed.
+
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
-window, F; the F-test of each window at its own half-width's degrees of freedom), one per seed whose
-window lies inside the doubled image, in the order of `seeds`.
+window, F; the F-test of each window at its own half-width's degrees of freedom), one per kept seed whose
+window lies inside the doubled image, in the order of `seeds`, and **one `:circular` row per blob**: two `:circular`
+rows closer than the larger of their blobs' radii (`σ/√2` of each row's seed, SFOP's NMS footprint) are one blob
+found from two seeds (a dot SFOP sees at two scales, a coarse window the estimate pulls onto a dot), and the
+better-determined one (the smaller trace of its covariance) is kept, greedily, best first: a row is dropped only by
+a kept row. Nothing acts on the seeds themselves.
 """
 detect_foerstner(img::Union{AbstractMatrix, LinearRaw}, seeds::AbstractVector{<:Detection}; kw...) =
     detect_foerstner(Float32, img, seeds; kw...)
@@ -248,16 +257,16 @@ detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; se
 # read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.
 function _detect_seeded(
         ::Type{T}, img, noise, seeds; device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d,
-        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, unread...
+        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, polarity::Symbol = :none, unread...
     ) where {T}
     _refuse_unread_seed_keywords(unread)
     _check_seeds(seeds)
-    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level)
+    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level, polarity)
 end
 
 _refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
     "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read by the seeded call (each window's " *
-    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level and the pixel noise " *
+    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level, polarity and the pixel noise " *
     "(noise on a matrix, sensor_model on a LinearRaw)"))
 
 # Every seed a detection of a frame with a scale (`_SeedDetection`): a point's window has no scale.
@@ -293,14 +302,18 @@ function _detect_foerstner(
         precision_threshold::Real = 0.5,
         roundness_threshold::Real = 0.3,
         significance_level::Real = 0.999,
-        seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing
+        seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing,
+        polarity::Symbol = :none
     ) where {T <: AbstractFloat}
     (T === Float32 || T === Float64) || throw(ArgumentError(
         "detect_foerstner: the precision T must be Float32 or Float64, got $T (Float16 would accumulate the window sums in it; a Float16 image is read in T)"))
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
-    # a float matrix at its own precision (gray_f32 would round a Float64 one), anything else as gray_f32 reads it
-    g = ka_upload(T, device, img isa AbstractMatrix{<:AbstractFloat} ? img : gray.(gray_f32(img)))
+    sign = _polarity_sign(polarity)
+    seeds === nothing && sign != 0 && throw(ArgumentError(
+        "detect_foerstner: polarity gates given windows (detect_foerstner(img, seeds; polarity)), not the image-wide search"))
+    g = _detection_image(T, device, img)
+    seeds === nothing || sign == 0 || (seeds = _polarity_seeds(device, g, seeds, sign, model, significance_level))
     doubled = KA.allocate(device, T, 2 .* size(g)...)
     _launch!(_upsample_doubled!, device, doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
     found = seeds === nothing ? _foerstner_windows(
@@ -308,11 +321,49 @@ function _detect_foerstner(
         integration_sigma, precision_threshold, roundness_threshold
     ) : _foerstner_seeded(device, doubled, seeds; derivative, derivative_sigma)
     classes = _foerstner_classes(found, significance_level)
-    model === nothing && return _foerstner_points(found, classes, _undouble)
+    model === nothing && return _one_per_blob(found, _foerstner_points(found, classes, _undouble))
     variance, covariance_status = model
     v = variance isa Real ? fill!(KA.allocate(device, T, size(g)...), T(variance)) : ka_upload(T, device, variance)
     covariances = _propagated_covariances(device, found, classes, v)
-    return _foerstner_points(found, classes, _undouble; covariances, covariance_status)
+    return _one_per_blob(found, _foerstner_points(found, classes, _undouble; covariances, covariance_status))
+end
+
+# The seeded rows, one :circular row per blob: two :circular rows closer than the larger of their blobs' radii, σ/√2
+# of each row's seed (SFOP's NMS footprint), are one blob found from two seeds (a dot seen at two scales, a coarse
+# window that the estimate pulls onto a dot), and the better-determined row (the smaller trace of its covariance; a
+# tie to the earlier row) is kept. Greedy, best first: a row is dropped only by a KEPT row, so a dropped row never
+# drops a third. The other rows, and the image-wide search's (no seeds), as they are. Sequential, on the host: n is
+# the seeds' count (a few hundred).
+_one_per_blob(found, rows) = haskey(found, :sigmas) ?
+    rows[_one_per_blob_mask([r.center for r in rows], found.sigmas, [r.label for r in rows], [tr(cov(r.value)) for r in rows])] : rows
+function _one_per_blob_mask(centres, sigmas, labels, spreads)
+    keep = trues(length(centres))
+    kept = Int[]
+    for k in sort(findall(==(:circular), labels); by = k -> (spreads[k], k))
+        one(j) = hypot((centres[k] .- centres[j])...) < max(sigmas[k], sigmas[j]) / sqrt(2)
+        any(one, kept) ? (keep[k] = false) : push!(kept, k)
+    end
+    return keep
+end
+
+# The detector's image on `device`, in `T`: a float matrix at its own values (gray_f32 would round a Float64 one; a
+# Float16 one is read in `T`), anything else as gray_f32 reads it. The Förstner doubling's and the polarity gate's.
+_detection_image(::Type{T}, device, img::AbstractMatrix) where {T} =
+    ka_upload(T, device, img isa AbstractMatrix{<:AbstractFloat} ? img : gray.(gray_f32(img)))
+
+# The seeds whose blob has the requested polarity (`_polarity_kept` on the detection image `g`), in their order: the
+# sign of the scale-normalised Laplacian at the seed's own σ (its window's scale; SFOP's selection), significant at
+# `significance_level` under the pixel noise `model` (`_pixel_noise`'s; none known is refused).
+function _polarity_seeds(device, g, seeds, sign::Real, model, significance_level)
+    model === nothing && throw(ArgumentError(
+        "detect_foerstner(img, seeds; polarity): the polarity's sign test needs the pixel noise: `noise` on a matrix, " *
+        "a gain-carrying `sensor_model` on a LinearRaw"))
+    isempty(seeds) && return seeds
+    variance = first(model)
+    points = stack((c = Disc(d); Float64[c.center[1], c.center[2], c.σ]) for d in seeds; dims = 2)
+    keep = _polarity_kept(device, g, points, sign, variance isa Real ? variance : ka_upload(Float32, device, variance),
+                          significance_level)
+    return seeds[keep]
 end
 
 # The pixel noise `detect_foerstner` propagates, `(variance, covariance_status)`: the variance of every input pixel (a
@@ -427,15 +478,15 @@ function _foerstner_seeded(device, doubled::AbstractMatrix, seeds; derivative::S
     upscale = 2
     grad = _foerstner_gradient(device, doubled; derivative, derivative_sigma, upscale)
     rows, cols = size(doubled)
-    centres, radii = CartesianIndex{2}[], Int[]
+    centres, radii, sigmas = CartesianIndex{2}[], Int[], Float64[]
     for d in seeds
         disc = Disc(d)
         r, c = round(Int, upscale * disc.center[2] + 1), round(Int, upscale * disc.center[1] + 1)
         ρ = ceil(Int, sqrt(12 * (upscale * disc.σ)^2 + 1) / 2) + 1
         (ρ < r <= rows - ρ) && (ρ < c <= cols - ρ) || continue
-        push!(centres, CartesianIndex(r, c)); push!(radii, ρ)
+        push!(centres, CartesianIndex(r, c)); push!(radii, ρ); push!(sigmas, disc.σ)
     end
-    return (; _foerstner_estimates(device, grad.gamma, centres, radii)..., upscale, grad...)
+    return (; _foerstner_estimates(device, grad.gamma, centres, radii)..., upscale, grad..., sigmas)
 end
 
 # 314–423: both point models in the window of half-width ρ (one for every window, or one per window) around each

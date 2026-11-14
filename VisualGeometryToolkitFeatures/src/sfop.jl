@@ -23,8 +23,8 @@ const _SfopDetection = Attributed{Disc{Float64}, @NamedTuple{precision::Float64}
     detect_sfop(img; device = default_device(), noise_sigma = 2.0, significance_level = 0.999,
                 precision_threshold = 0.5, nb_scales = 3, input_blur = 0.5, upsample = true,
                 nb_octaves = min(3, sift_nb_octaves(size(img)...; upsample)),
-                seed_sigma = (upsample ? 2 : 1) * input_blur) -> StructArray{<:Detection}
-    detect_sfop(L::LinearRaw; kwargs...)
+                seed_sigma = (upsample ? 2 : 1) * input_blur, polarity = :none) -> StructArray{<:Detection}
+    detect_sfop(L::LinearRaw; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 SFOP scale selection [Foerstner2009](@cite) for CIRCULAR points (the spiral
 model at α = 90°): each point where the precision `w` of a circular point's
@@ -75,12 +75,40 @@ each point at full resolution in its own window.
 - **Suppression:** ASIFT's elliptical NMS ([`cross_warp_nms`](@ref)), the
   paper's eq. (8) with its defaults (fp = 1, fs = ½, T_r = 1) as footprint
   overlap: a footprint of radius `σ/√2` and half-octave scale bands, ± 1 band.
+  The seeds are not deduplicated: one blob found at two scales more than a band apart
+  (the NMS keeps both) gives two seeds, and the seeded [`detect_foerstner`](@ref) keeps
+  one row per blob (its docstring).
+- **Polarity** (`polarity = :none | :dark | :light`, ASIFT's vocabulary and sign):
+  `:dark` keeps the dark blobs, `:light` the light ones, by the sign of the
+  scale-normalised Laplacian of Gaussian `σ²∇²(G_σ ⋆ I)` at each candidate's selected
+  σ (positive at a dark blob, ASIFT's DoG sign; [`is_dark`](@ref)), tested one-sided at
+  `significance_level` under the λ₂ test's noise: a candidate whose sign the noise could
+  have given (a window on flat background between dots) is kept for neither. Applied
+  before the NMS (ASIFT's order: a blob of the other sign never suppresses a kept one).
+  `:none` (the default) applies no gate: the structure tensor is sign-invariant and
+  bright and dark blobs alike are found.
+- **Noise:** `noise_sigma` (grey levels of an 8-bit image) is one level for the whole
+  image. On a RAW's green cells under a gain-carrying `sensor_model` (the frame's, the one
+  `L` was linearised with, so `L` carries each value's variance) the λ₂ and polarity
+  tests read each pixel's variance instead (`noise_sigma` unread): the floor is linear in
+  the noise variance, and each window's is the variance averaged under `G_σ`. Shot noise
+  in a bright region then raises no blob. Without a gain, `noise_sigma` as for a matrix.
 """
-function detect_sfop(
-        img::AbstractMatrix; device::KA.Backend = default_device(),
+detect_sfop(img::AbstractMatrix; kw...) = _detect_sfop(img, nothing; kw...)
+
+# A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid; under a gain-carrying
+# sensor model (the image linearised with it carries each value's variance) the λ₂ test reads each pixel's variance,
+# else `noise_sigma` as for a matrix — the pixel noise `detect_foerstner` propagates on the same image (`_raw_inputs`).
+detect_sfop(L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) =
+    ((img, model) = _raw_inputs(L, sensor_model); _detect_sfop(img, model === nothing ? nothing : first(model); kw...))
+
+# `variance`: each pixel's noise variance (the [0, 1] image, a matrix of its size), or `nothing` for `noise_sigma`'s.
+function _detect_sfop(
+        img::AbstractMatrix, variance; device::KA.Backend = default_device(),
         noise_sigma::Real = 2.0, significance_level::Real = 0.999, precision_threshold::Real = 0.5,
         nb_scales::Integer = 3, input_blur::Real = 0.5, upsample::Bool = true,
-        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = (upsample ? 2 : 1) * input_blur
+        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = (upsample ? 2 : 1) * input_blur,
+        polarity::Symbol = :none
     )
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_sfop: significance_level must lie in (0, 1), got $significance_level"))
@@ -88,7 +116,14 @@ function detect_sfop(
         throw(ArgumentError("detect_sfop: precision_threshold must be positive and finite, got $precision_threshold"))
     isfinite(noise_sigma) && noise_sigma > 0 ||
         throw(ArgumentError("detect_sfop: noise_sigma must be positive and finite, got $noise_sigma"))
+    sign = _polarity_sign(polarity)
     space = gaussian_scale_space(img; device, nb_scales, seed_sigma, input_blur, upsample, nb_octaves)
+    noise = variance === nothing ? noise_sigma / 255 : ka_upload(Float32, device, variance)
+    # the polarity gate's image (H × W, Float32) and the gate on the candidates' COLMAP centres and σ,
+    # its sign test under the λ₂ test's noise and level
+    gate = sign == 0 ? nothing : let g = _detection_image(Float32, device, img), v = noise isa Real ? noise^2 : noise
+        points -> _polarity_kept(device, g, points, sign, v, significance_level)
+    end
     W, H = space.dims[1] .>> (space.first_octave < 0 ? 1 : 0)
     K = _scheduled(_asift_kernels, device)
     S = space.nb_scales
@@ -98,18 +133,15 @@ function detect_sfop(
         count = KA.zeros(device, Int32, 2)
         ends = Int[]                                        # the pool's last row of each octave
         for o in eachindex(space.levels)
-            precision = _sfop_precision(device, space, o, noise_sigma, significance_level)
+            precision = _sfop_precision(device, space, o, noise, significance_level)
             _sfop_maxima!(pool, count, device, precision, Float32(space.seed_sigma), Int32(o - 1 + space.first_octave), Int32(S); kernels = K)
             push!(ends, Int(Array(count)[1]))
         end
         n = last(ends)
         n > capacity && (capacity = n; continue)           # the pool overflowed: once more, large enough
-        return _sfop_detections(device, space, Array(view(pool, :, 1:n)), ends, W, H, 1 / precision_threshold^2)
+        return _sfop_detections(device, space, Array(view(pool, :, 1:n)), ends, W, H, 1 / precision_threshold^2; gate)
     end
 end
-
-# A RAW's green cells: SFOP on their values (Core's `green_plane`), positions on the cell grid.
-detect_sfop(L::LinearRaw; kw...) = detect_sfop(_green_values(green_plane(L)); kw...)
 
 # The maxima of one octave's precision cube `cube` ((W_o, H_o, S + 3, 1), −1/w: `_sfop_precision`) appended to the
 # pool `pool` (5 × capacity) by ASIFT's extraction in its precision mode (maxima only, no edge test, an unrefined
@@ -132,7 +164,7 @@ end
 # `ends[o]`) as detections: the level's blur from the slice σ (`_slice_sigma` reports the geometric mean of a DoG
 # slice's two levels, so the level is half a slice lower), τ the next level's, σ = 3τ in input pixels, and ASIFT's
 # NMS over them (eq. 8 as footprint overlap, see `detect_sfop`).
-function _sfop_detections(device, space, raw, ends, W, H, min_precision)
+function _sfop_detections(device, space, raw, ends, W, H, min_precision; gate = nothing)
     S = space.nb_scales
     feats = ImasFeatureKA[]
     # each detection's own w, keyed by its octave too: adjacent octaves share a level, so two octaves can find a peak
@@ -148,6 +180,8 @@ function _sfop_detections(device, space, raw, ends, W, H, min_precision)
         push!(feats, ImasFeatureKA(x, y, σ, 0.5f0 * w[i] / wmax, σ^2, 0.0f0, σ^2, Int32(o)))
         precision[(x, y, σ, Int32(o))] = w[i]
     end
+    # the polarity gate BEFORE the NMS (ASIFT's order): a blob of the other sign never suppresses a kept one
+    gate === nothing || isempty(feats) || (feats = feats[gate(stack(Float64[f.x + 0.5, f.y + 0.5, f.σ] for f in feats; dims = 2))])
     kept = isempty(feats) ? feats : cross_warp_nms(
         feats, W, H; device, mode = :ellipse, cutoff = 1 / sqrt(2), band_octaves = 1.0, band_reach = 1
     )
@@ -162,11 +196,12 @@ end
 # the significance test or the windows reach past the octave's border. The maxima are searched on levels 2 … S + 2, so each octave's range
 # overlaps the next one's by a level: a peak between an octave's last levels is seen on one grid even where the two
 # grids order the shared level differently (the NMS keeps one of a double).
-function _sfop_precision(device, space::GaussianScaleSpace, o, noise_sigma, significance_level)
+function _sfop_precision(device, space::GaussianScaleSpace, o, noise, significance_level)
     S = space.nb_scales
     Wo, Ho = space.dims[o]
     sf = exp2(space.first_octave + o - 1)                   # input pixels per octave pixel
     cube = KA.allocate(device, Float32, Wo, Ho, S + 3, 1)
+    noise = _octave_noise(device, noise, sf, Wo, Ho)           # a variance matrix sampled on this octave's grid, once
     for l in 1:(S + 3)
         level = view(space.levels[o], :, :, l, 1)
         σl = space.seed_sigma * exp2((l - 1) / S)           # the level's blur, octave pixels
@@ -181,10 +216,10 @@ function _sfop_precision(device, space::GaussianScaleSpace, o, noise_sigma, sign
         M = _separable_correlate(device, γ, up([G G G]), up([G G G]))
         # Ω̄ = γ₂ ⋆ (d₁²G) − 2 γ₃ ⋆ (d₁G·d₂G) + γ₁ ⋆ (d₂²G), d = q − p: dim 1 the rows' taps, dim 2 the columns'
         Ω = _separable_correlate(device, γ, up([G (d .^ 2 .* G) (d .* G)]), up([(d .^ 2 .* G) G (d .* G)]))
-        floor = _sfop_lambda2_floor(noise_sigma / 255, sf, σl, σd, space, G, significance_level)
+        floor = _sfop_floor(device, noise, sf, σl, σd, space, G, significance_level)
         border = r + ceil(Int, 3.3 * σd) + 1
         _launch!(
-            _sfop_precision!, device, view(cube, :, :, l, 1), M, Ω, Float32(12σ^2 + 1 - 2), Float32(floor), Int32(border);
+            _sfop_precision!, device, view(cube, :, :, l, 1), M, Ω, Float32(12σ^2 + 1 - 2), floor, Int32(border);
             ndrange = (Wo, Ho)
         )
     end
@@ -202,7 +237,7 @@ end
         # −1/w: the reference point's misfit Ω is quadratic in its offset from the point (Ω_min + eᵀNe), so −1/w is
         # what the extraction's quadratic interpolation fits exactly; w itself (∝ 1/|e|² near a sharp point) is not,
         # and its refinement failed on a coarse octave's grid
-        w[i, j] = ifelse(inside & (λ2 > floor) & (Ω > zero(T)), -Ω / (redundancy * λ2), -T(Inf))
+        w[i, j] = ifelse(inside & (λ2 > _floor_at(floor, i, j)) & (Ω > zero(T)), -Ω / (redundancy * λ2), -T(Inf))
     end
 end
 
@@ -226,4 +261,36 @@ function _sfop_lambda2_floor(s, sf, σl, σd, space, G::Vector{Float64}, signifi
     var *= (s / sf)^4
     ν = 2E^2 / var
     return E / 2 * quantile(Chisq(ν), significance_level) / ν
+end
+
+# The λ₂ floor of one level: `noise` the white noise's σ on the [0, 1] image (one floor), or each input pixel's
+# variance (a device matrix, H × W): the floor is linear in the noise variance (E and √Var of tr M̄ both scale with
+# it, ν not), so a pixel's floor is the unit-variance floor times the variance its window sees — the variance taken
+# on the octave's grid and averaged under the integration Gaussian G_σ, the weights of tr M̄ (each window's noise
+# locally white: the approximation).
+_sfop_floor(device, noise::Real, sf, σl, σd, space, G, significance_level) =
+    Float32(_sfop_lambda2_floor(noise, sf, σl, σd, space, G, significance_level))
+function _sfop_floor(device, sampled::AbstractArray, sf, σl, σd, space, G, significance_level)
+    unit = _sfop_lambda2_floor(1.0, sf, σl, σd, space, G, significance_level)
+    taps = ka_upload(Float32, device, reshape(G .* unit, :, 1))   # the unit floor folded into one axis' taps
+    return _separable_correlate(device, sampled, taps, ka_upload(Float32, device, reshape(G, :, 1)))
+end
+
+# The octave's noise: one σ as it is, or the input variance (H × W) sampled on the octave's grid (`_octave_variance!`).
+_octave_noise(device, noise::Real, sf, Wo, Ho) = noise
+function _octave_noise(device, variance::AbstractMatrix, sf, Wo, Ho)
+    sampled = KA.allocate(device, Float32, Wo, Ho, 1)
+    _launch!(_octave_variance!, device, sampled, variance, Float32(sf); ndrange = (Wo, Ho))
+    return sampled
+end
+
+@inline _floor_at(floor::Real, i, j) = floor
+@inline _floor_at(floor::AbstractArray, i, j) = @inbounds floor[i, j, 1]
+
+# The input variance (H × W, rows y) on an octave's grid (W_o × H_o, x first): the nearest input pixel to each octave
+# pixel's centre, `sf` input pixels per octave pixel.
+@kernel function _octave_variance!(out, @Const(v), sf::Float32)
+    i, j = @index(Global, NTuple)
+    H, W = size(v)
+    @inbounds out[i, j, 1] = v[clamp(round(Int, (j - 0.5f0) * sf + 0.5f0), 1, H), clamp(round(Int, (i - 0.5f0) * sf + 0.5f0), 1, W)]
 end

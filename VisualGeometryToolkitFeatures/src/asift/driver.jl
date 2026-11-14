@@ -1055,9 +1055,7 @@ function asift_detect!(
         boundary_K::Real = 3.0, uncertainty::Union{Nothing, FeatureCovariance} = nothing,
         refinement::Union{Nothing, ContinuousRefinement} = nothing
     )
-    polarity_sign = polarity === :none ? 0.0f0 : polarity === :dark ? 1.0f0 :
-        polarity === :light ? -1.0f0 :
-        throw(ArgumentError("polarity must be :none, :dark or :light"))
+    polarity_sign = _polarity_sign(polarity)
     nms in (:none, :mxm, :ellipse) ||
         throw(ArgumentError("nms must be :none, :mxm or :ellipse"))
     _check_nms_params(window_half, cutoff, band_octaves, band_reach)

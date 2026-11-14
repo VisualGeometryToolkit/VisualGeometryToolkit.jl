@@ -11,6 +11,9 @@
   search and the seeded windows. On the THORLABS chrome photographs the SFOP seeds between dots, on line artefacts
   and on letter strokes (F ≈ 1–3) were labelled circular; they are now unknown. Labels change wherever F lies
   between the two critical values; positions and covariances do not change.
+- **`detect_sfop(L::LinearRaw)` and the seeded `detect_foerstner(T, L::LinearRaw, seeds; sensor_model)`**, additive: SFOP on
+  a RAW's green cells (their values, the cell grid) and the seeded windows under the frame's sensor model, its covariance as
+  the image-wide call's on `L` (bit for bit at the same windows). RC's chrome evaluation detects its RAW sets this way.
 
 ## 0.9.3
 

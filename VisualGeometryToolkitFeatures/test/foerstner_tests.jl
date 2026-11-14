@@ -370,6 +370,30 @@ function foerstner_calibration(n, render, mc_summary; tile = 30, σn = 2.0, sett
 end
 end
 
+@testitem "detect_sfop and the seeded detect_foerstner on a LinearRaw: the green cells under the frame's sensor model" setup = [NoisyMosaic] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: LinearRaw, green_plane, value_of, Disc
+    using Statistics: cov
+    using Random: Xoshiro
+    using Test
+    # two bright dots in the green cells (photosite (i, j) at cell ((i + 1) ÷ 2, (j + 1) ÷ 2))
+    dot(i, j) = any(hypot((j + 1) ÷ 2 - a, (i + 1) ÷ 2 - b) < 3 for (a, b) in ((60.3, 58.7), (85.6, 81.2))) ? 6000.0 : 600.0
+    m = noisy_mosaic(Xoshiro(9), dot, 280, 280; electrons_per_dn = 2.5, read_dn = 3.0)   # 140 × 140 cells: SFOP's 3 octaves
+    model = pg_model(2.5, 3.0)
+    L = LinearRaw(m; mode = :green_cells, sensor_model = model)
+    x = Array(map(value_of, green_plane(L)))
+    # SFOP on the green cells' values, as on the matrix
+    seeds = detect_sfop(L; device = KA.CPU(), noise_sigma = 2.0)
+    @test isequal(collect(seeds), collect(detect_sfop(x; device = KA.CPU(), noise_sigma = 2.0))) && length(seeds) >= 2
+    # the seeded windows under the sensor model: the image-wide call's numbers at the same windows, the model's covariance with them
+    found = detect_foerstner(Float64, L; sensor_model = model, device = KA.CPU(), integration_sigma = 2.0)
+    again = detect_foerstner(Float64, L, [Detection(Disc(d.window, 2.0), (; precision = 1.0)) for d in found]; sensor_model = model, device = KA.CPU())
+    @test length(again) == length(found) && all(isequal(a, b) for (a, b) in zip(again, found))
+    @test any(d -> d.covariance_status === :propagated_measured, again)
+    rows = detect_foerstner(Float64, L, seeds; sensor_model = model, device = KA.CPU())
+    @test count(d -> d.label === :circular, rows) >= 2
+end
+
 @testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin
     n = 32
     for (_, r) in foerstner_calibration(n, render, mc_summary)

@@ -197,6 +197,7 @@ detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = n
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
                      noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
                      significance_level = 0.999) -> StructArray{<:Detection}
+    detect_foerstner(T, L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner operator's window estimation (steps 4–6 of the method above, its
 doubled resolution, its kernels) at GIVEN windows: one window per seed, centred
@@ -206,6 +207,10 @@ selected σ). The box window has the standard deviation σ, the estimation windo
 the half-width `⌈√(12(2σ)² + 1)/2⌉ + 1` doubled pixels, as `integration_sigma = σ`
 would give: SFOP's `N(σ) = 12σ² + 1` is the pixel count of the box of the same
 energy as its Gaussian `G_σ`. The image-wide window search (step 3) is not run.
+
+On a RAW's green cells (`L::LinearRaw`, positions on the cell grid; seeds from
+`detect_sfop(L)`) the frame's `sensor_model` gives the covariance as for the
+image-wide call on `L`.
 
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
 window, F; the F-test of each window at its own half-width's degrees of freedom), one per seed whose
@@ -218,6 +223,11 @@ detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detecti
 
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
     _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
+
+# The seeded windows on a RAW's green cells (positions on the cell grid), under the frame's sensor model as the image-wide call.
+detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
+                 kw...) where {T <: AbstractFloat} =
+    _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); seeds, kw...)
 
 # The values of a green plane: the plane itself, or each uncertain element's value (Core's `value_of`), whatever its
 # storage (a lazy view or a materialised one).

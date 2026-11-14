@@ -2,7 +2,7 @@
     "schema": "vgio/observations/v3.0",
     "generator": {
         "name": "VisualGeometryToolkitIO",
-        "version": "0.10.2"
+        "version": "0.10.3"
     },
     "units": {
         "length": "mm",

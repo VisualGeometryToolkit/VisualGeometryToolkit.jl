@@ -759,7 +759,7 @@
                     "iso"
                 ],
                 "additionalProperties": false,
-                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames, and a darks body's darks (at least one) of its source and of one size, their bands disjoint; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
+                "description": "the ISO is positive; a dark's exposure band runs from its shortest to its longest time, both positive, over at least 2 frames, and a darks body's darks (at least one) of its source and of one size, their bands disjoint, in increasing exposure; a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, x the column), listed once, its onset positive"
             }
         },
         "provenance": {

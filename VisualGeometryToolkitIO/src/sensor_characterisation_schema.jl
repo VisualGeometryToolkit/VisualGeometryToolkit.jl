@@ -41,7 +41,8 @@
 # only for a characterisation that holds a Darks and v1.0, IO 0.10.1's bytes,
 # otherwise (`_written_version`, owner ruling (a)), so an IO 0.10.1 reader reads
 # every file without one; a v1.0 file reads through its step, which only renames
-# the schema: its body is a v2.0 body as it stands.
+# the schema: its body is a v2.0 body as it stands. A v1.0 file is a version the
+# writer emits, so `vgio_migrate` has nothing to rewrite (no file form; IO 0.10.3).
 #
 # Per CFA colour index 0–3 (LibRaw's): `values[c + 1]`, codes. Times — a dark's
 # exposure band, a defect's onset (the shortest exposure at which it is hot) —
@@ -114,8 +115,10 @@ function _darks_problem(ds)
         p = _dark_problem(d); p === nothing || return p
     end
     allequal(d -> (d[:size][:width], d[:size][:height]), ds) || return "a darks body's darks are of one size"
-    bands = sort!([(Float64(d[:exposure_band][1]), Float64(d[:exposure_band][2])) for d in ds])
-    all(k -> bands[k][1] > bands[k - 1][2], 2:length(bands)) || return "a darks body's exposure bands are disjoint"
+    # listed in increasing band, as the writer writes them (Core's `Darks` stores them so): each band after the last
+    bands = [(Float64(d[:exposure_band][1]), Float64(d[:exposure_band][2])) for d in ds]
+    all(k -> bands[k][1] > bands[k - 1][2], 2:length(bands)) ||
+        return "a darks body's exposure bands are disjoint and listed in increasing exposure, got $(join(bands, ", "))"
     return nothing
 end
 function _noise_problem(n)
@@ -161,7 +164,7 @@ _sensor_characterisation_spec(black::_Spec, darks_rule::AbstractString; version:
     version,
 )
 const _SENSOR_CHARACTERISATION_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT,
-    ", and a darks body's darks (at least one) of its source and of one size, their bands disjoint"; version = (2, 0))
+    ", and a darks body's darks (at least one) of its source and of one size, their bands disjoint, in increasing exposure"; version = (2, 0))
 const _SENSOR_CHARACTERISATION_V1_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT_V1, ""; version = (1, 0))   # IO 0.10.1's table
 
 # ----------------------------------------------------------------------------- writing
@@ -226,7 +229,7 @@ end
 # The version a characterisation is written at, by what its entries' black slots hold (owner ruling (a), IO 0.10.2):
 # v2.0 when one holds a Darks (v2's darks body), else v1.0, IO 0.10.1's very bytes, which an IO 0.10.1 reader reads.
 _written_version(c::SensorCharacterisation) = maximum((_black_version(e.black) for e in values(c.entries)); init = (1, 0))
-_black_version(::VgtkCore.Darks) = _schema_version("sensor_characterisation")
+_black_version(::VgtkCore.Darks) = (2, 0)   # the version that added the darks body (not the current one: a later major moves it)
 _black_version(::VgtkCore.BlackComponent) = (1, 0)
 
 # ----------------------------------------------------------------------------- reading
@@ -285,21 +288,24 @@ end
 # ----------------------------------------------------------------------------- the v1.0 step
 
 # v1.0 (IO 0.10.1) → v2.0, on read: the body is unchanged (v2 only added the "darks" body), so the step renames the
-# schema and states the current generator. Its file form (`vgio_migrate`) rewrites the file as the writer writes it
-# now: v1.0 again for a record without a Darks (its bytes, the generator aside), so it changes no version.
+# schema and states the current generator. There is no file form: v1.0 is a version the writer emits (for a record
+# without a Darks), so a v1.0 file is current and `vgio_migrate` has nothing to rewrite (IO 0.10.3; 0.10.2's file
+# form wrote a Dark's rasters into the staging directory, removed once the file was renamed into place).
 function _sensor_characterisation_v1_to_v2(t::AbstractDict)
-    # v1.0 has no darks body: a file of that version holding one is no v1.0 file (an IO 0.10.1 reader refuses it)
-    any(e -> e isa AbstractDict && get(get(e, "black", Dict()), "type", nothing) == "darks", get(t, "entries", ())) &&
-        throw(ArgumentError("a v1.0 entry's black is a channel black or a dark: a darks body is v2.0's"))
+    for e in get(t, "entries", ())
+        e isa AbstractDict && haskey(e, "black") || continue
+        b = e["black"]
+        b isa AbstractDict || throw(ArgumentError("a v1.0 entry's black is an object with a `type` (channel or dark), got $(repr(b))"))
+        # v1.0 has no darks body: a file of that version holding one is no v1.0 file (an IO 0.10.1 reader refuses it)
+        get(b, "type", nothing) == "darks" && throw(ArgumentError("a v1.0 entry's black is a channel black or a dark: a darks body is v2.0's"))
+    end
     n = Dict{String, Any}(String(k) => v for (k, v) in t)
     n["schema"] = _schema("sensor_characterisation")
     n["generator"] = _lower(_generator_json())
     return n
 end
-migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, t::AbstractDict) = _sensor_characterisation_v1_to_v2(t)
-function migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, src::AbstractString, dst::AbstractString)
-    c = load(SensorCharacterisation, src)
-    save(dst, c; provenance = _provenance_of(_raw_tree(src)))
-    _verify(load(SensorCharacterisation, dst) == c, src, "the sensor characterisation")
-    return (; to = _schema("sensor_characterisation", _written_version(c)))
+# The step of the major, keyed for every v1 minor read: "v1.0" (IO 0.10.1's) and "v1", the same version by
+# `_split_schema` (a schema without a minor is minor 0).
+for s in ("vgio/sensor_characterisation/v1", "vgio/sensor_characterisation/v1.0")
+    @eval migrate_schema(::Val{Symbol($s)}, t::AbstractDict) = _sensor_characterisation_v1_to_v2(t)
 end

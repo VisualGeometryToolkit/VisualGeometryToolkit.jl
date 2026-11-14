@@ -1,5 +1,60 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.3
+
+A patch: no API change, no schema change; no file is written differently, but where IO 0.10.2 returned the nearest
+number for a length no number of its unit has the identity of (no length unit; see below).
+
+### Fixed
+
+- **A migration's length comparison accepts the length's persisted identity.** `same_value`, and the third-party
+  conversions' pose check (`_same_pose`, `_same_metres`), accepted a length within 2 ulp only; IO 0.10.1's writer
+  writes a computed length no file number reads back to as its persisted form (the metre value at 15 significant
+  digits, `_persisted`), which reads back up to ~22 ulp off. They now also accept the same persisted identity
+  (`length_ulps = 0` stays bit for bit). `convert_matlab_calibration` of a fisheye export with a stretch and many
+  poses no longer throws "does not read back".
+- **A version a writer emits is current to the tree migration.** `vgio_migrate_tree`'s `_is_current` accepted the
+  kind's current major only, so a `vgio/sensor_characterisation/v1.0` file (written for a characterisation without a
+  `Darks`) was rewritten beside itself, and a second run refused the existing `.migrated.json` and migrated it again
+  (`foo.migrated.migrated.json`). It now accepts every version in `_written_versions(kind)`: such a file is logged
+  `current` and a rerun is idempotent. `vgio_migrate` of such a file is an `ArgumentError`, "nothing to migrate".
+- **The v1.0 sensor characterisation file form is removed.** `migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, src, dst)`
+  wrote a Dark's rasters into the staging directory, which is removed once the file is renamed into place: a file
+  migrated to another directory had no rasters. A v1.0 file is current (above), so it has nothing to migrate; its
+  read step stays.
+- The v1 read step is keyed for every v1 minor read, `vgio/sensor_characterisation/v1` and `…/v1.0` (one version by
+  `_split_schema`; `schema_versions` lists it once, with its minor).
+- A v1.0 sensor characterisation whose `black` is not an object is an `ArgumentError` from its step (was a
+  `MethodError` from `migrate_record`).
+- The validator requires a darks body's darks in increasing band, as the writer writes them (it accepted any order).
+- `_black_version(::Darks)` is `(2, 0)`, the version that added the darks body, not the kind's current version.
+- `write_length` (and every writer's length) in a unit that is not a power of ten refuses, with an `ArgumentError`
+  naming the length and the unit, a length no number of the unit has the identity of, instead of returning the
+  nearest number (no length unit has such a length; a unit in which its numbers are subnormal does). Its docstring
+  states the last resort of a non-decimal unit (inch, ft, pt): the number that reads back to the persisted value,
+  else the fewest digits with the length's identity.
+
+### Docs
+
+- The persisted-identity rule of a length ("or its persisted form") is stated once, in VisualGeometryToolkitCore's
+  `conventions/units.md` ("What is exact"); IO's conventions page points at it.
+- kinds.md's "Written" column is generated from `_written_versions` (both sensor characterisation versions), as
+  json-schemas.md's list is; schemas.md states that a file of a written version is current.
+
+### Tests
+
+- New (failing on 0.10.2): a 50-pose fisheye MATLAB export with a stretch converts
+  (`convert_matlab_calibration_tests.jl`); a tree holding a v1.0 characterisation migrates idempotently, a v1.0 file
+  holding a Dark is never rewritten without its rasters, a `v1` schema reads, a non-dict black and darks out of band
+  order are refused (`sensor_characterisation_schema_tests.jl`); a length with no number of its unit's identity is
+  refused (`lengths_tests.jl`); the docs generate the written versions and state the rule in Core
+  (`docs_tests.jl`).
+- The 200 000-value batch of `length_persisted_tests.jl` runs only with `VGTK_BENCHMARK_TESTS=1`; the default suite
+  checks the same claims on 2 000 values.
+- Restated: the v1.0 test's `vgio_migrate` now refuses (nothing to migrate) instead of rewriting.
+- The fifteen fixtures a writer reproduces byte for byte name their generator 0.10.3; the published
+  `sensor_characterisation/v2.0.json` states the darks' increasing band in its rule.
+
 ## 0.10.2
 
 A patch: one kind gains a major version for a new form, written only for a record that holds it; every other file is

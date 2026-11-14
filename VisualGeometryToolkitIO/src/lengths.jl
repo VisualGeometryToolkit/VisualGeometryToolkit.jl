@@ -26,7 +26,8 @@
 # (`_read_power` / `_write_power`). Other units (inch, ft, pt) have no decimal
 # shift: reading multiplies by the unit's scale, and writing prints the
 # fewest significant digits that read back to the identical quantity (a
-# computed value the scale's grid skips is written within an ulp).
+# computed value the scale's grid skips: the number that reads back to its
+# persisted value, else the fewest digits with its identity; none, refused).
 #
 # What is exact, and what cannot be. A file number of at most 15 significant
 # digits reads and writes back to its own text, so a file written by a person
@@ -136,7 +137,7 @@ _read_scaled(v::Float64, scale::Float64, k, n::Int) = k === nothing ? v * scale^
 # (mⁿ) — the one whose `_read_power` is `y` itself whenever there is one.
 function _write_power(y::Float64, u::Units, n::Int)
     n == 0 && return y
-    return _write_scaled(y, _length_scale(u), n)
+    return _write_scaled(y, _length_scale(u), n, u)
 end
 # What a writer writes for a value NO file number reads back to (a computed, full-precision value; about one metre
 # value in eight in mm), by dispatch on the policy:
@@ -149,8 +150,9 @@ end
 #   form), whose millimetre numbers are the ones 0.9's `_persisted` read back.
 struct _PersistedLastResort end
 struct _NearestLastResort end
-_write_scaled(y::Float64, scale::Float64, n::Int) = _write_scaled(_PersistedLastResort(), y, scale, n)
-function _write_scaled(policy, y::Float64, scale::Float64, n::Int)
+# (`unit`, the unit's name for a refusal: a `Units`, or `nothing` where only its scale is known)
+_write_scaled(y::Float64, scale::Float64, n::Int, unit = nothing) = _write_scaled(_PersistedLastResort(), y, scale, n, unit)
+function _write_scaled(policy, y::Float64, scale::Float64, n::Int, unit = nothing)
     k = _decimal_exponent(scale)
     back(c) = _read_scaled(c, scale, k, n) === y    # `_read_power(c, u, n) === y`
     if k !== nothing
@@ -176,14 +178,14 @@ function _write_scaled(policy, y::Float64, scale::Float64, n::Int)
     for j in 1:3, c2 in (prevfloat(value, j), nextfloat(value, j))
         back(c2) && return c2
     end
-    return _scaled_last_resort(policy, value, y, scale, k, n)
+    return _scaled_last_resort(policy, value, y, scale, k, n, unit)
 end
 # A decimal unit: the persisted value's own decimal, which reads back as exactly the persisted value.
 _decimal_last_resort(::_PersistedLastResort, c, y, k, n) = _shift_exponent(_persisted(y, n), -n * k)
 _decimal_last_resort(::_NearestLastResort, c, y, k, n) = c
 # Another unit (the scale's grid skips `y`): the number that reads back to `y`'s persisted value itself, when one
 # does (so a rewrite, which targets that value, finds the same number); else the fewest digits with `y`'s identity.
-function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
+function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n, unit)
     p = _persisted(y, n)
     c = _write_scaled(_NearestLastResort(), p, scale, n)
     _read_scaled(c, scale, k, n) === p && return c
@@ -198,7 +200,11 @@ function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
     for j in 1:3, c2 in (prevfloat(vp, j), nextfloat(vp, j))
         same_identity(c2) && return _rewrite_number(c2, scale, k, n)
     end
-    return value          # within an ulp (no number of this unit has `y`'s identity: not seen)
+    # no number of this unit has `y`'s identity (no length unit seen: a unit whose numbers of `y` are subnormal):
+    # refused, never the nearest number, whose identity is another length's
+    throw(ArgumentError("the length $(repr(y)) m$(n == 1 ? "" : "^$(n)") has no number in " *
+        "$(unit === nothing ? "the unit of $(repr(scale)) m" : "`$(unit_string(unit))`")$(n == 1 ? "" : "^$(n)") that reads back to it " *
+        "or to its persisted identity (its metre value at 15 significant digits): write it in another unit"))
 end
 # The number a rewrite of `c`'s value writes: the exact search's for that value when it has one, else `c` (whose
 # value's rewrite comes back to this last resort, and to `c`). So write ∘ read ∘ write is write.
@@ -207,7 +213,7 @@ function _rewrite_number(c, scale, k, n)
     e = _write_scaled(_NearestLastResort(), r, scale, n)
     return _read_scaled(e, scale, k, n) === r ? e : c
 end
-_scaled_last_resort(::_NearestLastResort, value, y, scale, k, n) = value
+_scaled_last_resort(::_NearestLastResort, value, y, scale, k, n, unit) = value
 
 """
     read_length(x::Real, u::Units) -> Quantity
@@ -241,11 +247,18 @@ millimetres), the number written reads back as `q`'s PERSISTED value, its metre
 value at 15 significant digits (the value [`content_id`](@ref) hashes): either
 way the length, the file written from it and the length loaded back have one
 identity, and a rewrite is byte for byte (IO 0.10.1; 0.10.0 wrote the nearest
-number, an ulp off, whose identity could differ). A power-of-ten unit shifts
-the decimal exponent of the metre value; any other unit takes the fewest
-significant digits (1 to 17) that `read_length` maps back to the identical `q`.
-NaN and ±Inf are written as they are. An `ArgumentError` for a unit that is not
-a length, or a quantity that is not one.
+number, an ulp off, whose identity could differ). A power-of-ten unit (`mm`,
+`cm`, `μm`, `m`, `km`) shifts the decimal exponent of the metre value, and its
+last resort is the decimal of the persisted value. Any other unit (`inch`, `ft`,
+`pt`) takes the fewest significant digits (1 to 17) that `read_length` maps back
+to the identical `q`, else a neighbouring number that does; its last resort is
+the number that reads back to `q`'s persisted value exactly when one does, else
+the fewest digits whose value read back has `q`'s identity, and when no number of
+the unit has it (a unit in which the length's numbers are subnormal; no length
+unit) an `ArgumentError` naming the length and the unit (IO 0.10.3; 0.10.2
+returned the nearest number). The rule is VisualGeometryToolkitCore's
+`conventions/units.md` ("What is exact"). NaN and ±Inf are written as they are.
+An `ArgumentError` for a unit that is not a length, or a quantity that is not one.
 
 The search is not a conversion and stays: FlexUnits' `ustrip(u, q)`, even
 correctly rounded, gives back the file's own number for only about three
@@ -256,7 +269,7 @@ function write_length(q::Quantity, u::Units)
     scale = _length_scale(u)
     dimension(q) == dimension(m) ||
         throw(ArgumentError("a file length needs a length quantity, got dimension $(dimension(q))"))
-    return _write_scaled(Float64(ustrip(m, q)), scale, 1)
+    return _write_scaled(Float64(ustrip(m, q)), scale, 1, u)
 end
 
 # The PERSISTED form of a plain base-unit number (a length in metres, a

@@ -17,3 +17,17 @@
     using VisualGeometryToolkitCore: test_docs
     test_docs(VisualGeometryToolkitIO)     # every list empty: a new exception takes Core's docs_tests.jl form
 end
+
+# IO 0.10.3: the versions written, in kinds.md, are generated from `_written_versions` (as json-schemas.md's list is),
+# and the rule of a length's persisted identity is stated once, in VisualGeometryToolkitCore's conventions/units.md.
+@testitem "docs: the versions written are generated; the persisted-identity rule is Core's" begin
+    import VisualGeometryToolkitIO as VgtkIO
+    import VisualGeometryToolkitCore as VgtkCore
+    guide = joinpath(pkgdir(VgtkIO), "docs", "src", "guide")
+    kinds = read(joinpath(guide, "kinds.md"), String)
+    @test occursin("_written_versions(r.kind)", kinds)
+    units = read(joinpath(pkgdir(VgtkCore), "conventions", "units.md"), String)
+    exact = something(match(r"\*\*What is exact\.\*\*(.*?)\n\n"s, units))[1]
+    @test occursin("persisted", exact) && occursin("15 significant", exact)
+    @test occursin("conventions/units.md", read(joinpath(guide, "conventions.md"), String))
+end

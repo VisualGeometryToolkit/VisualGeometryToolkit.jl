@@ -1,3 +1,71 @@
+docs-pass: 0ca7ef45
+
+# VisualGeometryToolkitEstimation 0.11.4 docs pass (julia-docs-pass) — branch patch-est0114
+
+Baseline: GitHub main 5f02071c (Estimation 0.11.3), with main 57294039 (Core 0.10.6) merged at 0ca7ef45 (the gated tree)
+and main 29d7492e (Features 0.9.5) at 3b189019 (Estimation and Core identical to 0ca7ef45; the whole-repo prep re-run
+there). The owner-approved rule: a zero-weight row is exactly 0, in ONE place. Core's chart LM never reads √w
+(`ManifoldLmWorkspace.sqrtw`, "filled by Estimation's refits"); every chart refit of a RANSAC problem's model — the LO's
+`refine!` (`_refine!(::NonlinLsq)`), a `refine_*`'s least squares and its Triggs, the Triggs LO — runs Estimation's
+`_chart_refit`, which fills √w and builds the state. The rule lives there.
+
+## 1. Public API since 0.11.3
+
+- **Added / removed:** nothing. Exports unchanged.
+- **Behaviour:** every chart refit runs on `_ZeroWeightRows` (one state type per workspace: Core's kept LM run is never
+  rebuilt): rows and Jacobian rows at a zero √w are exactly 0, a row at a nonzero √w the problem's own, bit for bit; a
+  refit with no zero √w overwrites nothing (a flag found once per refit; nothing allocated).
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | `docs` item green (gate CPU group 2, depwarn=yes group 12) |
+| `checkdocs = :public`, doctests, cross-references | Estimation docs 17562: strict build green |
+| README and landing page | unchanged |
+| guides | ransac.md, M-step dispatch: "A zero-weight row is exactly 0" |
+| docstrings / comments | `_chart_refit` (the rule; one state type), `_ZeroWeightRows` (its scope), the Triggs LO's `locally_optimize!` (its `0·Inf` note retired) |
+| check_naming | 0 in the preps (17558, 17678) |
+| CHANGELOG | Estimation `## 0.11.4`: Fixed (the zero-weight row rule; PnP and bearing pose rows already finite) |
+| version | Estimation 0.11.4; Core compat unchanged ("0.10.0") |
+
+Review findings recorded, not fixed (next patches): LocalOptimizationDoneRight's lift rows (`rows_provider`, unit √w,
+weighed by LODR) and the LMs with their own states (`refine_camera`, the relative-pose bundle, `refine_camera_and_poses`)
+are outside the rule; a state that overrides Core's cost or normal-equation reductions must not run through
+`_chart_refit` (none does); `_zero_nonfinite_weights!` (0.11.2) now duplicates Core 0.10.6's `_posterior_pair` NaN
+guard — kept, since removing it needs Core floor "0.10.6" and its own instrumented proof; the rows at a zero weight
+are still evaluated before they are overwritten (a source-level skip would touch every problem's rows). The bearing
+pose caller-weight fold was dropped: its rows are `√w·sw·e`, finite for every input the problem accepts, so the fold
+changed nothing.
+
+## 3. Executed on 0ca7ef45
+
+Julia 1.13.3, fresh clones, nice 0, the per-agent depot (`depot-rows0`; General a GitHub clone, `JULIA_PKG_SERVER=""`):
+
+| gate | job | result |
+|---|---|---|
+| prep | 17558 (3b189019: 17678) | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0, upstream duplication 0 |
+| CPU (--depwarn=error) | 17559 | groups 1–10 green: 8,893 pass, 2 broken, 8,895 total |
+| CPU (--depwarn=yes) | 17560 | groups 11–20 green: 8,893 pass, 2 broken, 8,895 total |
+| GPU | 17561 | group 21 green: 66 pass |
+| docs | 17562 | green |
+
+Red → green: 17507 / 17538 (the final tests on 0.11.3's code: ellipse, the Triggs LO, hand-eye red; the PnP, bearing pose
+and `refine_absolute_pose` guards green, "not reachable as red") → 17508, 17539 (green; 17539 with the allocation items
+of ransac_ellipse/circle/rotation and p3p).
+
+"Nothing else moved" (instrumented scratch clones: every chart refit with whether a zero-weight row is non-finite at the
+anchor, every posterior-IRLS and Triggs LO call; the suite and the LO bench): old 57294039 (17544/17545, again
+17546/17547) vs new 0ca7ef45 (17563/17564). Every chart refit and LO call of the existing suite identical (36,000+;
+chart-ls and chart-robust of every problem, Triggs, Irls); the only new outcomes are the new item's calls (the ellipse,
+hand-eye and Triggs-LO red cases — non-finite zero-weight rows — and the 3 PnP/bearing guards). Group 9's homography
+and TLS calls are not run-to-run deterministic on the baseline (old vs old: 180 and 73 unmatched; old vs new 152/61 and
+184/72). The instrumented clones fail the allocation items on both sides (the logger allocates).
+
+LO bench, uninstrumented, pinned to one core, old/new alternated in one job (17661), µs per call over 3 rounds:
+Welsch-IRLS old 364.8 / 383.4 / 373.0, new 371.6 / 391.0 / 374.8 (+1.4% mean, within the old rounds' 5% spread);
+GM-IRLS old 330.9 / 322.1 / 325.9, new 324.6 / 323.6 / 329.3 (equal). Bytes per call 8,480 both.
+
 docs-pass: b8e1f41c
 
 # VisualGeometryToolkitFeatures 0.9.5 docs pass (julia-docs-pass) — branch patch-feat095c

@@ -144,10 +144,8 @@ finite weighs 0 under every shape — its row would make the LM's cost infinite
 at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
 the scorer's consensus set `cs`. The weights are fixed at the seed for the whole
 LM (a datum an LM increment puts out of reach keeps its weight; the increment's cost is
-non-finite and it is rejected). A zero weight gives a zero row wherever the
-problem's row is finite (Core's Sampson rows give a degenerate element a zero
-row); a row that is itself non-finite in Float64 stays non-finite at weight 0
-(`0·Inf`), as for every chart refit.
+non-finite and it is rejected). A zero weight gives an exactly zero row
+whatever the problem's row is (`_chart_refit`'s zero-weight row rule).
 """
 function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     check_fresh(cs, buf)
@@ -195,15 +193,63 @@ end
 # chart-LM workspace from `ws` (the one reuse policy, `_lm_workspace`), ONE `lmsolve_chart!` at Core's stop settings
 # (`LmStops()`, its `[lm]` table), robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
 # `recenter` and read as a model (`_model_at`). Returns `(model, (code, rule), iterations)`, the model `nothing` when
-# the solve went non-finite.
+# the solve went non-finite. A ZERO-WEIGHT ROW IS EXACTLY 0: a row whose √w is 0 (a datum the caller or the problem's
+# own state weighs 0) and its Jacobian row are set to 0 whatever the problem's row is, so a datum whose residual is
+# Inf or NaN in Float64 cannot reach the LM as 0·Inf = NaN (`_ZeroWeightRows`). Every run is wrapped — ONE state type
+# per workspace, so Core's kept NLLSsolver run (keyed by the state type) is never rebuilt when a refit's weights gain
+# or lose a zero — and a row at a nonzero √w is the problem's own, bit for bit; a refit with no zero √w only finds
+# that it has none, once.
 function _chart_refit(ws, problem, ch, state, weights; robustifier = nothing, stops::LmStops = LmStops())
     rows, dof = _lm_size(problem)
     ews = _lm_workspace(ws, rows, dof)
     weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
         fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(problem), rows ÷ data_size(problem))
-    lm = state(problem, ch, sqrt_weights(ews))
+    # after the state: a problem's own state may zero √w (PnP's out-of-reach anchor points, bearing pose's caller weights)
+    lm = _ZeroWeightRows(state(problem, ch, sqrt_weights(ews)), sqrt_weights(ews), rows)
     x, _, _, n_iter, record = robustifier === nothing ? lmsolve_chart!(ews, lm, stops) :
         lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem)), stops)
     any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), n_iter
     return _model_at(problem, recenter(ch, x)), record, n_iter
+end
+
+# =============================================================================
+# The zero-weight row rule — `_chart_refit`'s, for every chart refit of a RANSAC problem's model (the LO's `refine!`,
+# a `refine_*`'s least squares and its Triggs, the Triggs LO). Outside it: the lift's rows (`rows_provider`, unit
+# √w; LocalOptimizationDoneRight weighs them), and the LMs with their own states (`refine_camera`, the bundles).
+# =============================================================================
+
+# A chart-LM state whose rows (and Jacobian rows) at a zero √w are exactly 0: the
+# inner state's rows, then every row `j` with `sqrtw[j] == 0` overwritten with 0.
+# The rows at a nonzero √w are the inner state's, untouched. It answers the
+# chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`); Core's
+# cost and normal-equation reductions read the rows through it.
+# Whether any row is at a zero √w is found once, at construction (`any_zero`: a refit with
+# none skips the overwrite; nothing is allocated). Core's cost and
+# normal-equation reductions are its defaults over these rows: a state that
+# overrides them (a device state, `refine_camera`'s) runs its own LM, not
+# `_chart_refit`.
+struct _ZeroWeightRows{L}
+    lm::L
+    sqrtw::Vector{Float64}
+    any_zero::Bool
+end
+_ZeroWeightRows(lm, sqrtw::Vector{Float64}, rows::Int) = _ZeroWeightRows(lm, sqrtw, any(iszero, view(sqrtw, 1:rows)))
+
+function residual_rows!(r, s::_ZeroWeightRows, x)
+    residual_rows!(r, s.lm, x)
+    s.any_zero || return r
+    sw = s.sqrtw
+    @inbounds for j in eachindex(r)
+        iszero(sw[j]) && (r[j] = zero(eltype(r)))
+    end
+    return r
+end
+function residual_jacobian_rows!(J, s::_ZeroWeightRows, x)
+    residual_jacobian_rows!(J, s.lm, x)
+    s.any_zero || return J
+    sw = s.sqrtw
+    @inbounds for k in axes(J, 2), j in axes(J, 1)
+        iszero(sw[j]) && (J[j, k] = zero(eltype(J)))
+    end
+    return J
 end

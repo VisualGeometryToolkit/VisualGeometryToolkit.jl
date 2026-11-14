@@ -251,7 +251,7 @@ function detect_foerstner(
 end
 
 # The seeded call's keywords are its own: the image-wide search's are not read at given windows, and a caller who
-# passes one expects an effect it cannot have.
+# gives one expects an effect it cannot have.
 _refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
     "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read at given windows (the image-wide " *
     "search's keywords; each window's scale is its seed's σ): the seeded call takes device, noise (sensor_model on a " *

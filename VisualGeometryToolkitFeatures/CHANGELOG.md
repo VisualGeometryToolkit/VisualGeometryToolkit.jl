@@ -40,7 +40,7 @@ A patch: `detect_foerstner`'s F-test at the effective degrees of freedom (a labe
   `MethodError` of `detect_foerstner` (it was one of `characteristic_scale`, inside the call).
 - **`detect_image_circle`: the same outputs, faster** (bit for bit, checked on every real set, the synthetic field stop
   and a flat image against 0.9.3's code): the bin median of a bin of more than 32 samples by a radix selection (O(m)
-  passes, no scratch, every backend) instead of the O(m²) rank count, the same two order statistics bit for bit; the
+  sweeps, no scratch, every backend) instead of the O(m²) rank count, the same two order statistics bit for bit; the
   saturation mask's warp skipped when no pixel is saturated (its samples are all 0); the empirical noise's drop noise
   at unit pixel noise computed once per bin row count, not once per angle.
 - **`detect_image_circle`'s docs say what the code does** (no code change): a bin more than half saturated is FLAGGED

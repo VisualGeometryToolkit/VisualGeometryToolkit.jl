@@ -131,7 +131,7 @@ _model_radius(model, u) = 1 / norm(AffineMap(model).linear \ u)
     @inbounds code[a, j] = off ? UInt8(1) : (2 * nsat > m ? UInt8(2) : UInt8(0))
     _rim_bin_meanvar!(meanvar, vars, a, j, lo, hi, m, off)
 end
-# The bin sizes the rank count takes (its m² comparisons against the selection's ~35 passes of m).
+# The bin sizes the rank count takes (its m² comparisons against the selection's ~35 sweeps of m).
 const _RANK_COUNT_MAX = Int32(32)
 
 # The order statistics m1 and m2 (1-based ranks) of the samples `samples[lo:hi, j]` (none NaN), each the LAST sample
@@ -157,7 +157,7 @@ const _RANK_COUNT_MAX = Int32(32)
 end
 
 # The same two samples by selection: the value of rank m1 by a radix select on the samples' order-preserving integer
-# keys (one counting pass per bit, `_order_key`), the value of rank m2 = m1 or m1 + 1 from it (itself when at least m2
+# keys (one counting sweep per bit, `_order_key`), the value of rank m2 = m1 or m1 + 1 from it (itself when at least m2
 # samples are ≤ it, else the smallest sample above it), each taken back to the last sample equal to it, as the rank
 # count does. No scratch, no recursion: every backend.
 @inline function _bin_order_stats_select(samples, lo, hi, j, m1, m2)

@@ -244,7 +244,8 @@ samples. Under white input noise each residual sum is a quadratic form of the
 input pixels, `Ω = Iᵀ Q I`, so `E[Ω] = σₙ² tr Q`, `Var Ω = 2σₙ⁴ tr Q²`, and its
 effective degrees of freedom (Satterthwaite) are `ν = (tr Q)²/tr Q²`. The
 gradient's components are separable (the rows' and the columns' one-axis
-operators), so `ν` is exact and costs O(ρ²) per window half-width. The test now
+operators), so `ν` costs O(ρ²) per window half-width; the sums are taken about the window
+centre, neglecting the estimate's two parameters (about 2 of ν), which keeps the test conservative. The test now
 uses `F(ν_corner, ν_circular)` at the same `significance_level`.
 
 | ρ (doubled px) | integration σ (input px) | redundancy | ν_corner | ν_circular | F(ν, ν) at 0.999 |

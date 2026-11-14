@@ -121,8 +121,8 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
    `1 − significance_level` quantile, a circular point above the
    `significance_level` quantile, unknown in between. `ν = (tr Q)²/tr Q²`
    (Satterthwaite), `Ω = Iᵀ Q I` the residual sum as a quadratic form of the
-   input pixels under white noise, exact for the window's half-width and the
-   derivative taps (difference 4 below).
+   input pixels under white noise, for the window's half-width and the
+   derivative taps, about the window centre (difference 4 below).
 6. With `noise` given, the covariance is propagated instead (not in the
    reference): the estimate `x̂ = N⁻¹ b` moves, by the implicit-function theorem,
    by `δx̂ = N⁻¹ Σₚ A(p) δ∇g(p)` with `A(p) w = (vᵀe) R w + v eᵀ R w`, `v = R∇g`,
@@ -403,7 +403,7 @@ function _foerstner_estimates(device, gamma::AbstractArray{T, 3}, centres, ρ) w
         _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, radii; ndrange = length(centres))
     KA.synchronize(device)
     return (;
-        centres, estimates = Float64.(Array(device_estimates)), ρ = radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,
+        centres, estimates = Float64.(Array(device_estimates)), ρ, radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,   # ρ on the host, radii on the device
         centre_list, device_estimates,
     )
 end
@@ -462,8 +462,10 @@ end
 # (`_pipeline_bands` of `taps`, `_propagated_covariances`' convention: ∂/∂row reads (derivative, across), ∂/∂column
 # (across, derivative)) — so their covariance is `K_ss′(p, p′) = Kr_ss′(r, r′)·Kc_ss′(c, c′)`, and with `aₚ` linear in
 # one coordinate each `aₚᵀ K(p, p′) aₚ′` is a sum of four products `f_t(r, r′)·g_t(c, c′)`: `tr Q = Σ_t tr f_t tr g_t`,
-# `tr Q² = Σ_tu ⟨f_t, f_u⟩⟨g_t, g_u⟩`, exact, O(ρ²). Interior windows (every window is inside the image); the
-# doubling's phase changes ν by < 1e-5 relative, so the window is centred on an even doubled pixel.
+# `tr Q² = Σ_tu ⟨f_t, f_u⟩⟨g_t, g_u⟩`, O(ρ²). The sums are about the window centre: the estimate's two parameters, which the
+# detector's Ω removes, are neglected (about 2 of ν; Monte Carlo on white noise: Ω_corner's measured ν 89 against 89.8, Ω_circular's
+# 77 against 87, the latter line 423's sum — the test is conservative). Interior windows (every window is inside the image); the
+# doubling's phase (the centre's parity) changes ν by < 1e-5 relative, so the centre's parity is whichever n gives.
 # Returns `(; corner = (; ν, E), circular = (; ν, E))`, `E = tr Q`.
 function _residual_dof(taps::AbstractMatrix, ρ::Integer)
     r = size(taps, 1) ÷ 2
@@ -558,7 +560,7 @@ end
 # (on the device of `found`), through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
 function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
-    (; centres, ρ, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
+    (; centres, radii, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
     H, W = size(variance)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
@@ -568,7 +570,7 @@ function _propagated_covariances(device, found, classes, variance::AbstractMatri
     out = KA.allocate(device, T, 4, K)
     _launch!(
         _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, centre_list, device_estimates,
-        ka_upload(Int8, device, classes), rows, columns, ρ, Int32(size(taps, 1) ÷ 2); ndrange = K
+        ka_upload(Int8, device, classes), rows, columns, radii, Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
 end

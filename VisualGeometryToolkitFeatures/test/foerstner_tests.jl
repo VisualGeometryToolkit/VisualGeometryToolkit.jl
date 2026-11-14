@@ -407,6 +407,7 @@ end
 # functional CUDA device (CUDA_VISIBLE_DEVICES=0); records a skip otherwise.
 @testitem "detect_foerstner: CUDA matches the CPU" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
+    import VisualGeometryToolkitCore
     using LinearAlgebra: norm
     using Statistics: cov
     cuda = try
@@ -427,7 +428,14 @@ end
             @test length(c) == length(g) && [d.label for d in c] == [d.label for d in g]
             @test any(d -> d.label === :corner, c)
             @test maximum(norm(a.center - b.center) for (a, b) in zip(c, g)) < tol
-            @test maximum(maximum(abs.(cov(a.value) .- cov(b.value)) ./ abs.(cov(a.value))) for (a, b) in zip(c, g)) < sqrt(tol)
+            # the covariances of the classified rows (an :unknown row has none: NaN)
+            @test maximum(maximum(abs.(cov(a.value) .- cov(b.value)) ./ abs.(cov(a.value))) for (a, b) in zip(c, g) if a.label !== :unknown) < sqrt(tol)
+            # the seeded windows, one half-width per seed (the F-test reads them on the host)
+            seeds = [Detection(VisualGeometryToolkitCore.Disc(d.window, σ), (; precision = 1.0)) for (d, σ) in zip(c, Iterators.cycle((2.0, 3.0)))]
+            cs = detect_foerstner(T, img, seeds; device = KA.CPU(), noise)
+            gs = Base.invokelatest(detect_foerstner, T, img, seeds; device = backend, noise)
+            @test length(cs) == length(gs) && [d.label for d in cs] == [d.label for d in gs]
+            @test maximum(norm(a.center - b.center) for (a, b) in zip(cs, gs) if a.label !== :unknown) < tol
         end
     end
 end

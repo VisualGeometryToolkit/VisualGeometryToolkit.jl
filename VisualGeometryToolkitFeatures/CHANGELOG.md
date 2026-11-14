@@ -7,7 +7,8 @@
   count less 2, as if the doubled, derivative-filtered samples were independent; at that count the test's level was not
   the stated one (on white noise 20 % of the windows labelled circular and 25 % corner at 0.999). It is now tested
   against `F(ν_corner, ν_circular)`, each `ν = (tr Q)²/tr Q²` (Satterthwaite) of the residual sum as the quadratic
-  form `Iᵀ Q I` of the input pixels, exact per window half-width (ν ≈ 87 against 2023 at σ = 6). Both the image-wide
+  form `Iᵀ Q I` of the input pixels about the window centre, per window half-width (ν ≈ 87 against 2023 at σ = 6; the estimate's two
+  parameters neglected, a conservative test). Both the image-wide
   search and the seeded windows. On the THORLABS chrome photographs the SFOP seeds between dots, on line artefacts
   and on letter strokes (F ≈ 1–3) were labelled circular; they are now unknown. Labels change wherever F lies
   between the two critical values; positions and covariances do not change.

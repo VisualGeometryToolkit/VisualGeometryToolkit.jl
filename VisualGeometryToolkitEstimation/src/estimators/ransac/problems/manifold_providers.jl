@@ -143,7 +143,7 @@ datum): a datum whose residual at `model` (`buf.residuals` on entry) is not
 finite weighs 0 under every shape — its row would make the LM's cost infinite
 at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
 the scorer's consensus set `cs`. The weights are fixed at the seed for the whole
-LM (a datum a trial step puts out of reach keeps its weight; that trial's cost is
+LM (a datum an LM increment puts out of reach keeps its weight; the increment's cost is
 non-finite and it is rejected). A zero weight gives a zero row wherever the
 problem's row is finite (Core's Sampson rows give a degenerate element a zero
 row); a row that is itself non-finite in Float64 stays non-finite at weight 0

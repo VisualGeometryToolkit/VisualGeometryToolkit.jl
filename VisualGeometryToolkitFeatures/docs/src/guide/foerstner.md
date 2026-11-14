@@ -99,8 +99,10 @@ covariance shrinks by 4. The conversion is made once, at the output.
 The image-wide steps — the doubling, the gradient and its integration, the
 window measures, the regional maxima and the non-maximum suppression, and the
 two least-squares estimates per window — are KernelAbstractions kernels, the
-same code on `KA.CPU()` and on a GPU (`device = CUDABackend()`). The F-test
-and the result are assembled on the host. `T` sets the precision: `Float32` by
+same code on `KA.CPU()` and on a GPU (`device = CUDABackend()`). The squared
+gradient stays on the device and the kept window centres are compacted there,
+so only the centres and the windows' estimates reach the host, where the F-test
+and the result are assembled. `T` sets the precision: `Float32` by
 default, `Float64` as the reference. On the reference's example image
 `Quadrate.tif` (500 × 500, 100 windows) a CUDA device and the CPU give the same
 labels and positions within 3.1 × 10⁻⁵ px in `Float32` and 3.2 × 10⁻¹⁴ px in
@@ -121,6 +123,38 @@ all labelled `:corner`; with the reference example's parameters
 (`noise_sigma = 1`, `integration = :gaussian`, `derivative_sigma = 0.7`,
 `integration_sigma = 2`) also 100 corners, median position standard deviation
 0.057 px.
+
+## Windows chosen by scale: SFOP and seeded windows
+
+The image-wide search uses one integration scale for every window. For circular
+points (dots) [`detect_sfop`](@ref) selects one per point instead: SFOP
+[Foerstner2009](@cite) at α = 90°, the precision of a circular point's estimate
+maximised over position and scale on the image's Gaussian scale space
+([`gaussian_scale_space`](@ref), ASIFT's own pyramid; [`level_sigma`](@ref) gives
+a level's blur in input pixels), with the gradient this operator uses
+([`gaussian_gradient`](@ref)). Its rows, `Detection(Disc(x, σ), (; precision))`,
+seed `detect_foerstner(img, seeds)`, which runs the window estimation (steps 4–6
+of the docstring) in each seed's window, the box of `integration_sigma = σ`,
+and skips the image-wide search:
+
+```julia
+seeds  = detect_sfop(img; noise_sigma = 2)        # discs: the selected σ per dot
+points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose window lies inside the image
+```
+
+The rows are those of `detect_foerstner(img)`; at the windows `detect_foerstner(img)`
+chose, the seeded form returns its rows bit for bit (a test item).
+
+**A measured limitation, accepted (owner, 2026-11-14).** At a dot radius of about
+1.8 px the window SFOP selects is 0.0008 px RMS worse than the best fixed window
+(0.0092 vs 0.0084 px, synthetic discs, σᵢ 1.41); at the other radii from 0.9 to
+5 px the two agree within the Monte Carlo error. Three window rules were tested
+and failed (the smallest a-posteriori variance, a window proportional to the
+radius, Gaussian weighting), and Farid–Simoncelli derivatives had no effect: the
+limit is the window estimator's pixel locking, so the selected window is kept.
+The test suite holds the pipeline on a grid of dots of radius 2.2 px: every
+error below 0.05 px, and the RMS within 5 % of the image-wide search's at
+`integration_sigma = 4`.
 
 ## Differences from `ip_fop.m`
 

@@ -8,6 +8,9 @@ reworked in a4778de6/b75d48ea), the fix (f415bb71), version and docs (6c017264),
 0.11.2's two Irls weight rules for the Triggs LO — the chart LM lives in Estimation (`_triggs_lm`, `_chart_refit`,
 manifold_providers.jl), Core's `lmsolve_chart!` takes its weights unchanged.
 
+Coordinator rulings 2026-11-14: the `0·Inf` row limit (a zero weight on a row non-finite in Float64) goes to the next
+batch; Core's stale `Triggs`/`Irls` docstrings (`strategies.jl`) go to Core 0.10.6 if possible.
+
 ## 1. Public API since 0.11.2
 
 - **Added / removed:** nothing. Exports unchanged.

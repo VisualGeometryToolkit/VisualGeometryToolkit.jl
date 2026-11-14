@@ -6,7 +6,7 @@
 # WHY THIS FILE EXISTS: `Irls{GaussianShape}` weighed EVERY datum 1, and a datum
 # whose residual is not finite (an out-of-reach point; an infinite Sampson
 # distance) made Σwᵢrᵢ² infinite at the seed and at every refit. `Inf < Inf` is
-# false, so the local optimization never accepted a step: it handed back its
+# false, so the local optimization never accepted a refit: it handed back its
 # seed (`NoImprovement`) on any problem with one non-finite residual, and on
 # every other problem it fitted the outliers at full weight. The rules:
 #

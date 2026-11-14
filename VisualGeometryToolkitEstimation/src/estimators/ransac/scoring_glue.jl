@@ -200,6 +200,7 @@ current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² 
 
 """
     LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss)
+    LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss, consensus)
 
 Frozen-scale plain-IRLS likelihood adapter for [`Irls{K}`](@extref VisualGeometryToolkitCore.Irls): ONE
 weight policy generic over the loss, replacing the former per-loss
@@ -218,8 +219,8 @@ Two rules hold for every weight it writes:
   the cost Σwᵢrᵢ² non-finite and stop the iteration at its seed;
 - `consensus`, when given (a `BitVector` over the data), restricts the weights
   to its members: a datum outside it weighs 0 and is no inlier.
-  `locally_optimize!(L, ::Irls{GaussianShape}, …)` passes the
-  scorer's consensus set (`consensus_mask(buf)`): least squares is not robust, so
+  `locally_optimize!(L, ::Irls{GaussianShape}, …)` supplies the
+  scorer's consensus set (`consensus_mask!`): least squares is not robust, so
   the Gaussian refit sees the inliers only (LO-RANSAC's least squares on the
   inliers). The 3-argument form has none: every datum weighs its shape's weight.
 """

@@ -31,7 +31,8 @@ end
 # (i) significantly dark (z above the 0.999 quantile) or (ii) of a sign not significant (|z| at most it): the gate
 # needs significant evidence of the requested polarity. A lost row that is significantly LIGHT is a correct dot
 # dropped: none may be. Duplicates are not removed (the consumer resolves them): each 0.9.5 pair of rows within 1 px
-# whose rows are both found again keeps both, two distinct rows.
+# whose two seeds are both significantly light keeps both rows (a pair one of whose seeds is dark or of a sign not
+# significant loses that row by the gate, its twin kept).
 @testitem "detect_sfop(:light) → seeded detect_foerstner on the five FX3 chrome sets: no light 0.9.5 row lost, duplicates kept (real data, opt-in)" begin
     using LibRaw_jll
     root = joinpath(get(ENV, "VGTK_DATA_ROOT", ""), "paper-data", "geometric-accuracy")
@@ -57,9 +58,9 @@ end
                 tally[why] += 1
                 why === :light && @info "a significantly light 0.9.5 row lost" s p a
             end
-            # every 0.9.5 pair within 1 px whose rows are both found again: two new rows near it, not one
+            # every 0.9.5 pair within 1 px of two significantly light seeds: two new rows near it, not one
             for i in eachindex(o), j in (i + 1):lastindex(o)
-                d(o[i], o[j]) < 1 && found[i] && found[j] || continue
+                d(o[i], o[j]) < 1 && o[i][4] < -zq && o[j][4] < -zq || continue
                 pairs += 1
                 kept_pairs += count(b -> d(b, o[i]) < 0.5 || d(b, o[j]) < 0.5, new) >= 2
             end

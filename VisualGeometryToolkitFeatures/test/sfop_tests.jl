@@ -286,11 +286,13 @@ end
     rows = detect_sfop(L; device = KA.CPU(), sensor_model = model)
     @test !any(bright, rows)
     l = detect_sfop(L; device = KA.CPU(), sensor_model = model, polarity = :light)
-    # every dot seeded (a weak coarse window on two dots' tails may seed too: its seeded row is no :circular point, below)
+    # every dot seeded (a weak coarse window on two dots' tails may seed too, its estimate pulled onto a dot)
     @test all(any(norm(d.center .- t) < 1.5 for d in l) for t in dots)
-    # the seeded windows under the same model: each a dot, once
+    # the seeded windows under the same model: every row a :circular point at a dot, every dot found (a dot seen from
+    # two seeds gives two rows: duplicates are the consumer's)
     pts = detect_foerstner(Float32, L, l; sensor_model = model, device = KA.CPU(), polarity = :light)
-    @test length(pts) == length(dots) && all(d -> d.label === :circular, pts)
+    @test all(d -> d.label === :circular && any(norm(d.center .- t) < 1.5 for t in dots), pts)
+    @test all(t -> any(d -> norm(d.center .- t) < 1.5, pts), dots)
     # no gain, no variances: noise_sigma's test, as on the matrix of the values
     @test isequal(collect(detect_sfop(L; device = KA.CPU())), collect(detect_sfop(L; device = KA.CPU(), sensor_model = VisualGeometryToolkitCore.SensorModel())))
 end

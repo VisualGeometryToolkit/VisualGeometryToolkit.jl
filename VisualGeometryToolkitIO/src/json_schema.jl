@@ -45,10 +45,12 @@ const _JSON_SCHEMA_ID_BASE = "https://visualgeometrytoolkit.github.io/schemas/"
 _json_schema_path(kind::AbstractString, v = _schema_version(kind)) = _schema(kind, v) * ".json"
 
 """
-    json_schema(kind::AbstractString) -> JSON.Object
+    json_schema(kind::AbstractString[, version::Tuple{Int, Int}]) -> JSON.Object
 
 The JSON Schema (draft 2020-12) of a `vgio/<kind>` file at the version this
-package writes, generated from the kind's validator table — the shape
+package writes (by default the kind's current one; `version` another version
+a writer still emits, `_written_versions(kind)`: an `ArgumentError` for any
+other), generated from the kind's validator table — the shape
 [`validate`](@ref) and every reader check. Its `\$id` is
 `https://visualgeometrytoolkit.github.io/schemas/vgio/<kind>/v<major>.<minor>.json`.
 A cross-field check JSON Schema cannot state is the `description` of the
@@ -139,9 +141,8 @@ function _json_schema(s::_CheckedSpec, defs)
     return o
 end
 function _json_schema(s::_SchemaTok, defs)
-    M = s.major
-    v = M == first(_schema_version(s.kind)) ? _schema_version(s.kind) : (M, 0)
-    return _jobj("type" => "string", "description" => "$(_schema(s.kind, v)), or the same major version at any minor",
+    M = first(s.version)
+    return _jobj("type" => "string", "description" => "$(_schema(s.kind, s.version)), or the same major version at any minor",
                  "pattern" => "^vgio/$(s.kind)/v$(M)(\\.[0-9]+)?\$")
 end
 function _json_schema(s::_Cov, defs)

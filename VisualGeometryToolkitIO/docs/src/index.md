@@ -36,7 +36,7 @@ Three principles shape the files:
 - **Lengths cross the file boundary decimal-exactly.** Memory holds metres, a
   file the unit that reads naturally, converted by a decimal shift, not a
   multiplication ([Conventions on Disk](guide/conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
-- **A published file keeps loading.** Only the current version is written,
+- **A published file keeps loading.** Only the current version is written (but where a kind's writer still writes an earlier version, the very bytes of that version, for a record it can hold: `vgio/sensor_characterisation/v1.0` without a `Darks`),
   and every earlier version is read through one step per version
   ([Schema Rules](guide/schemas.md)).
 

@@ -217,7 +217,7 @@ end
 # version has ONE step, `migrate_schema(::Val{schema}, tree)`: a parsed record
 # of that version, in memory, as the record of the next one. The readers run
 # the steps on load (`_read_store`, through `migrate_record`); the writers
-# write only the current version. `vgio_migrate` rewrites a file with the same
+# write only the current version (or an earlier one a writer still emits, `_written_versions`). `vgio_migrate` rewrites a file with the same
 # steps, by the guarded pattern of the third-party conversions above: the file
 # read (through the steps), its value WRITTEN by the current writer (its
 # validation) to a staging directory beside `out` (`write_staged`), READ back

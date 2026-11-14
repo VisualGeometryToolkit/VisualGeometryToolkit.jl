@@ -1,5 +1,5 @@
 # =============================================================================
-# vgio/sensor_characterisation/v2.0 ↔ VGC `SensorCharacterisation` — one sensor, per ISO its components
+# vgio/sensor_characterisation/v2.0 (and v1.0, written for a record without a Darks) ↔ VGC `SensorCharacterisation`
 # =============================================================================
 #
 # {"schema": "vgio/sensor_characterisation/v2.0", <envelope>,
@@ -153,18 +153,16 @@ _sensor_entry_spec(black::_Spec, darks_rule::AbstractString) = _CheckedSpec(
            "least 2 frames$(darks_rule); a gain and a sigma_rel are positive; a defect site is a photosite of the visible raw (1-based, " *
            "x the column), listed once, its onset positive",
 )
-_sensor_characterisation_spec(black::_Spec, darks_rule::AbstractString; major::Int) = _kind_spec(
+_sensor_characterisation_spec(black::_Spec, darks_rule::AbstractString; version::Tuple{Int, Int}) = _kind_spec(
     "sensor_characterisation",
     Pair{Symbol, _Spec}[:device => _Obj(:body => _DEVICE_IDENTITY), :entries => _Vec(_sensor_entry_spec(black, darks_rule))];
     check = _entries_problem,
     rule = "each ISO has one entry",
-    major,
+    version,
 )
 const _SENSOR_CHARACTERISATION_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT,
-    ", and a darks body's darks (at least one) of its source and of one size, their bands disjoint"; major = 2)
-const _SENSOR_CHARACTERISATION_V1_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT_V1, ""; major = 1)   # IO 0.10.1's table
-_older_spec(::Val{:sensor_characterisation}, v::Tuple{Int, Int}) =
-    v == (1, 0) ? _SENSOR_CHARACTERISATION_V1_SPEC : throw(ArgumentError("vgio/sensor_characterisation is not written at $(_version_string(v))"))
+    ", and a darks body's darks (at least one) of its source and of one size, their bands disjoint"; version = (2, 0))
+const _SENSOR_CHARACTERISATION_V1_SPEC = _sensor_characterisation_spec(_BLACK_COMPONENT_V1, ""; version = (1, 0))   # IO 0.10.1's table
 
 # ----------------------------------------------------------------------------- writing
 
@@ -202,8 +200,8 @@ _component_json(d::VgtkCore.DefectList, files) =
 """
     save(path, characterisation::SensorCharacterisation; provenance = (;))
 
-Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation/v2.0`
-file: the body's identity (`device.body`) and one entry per ISO (in increasing
+Write a VGC `SensorCharacterisation` as a `vgio/sensor_characterisation` file — v2.0 when an
+entry's black is a `Darks`, else v1.0, byte for byte IO 0.10.1's (so its readers read it): the body's identity (`device.body`) and one entry per ISO (in increasing
 ISO), each present slot as its component's body with its source and standard
 error, an absent slot (`FileBlack`, `NoNoise`, `NoDefects`) absent. A `Dark`'s
 offset and variance maps are written beside `path` as rasters, the raster payload
@@ -228,7 +226,7 @@ end
 # The version a characterisation is written at, by what its entries' black slots hold (owner ruling (a), IO 0.10.2):
 # v2.0 when one holds a Darks (v2's darks body), else v1.0, IO 0.10.1's very bytes, which an IO 0.10.1 reader reads.
 _written_version(c::SensorCharacterisation) = maximum((_black_version(e.black) for e in values(c.entries)); init = (1, 0))
-_black_version(::VgtkCore.Darks) = (2, 0)
+_black_version(::VgtkCore.Darks) = _schema_version("sensor_characterisation")
 _black_version(::VgtkCore.BlackComponent) = (1, 0)
 
 # ----------------------------------------------------------------------------- reading
@@ -287,12 +285,21 @@ end
 # ----------------------------------------------------------------------------- the v1.0 step
 
 # v1.0 (IO 0.10.1) → v2.0, on read: the body is unchanged (v2 only added the "darks" body), so the step renames the
-# schema and states the current generator. No file form: v1.0 is still written (a record without a Darks), so a v1.0
-# file needs no rewriting.
+# schema and states the current generator. Its file form (`vgio_migrate`) rewrites the file as the writer writes it
+# now: v1.0 again for a record without a Darks (its bytes, the generator aside), so it changes no version.
 function _sensor_characterisation_v1_to_v2(t::AbstractDict)
+    # v1.0 has no darks body: a file of that version holding one is no v1.0 file (an IO 0.10.1 reader refuses it)
+    any(e -> e isa AbstractDict && get(get(e, "black", Dict()), "type", nothing) == "darks", get(t, "entries", ())) &&
+        throw(ArgumentError("a v1.0 entry's black is a channel black or a dark: a darks body is v2.0's"))
     n = Dict{String, Any}(String(k) => v for (k, v) in t)
     n["schema"] = _schema("sensor_characterisation")
     n["generator"] = _lower(_generator_json())
     return n
 end
 migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, t::AbstractDict) = _sensor_characterisation_v1_to_v2(t)
+function migrate_schema(::Val{Symbol("vgio/sensor_characterisation/v1.0")}, src::AbstractString, dst::AbstractString)
+    c = load(SensorCharacterisation, src)
+    save(dst, c; provenance = _provenance_of(_raw_tree(src)))
+    _verify(load(SensorCharacterisation, dst) == c, src, "the sensor characterisation")
+    return (; to = _schema("sensor_characterisation", _written_version(c)))
+end

@@ -359,7 +359,7 @@ Markdown.parse(join(["| Kind | Written | Also read |", "|---|---|---|", rows...]
 `load` runs the file's version steps in memory, one per version
 ([`migrate_schema`](@ref VisualGeometryToolkitIO.migrate_schema)`(::Val{schema}, tree)`,
 run by [`migrate_record`](@ref VisualGeometryToolkitIO.migrate_record)), and
-reads the current record they give; the writers write only the current
+reads the current record they give; the writers write only the current (or an earlier version they still emit for a record it can hold, `_written_versions`)
 version, so a file saved from what an old file loads as is current. A load is
 silent (an `@debug` names the version). The reason is the published data: a
 schema change must not force the archives on Zenodo and Hugging Face (several

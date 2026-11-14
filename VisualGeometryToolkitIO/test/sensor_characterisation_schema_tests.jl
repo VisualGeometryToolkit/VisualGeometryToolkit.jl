@@ -182,7 +182,26 @@ end
     @test e.noise.gain == 2.1 && e.defects.x == [5] && e.defects.y == [2]
     @test validate(src) == "sensor_characterisation"
     @test VgtkIO.schema_versions("sensor_characterisation") == ["vgio/sensor_characterisation/v1.0", "vgio/sensor_characterisation/v2.0"]
-    @test VgtkIO._written_versions("sensor_characterisation") == [(1, 0), (2, 0)]
+    @test VgtkIO._written_versions("sensor_characterisation") == ((1, 0), (2, 0))
+    @test_throws ArgumentError VgtkIO.json_schema("sensor_characterisation", (3, 0))
+    @test_throws ArgumentError VgtkIO.json_schema("cameras", (5, 0))            # a version no writer emits
+    mktempdir() do dir
+        for f in readdir(dirname(src))
+            startswith(f, "sensor_characterisation_v1.0") && cp(joinpath(dirname(src), f), joinpath(dir, f))
+        end
+        # vgio_migrate rewrites it as the writer writes it now: v1.0 again (no Darks), the characterisation it held
+        r = VgtkIO.vgio_migrate(joinpath(dir, "sensor_characterisation_v1.0.json"))
+        @test r.to == "vgio/sensor_characterisation/v1.0" && JSON.parsefile(r.out)["schema"] == "vgio/sensor_characterisation/v1.0"
+        @test load(SensorCharacterisation, r.out) == c
+        # a "v1.0" file holding a darks body is no v1.0 file: refused (IO 0.10.1 refuses it too)
+        d = char(; black = (512.0, 511.5, 512.25, 511.75), source = SensorSource.measured,
+                 darks = [(; dark_maps(3)..., exposure_band = (0.8 * SEC, 0.8 * SEC))])
+        p = joinpath(dir, "fake.json"); save(p, d)
+        t = JSON.parse(read(p, String); dicttype = Dict{String, Any}); t["schema"] = "vgio/sensor_characterisation/v1.0"
+        write(p, JSON.json(t))
+        @test (try load(SensorCharacterisation, p); false catch e; e isa ArgumentError end)
+        @test (try validate(p); false catch e; e isa ArgumentError end)
+    end
 end
 
 # IO 0.10.2's writer (owner ruling (a), 2026-11-14): the kind version follows what the record holds — v2.0 when an

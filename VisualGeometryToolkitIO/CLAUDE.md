@@ -17,7 +17,8 @@ for debugging. Check the reported total.
 ## Schema versions
 
 Every earlier schema version a published file holds is READ; only the
-current version is written. Reason: a schema change must never force the
+current version is written (the one rule for an earlier version a writer
+still emits is below). Reason: a schema change must never force the
 published data (Zenodo, Hugging Face; multi-GB archives at ~100 KB/s) to be
 uploaded again, so a published file keeps loading forever.
 

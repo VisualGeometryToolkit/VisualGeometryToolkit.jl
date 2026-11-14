@@ -72,6 +72,8 @@ end
             # THE VALID DOCUMENTS: every fixture the validator reads (as the current record its version
             # steps give), and a written file of the kinds no fixture holds
             docs = Pair{String, Tuple{String, Dict{String, Any}}}[]   # name => (kind, current record)
+            # and the files at an EARLIER version a writer still emits (`_written_versions`), as written: name => (kind, version, record)
+            older = Pair{String, Tuple{String, Tuple{Int, Int}, Dict{String, Any}}}[]
             function collect_doc!(name, path)
                 kind = try
                     validate(path)
@@ -83,6 +85,10 @@ end
                 file = isdir(path) ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
                 # the record the reader meets: through its version steps, validated (`_checked_store`, the read boundary)
                 push!(docs, name => (kind, plain_doc(VgtkIO._checked_store(VgtkIO._read_vgio_json(file), file, kind))))
+                raw = VgtkIO._read_vgio_json(file); sv = VgtkIO._split_schema(get(raw, :schema, nothing))
+                if sv !== nothing && (sv.major, sv.minor) != VgtkIO._schema_version(kind) && (sv.major, sv.minor) in VgtkIO._written_versions(kind)
+                    push!(older, name => (kind, (sv.major, sv.minor), plain_doc(raw)))
+                end
                 return nothing
             end
             fixtures = joinpath(@__DIR__, "fixtures")
@@ -198,6 +204,14 @@ end
                 deep = [p for p in paths if length(p) >= 2 && getpath(doc, p[1:(end - 1)]) isa AbstractDict]
                 isempty(deep) || add!("$(name) with an unknown nested key", kind, with_key(doc, [first(deep)[1:(end - 1)]; "bogus"], 1), false)
             end
+            # an earlier written version's file validates against ITS version's published schema, as written
+            for (name, (kind, v, doc)) in older
+                id = VgtkIO.json_schema(kind, v)["\$id"]
+                push!(cases, Dict("name" => "$(name) at its own version", "schema_id" => id, "doc" => doc)); expect["$(name) at its own version"] = true
+                push!(cases, Dict("name" => "$(name) at its own version with an unknown key", "schema_id" => id, "doc" => merge(doc, Dict("bogus" => 1))))
+                expect["$(name) at its own version with an unknown key"] = false
+            end
+            @test !isempty(older)       # a writer that emits an earlier version has a file of it here
             @test n_deleted > 100
             cases_file = joinpath(dir, "cases.json")
             write(cases_file, JSON.json(cases))

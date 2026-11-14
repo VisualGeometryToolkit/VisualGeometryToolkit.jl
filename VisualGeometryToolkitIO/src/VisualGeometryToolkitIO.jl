@@ -38,7 +38,9 @@ covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema; the current versions are the table
 `_SCHEMA_VERSION` (validate.jl) and `schema_versions()` lists, per kind, every
-version read (derived from the version steps). A file is sufficient on its own
+version read (derived from the version steps); `_written_versions(kind)` the
+versions a writer emits (the current one, and an earlier one still written for
+a record it can hold). A file is sufficient on its own
 and minimal:
 - every convention a reader needs is DECLARED in the file, once, in its
   envelope — the pixel frame, the length unit, the rotation encoding (Hamilton

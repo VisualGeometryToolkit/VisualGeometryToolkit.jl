@@ -99,6 +99,20 @@ Two weight rules hold for every shape:
   LO-RANSAC least squares on the inliers. No threshold of its own: the set is
   the scorer's decision. The robust shapes weigh every datum by their loss.
 
+### Strategy: `Triggs{K}`
+
+`Triggs{K}` is the robustified chart LM: one Levenberg–Marquardt solve from the
+hypothesis on the chart problems' rows, the loss `K` at its width carried by
+NLLSsolver's Triggs correction (no reweighting cycles). The two rules fix its
+per-datum weights, 0 or 1, once, at the hypothesis, for that one solve: a datum
+whose residual at the hypothesis is not finite weighs 0 under every shape (its
+row would make the LM's cost infinite at its start), and `Triggs{GaussianShape}`
+weighs only the scorer's consensus set. With neither rule excluding a datum,
+every row is at unit weight, as before. An LM increment that puts a weighed datum
+out of reach has a non-finite cost and is rejected; a row that is non-finite in
+Float64 stays so at weight 0 (`0·Inf`), as in every chart refit. The inliers are
+the loop's re-score's, as for `Irls{K}`.
+
 ### M-step dispatch
 
 The M-step is implemented by `refine!(ws, problem, θ, weights)`, routed by the

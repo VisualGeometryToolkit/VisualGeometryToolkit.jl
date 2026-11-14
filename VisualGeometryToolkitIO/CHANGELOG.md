@@ -1,6 +1,35 @@
 # VisualGeometryToolkitIO changelog
 
-## 0.10.0 (unreleased)
+## 0.10.1 (2026-11-14)
+
+A patch: no API change, no schema change, no stored identity moves.
+
+### Fixed
+
+- **A value computed in code, the file written from it and the value loaded back have one `content_id`** (the
+  design of record: a length's identity is its metre value at 15 significant digits, hashed as JCS; a value built in
+  code and the value loaded from its file hash the same). For a full-precision length that no file number reads back to
+  exactly (about one computed metre value in eight in millimetres), the writer's last resort was the nearest number,
+  an ulp off, and for about one such value in ninety that read back on the other side of a 15th-digit rounding
+  boundary: two identities for one rig (probe: 2 300 of 200 000 metre values in mm). The writer
+  (`write_length`, and every writer's lengths and length covariances) now writes, in that case only, a number whose
+  value has the length's identity: in a power-of-ten unit the decimal of its persisted value (which reads back as
+  exactly that value), in another unit (inch, ft, pt) the number that reads back to the persisted value, else the
+  fewest digits with its identity. A length some file number reads back to exactly is written as before, so every
+  decimal file number is rewritten byte for byte as before, in every unit, and every rewrite is byte-stable.
+  `content_id`, its normalisation and the JCS number format are unchanged; the identities of every existing file and
+  value are unchanged. The reproductions of IO 0.9's identities (the 0.9 → 0.10 id maps of `vgio_migrate_tree`) keep
+  0.10.0's writer, on their own leaf form, so they do not move either.
+- New tests (failing on 0.10.0): `length_persisted_tests.jl` (the probe's pinned value and a seeded batch of 200 000
+  computed metre values in mm, cm, μm, m, km, inch, ft and pt: the identity of the value read back is the value's own,
+  write ∘ read ∘ write is byte-stable; a rig of computed lengths, its file and the rig loaded back have one
+  `content_id` in mm, inch and pt).
+- Tests restated (they asserted the old last resort's bound where no file number reads back to the value; each now
+  states the value or its persisted identity): `units_roundtrip_tests.jl` "a file in m or inch reads to the metres of
+  its mm twin" (an inch writer's poses) and "a full-precision value moves at most once" (a 17-digit number's first
+  rewrite); `target_record_tests.jl` "height_field per-field units" (a height field's heights in mm and μm).
+
+## 0.10.0 (2026-11-13)
 
 The IO breaking wave (specs/2026-11-13-io-breaking-wave.md), on VisualGeometryToolkitCore 0.10. Every kind moves up a
 major version; every earlier version a published file holds is still READ (its version steps), only the 0.10 one is

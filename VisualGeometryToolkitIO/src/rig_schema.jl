@@ -591,6 +591,9 @@ function _check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, u::Union{
         )
     )
 end
+# IO 0.10.0's millimetre writer (the 0.9 identity reproductions' leaf form) refuses what a millimetre file refuses.
+_check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, ::_Legacy010mm, hu = mm) =
+    _check_writes_back(c, r, mm, hu isa _Legacy010mm ? mm : hu)
 # A calibration's length as read: a length in metres from the file's unit, or
 # (`_CHART`, a placed target's) the plain chart number as stored.
 _read_metres(x, u::Units) = read_length(x::Real, u)

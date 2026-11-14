@@ -31,12 +31,16 @@
 # What is exact, and what cannot be. A file number of at most 15 significant
 # digits reads and writes back to its own text, so a file written by a person
 # or by the stack from such numbers is rewritten byte for byte. A full
-# precision (17 digit) file number need not be: a millimetre double and a
-# metre double are on different grids, and about a quarter of 17-digit
-# millimetre numbers share their nearest metre value with a neighbour, so one
-# of the two cannot come back. Its first rewrite moves it by at most 2 ulp;
-# every rewrite after that is byte-identical, because `write_length` writes
-# the number that reads back to the identical quantity whenever one exists.
+# precision value is written as the number that reads back to it exactly
+# whenever one exists; when none does (a millimetre double and a metre double
+# are on different grids: about one computed metre value in eight), the writer
+# writes the decimal of its PERSISTED value (`_persisted`: the metre value at 15
+# significant digits, the value content_id hashes), which reads back as exactly
+# that value (IO 0.10.1). So a value, the file written from it and the value
+# loaded back always have one identity, and every rewrite is byte-identical. A
+# 17-digit number a person wrote in a file that shares its metre value with a
+# neighbour moves on its first rewrite, by at most 2 ulp or to its persisted
+# form, and stays fixed after that.
 #
 # Every Float64 crosses: negatives, ±0 (the sign kept), integers, subnormal
 # and huge values, NaN and ±Inf (NaN stays NaN, an infinity keeps its sign).
@@ -134,7 +138,19 @@ function _write_power(y::Float64, u::Units, n::Int)
     n == 0 && return y
     return _write_scaled(y, _length_scale(u), n)
 end
-function _write_scaled(y::Float64, scale::Float64, n::Int)
+# What a writer writes for a value NO file number reads back to (a computed, full-precision value; about one metre
+# value in eight in mm), by dispatch on the policy:
+# - `_PersistedLastResort` (IO >= 0.10.1, every writer): a number whose value has the value's IDENTITY, its persisted
+#   form (`_persisted`, content_id's length leaf: the metre value at 15 significant digits). So the value, the file
+#   written from it and the value loaded back have one identity, and a rewrite is byte-stable.
+# - `_NearestLastResort` (IO 0.10.0's writer): the nearest number, within an ulp. It read back an ulp off, on the
+#   other side of a 15th-digit rounding boundary for about one computed value in ninety: two identities for one rig.
+#   It is kept for one use, the reproductions of IO 0.9's identities (migrate_v010.jl, through the `_LEGACY_MM` leaf
+#   form), whose millimetre numbers are the ones 0.9's `_persisted` read back.
+struct _PersistedLastResort end
+struct _NearestLastResort end
+_write_scaled(y::Float64, scale::Float64, n::Int) = _write_scaled(_PersistedLastResort(), y, scale, n)
+function _write_scaled(policy, y::Float64, scale::Float64, n::Int)
     k = _decimal_exponent(scale)
     back(c) = _read_scaled(c, scale, k, n) === y    # `_read_power(c, u, n) === y`
     if k !== nothing
@@ -146,7 +162,7 @@ function _write_scaled(y::Float64, scale::Float64, n::Int)
         for j in 1:3, c2 in (prevfloat(c, j), nextfloat(c, j))
             back(c2) && return c2
         end
-        return c          # no file number reads back to `y`: the nearest (within an ulp)
+        return _decimal_last_resort(policy, c, y, k, n)
     end
     # The fewest significant digits that read back. The search starts at one
     # digit, which is where a person's number (2.5 inch) is found; a guessed
@@ -160,8 +176,38 @@ function _write_scaled(y::Float64, scale::Float64, n::Int)
     for j in 1:3, c2 in (prevfloat(value, j), nextfloat(value, j))
         back(c2) && return c2
     end
-    return value          # no file number reads back to `y` (the scale's grid skips it): within an ulp
+    return _scaled_last_resort(policy, value, y, scale, k, n)
 end
+# A decimal unit: the persisted value's own decimal, which reads back as exactly the persisted value.
+_decimal_last_resort(::_PersistedLastResort, c, y, k, n) = _shift_exponent(_persisted(y, n), -n * k)
+_decimal_last_resort(::_NearestLastResort, c, y, k, n) = c
+# Another unit (the scale's grid skips `y`): the number that reads back to `y`'s persisted value itself, when one
+# does (so a rewrite, which targets that value, finds the same number); else the fewest digits with `y`'s identity.
+function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
+    p = _persisted(y, n)
+    c = _write_scaled(_NearestLastResort(), p, scale, n)
+    _read_scaled(c, scale, k, n) === p && return c
+    # the search starts from the persisted value, not `y`: every value of one identity (`y` and what its number reads
+    # back to) searches the same numbers in the same order, so a rewrite finds the same number
+    same_identity(c) = _persisted(_read_scaled(c, scale, k, n), n) === p
+    vp = p / scale^n
+    for d in 1:17
+        candidate = round(vp; sigdigits = d)
+        same_identity(candidate) && return _rewrite_number(candidate, scale, k, n)
+    end
+    for j in 1:3, c2 in (prevfloat(vp, j), nextfloat(vp, j))
+        same_identity(c2) && return _rewrite_number(c2, scale, k, n)
+    end
+    return value          # within an ulp (no number of this unit has `y`'s identity: not seen)
+end
+# The number a rewrite of `c`'s value writes: the exact search's for that value when it has one, else `c` (whose
+# value's rewrite comes back to this last resort, and to `c`). So write ∘ read ∘ write is write.
+function _rewrite_number(c, scale, k, n)
+    r = _read_scaled(c, scale, k, n)
+    e = _write_scaled(_NearestLastResort(), r, scale, n)
+    return _read_scaled(e, scale, k, n) === r ? e : c
+end
+_scaled_last_resort(::_NearestLastResort, value, y, scale, k, n) = value
 
 """
     read_length(x::Real, u::Units) -> Quantity
@@ -189,12 +235,17 @@ read_length(x::Real, u::Units) = _metre_quantity(_read_power(x, u, 1))
 The number a file holds for the length `q` in the unit `u`, the inverse of
 [`read_length`](@ref): `write_length(read_length(x, u), u)` prints as `x` for
 every `x` of at most 15 significant digits, and `read_length` of the result is
-`q` itself whenever any file number reads back to it (a full-precision metre
-value may have none in millimetres; the nearest is written, within an ulp). A
-power-of-ten unit shifts the decimal exponent of the metre value; any other
-unit takes the fewest significant digits (1 to 17) that `read_length` maps back
-to the identical `q`. NaN and ±Inf are written as they are. An `ArgumentError`
-for a unit that is not a length, or a quantity that is not one.
+`q` itself whenever any file number reads back to it. When none does (a
+full-precision metre value computed in code, about one in eight in
+millimetres), the number written reads back as `q`'s PERSISTED value, its metre
+value at 15 significant digits (the value [`content_id`](@ref) hashes): either
+way the length, the file written from it and the length loaded back have one
+identity, and a rewrite is byte for byte (IO 0.10.1; 0.10.0 wrote the nearest
+number, an ulp off, whose identity could differ). A power-of-ten unit shifts
+the decimal exponent of the metre value; any other unit takes the fewest
+significant digits (1 to 17) that `read_length` maps back to the identical `q`.
+NaN and ±Inf are written as they are. An `ArgumentError` for a unit that is not
+a length, or a quantity that is not one.
 
 The search is not a conversion and stays: FlexUnits' `ustrip(u, q)`, even
 correctly rounded, gives back the file's own number for only about three
@@ -225,11 +276,18 @@ _persisted(y::Real, n::Int = 1) = (x = Float64(y); isfinite(x) && !iszero(x) ? p
 # walk and converts at the leaves only.
 struct _Persisted end
 const _PERSISTED = _Persisted()
-const _LeafUnit = Union{Units, _Persisted}
+# IO 0.10.0's millimetre writer (`_NearestLastResort`): the leaf form of the reproductions of IO 0.9's identities
+# (migrate_v010.jl), and nothing else.
+struct _Legacy010mm end
+const _LEGACY_MM = _Legacy010mm()
+const _LeafUnit = Union{Units, _Persisted, _Legacy010mm}
 _leaf_power(y::Float64, u::Units, n::Int) = _write_power(y, u, n)
 _leaf_power(y::Float64, ::_Persisted, n::Int) = _persisted(y, n)
 _leaf_length(q, u::Units) = write_length(q, u)
 _leaf_length(q, ::_Persisted) = _persisted(ustrip(m, q))
+_leaf_power(y::Float64, ::_Legacy010mm, n::Int) = n == 0 ? y : _write_scaled(_NearestLastResort(), y, _length_scale(mm), n)
+_leaf_length(q, u::_Legacy010mm) = _leaf_power(Float64(ustrip(m, q)), u, 1)
+write_length(q::Quantity, u::_Legacy010mm) = _leaf_length(q, u)   # a layout's lengths (rig_schema.jl), on that leaf form
 
 # -----------------------------------------------------------------------------
 # The schemas' use of the pair: vectors of lengths, and their covariances

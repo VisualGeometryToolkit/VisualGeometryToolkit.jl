@@ -40,6 +40,82 @@ The gate ran Julia 1.13.3 on a fresh clone, at nice 0, with the wave stack paths
 
 ---
 
+docs-pass: e5a6a83e
+
+# VisualGeometryToolkitIO 0.10.1 docs pass (julia-docs-pass) — branch patch-io0101
+
+Baseline: the registered IO 0.10.0 (b808396e, tree a66dc7e2). A patch: no public name added, removed or re-signatured; no
+schema or version of any kind changes. 343a062d is patch-io0101 merged with GitHub main b8cc82b6 (Core 0.10.1 on Features
+0.9.1), so the gate runs on the tree that is pushed.
+
+- API diff since 0.10.0: none. Internal only: the writer's last-resort policies (`_PersistedLastResort`,
+  `_NearestLastResort`) and IO 0.10.0's millimetre leaf form for the 0.9 identity reproductions (`_LEGACY_MM`).
+- Docstrings: `write_length` states what is written when no file number reads back to the length (a number with its
+  identity, its persisted form); lengths.jl's header the same.
+- Guides: docs/src/guide/conventions.md ("Lengths cross the file boundary"), kinds.md (`vgio_migrate`'s comparison) and
+  content-identity.md (normalisation) state that a full-precision length's file has the length's identity (IO 0.10.1).
+- README and landing page: unchanged (nothing they show moved). The Core conventions text (VisualGeometryToolkitCore
+  conventions/units.md, "at most 2 ulp on its first rewrite") is Core's: its sentence still holds for every value a file
+  number reads back to; the last-resort case is IO's and documented here (no Core change in an IO patch).
+- CHANGELOG: 0.10.1 (Fixed; the tests added and the three restated, each by name); 0.10.0 dated.
+- Docs build, docs item, quality and naming: run by the gate on the merged sha.
+- Re-recorded at 6ae7230c: an internal helper renamed (`_fixed_point` → `_rewrite_number`: the gate's check_duplication
+  found `_fixed_point` owned by VisualGeometryToolkitCore.Cameras); no docs change.
+- Re-recorded at e5a6a83e: the byte-for-byte fixtures' envelope names the generator 0.10.1 (the gate on 085b34ad: 16
+  fixture comparisons differed only in `generator.version`); no docs change.
+
+---
+
+docs-pass: 90debb2a
+
+# Features 0.9.2 docs pass (julia-docs-pass) — branch imgcircle-edge
+
+A patch, additive: `detect_image_circle` measures the lens coverage on log-polar profiles of the frames' maximum (no
+MSER, no hull). Baseline: Features 0.9.1 as released (92d07363). The candidate: ac99ec38 (ONE commit on GitHub main
+b8cc82b6, Core 0.10.1), its full gate green (~/logs/dgx-agent/runs/feat092/ac99ec38, jobs 16105–16108), then this
+pass's commits 677d58cf (docstring and comments) and 90debb2a (guide, landing, README).
+
+## 1. Public API since the baseline
+
+From the module's `export`/`public` lines and the methods (92d07363..90debb2a); nothing removed or renamed:
+- `detect_image_circle([rng,] [T = Ellipse,] frames; outlier_halfwidth, initial, rim_band, rim_angles, significance,
+  device)`: new keywords; the result gains `covariance`, `center_scale`, `axes_scale`, `rim`;
+- public `RimProfile`, `SensorModelNoise`, `EmpiricalNoise` (documented, in api/detection.md's `Pages` through
+  `image_circle_rim.jl`);
+- deprecated, inert: `min_hole_area`, `smoothing_weight`, `border_margin` (a depwarn; removal listed in
+  `.release/wave11-removals.md`);
+- internal: the ImageSmooth extension and the DelaunayTriangulation dependency removed.
+
+## 2. Static findings, fixed
+
+| where | finding | fix |
+|---|---|---|
+| `detect_image_circle` docstring, step 3 | the candidate was "the run's outer end"; the code takes the steepest floored log drop from the run's start to the next edge's, at the span's middle refined to the sub-sample peak (as the CHANGELOG says) | stated as the code does (677d58cf) |
+| `detect_image_circle` docstring, step 2 | the `:auto` binning's precision omitted the rms floors (the edges' median uncertainty, the radial grid's spacing over √12) | stated (677d58cf) |
+| `detect_image_circle` docstring, `fit` | "on the candidates; `inlier_mask(fit)` indexes them": it indexes the second RANSAC's one-candidate-per-angle points, not `rim.candidates` | stated (677d58cf) |
+| image_circle_rim.jl header, Estimation extension header (comments) | "largest significant drops", "through every angle's candidates"; "on its contour (step 6)" | the two one-point-per-angle fits; step 4 (677d58cf) |
+| guide/detection.md, the image circle | step 3 "the largest significant drops", step 4 "through every angle's candidates"; "within half a pixel of the stop" (the suite holds < 1 px on the sharp stop of the soft-ramp item, < 0.5 px only on the fixture disc) | every envelope edge at its steepest log drop, the two fits, "within a pixel" (90debb2a) |
+| index.md, README | the landing's detector list and the README's Detection link did not name the image circle | named (90debb2a) |
+
+Checked and true: the guide section otherwise describes the new method (no MSER, no hull, no `min_hole_area`); the
+`RimProfile`, `SensorModelNoise`, `EmpiricalNoise` docstrings against the code (fields and order, the empirical noise
+mad_scale / √2, the profile_scale standard error and its one-frame form √(π/2·v̄/m_eff)); the module docstring and the
+export comments; the CHANGELOG 0.9.2 entry. No other page, example (examples/loma.jl) or validation script names the
+image circle's old method. README install line and example unchanged. check_naming 0 on 90debb2a.
+
+## 3. Executed
+
+Docs and docstrings only (no code line), so the docs tier on 90debb2a (scripts/feat092/submit_docs.sh, the gate's
+gate.sbatch, Julia 1.13.3, nice 0; ~/logs/dgx-agent/runs/feat092/90debb2a), all rc 0:
+
+| job | result |
+|---|---|
+| prep 16134 | lint 0, agent_docs 0, floor --latest 0, audit 0, check_duplication 0, check_naming 0 |
+| items 16135 | agent_docs, docs, quality_naming, readme items: 25/25 |
+| docs 16136 | strict build green (api/detection.md's size_threshold_warn, a size warning, as on ac99ec38) |
+
+---
+
 docs-pass: 78fa6599
 
 # VisualGeometryToolkitCore 0.10.1 docs pass (julia-docs-pass) — branch patch-core0101

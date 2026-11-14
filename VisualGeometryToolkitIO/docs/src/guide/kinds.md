@@ -428,8 +428,8 @@ goes beside the original (`<stem>.migrated.json`), or over it with
 `out = path` (`--in-place`), the original untouched until the rename. The
 comparison is of values: every number comes back bit for bit, except that a
 length written at full precision (16–17 digits; a computed value) may come
-back up to 2 ulp away in the file, as the same metre value — the length
-conversion's guarantee (see [Conventions](conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
+back up to 2 ulp away, or as its persisted form, in the file, with the same
+identity — the length conversion's guarantee (see [Conventions](conventions.md#Lengths-cross-the-file-boundary-decimal-exactly)).
 An old grid file (`vgio/generic_camera/v2`/`v3`) is read, never rewritten:
 `vgio_migrate` writes its camera store to a new file beside it,
 `<stem>.camera.json` for a central one and `<stem>.noncentral.json` for a

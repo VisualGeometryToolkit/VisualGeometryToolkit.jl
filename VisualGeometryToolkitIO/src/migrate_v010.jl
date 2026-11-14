@@ -502,10 +502,12 @@ migrate_schema(::Val{Symbol("vgio/units/v2")}, t::AbstractDict) = _units_v2_to_v
 # The test pins it on the identities IO 0.9 pinned (migrate_identity_tests.jl).
 
 # 0.9's persisted form of a base-unit number of length power `n` (lengths.jl at IO 0.9.3).
-_persisted_v09(y::Real, n::Int = 1) = _read_power(_write_power(Float64(y), mm, n), mm, n)
+# Every reproduction of 0.9's identities writes its millimetre numbers through `_LEGACY_MM` (lengths.jl): IO 0.10.0's
+# writer, whose last resort is the nearest file number, the numbers 0.9's `_persisted` read back.
+_persisted_v09(y::Real, n::Int = 1) = _read_power(_leaf_power(Float64(y), _LEGACY_MM, n), mm, n)
 # …the same, of the millimetre number `x` a millimetre file holds for it.
 _leaf_v09(x::Real, n::Int) = _read_power(x, mm, n)
-const _V09_MM = VgioStyle(; length_unit = mm)
+const _V09_MM = VgioStyle(; length_unit = _LEGACY_MM)
 
 # IO 0.9's canonical JSON (canonical.jl at IO 0.9.3): keys sorted bytewise, an
 # integral Float64 printed as an integer, any other by Julia's `print`.
@@ -620,7 +622,7 @@ function _target_body_v09(b::AbstractDict, t, leaf, layout_points::Bool)
     haskey(b, "nominal") && (n["nominal"] = Any[_lengths_v09(p, leaf) for p in b["nominal"]])
     if layout_points && haskey(b, "layout")
         delete!(n, "layout")
-        n["nominal"] = Any[Any[leaf(write_length(c, mm), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
+        n["nominal"] = Any[Any[leaf(write_length(c, _LEGACY_MM), 1) for c in p] for p in design(t)::AbstractVector]   # a layout target's points (never a reference)
     end
     placed = haskey(b, "placement")
     n["calibration"] = _calibration_v09(b["calibration"], placed ? (x, k) -> x : leaf)   # a placed one: chart numbers

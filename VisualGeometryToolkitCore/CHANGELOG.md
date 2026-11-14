@@ -1,5 +1,48 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.1
+
+The photon transfer of a dedicated capture (owner rulings of 2026-11-13/14, the FX3 characterisation: the single-frame
+estimator's K drifted from 31 to 13 e⁻/code over the exposures of a flat-field series and refused 69 of its 111 frames).
+Purely additive: the single-frame method keeps its signature and return type.
+
+### New
+- **`photon_transfer(groups, darks; sensor_model, block, normalize, significance)`** — the photon-transfer series:
+  `groups` exposure => the frames at that exposure (at least 2; pairs are the case of 2), `darks` exposure => the
+  `ReadNoise` of `master_dark` over the darks at that exposure. Per green photosite its TEMPORAL variance over a group's
+  frames (which cancels the scene and every fixed pattern; each frame first scaled to its group's mean, `normalize`),
+  against its mean. The intercept is FIXED at each group's own exposure, σ₀²(t), the greens' read noise² of its darks
+  (read noise and dark-current noise); a group whose exposure has no darks is refused, never interpolated or
+  substituted. The fit is the slope alone, `v − σ₀²(t) = μ/K`, over a range derived from the data: the upper end below
+  the variance's rollover, the lower end the lowest from which the μ² test on the line succeeds, each search at
+  `significance / m` (Bonferroni, `m` its candidate tests). K's standard error is the line's from the counts, times the
+  Birge ratio R = √(χ²/dof) of the fitted points when R > 1 (never shrunk; R recorded). Returns the stack's `FitResult`: its estimate a measured
+  `PoissonGaussian`, its metadata a `PhotonTransferMetadata` (public): the range in codes and as fractions of the white
+  level, the intercept, the μ² statistic, each search's `m` and per-test level, the points offered. The single-frame and
+  series inputs share ONE block kernel (a cell rule per input) and ONE line fit.
+- **Measured limitation (the FX3, ISO 100, E4):** the temporal variance is not one line over the whole signal range: the
+  slope `(v − σ₀²)/μ` rises from 0.065 at 41 codes to 0.088 above about 25 % of the white level, so `σ_r² + μ/K`
+  overpredicts the variance by up to about 26 % below 5 % of white. The derived range keeps the fit where one line holds;
+  no low-signal noise term is modelled (its cause is not established).
+
+### Added
+- **`LmProblem(variables, blocks; fixed)`**: `fixed` holds variables (their indices) as constants the blocks read —
+  NLLSsolver's unfixed mask on the one construction path (`_lm_problem`); the stationarity postcondition reads the free
+  variables' columns only. The default `nothing` holds none, the problem as before, bit for bit. An index outside the
+  variables, a name, or every variable held is an `ArgumentError`.
+
+### Fixed
+- **The single-frame `photon_transfer(mosaic)` refuses a μ² term**: its points fitted again as `v = a + μ/K + cμ²` at the
+  same weights, a `c` significant at `significance` (a new keyword, default 0.001: |t| > 3.29, two-sided, by its own
+  standard error) is a `NoiseEstimateFailed` naming the term, never a biased K (a fixed pattern between the two greens,
+  which the single-frame difference does not cancel, on a bright flat). Where it accepts, its estimate is 0.10.0's, bit
+  for bit (tested).
+
+### Deprecated
+- **The single-frame `photon_transfer(mosaic)`**: unreliable on flats; scheduled for removal in the next breaking wave;
+  use the multi-frame method. A single flat frame cannot certify its own K (its brightness range gives the μ² test
+  little power); for flat fields use the multi-frame photon-transfer method.
+
 ## 0.10.0 (unreleased)
 
 The breaking wave of 2026-11-13 (wave 10): the terminology taxonomy, one observation container, the FeatureFrame

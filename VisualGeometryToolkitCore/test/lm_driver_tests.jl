@@ -322,6 +322,26 @@ end
     @test (lmsolve_chart!(pf).code, lmsolve_chart!(pf).rule) == (ReturnCode.Failure, VgtkCore.NonFinite)
     pe = LmProblem([SVector(0.0, 0.0)], [_Throws(ErrorException("a bug"))])
     @test_throws ErrorException lmsolve_chart!(pe)
+    # `fixed` (0.10.1): the default holds nothing — the problem as without the keyword, bit for bit
+    @test LmProblem(vars(), blocks).unfixed === nothing && LmProblem(vars(), blocks; fixed = nothing).unfixed === nothing
+    # the offset c held at c₀: the line is the least-squares answer with c a constant (the reduced problem, by hand)
+    c₀ = 0.8
+    v0 = vars(); v0[2] = SVector(c₀)
+    ph = LmProblem(v0, blocks; fixed = 2)
+    @test ph.free == [true, false] && lmsolve_chart!(ph).code === ReturnCode.Success
+    Ar = [ones(21) s; -ones(7) zeros(7)]; θr = Ar \ [y; z .- c₀]
+    @test ph.variables[2] == SVector(c₀)
+    @test ph.variables[1] ≈ θr atol = 1.0e-9
+    @test LmProblem(v0, blocks; fixed = [2]).free == ph.free
+    # the postcondition's columns of the free variable are the full problem's, the held one's dropped
+    pf = LmProblem(copy(ph.variables), blocks)
+    VgtkCore._lm_problem_stationary!(pf, 0.05, 1.0e-10); VgtkCore._lm_problem_stationary!(ph, 0.05, 1.0e-10)
+    @test length(ph.g) == 2 && ph.g == pf.g[1:2] && ph.w == pf.w[1:2]
+    # an index outside the variables, or every variable held, is refused
+    @test_throws ArgumentError LmProblem(vars(), blocks; fixed = 3)
+    @test_throws ArgumentError LmProblem(vars(), blocks; fixed = [0])
+    @test_throws ArgumentError LmProblem(vars(), blocks; fixed = :c)
+    @test_throws ArgumentError LmProblem(vars(), blocks; fixed = [1, 2])
 end
 
 # A kept problem's repeated solve allocates O(1): the success rule's postcondition reads the problem's own scratch

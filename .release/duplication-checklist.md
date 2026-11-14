@@ -1,3 +1,17 @@
+# Core 0.10.1 duplication checklist (patch-core0101), 2026-11-14
+
+Core is the stack's root, so it has no upstream. `check_duplication(VisualGeometryToolkitCore)` ran in prep 15737 over the whole
+monorepo tree of 78fa6599: every in-repo package (Core, IO, Features, Estimation, Eval, PoseLib). VGTK_STACK_PATHS covered the downstream
+wave repositories (w10-bb, w10-ps, w10-cb, w10-lodr, w10-rsdr). The result was 0 findings.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| the photon-transfer fit (single frame, series) | a second fitting core for the series | ONE block kernel `_difference_blocks_kernel!` (one cell rule per input) and ONE line fit `_ptc_line` with `_ptc_curvature` | [x] |
+| the photon-transfer result record | an ad-hoc NamedTuple | the stack's `FitResult` with `PhotonTransferMetadata` | [x] |
+| holding LM variables | a second construction path | `_lm_problem`'s unfixed mask through `LmProblem(…; fixed)` | [x] |
+
+---
+
 # Estimation 0.11.1 duplication checklist (patch-est0111-fixture), 2026-11-13
 
 | concept | the copies (searched by concept: Core, Estimation, Eval, LODR w10-lodr/rel10-lodr, BB, RSDR, CB, PS) | the one copy | status |

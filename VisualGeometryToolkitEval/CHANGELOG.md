@@ -48,7 +48,7 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 - Producing a product again removes its provenance and its `output` only: other files it wrote under the same key in an
   earlier production stay beside the new ones.
 - Every `Product` construction recomputes `current_code_trees` (a stat walk of every path-loaded stack package), several
-  times per item and run; pass `code` to build many.
+  times per item and run; supply `code` when building many.
 - An experiment path with `\` is refused, so `joinpath` builds a refused path on Windows (write the segments with `/`).
 
 ## 0.8.0

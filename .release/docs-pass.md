@@ -1,5 +1,51 @@
-docs-pass: b26cfd06
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: test support, no public API)
+docs-pass: 825a5e64
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: the Features card names the package's scope, not its detectors)
+
+# Features 0.9.1 docs pass (julia-docs-pass) — rel-feat091
+
+A patch, additive, on Core 0.10: SFOP scale selection and its parts. Baseline: VisualGeometryToolkitFeatures 0.9.0, the
+registered tree (tag `VisualGeometryToolkitFeatures-v0.9.0` = 7b9bec70). The candidate: features-sfop-gate 0d36b9f7 (a
+fast-forward of GitHub main b808396e, Features only), then this pass's commits 074d7c65 (CHANGELOG), 181f6ea6
+(docstrings), a81ebf67 (guide), 825a5e64 (landing and API page).
+
+## 1. Public API since the baseline
+
+From the module's `export`/`public` lines and the methods (7b9bec70..825a5e64); nothing removed or renamed:
+- exported `gaussian_gradient(img, σ[, mask]; derivative = :gaussian2d) -> (gx, gy)`, Förstner's one gradient;
+- exported `gaussian_scale_space(img; …) -> GaussianScaleSpace` and the type, ASIFT's pyramid; public
+  `level_sigma(space, o, l)`;
+- exported `detect_sfop(img; noise_sigma, significance_level, precision_threshold, …)`;
+- the method `detect_foerstner([T = Float32], img, seeds)`: the window estimation at given windows;
+- `AsiftPlan`'s type parameters (`A1` gone, `SP` new) and the 8 undocumented fields now `plan.space`: not breaking,
+  owner ruling 2026-11-14 (CHANGELOG line, 074d7c65);
+- behaviour: `detect_foerstner` faster, results bit for bit (the squared gradient on the device, the window centres
+  compacted there); the accepted r ≈ 1.8 px limitation of the SFOP-selected window.
+
+## 2. Static findings, fixed
+
+| where | finding | fix |
+|---|---|---|
+| `detect_foerstner` docstring | the row shape read `(; label, window, F)`, the rows carry `covariance_status` (since 0.9.0) | the shape names it (181f6ea6) |
+| `detect_foerstner` docstring, step 2 | the gradient is now `gaussian_gradient` | linked (181f6ea6) |
+| `GaussianScaleSpace` docstring | "one per tilted warp inside every `AsiftPlan`": a plan holds ONE space, a slot per resident warp | corrected (181f6ea6) |
+| guide/foerstner.md | no word of `detect_sfop`, the seeded form or the limitation; "assembled on the host" no longer says what stays on the device | a section "Windows chosen by scale: SFOP and seeded windows" (the pipeline, bit-for-bit seeded rows, the accepted limit with what the suite holds), the device paragraph (a81ebf67) |
+| index.md, api/detection.md | the detector lists stopped at MSER and Förstner | `detect_sfop`, `gaussian_scale_space`, `gaussian_gradient` named (825a5e64) |
+| CHANGELOG 0.9.1 | the `AsiftPlan` change unstated | one line, with the ruling (074d7c65) |
+
+Checked and true: the `detect_sfop`, `gaussian_scale_space`, `level_sigma`, seeded `detect_foerstner` and
+`gaussian_gradient` docstrings against the code (signatures and defaults; the finest integration scale 3·2^(2/3)·0.5 ≈
+2.4 px; the λ₂ floor; the NMS footprint σ/√2 and half-octave bands; the seeded window half-width; the step response
+1/(√(2π)σ)); `sfop.jl` and `asift/pyramid.jl` are in api/detection.md's `Pages`; README (install line and example
+unchanged, no new name needed); no timing in a docstring or page (the speed-up's numbers are the CHANGELOG's,
+measured, not a gate).
+
+## 3. Executed
+
+On the commit carrying this record (records only on top of 825a5e64): prep (lint, agent_docs, floor, audit,
+check_duplication, check_naming), Features' CPU and GPU groups (strict flags) and the docs build (strict); results
+with job ids in the release report (a src docstring changed, so the full Features gate).
+
+---
 
 # Estimation 0.11.1 docs pass (julia-docs-pass) — patch-est0111-fixture
 

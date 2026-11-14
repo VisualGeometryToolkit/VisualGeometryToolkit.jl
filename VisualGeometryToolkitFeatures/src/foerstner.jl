@@ -302,8 +302,7 @@ function _detect_foerstner(
         seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing,
         polarity::Symbol = :none
     ) where {T <: AbstractFloat}
-    (T === Float32 || T === Float64) || throw(ArgumentError(
-        "detect_foerstner: the precision T must be Float32 or Float64, got $T (Float16 would accumulate the window sums in it; a Float16 image is read in T)"))
+    _check_precision(T)
     0 < significance_level < 1 ||
         throw(ArgumentError("detect_foerstner: significance_level must lie in (0, 1), got $significance_level"))
     sign = _polarity_sign(polarity)
@@ -388,10 +387,12 @@ _pixel_noise(n::NoiseComponent, G::AbstractMatrix) = nothing
 _pixel_noise(n::PoissonGaussian, G::AbstractMatrix{<:Uncertain}) = map(var, G), _propagated_status(n)
 # The covariance status of a propagated covariance under the noise slot: only a gain-carrying (Poisson–Gaussian) model is
 # fed (the owner's ruling A), named by its source; `nothing` for any other.
+_check_precision(::Type{T}) where {T} = (T === Float32 || T === Float64) || throw(ArgumentError(
+    "detect_foerstner: the precision T must be Float32 or Float64, got $T (Float16 would accumulate the window sums in it; a Float16 image is read in T)"))
 _propagated_status(::NoiseComponent) = nothing
 _propagated_status(n::PoissonGaussian) = Symbol("propagated_", string(n.source))
 _pixel_noise(::PoissonGaussian, G::AbstractMatrix) = throw(ArgumentError(
-    "detect_foerstner: the sensor model has a gain but the LinearRaw holds no variances: linearise it with the same model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
+    "the sensor model has a gain but the LinearRaw holds no variances: linearise it with the same model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
 
 # A kernel launch through the stack's launch policy (VisualGeometryToolkitCore's
 # `OnBackend`, the backend's choice of workgroup), completed before the next:
@@ -582,23 +583,27 @@ end
 # the one pair (I, I) (`_WhiteNoise`); the bilinear green image's photosite noise four (`_BilinearGreenStructure`), at
 # each lattice phase, the smaller ν kept (the conservative test).
 function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise = _WhiteNoise())
-    d = [_residual_dof(taps, ρ, noise, c, ε) for c in _noise_centres(noise) for ε in _noise_phases(noise)]
+    # each axis' centre parity on its own (a seeded window's doubled centre is rounded per axis), every lattice phase
+    d = [_residual_dof(taps, ρ, noise, (cr, cc), ε) for cr in _noise_centres(noise) for cc in _noise_centres(noise)
+         for ε in _noise_phases(noise)]
     return (; corner = argmin(c -> c.ν, getproperty.(d, :corner)), circular = argmin(c -> c.ν, getproperty.(d, :circular)))
 end
-# One window centre (`c` shifts it by a doubled pixel: on an input pixel or between two) and one lattice phase ε.
-function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise, c::Integer, ε)
+# One window centre (`c = (c_row, c_column)`: each shifts that axis' centre by a doubled pixel, on an input pixel or
+# between two) and one lattice phase ε.
+function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise, c::NTuple{2, Integer}, ε)
     r = size(taps, 1) ÷ 2
-    n = ρ + r + 4 + _noise_reach(noise) + c                 # input pixels: the window, the taps' and the noise's reach, interior
-    span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
-    x = Float64.(collect(span) .- n)                        # e along that axis
-    function bands(B)                                       # Dₛ[q, i], the weight of input q at span[i]
+    base = ρ + r + 4 + _noise_reach(noise)                  # input pixels: the window, the taps' and the noise's reach, interior
+    nr, nc = base + c[1], base + c[2]
+    x = Float64.(collect(-ρ:ρ))                             # e along either axis
+    function bands(B, n)                                    # Dₛ[q, i], the weight of input q at the window's i-th sample
+        span = (n - ρ):(n + ρ)                              # the window along the axis, doubled 1-based, centre n
         D = zeros(n, length(span), 2)
         for (i, p) in enumerate(span), s in 1:2, k in axes(B, 1)
             D[_band_start(p, r) + k - 1, i, s] += B[k, p, s]
         end
         return D
     end
-    Dr, Dc = bands(_pipeline_bands(Float64.(taps), n)), bands(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
+    Dr, Dc = bands(_pipeline_bands(Float64.(taps), nr), nr), bands(_pipeline_bands(Float64.(taps[:, [2, 1]]), nc), nc)
     function grams(D, factors)                              # K_{sj,s′j′} = (A_jᵀDₛ)ᵀ(A_j′ᵀDₛ′)
         E = [A' * D[:, :, s] for s in 1:2, A in factors]
         return [E[s, j]' * E[s2, j2] for s in 1:2, j in eachindex(factors), s2 in 1:2, j2 in eachindex(factors)]
@@ -615,8 +620,8 @@ function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise, c::Integer, ε)
         V = sum((F' * F) .* (G' * G))
         return (; ν = E^2 / V, E)
     end
-    pairs = _noise_factors(noise, n, ε)
-    Kr, Kc, J = grams(Dr, first.(pairs)), grams(Dc, last.(pairs)), eachindex(pairs)
+    rows_, cols_ = _noise_factors(noise, nr, ε), _noise_factors(noise, nc, ε)   # one pair list, each axis at its own n
+    Kr, Kc, J = grams(Dr, first.(rows_)), grams(Dc, last.(cols_)), eachindex(rows_)
     return (; corner = moments(((1, 1), (1, 2)), Kr, Kc, J), circular = moments(((-1, 2), (1, 1)), Kr, Kc, J))
 end
 

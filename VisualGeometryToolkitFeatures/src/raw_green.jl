@@ -179,6 +179,7 @@ without a value (see `detect_sfop(m)`) is an `:unknown` row. The other keywords 
 detect_foerstner(m::RawMosaic, seeds::AbstractVector{<:Detection}; kw...) = detect_foerstner(Float32, m, seeds; kw...)
 function detect_foerstner(::Type{T}, m::RawMosaic, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
                           device::KA.Backend = default_device(), kw...) where {T <: AbstractFloat}
+    _check_precision(T); _check_seeds(seeds)                 # refused before the image is built
     g = _bilinear_green(T, device, m, sensor_model)
     noise = _BilinearGreenNoise(g.support, g.photosite, g.density, _propagated_status(sensor_model.noise))
     return _detect_seeded(T, g.value, noise, seeds; device, kw...)

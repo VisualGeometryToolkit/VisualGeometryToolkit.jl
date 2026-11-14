@@ -292,7 +292,7 @@ end
 @kernel function _octave_variance!(out, @Const(v), sf::Float32)
     i, j = @index(Global, NTuple)
     H, W = size(v)
-    x = round(Int, _level_to_canvas(Float32(i - 1), sf)) + 1
-    y = round(Int, _level_to_canvas(Float32(j - 1), sf)) + 1
+    x = floor(Int, _level_to_canvas(Float32(i - 1), sf) + 0.5f0) + 1   # a tie (the upsampled octave) up: two per input pixel
+    y = floor(Int, _level_to_canvas(Float32(j - 1), sf) + 0.5f0) + 1
     @inbounds out[i, j, 1] = v[clamp(y, 1, H), clamp(x, 1, W)]
 end

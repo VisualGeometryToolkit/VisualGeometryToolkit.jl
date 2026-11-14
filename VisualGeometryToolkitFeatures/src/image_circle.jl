@@ -143,7 +143,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; outlier_halfwi
         throw(ArgumentError("detect_image_circle: rim_band = (inner, outer) needs 0 < inner < 1 and outer ≥ 0, got $rim_band"))
     0 < significance < 1 || throw(ArgumentError("detect_image_circle: significance must be in (0, 1), got $significance"))
     for (k, v) in ((:min_hole_area, min_hole_area), (:smoothing_weight, smoothing_weight), (:border_margin, border_margin))
-        v === nothing || Base.depwarn("detect_image_circle: `$k` was the hull fit's keyword and is ignored since " *
+        v === nothing || Base.depwarn("detect_image_circle: `$k` is deprecated: it was the hull fit's keyword and is ignored since " *
                                       "VisualGeometryToolkitFeatures 0.9.2 (the coverage is measured on the rim's profiles)", :detect_image_circle)
     end
     require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),

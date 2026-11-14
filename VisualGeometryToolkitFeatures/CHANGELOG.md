@@ -1,6 +1,9 @@
 # VisualGeometryToolkitFeatures changelog
 
-## 0.9.4 (unreleased)
+## 0.9.4
+
+A patch: `detect_foerstner`'s F-test at the effective degrees of freedom (a label change: below), RAW inputs for
+`detect_sfop` and the seeded `detect_foerstner`, and the image-circle deprecation text.
 
 - **`detect_foerstner`'s F-test at the residual sums' effective degrees of freedom** (difference 4 from `ip_fop.m`,
   docs guide). `F = Ω_corner / Ω_circular` was tested against `F(redundancy, redundancy)`, the window's doubled-pixel
@@ -16,6 +19,9 @@
 - **`detect_sfop(L::LinearRaw)` and the seeded `detect_foerstner(T, L::LinearRaw, seeds; sensor_model)`**, additive: SFOP on
   a RAW's green cells (their values, the cell grid) and the seeded windows under the frame's sensor model, its covariance as
   the image-wide call's on `L` (bit for bit at the same windows). RC's chrome evaluation detects its RAW sets this way.
+- **`detect_image_circle`'s deprecation warning says "deprecated"** for the hull fit's keywords (`min_hole_area`,
+  `smoothing_weight`, `border_margin`), so `@test_deprecated` and a user's `--depwarn=yes` session recognise it (it
+  read only "is ignored"; tested under `--depwarn=yes`, red first).
 
 ## 0.9.3
 

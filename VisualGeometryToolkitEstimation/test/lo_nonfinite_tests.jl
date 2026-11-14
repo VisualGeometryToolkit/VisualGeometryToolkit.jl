@@ -161,4 +161,3 @@ end
     @test collect(VgtkEstimation._triggs_weights!(w, BitVector([true, true, true, false, true]), r, 5)) == [1.0, 0.0, 0.0, 0.0, 1.0]
 end
 end
-end

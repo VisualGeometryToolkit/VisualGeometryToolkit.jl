@@ -193,10 +193,6 @@ _precision(::Type{T}, x::ComposedTransformation) where {T <: AbstractFloat} =
     _precision(T, x.t1) ∘ _precision(T, x.t2)
 _precision(::Type{T}, bm::BoundedMap) where {T <: AbstractFloat} =
     BoundedMap(_precision(T, bm.map), bm.rect)
-# the log-polar maps (region_maps.jl): their one stored float, so `image_warp(Float32, …)` of a log-polar chain or its
-# inverse is single-precision to the last link
-_precision(::Type{T}, x::LogPolarToCartesian) where {T <: AbstractFloat} = LogPolarToCartesian(T(x.log_inner_radius))
-_precision(::Type{T}, x::CartesianToLogPolar) where {T <: AbstractFloat} = CartesianToLogPolar(T(x.log_inner_radius))
 
 # =============================================================================
 # image_warp — the single warp adapter

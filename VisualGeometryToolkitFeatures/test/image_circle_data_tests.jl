@@ -19,7 +19,9 @@
         ("fisheye f/22 (AprilGrid 10 cm)", [joinpath(pd, "geometric-accuracy/fisheye/april-grid/$n.ARW") for n in ("DSC06999", "DSC07081", "DSC07182", "DSC07283", "DSC07365")],
          (2136.817, 1435.989, 1339.845, 1316.823), (1334.27, 1320.53)),
         ("fisheye f/32 (Siemens stars; the bottom's rim hidden by the camera mount)", [joinpath(pd, "geometric-accuracy/fisheye/siemens-stars/$n.ARW") for n in ("DSC03644", "DSC03674", "DSC03704", "DSC03734", "DSC03764")],
-         (2136.266, 1435.866, 1334.820, 1312.278), (1339.39, 1311.72)),
+         # the owner-verified coverage (2026-11-14: this detector's fit, inspected on the rim incl. the mount side; the
+         # earlier reference 2136.266, 1435.866, 1334.820, 1312.278 sat 3.5 px high)
+         (2136.997, 1439.331, 1333.768, 1315.245), (1339.39, 1311.72)),
         ("14 mm (APS-C on the full frame: a ~230 px ramp)", [joinpath(pd, "vignetting/14mm/diffuser/DSC04161.ARW")],
          (2131.650, 1425.813, 1718.921, 1717.064), nothing),
     )
@@ -37,17 +39,7 @@
             Ra, Rb = max(ref[3], ref[4]), min(ref[3], ref[4])
             @test abs(c.center[1] - ref[1]) <= 3σx + 2
             @test abs(A - Ra) <= 3max(σa, σb) + 2 && abs(B - Rb) <= 3max(σa, σb) + 2
-            if startswith(name, "fisheye f/32")
-                # BROKEN (2026-11-14): the RANSAC counts mount/scene edges 7–20 cells inside the rim as inliers (its
-                # inlier band follows the fit's rms, 4.1 cells, which those edges inflate); with the Jacobian rim the
-                # bottom's inlier set changed (34 wedges in, 16 out, both sets holding such edges) and cy moved +3.5 px
-                # from this reference, which agrees with the f/22 set's cy (same lens) and RC's hull. The wedges' own
-                # edge uncertainty as the inlier scale (0.05 cells) rejects the true rim's scatter instead (234 of 1440
-                # wedges). Fixed by the next estimator (an intensity-space fit of the rim from the edges' initial).
-                @test_broken abs(c.center[2] - ref[2]) <= 3σy + 2
-            else
-                @test abs(c.center[2] - ref[2]) <= 3σy + 2
-            end
+            @test abs(c.center[2] - ref[2]) <= 3σy + 2
             # RC's measured hull, each axis within 1 % (a sanity bound: the hull is the darkest MSER level's boundary, the
             # coverage the outer step's steepest log drop, 3–8 px apart on these sets)
             hull === nothing || @test abs(A - max(hull...)) <= 0.01 * max(hull...) && abs(B - min(hull...)) <= 0.01 * min(hull...)

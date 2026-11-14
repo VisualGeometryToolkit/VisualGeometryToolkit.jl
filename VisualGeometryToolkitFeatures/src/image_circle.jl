@@ -48,16 +48,19 @@ the measuring:
    skipped when a sample's bilinear taps leave the frame or more than half its samples are saturated. The angle bins
    (`rim_angles = :auto`) are chosen from the image: of the binnings doubling from 45 (8°) to 3 sample rows per bin,
    the one whose coverage is the most precise (the smallest standard error of its mean radius, the inliers' rms over
-   √(wedges with an inlier), with at least 20 such wedges). Finer bins give more wedges but noisier medians and, in a
+   √(wedges with an inlier), the rms no finer than the edges' own median uncertainty nor the radial grid's spacing over
+   √12, with at least 20 such wedges). Finer bins give more wedges but noisier medians and, in a
    textured scene, the scene's edges among the candidates;
 3. per angle, the CANDIDATES: every EDGE of the profile's OUTER ENVELOPE — the brightest it gets at or beyond each
    radius: where the light ends it does not come back, while a scene edge or a dark object inside the disc is followed
    by light again and leaves the envelope alone. An edge is a maximal run of significant drops across 2 px (the bilinear
-   taps' support); its candidate is the run's outer end, where that step's light ends. A soft ramp gives one candidate
-   at its foot; a rim that falls in two steps (lit, a dim band, the floor) gives both (owner ruling 2026-11-14). A drop
-   is significant when it exceeds its noise √2·σ (σ the angle's noise: the sensor model's, or the data's) by
-   z = Φ⁻¹(1 − α/m), `α = significance` the family-wise level over the angle's m drops: the floor's noise alone makes
-   an edge in an angle with probability at most α;
+   taps' support); its candidate is the steepest drop in LOG brightness per pixel from the run's start to the next
+   edge's (the log floored at the angle's darkest level or its noise), at that 2 px span's middle refined to the
+   sub-sample peak. A log drop is a ratio, independent of the exposure: a blurred sharp stop's steepest log drop is at
+   the stop, a soft ramp's at its foot, where it meets the floor; a rim that falls in two steps (lit, a dim band, the
+   floor) gives both (owner ruling 2026-11-14). A drop is significant when it exceeds its noise √2·σ (σ the angle's
+   noise: the sensor model's, or the data's) by z = Φ⁻¹(1 − α/m), `α = significance` the family-wise level over the
+   angle's m drops: the floor's noise alone makes an edge in an angle with probability at most α;
 4. the model: `find_ellipse(candidates; scoring, rng)` for `Ellipse`, `find_circle(…)` for `Circle` — RANSAC with the
    robustified-LM local optimization, scored by the Student-t + uniform marginal (the inlier scale marginalized; the
    outliers uniform over ±`outlier_halfwidth`; its priors the stack's default, VisualGeometryToolkitEstimation's
@@ -71,7 +74,8 @@ Returns `nothing` when no model is found (fewer than 5 candidates, or no consens
 has no rim) or the model contains the whole frame (its light covers the sensor). Otherwise:
 - `circle`: the lens coverage, an `Ellipse{Float64}` or a `Circle{Float64}` (`T`), COLMAP pixels (a RAW frame's: raw
   pixels);
-- `fit`: the RANSAC's `RansacEstimate` on the candidates; `inlier_mask(fit)` indexes them. For RAW frames the RANSAC ran
+- `fit`: the second RANSAC's `RansacEstimate`, on one candidate per angle that has any (each angle's edge nearest the
+  first model, in angle order); `inlier_mask(fit)` indexes those points. For RAW frames the RANSAC ran
   on the green cells: its estimate is mapped to raw pixels (Core's `map_estimate`, `estimate(fit) == circle`), but its
   `rms` and every residual or scale in its metadata stay in GREEN-CELL pixels (raw pixels ÷ 2);
 - `contour`: the rim's points, `Vector{Point2{Float64}}`, in `circle`'s pixels: per angle bin with one, the inlier

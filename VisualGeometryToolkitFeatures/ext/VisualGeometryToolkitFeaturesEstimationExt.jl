@@ -2,7 +2,8 @@
 # VisualGeometryToolkitEstimation backend of detect_image_circle — the fit
 # =============================================================================
 #
-# The RANSAC of the image circle's model on its contour (src/image_circle.jl, step 6): Estimation's `find_circle` /
+# The RANSAC of the image circle's model on the rim's candidates (src/image_circle.jl, step 4), and its covariance
+# (`_coverage_covariance`): Estimation's `find_circle` /
 # `find_ellipse`, scored by VisualGeometryToolkitCore's Student-t + uniform marginal (the inlier scale marginalized; the
 # outliers uniform over ±`outlier_halfwidth`, in the contour's pixels), built through Estimation's scorer table so its
 # priors are the stack's default (Estimation's configs/default.toml [scoring.student_t_uniform]).

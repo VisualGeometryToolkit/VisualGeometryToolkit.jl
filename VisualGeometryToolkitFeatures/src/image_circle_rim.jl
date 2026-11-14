@@ -5,11 +5,11 @@
 # detect_image_circle (image_circle.jl) measures the lens coverage here. The frames' per-pixel maximum is resampled by
 # Core's log-polar warp (`logpolar_map` → `image_warp` → `image_warp!`, ONE KernelAbstractions kernel on every backend)
 # around an initial model (the image centre by default) at ≤ 1 px in radius and in arc; the samples are grouped into
-# angle bins and each (angle bin, radius) is reduced to its MEDIAN by this file's kernel (same backend). Per angle the
-# profile's largest significant drops in LOG brightness are the rim's CANDIDATES (a log drop is a ratio: independent of
-# the exposure); the RANSAC ellipse (or circle) through every angle's candidates (`_fit_image_circle`, the
-# VisualGeometryToolkitEstimation extension) is the LENS COVERAGE, and per angle the inlier candidate nearest it is the
-# rim's edge there.
+# angle bins and each (angle bin, radius) is reduced to its MEDIAN by this file's kernel (same backend). Per angle every
+# edge of the profile's outer envelope, at its steepest drop in LOG brightness, is a rim CANDIDATE (a log drop is a
+# ratio: independent of the exposure); the RANSAC ellipse (or circle) on one candidate per angle, twice (each angle's
+# outermost, then each angle's nearest that model; `_fit_image_circle`, the VisualGeometryToolkitEstimation extension),
+# is the LENS COVERAGE, and per angle its inlier is the rim's edge there.
 # =============================================================================
 
 using KernelAbstractions: @kernel, @index, @Const

@@ -218,9 +218,8 @@ function _rim_bins(s, nbins::Int; device)
     med = similar(s.samples, Float32, nbins, nr)
     code = similar(s.samples, UInt8, nbins, nr)
     meanvar = s.vars === nothing ? nothing : similar(s.samples, Float32, nbins, nr)
-    OnBackend(device)(_rim_bin_median_kernel!)(med, code, meanvar, s.samples, s.masks, s.vars, Int32(nbins), Int32(s.rows);
-                                               ndrange = (nbins, nr))
-    KA.synchronize(device)
+    _launch!(_rim_bin_median_kernel!, device, med, code, meanvar, s.samples, s.masks, s.vars, Int32(nbins), Int32(s.rows);
+             ndrange = (nbins, nr))   # through the package's launch barrier (JET sees no abstract-backend launch)
     lo(a) = ((a - 1) * s.rows) ÷ nbins
     angles = [s.θ((lo(a) + lo(a + 1)) / 2) for a in 1:nbins]
     counts = [lo(a + 1) - lo(a) for a in 1:nbins]

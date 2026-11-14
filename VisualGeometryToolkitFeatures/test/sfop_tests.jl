@@ -89,3 +89,88 @@ end
     @test maximum(err(points)) < 0.05                    # pixel locking of a 4×-supersampled render
     @test sqrt(sum(abs2, err(points)) / length(truth)) <= 1.05 * sqrt(sum(abs2, err(today)) / length(truth))
 end
+
+@testitem "detect_sfop's maxima: no edge test, a maximum beside a failed window kept" begin
+    import KernelAbstractions as KA
+    VGF = VisualGeometryToolkitFeatures
+    # one octave's precision cube (−1/w): a dot, a peak of w at pixel (20, 20) on level 3, and one neighbour whose window
+    # failed the λ₂ test (−∞). The extraction's quadratic interpolation fails there, so the maximum is kept on its pixel
+    # and level; the edge test (ASIFT's, meant off in the precision mode) must not drop it either: its curvature across
+    # the −∞ neighbour is −∞, and tr²/det = ∞/∞ was NaN, never below the limit
+    S = 3
+    cube = [-1.0f0 - 0.01f0 * Float32((i - 20)^2 + (j - 20)^2 + (l - 3)^2) for i in 1:40, j in 1:40, l in 1:(S + 3), _ in 1:1]
+    found(c) = (pool = zeros(Float32, 5, 16); count = zeros(Int32, 2);
+                VGF._sfop_maxima!(pool, count, KA.CPU(), c, 1.0f0, Int32(0), Int32(S)); pool[:, 1:count[1]])
+    @test found(cube)[1:2, :] == reshape(Float32[19, 19], 2, 1)    # 0-based octave pixels
+    beside = copy(cube)
+    beside[21, 20, 3, 1] = -Inf32
+    @test found(beside)[1:2, :] == reshape(Float32[19, 19], 2, 1)
+    diagonal = copy(cube)
+    diagonal[21, 21, 3, 1] = -Inf32                                # the cross term −∞: det < 0, a saddle to the edge test
+    @test found(diagonal)[1:2, :] == reshape(Float32[19, 19], 2, 1)
+end
+
+@testitem "detect_sfop's detections: each keeps its own precision when two octaves find the same point" begin
+    import KernelAbstractions as KA
+    VGF = VisualGeometryToolkitFeatures
+    # two maxima at the same input position and scale, one per octave (adjacent octaves share a level), w = 4 and 2:
+    # the NMS keeps the stronger, and its precision is its own w (a table keyed by position and scale alone gave the
+    # other octave's)
+    raw = Float32[50 50; 50 50; 3 3; -1/4 -1/2; 1 1]
+    rows = VGF._sfop_detections(KA.CPU(), (; nb_scales = 3), raw, [1, 2], 100, 100, 0.0)
+    @test length(rows) == 1 && only(rows).precision == 4.0
+    flipped = VGF._sfop_detections(KA.CPU(), (; nb_scales = 3), raw[:, [2, 1]], [1, 2], 100, 100, 0.0)
+    @test length(flipped) == 1 && only(flipped).precision == 4.0
+end
+
+@testitem "detect_sfop: the default octaves are what the image holds" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using Random: Xoshiro, randn
+    # a 40 × 40 image holds sift_nb_octaves(40, 40; upsample = true) = 2 octaves: the default 3 is clamped to them
+    small = Float32.(0.3 .+ (0.5 / 255) .* randn(Xoshiro(2), 40, 40))
+    @test VisualGeometryToolkitFeatures.sift_nb_octaves(40, 40; upsample = true) == 2
+    @test isempty(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5))
+    @test isequal(collect(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5)),
+                  collect(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5, nb_octaves = 2)))
+    # an image that holds more keeps 3; more than the image holds, asked for, is refused
+    truth, img = dot_grid(5, 2.2)
+    @test isequal(collect(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)),
+                  collect(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, nb_octaves = 3)))
+    @test_throws ArgumentError detect_sfop(small; device = KA.CPU(), nb_octaves = 3)
+end
+
+@testitem "detect_foerstner at seeds: its own keywords and seeds with a scale" setup = [SfopFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: Disc, Point2, PointFrame
+    truth, img = dot_grid(2, 2.2)
+    seeds = [Detection(Disc(Point2(t...), 2.0), (; precision = 1.0)) for t in truth]
+    @test length(detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5, derivative_sigma = 1.0,
+                                  derivative = :gaussian2d, significance_level = 0.99)) == length(seeds)
+    # the image-wide search's keywords are not read at given windows: refused, by name
+    err(f) = try
+        f(); nothing
+    catch e
+        e
+    end
+    e = err(() -> detect_foerstner(Float32, img, seeds; device = KA.CPU(), integration_sigma = 3.0, method = :koethe))
+    @test e isa ArgumentError && occursin("integration_sigma", e.msg) && occursin("method", e.msg)
+    for kw in (:integration, :noise_sigma, :precision_threshold, :roundness_threshold)
+        e = err(() -> detect_foerstner(img, seeds; device = KA.CPU(), (kw => 1)))
+        @test e isa ArgumentError && occursin(string(kw), e.msg)
+    end
+    # an uncertain frame with a scale is a seed too, read through its frame (`Disc` of the detection): the plain seeds' windows
+    using VisualGeometryToolkitCore: EllipticFrame, Uncertain, CovMat
+    plain = detect_foerstner(Float32, img, seeds; device = KA.CPU(), noise = 0.5)
+    ellipses = [Detection(Uncertain(EllipticFrame(Disc(Point2(t...), 2.0)), CovMat{5}(σ = 0.1)), (; precision = 1.0)) for t in truth]
+    @test [d.window for d in detect_foerstner(Float32, img, ellipses; device = KA.CPU(), noise = 0.5)] == [d.window for d in plain]
+    # a seed without a scale (a point) has no window: an ArgumentError naming its frame, not an error of a verb inside the call
+    points = [Detection(PointFrame(Point2(t...)), (; precision = 1.0)) for t in truth]
+    e = err(() -> detect_foerstner(Float32, img, points))
+    @test e isa ArgumentError && occursin("PointFrame", e.msg) && occursin("scale", e.msg)
+    # a vector of an abstract element type holds seeds too: empty (no rows), or scaled frames of several kinds
+    @test isempty(detect_foerstner(Float32, img, Detection[]; device = KA.CPU(), noise = 0.5))
+    mixed = Detection[seeds[1:2]; ellipses[3:end]]
+    @test [d.window for d in detect_foerstner(Float32, img, mixed; device = KA.CPU(), noise = 0.5)] == [d.window for d in plain]
+    e = err(() -> detect_foerstner(Float32, img, Detection[seeds[1:2]; points[3:end]]))
+    @test e isa ArgumentError && occursin("PointFrame", e.msg)
+end

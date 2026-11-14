@@ -48,6 +48,7 @@ using VisualGeometryToolkitCore: default_device   # the family's one KA backend 
 using VisualGeometryToolkitCore: device_free_bytes, reclaim_device!, free_device_buffers!   # the accelerator's free memory and its pool handed back (base/device.jl, the CUDA extension's queries)
 using VisualGeometryToolkitCore: ka_upload, on_device, device_zeros   # the family's one upload to a device (base/device.jl)
 using VisualGeometryToolkitCore: OnBackend   # the stack's one kernel-launch policy (every kernel is instantiated through it)
+using VisualGeometryToolkitCore: radix_key   # the IEEE total-order integer key (image_circle_rim.jl's bin median selection)
 using VisualGeometryToolkitCore: AbstractDetection, FeatureFrame, OrientedDisc, AffineFrame, PointFrame
 using VisualGeometryToolkitCore: characteristic_scale
 using VisualGeometryToolkitCore: image_warp, image_warp!, AffineMap, Rect   # LoMaDescriptor's resampling to the graph's input (loma.jl)
@@ -55,7 +56,7 @@ using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings,
 # The sensor image, Core's since Core 0.9.2 (Features keeps the decoder and the display demosaic): the names used here.
 using VisualGeometryToolkitCore: RawMosaic, LinearRaw, raw_frame_map
 using VisualGeometryToolkitCore: SensorModel, NoiseComponent, PoissonGaussian, FileBlack, NoNoise, NoDefects, content_digest, green_plane, poisson_slope, value_of, RetiredKeyword, refuse_retired_keyword   # the frame's sensor model and the green cells it models (raw_image.jl, foerstner.jl, variance_stabilization.jl)
-using LinearAlgebra: isposdef
+using LinearAlgebra: isposdef, tr, dot   # tr, dot: the residual sums' effective degrees of freedom (foerstner.jl _residual_dof)
 using VisualGeometryToolkitCore: CovMat, UnlabeledFrame, Uncertain   # detection uncertainty
 using VisualGeometryToolkitCore: center   # THE detection → point observation conversion (Uncertain{<:FeatureFrame} → Uncertain{Point2})
 import VisualGeometryToolkitCore: cov, geom   # extended for Detections of an Uncertain frame

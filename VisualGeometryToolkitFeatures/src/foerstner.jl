@@ -115,11 +115,14 @@ steps run on `device`, any KernelAbstractions backend, in precision `T`
    `Σ ∇g∇gᵀ`), the circular point that of the lines ALONG it (`Σ ∇g⊥∇g⊥ᵀ`).
    Each has a weighted residual sum `Ω`, redundancy `(2ρ + 1)² − 2` and
    a-posteriori covariance `Ω/redundancy · N⁻¹` (lines 314–423, 440, 449).
-5. `F = Ω_corner / Ω_circular` against the F distribution of (redundancy,
-   redundancy) degrees of freedom, as the reference's
+5. `F = Ω_corner / Ω_circular` against the F distribution of the two residual
+   sums' EFFECTIVE degrees of freedom `(ν_corner, ν_circular)`, as the reference's
    `(T < F(α)) − (T > F(1 − α))` (line 429): a corner below the
    `1 − significance_level` quantile, a circular point above the
-   `significance_level` quantile, unknown in between.
+   `significance_level` quantile, unknown in between. `ν = (tr Q)²/tr Q²`
+   (Satterthwaite), `Ω = Iᵀ Q I` the residual sum as a quadratic form of the
+   input pixels under white noise, for the window's half-width and the
+   derivative taps, about the window centre (difference 4 below).
 6. With `noise` given, the covariance is propagated instead (not in the
    reference): the estimate `x̂ = N⁻¹ b` moves, by the implicit-function theorem,
    by `δx̂ = N⁻¹ Σₚ A(p) δ∇g(p)` with `A(p) w = (vᵀe) R w + v eᵀ R w`, `v = R∇g`,
@@ -152,6 +155,19 @@ input at 1-based `(r′/2, c′/2)`, so a doubled-grid position is at COLMAP
 3. **Defaults — the code's, not the header's.** The header states
    `SIGMA_N = 2.5` and `SIGMA_DIFF = 0.7` (lines 37, 50); the code runs `2.0`
    and `1.0` (lines 521, 524). A documentation conflict, not a fix.
+4. **The F-test's degrees of freedom — corrected.** The reference tests `F`
+   against `F(redundancy, redundancy)`, the window's doubled-pixel count less 2,
+   as if every residual were independent. The doubled samples are not: the
+   doubling and the derivative taps correlate them, and each residual sum has
+   the effective degrees of freedom `ν` of step 5, about 1/23 of the pixel count
+   (ν ≈ 87 against 2023 at ρ = 22, `derivative_sigma` 1). At the pixel count the
+   test's level is not the stated one: on white noise about 20 % of the windows
+   were labelled circular and 25 % corner at `significance_level` 0.999 (the
+   suite's test), where `ν` gives at most the stated rate. On the chrome
+   photographs the windows between dots, on line artefacts and on letter strokes
+   (F ≈ 1–3) were labelled circular. The a-posteriori covariance keeps the
+   reference's `Ω/redundancy · N⁻¹` (its calibration, NEES ≈ 2, is the
+   Förstner study's).
 
 The docs page gives the evidence for each. The reference warns that with a
 Gaussian integration the window estimation still weighs the pixels equally;
@@ -177,10 +193,17 @@ detect_foerstner(img::Union{AbstractMatrix, LinearRaw}; kw...) = detect_foerstne
 detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = nothing, noise_sigma::Real = something(noise, 2.0),
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
 
+# A seed of the window estimation: a detection of a frame with a scale, its window's integration scale (a point has
+# none). An uncertain one is read through its frame (`Disc` of the detection), as `Disc(d)` reads any uncertain frame.
+# Checked per seed (`_check_seeds`), so a vector of an abstract element type (`Detection[]`, mixed frames) is a seed vector.
+const _ScaledFrame = Union{Disc, OrientedDisc, EllipticFrame, AffineFrame}
+const _SeedDetection = Detection{<:Union{_ScaledFrame, Uncertain{<:_ScaledFrame, <:CovMat}}}
+
 """
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
                      noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
                      significance_level = 0.999) -> StructArray{<:Detection}
+    detect_foerstner([T = Float32], L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner operator's window estimation (steps 4–6 of the method above, its
 doubled resolution, its kernels) at GIVEN windows: one window per seed, centred
@@ -191,17 +214,63 @@ the half-width `⌈√(12(2σ)² + 1)/2⌉ + 1` doubled pixels, as `integration_
 would give: SFOP's `N(σ) = 12σ² + 1` is the pixel count of the box of the same
 energy as its Gaussian `G_σ`. The image-wide window search (step 3) is not run.
 
+On a RAW's green cells (`L::LinearRaw`, positions on the cell grid; seeds from
+`detect_sfop(L)`) the frame's `sensor_model` gives the covariance as for the
+image-wide call on `L`.
+
+The seeds are detections of a frame with a scale (a `Disc`, an `OrientedDisc`, an `EllipticFrame` or
+an `AffineFrame`, its characteristic scale σ; each also with its covariance); a point has no
+window (an `ArgumentError` naming its frame). The keywords are the ones above: the image-wide search's (`method`, `noise_sigma`,
+`integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) are not read at given windows and
+are refused (`ArgumentError`, naming them).
+
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
-window, F; the F-test of each window at its own redundancy), one per seed whose
+window, F; the F-test of each window at its own half-width's degrees of freedom), one per seed whose
 window lies inside the doubled image, in the order of `seeds`.
 """
-detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:Detection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
+detect_foerstner(img::Union{AbstractMatrix, LinearRaw}, seeds::AbstractVector{<:Detection}; kw...) =
+    detect_foerstner(Float32, img, seeds; kw...)
 
 detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detection}; noise::Union{Nothing, Real} = nothing,
-                 kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); seeds, kw...)
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, img, _pixel_noise(noise), seeds; kw...)
 
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
-    _detect_foerstner(T, _green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)); kw...)
+    _detect_foerstner(T, _raw_inputs(L, sensor_model)...; kw...)
+
+# The seeded windows on a RAW's green cells (positions on the cell grid), under the frame's sensor model as the image-wide call.
+detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, _raw_inputs(L, sensor_model)..., seeds; kw...)
+
+# The seeded call's keywords, once for both inputs (the pixel noise already resolved): the image-wide search's are not
+# read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.
+function _detect_seeded(
+        ::Type{T}, img, noise, seeds; device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d,
+        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, unread...
+    ) where {T}
+    _refuse_unread_seed_keywords(unread)
+    _check_seeds(seeds)
+    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level)
+end
+
+_refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
+    "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read by the seeded call (each window's " *
+    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level and the pixel noise " *
+    "(noise on a matrix, sensor_model on a LinearRaw)"))
+
+# Every seed a detection of a frame with a scale (`_SeedDetection`): a point's window has no scale.
+function _check_seeds(seeds)
+    for d in seeds
+        d isa _SeedDetection || throw(ArgumentError(
+            "detect_foerstner(img, seeds): a seed of a $(_frame_name(getfield(d, :value))) has no scale, so no window: " *
+            "the seeds are detections of a Disc, OrientedDisc, EllipticFrame or AffineFrame (each also uncertain)"))
+    end
+    return seeds
+end
+_frame_name(v::Attributed) = _frame_name(getfield(v, :value))   # an uncertain frame: its frame
+_frame_name(v) = nameof(typeof(v))
+
+# A RAW's green cells as the detector reads them: their values and the pixel noise its sensor model gives (`_pixel_noise`).
+_raw_inputs(L::LinearRaw, sensor_model::SensorModel) = (G = green_plane(L); (_green_values(G), _pixel_noise(sensor_model.noise, G)))
 
 # The values of a green plane: the plane itself, or each uncertain element's value (Core's `value_of`), whatever its
 # storage (a lazy view or a materialised one).
@@ -374,7 +443,7 @@ function _foerstner_estimates(device, gamma::AbstractArray{T, 3}, centres, ρ) w
         _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, radii; ndrange = length(centres))
     KA.synchronize(device)
     return (;
-        centres, estimates = Float64.(Array(device_estimates)), ρ = radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,
+        centres, estimates = Float64.(Array(device_estimates)), ρ, radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,   # ρ on the host, radii on the device
         centre_list, device_estimates,
     )
 end
@@ -412,15 +481,57 @@ end
 end
 
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
-# 0 unknown (the reference's noclass).
+# 0 unknown (the reference's noclass). The F distribution's degrees of freedom are the two residual sums' effective
+# ones (`_residual_dof`, one per window half-width ρ), not the reference's pixel count `(2ρ + 1)² − 2`.
 function _foerstner_classes(found, significance_level)
-    critical(red) = (fdist = FDist(red, red); (quantile(fdist, significance_level), quantile(fdist, 1 - significance_level)))
-    shared = found.redundancy isa Number ? critical(found.redundancy) : nothing     # one F distribution for all
+    tests = Dict(ρ => (d = _residual_dof(found.taps, ρ); f = FDist(d.corner.ν, d.circular.ν);
+                       (quantile(f, significance_level), quantile(f, 1 - significance_level))) for ρ in unique(found.ρ))
     function class(k, e)
-        corner_critical, circular_critical = something(shared, critical(_per_window(found.redundancy, k)))
+        corner_critical, circular_critical = tests[_per_window(found.ρ, k)]
         return (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)
     end
     return Int8[class(k, e) for (k, e) in enumerate(eachcol(found.estimates))]
+end
+
+# The effective degrees of freedom of the window's two residual sums under white input noise (Satterthwaite):
+# `Ω = Σₚ (aₚᵀ∇g(p))²` over the (2ρ + 1)² doubled pixels p of the window, `aₚ = e` (the corner model: the distance
+# across the gradient) or `R e` (the circular point: along it), `e = p − c` about the window centre c, is the quadratic
+# form `Ω = Iᵀ Q I` of the input pixels I, so for iid noise of unit variance `E[Ω] = tr Q`, `Var Ω = 2 tr Q²` and
+# `ν = (tr Q)²/tr Q²`. The doubled samples are correlated (the doubling, the derivative and across taps), so ν is far
+# below the pixel count. The gradient's components are separable — the rows' and the columns' one-axis operators
+# (`_pipeline_bands` of `taps`, `_propagated_covariances`' convention: ∂/∂row reads (derivative, across), ∂/∂column
+# (across, derivative)) — so their covariance is `K_ss′(p, p′) = Kr_ss′(r, r′)·Kc_ss′(c, c′)`, and with `aₚ` linear in
+# one coordinate each `aₚᵀ K(p, p′) aₚ′` is a sum of four products `f_t(r, r′)·g_t(c, c′)`: `tr Q = Σ_t tr f_t tr g_t`,
+# `tr Q² = Σ_tu ⟨f_t, f_u⟩⟨g_t, g_u⟩`, O(ρ²). The sums are about the window centre: the estimate's two parameters, which the
+# detector's Ω removes, are neglected (about 2 of ν; Monte Carlo on white noise: Ω_corner's measured ν 89 against 89.8, Ω_circular's
+# 77 against 87, the latter line 423's sum — the test is conservative). Interior windows (every window is inside the image); the
+# doubling's phase (the centre's parity) changes ν by < 1e-5 relative, so the centre's parity is whichever n gives.
+# Returns `(; corner = (; ν, E), circular = (; ν, E))`, `E = tr Q`.
+function _residual_dof(taps::AbstractMatrix, ρ::Integer)
+    r = size(taps, 1) ÷ 2
+    n = ρ + r + 4                                           # input pixels: the window and the taps' reach, interior
+    span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
+    x = Float64.(collect(span) .- n)                        # e along that axis
+    function grams(B)                                       # K_ss′ = Bₛᵀ Bₛ′, Bₛ[q, i] the weight of input q at span[i]
+        D = zeros(n, length(span), 2)
+        for (i, p) in enumerate(span), s in 1:2, k in axes(B, 1)
+            D[_band_start(p, r) + k - 1, i, s] += B[k, p, s]
+        end
+        return [D[:, :, s]' * D[:, :, s2] for s in 1:2, s2 in 1:2]
+    end
+    Kr = grams(_pipeline_bands(Float64.(taps), n))
+    Kc = grams(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
+    # aₚᵀ K aₚ′ = Σ_ss′ f_ss′(r, r′) g_ss′(c, c′) for `a` = (sign, axis) of each gradient component (∂/∂row, ∂/∂column), axis
+    # 1 the row offset, 2 the column offset: the corner a = (r, c), the circular point a = (−c, r)
+    function moments(a)
+        on(axis, along) = axis == along ? x : ones(length(x))
+        terms = [(a[s][1] * a[s2][1] .* on(a[s][2], 1) .* on(a[s2][2], 1)' .* Kr[s, s2], on(a[s][2], 2) .* on(a[s2][2], 2)' .* Kc[s, s2])
+                 for s in 1:2 for s2 in 1:2]
+        E = sum(tr(f) * tr(g) for (f, g) in terms)
+        V = sum(dot(f, f2) * dot(g, g2) for (f, g) in terms, (f2, g2) in terms)
+        return (; ν = E^2 / V, E)
+    end
+    return (; corner = moments(((1, 1), (1, 2))), circular = moments(((-1, 2), (1, 1))))
 end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is
@@ -489,7 +600,7 @@ end
 # (on the device of `found`), through the
 # taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
 function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
-    (; centres, ρ, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
+    (; centres, radii, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
     H, W = size(variance)
     K = length(centres)
     K == 0 && return zeros(Float64, 4, 0)
@@ -499,7 +610,7 @@ function _propagated_covariances(device, found, classes, variance::AbstractMatri
     out = KA.allocate(device, T, 4, K)
     _launch!(
         _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, centre_list, device_estimates,
-        ka_upload(Int8, device, classes), rows, columns, ρ, Int32(size(taps, 1) ÷ 2); ndrange = K
+        ka_upload(Int8, device, classes), rows, columns, radii, Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
 end

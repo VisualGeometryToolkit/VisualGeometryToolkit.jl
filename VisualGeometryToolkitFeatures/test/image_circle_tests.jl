@@ -451,3 +451,23 @@ end
         @test res.fit.rms > 0 && all(s -> 0 < s < 0.25, res.axes_scale)
     end
 end
+
+@testitem "detect_image_circle: the bin median by selection is the rank count's, bit for bit" begin
+    using Random: Xoshiro, rand, randn
+    VGF = VisualGeometryToolkitFeatures
+    # the two order statistics ⌊(m+1)/2⌋, ⌈(m+1)/2⌉ of a bin's samples (rows lo … hi of column j), each the LAST sample in
+    # row order equal to it: the radix selection against the rank count, on ties, signed zeros, ±∞ and every bin size
+    rng = Xoshiro(4)
+    for m in [1:70; 100; 333; 600], kind in 1:4
+        x = kind == 1 ? randn(rng, Float32, m + 7) :
+            kind == 2 ? Float32.(round.(3 .* randn(rng, m + 7))) :                       # many ties
+            kind == 3 ? rand(rng, Float32[-0.0, 0.0, 1.0, -1.0, Inf, -Inf, 0.5], m + 7) : # signed zeros, infinities
+            fill(-0.0f0, m + 7)
+        samples = hcat(randn(rng, Float32, m + 7), x)
+        lo, hi = Int32(4), Int32(m + 3)
+        m1, m2 = (Int32(m) + Int32(1)) ÷ Int32(2), (Int32(m) + Int32(2)) ÷ Int32(2)
+        r = VGF._bin_order_stats_rank(samples, lo, hi, 2, m1, m2)
+        s = VGF._bin_order_stats_select(samples, lo, hi, 2, m1, m2)
+        @test all(r .=== s)
+    end
+end

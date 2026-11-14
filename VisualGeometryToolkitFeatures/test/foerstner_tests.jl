@@ -92,10 +92,13 @@ end
     using LinearAlgebra: norm, eigvals
     t = (30.37, 27.81)
     img = render((x, y) -> 0.2 + 0.6 * xor(x > t[1], y > t[2]), 56, 64)   # a checkerboard X-junction
+    # the default window (ρ = 6, ν ≈ 12): this junction (F ≈ 0.16) is unknown at 0.999 (no ellipse of its NaN covariance), a corner at 0.99
     for method in (:foerstner, :koethe)
-        d = only(detect_foerstner(Float64, img; method))
-        @test d.label === :corner
-        @test d.F < 1
+        u = only(detect_foerstner(Float64, img; method))
+        @test u.label === :unknown && all(isnan, cov(u.value))
+        @test_throws ArgumentError Ellipse(u.value; sigma = 1)
+        d = only(detect_foerstner(Float64, img; method, significance_level = 0.99))
+        @test d.label === :corner && d.F == u.F
         e = d.center - Point2(t)
         # the window lands up to a few doubled pixels off the vertex of the
         # X-junction (its measure is flat there), which biases the estimate:
@@ -126,7 +129,8 @@ end
     estimates[[3, 6, 10, 13], :] .= 1.0                 # N⁻¹ = I for both models
     estimates[7, :] .= (1.0, 50.0, 10.0)                # Ω_corner
     estimates[14, :] .= (50.0, 1.0, 10.0)               # Ω_circular: F = 0.02, 50, 1
-    found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, redundancy = 167, upscale = 2)
+    taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)                     # derivative_sigma 1, doubled
+    found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, ρ = 6, redundancy = 167, upscale = 2, taps)
     rows = VGF._foerstner_points(found, VGF._foerstner_classes(found, 0.999), VGF._undouble)
     @test [d.label for d in rows] == [:corner, :circular, :unknown]
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
@@ -148,6 +152,55 @@ end
 # corner model's residuals), against the circular model's own residual sum, by
 # the coverage of the reported covariance on noisy dots (the docs page's numbers
 # come from the 400-trial version of this).
+@testitem "detect_foerstner: the F-test at the residual sums' effective degrees of freedom" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: Disc, Point2
+    using Random: Xoshiro, randn
+    using Statistics: mean, var
+    VGF = VisualGeometryToolkitFeatures
+    # white noise: each residual sum is the quadratic form Iᵀ Q I, E = σ² tr Q and ν = (tr Q)²/tr Q² (`_residual_dof`)
+    σn, level = 0.5, 0.999
+    img = Float32.(0.5 .+ (σn / 255) .* randn(Xoshiro(3), 600, 600))
+    σ = 6.0                                                     # a seed's scale: ρ = 22 doubled px
+    seeds = [Detection(Disc(Point2(x, y), σ), (; precision = 1.0)) for x in 30.0:24:570 for y in 30.0:24:570]   # disjoint windows
+    n = length(seeds)
+    g = VGF.ka_upload(Float32, KA.CPU(), img)
+    doubled = KA.allocate(KA.CPU(), Float32, 2 .* size(g)...)
+    VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
+    found = VGF._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
+    @test length(found.centres) == n && all(==(22), found.ρ)
+    dof = VGF._residual_dof(found.taps, 22)
+    # E[Ω] = σ² tr Q, within 4 standard errors of the mean (Var Ω = 2(σ² tr Q)²/ν); the corner sum's variance gives ν
+    # within 4 standard errors (a sample variance's relative SE is √(2/(n − 1)))
+    for (row, d) in ((7, dof.corner), (14, dof.circular))
+        Ω = found.estimates[row, :]
+        expected = (σn / 255)^2 * d.E
+        @test abs(mean(Ω) - expected) < 4 * expected * sqrt(2 / d.ν / n)
+    end
+    Ωc = found.estimates[7, :]
+    @test abs(2mean(Ωc)^2 / var(Ωc) - dof.corner.ν) < 4 * dof.corner.ν * sqrt(2 / (n - 1))
+    @test dof.corner.ν < (2 * 22 + 1)^2 / 10                    # far below the pixel count (2ρ + 1)² − 2 = 2023
+    # the image-wide default window (ρ = 6, ν ≈ 12; seeds at σ = 1.3 give it), where the neglected two parameters weigh
+    # most: the corner sum's ν within 4 standard errors (Ω ~ χ²_ν: a sample variance's relative SE is √((2 + 12/ν)/(m − 1))),
+    # and at most the stated rate of noise windows labelled; the windows' input supports (ρ, the taps and the doubling: < ±8 px) disjoint at 16 px
+    p = 2 * (1 - level)                                         # the labelled rate on noise, both sides
+    small = [Detection(Disc(Point2(x, y), 1.3), (; precision = 1.0)) for x in 20.0:16:580 for y in 20.0:16:580]
+    m = length(small)
+    f6 = VGF._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
+    ν6 = VGF._residual_dof(f6.taps, 6).corner.ν
+    Ω6 = f6.estimates[7, :]
+    @test length(f6.centres) == m && all(==(6), f6.ρ) && 11 < ν6 < 13
+    @test abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt((2 + 12 / ν6) / (m - 1))
+    @test count(!=(0), VGF._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
+    # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
+    # at the pixel count it was about a fifth per side
+    rows = detect_foerstner(Float64, img, seeds; device = KA.CPU(), significance_level = level)
+    @test count(d -> d.label !== :unknown, rows) <= n * p + 4 * sqrt(n * p * (1 - p))
+    # a dot is still a circular point and a corner a corner (the suite's synthetic scenes elsewhere)
+    truth, dots = blob_grid(60, 70; nx = 2, ny = 2)
+    @test all(d -> d.label === :circular, detect_foerstner(Float64, dots; device = KA.CPU()))
+end
+
 @testitem "detect_foerstner: the circular point's covariance, line 423 against its derivation" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using Random: Xoshiro, randn
@@ -331,6 +384,33 @@ function foerstner_calibration(n, render, mc_summary; tile = 30, σn = 2.0, sett
 end
 end
 
+@testitem "detect_sfop and the seeded detect_foerstner on a LinearRaw: the green cells under the frame's sensor model" setup = [NoisyMosaic] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: LinearRaw, green_plane, value_of, Disc
+    using Statistics: cov
+    using Random: Xoshiro
+    using Test
+    # two bright dots in the green cells (photosite (i, j) at cell ((i + 1) ÷ 2, (j + 1) ÷ 2))
+    dot(i, j) = any(hypot((j + 1) ÷ 2 - a, (i + 1) ÷ 2 - b) < 3 for (a, b) in ((60.3, 58.7), (85.6, 81.2))) ? 6000.0 : 600.0
+    m = noisy_mosaic(Xoshiro(9), dot, 280, 280; electrons_per_dn = 2.5, read_dn = 3.0)   # 140 × 140 cells: SFOP's 3 octaves
+    model = pg_model(2.5, 3.0)
+    L = LinearRaw(m; mode = :green_cells, sensor_model = model)
+    x = Array(map(value_of, green_plane(L)))
+    # SFOP on the green cells' values, as on the matrix
+    seeds = detect_sfop(L; device = KA.CPU(), noise_sigma = 2.0)
+    @test isequal(collect(seeds), collect(detect_sfop(x; device = KA.CPU(), noise_sigma = 2.0))) && length(seeds) >= 2
+    # the seeded windows under the sensor model: the image-wide call's numbers at the same windows, the model's covariance with them
+    found = detect_foerstner(Float64, L; sensor_model = model, device = KA.CPU(), integration_sigma = 2.0)
+    again = detect_foerstner(Float64, L, [Detection(Disc(d.window, 2.0), (; precision = 1.0)) for d in found]; sensor_model = model, device = KA.CPU())
+    @test length(again) == length(found) && all(isequal(a, b) for (a, b) in zip(again, found))
+    @test any(d -> d.covariance_status === :propagated_measured, again)
+    rows = detect_foerstner(Float64, L, seeds; sensor_model = model, device = KA.CPU())
+    @test count(d -> d.label === :circular, rows) >= 2
+    # the default precision, as for the image-wide call on L and the seeded call on a matrix
+    @test isequal(collect(detect_foerstner(L, seeds; sensor_model = model, device = KA.CPU())),
+                  collect(detect_foerstner(Float32, L, seeds; sensor_model = model, device = KA.CPU())))
+end
+
 @testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin
     n = 32
     for (_, r) in foerstner_calibration(n, render, mc_summary)
@@ -344,6 +424,7 @@ end
 # functional CUDA device (CUDA_VISIBLE_DEVICES=0); records a skip otherwise.
 @testitem "detect_foerstner: CUDA matches the CPU" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
+    import VisualGeometryToolkitCore
     using LinearAlgebra: norm
     using Statistics: cov
     cuda = try
@@ -364,7 +445,14 @@ end
             @test length(c) == length(g) && [d.label for d in c] == [d.label for d in g]
             @test any(d -> d.label === :corner, c)
             @test maximum(norm(a.center - b.center) for (a, b) in zip(c, g)) < tol
-            @test maximum(maximum(abs.(cov(a.value) .- cov(b.value)) ./ abs.(cov(a.value))) for (a, b) in zip(c, g)) < sqrt(tol)
+            # the covariances of the classified rows (an :unknown row has none: NaN)
+            @test maximum(maximum(abs.(cov(a.value) .- cov(b.value)) ./ abs.(cov(a.value))) for (a, b) in zip(c, g) if a.label !== :unknown) < sqrt(tol)
+            # the seeded windows, one half-width per seed (the F-test reads them on the host)
+            seeds = [Detection(VisualGeometryToolkitCore.Disc(d.window, σ), (; precision = 1.0)) for (d, σ) in zip(c, Iterators.cycle((2.0, 3.0)))]
+            cs = detect_foerstner(T, img, seeds; device = KA.CPU(), noise)
+            gs = Base.invokelatest(detect_foerstner, T, img, seeds; device = backend, noise)
+            @test length(cs) == length(gs) && [d.label for d in cs] == [d.label for d in gs]
+            @test maximum(norm(a.center - b.center) for (a, b) in zip(cs, gs) if a.label !== :unknown) < tol
         end
     end
 end

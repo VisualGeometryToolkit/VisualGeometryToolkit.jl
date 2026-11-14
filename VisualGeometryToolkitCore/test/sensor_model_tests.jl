@@ -602,6 +602,7 @@ end
 
 @testitem "sensor model: CPU = GPU — LinearRaw with a ChannelBlack, a Dark, a DefectList and a PoissonGaussian; the estimators" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
+    import Distributions
     using VisualGeometryToolkitCore: sensor_fixture, parse_unit
     using StableRNGs: StableRNG
     using Adapt: adapt
@@ -637,11 +638,33 @@ end
         gs = Dict((l * 0.01)s => [scene_frame(StableRNG(200 + 10l + k); light = l == 1 ? 1.0 : 0.5) for k in 1:3] for l in 1:2)
         gd = Dict(t => [adapt(CUDA.CuArray, f) for f in g] for (t, g) in gs)
         dk = Dict(t => sensor_fixture(; read_noise = (SIGMA_EFF, SIGMA_EFF, SIGMA_EFF, SIGMA_EFF)).model.noise for t in keys(gs))
-        rh, rd = photon_transfer(gs, dk; normalize = false), photon_transfer(gd, dk; normalize = false)
-        @test rd.estimate == rh.estimate && rd.metadata == rh.metadata   # the same sums, one work item each
-        # with the scale, each frame's mean is a reduction whose order the device chooses: the estimate within its own SE
-        ph, pd = photon_transfer(gs, dk).estimate, photon_transfer(gd, dk).estimate
-        @test abs(pd.gain - ph.gain) <= Z * ph.std_error.gain
+        # Host and device run the same block sums, one work item each, but the device compiler FUSES the temporal sum of
+        # squares `q += (y − μ)^2` of `_site_moments` into an FMA (and, with `normalize`, the scaled sum): each photosite's
+        # q, and each block's variance v̂, differ by rounding. Two roundings of an n-term sum of nonnegative terms differ
+        # by at most n·ε of the sum, so every block's v̂ (N frames per photosite, then p = 2·block² green photosites per
+        # block) differs relatively by at most δ = (N + p)·ε. A weighted-least-squares coefficient moves, by
+        # Cauchy–Schwarz, by at most its standard error times the data's weighted change ‖Δy‖_W ≤ δ·‖y‖_W, with
+        # ‖y‖_W = √(Σ m/(rel·(pred/y)²)) ≈ √(n·m/rel) over the n points of m blocks (rel the median's relative variance
+        # from the counts; y/pred ≤ 2 bounds the points' distance from the line and the weights' own feedback): Y.
+        # Then K moves by at most Y counts-standard-errors, its SE (√C/β² · max(R, 1)) relatively by 3|ΔK|/K plus R's
+        # change ΔR ≤ Y/√(n − 1), and the μ² statistic t by at most Y. The discrete range (the searches' decisions,
+        # |t| against its z) and the point counts can move only if a decision lies within Y of its threshold: they
+        # are compared EXACTLY, so a flip at a boundary fails the test rather than passing under a tolerance.
+        Gd = Distributions.Gamma(128, 1 / 128)                 # the block law of this fixture: p(N − 1) = 128·2 dof
+        qd = Distributions.median(Gd); relc = 1 / (4 * Distributions.pdf(Gd, qd)^2 * qd^2)
+        for normalize in (false, true)
+            rh, rd = photon_transfer(gs, dk; normalize), photon_transfer(gd, dk; normalize)
+            eh, ed, mh, md = rh.estimate, rd.estimate, rh.metadata, rd.metadata
+            n, m = rh.n, 2 * (16 * 32) / mh.points_offered      # the points fitted; blocks per point (2 exposures × 16 × 32)
+            δ = (3 + 2 * 8^2) * eps(Float64)
+            Y = 2 * δ * sqrt(n * m / relc)
+            se_counts = eh.std_error.gain / max(mh.birge_ratio, 1)
+            @test abs(ed.gain - eh.gain) <= Y * se_counts
+            @test abs(ed.std_error.gain - eh.std_error.gain) <= eh.std_error.gain * (3 * Y * se_counts / eh.gain + Y / sqrt(n - 1))
+            @test abs(md.curvature_t - mh.curvature_t) <= Y && abs(md.birge_ratio - mh.birge_ratio) <= Y / sqrt(n - 1)
+            @test (rd.n, md.points_offered, md.tests, md.rollover_tests) == (rh.n, mh.points_offered, mh.tests, mh.rollover_tests)
+            @test md.level_range == mh.level_range && md.intercept == mh.intercept && ed.σ == eh.σ
+        end
         frames = [synth_mosaic([code(rng, BLACK, nothing, SIGMA_R) for i in 1:32, j in 1:32]) for _ in 1:4]
         rh = master_dark(frames; exposure_band = (0.5s, 1.0s))
         rd = master_dark([adapt(CUDA.CuArray, f) for f in frames]; exposure_band = (0.5s, 1.0s))

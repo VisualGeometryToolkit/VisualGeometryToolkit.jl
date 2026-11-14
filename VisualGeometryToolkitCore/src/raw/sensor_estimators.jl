@@ -316,7 +316,10 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     N = minimum(length, frames_of)                       # one χ² law: every group gives its first N frames
     stats = map(frames_of) do gr
         frames = gr[1:N]
-        stack = cat((parent(f) for f in frames)...; dims = 3)
+        stack = similar(parent(m), eltype(parent(m)), size(m)..., N)   # the group's frames stacked (no splat of a data-length set)
+        for (k, f) in enumerate(frames)
+            copyto!(view(stack, :, :, k), parent(f))
+        end
         scale = normalize ? _flicker_scale(frames, g) : ones(N)
         _block_moments(_FrameStack(stack, Adapt.adapt(KA.get_backend(stack), scale), g.s1, g.s2), m, sensor_model, g, block)
     end
@@ -331,11 +334,11 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
         length(ks) >= 8 || return nothing
         _ptc_points([sm[k] / full for k in ks], [sq[k] / (full * (N - 1)) for k in ks], fill(σ0[i], length(ks)), full * (N - 1))
     end
-    parts = filter(!isnothing, parts)
-    isempty(parts) && throw(NoiseEstimateFailed("no exposure holds 8 whole blocks"))
-    order = sortperm(reduce(vcat, (pt.xs for pt in parts)))
-    cat_sorted(f) = reduce(vcat, (getfield(pt, f) for pt in parts))[order]
-    p = _ptc_check((; xs = cat_sorted(:xs), ys = cat_sorted(:ys), ms = cat_sorted(:ms), os = cat_sorted(:os), rel = parts[1].rel))
+    held = filter(!isnothing, parts)
+    isempty(held) && throw(NoiseEstimateFailed("no exposure holds 8 whole blocks"))
+    order = sortperm(reduce(vcat, (pt.xs for pt in held)))
+    cat_sorted(f) = reduce(vcat, (getfield(pt, f) for pt in held))[order]
+    p = _ptc_check((; xs = cat_sorted(:xs), ys = cat_sorted(:ys), ms = cat_sorted(:ms), os = cat_sorted(:os), rel = held[1].rel))
     r = _ptc_range(p, significance)
     q = _ptc_subset(p, r.lo:r.hi)
     f = _series_slope(q)

@@ -15,13 +15,56 @@ struct LogPolarToCartesian{T <: Real} <: CoordinateTransformations.Transformatio
     log_inner_radius::T
 end
 
-@inline function (t::LogPolarToCartesian)(p)
+# The polar coordinates (r, θ) of the log-polar point `p`, shared by the map and its differential.
+@inline function _polar(t::LogPolarToCartesian, p)
     θ = π * (p[2] + 1)                  # Maps [-1,1] → [0, 2π]
     normalized_log_r = (p[1] + 1) / 2   # Maps [-1,1] → [0,1]
     log_r = t.log_inner_radius + (-t.log_inner_radius) * normalized_log_r
-    r = exp(log_r)
+    return exp(log_r), θ
+end
+
+@inline function (t::LogPolarToCartesian)(p)
+    r, θ = _polar(t, p)
     return r * Point2(cos(θ), sin(θ))
 end
+
+# The differential of the log-polar map at `p`: ∂(x, y)/∂(p₁, p₂). With L = −log_inner_radius, r = exp(log r) and
+# θ = π(p₂ + 1), ∂r/∂p₁ = r·L/2 along (cos θ, sin θ) and ∂θ/∂p₂ = π, an arc of π·r along (−sin θ, cos θ);
+# |det| = π·L·r²/2, the area element. A `ComposedTransformation` through `logpolar_map` takes it by the chain rule.
+function CoordinateTransformations.transform_deriv(t::LogPolarToCartesian, p)
+    r, θ = _polar(t, p)
+    s, c = sincos(θ)
+    dr = -t.log_inner_radius * r / 2
+    return @SMatrix [c * dr  (-π * r * s); s * dr  (π * r * c)]
+end
+
+"""
+    CartesianToLogPolar{T<:Real} <: CoordinateTransformations.Transformation
+
+The inverse of [`LogPolarToCartesian`](@ref) (`inv(t)`): Cartesian (x, y) to the log-polar unit square, the angle on
+`[-1, 1)` (θ ∈ [0, 2π)), the radius's log mapped affinely from `[log_inner_radius, 0]` to `[-1, 1]`. Through it
+`inv(logpolar_map(geometry, rect, inner_radius))` takes an image point to its log-polar patch coordinates.
+"""
+struct CartesianToLogPolar{T <: Real} <: CoordinateTransformations.Transformation
+    log_inner_radius::T
+end
+
+@inline function (t::CartesianToLogPolar)(x)
+    θ = atan(x[2], x[1])
+    θ < 0 && (θ += 2 * oftype(θ, π))
+    θ >= 2 * oftype(θ, π) && (θ = zero(θ))                         # a tiny negative angle rounds to 2π: the seam is row 0
+    return Point2(2 * (1 - log(hypot(x[1], x[2])) / t.log_inner_radius) - 1, θ / π - 1)
+end
+
+# ∂(p₁, p₂)/∂(x, y): ∂p₁/∂x = −2/(L₀·r²)·(x, y) with L₀ = log_inner_radius, ∂p₂/∂x = (−y, x)/(π·r²).
+function CoordinateTransformations.transform_deriv(t::CartesianToLogPolar, x)
+    r² = x[1]^2 + x[2]^2
+    a = -2 / (t.log_inner_radius * r²)
+    return @SMatrix [a * x[1]  a * x[2]; (-x[2] / (π * r²))  (x[1] / (π * r²))]
+end
+
+Base.inv(t::LogPolarToCartesian) = CartesianToLogPolar(t.log_inner_radius)
+Base.inv(t::CartesianToLogPolar) = LogPolarToCartesian(t.log_inner_radius)
 
 """
     logpolar_to_cartesian(inner_radius=0.01) -> LogPolarToCartesian

@@ -16,7 +16,7 @@ using KernelAbstractions: @kernel, @index, @Const
 using LinearAlgebra: norm
 using Statistics: median
 using Distributions: Normal, pdf, cdf
-using VisualGeometryToolkitCore: logpolar_map, mad_scale, ambient_coordinates, scale, retract_jacobian, EllipseManifold
+using VisualGeometryToolkitCore: logpolar_map, transform_deriv, mad_scale, ambient_coordinates, scale, retract_jacobian, EllipseManifold
 
 """
     SensorModelNoise()
@@ -30,7 +30,8 @@ struct SensorModelNoise end
     EmpiricalNoise()
 
 A [`RimProfile`](@ref)'s noise statistics (its `statistics`) when the frames carry no variances: each angle's noise is
-the data's own, Core's `mad_scale` of the profile's differences between samples 2 px apart, over √2.
+the data's own, Core's `mad_scale` of the profile's drops across 2 px, each over its noise per unit pixel noise (the
+bins' pixels).
 """
 struct EmpiricalNoise end
 
@@ -51,14 +52,17 @@ Fields (radii and centre in the MEASURED plane's pixels: a RAW frame's green cel
   than half the bin's samples saturated);
 - `statistics` — [`SensorModelNoise`](@ref)`()` or [`EmpiricalNoise`](@ref)`()`, chosen by the frames' type (the
   provenance); `profile_scale::Matrix{Float64}` each bin's noise under the sensor model (`NaN` without one): the median
-  over the bin's m_eff distinct pixels (its rows × r / r_max) of the maximum of the N frames' noise, standard error
+  over the bin's m_eff distinct pixels of the maximum of the N frames' noise, standard error
   `√v̄ / (2·N·φ(q)·Φ(q)^(N−1)·√m_eff)`, `q = Φ⁻¹(2^(−1/N))`, v̄ the model's variance there (one frame: `√(π/2·v̄/m_eff)`);
-- `noise::Vector{Float64}` — each angle's noise scale (the model's median bin noise, or the empirical one);
+  m_eff the bin's rows × its cells' arc, from the log-polar map's differential (Core's `transform_deriv`): its pixels (a
+  column is at most a pixel thick, sharing its pixels with its neighbours);
+- `noise::Vector{Float64}` — each angle's noise PER PIXEL σ₁ (a bin of m_eff pixels has σ₁/√m_eff): the model's (the
+  median over the angle of its bin noise × √m_eff) or the data's;
   `model_scatter::Vector{Float64}` — with a sensor model, the empirical noise over the model's per angle (≈ 1 when the
   model holds; `NaN` without one);
 - `candidates::Vector{Vector{Float64}}` — per angle the radii of its candidates;
 - `edge`, `edge_scale::Vector{Float64}` — per angle the chosen candidate (`NaN` where none is an inlier of the coverage)
-  and its standard uncertainty, the noise through the drop's slope;
+  and its standard uncertainty, the drop's noise through the profile's slope;
 - `reason::Vector{Symbol}` — per angle `:ok`, `:no_candidate` (no significant drop) or `:no_inlier`.
 """
 struct RimProfile{St, I}
@@ -147,7 +151,7 @@ end
 # The log-polar samples of `upper` (its saturation mask `sat`, its variances or `nothing`) around `center`, radii
 # r_min … r_max, on `device`: Core's logpolar_map of the circle (center, r_max) with inner radius r_min / r_max,
 # image_warp, image_warp!. Radial spacing Δ(ln r) = ln(r_max / r_min) / nr ≤ 1 / r_max and angular Δθ = 2π / rows ≤
-# 1 / r_max: ≤ 1 px at r_max both ways, every pixel of the band reached. The radii are read from the warp's own map.
+# 1 / r_max: ≤ 1 px at r_max both ways, every pixel of the band reached. The grid's geometry is the map's own (`_rim_grid`).
 function _rim_samples(upper::AbstractMatrix{<:Real}, sat::AbstractMatrix{Bool}, variance, nframes, center, r_min, r_max; device)
     nr = ceil(Int, log(r_max / r_min) * r_max)
     rows = ceil(Int, 2π * r_max)
@@ -160,13 +164,55 @@ function _rim_samples(upper::AbstractMatrix{<:Real}, sat::AbstractMatrix{Bool}, 
     image_warp!(masks, bm, on_device(Float32, device, Matrix{Float32}(sat)); fillvalue = 0.0f0)
     vars = variance === nothing ? nothing : similar(src, Float32, rows, nr)   # the model's variances, bilinear like the values
     vars === nothing || image_warp!(vars, bm, on_device(Float32, device, variance); fillvalue = NaN32)
-    radii = [norm(math(Point2(j - 0.5, 0.5)) - center) for j in 1:nr]
     θ(row) = (p = math(Point2(nr / 2, row)); atan(p[2] - center[2], p[1] - center[1]))
-    return (; samples, masks, vars, nframes, radii, rows, θ)
+    return (; samples, masks, vars, nframes, rows, θ, _rim_grid(math, center, nr)...)
 end
 
+# The drop's span: 2 px, the bilinear taps' support (the sharpest edge, sampled, spreads over it).
+const _RIM_SPAN = 2.0
+
+# The log-polar grid's radial geometry, every quantity through Core's map, its differential and its inverse (the grid is
+# a CIRCLE's, `_rim_samples`: nothing depends on the row). Column j holds the grid coordinate u_j = j − 0.5 (the column
+# index is x = u + 0.5); with J = ∂(image)/∂(u, v) there (`transform_deriv`):
+# - `radii[j]`, its radius from the centre (the forward map);
+# - `drdu[j]` = ‖J[:, 1]‖, the radial spacing (px per column);
+# - `pixels[j]`, the distinct pixels of one row's cell: its footprint |det J| = ‖J[:, 1]‖·‖J[:, 2]‖ px², but no fewer than
+#   one pixel thick radially (adjacent columns closer than a pixel share their pixels), and the grid's radial spacing is
+#   ≤ 1 px everywhere (`_rim_samples`), so the arc ‖J[:, 2]‖. A bin of k rows has k·pixels[j];
+# - `stencil[j]`, the ends of the drop's stencil, r_j ∓ `_RIM_SPAN`/2 through the inverse map, as interpolation weights
+#   (i₋, f₋, i₊, f₊) at the column indices i + f: exactly `_RIM_SPAN` px wide at every radius (i₋ = 0 when an end leaves
+#   the band);
+# - `radius_at(x)`, the radius at a fractional column index x (the forward map: a sub-sample edge to pixels).
+function _rim_grid(math, center, nr)
+    radius_at(x) = norm(math(Point2(x - 0.5, 0.5)) - center)
+    radii = [radius_at(j) for j in 1:nr]
+    J = [transform_deriv(math, Point2(j - 0.5, 0.5)) for j in 1:nr]
+    drdu = [norm(Jj[:, 1]) for Jj in J]
+    pixels = [norm(Jj[:, 2]) for Jj in J]                                # drdu ≤ 1 px on this grid (nr's construction)
+    inv_math = inv(math)
+    weights(x) = (i = min(floor(Int, x), nr - 1); (i, x - i))
+    half = _RIM_SPAN / 2
+    stencil = map(radii) do r
+        x₋, x₊ = (inv_math(center + Point2(r + d, 0.0))[1] + 0.5 for d in (-half, half))
+        (r > half && 1 <= x₋ && x₊ <= nr) ? (weights(x₋)..., weights(x₊)...) : (0, 0.0, 0, 0.0)
+    end
+    return (; radii, drdu, pixels, stencil, radius_at)
+end
+
+# `f` of the vector `v` at the two ends of column j's stencil, `v` interpolated between its columns; `NaN` without one.
+# An interpolated noise counts as fully correlated with its columns' (adjacent columns share pixels).
+function _stencil_ends(f, v, s, j)
+    i₋, f₋, i₊, f₊ = s.stencil[j]
+    i₋ == 0 && return NaN
+    return f(_column_value(v, i₋, f₋), _column_value(v, i₊, f₊))
+end
+# `v` between columns i and i + 1 at the fraction f, a column's own value at f = 0 or 1 (a neighbour's NaN, weighted 0,
+# leaves it alone)
+_column_value(v, i, f) = f == 0 ? v[i] : f == 1 ? v[i + 1] : (1 - f) * v[i] + f * v[i + 1]
+
 # The `nbins` angle bins' medians of the samples: the host profile, the bins' reasons, centres, sample rows and (under a
-# sensor model) each bin's noise, the median's standard error of the maximum of the N frames' noise (RimProfile).
+# sensor model) each bin's noise, the median's standard error of the maximum of the N frames' noise over its
+# rows × `pixels[j]` pixels (RimProfile).
 function _rim_bins(s, nbins::Int; device)
     nr = length(s.radii)::Int
     med = similar(s.samples, Float32, nbins, nr)
@@ -179,12 +225,9 @@ function _rim_bins(s, nbins::Int; device)
     angles = [s.θ((lo(a) + lo(a + 1)) / 2) for a in 1:nbins]
     counts = [lo(a + 1) - lo(a) for a in 1:nbins]
     reason = map(c -> c == 0x00 ? :ok : c == 0x01 ? :off_frame : :saturated, Array(code))
-    pscale = fill(NaN, nbins, nr)
-    if meanvar !== nothing
-        q = quantile(Normal(), 0.5^(1 / s.nframes))
-        f = s.nframes * pdf(Normal(), q) * cdf(Normal(), q)^(s.nframes - 1)
-        meff = counts .* (s.radii' ./ last(s.radii))
-        pscale = sqrt.(Float64.(Array(meanvar))) ./ (2f .* sqrt.(meff))
+    pscale = meanvar === nothing ? fill(NaN, nbins, nr) : let N = s.nframes, q = quantile(Normal(), 0.5^(1 / N))
+        f = N * pdf(Normal(), q) * cdf(Normal(), q)^(N - 1)
+        sqrt.(Float64.(Array(meanvar)) ./ (counts .* s.pixels')) ./ 2f
     end
     return Float64.(Array(med)), reason, angles, counts, pscale
 end
@@ -193,78 +236,79 @@ end
 # The candidates: each angle's significant log-brightness drops
 # =============================================================================
 
-# The drop's span: 2 px, the bilinear taps' support (the sharpest edge, sampled, spreads over it).
-const _RIM_SPAN = 2.0
+# The noise of angle `a`'s bins along the radius, from its noise per PIXEL `σ₁` (a bin of m pixels: σ₁/√m): the sensor
+# model's own (`profile_scale`), or σ₁ over the bins' pixels (rows × `pixels[j]`).
+_bin_noise(::SensorModelNoise, pscale, counts, s, a, σ₁) = view(pscale, a, :)
+_bin_noise(::EmpiricalNoise, pscale, counts, s, a, σ₁) = σ₁ ./ sqrt.(counts[a] .* s.pixels)
 
-# The (j, k) sample pairs `_RIM_SPAN` apart (k the first sample at least the span outward of j), both valid.
-_rim_spans(p, radii) = [(j, k) for j in eachindex(p) for k in (searchsortedfirst(radii, radii[j] + _RIM_SPAN),)
-                        if k <= length(p) && !isnan(p[j]) && !isnan(p[k])]
-
-# Each angle's noise scale: the sensor model's (the median bin noise over the angle), or the data's (the profile's
-# differences across the span, whose scale is √2 σ: mad_scale over √2, the rim's few drops leaving the median alone).
-function _rim_noise(::SensorModelNoise, profile, pscale, radii, a)
-    v = filter(isfinite, view(pscale, a, :))
+# Each angle's noise per pixel σ₁: the sensor model's (the median over the angle of its bins' noise times √(their
+# pixels)), or the data's (the profile's drops across the stencil, each over its noise for σ₁ = 1: mad_scale of those,
+# the rim's few drops leaving the median alone).
+function _rim_noise(stat::SensorModelNoise, profile, pscale, counts, s, a)
+    v = filter(isfinite, view(pscale, a, :) .* sqrt.(counts[a] .* s.pixels))
     return isempty(v) ? NaN : median(v)
 end
-function _rim_noise(::EmpiricalNoise, profile, pscale, radii, a)
-    d = [profile[a, j] - profile[a, k] for (j, k) in _rim_spans(view(profile, a, :), radii)]
-    return isempty(d) ? NaN : _scalar_scale(d) / sqrt(2)
+function _rim_noise(stat::EmpiricalNoise, profile, pscale, counts, s, a)
+    p, σ = view(profile, a, :), _bin_noise(stat, pscale, counts, s, a, 1.0)
+    d = [x for x in (_stencil_ends(-, p, s, j) / _stencil_ends(hypot, σ, s, j) for j in eachindex(p)) if isfinite(x)]
+    return isempty(d) ? NaN : _scalar_scale(d)
 end
 
 # The candidates of one angle: every EDGE of the profile's OUTER ENVELOPE (the brightest the profile gets at or beyond
 # each radius: where the light ends it does not come back, while a scene edge or a dark object inside the disc is
-# followed by light again and leaves the envelope alone). An edge is a maximal run of consecutive significant drops
-# across the span; its candidate is the run's steepest drop in LOG brightness (a ratio: independent of the exposure;
-# a blurred sharp stop's steepest log drop is at the stop, a linear ramp's at its foot), so a rim that falls in two
-# steps (lit, a dim band, the floor) gives two candidates, both for the RANSAC (owner ruling 2026-11-14). A drop is
-# significant when it exceeds its noise √2·σ (σ the angle's noise) by z = Φ⁻¹(1 − α/m), α the family-wise level over
-# the angle's m spans: the floor's noise alone makes an edge in an angle with probability at most α. The log is floored
-# at the angle's darkest level or its noise, whichever is larger, and an edge's steepest drop is searched up to the next
-# edge: a soft ramp's significant run ends short of its foot (where its drops sink below the noise), and the floored log
-# drop is steepest at the foot, where the ramp meets the floor. The candidate's radius is its span's middle (refined to
-# the log drop's sub-sample peak), its uncertainty
-# √2·σ over the span's slope; its strength the log drop.
-function _rim_candidates(profile, radii, σ, α)
-    (isfinite(σ) && σ >= 0) || return (Float64[], Float64[], Float64[])
+# followed by light again and leaves the envelope alone). Every radius is in PIXELS through the grid's map (`_rim_grid`):
+# the drop at column j is across its stencil, exactly `_RIM_SPAN` px about r_j (its ends through the inverse map, the
+# profile interpolated between columns), so the drop and its log slope are continuous in r, with no step where the
+# grid's spacing changes the sample count of a span. A drop is significant when it exceeds its noise
+# σ_D = √(σ(r − 1)² + σ(r + 1)²) (each bin's noise, `σ`, at its pixels) by z = Φ⁻¹(1 − α/m), α the family-wise level over
+# the angle's m stencils: the floor's noise alone makes an edge in an angle with probability at most α. An edge is a
+# maximal run of consecutive significant drops; its candidate is the steepest LOG slope, per pixel (a ratio:
+# independent of the exposure; a blurred sharp stop's is at the stop, a linear ramp's at its foot), searched from the
+# run's start up to the next edge's (a soft ramp's significant run ends short of its foot, where its drops sink below the
+# noise), the log floored at the angle's darkest level or its noise, whichever is larger. A rim that falls in two steps
+# (lit, a dim band, the floor) gives two candidates, both for the RANSAC (owner ruling 2026-11-14). The candidate's
+# radius is the log slope's sub-sample peak in the grid coordinate (`_slope_peak`), taken to pixels by the forward map;
+# its uncertainty σ_D over the profile's slope (the drop over the stencil's `_RIM_SPAN` px); its strength
+# the log slope.
+function _rim_candidates(profile, s, σ, α)
     p = _outer_envelope(profile)
-    spans = _rim_spans(p, radii)
-    isempty(spans) && return (Float64[], Float64[], Float64[])
-    z = quantile(Normal(), 1 - α / length(spans))
-    sig = [p[j] - p[k] > z * sqrt(2) * σ for (j, k) in spans]
+    D = [_stencil_ends(-, p, s, j) for j in eachindex(p)]
+    σD = [_stencil_ends(hypot, σ, s, j) for j in eachindex(p)]
+    valid = isfinite.(D) .& isfinite.(σD)
+    m = count(valid)
+    m == 0 && return (Float64[], Float64[], Float64[])
+    z = quantile(Normal(), 1 - α / m)
+    sig = valid .& (D .> z .* σD)
     # the log's floor: the darkest the angle gets (its envelope's last value) or its noise, whichever is larger
     lowest = minimum(x for x in p if !isnan(x); init = Inf)
-    ε = max(σ, isfinite(lowest) ? lowest : 0.0, floatmin(Float64))
-    # the log drop per pixel: a span holds the samples to at least 2 px (on the log grid its length jumps between 2 and
-    # 2 + Δr, Δr the sample spacing; the jump at Δr = 2/3 px made a ring at a fixed radius about any origin)
-    logdrop(t) = (log(max(p[spans[t][1]], ε)) - log(max(p[spans[t][2]], ε))) / (radii[spans[t][2]] - radii[spans[t][1]])
-    # the edges: maximal runs of consecutive significant spans; each searched for its steepest floored log drop from
-    # its start to the next edge's start (a soft ramp's run ends where its 2-px drops sink below the noise, short of the
-    # foot where it meets the floor: the floored log drop is steepest there, a level of the profile, not of the noise)
-    starts = [t for t in eachindex(spans) if sig[t] && (t == 1 || !sig[t - 1] || spans[t - 1][1] != spans[t][1] - 1)]
+    σv = filter(isfinite, σ)
+    ε = max(isempty(σv) ? 0.0 : median(σv), isfinite(lowest) ? lowest : 0.0, floatmin(Float64))
+    logdrop(x, y) = log(max(x, ε)) - log(max(y, ε))                   # of the interpolated profile (NaN stays NaN)
+    g = [valid[j] ? _stencil_ends(logdrop, p, s, j) / _RIM_SPAN : -Inf for j in eachindex(p)]
+    starts = [j for j in eachindex(sig) if sig[j] && (j == 1 || !sig[j - 1])]
     rad, unc, strength = Float64[], Float64[], Float64[]
-    for (n, t0) in enumerate(starts)
-        t1 = n < length(starts) ? starts[n + 1] - 1 : length(spans)
-        best = argmax(t -> logdrop(t), t0:t1)
-        jb, kb = spans[best]
-        push!(rad, _subsample_middle(p, radii, spans, best, ε))
-        push!(unc, sqrt(2) * σ * (radii[kb] - radii[jb]) / max(p[jb] - p[kb], eps()))
-        push!(strength, logdrop(best))
+    for (n, j0) in enumerate(starts)
+        j1 = n < length(starts) ? starts[n + 1] - 1 : length(p)
+        best = argmax(j -> g[j], j0:j1)
+        push!(rad, _slope_peak(g, s, best))
+        push!(unc, σD[best] * _RIM_SPAN / max(D[best], eps()))
+        push!(strength, g[best])
     end
     return (rad, unc, strength)
 end
 
-# The middle of span `i`, refined between its neighbours' middles by the parabola through the three spans' log drops
-# (the peak's sub-sample position, within half a span step): candidates on the radial grid would otherwise tie exactly,
-# and a model centred on the log-polar origin would fit them with zero residual.
-function _subsample_middle(p, radii, spans, i, ε)
-    mid(t) = (radii[spans[t][1]] + radii[spans[t][2]]) / 2
-    drop(t) = (log(max(p[spans[t][1]], ε)) - log(max(p[spans[t][2]], ε))) / (radii[spans[t][2]] - radii[spans[t][1]])   # per pixel
-    (1 < i < length(spans) && spans[i - 1][1] == spans[i][1] - 1 && spans[i + 1][1] == spans[i][1] + 1) || return mid(i)
-    d₋, d₀, d₊ = drop(i - 1), drop(i), drop(i + 1)
-    curv = d₋ - 2d₀ + d₊
-    curv < 0 || return mid(i)
-    δ = clamp(0.5 * (d₋ - d₊) / curv, -0.5, 0.5)
-    return mid(i) + δ * (δ >= 0 ? mid(i + 1) - mid(i) : mid(i) - mid(i - 1))
+# The log slope's sub-sample peak about column i, in the grid coordinate: the parabola through the slopes of columns
+# i − 1, i, i + 1 (uniformly spaced in u), within half a column (0 when a neighbour is missing or the three are not
+# concave), taken to pixels by the forward map. Candidates on the radial grid would otherwise tie exactly, and a model
+# centred on the log-polar origin would fit them with zero residual (so would the maximum of the interpolated slope,
+# whose kinks sit where a stencil end crosses a column).
+function _slope_peak(g, s, i)
+    δ = 0.0
+    if 1 < i < length(g) && isfinite(g[i - 1]) && isfinite(g[i + 1])
+        curv = g[i - 1] - 2g[i] + g[i + 1]
+        curv < 0 && (δ = clamp(0.5 * (g[i - 1] - g[i + 1]) / curv, -0.5, 0.5))
+    end
+    return s.radius_at(i + δ)
 end
 
 # The outer envelope of a profile: at each valid sample the maximum of the valid samples at or beyond it (`NaN` kept).
@@ -297,7 +341,7 @@ function _rim_measure(rng, ::Type{T}, upper, sat, variance, nframes, initial; na
     # in a textured scene, the scene's edges among each wedge's candidates (the rms grows); coarser bins, fewer wedges.
     # The ladder doubles from 45 bins (8°) to the finest with 3 sample rows per bin (a median with a breakdown: one bad
     # pixel of three); a binning counts with at least 20 wedges with an inlier (four times the ellipse's minimal sample).
-    δ = maximum(diff(s.radii))                                        # the radial grid's spacing (≤ 1 px)
+    δ = maximum(s.drdu)                                               # the radial grid's spacing (≤ 1 px), ∂r/∂u
     best, best_se = nothing, Inf
     nbins = 45
     while nbins <= max(45, s.rows ÷ 3)
@@ -319,9 +363,9 @@ end
 # angle's edge (the inlier candidate nearest the model).
 function _rim_at(rng, ::Type{T}, s, stat, c, initial, nbins; significance, outlier_halfwidth, device) where {T}
     profile, bin_reason, angles, counts, pscale = _rim_bins(s, nbins; device)
-    noise = [_rim_noise(stat, profile, pscale, s.radii, a) for a in 1:nbins]
-    scatter = _model_scatter(stat, profile, pscale, s.radii, noise)
-    cand = [_rim_candidates(view(profile, a, :), s.radii, noise[a], significance) for a in 1:nbins]
+    noise = [_rim_noise(stat, profile, pscale, counts, s, a) for a in 1:nbins]
+    scatter = _model_scatter(stat, profile, pscale, counts, s, noise)
+    cand = [_rim_candidates(view(profile, a, :), s, _bin_noise(stat, pscale, counts, s, a, noise[a]), significance) for a in 1:nbins]
     ray(a, r) = c + r * Point2(cos(angles[a]), sin(angles[a]))
     # ONE point per wedge in each fit, so the support counts wedges and a wedge with many edges does not dominate:
     # (1) the RANSAC on each wedge's OUTERMOST edge (where its light ends); (2) every wedge's edge NEAREST that model
@@ -358,9 +402,9 @@ function _rim_at(rng, ::Type{T}, s, stat, c, initial, nbins; significance, outli
 end
 
 # The sensor model against the data: each angle's empirical noise over the model's (`NaN`s without a model).
-_model_scatter(::EmpiricalNoise, profile, pscale, radii, noise) = fill(NaN, length(noise))
-_model_scatter(::SensorModelNoise, profile, pscale, radii, noise) =
-    [_rim_noise(EmpiricalNoise(), profile, pscale, radii, a) / noise[a] for a in eachindex(noise)]
+_model_scatter(::EmpiricalNoise, profile, pscale, counts, s, noise) = fill(NaN, length(noise))
+_model_scatter(::SensorModelNoise, profile, pscale, counts, s, noise) =
+    [_rim_noise(EmpiricalNoise(), profile, pscale, counts, s, a) / noise[a] for a in eachindex(noise)]
 
 # The coverage's uncertainty: the covariance of the model `m` in Core's `ambient_coordinates` (an ellipse: centre and the
 # form Q's (Q₁₁, Q₁₂, Q₂₂); a circle: centre and radius) from the inliers `pts`, s²·solver_covariance (the

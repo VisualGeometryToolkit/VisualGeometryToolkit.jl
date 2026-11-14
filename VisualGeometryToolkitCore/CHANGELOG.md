@@ -2,7 +2,8 @@
 
 ## 0.10.3
 
-A patch, additive: darks at several exposures in one characterisation entry, and the defect mask public.
+A patch, additive: darks at several exposures in one characterisation entry, the defect mask public, and the log-polar
+map's differential and inverse.
 
 ### Added
 - **`Darks`** (public), a black-slot component: the master darks of one body at one ISO, one `Dark` per exposure
@@ -17,6 +18,13 @@ A patch, additive: darks at several exposures in one characterisation entry, and
 - **`defect_mask(model_or_defects, mosaic; backend)`** (public): the defect slot as a `Bool` mask over the visible
   raw, on the backend, the mask `LinearRaw` joins with its saturation mask; `nothing` for `NoDefects`. It was the
   internal `_defect_mask`; LinearRaw and the estimators are unchanged.
+- **The log-polar map's differential and inverse.** `transform_deriv(::LogPolarToCartesian, p)` (analytic: the radial
+  column `r·(−log r_in)/2·(cos θ, sin θ)`, the angular `π·r·(−sin θ, cos θ)`) and `inv(::LogPolarToCartesian)`, a new
+  `CartesianToLogPolar` with its own `transform_deriv`. Through CoordinateTransformations' composition rules
+  `transform_deriv(logpolar_map(g, rect, r_in), p)` and `inv(logpolar_map(…))` now work; both maps are isbits and run in
+  a kernel. Tested against ForwardDiff, `inv ∘ map = id` through the composed map, and on the device. Additive (before,
+  both raised CoordinateTransformations' "not defined" errors). VisualGeometryToolkitFeatures' `detect_image_circle`
+  uses them for its radial derivatives and bin areas.
 
 ## 0.10.2
 

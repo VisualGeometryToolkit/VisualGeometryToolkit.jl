@@ -30,16 +30,22 @@
 end
 
 # A rim of known outer edge `re` and inner knee `rk` for the rim profile (`detect_image_circle`'s `rim`, `rim_margin`): the
-# interior a quadratic vignetting, a linear ramp from the knee to the edge, a dark floor beyond (`re == rk`: a sharp stop,
+# interior a quadratic vignetting, a linear ramp from the knee to the edge (its ends rounded over `foot` px when given), a
+# dark floor beyond (`re == rk`: a sharp stop,
 # its 1-px partial band by 4 × 4 supersampling); noise σ; scene clutter (six dark discs inside the knee, a different set
 # per frame); and in the first frame a saturated patch of radius `sat_radius` px, `sat_at` px right of the centre.
 @testsetup module RimFixtures
     using Random: Xoshiro
     using Statistics: mean
     export rim_synth
-    function rim_synth(W, H, c, re, rk; nframes = 3, fl = 0.01, level = 0.8, vig = 0.15, σ = 0.004, sat_at = 0.6rk, sat_radius = 12, seed = 7)
+    function rim_synth(W, H, c, re, rk; nframes = 3, fl = 0.01, level = 0.8, vig = 0.15, σ = 0.004, sat_at = 0.6rk, sat_radius = 12,
+                       foot = 0.0, seed = 7)
         rng = Xoshiro(seed)
-        prof(r) = r >= re ? fl : r <= rk ? fl + (level - fl) * (1 - vig * (r / re)^2) :
+        # `foot` > 0: the ramp's knee and foot rounded over `foot` px (the ramp's clamps softened, x ↦ foot·log(1 + eˣ/ᶠᵒᵒᵗ)),
+        # a soft tail into the floor like the 14 mm's
+        soft(x) = foot * log1p(exp(x / foot))
+        prof(r) = foot > 0 ? fl + (level - fl) * (1 - vig * (min(r, rk) / re)^2) * (soft(re - r) - soft(rk - r)) / (re - rk) :
+                  r >= re ? fl : r <= rk ? fl + (level - fl) * (1 - vig * (r / re)^2) :
                   fl + (level - fl) * (1 - vig * (rk / re)^2) * (re - r) / (re - rk)
         base = re == rk ?
             [mean(prof(hypot(u - 1 + (i - 0.5) / 4 - c[1], v - 1 + (j - 0.5) / 4 - c[2])) for i in 1:4, j in 1:4) for v in 1:H, u in 1:W] :
@@ -402,4 +408,46 @@ end
     @test res.fit.rms > 0 && all(s -> s > 0, res.axes_scale)
     @test hypot(res.circle.center[1] - W / 2, res.circle.center[2] - H / 2) < 0.1 && abs(res.circle.a - r) < 0.5
     @test count(==(:ok), res.rim.reason) >= 0.9 * length(res.rim.angles)
+end
+
+@testitem "detect_image_circle: a ramp centred exactly on the image centre, at any radius (no ring of the sampling grid)" setup = [RimFixtures] begin
+    # the 14 mm's failure (Features 0.9.2's candidate, 2026-11-14): a drop measured over "the samples to ≥ 2 px" changed
+    # its sample count where the log grid's spacing crosses 2/n px (Δr = 2/3 px at r ≈ ⅔·r_max), and every wedge locked
+    # onto that radius about ANY origin. The drop is now across exactly 2 px at every radius (the log-polar map's inverse
+    # and differential). A 14 mm-like ramp (13 % of the radius wide, its foot a soft tail, an APS-C rim cut by the frame)
+    # centred EXACTLY on the default start, its foot at, inside and beyond the old crossover: the coverage follows the
+    # rim, one offset from it at every radius (the span-count rule measured −0.1, −4.0 and +1.9 px at 0, 4 and 8 px past
+    # the crossover: a ring at the crossover, and this item fails 10 of its 28 tests), and the start (sub-pixel, ±25 px) moves nothing. The linear ramp (a hard
+    # foot) at the crossovers Δr = 2/3 and 1/2 px is at its foot as the soft ramp item's.
+    using Random: Xoshiro
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation
+    W, H = 800, 600
+    c = (W / 2, H / 2)
+    rmax = hypot(W, H) / 2
+    offsets = map((0.0, 4.0, 8.0)) do d
+        re = 2rmax / 3 + d
+        frames = rim_synth(W, H, c, re, 0.87re; sat_radius = 0, foot = 4.0, σ = 0.001)
+        r0 = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 50)
+        cov = r0.circle
+        @test hypot(cov.center[1] - c[1], cov.center[2] - c[2]) < 0.5
+        # the start moves the coverage within its own uncertainty (3σ, plus a quarter pixel)
+        σx, σy = r0.center_scale
+        σa = maximum(r0.axes_scale)
+        for off in ((0.3, -0.4), (25.0, -15.0), (-25.0, 15.0))
+            init = VgtkFeatures.Ellipse(VgtkFeatures.Point2(c[1] + off[1], c[2] + off[2]), rmax, rmax, 0.0)
+            r1 = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 50, initial = init).circle
+            @test abs(r1.center[1] - cov.center[1]) <= 3σx + 0.25 && abs(r1.center[2] - cov.center[2]) <= 3σy + 0.25
+            @test abs(max(r1.a, r1.b) - max(cov.a, cov.b)) <= 3σa + 0.25 && abs(min(r1.a, r1.b) - min(cov.a, cov.b)) <= 3σa + 0.25
+        end
+        (cov.a + cov.b) / 2 - re
+    end
+    @test maximum(offsets) - minimum(offsets) < 1.5
+    for re in (2rmax / 3, rmax / 2)
+        res = detect_image_circle(Xoshiro(1), rim_synth(W, H, c, re, 0.87re; sat_radius = 0); outlier_halfwidth = 50, rim_angles = 180)
+        cov = res.circle
+        @test hypot(cov.center[1] - c[1], cov.center[2] - c[2]) < 0.25
+        @test re - 4 < min(cov.a, cov.b) && max(cov.a, cov.b) <= re + 0.5
+        @test res.fit.rms > 0 && all(s -> 0 < s < 0.25, res.axes_scale)
+    end
 end

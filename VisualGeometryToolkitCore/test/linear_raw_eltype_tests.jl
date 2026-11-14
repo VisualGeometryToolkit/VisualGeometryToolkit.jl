@@ -138,9 +138,9 @@ end
     # Z standard errors: per cell 2·c(x, e) has standard deviation 2·s(x)·σ_e/√n, σ_e = step/√12 (s²(e)'s own spread
     # is (σ_e²)·√(2/(n − 1)), below a tenth of it here and added in quadrature), over the level's C cells
     top = level .== L
-    step = 2.0^-11
+    spacing = 2.0^-11
     @test all(x -> 0.5 <= x < 1, F64[:, top, :])
-    σe² = step^2 / 12
+    σe² = spacing^2 / 12
     C = count(top) * size(F64, 1)
     se = sqrt((4 * mean(w64[:, top]) * σe² / n + σe²^2 * 2 / (n - 1)) / C)
     @test abs(mean(w16[:, top] .- w64[:, top]) - σe²) <= Z * se

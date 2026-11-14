@@ -764,12 +764,22 @@ _dark_scale(d::Dark) = 1 + 1 / d.frames
     end
     return poisson + gauss + law.rel² * x^2
 end
-# An element of the lazy view (D14): the value alone without a law, else the value with its scalar variance.
-@inline _with_variance(::Nothing, x, k, span, i, j, origin) = x
-@inline _with_variance(law::_VarianceLaw, x, k, span, i, j, origin) =
-    Uncertain(x, CovMat(ScaledIdentity{1}(_value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin))))
-_view_eltype(::Nothing) = Float64
-_view_eltype(::_VarianceLaw) = Attributed{Float64, _ValueCovariance}
+# An element of the lazy view (D14) of element type T: the value alone without a law, else the value with its scalar
+# variance; each computed in Float64 and rounded once, to T and to the variance plane's `_variance_eltype(T)`.
+@inline _with_variance(::Type{T}, ::Nothing, x, k, span, i, j, origin) where {T} = T(x)
+@inline _with_variance(::Type{T}, law::_VarianceLaw, x, k, span, i, j, origin) where {T} =
+    Uncertain(T(x), _value_covariance(_variance_eltype(T),
+                                      _value_variance(law, x, (k,), span, 1.0, i - _QUAD_SITES[k][1], j - _QUAD_SITES[k][2], origin)))
+_view_eltype(::Type{T}, ::Nothing) where {T} = T
+_view_eltype(::Type{T}, ::_VarianceLaw) where {T} = Attributed{T, _value_covariance_type(_variance_eltype(T))}
 
-# The element type of an uncertain image's covariance plane: a value's variance as a 1×1 isotropic covariance.
-const _ValueCovariance = typeof(CovMat(ScaledIdentity{1}(0.0)))
+# THE element type of a variance stored beside values of type T: T itself, and Float32 for Float16. A Float16 variance
+# underflows: in the linear values' units² a dark cell's read-noise variance, σ_r²/(2d²) for two greens of span d (≈ 1e-8
+# for σ_r ≈ 2 codes over 15871), is below Float16's smallest subnormal, 2⁻²⁴ ≈ 6e-8, and would be stored as 0; a bright
+# value's, ≈ 1/(2Kd) ≈ 2.8e-6 at the white level (K = 11.33 e⁻/code), is subnormal, held to ~2%. Float32's smallest
+# normal is 1.2e-38.
+_variance_eltype(::Type{T}) where {T <: Base.IEEEFloat} = T
+_variance_eltype(::Type{Float16}) = Float32
+# A value's variance `v` (Float64) as the 1×1 isotropic covariance of element type V, rounded once; its type.
+@inline _value_covariance(::Type{V}, v) where {V} = CovMat(ScaledIdentity{1}(V(v)))
+_value_covariance_type(::Type{V}) where {V} = typeof(_value_covariance(V, 0.0))

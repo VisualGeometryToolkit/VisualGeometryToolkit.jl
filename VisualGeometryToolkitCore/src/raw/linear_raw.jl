@@ -24,15 +24,16 @@ above 1) or below 0 (noise under the black level) is kept.
   the host); a plane's frame is asked of the image with its index
   ([`bayer_plane_map`](@ref)`(L, c)`). Under a sensor model whose noise defines
   a variance ([`PoissonGaussian`](@ref), [`RelativeNoise`](@ref)) it is a
-  `StructArray` of `Uncertain{Float64}` values (owner ruling D11): its
-  `value` component the `Float64` values, its `attributes` component each
-  value's variance as a 1×1 [`CovMat`](@ref) (`cov(L.image[i, j, p])[1]`), both
+  `StructArray` of `Uncertain{T}` values (owner ruling D11): its
+  `value` component the values of element type `T` (below), its `attributes` component each
+  value's variance as a 1×1 [`CovMat`](@ref) (`cov(L.image[i, j, p])[1]`, of
+  `Float32` for `Float16` values, else of `T`), both
   planes from the one kernel. This cell image is the MATERIALISED uncertain
   image (owner ruling D14, (a)): its binned variances are computed once, in the
   one kernel, from the one variance formula, and a consumer never re-derives
   them; the photosites' uncertain image, [`linearview`](@ref)`(m; sensor_model)`,
   is the lazy default. Otherwise (no noise, a [`ReadNoise`](@ref) alone)
-  it is a plain `AbstractArray{Float64, 3}`. A consumer dispatches on the
+  it is a plain `AbstractArray{T, 3}`. A consumer dispatches on the
   image's element type.
 - `saturated::AbstractMatrix{Bool}` (a `BitMatrix` on the host) — the MASKED
   pixels: those whose value includes a photosite at the white level
@@ -61,13 +62,54 @@ above 1) or below 0 (noise under the black level) is kept.
 - `gain` (positive and finite, `ArgumentError` otherwise) and the mosaic's
   `metadata` (the decoder and its library's version among it).
 
+**The element type** `T` of the values is chosen at construction,
+`LinearRaw(T, mosaic; mode)`: `Float64` by default (one constant,
+`_LINEAR_RAW_ELTYPE`), `Float32` or `Float16`. Each value is computed in
+Float64 (the black subtraction, the cell's mean, the gain) and rounded ONCE, to
+nearest, when it is stored, and its variance is computed from the unrounded
+value; so `LinearRaw(Float16, m; mode).image == Float16.(LinearRaw(m; mode).image)`,
+bit for bit, and each value is within `eps(Float16)·|x|/2` of the Float64 one
+(half the subnormal step, 2⁻²⁵, below 2⁻¹⁴). The mosaic stays its `UInt16`
+codes. Why Float16 holds a RAW's values (the Sony FX3: white 16383, black 512,
+so the span is `d = 15871` codes, and K = 11.33 e⁻/code):
+
+- **The bright end.** A value is its codes above black over `d`. Float16 keeps
+  11 significant bits, so on `[½, 1)` — 7936 to 15871 codes above black — its
+  step is `2⁻¹¹·d = d/2048 ≈ 7.75` codes, about 8. The shot noise there is
+  `σ = √(μ/K)` codes: `√(16000/11.33) ≈ 37.6` at 16k codes and
+  `√(7936/11.33) ≈ 26.5` at the binade's bottom. The rounding adds its
+  variance, `step²/12 ≈ 5.0` codes² per value. Against the shot variance `μ/K`
+  that is largest at the bottom of the binade, `μ = d/2`:
+  `(d/2048)²·K/(12·d/2) = d·K/(6·2048²) ≈ 0.71%` of the variance (0.36% of
+  σ). Each binade below halves it: the step halves, so its square quarters,
+  while μ only halves.
+- **The darks.** Near the black level Float16 is relative: `2⁻¹¹ ≈ 4.9e-4` of
+  the value, `log₁₀ 2048 ≈ 3.3` significant digits, and below `2⁻¹⁴`
+  (`d·2⁻¹⁴ ≈ 0.97` codes) a fixed step of `2⁻²⁴·d ≈ 9.5e-4` codes. A 16-bit
+  integer PNG of the codes held whole codes, a step of 1.
+- **The variance plane is not Float16** (`Float32` beside Float16 values). In
+  the values' units² a dark green cell's variance, its read noise alone, is
+  `σ_r²/(2d²)` (two greens, gain 1): `≈ 7.9e-9` for σ_r = 2 codes. That is
+  below half Float16's smallest subnormal (`2⁻²⁴ ≈ 6.0e-8`), so it would be
+  stored as `0`, and a whitened row would divide by it. At the white level the
+  shot variance `1/(2Kd) ≈ 2.8e-6` is subnormal (below `2⁻¹⁴ ≈ 6.1e-5`), held
+  to about 2% (its spacing 6.0e-8). Float32's smallest normal is 1.2e-38.
+
+A Float16 image takes 2 bytes per value (6 with its variance) against 8 (16).
+**Reduce it in Float64**: `sum(Float64, A)`, `mean(Float64, A)`. A Float16
+accumulation overflows past 65504 (a million green cells near the white level
+sum to ≈ 8e5) and drops low bits long before. Core's estimators
+([`master_dark`](@ref), [`photon_transfer`](@ref), [`defect_onsets`](@ref))
+read the mosaics' `UInt16` codes and accumulate in Float64, so the element type
+never reaches them.
+
 The mode is the type's first parameter, `LinearRaw{:green_cells}`,
 `LinearRaw{:bin2}` or `LinearRaw{:demosaic}`: the geometric accessors are
 methods of the cell images, and the display image's are its refusals.
 [`raw_provenance`](@ref) gives the mode, the gain, the metadata and the frame
 map as plain data for a result to record.
 """
-struct LinearRaw{Mode, I <: AbstractArray{<:Union{Float64, Uncertain{Float64}}, 3}, S <: AbstractMatrix{Bool},
+struct LinearRaw{Mode, I <: AbstractArray{<:Union{Base.IEEEFloat, Uncertain{<:Base.IEEEFloat}}, 3}, S <: AbstractMatrix{Bool},
                  G <: Union{Nothing, NamedTuple{(:plane_maps, :green_offsets, :plane_sites)}}, M <: NamedTuple}
     image::I
     saturated::S
@@ -92,7 +134,7 @@ _mode(::LinearRaw{Mode}) where {Mode} = Mode
 const RAW_MODES = (:green_cells, :bin2, :demosaic)
 
 """
-    LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel()) -> LinearRaw
+    LinearRaw([T = Float64], mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel()) -> LinearRaw
 
 The mosaic's linear values, `(raw − black[c]) / (white − black[c]) × gain`, on
 the half-resolution grid of 2×2 Bayer cells (`H ÷ 2 × W ÷ 2`; an odd last row
@@ -114,7 +156,11 @@ choice between them):
 Every value is from the mosaic's [`linearview`](@ref), read channel-first
 (`channelview(linearview(mosaic))`, the mosaic's [`channelview`](@ref ImageCore.channelview(::RawMosaic))): the
 green-cell value of cell `(i, j)` is the mean of the view's two green channels
-there, times the gain, bit for bit. `:demosaic` (LibRaw's interpolation, for
+there, times the gain, bit for bit (the Float64 view's, at the Float64 default;
+for another element type `T` the value is that Float64 mean rounded once to `T`,
+not the mean of two rounded values). `T`, a `Base.IEEEFloat` (`Float64`,
+`Float32`, `Float16`), is the values' storage: see [`LinearRaw`](@ref), "The
+element type", for the default, the rounding and why Float16 suffices. `:demosaic` (LibRaw's interpolation, for
 display figures) is VisualGeometryToolkitFeatures': `load_raw(path or mosaic; mode = :demosaic)`.
 
 The values are those convert_raw.py writes (`--mode bin2`), in the same Float64
@@ -153,13 +199,15 @@ histogram runs smoothly through the camera's declared linear limit (15360,
 `metadata.linear_max`), so any margin would be a tuned constant. A caller who
 wants that stricter limit thresholds `mosaic.raw` itself.
 """
-function LinearRaw(mosaic::RawMosaic; mode::Symbol, gain::Real = 1, sensor_model::SensorModel = SensorModel())
+LinearRaw(mosaic::RawMosaic; kw...) = LinearRaw(_LINEAR_RAW_ELTYPE, mosaic; kw...)
+function LinearRaw(::Type{T}, mosaic::RawMosaic; mode::Symbol, gain::Real = 1,
+                   sensor_model::SensorModel = SensorModel()) where {T <: Base.IEEEFloat}
     mode in RAW_MODES || throw(ArgumentError("LinearRaw: mode must be one of $(RAW_MODES), got :$mode"))
     mode === :demosaic && throw(ArgumentError(
         "LinearRaw: the display demosaic is LibRaw's interpolation, made by VisualGeometryToolkitFeatures: " *
             "`load_raw(path_or_mosaic; mode = :demosaic)`"
     ))
-    return _cell_images(mosaic, _checked_gain(gain), mode, sensor_model)
+    return _cell_images(T, mosaic, _checked_gain(gain), mode, sensor_model)
 end
 
 function _checked_gain(gain::Real)
@@ -167,13 +215,14 @@ function _checked_gain(gain::Real)
     return Float64(gain)
 end
 
-# Plane p of cell (i, j): the mean of its photosites' (channel indices `ks`)
-# linear values, times the gain. Unrolled over the planes (a tuple of tuples).
-@inline _store_planes!(img, i, j, v, ::Tuple{}, gain, p) = nothing
-@inline function _store_planes!(img, i, j, v, planes::Tuple, gain, p)
-    ks = first(planes)
-    @inbounds img[i, j, p] = (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain
-    return _store_planes!(img, i, j, v, Base.tail(planes), gain, p + 1)
+# The values of cell (i, j)'s planes, in Float64: plane p the mean of its photosites' (channel indices `planes[p]`)
+# linear values, times the gain (a tuple over the planes, unrolled). The kernel stores each rounded ONCE to the image's
+# element type and reads the variance from it unrounded.
+@inline _plane_values(v, planes::Tuple, gain) = map(ks -> (foldl((s, k) -> s + v[k], ks; init = 0.0) / length(ks)) * gain, planes)
+@inline _store_planes!(img, i, j, xs::Tuple{}, p) = nothing
+@inline function _store_planes!(img, i, j, xs::Tuple, p)
+    @inbounds img[i, j, p] = first(xs)
+    return _store_planes!(img, i, j, Base.tail(xs), p + 1)
 end
 
 # THE Poisson slope α of a plane's value (its variance's `α·x` term): the gain over m² K times Σ 1/d over its m
@@ -204,14 +253,13 @@ poisson_slope(L::LinearRaw, model::SensorModel, colour::Symbol) = poisson_slope(
 _inv_gain(n::PoissonGaussian) = 1 / n.gain
 _inv_gain(::NoiseComponent) = 0.0
 
-# Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its value x: unrolled like the
-# values; no variance plane (`nothing`) stores nothing.
-@inline _store_variances!(::Nothing, img, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
-@inline _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
-@inline function _store_variances!(var::AbstractArray, img, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p)
-    @inbounds x = img[i, j, p]
-    @inbounds var[i, j, p] = CovMat(ScaledIdentity{1}(_value_variance(law, x, first(planes), span, gain, r0, c0, origin)))
-    return _store_variances!(var, img, i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
+# Plane p's variance (the sensor model's law, sensor_model.jl's `_VarianceLaw`) from its Float64 value xs[p], rounded
+# once to the variance plane's element type: unrolled like the values; no variance plane (`nothing`) stores nothing.
+@inline _store_variances!(::Nothing, xs, i, j, r0, c0, origin, planes, span, gain, law, p) = nothing
+@inline _store_variances!(var::AbstractArray, xs, i, j, r0, c0, origin, ::Tuple{}, span, gain, law, p) = nothing
+@inline function _store_variances!(var::AbstractArray, xs, i, j, r0, c0, origin, planes::Tuple, span, gain, law, p)
+    @inbounds var[i, j, p] = _value_covariance(eltype(eltype(var)), _value_variance(law, first(xs), first(planes), span, gain, r0, c0, origin))
+    return _store_variances!(var, Base.tail(xs), i, j, r0, c0, origin, Base.tail(planes), span, gain, law, p + 1)
 end
 
 # Each cell's planes and whether any photosite its planes read (`sites`) is at
@@ -236,14 +284,15 @@ end
         x = ntuple(k -> raw[r0 + _QUAD_SITES[k][1], c0 + _QUAD_SITES[k][2]], Val(4))
         b = ntuple(k -> _black_at(dark, black[k], r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), Val(4))
         v = ntuple(k -> _linear_value(x[k], b[k], span[k]), Val(4))
-        _store_planes!(img, i, j, v, planes, gain, 1)
-        _store_variances!(var, img, i, j, r0, c0, origin, planes, span, gain, law, 1)
+        xs = _plane_values(v, planes, gain)
+        _store_planes!(img, i, j, xs, 1)
+        _store_variances!(var, xs, i, j, r0, c0, origin, planes, span, gain, law, 1)
         sat[i, j] = any(k -> _at_white(x[k], white) ||
                              _masked(defects, r0 + _QUAD_SITES[k][1] + origin[1], c0 + _QUAD_SITES[k][2] + origin[2]), sites)
     end
 end
 
-function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, model::SensorModel)
+function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, model::SensorModel) where {T}
     H, W = size(m)
     H2, W2 = H ÷ 2, W ÷ 2
     H2 >= 1 && W2 >= 1 || throw(ArgumentError("LinearRaw: a $(H)×$(W) mosaic holds no 2×2 cell"))
@@ -261,8 +310,8 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, model::SensorMo
     used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
     # on the photosites' device: the kernel reads the held array (the channel view's photosites), never the wrapper
-    img = similar(raw, Float64, H2, W2, P)
-    var = law === nothing ? nothing : similar(raw, _ValueCovariance, H2, W2, P)
+    img = similar(raw, T, H2, W2, P)
+    var = law === nothing ? nothing : similar(raw, _value_covariance_type(_variance_eltype(T)), H2, W2, P)
     sat = similar(raw, Bool, H2, W2)
     OnBackend(backend)(_cells_kernel!)(img, var, sat, raw, used, sites, black, span, gain, m.white, dark, defects, m.window_origin,
                                        law; ndrange = (H2, W2))
@@ -273,7 +322,7 @@ function _cell_images(m::RawMosaic, gain::Float64, mode::Symbol, model::SensorMo
     maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
     plane_sites = map(ks -> map(k -> (color = Int(cell[k]), dn = span[k]), ks), used)
     geometry = (plane_maps = maps, green_offsets, plane_sites)
-    image = var === nothing ? img : StructArrays.StructArray{Attributed{Float64, _ValueCovariance}}((img, var))
+    image = var === nothing ? img : StructArrays.StructArray{Attributed{T, eltype(var)}}((img, var))
     return LinearRaw{mode}(image, _saturation_mask(sat), geometry, gain, m.metadata)
 end
 
@@ -329,7 +378,7 @@ _no_colour(c, held) = throw(ArgumentError("LinearRaw: no plane of colour :$c; th
 _green_plane(L::LinearRaw) = _colour_plane(L, :G)
 
 """
-    green_plane(L::LinearRaw) -> AbstractMatrix{Float64}
+    green_plane(L::LinearRaw) -> AbstractMatrix (of the image's element type)
 
 The image's green cells, a view: each cell's two greens' mean — `L.image`'s plane
 whose frame IS the cell grid ([`raw_frame_map`](@ref)`(L)`): a `:green_cells`

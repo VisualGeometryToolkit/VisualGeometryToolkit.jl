@@ -148,6 +148,51 @@ wrappers that each know their [`BayerCellFrame`](@ref)`{C}`, for three reasons:
 The mosaic, by contrast, is one matrix, and the wrapper costs its callers
 nothing.
 
+## The element type: Float16 values
+
+The values of a [`LinearRaw`](@ref) and of a [`linearview`](@ref) are stored as
+the floating-point type the call names, `LinearRaw(T, m; mode)` and
+`linearview(T, m)`: `Float64` by default, or `Float32` or `Float16`. The mosaic
+itself stays its `UInt16` codes, which are exact. Every value is computed in
+Float64 (the black subtraction, the cell's mean, the gain) and rounded once, to
+nearest, when it is stored, so a Float16 image is the Float64 image rounded,
+bit for bit:
+
+```julia
+L = LinearRaw(Float16, m; mode = :green_cells)
+L.image == Float16.(LinearRaw(m; mode = :green_cells).image)   # true
+```
+
+Why Float16 is enough for a RAW's values, worked out on the Sony FX3 (14 bits:
+white 16383, black 512, so the span is `d = 15871` codes; K = 11.33 e⁻/code):
+
+| | Float16 | the noise it sits under |
+|---|---|---|
+| step on `[½, 1)` (7936 to 15871 codes above black) | `2⁻¹¹·d = d/2048 ≈ 7.75` codes | shot noise `√(μ/K)`: `√(16000/11.33) ≈ 37.6` codes at 16k, `√(7936/11.33) ≈ 26.5` at 7936 |
+| variance the rounding adds, `step²/12` | `≈ 5.0` codes² | `μ/K`: at most 0.71% of it, at the binade's bottom |
+| near the black level | `2⁻¹¹ ≈ 4.9e-4` of the value, 3.3 significant digits; a step of `2⁻²⁴·d ≈ 9.5e-4` codes below `d·2⁻¹⁴ ≈ 0.97` codes | a 16-bit integer PNG of the codes: a step of 1 code |
+
+The 0.71% is the rounding variance against the shot variance at `μ = d/2`,
+`(d/2048)²·K/(12·d/2) = d·K/(6·2048²)`. It halves with each binade below,
+because the step halves, so its square quarters, while μ only halves.
+
+An uncertain image's variance plane is not Float16. In the values' units² a
+dark green cell's variance, its read noise alone, is `σ_r²/(2d²)`: `≈ 7.9e-9`
+for σ_r = 2 codes. That is below half Float16's smallest subnormal,
+`2⁻²⁴ ≈ 6.0e-8`, so it would be stored as 0, and a whitened row would divide by
+it. At the white level the shot variance `1/(2Kd) ≈ 2.8e-6` is subnormal,
+held to about 2%. So a Float16 value carries a Float32 variance (6 bytes a
+value, against 16 for Float64 and its variance).
+
+Reduce a Float16 image in Float64: `sum(Float64, A)` and `mean(Float64, A)`.
+A Float16 accumulation overflows past 65504 (a million green cells near the
+white level sum to about 8e5) and drops low bits long before. The sensor
+estimators ([`master_dark`](@ref), [`photon_transfer`](@ref),
+[`defect_onsets`](@ref)) read the mosaics' codes and accumulate in Float64,
+so the element type never reaches them. [`linear_quantum`](@ref) of a Float16
+view is the coarser of one code and the value's Float16 step, the resolution
+the stored value actually carries.
+
 ## One phase rule
 
 Every colour, offset and map above comes from one rule in

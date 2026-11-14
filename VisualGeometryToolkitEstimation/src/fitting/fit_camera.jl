@@ -1267,12 +1267,9 @@ function fit_camera(
     )
     _check_tolerance(tolerance)
     VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
-    # a source that bounds no central CameraModel is refused before any fit (`_spline_backward`'s fallback)
-    m = model(source)
-    m isa CameraModel || return _spline_backward(m, source, region, grid_size, tolerance, device)
     # the source on its optical axis first (a gauge K; a physical K is its own axis), then the backward in that frame:
     # kept, or the lattice of `grid_size` fitted to the turned source's rays
-    gauge = _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(m)), m, source, device)
+    gauge = _source_axis_gauge(model(source), source, region, grid_size, tolerance, device)
     back, code, family = _spline_backward(gauge.camera, VgtkCore.with_model(source, gauge.camera), region, grid_size, tolerance, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the axis's on a tie (as before 0.11.6)
     cam = back.camera
@@ -1290,6 +1287,12 @@ function fit_camera(
         )
     )
 end
+
+# The axis gauge of a central source; a source that bounds no central CameraModel is refused before any fit
+# (`_spline_backward`'s fallback, which throws).
+_source_axis_gauge(m::CameraModel, source, _region, _grid_size, _tolerance, device) =
+    _axis_gauge(VgtkCore.Cameras.IntrinsicsRole(lens(m)), m, source, device)
+_source_axis_gauge(m, source, region, grid_size, tolerance, device) = _spline_backward(m, source, region, grid_size, tolerance, device)
 
 # The source of a SplineLens target in the frame its backward and forward are fitted in. A GAUGE-K source's ẑ is where
 # its frame put it: the camera is turned so ẑ is its optical axis and its principal point that axis's pixel
@@ -1345,7 +1348,7 @@ _spline_backward(src, source, region, grid_size, tolerance, device) = throw(
 
 # Whether `grid_size` is the SplineLens camera `src`'s own lattice: its counts AND its area, the area Core's full-image
 # layout of those counts takes (`spline_lattice`); a lattice over another calibrated area is resampled.
-_own_lattice(src, image_size, grid_size) = grid_size == VgtkCore.grid_size(src) &&
+_own_lattice(src::CameraModel, image_size, grid_size) = grid_size == VgtkCore.grid_size(src) &&
     lens(src).backward.area == lens(spline_lattice(SplineLens, src, image_size; grid_size)).backward.area
 
 # The share of the image's area — the full-image lattice's — where the fit has no source ray: outside the region, or

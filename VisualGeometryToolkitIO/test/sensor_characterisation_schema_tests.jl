@@ -130,3 +130,48 @@ end
         @test e isa ArgumentError && occursin("not a vgio file", e.msg)
     end
 end
+
+# v1.1 (IO 0.10.2): the black slot's `Darks`, one Dark per exposure band (each its own raster pair), with the shared
+# channel black; a v1.0 file (a single Dark) still loads.
+@testitem "sensor_characterisation: Darks — a raster pair per band, the round trip, a stable digest; v1.0 still loads" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Darks, Dark, content_digest, sensor_model
+    using VisualGeometryToolkitCore: CaptureSettings, ExposureSettings, LensSettings, mm
+    using VisualGeometryToolkitIO: validate
+    import VisualGeometryToolkitIO as VgtkIO
+    bands = [(1 // 8000 * SEC, 1 // 8000 * SEC), (1 // 500 * SEC, 1 // 500 * SEC), (0.8 * SEC, 0.8 * SEC)]
+    darks = [(; dark_maps(10 + k)..., exposure_band = b) for (k, b) in enumerate(bands)]
+    c = char(; black = (512.0, 511.5, 512.25, 511.75), black_std_error = (0.01, 0.02, 0.01, 0.02), darks, gain = 2.1,
+             read_noise = (1.5, 1.25, 1.75, 1.3), source = SensorSource.measured)
+    @test c.entries[100.0].black isa Darks
+    mktempdir() do dir
+        b, d, p = round_trip(dir, "darks", c)
+        @test validate(p) == "sensor_characterisation" && d["schema"] == "vgio/sensor_characterisation/v1.1"
+        @test same(b, c) && b.entries[100.0].black isa Darks
+        bk = d["entries"][1]["black"]
+        @test bk["type"] == "darks" && bk["black"]["type"] == "channel" && length(bk["darks"]) == 3
+        @test [x["exposure_band"] for x in bk["darks"]] == [[1 / 8000, 1 / 8000], [0.002, 0.002], [0.8, 0.8]]
+        @test [x["offset"]["file"] for x in bk["darks"]] == ["darks.iso100.band$(k).dark_offset.tiff" for k in 1:3]
+        @test VgtkIO.read_tiff(Float32, joinpath(dir, "darks.iso100.band2.dark_variance.tiff")) == darks[2].variance
+        # a stable identity: every frame's resolved model is the original's, digest and all, and a second save is the same file
+        frame(t) = (; exposure = ExposureSettings(t, 8, 100), lens_settings = LensSettings(14mm))
+        cap = CaptureSettings(Dict(k => frame(t) for (k, t) in enumerate([first.(bands); 0.01 * SEC])); body = BODY)
+        for k in 1:4
+            @test content_digest(sensor_model(b, cap, k)) == content_digest(sensor_model(c, cap, k))
+        end
+        @test sensor_model(b, cap, 2).black isa Dark && sensor_model(b, cap, 4).reason === VgtkCore.DarkOutOfBand
+        p2 = joinpath(dir, "again.json"); save(p2, b)
+        @test replace(read(p2, String), "again." => "darks.") == read(p, String)
+        # the bands overlapping: refused on read
+        good = read(p, String)
+        t = JSON.parse(good; dicttype = Dict{String, Any}); t["entries"][1]["black"]["darks"][2]["exposure_band"] = [0.0001, 0.9]
+        write(p, JSON.json(t))
+        @test (try load(SensorCharacterisation, p); false catch e; e isa ArgumentError end)
+        # a v1.0 file (one Dark), as IO 0.10.1 wrote it, still loads
+        one = char(; black = (512.0, 511.5, 512.25, 511.75), dark = dark_maps(7), source = SensorSource.measured)
+        q = joinpath(dir, "v10.json"); save(q, one)
+        t = JSON.parse(read(q, String); dicttype = Dict{String, Any}); t["schema"] = "vgio/sensor_characterisation/v1.0"
+        write(q, JSON.json(t))
+        @test validate(q) == "sensor_characterisation" && same(load(SensorCharacterisation, q), one)
+    end
+end

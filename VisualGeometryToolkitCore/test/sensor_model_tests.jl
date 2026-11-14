@@ -361,6 +361,77 @@ end
     @test_throws ArgumentError sensor_fixture(full, full)                                           # ISO 100 twice
 end
 
+# Core 0.10.3: the black slot's `Darks`, one Dark per exposure band at one ISO (the FX3's 21 measured exposures), the
+# frame's own Dark chosen by its exposure; between bands the shared ChannelBlack, visibly (`DarkOutOfBand`).
+@testitem "sensor model: Darks — each frame its own band's Dark; between bands the ChannelBlack, DarkOutOfBand" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, DarkOutOfBand, Darks, content_digest,
+        component_sources
+    import Adapt
+    s = parse_unit("s")
+    body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "5012345")
+    H, W = 6, 8
+    ts = [(1 / 8000)s, (1 / 500)s, 0.8s, 3.2s]                 # the measured exposures, each its own band
+    band(k) = (ts[k], ts[k])
+    dk(k; b = band(k)) = (; offset = fill(Float32(510 + k), H, W), variance = fill(Float32(k), H, W), exposure_band = b, frames = 4 + k)
+    ch = (510.0, 511.0, 512.0, 513.0)
+    kw = (; body, black = ch, gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5), source = SensorSource.measured)
+    c = sensor_fixture(; kw..., darks = [dk(k) for k in eachindex(ts)]).characterisation
+    @test c.entries[100.0].black isa Darks && length(c.entries[100.0].black.darks) == length(ts)
+    frame(t) = (; exposure = ExposureSettings(t, 8, 100), lens_settings = LensSettings(14mm))
+    between = [0.01s, 10.0s, (1 / 10000)s]                     # between two bands, past the longest, below the shortest
+    cap = CaptureSettings(Dict(i => frame(t) for (i, t) in enumerate([ts; between])); body)
+    for k in eachindex(ts)
+        m = sensor_model(c, cap, k)
+        @test m.reason === Matched && m.black isa Dark
+        @test m.black.offset == fill(Float32(510 + k), H, W) && m.black.frames == 4 + k     # THAT exposure's dark
+        @test map(t -> ustrip(s, t), m.black.exposure_band) == map(t -> ustrip(s, t), band(k))
+        # the resolved model is the one a single Dark of that band gives, digest and all
+        one = sensor_fixture(; kw..., dark = dk(k), exposure = ts[k]).model
+        @test m == one && content_digest(m) == content_digest(one)
+    end
+    for i in length(ts) .+ eachindex(between)
+        m = sensor_model(c, cap, i)
+        @test m.reason === DarkOutOfBand && m.black isa ChannelBlack && m.black.values == ch
+        @test m.noise isa PoissonGaussian                       # the entry's other components kept
+    end
+    # one Dark in a Darks is a Darks of one band; a bare Dark stays a Dark (additive)
+    c1 = sensor_fixture(; kw..., darks = [dk(3)]).characterisation
+    @test sensor_model(c1, cap, 3).reason === Matched && sensor_model(c1, cap, 1).reason === DarkOutOfBand
+    @test sensor_fixture(; kw..., dark = dk(3)).characterisation.entries[100.0].black isa Dark
+    # the bands are disjoint: an overlap, a shared endpoint, the same band twice — refused; and one size, at least one
+    @test_throws ArgumentError sensor_fixture(; kw..., darks = [dk(1; b = (0.1s, 1.0s)), dk(2; b = (0.5s, 2.0s))])
+    @test_throws ArgumentError sensor_fixture(; kw..., darks = [dk(1; b = (0.1s, 0.5s)), dk(2; b = (0.5s, 2.0s))])
+    @test_throws ArgumentError sensor_fixture(; kw..., darks = [dk(1), dk(1)])
+    @test_throws DimensionMismatch sensor_fixture(; kw..., darks = [dk(1), (; dk(2)..., offset = fill(1.0f0, 2, 2), variance = fill(1.0f0, 2, 2))])
+    @test_throws ArgumentError sensor_fixture(; kw..., darks = typeof(dk(1))[])
+    @test_throws ArgumentError sensor_fixture(; kw..., dark = dk(1), darks = [dk(2)])     # one form of the slot
+    # in any order, the same Darks (sorted by band); equality, hash, Adapt
+    c2 = sensor_fixture(; kw..., darks = [dk(k) for k in reverse(eachindex(ts))]).characterisation
+    @test c2 == c && hash(c2) == hash(c)
+    D = c.entries[100.0].black
+    @test Adapt.adapt(Array, D) == D
+    @test all(sensor_model(c2, cap, i) == sensor_model(c, cap, i) for i in 1:(length(ts) + length(between)))
+    @test component_sources(sensor_model(c, cap, 5)).reason === DarkOutOfBand
+end
+
+# Core 0.10.3: the defect slot as a mask over the visible raw, public (LinearRaw's own mask).
+@testitem "sensor model: defect_mask — a model's or a DefectList's sites over the visible raw" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, defect_mask
+    s = parse_unit("s")
+    H, W = 8, 10
+    m = synth_mosaic(zeros(UInt16, H, W))
+    model = sensor_fixture(; defects = (; x = [3, 9], y = [2, 7], onset = [0.1s, 0.1s], size = (H, W)), exposure = 0.8s).model
+    want = falses(H, W); want[2, 3] = true; want[7, 9] = true
+    @test defect_mask(model, m) == want
+    @test defect_mask(model.defects, m) == want
+    @test defect_mask(model, view(m, 2:7, 3:10)) == want        # over the visible raw, whatever the window
+    @test defect_mask(sensor_fixture(; read_noise = (1, 1, 1, 1)).model, m) === nothing   # NoDefects: no mask
+    small = sensor_fixture(; defects = (; x = [1], y = [1], onset = [0.1s], size = (4, 4)), exposure = 0.8s).model
+    @test_throws DimensionMismatch defect_mask(small, m)
+end
+
 @testitem "sensor model: a characterisation matches the body by serial, else make and model" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: sensor_fixture, parse_unit, Matched

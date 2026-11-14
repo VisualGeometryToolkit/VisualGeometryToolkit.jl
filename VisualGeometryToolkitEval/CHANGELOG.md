@@ -4,25 +4,24 @@
 
 ### Breaking
 
-- **One cache: the keyed product, on DrWatson's `produce_or_load`** (the owner's rule of 2026-11-14: every step of every
-  pipeline caches its intermediate, keyed by only the config fields and inputs it reads). `Product(experiment, name, record;
-  output, files, upstream, parts)` — its key `run_key(record; …)`, an upstream `Product`'s key folded in — and `produce(f,
-  product)`: `produce_or_load` with `loadfile = false`, a record `f` returns saved through `DrWatson._wsave` →
-  `VisualGeometryToolkitIO.save` and read back with `load_output`; `f` may return a `Produced` (its record or `nothing`, the inputs it read, the save's keywords)
-  (`VisualGeometryToolkitIO.load`); a step that writes a directory returns `nothing`, its `output` the file it writes
-  last. Its directory is DrWatson's `datadir("exp_pro", experiment, name, key)` (`product_dir`); its `_config.toml` and
-  `_provenance.toml` are written last. `produced(product)` is the one reuse rule (the output, the provenance, the code trees
-  current, the scratch flag). A failed save is an error (produce_or_load only warns).
-- **Retired, refused by name with their replacement** (no alias): `fresher`, `run_complete`, `cached_result`,
-  `legacy_hash_key`, `keyed_cell_dir`, `keyed_data_dir`, `experiment_dir`.
-- **`Stage` declares its products**: `Stage(name, desc; items, product, run)` (`run(item)` called for every item: a produced one
-  loads) or `Stage(name, desc; check)`; the done-closure `Stage(name, desc, done, run)` is refused. `--plan` prints each
-  stage's produced products; `--force` unmarks the selected stages' products.
-- **The key is the dependency tracking**: a `Product`'s key folds its record, its upstream products' keys (a Merkle chain), its
-  pinned inputs and the CODE it runs (`current_code_trees`: every stack package's source tree — a path checkout's git trees, a
-  registered version's Manifest tree hash — and the project's `src`; `run_key(…; code)`). A change of any of them is a new product;
-  a result of an earlier key stays where it is (`<results>/<experiment>/<step>/<key>`; the retired `<kind>-<key>` directories are
-  left as they are).
+- **One cache: the keyed product on DrWatson's `produce_or_load` replaces Eval's own caching.** `Product(experiment, name,
+  record; output, files, upstream, parts, code)` and `produce(f, product)` (produce_or_load with `loadfile = false`; a record `f`
+  returns saved through `DrWatson._wsave` → `VisualGeometryToolkitIO.save`, read back with `load_output`; `f` may return a
+  `Produced`: its record or `nothing`, the inputs it read, the save's keywords). A product's directory is DrWatson's
+  `datadir("exp_pro", experiment, name, key)` (`product_dir`); `_config.toml` and `_provenance.toml` are written last;
+  `produced(product)` is the reuse rule; a failed save is an error (produce_or_load only warns).
+- **Removed, each refused by name with its replacement** (no alias; an `ArgumentError` naming it): `keyed_cell_dir` →
+  `product_dir(Product(…))`; `keyed_data_dir` → a `Product` then `promote_run(product_dir(p), tier)`; `experiment_dir` → a
+  `Product` whose experiment is a path; `fresher` and `run_complete` → `produced(product)`; `cached_result` →
+  `produce(f, Product(…))`; `legacy_hash_key` → `run_key`; the 4-argument `Stage(name, desc, done, run)` →
+  `Stage(name, desc; items, product, run)` (`run(item)` for every item: a produced product loads) or `Stage(name, desc; check)`.
+  `--plan` prints each stage's produced products; `--force` unmarks each product just before its run.
+- **The roots are DrWatson's layout**: `results_root()` is `datadir("exp_pro")` and `data_root()` is `datadir("exp_raw")`
+  (`VGTK_RESULTS_ROOT` / `VGTK_DATA_ROOT` only relocate them).
+- **Keys now include the code trees** (`run_key(…; code)`; a `Product` folds `current_code_trees`: every stack package's source
+  tree — a path checkout's git trees, a registered version's Manifest tree hash — and the project's `src`), beside the record,
+  the upstream products' keys (a Merkle chain) and the pinned inputs: a change of any of them is a new product. **Results of
+  earlier versions are not found** by the new keys (nor in the retired `<kind>-<key>` layout); they stay where they are.
 
 ## 0.8.0
 

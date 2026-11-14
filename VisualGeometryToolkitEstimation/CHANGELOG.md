@@ -23,6 +23,7 @@ are now taken in the turned frame).
 
 ### Changed
 
+- Core compat floor `"0.10.7"` (package, test and docs environments; the latest-only floor rule).
 - The SplineLens target turns a gauge-`K` source onto its axis before its backward is kept or fitted (it turned the
   kept backward after): the same camera, rotation and metadata for every source it accepted before.
 

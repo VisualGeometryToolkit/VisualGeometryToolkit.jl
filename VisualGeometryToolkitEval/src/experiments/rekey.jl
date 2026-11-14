@@ -132,12 +132,13 @@ function migrate_keyed_dirs(root::AbstractString = results_root(); dry_run::Bool
             m === nothing && continue
             src = joinpath(dir, d)
             isfile(joinpath(src, PROVENANCE_FILE)) || continue
+            kind, suffix = String(something(m.captures[1])), String(something(m.captures[2]))
             key = get(read_provenance(src), "run_key", "")
-            if key != m.captures[2]
+            if key != suffix
                 @warn "migrate_keyed_dirs: left in place, its record names another run key" dir = src recorded = key
                 continue
             end
-            push!(moves, src => joinpath(dir, String(m.captures[1]), key))
+            push!(moves, src => joinpath(dir, kind, key))
         end
     end
     taken = [b for (_, b) in moves if ispath(b)]

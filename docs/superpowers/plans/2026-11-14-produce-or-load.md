@@ -38,6 +38,55 @@ record by `bin/refine.jl --stage=start` and the ONLY input of every refinement (
 - Monorepo commits carry no AI attribution; RC commits end with the two co-author lines of the brief.
 - Never release, push to main or post.
 
+## The stage map (owner's architecture, 2026-11-14) — what each product is keyed by, where it lives, who reads it
+
+**The key recipe (one function, Eval's `run_key` via `Product`; the one place dependency tracking lives).** A product's key =
+SHA-256 (canonical JSON) of: (a) its TOML section(s) — only what the step reads; (b) the KEYS of its input products (Merkle
+chain: an upstream product's key, never a re-hash of its contents); (c) the pinned `sha256` of each raw input it reads (an
+`[inputs.<id>]` record: tier, path, sha256, frames/exclude; data-root files only); (d) the CODE VERSION: the source-tree hash of
+every stack package the step's environment loads — `src`/`ext`/`Project.toml` git trees for a path (dev) checkout, the Manifest
+`git-tree-sha1` for a registered version — plus the project's own `src` and RC (a path dependency of cvpr2027, so its trees
+too): Eval's `current_code_trees(project_root())`, folded as `keyed_with.code`; (e) the execution thread count
+(`[execution] threads`: the closed-form start sums over thread chunks); (f) `scratch` in a scratch run. Any change of a package's
+tree re-keys every product its environment computes (conservative, accepted). produce_or_load only produces or loads the keyed
+output. A product is reused iff its directory holds its output and its provenance with that key (and no `+uncommitted` tree). Old
+results stay under their old keys (no migration; `migrate_keyed_dirs` is dropped).
+
+Paths: `<exp_pro>/<driver experiment>/<step>/<key>/` where `<exp_pro>` = `datadir("exp_pro")` = `results_root()`.
+Code (d), threads (e) and scratch (f) key every row; the table lists (a)–(c).
+
+| layer | driver | step (stage) | (a) TOML section | (b) upstream product keys | (c) raw inputs (sha256-pinned) | consumers |
+|---|---|---|---|---|---|---|
+| 1 | frontends.jl | decode (prepare) | `[cases.<set>]`, decode mode, frame map | — | the set's RAW input | schoeps |
+| 1 | frontends.jl | schoeps (detect) | `[schoeps.<run>]` (args) | decode | pattern, board, container image | fit, compare; refinements' and chrome configs' `[runs]` |
+| 1 | frontends.jl | fit (init) | `[fits.<name>]` | schoeps | board | chrome index camera (`[runs]`), compare |
+| 1 | frontends.jl | compare (evaluate) | `[compare.<name>]` | schoeps or fit | the start of record | report only |
+| 1 | (imported starts) | — | — | — | AprilGrid / Kalibr / OpenCV starts of record (tier rc_baselines) | refinements' `io.init`, chrome index cameras |
+| 1′ | sensor_characterisation.jl | evaluate | `[characterise]` | — | dark / PTC frames, manifest | refinements' and chrome detect's `sensor_characterisation` (as an input of record) |
+| 2 | radiometric_refinement.jl (+ _vignetting) | prepare | `[prepare.<set>]`, frame map | — | the set's RAW input | init, refine (photographs), chrome detect (shared sets) |
+| 2 | radiometric_refinement.jl | init (the start record) | the case's `start_settings` (its [pipeline] without RC's `REFINE_ONLY_KEYS`), views, start-record schema | prepare; Layer-1 `[runs]` (Schöps / fits); an `[init.<name>]` start (start_from_init) | the inputs its [pipeline] names (starts of record, boards, textures, sensor record) | refine; detector_bias evaluate (it0) |
+| 2 | radiometric_refinement.jl | refine | the case's `refine_settings` (REFINE_ONLY_KEYS) | init | — (all in init) | chrome evaluate, texture_recovery, panorama_stitching, geometric_figures (focus) |
+| 2 | calibrate.jl | init, refine, evaluate, figures | `[pipeline]` split as above; `[render]` (figures) | init → refine → evaluate → figures | the case's inputs | the golden gate |
+| 3 | chrome_evaluation.jl (7 sets) | prepare / detect | `[prepare.<set>]` / `[detect]` (without excluded reasons) | prepare (detect) | RAW set or photographs, sensor record | index |
+| 3 | chrome_evaluation.jl | index | `[index]` (excluded names) | detect; the index camera's Layer-1 product (`[runs]`) or input | target record, index camera of record | evaluate, chrome_index_grid |
+| 3 | chrome_evaluation.jl | evaluate | `[evaluate]` | index; each model's product: a Layer-2 refine (`[upstream] radiometric_refinement` case) or a Layer-1 `[runs]` start | target, models given as inputs | geometric_figures, chrome_index_grid |
+| 3 | chrome_index_grid.jl | index (task), evaluate (table) | variant tables, `[grid]` | the sets' index / evaluate | — | report only |
+| 3 | detector_bias.jl | prepare (regenerate), init, refine, evaluate, figures | `[ground_truth]`, cases, `[evaluate]`, `[figures]` | as Layer 2; evaluate ← refine + init; figures ← evaluate | ground truth, synthetic photographs | numbers |
+| 3 | texture_recovery.jl | prepare, sheet, init (poses), refine (page), evaluate (report), figures | `[prepare]`, `[poses]`, `[texture]`, `[report]`, `[figures]`+`[render]` | refine of its `[upstream]` refinement case; prepare; sheet → poses → page → report → figures | sheet, photographs, board design | numbers |
+| 3 | panorama_vignetting.jl | evaluate (the rooftop chain) | `[example]` | — | RAW, lens | panorama_stitching (rooftop) |
+| 3 | panorama_stitching.jl | evaluate (maps), fit, compare, fit2d, panoramas, figures | `[evaluate]`, `[fit]`, `[lens]`, `[compare]`, `[fit2d]`, `[panoramas]`, `[figures]` | refine of the maps' cases; rooftop; fit → compare / fit2d / panoramas → figures | diffuser flat | vignetting_figures, numbers |
+| 3 | geometric_figures.jl | evaluate (the chrome sets' evaluate products), figures | `[figures]`, `[tables]`, `[render]` | chrome evaluate; focus panels' refine | — | numbers, paper |
+| 3 | vignetting_figures.jl | figures | `[figures]`, `[lenses]` | panorama_stitching compare / evaluate / panoramas | diffusers | numbers, paper |
+| 3 | numbers.jl | numbers | `[runs]` | the figures products' numbers fragments (their macro values) | — | paper |
+| 3 | regenerate_paper.jl | checks (runs the drivers, verify, deploy) | — | — | — | paper |
+
+**reproduce.toml graph** (a consumer runs after the products it reads): `radiometric_refinement` and `_vignetting` after
+`frontends_init` (their `[runs]` read Schöps runs and fits) and `sensor_characterisation` (where a case names its record);
+`chrome_index_grid` after `radiometric_refinement` and `frontends_init` (its sets' evaluate reads refined models, their index
+cameras the front ends' fits); `regenerate_paper` (which runs geometric_figures → the chrome evaluations) after
+`radiometric_refinement`, `radiometric_refinement_vignetting`, `texture_recovery`, `detector_bias`, `panorama_vignetting` and
+`frontends_init`. A stage with `default = false` stays opt-in; the edge applies when both run.
+
 ## Design decisions (the implementer cannot make these alone)
 
 0. **Naming.** The stack's check_naming reserves the word `step` for `<fit>_step` of a `fit_<fit>`: the keyed unit of a

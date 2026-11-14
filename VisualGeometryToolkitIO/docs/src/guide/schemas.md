@@ -136,7 +136,7 @@ form may write its earlier version, that version's very bytes, for a record
 the earlier version can hold (`vgio/sensor_characterisation/v1.0`, IO 0.10.1's
 file, for a characterisation without a `Darks`), so a reader of that version
 keeps reading it. The versions a writer emits are one table
-(`_written_versions`); each has its published JSON Schema. A schema change must not force the published data (Zenodo,
+(`_written_versions`); each has its published JSON Schema, and a file of any of them is current: `vgio_migrate` and `vgio_migrate_tree` have nothing to rewrite. A schema change must not force the published data (Zenodo,
 Hugging Face; archives of several GB) to be uploaded again, so a published
 file keeps loading: `load` runs the file's version steps in memory, one step
 per version, and reads the current record they give. The versions each kind

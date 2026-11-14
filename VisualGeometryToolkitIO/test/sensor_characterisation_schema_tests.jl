@@ -173,7 +173,7 @@ end
     using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Dark, ChannelBlack, PoissonGaussian, DefectList
     using VisualGeometryToolkitIO: validate
     import VisualGeometryToolkitIO as VgtkIO
-    src = joinpath(@__DIR__, "fixtures", "old", "sensor_characterisation_v1.0.json")
+    src = V1_FIXTURE
     @test JSON.parsefile(src)["schema"] == "vgio/sensor_characterisation/v1.0" && JSON.parsefile(src)["generator"]["version"] == "0.10.1"
     c = load(SensorCharacterisation, src)
     e = c.entries[100.0]
@@ -186,13 +186,9 @@ end
     @test_throws ArgumentError VgtkIO.json_schema("sensor_characterisation", (3, 0))
     @test_throws ArgumentError VgtkIO.json_schema("cameras", (5, 0))            # a version no writer emits
     mktempdir() do dir
-        for f in readdir(dirname(src))
-            startswith(f, "sensor_characterisation_v1.0") && cp(joinpath(dirname(src), f), joinpath(dir, f))
-        end
-        # vgio_migrate rewrites it as the writer writes it now: v1.0 again (no Darks), the characterisation it held
-        r = VgtkIO.vgio_migrate(joinpath(dir, "sensor_characterisation_v1.0.json"))
-        @test r.to == "vgio/sensor_characterisation/v1.0" && JSON.parsefile(r.out)["schema"] == "vgio/sensor_characterisation/v1.0"
-        @test load(SensorCharacterisation, r.out) == c
+        # a version the writer emits (no Darks): current, nothing for vgio_migrate to rewrite (IO 0.10.3)
+        @test_throws ArgumentError VgtkIO.vgio_migrate(copy_v1_fixture(dir))
+        @test !VgtkIO._has_migration("vgio/sensor_characterisation/v1.0")
         # a "v1.0" file holding a darks body is no v1.0 file: refused (IO 0.10.1 refuses it too)
         d = char(; black = (512.0, 511.5, 512.25, 511.75), source = SensorSource.measured,
                  darks = [(; dark_maps(3)..., exposure_band = (0.8 * SEC, 0.8 * SEC))])
@@ -234,5 +230,73 @@ end
             darks = [(; dark_maps(5)..., exposure_band = (0.8 * SEC, 0.8 * SEC))], source = SensorSource.measured).characterisation)
         b2, t2, _ = round_trip(dir, "mixed", both)
         @test t2["schema"] == "vgio/sensor_characterisation/v2.0" && same(b2, both)
+    end
+end
+
+# IO 0.10.3: a v1.0 file is a version a writer emits (`_written_versions`), so the tree migration finds it current:
+# a rerun is idempotent (0.10.2 rewrote it beside itself, then refused the existing `.migrated.json` and migrated that).
+@testitem "vgio_migrate_tree: a v1.0 sensor characterisation is current; a rerun is idempotent" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do dir
+        c = char(; black = (512.0, 511.5, 512.25, 511.75), read_noise = (1.5, 1.25, 1.75, 1.3))
+        p = joinpath(dir, "fx3.json")
+        save(p, c)
+        @test JSON.parsefile(p)["schema"] == "vgio/sensor_characterisation/v1.0"
+        before = read(p, String)
+        for _ in 1:2
+            io = IOBuffer()
+            @test (VgtkIO.vgio_migrate_tree(dir; io); true)
+            @test occursin("current   $(p): vgio/sensor_characterisation/v1.0", String(take!(io)))
+        end
+        @test !any(f -> occursin("migrated", f), readdir(dir)) && read(p, String) == before
+    end
+end
+
+# IO 0.10.3: the v1.0 file form is gone. It wrote the rasters of a Dark into the staging directory, which is removed
+# once the file is renamed into place: a file migrated to another directory had no rasters. A v1.0 file is current
+# (a version the writer emits): nothing to migrate.
+@testitem "vgio_migrate: a v1.0 file holding a Dark is current, never rewritten without its rasters" setup = [VGIoFixtures, SensorFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    mktempdir() do dir
+        a, b = mkpath(joinpath(dir, "a")), mkpath(joinpath(dir, "b"))
+        @test_throws r"nothing to migrate" VgtkIO.vgio_migrate(copy_v1_fixture(a); out = joinpath(b, "sc.json"))
+        @test isempty(readdir(b))                                          # never a file whose rasters are missing
+    end
+end
+
+# IO 0.10.3: the smaller rules — a v1 step for every v1 minor read, a non-dict black refused by name, the darks of a
+# darks body listed in increasing band (as the writer writes them).
+@testitem "sensor_characterisation: v1 without a minor, a non-dict black, darks out of band order" setup = [VGIoFixtures, SensorFixtures, OldVersions] begin
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource
+    using VisualGeometryToolkitIO: validate
+    import VisualGeometryToolkitIO as VgtkIO
+    c = load(SensorCharacterisation, V1_FIXTURE)
+    mktempdir() do dir
+        p = copy_v1_fixture(dir)
+        t = json_tree(p)
+        # "v1" is v1.0 (`_split_schema`): read through the same step
+        t["schema"] = "vgio/sensor_characterisation/v1"
+        write_tree(p, t)
+        @test load(SensorCharacterisation, p) == c && validate(p) == "sensor_characterisation"
+        @test VgtkIO.schema_versions("sensor_characterisation") == ["vgio/sensor_characterisation/v1.0", "vgio/sensor_characterisation/v2.0"]
+        # a black that is not an object: an ArgumentError, from the step as from the reader
+        t["schema"] = "vgio/sensor_characterisation/v1.0"
+        t["entries"][1]["black"] = 3
+        @test_throws ArgumentError VgtkIO.migrate_record(t)
+        write_tree(p, t)
+        @test_throws ArgumentError load(SensorCharacterisation, p)
+        # a darks body's darks out of band order: refused (the writer writes them in increasing band)
+        d = char(; black = (512.0, 511.5, 512.25, 511.75), source = SensorSource.measured,
+                 darks = [(; dark_maps(3)..., exposure_band = (1 // 500 * SEC, 1 // 500 * SEC)), (; dark_maps(4)..., exposure_band = (0.8 * SEC, 0.8 * SEC))])
+        q = joinpath(dir, "darks.json")
+        save(q, d)
+        @test validate(q) == "sensor_characterisation"
+        u = json_tree(q)
+        reverse!(u["entries"][1]["black"]["darks"])
+        write_tree(q, u)
+        @test_throws r"increasing" validate(q)
+        u["entries"][1]["black"] = 3
+        write_tree(q, u)
+        @test_throws ArgumentError validate(q)
     end
 end

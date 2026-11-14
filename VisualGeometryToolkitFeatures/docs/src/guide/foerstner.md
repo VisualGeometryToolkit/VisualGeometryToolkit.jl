@@ -143,7 +143,12 @@ points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose windo
 ```
 
 The rows are those of `detect_foerstner(img)`; at the windows `detect_foerstner(img)`
-chose, the seeded form returns its rows bit for bit (a test item).
+chose, the seeded form returns its rows bit for bit (a test item). The seeded form
+takes only the window estimation's keywords (`device`, `noise`, `derivative`,
+`derivative_sigma`, `significance_level`); the image-wide search's are refused by
+name. On a RAW's green cells both take the `LinearRaw`: `detect_sfop(L)` and
+`detect_foerstner(Float64, L, seeds; sensor_model)`, positions on the cell grid and
+the covariance under the frame's sensor model.
 
 **A measured limitation, accepted (owner, 2026-11-14).** At a dot radius of about
 1.8 px the window SFOP selects is 0.0008 px RMS worse than the best fixed window

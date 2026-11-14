@@ -22,3 +22,22 @@
     @test_throws ArgumentError VgtkIO.read_length(1.0, px)
     @test JSON.json(VgtkIO.write_length(VgtkIO.read_length(62.8, mm), mm)) == "62.8"
 end
+
+# IO 0.10.3: a length no number of its unit gives back, not even with its persisted identity, is refused by name,
+# never written as the nearest number (whose identity is not the length's). No length unit is such a unit; a unit of
+# 3e200 m is (its numbers of a 1e-110 m length are subnormal, on a grid coarser than an identity).
+@testitem "lengths: a length no number of its unit has the identity of is refused" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using Random: Xoshiro
+    rng = Xoshiro(5)
+    ys = [(1 + rand(rng)) * 1e-110 for _ in 1:200]
+    outcome(y) = try
+        c = VgtkIO._write_scaled(y, 3e200, 1)
+        VgtkIO._persisted(c * 3e200) === VgtkIO._persisted(y) ? :identity : :other
+    catch e
+        e isa ArgumentError && occursin(repr(y), e.msg) ? :refused : :error
+    end
+    r = map(outcome, ys)
+    @test all(in((:identity, :refused)), r)
+    @test count(==(:refused), r) > 0
+end

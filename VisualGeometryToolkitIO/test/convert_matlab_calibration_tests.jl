@@ -82,3 +82,37 @@
         @test load(CameraModel, joinpath(o2, "calibration_matlab_3radial2tangential_cameras.json")).intrinsics.K[1, 3] == 2155.82 - 0.5
     end
 end
+
+# A fisheye's twisted translations are computed, full-precision metre values; for about one in eight no mm number reads
+# back to the value, and the writer then writes its persisted form (IO 0.10.1), which reads back up to ~22 ulp off
+# with the value's persisted identity. The conversion's comparison accepts that identity (IO 0.10.3).
+@testitem "convert_matlab_calibration: a fisheye of many poses and a stretch reads back to its persisted identity" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitIO: convert_matlab_calibration, load_matlab_calibration
+    using Random: Xoshiro
+    rng = Xoshiro(3)
+    poses = [Dict(:rvec => (rand(rng, 3) .- 0.5) .* 2, :tvec => round.((rand(rng, 3) .- 0.5) .* 2000; digits = 4)) for _ in 1:50]
+    mktempdir() do dir
+        src = joinpath(dir, "calibration_matlab_fisheye.json")
+        write(
+            src, JSON.json(
+                Dict(
+                    :model => "fisheye", :mapping_coeffs => [2470.92, -6.73e-5, -1.03e-9, 2.32e-12],
+                    :distortion_center => [2148.0, 1414.32], :stretch_matrix => [[1.0009, -0.0043], [0.004, 1.0]],
+                    :mean_error => 0.4955, :poses => poses,
+                )
+            )
+        )
+        names = ["DSC$(lpad(i, 4, '0')).JPG" for i in 1:50]
+        r = convert_matlab_calibration(src; images = names, image_size = (4240, 2832), file_unit = mm, out = mkpath(joinpath(dir, "v2")))
+        @test r.n_posed == 50
+        cal = load_matlab_calibration(src; file_unit = mm)
+        back = load(Vector{EuclideanMap}, r.poses)
+        @test all(((a, b),) -> VgtkIO._same_pose(a, b), zip(back, cal.poses))
+        metres(p) = [Float64(ustrip(m, t)) for t in p.t]
+        # the identity of every translation read back is its value's
+        @test all(((a, b),) -> VgtkIO._persisted.(metres(a)) == VgtkIO._persisted.(metres(b)), zip(back, cal.poses))
+        # some translation is NOT within 2 ulp (the case the comparison must accept)
+        @test any(((a, b),) -> any(abs.(metres(a) .- metres(b)) .> 2 .* eps.(abs.(metres(a)))), zip(back, cal.poses))
+    end
+end

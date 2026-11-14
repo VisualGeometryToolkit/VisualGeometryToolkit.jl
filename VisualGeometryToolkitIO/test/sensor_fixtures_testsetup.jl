@@ -4,7 +4,7 @@
     using JSON: JSON
     using VisualGeometryToolkitIO: load, save
     using VisualGeometryToolkitCore: parse_unit
-    export SEC, BODY, W, H, dark_maps, char, round_trip, same
+    export SEC, BODY, W, H, dark_maps, char, round_trip, same, V1_FIXTURE, copy_v1_fixture
 
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: SensorCharacterisation, DeviceIdentity, SensorSource
@@ -18,6 +18,14 @@
                 exposure_band = (1 // 500 * SEC, 0.8 * SEC), frames = 16)
     end
     char(; kw...) = VgtkCore.sensor_fixture(; body = BODY, kw...).characterisation
+    # the v1.0 file the registered IO 0.10.1 wrote (test/fixtures/old/), and a copy of it with its rasters in `dir`
+    const V1_FIXTURE = joinpath(@__DIR__, "fixtures", "old", "sensor_characterisation_v1.0.json")
+    function copy_v1_fixture(dir)
+        for f in readdir(dirname(V1_FIXTURE))
+            startswith(f, "sensor_characterisation_v1.0") && cp(joinpath(dirname(V1_FIXTURE), f), joinpath(dir, f))
+        end
+        return joinpath(dir, basename(V1_FIXTURE))
+    end
     # a characterisation written and read back: the value, the file's tree
     function round_trip(dir, name, c)
         p = joinpath(dir, "$(name).json")

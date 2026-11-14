@@ -1,6 +1,6 @@
 name = "VisualGeometryToolkitIO"
 uuid = "0a7ae7e7-e931-45f8-9bba-03d07899cebc"
-version = "0.10.2"
+version = "0.10.3"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]

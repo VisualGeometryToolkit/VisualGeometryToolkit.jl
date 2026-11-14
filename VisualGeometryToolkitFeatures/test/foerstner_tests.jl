@@ -406,6 +406,9 @@ end
     @test any(d -> d.covariance_status === :propagated_measured, again)
     rows = detect_foerstner(Float64, L, seeds; sensor_model = model, device = KA.CPU())
     @test count(d -> d.label === :circular, rows) >= 2
+    # the default precision, as for the image-wide call on L and the seeded call on a matrix
+    @test isequal(collect(detect_foerstner(L, seeds; sensor_model = model, device = KA.CPU())),
+                  collect(detect_foerstner(Float32, L, seeds; sensor_model = model, device = KA.CPU())))
 end
 
 @testitem "detect_foerstner: the propagated covariance is calibrated (NEES₂ ≈ 2, χ² 95 % coverage)" setup = [FoerstnerFixture, UncFixtures, FoerstnerMonteCarlo] begin

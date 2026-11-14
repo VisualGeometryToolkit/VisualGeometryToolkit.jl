@@ -163,13 +163,21 @@ identical value. A side benefit is that memory values are correctly rounded:
 
 **What is exact.** A file that VisualGeometryToolkitIO wrote is rewritten byte
 for byte when its numbers have at most 15 significant digits. A full-precision
-number (16 or 17 digits) may move by at most 2 ulp on its first rewrite, and it
-stays fixed after that. This is inherent to metres in memory and millimetres in
-files: the two grids differ, so some 17-digit millimetre numbers share their
-nearest metre value with a neighbour, and one of the two cannot come back. An identity follows the value, not the bytes:
-VisualGeometryToolkitIO's `content_id` of a rig hashes a canonical tree of
-the loaded value in metres, so a file, the rig loaded from it and the same
-rig written in another unit name the same targets.
+number (16 or 17 digits) may move on its first rewrite, by at most 2 ulp or to
+its persisted form, and it stays fixed after that. This is inherent to metres in
+memory and millimetres in files: the two grids differ, so some 17-digit
+millimetre numbers share their nearest metre value with a neighbour, and one of
+the two cannot come back; and a length computed in code may have no file number
+that reads back to it at all (about one metre value in eight in millimetres).
+A length's PERSISTED form is its metre value rounded to 15 significant digits,
+the value VisualGeometryToolkitIO's `content_id` hashes; it is the length's
+identity. For a length no file number reads back to, the writer writes a number
+that reads back as its persisted form (up to ~22 ulp from the value), and a
+check that a length read back is the one written accepts it within 2 ulp or with
+the same persisted form. An identity follows the value, not the bytes: the
+`content_id` of a rig hashes a canonical tree of the loaded value in metres, so
+a file, the rig loaded from it and the same rig written in another unit name the
+same targets.
 
 **One quantity form.** A JSON record holds each quantity as a number in the
 unit it declares (`"units": {"world": "mm", "density": "dpi"}`), through the

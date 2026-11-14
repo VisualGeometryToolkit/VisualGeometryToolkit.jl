@@ -346,13 +346,18 @@ calibration_record))`, so it never shadows the target's `calibration`.
 Every earlier version a published file holds is read. The versions each kind
 reads are derived from its version steps by
 [`schema_versions`](@ref VisualGeometryToolkitIO.schema_versions), never kept
-by hand; the table is generated from it:
+by hand, and the versions each kind's writer emits from `_written_versions`
+(its current one, and an earlier one a writer still writes for a record it can
+hold); the table is generated from both:
 
 ```@eval
 import VisualGeometryToolkitIO as VgtkIO
 using Markdown: Markdown
-rows = ["| `vgio/$(r.kind)` | `$(r.current)` | $(join(("`$(s)`" for s in r.reads if s != r.current), ", ")) |"
-        for r in VgtkIO.schema_versions()]
+function row(r)
+    w = [VgtkIO._schema(r.kind, v) for v in VgtkIO._written_versions(r.kind)]
+    return "| `vgio/$(r.kind)` | $(join(("`$(s)`" for s in w), ", ")) | $(join(("`$(s)`" for s in r.reads if !(s in w)), ", ")) |"
+end
+rows = map(row, VgtkIO.schema_versions())
 Markdown.parse(join(["| Kind | Written | Also read |", "|---|---|---|", rows...], "\n"))
 ```
 

@@ -166,9 +166,10 @@ end
     return _last_equal(samples, lo, hi, j, x1), _last_equal(samples, lo, hi, j, x2)
 end
 
-# An IEEE float's key, ordered as the float (−0 read as +0: `==` makes them one value), and back.
-@inline _order_key(x::Float32) = (u = reinterpret(UInt32, x + 0.0f0); u ⊻ ifelse(u >> 31 == 0x00000001, 0xffffffff, 0x80000000))
-@inline _order_key(x::Float64) = (u = reinterpret(UInt64, x + 0.0); u ⊻ ifelse(u >> 63 == 0x0000000000000001, 0xffffffffffffffff, 0x8000000000000000))
+# An IEEE float's key, ordered as the float (Core's `radix_key` at the float's width, −0 read as +0: `==` makes them one
+# value), and back.
+@inline _order_key(x::Float32) = radix_key(UInt32, x + 0.0f0)
+@inline _order_key(x::Float64) = radix_key(UInt64, x + 0.0)
 @inline _key_value(::Type{Float32}, k::UInt32) = reinterpret(Float32, k ⊻ ifelse(k >> 31 == 0x00000001, 0x80000000, 0xffffffff))
 @inline _key_value(::Type{Float64}, k::UInt64) = reinterpret(Float64, k ⊻ ifelse(k >> 63 == 0x0000000000000001, 0x8000000000000000, 0xffffffffffffffff))
 

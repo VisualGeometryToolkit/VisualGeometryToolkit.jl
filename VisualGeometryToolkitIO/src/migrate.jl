@@ -19,15 +19,20 @@ function _verify(ok::Bool, src, what)
 end
 
 # A pose read back from the quaternion encoding: its translation to the length
-# conversion's guarantee — exact for a file-born value, within 2 ulp of the
-# metre value for a computed one (a fisheye's frame twist), which a file in a
-# unit other than metres may have no number for (lengths.jl) — its rotation to
-# the encoding's precision (bit for bit when a quaternion reads back to it
-# exactly — `_qvec` — and within a few ulp otherwise).
+# conversion's guarantee — exact for a file-born value; for a computed one (a
+# fisheye's frame twist), which a file in a unit other than metres may have no
+# number for (lengths.jl), within 2 ulp of the metre value or with its persisted
+# identity (the writer's last resort, IO 0.10.1) — its rotation to the
+# encoding's precision (bit for bit when a quaternion reads back to it exactly
+# — `_qvec` — and within a few ulp otherwise).
 _same_length(a, b) = _same_metres(Float64(ustrip(m, a)), Float64(ustrip(m, b)))
 # Two metre values (or m², a covariance entry's) within the length conversion's
-# guarantee: 2 ulp, the sign of a zero kept (`ulps = 0`: bit for bit).
-_same_metres(x::Float64, y::Float64, ulps::Integer = 2) = x === y || (signbit(x) == signbit(y) && abs(x - y) <= ulps * eps(abs(x)))
+# guarantee: within 2 ulp, or the same PERSISTED identity (`_persisted`, content_id's
+# length leaf: what the writer writes for a value no file number reads back to,
+# which reads back up to ~22 ulp off), the sign of a zero kept (`ulps = 0`: bit for
+# bit, the persisted identity not accepted).
+_same_metres(x::Float64, y::Float64, ulps::Integer = 2) = x === y ||
+    (ulps > 0 && signbit(x) == signbit(y) && (abs(x - y) <= ulps * eps(abs(x)) || _persisted(x) === _persisted(y)))
 _same_pose(a::EuclideanMap, b::EuclideanMap) =
     all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
 
@@ -97,7 +102,7 @@ The conversion is verified before anything is written to `out`: the files,
 written to a staging directory beside `out` (a dry run's: a temporary one) and
 renamed into place only once verified, must read back equal to the OpenCV read —
 the camera `==`, every pose's translation bit for bit (a file-born value; a
-computed one within the length conversion's 2 ulp) and its rotation to the
+computed one within the length conversion's 2 ulp or with its persisted identity) and its rotation to the
 quaternion encoding's precision (`_qvec`). With
 `dry_run` nothing is written to `out`. Returns `(; path, cameras, poses,
 n_posed, n_unposed)`, the output paths `nothing` in a dry run.
@@ -251,7 +256,7 @@ in its kind's current schema, written to `dst` (a path in the staging
 directory [`vgio_migrate`](@ref) owns). A method reads `src` (through the
 steps), writes the current file to `dst` through its writer, reads `dst` back
 with the current reader and compares every number with `src`'s value (a length
-as its value, within the length conversion's 2-ulp guarantee), throwing an
+as its value, within the length conversion's 2-ulp guarantee or with its persisted identity), throwing an
 `ArgumentError` on any difference; it returns a summary `NamedTuple` with at
 least `to`, the schema written (and whatever the owner reports: a rig's or a
 target's `old_ids` and `new_id`).
@@ -294,7 +299,9 @@ function schema_versions(kind::AbstractString)
     # the old grid kind and the non-central kind are read through the store reader (`_one_camera_store`)
     kind == "cameras" && append!(old, _OLD_GRID_SCHEMAS, ("vgio/noncentral_spline/v1",))
     order(s) = (v = _split_schema(s); (v.kind == kind, v.kind, v.major, v.minor))
-    return push!(sort!(unique!(old); by = order), _schema(kind))
+    # one name per version: a step keyed for "v1" and "v1.0" (one version, `_split_schema`) is listed with its minor
+    sort!(unique!(old); by = s -> (order(s), -length(s)))
+    return push!(unique!(order, old), _schema(kind))
 end
 schema_versions() = [(kind = k, current = _schema(k), reads = schema_versions(k)) for k in sort!(collect(keys(_SCHEMA_VERSION)))]
 # Whether a schema has a file migration (`vgio_migrate`), a step (the readers).
@@ -370,7 +377,9 @@ original, number for number; only then is it renamed to `out`, one atomic
 covariance entry of lengths) the file holds at full precision, 16 or 17
 digits: no metre value writes back to every such number, so the migrated file
 may hold one that differs by at most 2 ulp — reading back as the same metre
-value, within the length conversion's 2-ulp guarantee ([`read_length`](@ref)).
+value, within the length conversion's 2-ulp guarantee ([`read_length`](@ref)) —
+or, for a computed value no file number reads back to, its persisted form, with the
+same identity ([`same_value`](@ref)).
 A number of at most 15 significant digits is rewritten as its own text. The original is untouched unless `out == path` (an in-place
 migration, replaced by that rename only once verified); an existing `out` is
 otherwise refused. With `dry_run` the migration is verified and nothing is
@@ -404,8 +413,9 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
         return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
-    _has_migration(s) ||
-        throw(ArgumentError("$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
+    _has_migration(s) || throw(ArgumentError(_is_current(s) ?
+        "$(path): a $(s) file is a version this VisualGeometryToolkitIO writes: nothing to migrate" :
+        "$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
     return write_staged(out => basename(path); dry_run) do staged
         r = merge((; path = String(path), out = dry_run ? nothing : String(out), from = String(s)), migrate_schema(Val(Symbol(s)), String(path), staged))
         before_rename(r)
@@ -545,16 +555,21 @@ compared field by field, an array element by element, a dict key by key, an
 its endpoints and attribute columns. A LENGTH — a quantity of dimension length
 or length², a covariance entry whose two parameters' length powers add up to 1
 or 2, a non-central model's points — is compared as its metre value within
-`length_ulps` ulp (the sign of a zero kept); every other number (a rotation, a
-focal length, a pixel, a time, a dimensionless quantity) and every string,
-symbol or type must be identical (`===`, `isequal`).
+`length_ulps` ulp or with the same persisted identity (its metre value at 15
+significant digits, the value [`content_id`](@ref) hashes), the sign of a zero
+kept; every other number (a rotation, a focal length, a pixel, a time, a
+dimensionless quantity) and every string, symbol or type must be identical
+(`===`, `isequal`).
 
 The default, 2 ulp, is the decimal-exact length conversion's guarantee
 ([`read_length`](@ref)/[`write_length`](@ref)): a full-precision file number
 has no metre value that writes back to its own text, so a migration that reads
-an old file and the file it wrote compares within it. `length_ulps = 0` is
-exact everywhere, for a schema whose lengths read back bit for bit (a product
-codec's).
+an old file and the file it wrote compares within it; and a computed length no
+file number reads back to is written as its persisted value (IO 0.10.1), which
+reads back up to ~22 ulp off with the length's identity (VisualGeometryToolkitCore's
+`conventions/units.md`, "What is exact"). `length_ulps = 0` is exact everywhere
+(the persisted identity not accepted), for a schema whose lengths read back bit
+for bit (a product codec's).
 """
 function same_value end
 
@@ -1812,7 +1827,7 @@ then re-point the files naming target definitions — `vgio/observations`
 and `vgio/target_homographies` — at the current rigs and single targets of the
 tree, rewriting them as their kind's current version; each by the guarded
 pattern of [`vgio_migrate`](@ref) (a full-precision length may be rewritten
-within 2 ulp, as the same metre value), with one line per file to `io` — a
+within 2 ulp, or as its persisted form), with one line per file to `io` — a
 file left as it is says why (`current`; `SKIPPED`: no schema, or a schema
 nothing here migrates, another owner's record whose owner is not loaded among
 them). Written beside each original as `<stem>.migrated.json`, or over it with
@@ -2073,8 +2088,11 @@ function _write_ids(p, ids::AbstractDict, defs::AbstractDict, rewritten::Abstrac
     Base.Filesystem.rename(t, p)
     return nothing
 end
-# Whether a schema is its kind's current version (any minor).
-_is_current(s::AbstractString) = (v = _split_schema(s); v !== nothing && haskey(_SCHEMA_VERSION, v.kind) && _is_current_major(s, v.kind))
+# Whether a schema is a version its kind's writer emits (`_written_versions`: the current one, or an earlier one a
+# writer still writes for a record it can hold — a sensor characterisation without a Darks, v1.0), any minor: there is
+# nothing to migrate. (A reader still runs an earlier one's step: `_is_current_major`.)
+_is_current(s::AbstractString) = (v = _split_schema(s); v !== nothing && haskey(_SCHEMA_VERSION, v.kind) &&
+    any(w -> first(w) == v.major, _written_versions(v.kind)))
 _try_schema(f) = try
     s = _peek_schema(f)
     s isa String ? s : nothing

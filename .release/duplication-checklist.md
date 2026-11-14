@@ -1,3 +1,37 @@
+# IO 0.10.3 duplication checklist (patch-io0103), 2026-11-14
+
+The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in IO's prep
+16879 on the fresh clone of f5e77eca: 0 findings (IO's name-ownership upstream: Core). `check_duplication` of IO: 0;
+`check_naming` of IO: 0.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| a length's identity in a comparison | a second tolerance beside the writer's last resort | `_persisted` (content_id's length leaf), read by `_same_metres` | [x] |
+| the versions a file is current at | `_is_current`'s own "current major" beside the writer's table | `_written_versions`, read by `_is_current`, the writer and kinds.md's table | [x] |
+| the persisted-form rule's text | IO's conventions page and Core's units.md each stating it | Core's `conventions/units.md` ("What is exact"); IO's page points at it | [x] |
+| the v1.0 fixture with its rasters in a test | three copy loops | `SensorFixtures`' `copy_v1_fixture` | [x] |
+| the persisted-length claims | the default item and the benchmark item | `PersistedLengthClaims`' `persisted_length_claims` | [x] |
+
+---
+
+# Features 0.9.4 duplication checklist (patch-feat094), 2026-11-14
+
+The leg's upstream duplication gate (cau-release `upstream_duplication.jl`) ran on a fresh clone of c3f1d596 (16919):
+0 findings for Features (name-ownership upstream: Core and Estimation). `check_duplication` of Core and Features in
+prep 16914: 0 each.
+
+| concept | the copies | the one copy | status |
+|---|---|---|---|
+| an IEEE float's order-preserving integer key | the bin median selection's own `_order_key` bit flip | Core's `radix_key` at the float's width (`_order_key` its −0-to-+0 wrapper); the inverse `_key_value` local (Core has none) | [x] (209121af) |
+| the seeded `detect_foerstner`'s keywords and refusal | the matrix and LinearRaw methods each listing them | `_detect_seeded` (one keyword list, `_refuse_unread_seed_keywords`, `_check_seeds`) | [x] (209121af, c3f1d596) |
+| a RAW's green-cell inputs | the image-wide and seeded LinearRaw methods each building values and noise | `_raw_inputs` | [x] |
+| the scaled frames a seed may hold | a hand list beside `Disc(d)` | `_ScaledFrame`, plain or uncertain (`_SeedDetection`), as `Disc(d)` reads them | [x] |
+| SFOP's maxima extraction | an inline launch of ASIFT's `.ext` kernel | `_sfop_maxima!` on ASIFT's kernels (scheduled once per call) | [x] |
+| the drop noise at unit pixel noise | per angle | `_unit_drop_noise`, per bin row count | [x] |
+| Satterthwaite degrees of freedom | `_sfop_lambda2_floor` and `_residual_dof` | different covariance models (the λ₂ floor's against a window's residual quadratic form): two quantities, not a copy | n/a |
+
+---
+
 # Core 0.10.3, IO 0.10.2, Features 0.9.3 duplication checklist (patch-core0103), 2026-11-14
 
 The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owner rule 2026-11-14) ran in Core's prep

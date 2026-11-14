@@ -194,14 +194,16 @@ detect_foerstner(::Type{T}, img::AbstractMatrix; noise::Union{Nothing, Real} = n
                  kw...) where {T <: AbstractFloat} = _detect_foerstner(T, img, _pixel_noise(noise); noise_sigma, kw...)
 
 # A seed of the window estimation: a detection of a frame with a scale, its window's integration scale (a point has
-# none). An uncertain Disc or OrientedDisc is read through its frame (`Disc` of the detection).
-const _SeedDetection = Detection{<:Union{Disc, OrientedDisc, EllipticFrame, AffineFrame, Uncertain{<:Union{Disc, OrientedDisc}, <:CovMat}}}
+# none). An uncertain one is read through its frame (`Disc` of the detection), as `Disc(d)` reads any uncertain frame.
+# Checked per seed (`_check_seeds`), so a vector of an abstract element type (`Detection[]`, mixed frames) is a seed vector.
+const _ScaledFrame = Union{Disc, OrientedDisc, EllipticFrame, AffineFrame}
+const _SeedDetection = Detection{<:Union{_ScaledFrame, Uncertain{<:_ScaledFrame, <:CovMat}}}
 
 """
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
                      noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
                      significance_level = 0.999) -> StructArray{<:Detection}
-    detect_foerstner(T, L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
+    detect_foerstner([T = Float32], L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner operator's window estimation (steps 4–6 of the method above, its
 doubled resolution, its kernels) at GIVEN windows: one window per seed, centred
@@ -217,8 +219,8 @@ On a RAW's green cells (`L::LinearRaw`, positions on the cell grid; seeds from
 image-wide call on `L`.
 
 The seeds are detections of a frame with a scale (a `Disc`, an `OrientedDisc`, an `EllipticFrame` or
-an `AffineFrame`, its characteristic scale σ; a `Disc` or `OrientedDisc` also with its covariance); a point has no
-window (a `MethodError`). The keywords are the ones above: the image-wide search's (`method`, `noise_sigma`,
+an `AffineFrame`, its characteristic scale σ; each also with its covariance); a point has no
+window (an `ArgumentError` naming its frame). The keywords are the ones above: the image-wide search's (`method`, `noise_sigma`,
 `integration`, `integration_sigma`, `precision_threshold`, `roundness_threshold`) are not read at given windows and
 are refused (`ArgumentError`, naming them).
 
@@ -226,39 +228,49 @@ Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
 window, F; the F-test of each window at its own half-width's degrees of freedom), one per seed whose
 window lies inside the doubled image, in the order of `seeds`.
 """
-detect_foerstner(img::AbstractMatrix, seeds::AbstractVector{<:_SeedDetection}; kw...) = detect_foerstner(Float32, img, seeds; kw...)
+detect_foerstner(img::Union{AbstractMatrix, LinearRaw}, seeds::AbstractVector{<:Detection}; kw...) =
+    detect_foerstner(Float32, img, seeds; kw...)
 
-function detect_foerstner(
-        ::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:_SeedDetection}; device::KA.Backend = default_device(),
-        noise::Union{Nothing, Real} = nothing, derivative::Symbol = :gaussian2d, derivative_sigma::Real = 1.0,
-        significance_level::Real = 0.999, unread...
-    ) where {T <: AbstractFloat}
-    _refuse_unread_seed_keywords(unread)
-    return _detect_foerstner(T, img, _pixel_noise(noise); seeds, device, derivative, derivative_sigma, significance_level)
-end
+detect_foerstner(::Type{T}, img::AbstractMatrix, seeds::AbstractVector{<:Detection}; noise::Union{Nothing, Real} = nothing,
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, img, _pixel_noise(noise), seeds; kw...)
 
 detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) where {T <: AbstractFloat} =
     _detect_foerstner(T, _raw_inputs(L, sensor_model)...; kw...)
 
 # The seeded windows on a RAW's green cells (positions on the cell grid), under the frame's sensor model as the image-wide call.
-function detect_foerstner(
-        ::Type{T}, L::LinearRaw, seeds::AbstractVector{<:_SeedDetection}; sensor_model::SensorModel = SensorModel(),
-        device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d, derivative_sigma::Real = 1.0,
-        significance_level::Real = 0.999, unread...
-    ) where {T <: AbstractFloat}
+detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
+                 kw...) where {T <: AbstractFloat} = _detect_seeded(T, _raw_inputs(L, sensor_model)..., seeds; kw...)
+
+# The seeded call's keywords, once for both inputs (the pixel noise already resolved): the image-wide search's are not
+# read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.
+function _detect_seeded(
+        ::Type{T}, img, noise, seeds; device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d,
+        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, unread...
+    ) where {T}
     _refuse_unread_seed_keywords(unread)
-    return _detect_foerstner(T, _raw_inputs(L, sensor_model)...; seeds, device, derivative, derivative_sigma, significance_level)
+    _check_seeds(seeds)
+    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level)
 end
 
-# The seeded call's keywords are its own: the image-wide search's are not read at given windows, and a caller who
-# gives one expects an effect it cannot have.
 _refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
-    "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read at given windows (the image-wide " *
-    "search's keywords; each window's scale is its seed's σ): the seeded call takes device, noise (sensor_model on a " *
-    "LinearRaw), derivative, derivative_sigma and significance_level"))
+    "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read by the seeded call (each window's " *
+    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level and the pixel noise " *
+    "(noise on a matrix, sensor_model on a LinearRaw)"))
+
+# Every seed a detection of a frame with a scale (`_SeedDetection`): a point's window has no scale.
+function _check_seeds(seeds)
+    for d in seeds
+        d isa _SeedDetection || throw(ArgumentError(
+            "detect_foerstner(img, seeds): a seed of a $(_frame_name(getfield(d, :value))) has no scale, so no window: " *
+            "the seeds are detections of a Disc, OrientedDisc, EllipticFrame or AffineFrame (each also uncertain)"))
+    end
+    return seeds
+end
+_frame_name(v::Attributed) = _frame_name(getfield(v, :value))   # an uncertain frame: its frame
+_frame_name(v) = nameof(typeof(v))
 
 # A RAW's green cells as the detector reads them: their values and the pixel noise its sensor model gives (`_pixel_noise`).
-_raw_inputs(L::LinearRaw, sensor_model::SensorModel) = (_green_values(green_plane(L)), _pixel_noise(sensor_model.noise, green_plane(L)))
+_raw_inputs(L::LinearRaw, sensor_model::SensorModel) = (G = green_plane(L); (_green_values(G), _pixel_noise(sensor_model.noise, G)))
 
 # The values of a green plane: the plane itself, or each uncertain element's value (Core's `value_of`), whatever its
 # storage (a lazy view or a materialised one).
@@ -500,15 +512,15 @@ function _residual_dof(taps::AbstractMatrix, ρ::Integer)
     n = ρ + r + 4                                           # input pixels: the window and the taps' reach, interior
     span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
     x = Float64.(collect(span) .- n)                        # e along that axis
-    function kernels(B)                                     # K_ss′ = Bₛᵀ Bₛ′, Bₛ[q, i] the weight of input q at span[i]
+    function grams(B)                                       # K_ss′ = Bₛᵀ Bₛ′, Bₛ[q, i] the weight of input q at span[i]
         D = zeros(n, length(span), 2)
         for (i, p) in enumerate(span), s in 1:2, k in axes(B, 1)
             D[_band_start(p, r) + k - 1, i, s] += B[k, p, s]
         end
         return [D[:, :, s]' * D[:, :, s2] for s in 1:2, s2 in 1:2]
     end
-    Kr = kernels(_pipeline_bands(Float64.(taps), n))
-    Kc = kernels(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
+    Kr = grams(_pipeline_bands(Float64.(taps), n))
+    Kc = grams(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
     # aₚᵀ K aₚ′ = Σ_ss′ f_ss′(r, r′) g_ss′(c, c′) for `a` = (sign, axis) of each gradient component (∂/∂row, ∂/∂column), axis
     # 1 the row offset, 2 the column offset: the corner a = (r, c), the circular point a = (−c, r)
     function moments(a)

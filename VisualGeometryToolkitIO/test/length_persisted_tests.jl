@@ -14,33 +14,23 @@
 # side of a 15th-digit rounding boundary: the rig, the file written from it and
 # the rig loaded back had two identities.
 
-@testitem "lengths: a written length reads back as its persisted value" setup = [VGIoFixtures] begin
+@testitem "lengths: a written length reads back as its persisted value" setup = [VGIoFixtures, PersistedLengthClaims] begin
     import VisualGeometryToolkitIO as VgtkIO
     using Random: Xoshiro
-    using VisualGeometryToolkitCore: cm, μm, inch, ft, pt
-    km = parse_unit("km")
-    back(t, u) = ustrip(m, VgtkIO.read_length(VgtkIO.write_length(t * m, u), u))
     # the probe's example: 0.10.0 wrote -167.4265305809965 mm, which read back as
     # -0.1674265305809965 m, whose persisted value is not t's
     t = -0.16742653058099652
     @test back(t, mm) === VgtkIO._persisted(t)
     @test VgtkIO._persisted(back(t, mm)) === VgtkIO._persisted(t)
     rng = Xoshiro(1)
-    ts = [(rand(rng) - 0.5) * 0.6 for _ in 1:200_000]        # computed metre values, full precision
-    for u in (mm, cm, μm, m, km, inch, ft, pt)
-        # the identity of the value read back is the value's own
-        @test count(t -> VgtkIO._persisted(back(t, u)) !== VgtkIO._persisted(t), ts) == 0
-        # write ∘ read ∘ write: the second write is the first, byte for byte
-        @test count(ts) do t
-            c = VgtkIO.write_length(t * m, u)
-            repr(VgtkIO.write_length(VgtkIO.read_length(c, u), u)) != repr(c)
-        end == 0
-    end
-    for u in (mm, cm, μm, m, km)
-        # a decimal unit: the value itself whenever a file number reads back to it, else its persisted value
-        @test count(t -> !(back(t, u) === t || back(t, u) === VgtkIO._persisted(t)), ts) == 0
-    end
-    @test count(t -> back(t, mm) !== t, ts) > 0                 # the batch holds values no mm number reads back to
+    persisted_length_claims([(rand(rng) - 0.5) * 0.6 for _ in 1:2_000])   # computed metre values, full precision
+end
+
+# The probe's size (200 000 values in eight units), in the benchmark suite: VGTK_BENCHMARK_TESTS=1.
+@testitem "lengths: 200 000 written lengths read back as their persisted values" setup = [PersistedLengthClaims] skip = get(ENV, "VGTK_BENCHMARK_TESTS", "") != "1" begin
+    using Random: Xoshiro
+    rng = Xoshiro(1)
+    persisted_length_claims([(rand(rng) - 0.5) * 0.6 for _ in 1:200_000])
 end
 
 @testitem "content_id: a rig of computed lengths, its file and the rig loaded back have one identity" setup = [VGIoFixtures] begin

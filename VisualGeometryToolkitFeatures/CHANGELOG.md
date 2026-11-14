@@ -17,8 +17,9 @@ A patch: `detect_image_circle`'s rim radii through the log-polar map's different
     uncertainties now use each bin's pixels. `RimProfile.noise` is now each angle's noise PER PIXEL (a bin of m pixels
     has `noise/√m`).
   The return type and every keyword are unchanged. Real-data coverages (raw px) move within their σ on the 14 mm, f/4
-  and f/22 sets; the start invariance holds (14 mm: sub-pixel and ±25 px starts within 0.25 px); the f/32 set's bottom
-  inlier set changes (its reference check is marked broken: the RANSAC counts mount/scene edges as inliers); the
+  and f/22 sets; the start invariance holds (14 mm: sub-pixel and ±25 px starts within 0.25 px); the f/32 set's coverage
+  is now its reference, owner-verified on the rim including the mount side (centre (2136.997, 1439.331), semi-axes
+  1333.768 and 1315.245 raw px; the earlier reference sat 3.5 px high), checked as every other set is; the
   synthetic field stop is at 1310.29 (truth 1309.6, a binary disc: the lit pixels' outer boundary is within √2/2 px).
   Requires VisualGeometryToolkitCore 0.10.3 (its compat floor).
 

@@ -17,7 +17,9 @@ tree that is pushed. Owner rulings 2026-11-14: Darks (1), the writer's version f
   every other characterisation is written as v1.0, IO 0.10.1's bytes; `json_schema(kind[, version])`. No public name
   removed.
 - **Features 0.9.3:** no public API change; `detect_image_circle`'s rim radii through the log-polar map's differential
-  and inverse (results move within their σ; `RimProfile.noise` per pixel).
+  and inverse (results move within their σ; `RimProfile.noise` per pixel). Its CHANGELOG re-recorded after the post of
+  Core 0.10.3 / IO 0.10.2: the f/32 set is a real reference check again (a544bdad: the owner-verified fit, 2136.997,
+  1439.331, 1333.768, 1315.245), not "marked broken" (CHANGELOG only; Features' manual does not include it).
 - **Deferred to Core 0.10.4:** the Float32 `_precision` of the log-polar maps (it moved `detect_image_circle`: a flat
   image fit an ellipse), and `_precision`'s silent catch-all for float-carrying leaves.
 

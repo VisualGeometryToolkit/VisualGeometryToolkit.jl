@@ -317,12 +317,36 @@ function _detect_foerstner(
         device, doubled; method, noise_sigma, derivative, integration, derivative_sigma,
         integration_sigma, precision_threshold, roundness_threshold
     ) : _foerstner_seeded(device, doubled, seeds; derivative, derivative_sigma)
-    classes = _foerstner_classes(found, significance_level)
-    model === nothing && return _foerstner_points(found, classes, _undouble)
-    variance, covariance_status = model
-    v = variance isa Real ? fill!(KA.allocate(device, T, size(g)...), T(variance)) : ka_upload(T, device, variance)
-    covariances = _propagated_covariances(device, found, classes, v)
-    return _foerstner_points(found, classes, _undouble; covariances, covariance_status)
+    classes = _foerstner_classes(found, significance_level, _noise_terms(model))
+    _noise_known(model) || return _foerstner_points(found, classes, _undouble)
+    covariances = _propagated_covariances(device, found, classes, _device_noise(T, device, model, size(g))...)
+    return _foerstner_points(found, classes, _undouble; covariances, covariance_status = _noise_status(model))
+end
+
+# The pixel noise of the bilinear green image on a mosaic's raw grid (raw_green.jl), read from its photosites: `count`
+# (the usable greens under each pixel's cross) and `photosite` (σ_k², 0 at every site but a usable green), device planes
+# of the image's size, `density` its white-equivalent per-pixel variance (the polarity test's), `status` the covariance
+# status — `nothing` when the sensor model carries no gain (the a-posteriori covariance, as on a LinearRaw). Its F-test
+# reads the photosite noise's structure in any case.
+struct _BilinearGreenNoise{C <: AbstractMatrix{UInt8}, P <: AbstractMatrix{Float32}}
+    count::C
+    photosite::P
+    density::P
+    status::Union{Nothing, Symbol}
+end
+
+# The pixel noise `model` read four ways: whether it is known (else the a-posteriori covariance), its covariance status,
+# the noise structure of the F-test's residual sums (`_residual_dof`'s `noise`), and the propagation's inputs on the
+# device (`_propagated_covariances`' last two arguments: the variances and, for photosite noise, the cross counts).
+_noise_known(model) = model !== nothing
+_noise_known(n::_BilinearGreenNoise) = n.status !== nothing
+_noise_status(model::Tuple) = last(model)
+_noise_status(n::_BilinearGreenNoise) = n.status
+_noise_terms(model) = _WhiteNoise()
+_noise_terms(::_BilinearGreenNoise) = _BilinearGreenStructure()
+_device_noise(::Type{T}, device, (variance, _)::Tuple, dims) where {T} =
+    (variance isa Real ? fill!(KA.allocate(device, T, dims...), T(variance)) : ka_upload(T, device, variance), nothing)
+_device_noise(::Type{T}, device, n::_BilinearGreenNoise, dims) where {T} = (n.photosite, n.count)   # on the device already
 end
 
 # The detector's image on `device`, in `T`: a float matrix at its own values (gray_f32 would round a Float64 one; a
@@ -334,16 +358,20 @@ _detection_image(::Type{T}, device, img::AbstractMatrix) where {T} =
 # sign of the scale-normalised Laplacian at the seed's own σ (its window's scale; SFOP's selection), significant at
 # `significance_level` under the pixel noise `model` (`_pixel_noise`'s; none known is refused).
 function _polarity_seeds(device, g, seeds, sign::Real, model, significance_level)
-    model === nothing && throw(ArgumentError(
+    _noise_known(model) || throw(ArgumentError(
         "detect_foerstner(img, seeds; polarity): the polarity's sign test needs the pixel noise: `noise` on a matrix, " *
-        "a gain-carrying `sensor_model` on a LinearRaw"))
+        "a gain-carrying `sensor_model` on a LinearRaw or a RawMosaic"))
     isempty(seeds) && return seeds
-    variance = first(model)
+    variance = _polarity_variance(model)
     points = stack((c = Disc(d); Float64[c.center[1], c.center[2], c.σ]) for d in seeds; dims = 2)
     keep = _polarity_kept(device, g, points, sign, variance isa Real ? variance : ka_upload(Float32, device, variance),
                           significance_level)
     return seeds[keep]
 end
+
+# The polarity test's per-pixel noise variance: the input pixels' (independent), or the bilinear image's white-equivalent.
+_polarity_variance(model::Tuple) = first(model)
+_polarity_variance(n::_BilinearGreenNoise) = n.density
 
 # The pixel noise `detect_foerstner` propagates, `(variance, covariance_status)`: the variance of every input pixel (a
 # scalar for iid noise, else a matrix of the image's size). `nothing`: no noise is known, the covariance is the
@@ -357,8 +385,12 @@ end
 # A RAW's green cells: fed only under a gain-carrying model (Poisson–Gaussian, the owner's ruling A), each pixel's
 # variance from the uncertain image the model made (Core's one law, D11); read noise alone, relative noise or none
 # leaves the a-posteriori covariance. A gain whose image carries no variances was not linearised with the model.
-_pixel_noise(::NoiseComponent, G::AbstractMatrix) = nothing
-_pixel_noise(n::PoissonGaussian, G::AbstractMatrix{<:Uncertain}) = map(var, G), Symbol("propagated_", string(n.source))
+_pixel_noise(n::NoiseComponent, G::AbstractMatrix) = nothing
+_pixel_noise(n::PoissonGaussian, G::AbstractMatrix{<:Uncertain}) = map(var, G), _propagated_status(n)
+# The covariance status of a propagated covariance under the noise slot: only a gain-carrying (Poisson–Gaussian) model is
+# fed (the owner's ruling A), named by its source; `nothing` for any other.
+_propagated_status(::NoiseComponent) = nothing
+_propagated_status(n::PoissonGaussian) = Symbol("propagated_", string(n.source))
 _pixel_noise(::PoissonGaussian, G::AbstractMatrix) = throw(ArgumentError(
     "detect_foerstner: the sensor model has a gain but the LinearRaw holds no variances: linearise it with the same model, LinearRaw(mosaic; mode, sensor_model) or load_raw(…; sensor_model)"))
 
@@ -518,8 +550,8 @@ end
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
 # 0 unknown (the reference's noclass). The F distribution's degrees of freedom are the two residual sums' effective
 # ones (`_residual_dof`, one per window half-width ρ), not the reference's pixel count `(2ρ + 1)² − 2`.
-function _foerstner_classes(found, significance_level)
-    tests = Dict(ρ => (d = _residual_dof(found.taps, ρ); f = FDist(d.corner.ν, d.circular.ν);
+function _foerstner_classes(found, significance_level, noise = _WhiteNoise())
+    tests = Dict(ρ => (d = _residual_dof(found.taps, ρ, noise); f = FDist(d.corner.ν, d.circular.ν);
                        (quantile(f, significance_level), quantile(f, 1 - significance_level))) for ρ in unique(found.ρ))
     function class(k, e)
         corner_critical, circular_critical = tests[_per_window(found.ρ, k)]
@@ -542,31 +574,69 @@ end
 # 77 against 87, the latter line 423's sum — the test is conservative). Interior windows (every window is inside the image); the
 # doubling's phase (the centre's parity) changes ν by < 1e-5 relative, so the centre's parity is whichever n gives.
 # Returns `(; corner = (; ν, E), circular = (; ν, E))`, `E = tr Q`.
-function _residual_dof(taps::AbstractMatrix, ρ::Integer)
+#
+# `noise`: the input noise's structure, `I = Σ_j (A_j ⊗ B_j) n` for white unit noise n (A_j acting along the rows, B_j
+# along the columns; `_noise_factors(noise, n, ε)` the pairs on an axis of n pixels at the lattice phase ε,
+# `_noise_reach(noise)` their reach in pixels), so each gradient covariance is `Σ_jj′ Kr_{sj,s′j′} ⊗ Kc_{sj,s′j′}` with
+# `Kr_{sj,s′j′} = Dₛᵀ A_j A_j′ᵀ Dₛ′`, and the moments run over the pairs (j, j′) as over (s, s′): with the terms'
+# matrices as the columns of F and G, `tr Q = Σ_t tr f_t tr g_t` and `tr Q² = Σ ((FᵀF) .* (GᵀG))`. White input noise is
+# the one pair (I, I) (`_WhiteNoise`); the bilinear green image's photosite noise four (`_BilinearGreenStructure`), at
+# each lattice phase, the smaller ν kept (the conservative test).
+function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise = _WhiteNoise())
     r = size(taps, 1) ÷ 2
-    n = ρ + r + 4                                           # input pixels: the window and the taps' reach, interior
+    n = ρ + r + 4 + _noise_reach(noise)                     # input pixels: the window, the taps' and the noise's reach, interior
     span = (n - ρ):(n + ρ)                                  # the window along one axis, doubled 1-based, centre n
     x = Float64.(collect(span) .- n)                        # e along that axis
-    function grams(B)                                       # K_ss′ = Bₛᵀ Bₛ′, Bₛ[q, i] the weight of input q at span[i]
+    function bands(B)                                       # Dₛ[q, i], the weight of input q at span[i]
         D = zeros(n, length(span), 2)
         for (i, p) in enumerate(span), s in 1:2, k in axes(B, 1)
             D[_band_start(p, r) + k - 1, i, s] += B[k, p, s]
         end
-        return [D[:, :, s]' * D[:, :, s2] for s in 1:2, s2 in 1:2]
+        return D
     end
-    Kr = grams(_pipeline_bands(Float64.(taps), n))
-    Kc = grams(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
-    # aₚᵀ K aₚ′ = Σ_ss′ f_ss′(r, r′) g_ss′(c, c′) for `a` = (sign, axis) of each gradient component (∂/∂row, ∂/∂column), axis
-    # 1 the row offset, 2 the column offset: the corner a = (r, c), the circular point a = (−c, r)
-    function moments(a)
-        on(axis, along) = axis == along ? x : ones(length(x))
-        terms = [(a[s][1] * a[s2][1] .* on(a[s][2], 1) .* on(a[s2][2], 1)' .* Kr[s, s2], on(a[s][2], 2) .* on(a[s2][2], 2)' .* Kc[s, s2])
-                 for s in 1:2 for s2 in 1:2]
-        E = sum(tr(f) * tr(g) for (f, g) in terms)
-        V = sum(dot(f, f2) * dot(g, g2) for (f, g) in terms, (f2, g2) in terms)
+    Dr, Dc = bands(_pipeline_bands(Float64.(taps), n)), bands(_pipeline_bands(Float64.(taps[:, [2, 1]]), n))
+    function grams(D, factors)                              # K_{sj,s′j′} = (A_jᵀDₛ)ᵀ(A_j′ᵀDₛ′)
+        E = [A' * D[:, :, s] for s in 1:2, A in factors]
+        return [E[s, j]' * E[s2, j2] for s in 1:2, j in eachindex(factors), s2 in 1:2, j2 in eachindex(factors)]
+    end
+    on(axis, along) = axis == along ? x : ones(length(x))
+    # aₚᵀ K aₚ′ = Σ_ss′jj′ f(r, r′) g(c, c′) for `a` = (sign, axis) of each gradient component (∂/∂row, ∂/∂column), axis 1
+    # the row offset, 2 the column offset: the corner a = (r, c), the circular point a = (−c, r)
+    function moments(a, Kr, Kc, J)
+        idx = [(s, j, s2, j2) for s in 1:2 for s2 in 1:2 for j in J for j2 in J]
+        F = reduce(hcat, [vec(a[s][1] * a[s2][1] .* on(a[s][2], 1) .* on(a[s2][2], 1)' .* Kr[s, j, s2, j2]) for (s, j, s2, j2) in idx])
+        G = reduce(hcat, [vec(on(a[s][2], 2) .* on(a[s2][2], 2)' .* Kc[s, j, s2, j2]) for (s, j, s2, j2) in idx])
+        diag_ = diagind(length(x), length(x))
+        E = sum(sum(view(F, diag_, t)) * sum(view(G, diag_, t)) for t in axes(F, 2))
+        V = sum((F' * F) .* (G' * G))
         return (; ν = E^2 / V, E)
     end
-    return (; corner = moments(((1, 1), (1, 2))), circular = moments(((-1, 2), (1, 1))))
+    d = map(_noise_phases(noise)) do ε
+        pairs = _noise_factors(noise, n, ε)
+        Kr, Kc, J = grams(Dr, first.(pairs)), grams(Dc, last.(pairs)), eachindex(pairs)
+        (; corner = moments(((1, 1), (1, 2)), Kr, Kc, J), circular = moments(((-1, 2), (1, 1)), Kr, Kc, J))
+    end
+    return (; corner = argmin(c -> c.ν, getproperty.(d, :corner)), circular = argmin(c -> c.ν, getproperty.(d, :circular)))
+end
+
+# White input noise: one pair, the identity along both axes, one phase.
+struct _WhiteNoise end
+_noise_reach(::_WhiteNoise) = 0
+_noise_phases(::_WhiteNoise) = (1,)
+_noise_factors(::_WhiteNoise, n, ε) = [(I, I)]
+
+# The bilinear green image's noise (raw_green.jl) from white photosite noise n (unit variance; masked to the green
+# sites): `Ī = M_g n + M_rb X M_g n`, M_g = ½(1⊗1 + ε P⊗P) the green sites (P = diag((−1)^i), ε = ±1 the lattice's
+# phase), M_rb = 1 − M_g, X = ¼(S⊗1 + 1⊗S) the cross's neighbours (S the ±1 shift); with PSP = −S and SP = −PS it is
+# `(½ + ⅛S)⊗1 + ε(½P + ⅛SP)⊗P + 1⊗⅛S + εP⊗⅛SP`: four pairs, reach 1. Both phases (a window centred on a green or on a
+# red or blue site), the smaller ν kept.
+struct _BilinearGreenStructure end
+_noise_reach(::_BilinearGreenStructure) = 1
+_noise_phases(::_BilinearGreenStructure) = (1, -1)
+function _noise_factors(::_BilinearGreenStructure, n, ε)
+    P = Diagonal([(-1.0)^i for i in 1:n])
+    S = diagm(1 => ones(n - 1), -1 => ones(n - 1))
+    return [(0.5I + S / 8, I), (ε * (P / 2 + S * P / 8), P), (I, S / 8), (ε * P, S * P / 8)]
 end
 
 # 323–460: one labelled row per window, positions mapped by `undouble`. The covariance of a classified window is
@@ -631,10 +701,12 @@ end
 @inline _band_start(p::Integer, r::Integer) = max(1, max(p - r, 1) >> 1)
 
 # The propagated covariance of every classified window (a 4 × K host matrix, column-major 2×2 on the doubled grid,
-# (row, column); NaN for an unknown window) for independent input noise of variance `variance[q]` at input pixel q
-# (on the device of `found`), through the
-# taps `_foerstner_windows` ran: rows correlated with (derivative, across), columns with (across, derivative).
-function _propagated_covariances(device, found, classes, variance::AbstractMatrix)
+# (row, column); NaN for an unknown window) through the taps `_foerstner_windows` ran: rows correlated with
+# (derivative, across), columns with (across, derivative). `count === nothing`: independent input noise of variance
+# `variance[q]` at input pixel q; else photosite noise through the bilinear green image (raw_green.jl), `variance[k]`
+# the variance of photosite k (0 but at a usable green), `count[q]` the usable greens under pixel q's cross (on the
+# device of `found`).
+function _propagated_covariances(device, found, classes, variance::AbstractMatrix, count = nothing)
     (; centres, radii, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
     H, W = size(variance)
     K = length(centres)
@@ -644,21 +716,21 @@ function _propagated_covariances(device, found, classes, variance::AbstractMatri
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, centre_list, device_estimates,
+        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, count, centre_list, device_estimates,
         ka_upload(Int8, device, classes), rows, columns, radii, Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
 end
 
-# One window k: Σ = Σ_q variance[q] δ_q δ_qᵀ, δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q). The gradient's component s at the doubled
-# pixel (pr, pc) reads the input pixel (q1, q2) with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for
-# |p − 2q| ≤ r + 2 along each axis.
+# One window k: Σ = Σ_q variance[q] δ_q δ_qᵀ (independent input pixels) or Σ = Σ_k variance[k] δ_k δ_kᵀ over the
+# usable green photosites k, δ_k = Σ_{q ∈ cross(k)} δ_q / n_q (the bilinear weight of k at pixel q, n_q = count[q] the
+# usable greens under q's cross). The pixels' δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q) (`_pixel_shift`).
 @kernel function _propagated_covariances!(
-        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(centres), @Const(estimates), @Const(classes),
-        @Const(rows), @Const(columns), radii, r::Int32
+        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(count), @Const(centres), @Const(estimates),
+        @Const(classes), @Const(rows), @Const(columns), radii, r::Int32
     )
     k = @index(Global)
-    ρ = _per_window(radii, k)
+    ρ = Int(_per_window(radii, k))
     T = eltype(out)
     @inbounds class = classes[k]
     @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
@@ -671,29 +743,11 @@ end
         o = class == 1 ? 0 : 7                            # the corner's estimate, or the circular point's
         @inbounds xr, xc = estimates[1 + o, k] - rw, estimates[2 + o, k] - cw
         @inbounds Ninv = SMatrix{2, 2, T, 4}(estimates[3 + o, k], estimates[4 + o, k], estimates[5 + o, k], estimates[6 + o, k])
-        dot = class == -1
-        for q2 in _band_start(cw - Int(ρ), Int(r)):min(W, _band_start(cw + Int(ρ), Int(r)) + w - 1),
-                q1 in _band_start(rw - Int(ρ), Int(r)):min(H, _band_start(rw + Int(ρ), Int(r)) + w - 1)
-            s1 = s2 = zero(T)
-            for pc in max(cw - Int(ρ), 2q2 - w):min(cw + Int(ρ), 2q2 + w),
-                    pr in max(rw - Int(ρ), 2q1 - w):min(rw + Int(ρ), 2q1 + w)
-                k1 = q1 - _band_start(pr, Int(r)) + 1
-                k2 = q2 - _band_start(pc, Int(r)) + 1
-                (1 <= k1 <= w) & (1 <= k2 <= w) || continue
-                @inbounds δr = rows[k1, pr, 1] * columns[k2, pc, 1]
-                @inbounds δc = rows[k1, pr, 2] * columns[k2, pc, 2]
-                @inbounds gr, gc = gradient_rows[pr, pc], gradient_columns[pr, pc]
-                # v = R∇g and u = Rδ∇g (R the 90° rotation for the circular point), e = p − x̂
-                vr, vc = dot ? (-gc, gr) : (gr, gc)
-                ur, uc = dot ? (-δc, δr) : (δr, δc)
-                er, ec = T(pr - rw) - xr, T(pc - cw) - xc
-                ve = vr * er + vc * ec
-                eu = er * ur + ec * uc
-                s1 += ve * ur + eu * vr
-                s2 += ve * uc + eu * vc
-            end
-            δ = Ninv * SVector(s1, s2)
-            @inbounds v = variance[q1, q2]
+        window = (; gradient_rows, gradient_columns, rows, columns, rw, cw, ρ, r = Int(r), w, xr, xc, Ninv, dot = class == -1)
+        reach = _noise_reach(count)
+        for q2 in max(1, _band_start(cw - ρ, Int(r)) - reach):min(W, _band_start(cw + ρ, Int(r)) + w - 1 + reach),
+                q1 in max(1, _band_start(rw - ρ, Int(r)) - reach):min(H, _band_start(rw + ρ, Int(r)) + w - 1 + reach)
+            δ, v = _noise_shift(count, variance, window, q1, q2)
             Σrr += v * δ[1]^2
             Σrc += v * δ[1] * δ[2]
             Σcc += v * δ[2]^2
@@ -703,6 +757,51 @@ end
     @inbounds out[2, k] = Σrc
     @inbounds out[3, k] = Σrc
     @inbounds out[4, k] = Σcc
+end
+
+# The noise source at (q1, q2): its shift of the estimate and its variance. An input pixel (independent pixel noise),
+# or a photosite of the bilinear image, whose shift is its weights' sum over the pixels under its cross (a site other
+# than a usable green has variance 0 and is skipped).
+@inline _noise_reach(::Nothing) = 0
+@inline _noise_reach(::AbstractMatrix) = 1
+@inline _noise_shift(::Nothing, variance, window, q1, q2) = (_pixel_shift(window, q1, q2), @inbounds variance[q1, q2])
+@inline function _noise_shift(count::AbstractMatrix, variance, window, q1, q2)
+    T = eltype(window.Ninv)
+    H, W = size(count)
+    δ = zero(SVector{2, T})
+    @inbounds v = T(variance[q1, q2])
+    v > zero(T) || return δ, v
+    for (d1, d2) in _CROSS_TAPS
+        p1, p2 = q1 + d1, q2 + d2
+        ((1 <= p1 <= H) & (1 <= p2 <= W)) || continue
+        @inbounds δ += _pixel_shift(window, p1, p2) / T(count[p1, p2])
+    end
+    return δ, v
+end
+
+# δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q) of input pixel q = (q1, q2) in one window: the gradient's component s at the doubled
+# pixel (pr, pc) reads q with weight rows[·, pr, s] · columns[·, pc, s], nonzero only for |p − 2q| ≤ r + 2 along each axis.
+@inline function _pixel_shift(window, q1, q2)
+    (; gradient_rows, gradient_columns, rows, columns, rw, cw, ρ, r, w, xr, xc, Ninv, dot) = window
+    T = eltype(Ninv)
+    s1 = s2 = zero(T)
+    for pc in max(cw - ρ, 2q2 - w):min(cw + ρ, 2q2 + w), pr in max(rw - ρ, 2q1 - w):min(rw + ρ, 2q1 + w)
+        k1 = q1 - _band_start(pr, r) + 1
+        k2 = q2 - _band_start(pc, r) + 1
+        (1 <= k1 <= w) & (1 <= k2 <= w) || continue
+        @inbounds δr = rows[k1, pr, 1] * columns[k2, pc, 1]
+        @inbounds δc = rows[k1, pr, 2] * columns[k2, pc, 2]
+        @inbounds gr, gc = gradient_rows[pr, pc], gradient_columns[pr, pc]
+        # v = R∇g and u = Rδ∇g (R the 90° rotation for the circular point), e = p − x̂
+        vr, vc = dot ? (-gc, gr) : (gr, gc)
+        ur, uc = dot ? (-δc, δr) : (δr, δc)
+        er, ec = T(pr - rw) - xr, T(pc - cw) - xc
+        ve = vr * er + vc * ec
+        eu = er * ur + ec * uc
+        s1 += ve * ur + eu * vr
+        s2 += ve * uc + eu * vc
+    end
+    return Ninv * SVector(s1, s2)
 end
 
 # A doubled-grid estimate and its (row, column) covariance `Σ` (column-major

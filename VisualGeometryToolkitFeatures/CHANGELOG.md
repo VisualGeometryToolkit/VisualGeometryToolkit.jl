@@ -24,10 +24,36 @@ SFOP's λ₂ test.
   noise raises no blob. Without a gain, `noise_sigma` as before.
 - **Recall against 0.9.5** (`detect_sfop(L; polarity = :light)`, then the seeded `detect_foerstner`, green cells): on
   295 photographs of the five sets no 0.9.5 `:circular` row that is significantly light is lost. Of 82 935 rows,
+<<<<<<< HEAD
   82 826 remain (none gained). Each of the 95 not found again within 0.5 px has a significantly dark seed (68) or one
   of a sign not significant (27); the other 14 are one row of a pair within 1 px whose seed is dark or not
   significant, its twin kept. Every pair within 1 px of two significantly light seeds keeps both rows (92 of 92). An
   opt-in real-data item holds this on 12 of the photographs (`test/data/sfop_recall_095.tsv`, 0.9.5's rows).
+=======
+  82 733 remain (none gained); each of the 102 not found again within 0.5 px is a same-blob duplicate (28, within its
+  blob's radius of a row kept), significantly dark (58) or of a sign not significant (16), and the other 100 are the
+  second rows of blobs found twice within 0.5 px. An opt-in real-data item holds this on 12 of the photographs
+  (`test/data/sfop_recall_095.tsv`, 0.9.5's rows).
+- **`detect_sfop(m::RawMosaic; sensor_model)` and `detect_foerstner([T], m::RawMosaic, seeds; sensor_model)`**, additive:
+  the detectors on a RAW mosaic's green photosites at the RAW resolution, positions and covariances in raw COLMAP pixels.
+  The green cells (`LinearRaw{:green_cells}`, unchanged) decimate the green quincunx to the cell lattice and alias its
+  diagonal detail: on DSC06837 (fisheye chrome-april) they register 187 of 289 dots. The image is the bilinear green on
+  the raw grid, the normalized convolution of the usable green photosites (not saturated, not a defect of the sensor
+  model) with the cross kernel — a green photosite its own value, a red or blue one the mean of its usable green
+  4-neighbours — one KernelAbstractions kernel, Float64 sums, its variance `Σw²σ²/(Σw)²` per pixel; a site with no
+  usable green under the cross has NO value (never filled), and every window reading it fails. SFOP runs on it with its
+  2× upsampled first octave at `input_blur = 1/√3` raw px (the photosite's box, variance 1/12, plus the interpolation's,
+  ¼ on average), its λ₂ and polarity tests under the photosites' noise (the white-equivalent `2σ²` per pixel: one green
+  photosite per two raw pixels). The seeded Förstner estimates on the raw-grid image with its own doubling (ip_fop.m
+  step 1) and propagates the noise from the PHOTOSITES, `J_k = Σ_q J[:, q] W[q, k]` through the bilinear weights, and
+  its F-test's effective degrees of freedom are those of that noise (four separable terms of the interpolation; about
+  15 % below white input pixels'), each checked by Monte Carlo. On synthetic dots (radius 1.5 raw px) on a Bayer
+  mosaic: NEES 1.93, 96 % coverage, spread 0.014 raw px against the green cells' 0.021, bias alike. The image-wide
+  search on a mosaic is refused (seed it with `detect_sfop(m)`), and so are `input_blur`, `upsample` and `seed_sigma`
+  (the image's own). **Known limit:** G1 and G2 are taken to respond alike (the sensor model carries no per-channel
+  response): a G1/G2 gain mismatch stays in the image as a checkerboard of its amplitude (measure it with flat fields,
+  the characterisation's E5, if it matters). Data on the six RC chrome sets: DATA_TABLE.
+>>>>>>> 47f954b2 (VisualGeometryToolkitFeatures: detect_sfop and the seeded detect_foerstner on a RawMosaic — the bilinear green image on the raw grid (one KernelAbstractions kernel), SFOP's 2× scale space at input_blur 1/√3 raw px, the Förstner covariance propagated from the photosites and its F-test's degrees of freedom under that noise)
 - **Investigated, not changed:** the three dim top-rim dots on DSC06962 with no SFOP candidate are not dropped by the
   significance test or the NMS: no candidate exists before the NMS. The squashed rim dots (≈ 4 × 1.5 cells) have a
   precision still rising at the finest searched level (w = 69, 34, 19 … over levels 1, 2, 3 of the upsampled octave),

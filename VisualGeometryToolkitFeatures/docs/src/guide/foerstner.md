@@ -150,6 +150,35 @@ name. On a RAW's green cells both take the `LinearRaw`: `detect_sfop(L)` and
 `detect_foerstner(Float64, L, seeds; sensor_model)`, positions on the cell grid and
 the covariance under the frame's sensor model.
 
+### On a RAW mosaic: the green photosites at the raw resolution
+
+On a `RawMosaic` both take the mosaic and its frame's sensor model, and work on the
+green photosites without the cells' 2×2 decimation (whose square lattice aliases the
+green quincunx's diagonal detail: small dots missed):
+
+```julia
+seeds  = detect_sfop(m; sensor_model, device)                     # raw COLMAP pixels, σ in raw pixels
+points = detect_foerstner(m, seeds; sensor_model, device)         # positions and covariances in raw pixels
+```
+
+The image is the bilinear green on the raw grid, the normalized convolution of the
+usable green photosites with the cross kernel: a green photosite its own value, a red or
+blue one the mean of its usable green 4-neighbours. A saturated photosite is CENSORED: a
+normal sample, its value clipped at the white level (1) and its variance the noise law's
+there, flagged (`saturated`). A defect of the sensor model is MISSING: it drops out, and a
+pixel with no usable green under its cross (a defective green) is the mean of the usable
+greens of its 3×3 neighbourhood (its four diagonal greens). Only a pixel with no usable
+green in the 3×3 (a defect cluster) has no value, and every window reading it fails. SFOP runs on it as on any image, its first octave upsampled 2×, `input_blur`
+the image's stated blur `1/√3` raw pixels (the photosite's box, variance 1/12, and the
+interpolation's, ¼ on average). The seeded Förstner estimates on the raw-grid image,
+its own doubling as for any image, and propagates the noise from the photosites through
+the bilinear weights, `Σ = Σ_k σ_k² J_k J_kᵀ`; its F-test's degrees of freedom are those
+of that noise (white over the green photosites, interpolated: about 15 % below white
+input pixels'). On synthetic dots on a Bayer mosaic the covariance is calibrated (NEES ≈ 2,
+95 % coverage) and the spread is about two thirds of the green cells'. The greens G1 and
+G2 are taken to respond alike: the sensor model carries no per-channel response, so a
+G1/G2 mismatch stays in the image as a checkerboard of its amplitude (a known limit).
+
 ### Polarity
 
 The structure tensor `Σ∇g∇gᵀ` does not see the sign of a blob: SFOP finds a dark

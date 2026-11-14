@@ -446,7 +446,7 @@ end
     pm = line(LevenbergDamping())
     @test lmsolve_chart!(pm).code === ReturnCode.Success
     @test pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
-    @test_throws MethodError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
+    @test_throws TypeError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
 end
 
 @testitem "lmsolve_chart!(::LmProblem): LevenbergDamping converges where a column starts at zero (non-central-like)" begin

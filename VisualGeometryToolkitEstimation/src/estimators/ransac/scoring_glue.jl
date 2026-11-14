@@ -219,7 +219,7 @@ Two rules hold for every weight it writes:
 - `consensus`, when given (a `BitVector` over the data), restricts the weights
   to its members: a datum outside it weighs 0 and is no inlier.
   `locally_optimize!(L, ::Irls{GaussianShape}, …)` passes the
-  scorer's consensus set (`consensus_mask!`): least squares is not robust, so
+  scorer's consensus set (`consensus_mask(buf)`): least squares is not robust, so
   the Gaussian refit sees the inliers only (LO-RANSAC's least squares on the
   inliers). The 3-argument form has none: every datum weighs its shape's weight.
 """
@@ -249,7 +249,7 @@ function update_weights!(lh::LossPlainWeights)
     w, sq = robust_weight(rws), sq_distances(rws)
     @inbounds for i in 1:lh.n
         s = sq[i]
-        w[i] = _weighs(lh.consensus, s, i) ? weight(shape, s, width2) : zero(eltype(w))
+        w[i] = _weighs(lh.consensus, s, i) ? weight(shape, s, width2) : 0.0
     end
     return nothing
 end

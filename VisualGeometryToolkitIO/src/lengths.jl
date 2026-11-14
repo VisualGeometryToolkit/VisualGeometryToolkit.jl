@@ -193,16 +193,16 @@ function _scaled_last_resort(::_PersistedLastResort, value, y, scale, k, n)
     vp = p / scale^n
     for d in 1:17
         candidate = round(vp; sigdigits = d)
-        same_identity(candidate) && return _fixed_point(candidate, scale, k, n)
+        same_identity(candidate) && return _rewrite_number(candidate, scale, k, n)
     end
     for j in 1:3, c2 in (prevfloat(vp, j), nextfloat(vp, j))
-        same_identity(c2) && return _fixed_point(c2, scale, k, n)
+        same_identity(c2) && return _rewrite_number(c2, scale, k, n)
     end
     return value          # within an ulp (no number of this unit has `y`'s identity: not seen)
 end
 # The number a rewrite of `c`'s value writes: the exact search's for that value when it has one, else `c` (whose
 # value's rewrite comes back to this last resort, and to `c`). So write ∘ read ∘ write is write.
-function _fixed_point(c, scale, k, n)
+function _rewrite_number(c, scale, k, n)
     r = _read_scaled(c, scale, k, n)
     e = _write_scaled(_NearestLastResort(), r, scale, n)
     return _read_scaled(e, scale, k, n) === r ? e : c

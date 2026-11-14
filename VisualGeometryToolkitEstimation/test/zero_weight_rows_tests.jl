@@ -8,10 +8,9 @@
     using Test, LinearAlgebra, StaticArrays, StableRNGs
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: Point2, Ellipse, EuclideanMap, ChartLm, RigidExpManifold6, residual_rows!, centre,
+    using VisualGeometryToolkitCore: Point2, Ellipse, EuclideanMap, ChartLm, RigidExpManifold6, residual_rows!,
         rotation, translation
     using VisualGeometryToolkitEstimation: EllipseProblem, HandEyeProblem, data_size
-    using Rotations: RotMatrix
 
     # the rows of datum k at the anchor of θ, at unit weight (the scenario's precondition)
     function rows_at(p, θ, k)
@@ -22,6 +21,7 @@
         return r[(c * (k - 1) + 1):(c * k)]
     end
     zero_last(n) = (w = ones(n); w[n] = 0.0; w)
+    centre(e) = SVector(e.center[1], e.center[2])
 
     @testset "ellipse: a NaN point at weight 0" begin
         pn, _ = ellipse_scene(StableRNG(91), 100; σ = 1.0, outl = 0.0)
@@ -37,7 +37,7 @@
         sc = robot_world_hand_eye_scene(StableRNG(19); N = 8, Y = (ang_max = π / 2,), X = (ang_max = π / 2,), A = (ang_max = π / 2,))
         Xtrue = only(sc.X); A = sc.A
         B = [marker_pose(sc.Y, a, Xtrue) for a in A]
-        bad = EuclideanMap(RotMatrix{3, Float64}(I), SVector(NaN, 0.0, 0.0))
+        bad = EuclideanMap(rotation(B[1]), NaN .* translation(B[1]))         # B's own type, a NaN translation
         p = HandEyeProblem(vcat(A, [A[1]]) .=> vcat(B, [bad]))
         clean = HandEyeProblem(A .=> B)
         n = data_size(p)

@@ -1,6 +1,31 @@
 # VisualGeometryToolkitEstimation changelog
 
-## 0.11.1 (unreleased)
+## 0.11.2
+
+A patch: the local optimization's two weight rules. Nothing breaks; the one addition is `LossPlainWeights`'s optional consensus set.
+
+### Fixed
+
+- **A non-finite residual weighs 0 in every local-optimization weight policy.** `Irls{GaussianShape}` weighed every
+  datum 1, so one datum with an infinite residual (an out-of-reach point, an MSAC dustbin, an infinite Sampson
+  distance) made the cost Σwᵢrᵢ² infinite at the seed and at every refit; `Inf < Inf` is false, so the local
+  optimization never accepted a refit and returned its seed (`NoImprovement`), or its refit was handed the point at
+  full weight and failed. `LossPlainWeights` (every `Irls{K}`), `PosteriorLikelihood`'s E-step and the posterior
+  seeding of the local optimization (`consensus_posterior`) now give a datum whose squared residual is `Inf` or `NaN`
+  weight 0 (robust weight and inlier posterior), and `is_inlier` calls it no inlier. (The `fit_*` seeds built
+  outside `consensus_posterior`, and a residual that turns `NaN` between a posterior E-step and its scale update,
+  still read Core's E-step as it stands: there the guard belongs to VisualGeometryToolkitCore's mixture kernel.) The robust shapes already weighed an infinite residual
+  0; for them only a `NaN` residual changes (its weight was `NaN`).
+- **`Irls{GaussianShape}` refits the scorer's consensus set only** (LO-RANSAC's least squares on the inliers): the
+  consensus set of the score the local optimization starts from (`consensus_mask!`, the first `inlier_count` of the
+  scorer's `consensus_order`) at unit weight, every other datum 0. It fitted every datum, outliers included, at
+  unit weight. No new threshold: the set is the scorer's own decision. `LossPlainWeights(rws, n, loss, consensus)`
+  carries the set (the 3-argument form, `consensus = nothing`, weighs every datum as before). The robust shapes are
+  unchanged beyond the non-finite rule. `refine_absolute_pose` on bearings (`[pipelines.bearing_pose]`,
+  `Irls{GaussianShape}`) is unchanged at its default scorer, whose threshold admits every correspondence; under a
+  caller's tighter `scoring` it now refits that scorer's inliers.
+
+## 0.11.1
 
 A patch: one shared test fixture and one shared bench binding (the owner's no-duplication ruling), no API change.
 

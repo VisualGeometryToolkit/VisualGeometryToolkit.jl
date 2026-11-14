@@ -195,19 +195,21 @@ mixture lifts). Freshness contract: `cs` must come from the most recent score
 on `buf`; its consensus order is read from the scorer's workspace. The seed
 model's residuals are already in `buf`, so squaring them into the posterior
 buffer avoids a redundant mahalanobis_distances!() sweep. The Student-t scale contributes
-one extra DOF on top of the minimal sample size (ν = (k − m)·dg).
+one extra DOF on top of the minimal sample size (ν = (k − m)·dg). A datum whose
+squared residual is not finite weighs 0 (robust weight and inlier posterior).
 """
 function consensus_posterior(L::LoBuffers, problem, cs::ConsensusSet, buf::ScoreBuffers, scoring, a::Float64)
     check_fresh(cs, buf)
     n = data_size(problem)
     square_distances!(L.posterior_sq_r, buf.residuals, n)
-    return seed_posterior!(
+    rws = seed_posterior!(
         L.posterior, L.posterior_sq_r, n, minimal_sample_size(problem) + 1, inlier_count(cs);
         order = consensus_order(scoring, buf.scoring_ws),
         prior = scale_prior(scoring),
         log_two_outlier_halfwidth = log(2 * a),
         codimension = codimension(problem)
     )
+    return _zero_nonfinite_weights!(rws, n)
 end
 
 """
@@ -325,6 +327,12 @@ posterior state `rws`:
   the seed weights before the first solve: its `update_nuisance!` then
   `update_weights!`, and the cost re-seeded under those weights.
 
+Under every policy a datum whose squared residual is not finite at the seed
+weighs 0, and each weight refresh (`update_weights!`) gives 0 to a datum whose
+residual has become non-finite, so one out-of-reach point cannot make the seed's
+cost Σwᵢrᵢ² infinite and stop the iteration there. A refit that puts a datum
+still weighed out of reach costs Inf and is not accepted.
+
 The best iterate's residuals are handed back to `buf`
 (`residuals_current = true`), so the loop skips a redundant mahalanobis_distances!() sweep.
 """
@@ -349,16 +357,34 @@ VGC's `weight` on the loss the width mode deploys (`lo_loss`), frozen
 ([`LossPlainWeights`](@ref)). The seed state's outlier model is the scorer's
 when it has one; any finite value serves otherwise (MSAC), since the frozen
 weights replace the seed's before the first solve.
+
+A datum whose squared residual is not finite weighs 0 under every shape.
+`Irls{GaussianShape}` (least squares, which no outlier may enter) weighs only
+the scorer's consensus set `cs` — `consensus_mask!(buf, scoring)`, the first
+`inlier_count(cs)` of the scorer's `consensus_order` — at unit weight: the
+LO-RANSAC refit on the inliers. The robust shapes weigh every datum.
 """
 function locally_optimize!(
         L::LoBuffers, lo::Irls, problem, model,
         cs::ConsensusSet, buf::ScoreBuffers, scoring
     )
     loss = lo_loss(lo, cs, scoring, buf)
+    consensus = _lo_consensus(lo, cs, buf, scoring)
     return posterior_irls!(L, problem, model, cs, buf, scoring, something(outlier_halfwidth(scoring), 1.0);
                            max_iter = lo.max_iter) do rws, n
-        LossPlainWeights(rws, n, loss)
+        LossPlainWeights(rws, n, loss, consensus)
     end
+end
+
+# The data a strategy's weights are restricted to: the scorer's consensus set
+# for least squares, every datum otherwise. The mask is rebuilt from the scorer's
+# own workspace (`consensus_mask!`) rather than read as it stands: a caller that
+# scored with `mask = false` leaves the previous score's mask in `buf` under a
+# fresh epoch, which `check_fresh` cannot see.
+_lo_consensus(::Irls, _cs, _buf, _scoring) = nothing
+function _lo_consensus(::Irls{GaussianShape}, cs::ConsensusSet, buf::ScoreBuffers, scoring)
+    check_fresh(cs, buf)
+    return consensus_mask(consensus_mask!(buf, scoring))
 end
 
 # The frozen-width policies' seed: `update_nuisance!` first (a no-op for a

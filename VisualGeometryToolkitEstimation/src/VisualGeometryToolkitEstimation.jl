@@ -134,7 +134,7 @@ using VisualGeometryToolkitCore: Irls, Triggs, LOSS_TAGS, STRATEGY_TAGS, lo_loss
 import VisualGeometryToolkitCore: strategy_loss, lo_tag, lo_defaults, lo_parametric,
     lo_field_from_toml, lo_efficiency_constant_shape
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
-    consensus_mask!, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
+    consensus_mask!, consensus_mask, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, check_composition,
     EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, AbstractThresholdScoring, decision_boundary,

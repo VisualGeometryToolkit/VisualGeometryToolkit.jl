@@ -174,7 +174,25 @@ function update_nuisance!(lh::PosteriorLikelihood)
     update_inlier_prior!(lh.rws, lh.n, lh.prior_update)
     return lh
 end
-update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
+function update_weights!(lh::PosteriorLikelihood)
+    update_weights!(lh.rws, lh.n)
+    return _zero_nonfinite_weights!(lh.rws, lh.n)
+end
+
+# Weight 0 — robust weight and inlier posterior — for every datum `i ≤ n` whose
+# squared residual is not finite. The mixture's own E-step already gives an
+# infinite residual 0; a NaN residual it gives NaN, which poisons the cost
+# Σwᵢrᵢ² and every scale and prior update read from the weights. The posterior
+# seeding (`consensus_posterior`) and `PosteriorLikelihood`'s E-step apply it.
+function _zero_nonfinite_weights!(rws::PosteriorWeightState, n::Int)
+    w, p, sq = robust_weight(rws), inlier_weight(rws), sq_distances(rws)
+    @inbounds for i in 1:n
+        isfinite(sq[i]) && continue
+        w[i] = 0.0
+        p[i] = 0.0
+    end
+    return rws
+end
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
 
 # `median_seeded_posterior` is VisualGeometryToolkitCore's: a PosteriorWeightState
@@ -191,12 +209,32 @@ the `PosteriorWeightState` buffers (`sq_distances`, `w`). The loss carries
 its OWN squared width (`sq_loss_width`, Huber: elbow²), committed at construction
 from the seed partition's Student-t scale and **frozen** — `update_nuisance!` is
 a no-op.
+
+Two rules hold for every weight it writes:
+
+- a datum whose squared residual is not finite (an out-of-reach point, an
+  infinite Sampson distance, a NaN) weighs 0 under every shape — the shape's
+  own weight there is 1 (the Gaussian) or NaN, either of which would make
+  the cost Σwᵢrᵢ² non-finite and stop the iteration at its seed;
+- `consensus`, when given (a `BitVector` over the data), restricts the weights
+  to its members: a datum outside it weighs 0 and is no inlier.
+  `locally_optimize!(L, ::Irls{GaussianShape}, …)` passes the
+  scorer's consensus set (`consensus_mask!`): least squares is not robust, so
+  the Gaussian refit sees the inliers only (LO-RANSAC's least squares on the
+  inliers). The 3-argument form has none: every datum weighs its shape's weight.
 """
-struct LossPlainWeights{L <: DeployedLoss} <: AbstractWeightPolicy
+struct LossPlainWeights{L <: DeployedLoss, C <: Union{Nothing, BitVector}} <: AbstractWeightPolicy
     rws::PosteriorWeightState
     n::Int
     loss::L        # shape + (efficiency_constant, ŝ²); `sq_loss_width` = efficiency_constant²·ŝ², never stored
+    consensus::C   # `nothing`, or the data the weights are restricted to
 end
+LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss) = LossPlainWeights(rws, n, loss, nothing)
+
+# Whether datum `i` may weigh at all: its squared residual finite, and inside the
+# consensus set when the policy holds one.
+@inline _weighs(::Nothing, sq_r, _i) = isfinite(sq_r)
+@inline _weighs(consensus::BitVector, sq_r, i) = isfinite(sq_r) & @inbounds(consensus[i])
 
 update_nuisance!(::LossPlainWeights) = nothing   # scale FROZEN at the seed
 current_s2(lh::LossPlainWeights) = scale_s2(lh.loss)   # the scale the loss runs at (VGC `Recorded`)
@@ -208,8 +246,10 @@ function update_weights!(lh::LossPlainWeights)
     # construction by definition.
     shape = loss_shape(lh.loss)
     width2 = sq_loss_width(lh.loss)
+    w, sq = robust_weight(rws), sq_distances(rws)
     @inbounds for i in 1:lh.n
-        robust_weight(rws)[i] = weight(shape, sq_distances(rws)[i], width2)
+        s = sq[i]
+        w[i] = _weighs(lh.consensus, s, i) ? weight(shape, s, width2) : zero(eltype(w))
     end
     return nothing
 end
@@ -244,8 +284,13 @@ robust_weight(lh::LossPlainWeights) = view(robust_weight(lh.rws), 1:lh.n)
 # `bounded(lh.loss)` folds at compile time (the shape is a type parameter),
 # so this costs nothing at runtime and — unlike a per-shape exemption method —
 # cannot go stale when a shape is added.
-is_inlier(lh::LossPlainWeights, i::Integer) =
-    !bounded(lh.loss) || @inbounds(sq_distances(lh.rws)[i] <= sq_loss_width(lh.loss))
+#
+# A datum that cannot weigh (`_weighs`: a non-finite residual, or outside the
+# consensus set the policy holds) is no inlier under any shape.
+function is_inlier(lh::LossPlainWeights, i::Integer)
+    s = @inbounds sq_distances(lh.rws)[i]
+    return _weighs(lh.consensus, s, i) && (!bounded(lh.loss) || s <= sq_loss_width(lh.loss))
+end
 
 
 # This package's strategies (the core ones, Irls and Triggs, are

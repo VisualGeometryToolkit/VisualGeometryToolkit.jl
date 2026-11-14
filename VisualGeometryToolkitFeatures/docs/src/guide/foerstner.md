@@ -177,7 +177,7 @@ one row each.
   dot. Nothing acts on the seeds: a seed whose own row is not `:circular` never
   removes another.
 
-On the five FX3 chrome sets (668 RAW photographs, green cells),
+On 295 photographs of the five FX3 chrome sets (RAW green cells),
 `detect_sfop(L; polarity = :light)` followed by the seeded `detect_foerstner`
 loses no significantly light `:circular` row of Features 0.9.5: each row it
 drops is a same-blob duplicate, significantly dark, or of a sign the noise could

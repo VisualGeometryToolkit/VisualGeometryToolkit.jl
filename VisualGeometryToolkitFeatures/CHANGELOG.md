@@ -2,7 +2,40 @@
 
 ## 0.9.6
 
-POLARITY_PLACEHOLDER
+A patch for SFOP's wrong detections on the RAW chrome photographs: a polarity gate, one `:circular` row per blob,
+the sensor model's noise in SFOP's λ₂ test.
+
+- **`polarity = :none | :dark | :light`** on `detect_sfop` and the seeded `detect_foerstner(img, seeds)`, additive,
+  ASIFT's vocabulary and sign (one sign for the package, `polarity.jl`; ASIFT's parse now shared). The structure tensor
+  is sign-invariant, so SFOP took dark spots for circular points: on Features 0.9.4's RAW green cells, 111 dark-polarity
+  `:circular` rows over the 668 photographs of the five FX3 chrome sets (99 tamron chrome-siemens, 11 fisheye siemens,
+  1 fisheye april). The sign is the scale-normalised Laplacian of Gaussian at the detection's σ, positive at a dark
+  blob, tested ONE-SIDED at `significance_level` under the pixel noise: a candidate is kept only on significant
+  evidence of the requested polarity, so a window whose sign the noise could have given (on flat background between
+  dots) is kept for neither (a missed blob, never a wrong one). SFOP gates before its NMS (ASIFT's order). The seeded
+  call needs the pixel noise for the test (`noise`, or a gain-carrying `sensor_model`); polarity on the image-wide
+  search is refused. `:none` is the default.
+- **The seeded `detect_foerstner`: one `:circular` row per blob.** Two `:circular` rows closer than the larger of their
+  blobs' radii (`σ/√2` of each row's seed, SFOP's NMS footprint) are one blob found from two seeds, and the
+  better-determined one (the smaller trace of its covariance) is kept, greedily, best first: a row is dropped only by a
+  kept row. 0.9.4 gave 158 same-blob pairs within 1 px in 103 of the 668 photographs (a dot SFOP sees at two scales
+  more than a half-octave band apart, which the NMS keeps both of, or a coarse window the estimate pulls onto a dot).
+  Nothing acts on the seeds: `detect_sfop`'s rows are as before under `:none`. A behaviour change of the seeded call's
+  default: a duplicated blob's second row is gone.
+- **`detect_sfop(L::LinearRaw; sensor_model)`**: under a gain-carrying sensor model (`L` linearised with it) the λ₂
+  significance test reads each pixel's variance (the floor scaled by the variance under the window's Gaussian) instead
+  of one `noise_sigma`, so a bright region's shot noise raises no blob. Without a gain, `noise_sigma` as before.
+- **Recall against 0.9.5** (`detect_sfop(L; polarity = :light)`, then the seeded `detect_foerstner`, green cells): on
+  295 photographs of the five sets no 0.9.5 `:circular` row that is significantly light is lost. Of 82 935 rows,
+  82 733 remain (none gained); each of the 102 not found again within 0.5 px is a same-blob duplicate (28, within its
+  blob's radius of a row kept), significantly dark (58) or of a sign not significant (16), and the other 100 are the
+  second rows of blobs found twice within 0.5 px. An opt-in real-data item holds this on 12 of the photographs
+  (`test/data/sfop_recall_095.tsv`, 0.9.5's rows).
+- **Investigated, not changed:** the three dim top-rim dots on DSC06962 with no SFOP candidate are not dropped by the
+  significance test or the NMS: no candidate exists before the NMS. The squashed rim dots (≈ 4 × 1.5 cells) have a
+  precision still rising at the finest searched level (w = 69, 34, 19 … over levels 1, 2, 3 of the upsampled octave),
+  so there is no maximum in scale. Treating the first level as the scale range's bound recovers them (and adds 21
+  pool candidates image-wide); not shipped, since a missed blob is preferred to a wrong one.
 
 ## 0.9.5
 

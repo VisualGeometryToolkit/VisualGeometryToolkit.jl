@@ -61,6 +61,8 @@ success rule's exact-fit threshold from the final point's rounding (a behaviour 
   default stops, the stall is `Stalled`. `LmStops`/`StaticLmStops`' `residual_resolution` stays the data's own floor,
   `F < max(rounding floor, residual_resolution²)`, documented as a residual-vector NORM (√m·q over m residuals of a
   per-sample `linear_quantum` q). `is_stationary`'s `ftol` is unchanged: the caller's stated threshold.
+  Downstream (accepted, 2026-11-14): RadiometricCamera's termination test asserted `Stalled` for a restart AT an exact
+  fit (its `termination_tests.jl`); under this rule that restart is a `Success`, and RC's test is updated in its release.
 
 
 ### Behaviour changes of earlier patches (recorded here; each was released as a patch)

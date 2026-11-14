@@ -192,3 +192,36 @@ end
         @test load(SensorCharacterisation, r.out) == c
     end
 end
+
+# IO 0.10.2's writer (owner ruling (a), 2026-11-14): the kind version follows what the record holds — v2.0 when an
+# entry's black is a Darks, else v1.0 exactly as IO 0.10.1 wrote it, the same bytes but the generator's version (and
+# the rasters byte for byte), so a characterisation without Darks stays readable by IO 0.10.1.
+@testitem "sensor_characterisation: v1.0 unless the record holds a Darks — IO 0.10.1's bytes; v2.0 with Darks" setup = [VGIoFixtures, SensorFixtures] begin
+    using VisualGeometryToolkitCore: SensorCharacterisation, SensorSource, Darks
+    import VisualGeometryToolkitIO as VgtkIO
+    old = joinpath(@__DIR__, "fixtures", "old")
+    src = joinpath(old, "sensor_characterisation_v1.0.json")
+    c = load(SensorCharacterisation, src)
+    mktempdir() do dir
+        p = joinpath(dir, "sensor_characterisation_v1.0.json")
+        save(p, c)
+        mine = JSON.parsefile(p)
+        @test mine["schema"] == "vgio/sensor_characterisation/v1.0"
+        # the same bytes as IO 0.10.1's file, the generator's version aside
+        @test replace(read(p, String), "\"version\": \"$(pkgversion(VgtkIO))\"" => "\"version\": \"0.10.1\"") == read(src, String)
+        for f in ("sensor_characterisation_v1.0.iso100.dark_offset.tiff", "sensor_characterisation_v1.0.iso100.dark_variance.tiff")
+            @test read(joinpath(dir, f)) == read(joinpath(old, f))
+        end
+        @test load(SensorCharacterisation, p) == c
+        # with a Darks: v2.0, round trip
+        d = char(; black = (512.0, 511.5, 512.25, 511.75), source = SensorSource.measured,
+                 darks = [(; dark_maps(3)..., exposure_band = (1 // 500 * SEC, 1 // 500 * SEC)), (; dark_maps(4)..., exposure_band = (0.8 * SEC, 0.8 * SEC))])
+        b, t, _ = round_trip(dir, "with_darks", d)
+        @test t["schema"] == "vgio/sensor_characterisation/v2.0" && same(b, d)
+        # several ISOs: one Darks among them is enough
+        both = VisualGeometryToolkitCore.sensor_fixture(c, VisualGeometryToolkitCore.sensor_fixture(; body = c.body, iso = 400, black = (512.0, 512.0, 512.0, 512.0),
+            darks = [(; dark_maps(5)..., exposure_band = (0.8 * SEC, 0.8 * SEC))], source = SensorSource.measured).characterisation)
+        b2, t2, _ = round_trip(dir, "mixed", both)
+        @test t2["schema"] == "vgio/sensor_characterisation/v2.0" && same(b2, both)
+    end
+end

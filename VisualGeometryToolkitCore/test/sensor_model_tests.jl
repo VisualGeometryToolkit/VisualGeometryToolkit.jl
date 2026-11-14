@@ -415,6 +415,30 @@ end
     @test component_sources(sensor_model(c, cap, 5)).reason === DarkOutOfBand
 end
 
+# Core 0.10.3: a linear view's quantum, one RAW code in its linear units per photosite.
+@testitem "sensor model: linear_quantum — one code in linear units, 1/(white − black[c]) by colour" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, linear_quantum, photosite_colors
+    s = parse_unit("s")
+    H, W = 6, 8
+    black = (512.0, 500.0, 520.0, 508.0)
+    m = synth_mosaic(UInt16[1000 + i + j for i in 1:H, j in 1:W]; black)
+    col = collect(photosite_colors(m))
+    v = linearview(m)
+    @test all(linear_quantum(v, i, j) == 1 / (WHITE - black[col[i, j] + 1]) for i in 1:H, j in 1:W)
+    # the step between adjacent codes there
+    m2 = synth_mosaic(UInt16[1001 + i + j for i in 1:H, j in 1:W]; black)
+    @test all(isapprox(linearview(m2)[i, j] - v[i, j], linear_quantum(v, i, j); rtol = 1.0e-12) for i in 1:H, j in 1:W)
+    # under a Dark the black is per photosite, the span (and so the quantum) the channel's
+    dark = (; offset = fill(505.0f0, H, W), variance = fill(1.0f0, H, W), exposure_band = (0.5s, 1.0s), frames = 4)
+    vd = linearview(m; sensor_model = sensor_fixture(; black, dark, exposure = 0.8s).model)
+    @test all(linear_quantum(vd, i, j) == linear_quantum(v, i, j) for i in 1:H, j in 1:W)
+    # a window: its photosites' colours
+    w = view(m, 2:5, 3:8)
+    cw = collect(photosite_colors(w))
+    @test all(linear_quantum(linearview(w), i, j) == 1 / (WHITE - black[cw[i, j] + 1]) for i in axes(w, 1), j in axes(w, 2))
+end
+
 # Core 0.10.3: the defect slot as a mask over the visible raw, public (LinearRaw's own mask).
 @testitem "sensor model: defect_mask — a model's or a DefectList's sites over the visible raw" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore

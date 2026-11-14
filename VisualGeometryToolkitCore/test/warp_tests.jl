@@ -229,6 +229,7 @@ end
     using Test, StaticArrays, Random, LinearAlgebra
     using GeometryBasics: Point2, Rect
     import ForwardDiff
+    import CoordinateTransformations
     using CoordinateTransformations: transform_deriv
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: LogPolarToCartesian, CartesianToLogPolar, Ellipse, Circle
@@ -270,6 +271,16 @@ end
     out(math, src) = (bm = image_warp(Float32, math, Rect(0, 0, 400, 1200)); d = similar(src, Float32, 1200, 400);
                       image_warp!(d, bm, src; fillvalue = NaN32); Array(d))
     @test maximum(filter(isfinite, abs.(out(lpm ∘ inv(lpm) ∘ lpm, img) .- out(lpm, img)))) < 1e-4
+    # image_warp(Float32, …): both log-polar links single-precision (their stored log radius a Float32), the same warp
+    leaves(x) = x isa CoordinateTransformations.ComposedTransformation ? [leaves(x.t1); leaves(x.t2)] : [x]
+    for (math, L) in ((lpm, LogPolarToCartesian), (lpm ∘ inv(lpm) ∘ lpm, CartesianToLogPolar))
+        ls = filter(x -> x isa L, leaves(image_warp(Float32, math, Rect(0, 0, 400, 1200)).map))
+        @test !isempty(ls) && all(x -> x.log_inner_radius isa Float32, ls)
+        @test all(x -> x.log_inner_radius isa Float64, filter(x -> x isa L, leaves(image_warp(Float64, math, Rect(0, 0, 400, 1200)).map)))
+    end
+    d32 = out(lpm, img); bm64 = image_warp(Float64, lpm, Rect(0, 0, 400, 1200)); d64 = similar(img, Float32, 1200, 400)
+    image_warp!(d64, bm64, img; fillvalue = NaN32)
+    @test isequal(isnan.(d32), isnan.(d64)) && maximum(filter(isfinite, abs.(d32 .- d64))) < 1e-3
     cuda = try
         mod = Base.require(Main, :CUDA)
         (mod !== nothing && Base.invokelatest(getproperty(mod, :functional))) ? mod : nothing

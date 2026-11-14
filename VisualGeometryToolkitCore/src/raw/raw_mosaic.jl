@@ -460,6 +460,18 @@ Adapt.adapt_structure(to, v::LinearRawView) =
 ImageCore.channelview(v::LinearRawView) = _cell_channels(v)
 
 """
+    linear_quantum(v::LinearRawView, i::Integer, j::Integer) -> Float64
+
+The quantum of photosite `(i, j)` of a linear view: one RAW code in its linear
+units, `1 / (white − black[c])`, `c` its colour, the step between two adjacent
+codes of [`linearview`](@ref)'s value there (the channel's span; a
+[`Dark`](@ref) replaces the black per photosite but not the span). The
+resolution a code carries, for a caller that derives a resolution in linear
+units from it (an LM's `residual_resolution`).
+"""
+linear_quantum(v::LinearRawView, i::Integer, j::Integer) = 1 / v.span[_quad_site(i, j)]
+
+"""
     linearview(m::RawMosaic; sensor_model::SensorModel = SensorModel()) -> LinearRawView
 
 The mosaic's linear values on the raw grid, lazily, as ImageCore's

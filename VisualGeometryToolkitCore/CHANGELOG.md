@@ -2,8 +2,8 @@
 
 ## 0.10.3
 
-A patch, additive: darks at several exposures in one characterisation entry, the defect mask public, and the log-polar
-map's differential and inverse.
+A patch, additive: darks at several exposures in one characterisation entry, the defect mask and a linear view's
+quantum public, and the log-polar map's differential and inverse (Float32 through `image_warp`).
 
 ### Added
 - **`Darks`** (public), a black-slot component: the master darks of one body at one ISO, one `Dark` per exposure
@@ -18,6 +18,11 @@ map's differential and inverse.
 - **`defect_mask(model_or_defects, mosaic; backend)`** (public): the defect slot as a `Bool` mask over the visible
   raw, on the backend, the mask `LinearRaw` joins with its saturation mask; `nothing` for `NoDefects`. It was the
   internal `_defect_mask`; LinearRaw and the estimators are unchanged.
+- **`linear_quantum(view, i, j)`** (public): one RAW code in a linear view's units at photosite `(i, j)`,
+  `1 / (white − black[c])` by its colour (the span; a `Dark` changes the black, not the span), so a caller derives a
+  resolution in linear units (an LM's `residual_resolution`) without reading the view's private fields.
+- **`image_warp(Float32, …)` of a log-polar chain** keeps both log-polar links single-precision (their stored log
+  radius converted), as every other link already was.
 - **The log-polar map's differential and inverse.** `transform_deriv(::LogPolarToCartesian, p)` (analytic: the radial
   column `r·(−log r_in)/2·(cos θ, sin θ)`, the angular `π·r·(−sin θ, cos θ)`) and `inv(::LogPolarToCartesian)`, a new
   `CartesianToLogPolar` with its own `transform_deriv`. Through CoordinateTransformations' composition rules

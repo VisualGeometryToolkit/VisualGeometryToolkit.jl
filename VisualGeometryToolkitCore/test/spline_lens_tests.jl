@@ -258,7 +258,7 @@ end
             from_centre = [SVector{2, Float64}(_pixel_affine(c.intrinsics)(first(_project_lens(c.lens, X, x₀, 100, 1.0e-12)))) for X in rays64]
             @test all(i -> isequal(b.px[i], from_centre[i]), eachindex(rays64))
             @test b.ok == [all(isfinite, p) for p in from_centre]
-            # the scalar form's own start (the ray's pinhole point where the lens images it)
+            # the scalar form's own start (the ray's equidistant chart point where the lens images it)
             # gives the same projection to the solve's tolerance, the same imaged mask
             sc = [project(c, X) for X in rays64]
             @test [all(isfinite, p) for p in sc] == b.ok
@@ -319,11 +319,12 @@ end
         @test eltype(m32.lens.forward.controls) == SVector{2, Float32}
     end
 
-    @testset "the cold start: the pinhole point gives the centre start's projection, over the whole frame" begin
-        # `project`'s LM starts at the ray's pinhole point where the lens images it (an
-        # exact speed-up: only the start moves). Against the solve from the area's centre,
-        # over every 4th pixel of the 1000² frame's rays (K⁻¹ũ, the undistortion's): the
-        # same imaged mask, the same pixel to the solve's tolerance (measured 2.7e-12 px).
+    @testset "the cold start: the equidistant chart point gives the centre start's projection, over the whole frame" begin
+        # `project`'s LM starts at the ray's point of the equidistant chart about ẑ
+        # (`forward_chart`) where the lens images it (only the start moves). Against the
+        # solve from the area's centre, over every 4th pixel of the 1000² frame's rays
+        # (K⁻¹ũ, the undistortion's): the same imaged mask, the same pixel to the solve's
+        # tolerance (measured 2.6e-12 px; the pinhole start, 4.0e-12).
         Ki = inv(SMatrix{3, 3, Float64}(K))
         rays = [Ki * SVector(c - 0.5, r - 0.5, 1.0) for r in 1:4:1000 for c in 1:4:1000]
         for c in (cam, masked)
@@ -897,4 +898,60 @@ end
     Ja = ForwardDiff.jacobian(t -> project(lf, t), Xa)
     Jafd = reduce(hcat, [(project(lf, Xa + h * e) - project(lf, Xa - h * e)) / 2h for e in E3])
     @test all(isfinite, Ja) && norm(Ja - Jafd) <= 1.0e-6 * norm(Ja)
+end
+
+@testitem "SplineLens: a fisheye ray whose pinhole point lies past the image circle projects (the cold start)" begin
+    using Test
+    using StaticArrays
+    using LinearAlgebra: norm
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, KannalaBrandt, px, backproject, project, calibration_matrix
+    using VisualGeometryToolkitCore.Cameras: _in_backward
+    import KernelAbstractions as KA
+
+    # =============================================================================
+    # A fisheye lattice laid over the whole sensor: an image circle of radius R inside
+    # a wider frame, the lattice past the circle unconstrained by any data (here the
+    # rim's direction held along each azimuth, the circle's own ray). A ray about 55°
+    # off axis is imaged at r/R ≈ 0.7, but its pinhole point (X₁/X₃, X₂/X₃) lies at
+    # tan θ, past the circle and still inside the lattice's box: started there, the
+    # projection's LM stalled on the flat outer lattice (the fx3 fisheye's band of
+    # lost dots, r/R 0.64–0.69, residual 0.38–0.52 rad). The cold start is the ray's
+    # equidistant chart point about ẑ (`forward_chart`), a fisheye's first-order
+    # inverse, which lies on the imaged ring: project ∘ backproject is the identity.
+    # =============================================================================
+
+    W, H = 4256, 2848                                    # the fx3's sensor
+    c = SVector(W / 2, H / 2)
+    f, R = 895.0, 1328.0                                 # θ(R) ≈ 83°, the fx3's image circle
+    src = CameraModel(f * px, SA[c[1] * px, c[2] * px]; lens = KannalaBrandt(0.02, -0.005, 0.0, 0.0))
+    function clamped(u)                                  # the source's ray, held at the rim past the circle
+        d = SVector(u[1], u[2]) - c
+        r = norm(d)
+        return backproject(src, r <= R ? SVector(u[1], u[2]) : c + d * (R / r))
+    end
+    cam = CameraModel(SplineLens, clamped, Size2(W, H); init = :quasi_interpolate)
+    K = calibration_matrix(cam)
+
+    ring(ρ) = [c + ρ * R * SVector(cos(a), sin(a)) for a in range(0, 2π; length = 73)[1:72]]
+    band = reduce(vcat, ring.(0.66:0.02:0.86))
+    rays = [backproject(cam, u) for u in band]
+    θ = [acos(X[3] / norm(X)) for X in rays]
+    pinhole = [SVector(X[1] / X[3], X[2] / X[3]) for X in rays]
+    # the premise: rays 55–70° off axis, a third of whose pinhole points lie past the circle inside the lattice's box
+    @test 54 <= rad2deg(minimum(θ)) && rad2deg(maximum(θ)) <= 72
+    past = findall(p -> norm(K[1:2, 1:2] * p) > R && _in_backward(cam.lens, p), pinhole)
+    @test length(past) >= length(band) ÷ 3
+
+    roundtrip = [norm(project(cam, X) - u) for (X, u) in zip(rays, band)]
+    @test all(isfinite, roundtrip)
+    @test all(isfinite, roundtrip[past])
+    @test maximum(roundtrip) <= 1.0e-6
+    # the batched projection's cold start (a non-finite seed: the scalar form's start) is the same
+    b = project(cam, rays, fill(SVector(NaN, NaN), length(rays)); iters = 100, device = KA.CPU())
+    @test all(b.ok)
+    @test maximum(i -> norm(b.px[i] - band[i]), eachindex(band)) <= 1.0e-6
+    # the whole circle: every ring from the axis to the rim
+    disc = reduce(vcat, ring.(0.02:0.04:0.98))
+    @test maximum(u -> norm(project(cam, backproject(cam, u)) - u), disc) <= 1.0e-6
 end

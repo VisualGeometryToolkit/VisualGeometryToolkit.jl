@@ -303,8 +303,10 @@ end
 Project the camera-frame point `X` — plain metres, the point spline's unit — to
 a pixel: Levenberg–Marquardt in the normalized plane on the reference's
 tangent-plane point-to-line residual, so a converged pixel's observation line
-goes through `X`. The two-argument form starts at the point's pinhole point
-`(X₁/X₃, X₂/X₃)` where the model images that point, else at the area's centre; the
+goes through `X`. The two-argument form starts at the point's direction's point
+of the equidistant chart about ẑ (`forward_chart`, a central
+[`SplineLens`](@ref)'s cold start) where the model images that point, else at the
+area's centre; the
 three-argument form at the seed pixel `p₀` (a good seed matters for a
 non-central model; positional, per-call data). NaN when the solve does not
 converge onto a point the model images (inside the area, its window present).

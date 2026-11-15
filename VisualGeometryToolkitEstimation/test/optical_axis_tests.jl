@@ -261,6 +261,8 @@ end
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, optical_axis
     n = VE._dflt("optical_axis", "radial_terms")
     @test n == 4
+    # the order continuation's first order: the 1-term linear fit and refine, then 2, 3 and 4 terms, each from the last
+    @test VE._dflt("optical_axis", "start_radial_terms") == 1
     @test VE._AXIS_FAMILY === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
     names = parameter_names(lens(estimate(optical_axis(with_lens_coverage(OFF_BOUNDED, DISC)))))
     @test :k4 in names && !(:k5 in names)
@@ -301,76 +303,145 @@ end
     @test_throws RegionBeyondSupport fit_camera(KannalaBrandt{4}, kb, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5))
 end
 
-# 0.11.6: a linear start that folds inside the region. The source images a pinhole (f = 600 px, its axis at (512, 494))
-# out to 350 px, and past it a ray field that turns away fast (25° more by 480 px): the axis family's 4-term linear fit
-# turns over (folds) at 64° while the region reaches 67°, and the refine from it stalls with the axis unmoved — on the
-# re-gauged K (principal point (500, 500)) a silent 0° turn, the Sigma 14 mm Schöps source's failure (2026-11-15).
-@testitem "optical_axis: a folding linear start is refitted inside the fold, never a silent rotation 0" begin
-    using Test
-    using StaticArrays: SMatrix, SVector
-    using LinearAlgebra: norm
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
-        estimate, metadata, converged
-    using VisualGeometryToolkitEstimation: optical_axis
-    c = SVector(512.0, 494.0); f = 600.0; r0 = 350.0
-    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(25.0) * ((r - r0) / (480 - r0))^3
-    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r);
+# The axis fit's order continuation (0.11.8). `optical_axis` fits the axis family at 1 radial term (its linear fit, then the
+# refine), then at 2, 3 and 4, each order's refine from the last's camera (the higher coefficients held at 0: `fixed`),
+# while a refine converges and its lens does not fold inside the region (`_folds_inside`); the result is the last such
+# order's (`family.fitted_terms`). The whole-order linear start and its refits inside the fold (`_axis_fold_refits`) are
+# the fallback when the 1-term fit itself fails. A low order does not follow a source's profile where it bends at the
+# region's edge, so its start does not fold there; a direct lift of the 1-term fit to 4 terms can end in a worse local
+# minimum (the slope-collapse fisheye below), the stepwise continuation does not.
+@testsetup module FoldingSources
+using StaticArrays: SMatrix, SVector
+using LinearAlgebra: norm
+using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
+    estimate, KannalaBrandt, parameter_vector, lens
+using VisualGeometryToolkitEstimation: refine_camera, fit_camera
+export AXIS_PIXEL, folding_source, axis_pixel, stepwise_kb
+const AXIS_PIXEL = SVector(512.0, 494.0)
+# a SplineLens source of the ray field θof(r) about AXIS_PIXEL (θ scaled by 1 + ε·Δx/480: an azimuthal misfit, as a real
+# lens's decentring), its K re-gauged to the principal point (500, 500), bounded by the disc of 478 px about the axis
+function folding_source(θof; ε = 0.0)
+    c = AXIS_PIXEL
+    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r) * (1 + ε * v[1] / 480);
               r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
     grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
     K0 = calibration_matrix(grid)
-    src = BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
-                        Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
+    return BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
+                         Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
+end
+axis_pixel(r) = (K = calibration_matrix(estimate(r)); SVector(K[1, 3], K[2, 3]))
+# the stepwise continuation by the public verbs on KannalaBrandt{1…4}: the reference the axis is compared with
+function stepwise_kb(src, region)
+    g = estimate(fit_camera(KannalaBrandt{1}, src, region)); r = nothing
+    for N in 1:4
+        k = Tuple(Float64.(parameter_vector(lens(g))))
+        guess = CameraModel(SMatrix{3, 3, Float64}(calibration_matrix(g)); lens = KannalaBrandt(ntuple(i -> i <= length(k) ? k[i] : 0.0, N)...))
+        r = refine_camera(guess, src, region); g = estimate(r)
+    end
+    return r
+end
+end
+
+# 0.11.6: a linear start that folds inside the region. The source images a pinhole (f = 600 px, its axis at (512, 494))
+# out to 350 px, and past it a ray field that turns away fast (25° more by 480 px): the axis family's 4-term linear fit
+# turns over (folds) at 64° while the region reaches 67°, and the refine from it sits with the axis unmoved — on the
+# re-gauged K (principal point (500, 500)) a silent 0° turn, the Sigma 14 mm Schöps source's failure (2026-11-15). Since
+# 0.11.8 the continuation fits it over the whole region, its 4-term lens folding inside it (so it keeps a lower order);
+# the fallback's refit inside the fold is kept and tested.
+@testitem "optical_axis: a folding linear start is refitted inside the fold, never a silent rotation 0" setup = [FoldingSources] begin
+    using Test
+    using StaticArrays: SVector
+    using LinearAlgebra: norm
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, metadata, converged
+    using VisualGeometryToolkitEstimation: optical_axis
+    import VisualGeometryToolkitEstimation as E
+    f = 600.0; r0 = 350.0
+    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(25.0) * ((r - r0) / (480 - r0))^3
+    src = folding_source(θof)
+    part = VgtkCore.imaged_region(src)
+    # the continuation: the whole region, the 1-term start not folding, the 4-term lens folding inside it (a lower order kept)
     r = optical_axis(src)
     md = metadata(r)
     @test converged(r)
-    # the start folded inside the region (its widest angle θ(478 px) ≈ 67°), and it is recorded (`md.family.θ_max` is the
-    # region the axis was finally fitted over, inside the fold)
-    @test md.family.start_fold isa Float64 && md.family.start_fold < θof(478.0) && md.family.θ_max < md.family.start_fold
-    @test md.region != VgtkCore.imaged_region(src)                                     # the axis was fitted inside the fold
-    @test norm(calibration_matrix(estimate(r))[1:2, 3] - c) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
-    # a start that does not fold records none
+    @test md.region == part
+    @test md.family.start_fold === nothing
+    @test md.family.fitted_terms < 4
+    @test norm(axis_pixel(r) - AXIS_PIXEL) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
+    # the fallback: the whole-order start folds inside the region (its widest angle θ(478 px) ≈ 67°), recorded, and the
+    # axis is refitted inside the fold
+    rf, fold, ok = E._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
+    @test ok && converged(rf)
+    @test fold isa Float64 && fold < θof(478.0) && metadata(rf).family.θ_max < fold
+    @test metadata(rf).region != part
+    @test norm(axis_pixel(rf) - AXIS_PIXEL) < 1.0
+    # a start that does not fold records none, and every order converges
     plain = optical_axis(BoundedCamera(CameraModel(SplineLens, CameraModel(; pp = (512.0, 494.0), focal = 600.0), Size2(1000, 1000); grid_size = (30, 30)),
                                        Size2(1000, 1000)))
-    @test metadata(plain).family.start_fold === nothing && converged(plain)
+    @test metadata(plain).family.start_fold === nothing && converged(plain) && metadata(plain).family.fitted_terms == 4
 end
 
 # A linear start that folds just PAST the region's widest angle. The source is the folding test's pinhole and rim turn
-# (19.5° by 480 px) with an azimuthal misfit (θ scaled by 1 + 0.02·Δx/480, no radially symmetric camera represents it, as
-# a real lens's decentring): the 4-term start folds at 62.67° while the region reaches 62.53°, and the refine stalls
-# beside the fold, the start never folding inside the region — RadiometricCamera's ag10fe start (an 8 mm fisheye's
-# Schöps source over the sensor ∩ its image circle ∩ his rectangle, its start folding 0.03° past the region's 96.36°),
-# refused by Estimation 0.11.6. Such a stall is refitted inside the fold as a folding start's is.
-@testitem "optical_axis: a start folding just past the region's widest angle — its stall refitted inside the fold, not refused" begin
+# (19.5° by 480 px) with an azimuthal misfit (θ scaled by 1 + 0.02·Δx/480): the 4-term start folds at 62.67° while the
+# region reaches 62.53° — RadiometricCamera's ag10fe start (an 8 mm fisheye's Schöps source over the sensor ∩ its image
+# circle ∩ his rectangle, its start folding 0.03° past the region's 96.36°). The refine from it stalls ~12 px off the
+# axis; under a termination that reads a tolerance stop converged (Core 0.11) it ends there converged, its lens folding
+# outside the region, and a whole-order fit would take it silently. The continuation lands on the stepwise
+# KannalaBrandt path's axis.
+@testitem "optical_axis: a start folding just past the region's widest angle — the continuation's axis, never the start's silent one" setup = [FoldingSources] begin
     using Test
-    using StaticArrays: SMatrix, SVector
     using LinearAlgebra: norm
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
-        estimate, metadata, converged, view_angle_limit, lens
+    using VisualGeometryToolkitCore: metadata, converged, view_angle_limit, lens
     using VisualGeometryToolkitEstimation: optical_axis
     import VisualGeometryToolkitEstimation as E
-    c = SVector(512.0, 494.0); f = 600.0; r0 = 350.0
+    f = 600.0; r0 = 350.0
     θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(19.5) * ((r - r0) / (480 - r0))^3
-    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r) * (1 + 0.02 * v[1] / 480);
-              r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
-    grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
-    K0 = calibration_matrix(grid)
-    src = BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
-                        Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
-    # the premise: the start folds past the region's widest angle, within the band a refit leaves out, and its refine stalls
+    src = folding_source(θof; ε = 0.02)
     part = VgtkCore.imaged_region(src)
+    # the premise: the 4-term start folds past the region's widest angle, within the band a refit leaves out, and its
+    # refine does not find the axis: it stalls (Core ≤ 0.10.11), or (a tolerance stop converged, Core 0.11) ends ~12 px off
+    # with its lens folding outside the region, where no fold gate sees it
     start = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, VgtkCore.model(src), part, :image, E._AXIS_FIXED,
                                    VgtkCore.default_device())
     plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
     θfold, θmax = Float64(view_angle_limit(lens(start))), metadata(plain).family.θ_max
     @test θmax < θfold < θmax / E._INSIDE_FOLD
-    @test !converged(plain)
-    # the axis: refitted inside the fold, converged, the start's fold not recorded (it does not fold inside the region)
+    @test !converged(plain) || (!E._folds_inside(plain) && norm(axis_pixel(plain) - AXIS_PIXEL) > 5.0)
+    # the axis: the continuation over the whole region, on the stepwise path's axis, ~2 px from (512, 494) (the misfit's bias)
     r = optical_axis(src)
     md = metadata(r)
     @test converged(r)
-    @test md.region != part
-    @test md.family.start_fold === nothing
-    @test norm(calibration_matrix(estimate(r))[1:2, 3] - c) < 2.0     # the axis pixel: (512, 494), not the gauge's (500, 500)
+    @test md.region == part
+    @test md.family.start_fold === nothing && md.family.fitted_terms == 4
+    @test norm(axis_pixel(r) - axis_pixel(stepwise_kb(src, part))) < 0.3
+    @test norm(axis_pixel(r) - AXIS_PIXEL) < 2.5
+end
+
+# A fisheye whose profile's slope collapses at the region's edge, as the ag10fe Schöps source's does (rc-convergence
+# optaxis/order, 2026-11-15): equidistant (f = 300 px) to 420 px, then θ grows by 0.2·((r − 420)/60)³ rad, so dr/dθ falls
+# to f/4 at the edge (103.5°). Lifting the 1-term fit straight to 4 terms converges ~1.8 px off the axis at a higher cost;
+# the stepwise continuation finds the axis.
+@testitem "optical_axis: a fisheye's slope collapsing at the edge — the stepwise continuation finds the axis a direct lift misses" setup = [FoldingSources] begin
+    using Test
+    using LinearAlgebra: norm
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: metadata, converged, rms
+    using VisualGeometryToolkitEstimation: optical_axis
+    import VisualGeometryToolkitEstimation as E
+    f = 300.0; r0 = 420.0
+    θof(r) = r <= r0 ? r / f : r / f + 0.2 * ((r - r0) / 60)^3
+    src = folding_source(θof)
+    part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
+    # the direct lift: the 1-term linear start, then the 4-term refine at once
+    s1 = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, m, part, :image, (E._AXIS_FIXED..., :k2, :k3, :k4),
+                                VgtkCore.default_device())
+    direct = E._refine_camera(s1, m, part; fixed = E._AXIS_FIXED)
+    @test norm(axis_pixel(direct) - AXIS_PIXEL) > 1.0
+    r = optical_axis(src)
+    md = metadata(r)
+    @test converged(r)
+    @test md.region == part && md.family.fitted_terms == 4
+    @test norm(axis_pixel(r) - AXIS_PIXEL) < 0.2
+    @test rms(r) < rms(direct)
 end

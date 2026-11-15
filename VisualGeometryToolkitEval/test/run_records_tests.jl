@@ -39,6 +39,24 @@
         @test_throws ArgumentError RR.run_key(Dict{String,Any}("w" => Inf))   # an unencodable value fails loudly
     end
 
+    @testset "run_key: an integer's spelling does not move it (hex, octal, binary: TOML's unsigned integers)" begin
+        hex = TOML.parse("[arm]\nransac_seed = 0x0b10b5eed\nmask = 0o17\nbits = [0b101, 7]\n")
+        dec = TOML.parse("[arm]\nransac_seed = 2970312429\nmask = 15\nbits = [5, 7.0]\n")
+        @test hex["arm"]["ransac_seed"] isa Unsigned                     # TOML's hex literal is unsigned
+        @test RR.run_key(hex) == RR.run_key(dec) == VgtkEval._content_key(dec)
+        @test VgtkEval._content_key(Dict{String,Any}("s" => UInt8(3))) == VgtkEval._content_key(Dict{String,Any}("s" => 3))
+        @test VgtkEval._content_key(Dict{String,Any}("b" => true)) != VgtkEval._content_key(Dict{String,Any}("b" => 1))   # a Bool stays a Bool
+        @test RR.run_key(hex) != RR.run_key(TOML.parse("[arm]\nransac_seed = 0x0b10b5eee\nmask = 0o17\nbits = [0b101, 7]\n"))
+        # an integer out of range is refused by its key path, never hashed to something
+        refusal(cfg) = try RR.run_key(cfg); nothing catch e; e end
+        e = refusal(TOML.parse("[arm]\nransac_seed = 0xffffffffffffffff\n"))
+        @test e isa ArgumentError && occursin("arm.ransac_seed", e.msg)
+        e = refusal(TOML.parse("[arm]\nbits = [1, 0x8000000000000000]\n"))
+        @test e isa ArgumentError && occursin("arm.bits[2]", e.msg)
+        e = refusal(Dict{String,Any}("big" => big(2)^70))
+        @test e isa ArgumentError && occursin("big", e.msg)
+    end
+
     @testset "load_run_config sanity" begin
         dir = mktempdir()
         good = joinpath(dir, "good.toml")

@@ -156,8 +156,9 @@ end
 # Extension
 # ------------------------------------------------------------------------------
 
-# The regions a lattice operation takes, in pixels: a rectangle, an ellipse, a circle, an intersection of them.
-const _LatticeRegion = Union{GeometryBasics.HyperRectangle{2}, Ellipse, Circle, RegionIntersection}
+# The regions a lattice operation takes, in pixels: a rectangle, an ellipse, a circle, a star polygon (the valid domain
+# of a lens that is not radially symmetric), an intersection of them. Each is read by its bounding box and membership.
+const _LatticeRegion = Union{GeometryBasics.HyperRectangle{2}, Ellipse, Circle, PolygonRegion, RegionIntersection}
 
 # The rounding slack of a region edge's cell coordinate: a quotient within it of an
 # integer is that integer (a region equal to the source's own area adds no ring).
@@ -174,8 +175,8 @@ _needed_cells(qlo, qhi) = (floor(Int, qlo - 2 + _CELL_TOL) + 1, ceil(Int, qhi + 
 The [`SplineLens`](@ref) camera's lattice extended outward on its own spacing, with the
 same origin and phase, until every node whose support meets `region` exists. `region`
 is a region in pixels of the camera's pixel frame: a `Rect` (the calibrated area of the
-lattice a resample targets), an `Ellipse`, a `Circle` or an intersection of them (a
-sensor ∩ its lens coverage). Its bounding box sets the nodes. A node's support here is open: the open rectangle
+lattice a resample targets), an `Ellipse`, a `Circle`, a `PolygonRegion` (a decentred
+source's valid domain) or an intersection of them (a sensor ∩ its lens coverage). Its bounding box sets the nodes. A node's support here is open: the open rectangle
 `node ± 2·spacing`, where its basis is nonzero. So a region equal to the source's
 calibrated area adds nothing. (A node's [`support`](@ref) for [`node_mask`](@ref) is the
 closed footprint, so a node touching the region only at its edge is free there but not
@@ -332,8 +333,8 @@ end
     folded_pixels(camera::Union{PosedCamera, BoundedCamera}, region; spacing, reference)
 
 Where the backward map pixel → direction of the [`SplineLens`](@ref) `camera` folds over
-`region` (a `Rect`, an `Ellipse`, a `Circle` or an intersection of them, in pixels of the
-camera's pixel frame). The check samples the pixels of `region` on a grid of `spacing`
+`region` (a `Rect`, an `Ellipse`, a `Circle`, a `PolygonRegion` or an intersection of them,
+in pixels of the camera's pixel frame). The check samples the pixels of `region` on a grid of `spacing`
 px, aligned to the corner of its bounding box. At each sample it forms the orientation
 `d · (∂d/∂u × ∂d/∂v)` ([`backproject_with_jacobian`](@ref)), the signed area the map's
 Jacobian spans on the sphere. Being chart-free, it holds for rays past 90°. A sample

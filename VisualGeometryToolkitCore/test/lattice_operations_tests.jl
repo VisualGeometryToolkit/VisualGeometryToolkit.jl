@@ -278,6 +278,42 @@ end
     end
 end
 
+@testitem "lattice operations: the extension does not fold" setup = [LatticeOps] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: extend_lattice, lattice_spacing, valid_domain, backproject_with_jacobian, Rect2, KannalaBrandt
+    using StaticArrays: SVector
+    using LinearAlgebra: dot, cross
+
+    # The backward map pixel → direction is locally injective where its orientation d · (∂d/∂u × ∂d/∂v) keeps one
+    # sign (chart-free, so rays past 90° count), over a dense sampling of the requested region, band and corners.
+    orientation(c, p) = ((d, M) = backproject_with_jacobian(c, p); dot(d, cross(M[:, 1], M[:, 2])))
+    grown(A, h, n) = Rect2(A.origin[1] - n * h[1], A.origin[2] - n * h[2], A.widths[1] + 2n * h[1], A.widths[2] + 2n * h[2])
+    function samples(r, n)
+        return [SVector(x, y) for x in range(r.origin[1] + 0.5, r.origin[1] + r.widths[1] - 0.5; length = n),
+                y in range(r.origin[2] + 0.5, r.origin[2] + r.widths[2] - 0.5; length = n)]
+    end
+    one_sign(c, pts) = (s = orientation.(Ref(c), pts); all(isfinite, s) && (all(>(0), s) || all(<(0), s)))
+
+    # a fisheye-like source: a Kannala–Brandt profile that folds at 90° (r = 250π/3 ≈ 262 px), its spline's domain a
+    # square whose corners reach r ≈ 255 px, on the strongly curved rim; extended by up to 6 cells (to 143°)
+    fish = VgtkCore.CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
+    for (half, g) in ((180, 15), (150, 13), (120, 10))
+        src = VgtkCore.CameraModel(VgtkCore.SplineLens, fish, VgtkCore.Size2(1280, 960); grid_size = (g, g),
+            calib_area = VgtkCore.Rect(640 - half, 480 - half, 2half, 2half), init = :quasi_interpolate)
+        @test one_sign(src, samples(valid_domain(src), 101))
+        for n in (1, 3, 6)
+            region = grown(valid_domain(src), lattice_spacing(src), n)
+            @test one_sign(extend_lattice(src, region).camera, samples(region, 161))
+        end
+    end
+    # the same lens on non-square cells, a rectangle off the centre, extended by 2.5 cells
+    src = VgtkCore.CameraModel(VgtkCore.SplineLens, fish, VgtkCore.Size2(1280, 960); grid_size = (15, 13),
+        calib_area = VgtkCore.Rect(420, 360, 400, 230), init = :quasi_interpolate)
+    @test lattice_spacing(src)[1] != lattice_spacing(src)[2]
+    region = grown(valid_domain(src), lattice_spacing(src), 2.5)
+    @test one_sign(src, samples(valid_domain(src), 101)) && one_sign(extend_lattice(src, region).camera, samples(region, 161))
+end
+
 @testitem "lattice operations: extend, then subdivide" setup = [LatticeOps] begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: extend_lattice, subdivide_lattice, valid_domain, lattice_spacing, Rect2, support, nodes

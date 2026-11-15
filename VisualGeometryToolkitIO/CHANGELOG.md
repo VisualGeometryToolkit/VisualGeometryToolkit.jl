@@ -1,5 +1,33 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.4
+
+A patch for VisualGeometryToolkitCore 0.10.10, whose `valid_domain` of a lens that is not radially symmetric is a star
+polygon (`PolygonRegion`): the region body reads and writes it. No kind's schema version moves: no kind's record holds
+a composite region (a camera's `lens_coverage` is the body restricted to its leaves, and a polygon is not one); a
+record of another package that embeds the region body (RadiometricCamera's initialization region) can now hold one.
+
+### Added
+
+- **The region body's `polygon` kind**, `{"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}`: a
+  `PolygonRegion`'s star centre and its vertex ring, counter-clockwise, in pixels of `units.pixel`, moved between
+  pixel conventions by Core's action of the pixel-frame map (as every region). Written by `JSON.lower(s, P)` and by
+  `JSON.lower(s, r, (; region = true))`, bare or as a part of a `RegionIntersection` (an imaged region
+  `Rect ∩ valid_domain`), and read back by `JSON.lift` into `PolygonRegion` or a `Union` holding it: the same region,
+  its membership identical. A polygon of fewer than 3 vertices, one that is not star-shaped about its centre, or an
+  unknown key in it is refused on read (`ArgumentError`), as an unknown region kind is. The JSON Schema's `region`
+  definition and the kinds guide list it.
+
+### Fixed
+
+- A bare `PolygonRegion` lowered with `(; region = true)` was written as JSON.jl's generic record of its fields (no
+  region tag, unreadable) and an imaged region holding one was a `MethodError`; both are the `polygon` record now.
+
+### Compat
+
+- VisualGeometryToolkitCore 0.10.10 (the `PolygonRegion` type and its pixel-frame action), in the package, test, docs
+  and benchmark environments.
+
 ## 0.10.3
 
 A patch: no API change, no schema change; no file is written differently, but where IO 0.10.2 returned the nearest

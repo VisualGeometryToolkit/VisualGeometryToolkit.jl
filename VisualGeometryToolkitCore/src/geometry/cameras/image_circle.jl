@@ -2,8 +2,8 @@
 # The valid domain of a lens model, and the image circle of a lens
 # =============================================================================
 #
-# Two different regions of the sensor, both an `Ellipse` (or the whole plane)
-# in the camera's pixel frame:
+# Two different regions of the sensor in the camera's pixel frame (an `Ellipse`,
+# a star `PolygonRegion` or the whole plane):
 #
 # - `valid_domain(camera)`: where the lens MODEL is valid — the image of the
 #   cone its radial profile stays finite and strictly increasing on, up to its
@@ -22,7 +22,7 @@
 # region-specific lives here.
 
 """
-    valid_domain(camera) -> Union{Ellipse{Float64}, WholePlane}
+    valid_domain(camera) -> Union{Ellipse{Float64}, PolygonRegion, WholePlane}
 
 Where the camera's lens MODEL is valid, in pixels in the camera's own pixel
 frame (the frame of its calibration matrix `K`): the image of the cone of view
@@ -39,11 +39,16 @@ the sensor is dark. Where light falls is the lens's
 [`image_circle`](@ref)`(camera, sensor, diameter)` from its datasheet, or a
 measured circle; a bounded camera holds either as its [`lens_coverage`](@ref).
 
-For a lens that is not radially symmetric — a composed distortion (`∘`) with
-a tilt stage, tangential or thin-prism terms — `ρ` is the smallest image radius of the
-`θ_max` cone over the azimuths (360 samples, the least refined by golden
-section) less a relative margin of 10⁻⁹, so the ellipse is INSCRIBED: every
-point inside it is the image of a ray inside the cone.
+For a lens that is not radially symmetric — a composed distortion (`∘`) with a tilt stage, tangential or thin-prism
+terms (Brown–Conrady, OpenCV), or a lens type without the [`RadialSymmetry`](@ref) trait — the fold radius depends on
+the azimuth, and the domain is a [`PolygonRegion`](@ref VisualGeometryToolkitCore.Primitives.PolygonRegion): the star
+polygon about the distortion centre (the image of the optical axis) through each azimuth's OWN fold. On each of 720
+ray azimuths the image radius `|project(lens, ray(θ, ψ))|` is followed out in `θ` to where it first stops being finite
+and strictly increasing (refined past the 1024-sample scan), and that point goes through `K`. The polygon never claims
+past a fold: each vertex is pulled in by a relative 10⁻⁹ and by a bound on how far the fold curve can bulge inward of
+the chord between neighbours; its chords lie within `R·(1 − cos(π/720)) ≈ R·10⁻⁵` of the curve (0.012 px at a fold
+radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
+the pixels between it and their own azimuth's fold.
 
 The [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane) when the
 lens has no limit of its own: `view_angle_limit` reports only the edge it stops
@@ -72,8 +77,13 @@ Rect(extent(cam)) ∈ v                       # is the model valid over the whol
 ```
 """
 function valid_domain(camera::CameraModel)
-    ρ = _valid_domain_radius(lens(camera))
-    return ρ === nothing ? WholePlane() : _pixel_disc(camera, ρ)
+    l = lens(camera)
+    _own_view_angle_limit(l, Float64(view_angle_limit(l))) || return WholePlane()   # the edge is a cap
+    # A radially symmetric lens folds at one radius: the disc of it, exact, through K. Any other lens (decentring
+    # terms, a tilt stage, a lens type without the trait: `RadialSymmetry` fails closed) folds at a radius that depends
+    # on the azimuth: the star polygon through each azimuth's own fold. The trait is a type, so the branch is resolved
+    # at compile time.
+    return RadialSymmetry(l) isa RadiallySymmetric ? _pixel_disc(camera, _valid_domain_radius(l)) : _fold_polygon(camera)
 end
 valid_domain(c::Union{PosedCamera, BoundedCamera}) = valid_domain(model(c))
 
@@ -126,8 +136,9 @@ end
 
 # The lens model's valid domain as a normalized radius ρ (the radius of the disc
 # the θ_max cone images, inscribed), or `nothing` when the lens has no limit of
-# its own. The one owner of that radius: `valid_domain` and the spline lattice's
-# node sampler (spline_lens.jl) read it here.
+# its own. The one owner of that radius: `valid_domain` (a radially symmetric
+# lens, where it is exact) and the spline lattice's node sampler (spline_lens.jl)
+# read it here.
 function _valid_domain_radius(l::AbstractLensModel)
     θ = Float64(view_angle_limit(l))
     _own_view_angle_limit(l, θ) || return nothing   # the edge is a cap: no limit of its own
@@ -195,6 +206,66 @@ limit (`∩` returns it). The pixel mask of any residual is
 [`free_nodes`](@ref)`(model, imaged_region(camera))`.
 """
 imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(bc)) ∩ valid_domain(model(bc))
+
+# The azimuths the valid domain's polygon samples. Its edges are chords of the fold curve between neighbours 2π/720 =
+# 0.5° apart, so the chord's sag below the curve is at most R·(1 − cos(π/720)) ≈ R·9.5·10⁻⁶: 0.012 px at a fold radius
+# of R = 1300 px (a wide fisheye at fx ≈ 1000), 0.03 px at 3000 px — far below a pixel. 720 sector folds cost about
+# 10 ms (one 1024-sample scan and a refinement each).
+const _FOLD_AZIMUTHS = 720
+
+# The valid domain of a lens that is not radially symmetric: the star polygon about the distortion centre (the image
+# of the optical axis) through each ray azimuth's own fold (`_azimuth_fold`), in the camera's pixels. In the
+# normalized plane each fold point is pulled toward the centre by the relative margin 10⁻⁹ of the radius (what the
+# refinement leaves, as for the disc) and by `dip`, a bound on how far the fold curve can bulge INWARD of the chord
+# between two samples: in polar coordinates (φ, R(φ)) about the centre, a curve through two samples h apart lies within
+# h²/8 · max|R''| of the interpolant through them, and a chord curves away from the centre (it only gains margin from
+# its own curvature), so the polygon never claims a point past the fold. R'' is the polygon's own second difference at
+# its non-uniform spacing, doubled as a safety factor (the fold curve of a polynomial distortion is a low harmonic of the
+# azimuth, so its second derivative varies little over the 1.5° stencil). The vertices then go through K (affine: the
+# polygon of the mapped vertices is the mapped polygon). The polygon is star-shaped about the centre when the fold curve
+# is (each image direction from the centre meets it once); one that is not is refused by `PolygonRegion`.
+function _fold_polygon(camera::CameraModel)
+    l = lens(camera)
+    edge = _view_angle_edge(l)
+    c = SVector{2, Float64}(project(l, SVector(0.0, 0.0, 1.0)))
+    ψs = range(0, 2π; length = _FOLD_AZIMUTHS + 1)[1:_FOLD_AZIMUTHS]
+    d = [_azimuth_fold(l, ψ, edge) - c for ψ in ψs]
+    n = length(d)
+    R = norm.(d)
+    φ = [atan(v[2], v[1]) for v in d]
+    h(i) = mod(φ[mod1(i + 1, n)] - φ[i], 2π)                         # the sector from sample i to i + 1
+    D2(i) = (hm = h(mod1(i - 1, n)); hp = h(i);
+        2 * ((R[mod1(i + 1, n)] - R[i]) / hp - (R[i] - R[mod1(i - 1, n)]) / hm) / (hp + hm))
+    dip = 2 * maximum(i -> abs(D2(i)), 1:n) * maximum(h, 1:n)^2 / 8
+    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
+    pixel(x) = SVector(K[1, 1] * x[1] + K[1, 2] * x[2] + K[1, 3], K[2, 1] * x[1] + K[2, 2] * x[2] + K[2, 3])
+    vertices = [pixel(c + (R[i] * (1 - 1.0e-9) - dip) / R[i] * d[i]) for i in 1:n]
+    return PolygonRegion(vertices, pixel(c))
+end
+
+# The fold of the lens along the ray azimuth ψ, as a normalized image point: where the image radius
+# `|project(lens, ray(θ, ψ))|` first stops being finite and strictly increasing in the view angle θ — the radial map's
+# first fold on that azimuth, past which it is no longer invertible. The one monotonicity scan (`_last_increasing`,
+# 1024 samples to `edge`), then the bracket refined: a fold by Brent's method on the radius about the last increasing
+# sample (`grid_brent_minimum`), an onset of unimaged rays bisected (`_last_imaged`); `edge` itself when the radius never
+# stops increasing. An `ArgumentError` when the lens images no ray on the azimuth.
+function _azimuth_fold(l::AbstractLensModel, ψ::Real, edge::Real)
+    sψ, cψ = sincos(Float64(ψ))
+    point(θ) = SVector{2, Float64}(project(l, SVector(sin(θ) * cψ, sin(θ) * sψ, cos(θ))))
+    radius(θ) = (p = point(θ); all(isfinite, p) ? norm(p) : -Inf)
+    θs = range(1.0e-4, Float64(edge); length = 1024)
+    k = _last_increasing(radius, θs)
+    k == 0 && throw(
+        ArgumentError("valid_domain: the lens $(nameof(typeof(l))) images no ray on the azimuth ψ = $(ψ); its project is not finite near the axis")
+    )
+    k == length(θs) && return point(θs[k])
+    θ = if isfinite(radius(θs[k + 1]))
+        grid_brent_minimum(θ -> -radius(θ), range(θs[max(k - 1, 1)], θs[k + 1]; length = 3)).x
+    else
+        _last_imaged(θ -> isfinite(radius(θ)), θs[k], θs[k + 1])
+    end
+    return point(θ)
+end
 
 # An ellipse in an ellipse: the largest value of `b`'s quadratic form `(p − c)ᵀ M⁻¹ (p − c)` over `a`'s boundary is at
 # most 1 (with a relative slack of 8 eps for the form's rounding). The boundary is `a`'s centre plus its shape factor

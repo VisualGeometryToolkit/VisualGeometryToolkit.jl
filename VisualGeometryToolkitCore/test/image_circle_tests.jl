@@ -8,7 +8,7 @@
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: view_angle_limit, projected_radius, Pinhole, KannalaBrandt, Division,
-        RegionIntersection, WholePlane, AbstractLensModel, boundary_point
+        RegionIntersection, WholePlane, PolygonRegion, AbstractLensModel, boundary_point
     using FlexUnits: DimensionError
     using StaticArrays
 
@@ -75,10 +75,12 @@
             @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, l)) === WholePlane()
         end
         @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, MonotoneLens())) === WholePlane()
-        # a limit of its own (a fold: perspective, a division lift, Kannala–Brandt, a user lens): a conic
-        for l in (Lens(Perspective(), Radial((-0.2,))), Division(-0.3, 0.05), KannalaBrandt(-0.1), FoldingLens())
+        # a limit of its own (a fold: perspective, a division lift, Kannala–Brandt): a conic; a user lens without
+        # the RadialSymmetry trait (it fails closed): the star polygon through each azimuth's fold
+        for l in (Lens(Perspective(), Radial((-0.2,))), Division(-0.3, 0.05), KannalaBrandt(-0.1))
             @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, l)) isa Ellipse
         end
+        @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, FoldingLens())) isa PolygonRegion
         # the double sphere's fold is its own limit even where it reaches past
         # the sphere's edge π − 10⁻³: ξ = 1, α = ½ images all but the backward
         # axis, its rim the disc of normalized radius 2
@@ -88,31 +90,33 @@
         @test qd isa Ellipse
         @test qd.a ≈ 800 * 2 rtol = 1.0e-5
         qu = valid_domain(mk(800.0, 800.0, 640.0, 480.0, FoldingLens()))
-        @test qu.a ≈ 800 * sqrt(10 / 3) * (2 / 3) rtol = 1.0e-3   # the scan's fold, to its grid
+        @test qu.inner ≈ 800 * sqrt(10 / 3) * (2 / 3) rtol = 1.0e-5   # the fold, refined past the scan's grid
+        @test qu.outer ≈ 800 * sqrt(10 / 3) * (2 / 3) rtol = 1.0e-5
         # the whole plane restricts nothing
         r = Rect(0, 0, 1280, 960)
         @test (r ∩ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Pinhole()))) === r
         @test r ∈ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Pinhole()))
     end
 
-    @testset "not radially symmetric: strictly inscribed" begin
-        rim_min(c, q, n) = (l = lens(c); θ = view_angle_limit(l);
-            minimum(ψ -> hypot((project(c, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))) .- centroid(q))...), range(0, 2π; length = n)))
+    @testset "not radially symmetric: the star polygon through each azimuth's fold" begin
+        # (the per-azimuth claims, membership and containment: valid_domain_polygon_tests.jl)
         for l in (
                 Lens(Equidistant(), (Radial((-0.05,)) ∘ Tilt(0.05, 0.02))),          # the review's case
                 Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-3, -5.0e-4))),
             )
             c = mk(800.0, 800.0, 640.0, 480.0, l)
             q = valid_domain(c)
-            @test q.a ≈ q.b rtol = 1.0e-12
-            m = rim_min(c, q, 20001)
-            @test m >= q.a                                  # every point inside is imaged
-            @test m ≈ q.a rtol = 1.0e-7
+            @test q isa PolygonRegion
+            @test q.centre ≈ SVector(640.0, 480.0) atol = 1.0e-9   # about the distortion centre, the principal point here
+            # it contains the disc the rule inscribed before (the θ_max cone's smallest rim radius), to the
+            # sampling tolerance: each azimuth's own fold lies at or beyond that cone's rim
+            θ = view_angle_limit(l)
+            rim = minimum(ψ -> hypot((project(c, SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))) .- (640.0, 480.0))...), range(0, 2π; length = 20001))
+            @test q.inner >= rim * (1 - 1.0e-4)
         end
-        # the review's pin: q.a below 1286.438031 px, the rim's minimum over 20001 azimuths
+        # the review's pin: the inscribed disc's radius was 1286.438031 px, the rim's minimum over 20001 azimuths
         qt = valid_domain(mk(800.0, 800.0, 640.0, 480.0, Lens(Equidistant(), (Radial((-0.05,)) ∘ Tilt(0.05, 0.02)))))
-        @test qt.a < 1286.438031
-        @test qt.a ≈ 1286.438031 rtol = 1.0e-7
+        @test qt.inner >= 1286.438031 * (1 - 1.0e-4)
     end
 
     @testset "the datasheet route, through the pitch" begin

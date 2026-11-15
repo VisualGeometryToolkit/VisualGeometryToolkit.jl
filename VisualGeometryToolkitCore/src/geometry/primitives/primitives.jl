@@ -196,7 +196,7 @@ export homogeneous_w, maps_within
 export best_iou_match
 public iou_below
 export is_ellipse, classify_conic, gradient
-export RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, lazily, and the identity of ∩ (regions.jl)
+export RegionIntersection, WholePlane, PolygonRegion   # `a ∩ b` of two 2-D regions, lazily, the identity of ∩, a star polygon (regions.jl)
 
 # -----------------------------------------------------------------------------
 # 2. FEATURE FRAMES - Blob primitives with increasing DOF

@@ -164,7 +164,10 @@ proper for an anisotropic `K` or pitch), so the region algebra treats them
 alike.
 
 - For a lens that is not radially symmetric (a composed distortion with a tilt
-  stage, or tangential terms) the valid domain is an inscribed bound.
+  stage, tangential or thin-prism terms) the fold radius depends on the
+  azimuth, and the valid domain is a
+  [`PolygonRegion`](@ref VisualGeometryToolkitCore.Primitives.PolygonRegion):
+  the star polygon through each azimuth's own fold, in the same region algebra.
 - A lens with no limit of its own (a perspective lens, an undistorted
   equidistant lens: `view_angle_limit` reports only its chart's or the
   sphere's edge, a cap) has the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)

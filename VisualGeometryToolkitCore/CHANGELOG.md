@@ -2,10 +2,36 @@
 
 ## 0.10.10 (unreleased)
 
-A patch: one answer that was wrong. A `SplineLens` projection without a forward spline lost fisheye rays about 55° off
-axis.
+A patch: two answers that were wrong. A `SplineLens` projection without a forward spline lost fisheye rays about 55° off
+axis, and the valid domain of a decentred lens stopped at its smallest fold.
+
+### Added
+- **`PolygonRegion(vertices, centre)`** (public, `VisualGeometryToolkitCore.PolygonRegion`): a region bounded by a
+  simple polygon star-shaped about `centre`, a thin wrapper of a GeometryBasics `Polygon` in the region interface —
+  `p ∈ s` (Core's one crossing-number test, skipped inside the inscribed and outside the circumscribed disc about the
+  centre), `Rect2(s)`, `∩` with a `Rect`, an `Ellipse`, a `Circle`, an intersection or the `WholePlane`, exact `⊆` of
+  a `Rect`, an `Ellipse` or another polygon into it (and of it into a `Rect` or an `Ellipse`), `Rect ∈ s`,
+  `intersects(s, rect)`, `pixel_mask`, `farthest_radius`, `dilate` about the centre, a `view_overlap` footprint.
+  A ring that is not star-shaped about its centre is an `ArgumentError`. `RegionIntersection` now compares by value
+  (`==`, `hash`), so two calls of `imaged_region` on one camera are equal.
 
 ### Fixed
+- **`valid_domain` of a lens that is not radially symmetric reaches each azimuth's own fold.** For a lens with
+  tangential or thin-prism terms (Brown–Conrady, OpenCV), a tilt stage, or a type without the `RadialSymmetry`
+  trait, the fold radius depends on the azimuth; `valid_domain` returned the disc (through `K`, an ellipse) at the
+  SMALLEST image radius of the `θ_max` cone over the azimuths, so pixels between it and their own azimuth's fold —
+  imaged injectively by the model — were outside the domain and outside `imaged_region`. On RadiometricCamera's
+  fisheye 10 cm chrome set that excluded 714 dots for BC5 and 31 for OCV14. It is now a `PolygonRegion`: the star
+  polygon about the distortion centre through each of 720 ray azimuths' first fold of `|project(lens, ray(θ, ψ))|`
+  (refined past the 1024-sample scan: Brent's method on a fold, bisection on an onset of unimaged rays), each vertex
+  pulled in by a relative 10⁻⁹ and by a bound on the fold curve's inward bulge between samples, so it never claims
+  past a fold; the chords lie within `R·10⁻⁵` of the curve (0.012 px at R = 1300 px). A radially symmetric lens keeps
+  its exact disc, bit for bit. The generic `view_angle_limit` scan and the imaging-onset bisection are factored
+  (`_last_increasing`, `_last_imaged`) so the valid domain's azimuth scan reuses them; their answers are unchanged.
+  Return type: `valid_domain(camera)` is now `Union{Ellipse{Float64}, PolygonRegion, WholePlane}`. Code that read an
+  asymmetric lens's domain as an `Ellipse` (`q.a`, `shape_matrix(q)`) reads `q.inner`/`q.outer` or uses the region
+  interface. The polygon is derived from the model, never serialized: a lens coverage stays a `Rect2`, `Circle` or
+  `Ellipse`, and VisualGeometryToolkitIO's camera round trip is unchanged.
 - **A `SplineLens` projection's cold start is the backward area's centre, not the ray's pinhole point.** `project`'s
   LM (scalar, batched without a finite seed, and `NoncentralSplineModel`'s two-argument form) started at
   `(X₁/X₃, X₂/X₃)` where the lens images it. For a fisheye ray about 55° off axis that point lies at `tan θ`, past the

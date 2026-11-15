@@ -22,8 +22,8 @@
 #                            the source's rays by penalized linear least squares,
 #                            its lattice spacing bisected to the largest one whose
 #                            held-out maximum error meets `tolerance` (a SplineLens
-#                            source's backward is kept as it is, unless a `grid_size`
-#                            other than its own resamples it); then its forward
+#                            source is resampled exactly: its lattice extended over
+#                            the region and subdivided, `lattice_spacing`); then its forward
 #                            spline (ray → x), a ChartSpline on the equidistant
 #                            direction chart about ẑ, fitted to the
 #                            camera's own rays by the same solve and the same
@@ -95,13 +95,19 @@ The family records:
 - `SplineLens`: `(; λ, grid_size, stride, outer_iterations,
   n_held_out_dropped, extrapolated_fraction, tolerance, forward)`, `forward` being `(; spacing, counts, λ,
   outer_iterations, max_px, max_px_edge, rms)` or `nothing` —
-  the backward lattice's P-spline weight `λ` (`nothing` for a SplineLens
-  source's kept backward), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
-  pixels, the spacing search's fits (0 for a given or kept lattice), the
-  held-out pixels dropped (below), the share of the image's area (the full-image
-  lattice's) where the fit has no source ray — outside the region, or where the
-  source images none — so the penalty alone holds the lattice there
-  (`extrapolated_fraction`; `nothing` for a kept backward, which fits nothing), and the tolerance asked for; then the forward
+  the backward lattice's P-spline weight `λ` (`nothing` for a resampled
+  SplineLens source), its `(columns, rows)` (Core's `grid_size`), the quadrature's stride in
+  pixels, the spacing search's fits (0 for a given or resampled lattice), the
+  held-out pixels dropped (below), the share where the backward has no source
+  ray (`extrapolated_fraction`: of the image's area, the full-image lattice's,
+  for a fitted lattice — outside the region, or where the source images none, held by
+  the penalty alone; of the region's pixels for a resampled SplineLens source — 0
+  inside its domain), and the tolerance asked for. A resampled SplineLens source adds
+  `subdivision` (the integers `(m_x, m_y)`), `lattice_spacing` (the resulting cell,
+  px), `extension_offset` (Core's `extend_lattice` offset: the source's first node in
+  the extended lattice), `extrapolated` (the resulting lattice's nodes Core
+  continued, a `BitMatrix` `[row, column]`) and `folds` (Core's `folded_pixels`
+  report over the region, as given; reported, never acted on). Then the forward
   spline's knot spacing `h` (radians in the chart), its control counts per chart
   axis, its `λ`, its search's fits and its held-out round trip
   `‖K·forward(chart(ray)) − u‖` in pixels (maximum, edge-band maximum, rms) —
@@ -221,7 +227,7 @@ over the region. The target type selects the family and the solve:
     (`KannalaBrandt{4}`). A non-central source (`NoncentralSplineModel`) is an
     `ArgumentError`: not supported yet.
 - **`SplineLens`** (`fit_camera(SplineLens, source, region; tolerance,
-  grid_size = nothing, forward = true, device = default_device())`): a `CameraModel` with a
+  grid_size = nothing, lattice_spacing = nothing, forward = true, device = default_device())`): a `CameraModel` with a
   VisualGeometryToolkitCore `SplineLens`, its `K` the source's own (skew 0).
   Its BACKWARD spline is Core's full-image lattice on the source's image
   (`spline_lattice`; the source is not sampled: the solve sets every control),
@@ -236,23 +242,25 @@ over the region. The target type selects the family and the solve:
   returns `retcode_symbol` `:max_iterations` with what it reached. The region restricts
   the quadrature only, never the lattice: a node whose support misses it is
   held by the penalty. The tolerance bounds the held-out DIRECTION error in
-  pixels, the non-central target's metric (below). A gauge-`K` source (a
-  SplineLens camera) is first turned onto its optical axis, ALWAYS: its K's
-  principal point moves to the axis's pixel, every ray turns by the
-  [`optical_axis`](@ref) rotation (an [`approximate_camera`](@ref); Core's `axis_gauged`, exact; the
-  metadata's `rotation`, its `symmetry_residual`), and its backward and forward
-  are fitted there. A SplineLens source's backward is then kept exactly (its
-  turned controls `==`) when `grid_size` is `nothing` or its own lattice's (its
-  counts AND its area: Core's full-image layout of those counts), and
-  only the forward is fitted; a `grid_size` other than its own RESAMPLES it: the
-  backward is fitted on Core's full-image lattice of `grid_size` to the turned
-  source's rays over the region by the same penalized solve ([`pspline_grid`](@ref)'s;
-  its K the turned source's, so its principal point is the axis's pixel), `:converged`
-  when its held-out maximum meets `tolerance`, else `:max_iterations`. Its fidelity
-  to the source is the result's held-out direction error against the source's
-  rays (`max_px`, `max_px_edge`, `rms`; over the region where the source images
-  rays), and `extrapolated_fraction` the share of the image's area the penalty holds
-  alone. A physical source's lattice takes its own K and ẑ, already the axis.
+  pixels, the non-central target's metric (below). A physical source's lattice
+  takes its own K and ẑ, already the axis.
+  A SPLINELENS SOURCE is resampled EXACTLY, never refitted (`lattice_spacing =
+  nothing`, px, a number or `(sx, sy)`): its lattice extended on its own spacing
+  until every node whose support meets `region` exists (Core's `extend_lattice`:
+  its nodes bit for bit, the new ones by Core's bending-energy continuation,
+  marked), subdivided by the integers whose cell is nearest `lattice_spacing`
+  (near ties toward square cells; `nothing` keeps the source's spacing) by Core's
+  exact knot insertion (`subdivide_lattice`), and turned onto the source's optical
+  axis: [`optical_axis`](@ref) of the source over its own bound (an
+  [`approximate_camera`](@ref); refused when it does not converge), Core's exact
+  `axis_gauged` — K's principal point at the axis's pixel, every ray turned (the
+  metadata's `rotation`, its `symmetry_residual`). Inside the source's domain the
+  backward is the source's function to rounding; its held-out error against the
+  turned source's rays (`max_px`, `max_px_edge`, `rms`, where the source images a
+  ray) states it. `region` may exceed the source's valid domain (no
+  `RegionBeyondSupport`; `valid_domain` of the result holds it). A `grid_size` with
+  a SplineLens source is an `ArgumentError` naming `lattice_spacing`, and a
+  `lattice_spacing` with any other source is one too.
   Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
   equidistant direction chart about ẑ to `x`, fitted to the
   camera's own rays over the region by the same penalized solve and the same
@@ -1270,8 +1278,8 @@ function fit_camera(
     lattice_spacing === nothing || throw(ArgumentError(
         "fit_camera(SplineLens, …): `lattice_spacing` resamples a SplineLens source; a $(nameof(typeof(model(source)))) source's lattice is fitted (`grid_size`, or the spacing search to `tolerance`)"))
     VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
-    # the source on its optical axis first (a gauge K; a physical K is its own axis), then the backward in that frame:
-    # kept, or the lattice of `grid_size` fitted to the turned source's rays
+    # the source on its optical axis (a physical K is its own axis), then the lattice of `grid_size` (or the spacing
+    # search's) fitted to its rays
     gauge = _source_axis_gauge(model(source), source, region, grid_size, tolerance, device)
     back, code, family = _spline_backward(gauge.camera, VgtkCore.with_model(source, gauge.camera), region, grid_size, tolerance, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the axis's on a tie (as before 0.11.6)
@@ -1311,7 +1319,7 @@ function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, src, source::BoundedCam
     K = calibration_matrix(estimate(r))
     R = metadata(r).rotation
     camera = VgtkCore.axis_gauged(cam, rotation(R), K)
-    return (; camera, rotation = R, metadata(r).symmetry_residual, code = (retcode(r), stop_rule(r)))
+    return (; camera, rotation = R, K, metadata(r).symmetry_residual, code = (retcode(r), stop_rule(r)))
 end
 
 # Any other source has no image for the lattice — a bare camera model as well (it
@@ -1445,11 +1453,11 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
     ext = VgtkCore.extend_lattice(src, region)
     factors = lattice_spacing === nothing ? (1, 1) : _resample_factors(VgtkCore.lattice_spacing(ext.camera), lattice_spacing)
     sub = factors == (1, 1) ? (; ext.camera, ext.extrapolated) : VgtkCore.subdivide_lattice(ext.camera, factors; extrapolated = ext.extrapolated)
-    # the optical axis of the SOURCE over its own bound (never the extrapolated band); refused when it does not converge
-    axis = optical_axis(VgtkCore.with_model(source, src); device)
-    K = calibration_matrix(estimate(axis)); R = metadata(axis).rotation
-    cam = VgtkCore.axis_gauged(sub.camera, rotation(R), K)
-    turned = VgtkCore.axis_gauged(src, rotation(R), K)
+    # the optical axis of the SOURCE over its own bound (never the extrapolated band; refused when it does not
+    # converge), the resampled lattice turned by the same rotation and K
+    axis = _axis_gauge(VgtkCore.Cameras.GaugeIntrinsics(), src, source, device)
+    turned = axis.camera
+    cam = VgtkCore.axis_gauged(sub.camera, rotation(axis.rotation), axis.K)
     # the fidelity: the held-out f·angle against the turned source's rays, where the source images one
     q = _image_quadrature(turned, region; device)
     held = _held_out(SplineLens, turned, q, cam.intrinsics, device)
@@ -1458,7 +1466,7 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
     # camera (defined there) against the source's
     all_px = _image_quadrature(cam, region; device)
     fraction = clamp(1 - length(q.fit_px) / length(all_px.fit_px), 0.0, 1.0)
-    code = (retcode(axis), stop_rule(axis))
+    code = axis.code
     fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
     fwd === nothing || (code = worst_retcode(code, fwd.code))
     out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
@@ -1470,7 +1478,7 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
               extrapolated = sub.extrapolated, extrapolated_fraction = fraction, folds = ext.folds,
               stride = q.stride, outer_iterations = 0, n_held_out_dropped = 0, tolerance = Float64(tolerance), forward = ff)
     return FitResult(out, code..., 0, errors.rms, length(q.fit_px),
-                     CameraFitMetadata(region, :image, errors.max, errors.max_edge, family, R, metadata(axis).symmetry_residual, errors.values))
+                     CameraFitMetadata(region, :image, errors.max, errors.max_edge, family, axis.rotation, axis.symmetry_residual, errors.values))
 end
 
 # The subdivision factors `(m_x, m_y)` whose cells come closest to the target spacing `s` (a number, or `(s_x, s_y)`)

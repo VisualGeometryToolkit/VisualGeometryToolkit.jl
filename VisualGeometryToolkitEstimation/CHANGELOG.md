@@ -2,9 +2,10 @@
 
 ## 0.11.6
 
-A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source onto another lattice. Every SplineLens result's
-family record gains `extrapolated_fraction`; no other result changes beyond rounding (a kept backward's held-out errors
-are now taken in the turned frame).
+A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source exactly, on Core 0.10.8's lattice operations, over
+any region. A SplineLens result's family record gains `extrapolated_fraction` (and, for a SplineLens source, the
+resample's record); no other result changes beyond rounding (a kept backward's held-out errors are now taken in the
+turned frame).
 
 ### Added
 
@@ -14,19 +15,24 @@ are now taken in the turned frame).
   SplineLens camera projected by inverting its backward spline, its forward dropped, Core's implicit-function
   derivatives). A candidate update that leaves a prediction undefined costs +Inf and is rejected by the LM, never clamped.
   The dots that do not project at the bearing estimate make no row: `without_projection` (metadata and result).
-- **A SplineLens source resampled by `grid_size`.** `fit_camera(SplineLens, source::BoundedCamera, region; grid_size,
-  tolerance, forward)` with a SplineLens camera source and a `grid_size` other than its own lattice's — its counts
-  and its area: a lattice of the same counts over another calibrated area than the full image is resampled too (it was an
-  `ArgumentError`) turns the source onto its optical axis first, always (`optical_axis`, Core's `axis_gauged`: K's
-  principal point at the axis's pixel, the metadata's `rotation` and `symmetry_residual`), then fits its backward on
-  Core's full-image lattice of `grid_size` to the turned source's rays over the region by the same penalized solve
-  as `pspline_grid` (the region restricts the quadrature; nodes whose support misses it are held by the penalty),
-  then the forward per `forward`. `:converged` when the held-out direction error meets `tolerance`. `grid_size =
-  nothing` or the source's own lattice keeps its backward exactly, as before.
-- **`extrapolated_fraction`** in the SplineLens target's family record: the share of the image's area (the full-image
-  lattice's) where the fit has no source ray — outside the region, or where the source images none — so the penalty
-  alone holds the lattice there. With the held-out direction error against the source (`max_px`, `max_px_edge`,
-  `rms`), it states a resample's fidelity to its source. A kept backward fits nothing: its `extrapolated_fraction` is `nothing`.
+- **A SplineLens source resampled exactly: `fit_camera(SplineLens, source::BoundedCamera, region; lattice_spacing,
+  tolerance, forward)`.** With a SplineLens camera source: its lattice extended on its own spacing until every node
+  whose support meets `region` exists (Core's `extend_lattice`: the source's nodes bit for bit, the new ones by Core's
+  bending-energy continuation and marked), subdivided by the integers `(m_x, m_y)` whose cell is nearest the target
+  `lattice_spacing` (px, a number or `(sx, sy)`; near ties toward square cells; `nothing`, the source's own spacing:
+  1 × 1) by Core's exact knot insertion (`subdivide_lattice`), then turned onto the source's optical axis
+  (`optical_axis`, Core's `axis_gauged`), then the forward per `forward`. Inside the source's domain the result is the
+  source's function to rounding (≤ 1e-9 rad). `region` may exceed the source's valid domain (no `RegionBeyondSupport`
+  for a SplineLens source); the result's `valid_domain` holds it. The family record states the resample: `subdivision`,
+  `lattice_spacing` (the resulting cell, px), `extension_offset`, `extrapolated` (the resulting lattice's marked nodes),
+  `extrapolated_fraction` and `folds` (Core's `folded_pixels` report over the region, as given: reported only, the
+  retcode and the result unchanged by it). A parametric source takes no `lattice_spacing` (an `ArgumentError`): its
+  lattice is fitted, `grid_size` or the spacing search, as before.
+- **`extrapolated_fraction`** in the SplineLens target's family record. A fitted lattice: the share of the image's area
+  where the fit has no source ray (outside the region, or where the source images none), held by the penalty alone. A
+  resampled SplineLens source: the share of the region's pixels where the source images no ray (0 inside its domain).
+  With the held-out direction error against the source (`max_px`, `max_px_edge`, `rms`), it states the result's
+  fidelity to its source.
 
 ### Fixed
 
@@ -50,7 +56,16 @@ are now taken in the turned frame).
 
 ### Changed
 
-- Core compat floor `"0.10.7"` (package, test and docs environments; the latest-only floor rule).
+- **A `grid_size` with a SplineLens source is an `ArgumentError` naming `lattice_spacing`.** A SplineLens source is
+  resampled exactly, and its lattice has `m (n − 3) + 3` nodes per axis, which no given count chooses: give the target
+  cell, `lattice_spacing`. (0.11.5 refused a `grid_size` here too, the source's backward being kept; a branch draft of
+  0.11.6 accepted one and refitted by least squares, and is superseded.) Callers that passed a `grid_size` with a
+  SplineLens source must pass `lattice_spacing` instead.
+- **A region past a SplineLens source's valid domain is accepted** (0.11.5: a `RegionBeyondSupport`): the source's
+  lattice is extended over it, the new nodes marked. A parametric source's region is checked against its support, as
+  before.
+- Core compat floor `"0.10.8"` (package, test and docs environments; `extend_lattice`, `subdivide_lattice`,
+  `folded_pixels`, `lattice_spacing`).
 - The SplineLens target turns a gauge-`K` source onto its axis before its backward is kept or fitted (it turned the
   kept backward after): the same camera, rotation and metadata for every source it accepted before.
 

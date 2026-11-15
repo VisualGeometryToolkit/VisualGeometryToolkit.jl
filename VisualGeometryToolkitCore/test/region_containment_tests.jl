@@ -48,6 +48,7 @@ end
     @test whole ⊆ R(-1, -1, 20, 20) && !(whole ⊆ R(1, 0, 20, 20)) && whole ⊆ E(5, 5, 8, 8) && !(whole ⊆ E(5, 5, 6, 6))
     round_part = RegionIntersection(strip, Circle(Point2(50.0, 5.0), 10.0))
     @test round_part ⊆ target && !(round_part ⊆ R(45, 0, 10, 10)) && Circle(Point2(50.0, 5.0), 1.0) ⊆ round_part
+    @test R(48, 4, 1, 1) ∈ round_part && !(R(48, 4, 20, 1) ∈ round_part)                # a Rect in it: in both parts
     @test !((R(0, 0, 1, 1) ∩ E(100, 100, 1, 1)) ⊆ R(50, 50, 1, 1))                  # disjoint boxes: no claim
     # the box is compared at the parts' bounds: rebuilt as origin + widths its right edge rounds to 205.20473411499006,
     # inside a support the ellipse's edge (205.20473411499052, at y = 5, in the strip) reaches past

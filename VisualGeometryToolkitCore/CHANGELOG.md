@@ -16,7 +16,7 @@ part was a `MethodError`; `canonical_json` accepted `typemin(Int64)`.
   which can round an ulp inside them. Never a false `true`; not exact either (the `RegionIntersection` docstring says
   when a true containment still answers `false`, an empty intersection among them).
 - **A `Circle` in a containment is its `Ellipse`.** A `Circle` part of an intersection built directly (as
-  VisualGeometryToolkitIO lifts a region) reached Base's iterable `issubset`, a `MethodError`; a `Circle` on either
+  VisualGeometryToolkitIO lifts a region) reached Base's iterable `issubset` (and `Rect ∈ a ∩ b` Base's iterable `in`), a `MethodError`; a `Circle` on either
   side of `⊆` now reads as `Ellipse(c)`, as it does in `∩`. A `WholePlane` part bounds nothing. The other containments
   were audited for the "one part must fit" fault, and are without it: `x ⊆ a ∩ b` (`x ⊆ a && x ⊆ b`),
   `Rect`/`Ellipse` into one another and the `WholePlane` rules.

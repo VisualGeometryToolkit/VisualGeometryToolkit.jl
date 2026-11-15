@@ -95,8 +95,9 @@ Base.intersect(w::WholePlane, ::WholePlane) = w
 # iterable `in`.
 Base.in(p::StaticVector{2}, s::RegionIntersection) = p ∈ s.a && p ∈ s.b
 Base.in(::StaticVector{2}, ::WholePlane) = true
-# a rectangle in a region: in an intersection when in both parts; in the whole plane always
-Base.in(r::Rect{2}, s::RegionIntersection) = r ∈ s.a && r ∈ s.b
+# a rectangle in a region: in an intersection when in both parts (`⊆`, below: a Circle part as its Ellipse); in the
+# whole plane always
+Base.in(r::Rect{2}, s::RegionIntersection) = r ⊆ s
 Base.in(::Rect{2}, ::WholePlane) = true
 # THE region containment, `a ⊆ b` (`issubset`), every pair of the regions a fit and a support take — a `Rect`, an
 # `Ellipse` (a `Circle` as its `Ellipse`), their `∩`, the `WholePlane` — so Base's iterable `issubset` is never reached.

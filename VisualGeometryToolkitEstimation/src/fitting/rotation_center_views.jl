@@ -69,6 +69,26 @@ RotationCenterViews(rotations::AbstractDict{K}, center::AbstractVector{<:Real}, 
     RotationCenterViews{K}(Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(R)) for (k, R) in rotations),
                            SVector{3, Float64}(center), SVector{3, Float64}(offset))
 
+"""
+    BearingResidual()
+    ReprojectionResidual()
+
+The residual of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref), its fourth argument:
+
+- `BearingResidual()` (the default): each dot back-projected ONCE to its bearing, the tangent-plane angle to the
+  predicted bearing whitened into pixels by the dot's back-projection Jacobian — never a projection inside the solve,
+  so it converges from a rotation-centre start whatever the lens's domain;
+- `ReprojectionResidual()`: that bearing refine, then a SECOND stage from its estimate on the exact pixel reprojection
+  error, `project(camera, R_k (X − c) + d) − u` (Core's `reprojection_error`; a SplineLens camera projected by inverting
+  its backward spline, its forward dropped, Core's implicit-function derivatives). A candidate update that leaves a
+  dot's prediction undefined (off the lens's domain) costs +Inf and is rejected by the LM, never clamped. The dots of
+  the second stage are the first stage's rows that project at its estimate; those that do not are
+  [`without_projection`](@ref). The result's views, retcode, rms and record are the second stage's.
+"""
+abstract type AbstractViewResidual end
+@doc (@doc AbstractViewResidual) struct BearingResidual <: AbstractViewResidual end
+@doc (@doc AbstractViewResidual) struct ReprojectionResidual <: AbstractViewResidual end
+
 # The rotation-centre refusal: at least three views, and relative rotations R₁ᵀR_k spanning two axes — the second
 # singular value of their stacked rotation vectors (log_so3) above rounding (√eps of the first).
 function _check_rotation_center_gauge(rotations)
@@ -185,25 +205,6 @@ function refine_camera_and_poses(
     return FitResult((; camera, views = out), sol.code, sol.rule, sol.iterations, sol.rms, sol.n, md)
 end
 
-"""
-    BearingResidual()
-    ReprojectionResidual()
-
-The residual of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref), its fourth argument:
-
-- `BearingResidual()` (the default): each dot back-projected ONCE to its bearing, the tangent-plane angle to the
-  predicted bearing whitened into pixels by the dot's back-projection Jacobian — never a projection inside the solve,
-  so it converges from a rotation-centre start whatever the lens's domain;
-- `ReprojectionResidual()`: that bearing refine, then a SECOND stage from its estimate on the exact pixel reprojection
-  error, `project(camera, R_k (X − c) + d) − u` (Core's `reprojection_error`; a SplineLens camera projected by inverting
-  its backward spline, its forward dropped, Core's implicit-function derivatives). A candidate update that leaves a
-  dot's prediction undefined (off the lens's domain) costs +Inf and is rejected by the LM, never clamped. The dots of
-  the second stage are the first stage's rows that project at its estimate; those that do not are
-  [`without_projection`](@ref). The result's views, retcode, rms and record are the second stage's.
-"""
-abstract type AbstractViewResidual end
-@doc (@doc AbstractViewResidual) struct BearingResidual <: AbstractViewResidual end
-@doc (@doc AbstractViewResidual) struct ReprojectionResidual <: AbstractViewResidual end
 
 # The pixel stage of `ReprojectionResidual()`: from the bearing estimate `views`, one `_BoardViewResidual` per dot on the
 # view's rotation chart (2 + v), the centre (1) and the offset (2), the camera held and projected exactly

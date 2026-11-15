@@ -193,3 +193,33 @@ end
     @test t_member < 0.05                                             # 10⁴ points in the annulus, under 50 ms
     @test 0 < count(p -> p ∈ q, ann) < length(ann)
 end
+
+@testitem "valid_domain polygon: a lattice operation takes it as its region" setup = [FoldReference] begin
+    using Test
+    using VisualGeometryToolkitCore: PolygonRegion, extend_lattice, folded_pixels
+    using GeometryBasics: Rect2
+    # a lattice operation reads a region by its bounding box (`extend_lattice`) and by membership (`folded_pixels`): a
+    # star polygon (the valid domain of a decentred source) is such a region, as its Ellipse was until Core 0.10.9
+    W, H = 1280, 960
+    fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
+    m = CameraModel(SplineLens, fish, Size2(W, H); grid_size = (24, 19), init = :quasi_interpolate)
+    q = valid_domain(mk(400.0, 400.0, 640.0, 480.0, ocv))
+    @test q isa PolygonRegion
+    @test extend_lattice(m, q).offset == extend_lattice(m, Rect2(q)).offset          # the box sets the nodes
+    f = folded_pixels(m, q; spacing = 16.0)
+    @test f.samples > 0 && f.samples < folded_pixels(m, Rect2(q); spacing = 16.0).samples   # the samples inside it
+end
+
+@testitem "valid_domain polygon: never moved between pixel frames (a clear refusal, not a MethodError)" setup = [FoldReference] begin
+    using Test
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
+    # the polygon is derived from its camera model, never serialized or moved to another pixel convention: the map
+    # refuses it by name (VisualGeometryToolkitIO's region body moves every region through this action before writing)
+    S = SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv}))
+    cam = mk(800.0, 800.0, 640.0, 480.0, ocv)
+    q = valid_domain(cam)
+    @test q isa PolygonRegion
+    @test_throws ArgumentError S(q)
+    @test_throws ArgumentError S(imaged_region(BoundedCamera(cam, Size2(1280, 960))))
+    @test occursin("PolygonRegion", sprint(showerror, try S(q) catch e; e end))
+end

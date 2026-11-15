@@ -209,3 +209,22 @@ end
         end
     end
 end
+
+@testitem "region body: a valid domain polygon is refused, never written" begin
+    using Test
+    using JSON
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, BoundedCamera, Size2, Lens, Perspective, Additive,
+        Radial, Tangential, valid_domain, imaged_region, RegionIntersection
+    using StaticArrays: @SMatrix
+    # a decentred lens's valid domain is a star polygon derived from the model (Core 0.10.10): no record holds one, and
+    # writing a region that contains it is an ArgumentError, never a MethodError or a record of its fields
+    cam = CameraModel(CameraCalibrationMat(@SMatrix([800.0 0.0 640.0; 0.0 800.0 480.0; 0.0 0.0 1.0]));
+                      lens = Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-2, -5.0e-3))))
+    r = imaged_region(BoundedCamera(cam, Size2(1280, 960)))
+    @test r isa RegionIntersection
+    s = VgtkIO.VgioStyle()
+    @test_throws ArgumentError JSON.json(JSON.lower(s, r, (; region = true)))
+    @test_throws ArgumentError JSON.json(JSON.lower(s, r))
+    @test_throws ArgumentError JSON.json(JSON.lower(s, valid_domain(cam), (; region = true)))
+end

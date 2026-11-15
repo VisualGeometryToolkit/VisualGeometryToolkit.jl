@@ -44,4 +44,5 @@ end
     @test (strip ∩ disc) ⊆ target && (disc ∩ strip) ⊆ target
     @test !((strip ∩ disc) ⊆ E(50, 5, 9, 8))                                        # the disc reaches x = 40 < 50 − 9
     @test (strip ∩ disc) ⊆ WholePlane()
+    @test ((R(0, 0, 1, 1) ∩ E(100, 100, 1, 1)) ⊆ R(50, 50, 1, 1)) isa Bool         # disjoint parts: an empty box answers
 end

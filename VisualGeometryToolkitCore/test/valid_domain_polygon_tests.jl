@@ -216,16 +216,30 @@ end
     @test f.samples > 0 && f.samples < folded_pixels(m, Rect2(q); spacing = 16.0).samples   # the samples inside it
 end
 
-@testitem "valid_domain polygon: never moved between pixel frames (a clear refusal, not a MethodError)" setup = [FoldReference] begin
+@testitem "valid_domain polygon: a pixel-frame map moves it, membership through the map's inverse" setup = [FoldReference] begin
     using Test
     using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
-    # the polygon is derived from its camera model, never serialized or moved to another pixel convention: the map
-    # refuses it by name (VisualGeometryToolkitIO's region body moves every region through this action before writing)
-    S = SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv}))
+    using Rotations: RotMatrix2
+    using StaticArrays
+    # Core's action of a similarity on every region (VisualGeometryToolkitIO's region body moves a region to and from the
+    # file's pixel convention through it): a star polygon maps vertex by vertex, its centre with it, and stays one;
+    # p ∈ S(q) ⟺ S⁻¹(p) ∈ q on a grid off its boundary
     cam = mk(800.0, 800.0, 640.0, 480.0, ocv)
     q = valid_domain(cam)
-    @test q isa PolygonRegion
-    @test_throws ArgumentError S(q)
-    @test_throws ArgumentError S(imaged_region(BoundedCamera(cam, Size2(1280, 960))))
-    @test occursin("PolygonRegion", sprint(showerror, try S(q) catch e; e end))
+    r = imaged_region(BoundedCamera(cam, Size2(1280, 960)))
+    @test q isa PolygonRegion && r isa RegionIntersection
+    ps = vec([SVector(x, y) for x in -150.25:6.5:1430.0, y in -150.25:6.5:1110.0])
+    for S in (SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv})), SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia})),
+              SimilarityMap(2.0, RotMatrix2(0.4), SVector(1.0, -3.0)), SimilarityMap(0.5, RotMatrix2(π / 2), SVector(7.0, 2.0)))
+        Sq = S(q)
+        @test Sq isa PolygonRegion && length(Sq.vertices) == length(q.vertices) && Sq.centre ≈ S(q.centre)
+        Si = inv(S)
+        @test [p ∈ Sq for p in ps] == [Si(p) ∈ q for p in ps]
+        @test Si(Sq).vertices ≈ q.vertices
+    end
+    # the imaged region (a Rect ∩ the polygon) maps part by part under a pixel-frame map (a translation)
+    S = SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv}))
+    Sr = S(r)
+    @test Sr isa RegionIntersection && Sr.b isa PolygonRegion
+    @test [p ∈ Sr for p in ps] == [inv(S)(p) ∈ r for p in ps]
 end

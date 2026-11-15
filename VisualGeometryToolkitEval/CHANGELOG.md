@@ -7,10 +7,9 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 ### Fixed
 
 - **An integer's spelling no longer breaks or moves a key.** TOML parses a hex, octal or binary literal
-  (`ransac_seed = 0x0b10b5eed`) as an unsigned integer, which VisualGeometryToolkitCore's `canonical_json` refuses
-  ("unexpected UInt64 in canonical tree"): `run_key`, `tuning_hash` and the runner's stage key threw on such a config.
-  The content key now lowers every integer to its `Int64` before encoding, so `0x0b10b5eed` and `2970312429` key alike
-  (as `3` and `3.0` already did); every key of a config without such a literal is unchanged. An integer past ±2^53 (not
+  (`ransac_seed = 0x0b10b5eed`) as an unsigned integer, which VisualGeometryToolkitCore's `canonical_json` refuses, so
+  `run_key`, `tuning_hash` and the runner's stage key threw on such a config. The content key now lowers every integer
+  to its `Int64` before encoding: `0x0b10b5eed` and `2970312429` key alike, and every other key is unchanged. An integer past ±2^53 (not
   exactly a double) is an `ArgumentError` naming its key path (`arm.seeds[2]`), never an unnamed refusal.
 
 ## 0.9.0

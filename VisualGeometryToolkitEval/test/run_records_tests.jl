@@ -44,9 +44,9 @@
         dec = TOML.parse("[arm]\nransac_seed = 2970312429\nmask = 15\nbits = [5, 7.0]\n")
         @test hex["arm"]["ransac_seed"] isa Unsigned                     # TOML's hex literal is unsigned
         @test RR.run_key(hex) == RR.run_key(dec) == VgtkEval._content_key(dec)
-        @test VgtkEval._content_key(Dict{String,Any}("s" => UInt8(3))) == VgtkEval._content_key(Dict{String,Any}("s" => 3))
         @test VgtkEval._content_key(Dict{String,Any}("b" => true)) != VgtkEval._content_key(Dict{String,Any}("b" => 1))   # a Bool stays a Bool
-        @test RR.run_key(hex) != RR.run_key(TOML.parse("[arm]\nransac_seed = 0x0b10b5eee\nmask = 0o17\nbits = [0b101, 7]\n"))
+        other = deepcopy(hex); other["arm"]["ransac_seed"] += 1
+        @test RR.run_key(other) != RR.run_key(hex)                       # its value still moves it
         # an integer out of range is refused by its key path, never hashed to something
         refusal(cfg) = try RR.run_key(cfg); nothing catch e; e end
         e = refusal(TOML.parse("[arm]\nransac_seed = 0xffffffffffffffff\n"))

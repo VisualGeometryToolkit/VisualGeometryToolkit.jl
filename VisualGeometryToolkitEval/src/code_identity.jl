@@ -80,8 +80,8 @@ isdefined(@__MODULE__, :canonical_json) || error(
 The content key of the evaluation stack: the SHA-256 (hex, first 16) of `tree`'s canonical JSON (VisualGeometryToolkitCore's
 `canonical_json`, the stack's one canonical encoding; `tree` a TOML config's tree: `nothing`, `Bool`, integers,
 `Float64`, strings, vectors and string-keyed dicts). Key order does not move it, nor a number's spelling: an integral
-float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`), and an integer of any type is its value (TOML
-parses `0x0b10b5eed`, `0o17` and `0b101` as unsigned integers; each keys as its decimal, `2970312429`, `15` and `5`).
+float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`), and an integer of any type is its value (TOML's
+hex `0x0b10b5eed`, an unsigned integer, keys as `2970312429`).
 An integer past ±2^53 (not exactly a double: Core's bound) is an `ArgumentError` naming its key path (`arm.seeds[2]`).
 Fixed across Julia versions (unlike `Base.hash`). Behind Experiments `run_key`, Tuning `tuning_hash` and the runner's
 stage key.

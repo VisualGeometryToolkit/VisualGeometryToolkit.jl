@@ -811,10 +811,10 @@ end
     st = lmsolve_chart!(pt, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = cb)
     @test st.code === ReturnCode.Terminated && st.iterations == 1
     # the test itself: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
-    @test VgtkCore._relative_step_stop(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_step_stop(1.1, 1.0e6, 1.0e-6)
-    @test !VgtkCore._relative_step_stop(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never
+    @test VgtkCore._relative_increment_met(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_increment_met(1.1, 1.0e6, 1.0e-6)
+    @test !VgtkCore._relative_increment_met(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never
     # its termination bit (31) decodes as a step-size stop, under the postcondition
     @test VgtkCore.nlls_termination(1 << 31, true) == (ReturnCode.Success, IncrementSize)
     @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Stalled, IncrementSize)
-    @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_step_size] && VgtkCore.nlls_stop_code(1 << 31) == 2
+    @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_increment_size] && VgtkCore.nlls_stop_code(1 << 31) == 2
 end

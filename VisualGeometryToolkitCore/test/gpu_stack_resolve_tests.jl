@@ -20,7 +20,13 @@
         VisualGeometryToolkitCore = {path = $(repr(pkgdir(VgtkCore)))}
         """)
     log = joinpath(env, "resolve.log")
-    cmd = addenv(`$(Base.julia_cmd()) --startup-file=no --project=$env -e 'using Pkg; Pkg.resolve()'`, "JULIA_PKG_PRECOMPILE_AUTO" => "0")
+    # The child's load path is stated, not inherited: `Pkg.test()` runs this suite with `JULIA_LOAD_PATH = "@:<test dir>"`
+    # (no `@stdlib`), and a child inheriting it cannot load Pkg (neither `env` nor the test project lists it). `@` is the
+    # resolved project `env`, `@stdlib` the stdlibs Pkg and its dependencies come from: the default load path less
+    # `@v#.#`, so no user default environment enters the resolve.
+    load_path = join(["@", "@stdlib"], Sys.iswindows() ? ';' : ':')
+    cmd = addenv(`$(Base.julia_cmd()) --startup-file=no --project=$env -e 'using Pkg; Pkg.resolve()'`,
+                 "JULIA_PKG_PRECOMPILE_AUTO" => "0", "JULIA_LOAD_PATH" => load_path)
     ok = success(pipeline(cmd; stdout = log, stderr = log))
     ok || print(read(log, String))
     @test ok

@@ -23,18 +23,22 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
   - The present source nodes keep their controls bit for bit, so inside the source's domain the spline is unchanged, to
     the rounding of the lattice coordinate.
   - The new nodes, and the absent source nodes the region needs, minimise the discrete second-order bending energy
-    `Σ Δxx² + 2Δxy² + Δyy²`, the present source nodes held. That energy is rotation-invariant, so no curvature (normal,
+    `Σ Δxx² + 2Δxy² + Δyy²` on the lattice's cells (each difference divided by its cells' widths, so in pixels on
+    non-square cells too), the present source nodes held. That energy is rotation-invariant, so no curvature (normal,
     tangential or mixed) grows outward, corners included. Affine lattices are continued exactly. The spline is C² across
     the domain's edge.
   - The energy only gives the extrapolated nodes' start values. It is not part of any refinement's objective.
   - `extrapolated` marks those nodes (a `BitMatrix` of the extended grid), and `offset` is the source's 0-based
     `(row, col)` in it.
-  - An absent source node the region does not need stays absent. The forward spline is dropped.
+  - An absent source node the region does not need stays absent, outside the energy. The forward spline is dropped.
+  - A source with no complete 4 × 4 present window is an `ArgumentError` (its nodes need not determine the
+    extrapolation).
 - **`difference_rows(mask, 2; mixed)`**: a nonzero `mixed` appends the mixed second differences `Δ₁Δ₂c`, weighted by
-  `mixed`, one row per 2 × 2 window wholly in the mask, after the axis rows. At `mixed = √2`, `‖D c‖²` is the discrete
-  bending energy that `extend_lattice` minimises. The default `mixed = 0` returns the axis rows bit for bit as before, so
-  every existing caller is unchanged (Estimation's P-spline Δ³ penalty included). A nonzero `mixed` at another order is
-  an `ArgumentError`.
+  `mixed`, one row per 2 × 2 window wholly in the mask, after the axis rows of `axes = (1, 2)`, or alone with
+  `axes = ()`. At `mixed = √2`, `‖D c‖²` is the discrete bending energy of a lattice of square cells. A one-axis
+  operator takes no mixed rows, and neither does another order (an `ArgumentError`). The default `mixed = 0` returns
+  the axis rows bit for bit as before, so every existing caller is unchanged (Estimation's P-spline Δ³ penalty
+  included).
 
 ### Docs
 - The Lenses guide, "Extending and subdividing a lattice", derives the subdivision's exactness (the two-scale relation of

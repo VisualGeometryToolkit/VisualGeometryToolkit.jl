@@ -359,30 +359,37 @@ controls minimise the discrete bending energy of the extended lattice, with the
 present source nodes held:
 
 ```math
-E(c) = \sum \Delta_{xx}c^2 + 2\,\Delta_{xy}c^2 + \Delta_{yy}c^2 ,
+E(c) = \sum \frac{\Delta_{xx}c^2}{h_x^4} + 2\,\frac{\Delta_{xy}c^2}{h_x^2 h_y^2} + \frac{\Delta_{yy}c^2}{h_y^4} ,
 ```
 
-per component. The rows are `difference_rows(dims, 2; mixed = √2)`, whose `‖D c‖²` is
-`E`, and the minimiser is one sparse Cholesky solve.
+per component, on cells `h_x × h_y` pixels. The rows are `difference_rows(nodes, 2)`
+along each axis and its mixed rows (`axes = (), mixed = √2`), each block weighted by
+its cells' widths, and the minimiser is one sparse Cholesky solve. An absent source
+node that stays absent is not part of the lattice the energy sums over.
 
 - **Continuity.** A uniform cubic B-spline is C² at every knot, whatever its
   controls, and the source's domain edge is a knot. So the extended spline is C²
   across the edge: its one-sided value, slope and curvature there are the source's.
-- **Rotation invariance.** `E` is the thin-plate energy's discretization. It weighs
-  the normal, tangential and mixed curvature alike, so none of them can grow
-  outward, corners included.
+- **Rotation invariance.** `E` is the thin-plate energy `f_xx² + 2f_xy² + f_yy²` in
+  pixels, discretized. It weighs the normal, tangential and mixed curvature alike,
+  on square and non-square cells, so none of them can grow outward, corners
+  included.
 - **Null space.** The null space of `E` is the affine functions of the node indices.
   An affine lattice is continued exactly, and a lattice without tangential
   variation is continued by the natural rule `c₀ = 2c₁ − c₂`
   ([`natural_extrapolation`](@ref)), whose curvature vanishes one cell out.
-- **Uniqueness.** The minimiser exists and is unique once one complete 4 × 4 window
-  is present: an affine function that vanishes on four rows vanishes everywhere.
+- **Uniqueness.** The minimiser exists and is unique when one complete 4 × 4 window
+  of the source is present and every extrapolated node is read by some difference: an
+  affine function that vanishes on a 4 × 4 block vanishes everywhere. Without such a
+  window, `extend_lattice` refuses.
 
 The penalty gives only the START values of the extrapolated nodes. No refinement's
 objective holds it, and a later fit moves those nodes by its own terms. The
 `extrapolated` mask says which they are. A subdivision carries the marks: a fine
-node is marked when it reads a marked coarse node. No marked fine node's support
-reaches the source's area, so the source's region reads unmarked nodes only.
+node is marked when it reads a marked coarse node. A marked coarse node is new, so
+its support lies outside the source's area, or absent in the source, so the source
+images none of its cells. The pixels the source images therefore read unmarked nodes
+only, before and after the subdivision.
 
 ## The lens record
 

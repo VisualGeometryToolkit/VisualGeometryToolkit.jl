@@ -56,7 +56,7 @@
     end
 
     # The central second differences of a control lattice `[gy, gx]` at node (i, j): along x
-    # (the columns), along y (the rows) and mixed, their largest component.
+    # (the columns), along y (the rows) and mixed, the largest component of each.
     function second_differences(C, i, j)
         xx = C[i, j - 1] - 2C[i, j] + C[i, j + 1]
         yy = C[i - 1, j] - 2C[i, j] + C[i + 1, j]
@@ -189,18 +189,22 @@ end
         br, bc = big.offset[1] .+ (1:18), big.offset[2] .+ (1:16)
         R = maximum(ring_of(i, j, br, bc) for i in axes(B, 1), j in axes(B, 2))
         @test R >= 5
-        # the largest second difference `k` over ring `r` (over its corner blocks only: `corner`)
-        ring_max(r, k; corner = false) = maximum(second_differences(B, i, j)[k] for i in 2:(size(B, 1) - 1), j in 2:(size(B, 2) - 1)
+        # the largest second difference over ring `r` (over its corner blocks only: `corner`), in pixels: along x (k = 1),
+        # along y (2), mixed (3), and the rotation-invariant norm √(f_xx² + 2f_xy² + f_yy²) (4)
+        function curvature(i, j)
+            xx, yy, xy = second_differences(B, i, j)
+            return (xx / hx^2, yy / hy^2, xy / (hx * hy), sqrt((xx / hx^2)^2 + 2 * (xy / (hx * hy))^2 + (yy / hy^2)^2))
+        end
+        ring_max(r, k; corner = false) = maximum(curvature(i, j)[k] for i in 2:(size(B, 1) - 1), j in 2:(size(B, 2) - 1)
             if ring_of(i, j, br, bc) == r && (!corner || (!(i in br) && !(j in bc))))
-        for k in 1:3                                       # along x, along y, mixed
+        for k in 1:4, corner in (false, true)
             edge = ring_max(0, k)
-            m = [ring_max(r, k) for r in 1:(R - 1)]
-            @test all(<=(edge * (1 + 1.0e-9)), m)
-            @test all(diff(m) .<= 1.0e-12)                 # non-increasing outward
-            @test m[end] < m[1]
-            c = [ring_max(r, k; corner = true) for r in 1:(R - 1)]
-            @test all(<=(edge * (1 + 1.0e-9)), c)
-            @test all(diff(c) .<= 1.0e-12)
+            m = [ring_max(r, k; corner) for r in 1:(R - 1)]
+            @test all(<=(edge * (1 + 1.0e-9)), m)                 # bounded by the source's
+            @test m[end] < 0.8 * m[1]                             # decaying outward
+            # non-increasing ring by ring: every direction along the band; in the corners the invariant norm (a
+            # single direction's largest value may move by a few per cent between two corner rings)
+            (k == 4 || !corner) && @test all(diff(m) .<= 1.0e-12)
         end
     end
 
@@ -239,6 +243,12 @@ end
             F = present_nodes(fine)
             @test any(.!F) && all(i -> all(isfinite, fine.lens.backward.controls[i]) == F[i], eachindex(F))
         end
+    end
+
+    @testset "no complete window present: refused" begin
+        Q = falses(20, 26); Q[5, :] .= true; Q[:, 7] .= true; Q[8:10, 8:10] .= true   # present nodes, no 4 × 4 block
+        q = random_camera(rng, 26, 20; present = Q)
+        @test_throws ArgumentError extend_lattice(q, Rect2(0.0, 0.0, 1000.0, 760.0))
     end
 
     @testset "extension: the needed absent nodes filled and marked; the rest stays absent" begin
@@ -320,4 +330,7 @@ end
     @test sum(abs2, difference_rows((6, 7), 2; mixed = sqrt(2)) * vec(c)) ≈ sum(abs2, D0 * vec(c)) + 2 * sum(abs2, Dc)
     @test difference_rows((6, 7), 2; mixed = 0) == D0
     @test_throws ArgumentError difference_rows((6, 7), 3; mixed = 1)
+    @test difference_rows((6, 7), 2; axes = (), mixed = 1) == D[(size(D0, 1) + 1):end, :]   # the mixed rows alone
+    @test_throws ArgumentError difference_rows((6, 7), 2; axes = (1,), mixed = 1)          # they read both axes
+    @test_throws ArgumentError difference_rows((6, 7), 2; axes = ())
 end

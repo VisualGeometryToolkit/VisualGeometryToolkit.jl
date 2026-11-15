@@ -173,17 +173,20 @@ the order-1 rows is [`gradient_pairs`](@ref); a device solve takes the operator 
 
 A nonzero `mixed` (order 2 only) appends the mixed differences `Δ₁Δ₂c = c(i, j) −
 c(i + 1, j) − c(i, j + 1) + c(i + 1, j + 1)`, weighted by `mixed`, one row per 2 × 2 window
-that lies wholly in `mask` (`j` outer), after the axis rows. At `mixed = √2`, `‖D c‖²` is
-the discrete second-order bending energy `Σ Δ₁₁² + 2Δ₁₂² + Δ₂₂²`, which annihilates
-exactly the affine functions of the node indices (the thin-plate discretization;
-[`extend_lattice`](@ref)'s extrapolation minimises it). The default `mixed = 0` gives the
-axis rows alone.
+that lies wholly in `mask` (`j` outer), after the axis rows. The mixed rows read both
+axes, so they come with `axes = (1, 2)`, or alone with `axes = ()`; a one-axis operator
+takes none (an `ArgumentError`). At `mixed = √2`, `‖D c‖²` is the discrete second-order
+bending energy `Σ Δ₁₁² + 2Δ₁₂² + Δ₂₂²` of a lattice of square cells, which annihilates
+exactly the affine functions of the node indices (the thin-plate discretization; on
+cells `h₁ × h₂`, weight the three blocks `1/h₁²`, `1/h₂²` and `√2/(h₁h₂)`, as
+[`extend_lattice`](@ref)'s extrapolation does). The default `mixed = 0` gives the axis
+rows alone.
 """
 function difference_rows(mask::AbstractMatrix{Bool}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2), mixed::Real = 0)
     order >= 1 || throw(ArgumentError("difference_rows: order must be ≥ 1, got $order"))
     (iszero(mixed) || order == 2) || throw(ArgumentError("difference_rows: the mixed differences are of order 2, got order $order"))
-    (!isempty(axes) && issubset(axes, (1, 2)) && issorted(axes; lt = <=)) ||
-        throw(ArgumentError("difference_rows: axes is (1,), (2,) or (1, 2), got $axes"))
+    (iszero(mixed) ? !isempty(axes) && issubset(axes, (1, 2)) && issorted(axes; lt = <=) : axes in ((1, 2), ())) ||
+        throw(ArgumentError("difference_rows: axes is (1,), (2,) or (1, 2) (with mixed rows: (1, 2) or (), the mixed rows alone), got $axes"))
     s = difference_stencil(order)
     L = LinearIndices(mask)
     n1, n2 = size(mask)

@@ -31,7 +31,7 @@
 #   reads source nodes only, so the spline there is unchanged to the rounding of the
 #   lattice coordinate. The new nodes (and the absent source nodes the region needs) are
 #   the minimiser of the discrete second-order bending energy
-#   Σ Δxx² + 2Δxy² + Δyy² (`difference_rows(·, 2; mixed = √2)`), the present source
+#   Σ Δxx² + 2Δxy² + Δyy² on the lattice's cells (`difference_rows`), the present source
 #   nodes held: rotation-invariant, so neither the normal nor the tangential curvature
 #   grows outward, and its null space is the affine functions, so an affine lattice is
 #   continued exactly. In 1-D (no tangential variation) it is the natural rule
@@ -87,11 +87,9 @@ function _subdivided_controls(C::AbstractMatrix{SVector{K, T}}, Ry, Rx) where {K
     return map((d...) -> SVector{K, T}(d), D...)
 end
 
-# The fine nodes that read any coarse node of `mask` (`[gy, gx]`): a stored entry of R_y
-# or R_x is a node read (every mask coefficient is positive).
-_reads_any(Ry, Rx, mask::AbstractMatrix{Bool}) =
-    BitMatrix(Matrix(_pattern(Ry) * (Float64.(mask) * transpose(_pattern(Rx)))) .> 0)
-_pattern(R::SparseMatrixCSC) = SparseMatrixCSC(R.m, R.n, R.colptr, R.rowval, ones(length(R.nzval)))
+# The fine nodes that read any coarse node of `mask` (`[gy, gx]`): every mask coefficient
+# is positive, so a positive entry of R_y·mask·R_xᵀ is a node read.
+_reads_any(Ry, Rx, mask::AbstractMatrix{Bool}) = BitMatrix(Matrix(Ry * (Float64.(mask) * transpose(Rx))) .> 0)
 
 """
     subdivide_lattice(spline::ChartSpline, factors) -> ChartSpline
@@ -180,9 +178,10 @@ in its [`valid_domain`](@ref).
   bit, so the spline is unchanged there, to the rounding of the lattice coordinate.
 - **The extrapolated nodes** are the new nodes, and every absent source node whose
   support meets the region. Their controls minimise the discrete second-order bending
-  energy `Σ Δxx² + 2Δxy² + Δyy²` of the extended lattice
-  ([`difference_rows`](@ref)`(·, 2; mixed = √2)`, per component), with the present
-  source nodes held fixed. The energy is rotation-invariant (the thin-plate
+  energy `Σ Δxx² + 2Δxy² + Δyy²` of the extended lattice, each difference divided by
+  its cells' widths ([`difference_rows`](@ref)`(·, 2)` and its mixed rows, per
+  component), with the present source nodes held fixed. An absent node that stays
+  absent is not part of it. The energy is rotation-invariant in pixels (the thin-plate
   discretization), so the curvature, normal, tangential and mixed, does not grow
   outward, corners included. Its null space is the affine functions of the node
   indices, so an affine lattice is continued exactly; without tangential variation it
@@ -203,8 +202,9 @@ in its [`valid_domain`](@ref).
 - **The forward spline** is dropped, since the backward changed outside the domain.
   When nothing is extrapolated, `camera` is the input camera, its forward kept.
 
-An `ArgumentError` for a region that is not a finite rectangle, or when the present
-nodes do not determine the extrapolation (no complete 4 × 4 window is present).
+An `ArgumentError` for a region that is not a finite rectangle, or when no complete
+4 × 4 window of the source is present (its present nodes then need not determine the
+extrapolation).
 Host-side lattice algebra: the result evaluates on a device like any SplineLens camera.
 """
 function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::GeometryBasics.HyperRectangle{2})
@@ -227,38 +227,49 @@ function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, re
     needed = falses(ngh, ngw)
     needed[(ty[1] + top + 2):(ty[2] + top + 2), (tx[1] + left + 2):(tx[2] + left + 2)] .= true
     known = falses(ngh, ngw); known[rows, cols] .= present_nodes(cam)
+    _has_complete_window(known) || throw(ArgumentError(
+        "extend_lattice: no complete 4 × 4 window of the source is present, so its present nodes do not determine the extrapolation"))
     present = trues(ngh, ngw); present[rows, cols] .= known[rows, cols] .| needed[rows, cols]
     filled = present .& .!known
     any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0))
     C = fill(SVector{3, eltype(eltype(b.controls))}(NaN, NaN, NaN), ngh, ngw)
     C[rows, cols] .= b.controls
-    _extrapolate_controls!(C, known)
+    _extrapolate_controls!(C, known, present, h)
     # the backward area grown by the whole cells added: the source lattice's own nodes
     area = _window_area(b.area, gsz, (1 - top):(gh + bottom), (1 - left):(gw + right))
     lens = SplineLens(ChartSpline(area, _absent_nan(C, present)); present)
     return (; camera = CameraModel(cam.intrinsics, lens), extrapolated = filled, offset = (top, left))
 end
 
+# Whether some 4 × 4 window of the lattice holds `mask` nodes only.
+_has_complete_window(mask) = any(_window_present(mask, ix, iy) for iy in 3:(size(mask, 1) - 1), ix in 3:(size(mask, 2) - 1))
+
 # The nodes added before and after an axis of `g` nodes (cell coordinates −1 … g − 2) for
 # the needed cell coordinates `t = (t_lo, t_hi)`; the lattice never shrinks.
 _added_nodes(t, g) = (max(0, -1 - t[1]), max(0, t[2] - (g - 2)))
 
-# The controls of the nodes `.!known` filled in place by the minimiser of the bending
-# energy ‖D c‖² over the lattice (`difference_rows(size, 2; mixed = √2)`, per component),
-# the `known` nodes held: the normal equations DᵤᵀDᵤ cᵤ = −DᵤᵀD_k c_k, one sparse Cholesky
-# factorization and one solve for every component.
-function _extrapolate_controls!(C::AbstractMatrix{SVector{K, T}}, known::BitMatrix) where {K, T}
-    D = difference_rows(size(known), 2; mixed = sqrt(2.0))   # ‖D c‖²: the bending energy
-    k = vec(known)
-    Du, Dk = D[:, .!k], D[:, k]
+# The controls of the nodes `nodes .& .!known` filled in place by the minimiser of the
+# bending energy over the lattice of the `nodes` (the others are not in it), the `known`
+# nodes held: per component, the axis second differences weighted by the cell size `h`
+# (the energy f_xx² + 2f_xy² + f_yy² on cells hx × hy, times hx²hy²: `Δyy·hx/hy`,
+# `Δxx·hy/hx`, `√2·Δxy`; controls `[gy, gx]`, so axis 1 is y), `difference_rows(nodes, 2)`.
+# The normal equations DᵤᵀDᵤ cᵤ = −DᵤᵀD_k c_k: one sparse Cholesky factorization and one
+# solve for every component.
+function _extrapolate_controls!(C::AbstractMatrix{SVector{K, T}}, known::BitMatrix, nodes::BitMatrix, h) where {K, T}
+    D = vcat(
+        (h[1] / h[2]) * difference_rows(nodes, 2; axes = (1,)), (h[2] / h[1]) * difference_rows(nodes, 2; axes = (2,)),
+        difference_rows(nodes, 2; axes = (), mixed = sqrt(2.0)),
+    )
+    k, u = vec(known), vec(nodes .& .!known)
+    Du, Dk = D[:, u], D[:, k]
     F = try
         LinearAlgebra.cholesky(LinearAlgebra.Symmetric(transpose(Du) * Du))
     catch e
         e isa LinearAlgebra.PosDefException || rethrow()
-        throw(ArgumentError("extend_lattice: the present nodes do not determine the extrapolation (no complete 4 × 4 window present)"))
+        throw(ArgumentError("extend_lattice: the bending energy does not determine an extrapolated node (no difference reads it)"))
     end
     ck = [Float64(v[i]) for v in vec(C)[k], i in 1:K]       # the held controls, one column per component
     x = F \ Matrix(-(transpose(Du) * (Dk * ck)))
-    C[.!known] .= SVector{K, T}.(eachrow(x))
+    C[u] .= SVector{K, T}.(eachrow(x))
     return C
 end

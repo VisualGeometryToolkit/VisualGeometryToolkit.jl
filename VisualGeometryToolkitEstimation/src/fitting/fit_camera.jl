@@ -161,7 +161,8 @@ The camera model of type `T` regressed onto `source` over `region`, a region of
 the source's sensor in its pixel frame (an [`imaged_region`](@extref
 `VisualGeometryToolkitCore.Cameras.imaged_region-Tuple{BoundedCamera}`), an `Ellipse`, a `Rect`, their `∩`;
 bounded, and inside the source's calibrated support — the keyword `support`, its `valid_domain` by default, or a
-re-gridded camera's calibration's — else Core's `RegionBeyondSupport` at entry), by ONE linear least squares — a fit has no guess. The objective is the
+re-gridded camera's calibration's — else Core's `RegionBeyondSupport` at entry; for a SplineLens source, whose lattice
+the resample extends over the region, only a `support` the caller states), by ONE linear least squares — a fit has no guess. The objective is the
 integrated squared pixel error of the round trip, `∫ ‖π_T(π⁻¹_source(u)) − u‖² du`
 over the region. The target type selects the family and the solve:
 
@@ -1270,19 +1271,22 @@ end
 function fit_camera(
         ::Type{SplineLens}, source::BoundedCamera, region;
         tolerance::Real, grid_size::Union{Nothing, Tuple{Integer, Integer}} = nothing, forward::Bool = true,
-        lattice_spacing = nothing, device = default_device(), support = VgtkCore.valid_domain(source)
+        lattice_spacing = nothing, device = default_device(), support = nothing
     )
     _check_tolerance(tolerance)
-    # a SplineLens source: the exact resample (extend, subdivide, turn), never a least-squares refit
+    # a SplineLens source: the exact resample (extend, subdivide, turn), never a least-squares refit. Its region may run
+    # past its valid domain (the extension's job), but a `support` the caller states is checked: a re-gridded camera's
+    # calibration's (its lattice wider than where it was calibrated) is never extended past
     if _is_spline_camera(model(source))
         grid_size === nothing || throw(ArgumentError(
             "fit_camera(SplineLens, …): a SplineLens source is resampled exactly — its lattice extended to the region and " *
                 "subdivided by integers — so `grid_size` chooses no lattice: give the target cell size, `lattice_spacing` (px)"))
+        support === nothing || VgtkCore.check_region_support(support, region; who = "fit_camera")
         return _exact_resample(model(source), source, region; tolerance, lattice_spacing, forward, device)
     end
-    lattice_spacing === nothing || throw(ArgumentError(
+    lattice_spacing === nothing || !(model(source) isa CameraModel) || throw(ArgumentError(
         "fit_camera(SplineLens, …): `lattice_spacing` resamples a SplineLens source; a $(nameof(typeof(model(source)))) source's lattice is fitted (`grid_size`, or the spacing search to `tolerance`)"))
-    VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
+    VgtkCore.check_region_support(something(support, VgtkCore.valid_domain(source)), region; who = "fit_camera")   # Core's one guard
     # the source on its optical axis (a physical K is its own axis), then the lattice of `grid_size` (or the spacing
     # search's) fitted to its rays
     gauge = _source_axis_gauge(model(source), source, region, grid_size, tolerance, device)
@@ -1456,8 +1460,9 @@ _is_spline_camera(m) = m isa CameraModel && lens(m) isa SplineLens
 # the source images one states it. Core's fold report is recorded, never acted on (the caller's policy).
 function _exact_resample(m::CameraModel, source::BoundedCamera, region; tolerance, lattice_spacing, forward, device)
     src = _without_forward(m)
+    # the factors from the source's spacing, which the extension keeps (validated before any lattice work)
+    factors = lattice_spacing === nothing ? (1, 1) : _resample_factors(VgtkCore.lattice_spacing(src), lattice_spacing)
     ext = VgtkCore.extend_lattice(src, region)
-    factors = lattice_spacing === nothing ? (1, 1) : _resample_factors(VgtkCore.lattice_spacing(ext.camera), lattice_spacing)
     sub = VgtkCore.subdivide_lattice(ext.camera, factors; extrapolated = ext.extrapolated)   # (1, 1): the same lattice
     # the optical axis of the SOURCE over its own bound (never the extrapolated band; refused when it does not
     # converge), the resampled lattice turned by the same rotation and K
@@ -1481,16 +1486,19 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
                      CameraFitMetadata(region, :image, errors.max, errors.max_edge, family, axis.rotation, axis.symmetry_residual, errors.values))
 end
 
-# The subdivision factors `(m_x, m_y)` whose cells come closest to the target spacing `s` (a number, or `(s_x, s_y)`)
-# from the lattice's spacing `h`: per axis the integer m ≥ 1 nearest `h / s` in cell size, and among the pairs within
-# 5 % of the best per-axis relative error the one with the most nearly square cells.
+# The subdivision factors `(m_x, m_y)` whose cells come closest to the target spacing `s` (px: a number, or `(s_x, s_y)`;
+# a pixel quantity accepted, a length refused) from the lattice's spacing `h`: per axis the integers m ≥ 1 next to
+# `h / s` whose relative cell error |h/m − s| / s is within 0.05 of the axis's best, and among those pairs the one
+# whose cell aspect is nearest the target's (square cells for one number).
 function _resample_factors(h, s)
-    sx, sy = s isa Number ? (Float64(s), Float64(s)) : (Float64(s[1]), Float64(s[2]))
-    (sx > 0 && sy > 0 && isfinite(sx) && isfinite(sy)) || throw(ArgumentError("fit_camera: `lattice_spacing` must be positive and finite, got $s"))
+    sx, sy = s isa Union{Tuple, AbstractVector} ? (s[1], s[2]) : (s, s)
+    sx, sy = Float64(VgtkCore.strip_or_bare(VgtkCore.px, sx)), Float64(VgtkCore.strip_or_bare(VgtkCore.px, sy))
     hx, hy = Float64(h[1]), Float64(h[2])
+    (sx > 0 && sy > 0 && isfinite(sx) && isfinite(sy) && hx / sx < 2^20 && hy / sy < 2^20) ||
+        throw(ArgumentError("fit_camera: `lattice_spacing` must be positive, finite and at most 2^20 times finer than the source's cell, got $s"))
     cand(hh, ss) = (m0 = max(1, round(Int, hh / ss)); unique(filter(>=(1), (m0 - 1):(m0 + 1))))
-    err(hh, ss, m) = abs(hh / m - ss) / ss
-    ex = minimum(m -> err(hx, sx, m), cand(hx, sx)); ey = minimum(m -> err(hy, sy, m), cand(hy, sy))
-    pairs = [(mx, my) for mx in cand(hx, sx) for my in cand(hy, sy) if err(hx, sx, mx) <= ex + 0.05 && err(hy, sy, my) <= ey + 0.05]
-    return argmin(p -> (abs(hx / p[1] - hy / p[2]), err(hx, sx, p[1]) + err(hy, sy, p[2])), pairs)
+    rel(hh, ss, m) = abs(hh / m - ss) / ss
+    bx = minimum(m -> rel(hx, sx, m), cand(hx, sx)); by = minimum(m -> rel(hy, sy, m), cand(hy, sy))
+    pairs = [(mx, my) for mx in cand(hx, sx) for my in cand(hy, sy) if rel(hx, sx, mx) <= bx + 0.05 && rel(hy, sy, my) <= by + 0.05]
+    return argmin(p -> (abs(log((hx / p[1]) / (hy / p[2])) - log(sx / sy)), rel(hx, sx, p[1]) + rel(hy, sy, p[2])), pairs)
 end

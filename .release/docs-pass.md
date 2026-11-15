@@ -1,3 +1,33 @@
+docs-pass: 1f396e7c
+
+# VisualGeometryToolkitEstimation 0.11.7 docs pass (julia-docs-pass) — branch patch-est0117
+
+Baseline: Estimation 0.11.6 on origin/main 7e81b8e8 (Core 0.10.9 released). The pass covers the tree 1f396e7c; after it only
+this record changes (`.release/` is outside the gate). No code outside VisualGeometryToolkitEstimation.
+
+## 1. Public API since 0.11.6
+
+No name added, removed or re-signatured. Behaviour: `optical_axis` refits a stalled refine inside the start's fold when
+the region reaches past `_INSIDE_FOLD` (0.9) of the start's fold, not only when the start folds inside the region.
+New private constant `_INSIDE_FOLD` (refine_camera.jl). VisualGeometryToolkitCore's floor is 0.10.9 (Project.toml, test/,
+docs/).
+
+## 2. Docstrings and pages brought up to date
+
+- `optical_axis`: the start-fold band rule (a start folding past the widest angle but within 1/0.9 of it is refitted
+  when its refine stalls; `start_fold` stays `nothing` for it; a stall from a start folding farther out is refused as
+  before). The inline comments beside the refit loop and `_inside_fold` say the same.
+- CHANGELOG.md: 0.11.7, a summary line and Fixed (the ag10fe case: 0.9·96.385° = 86.75° < 96.359°).
+- README, the landing page and docs/src: no claim affected (docs/src/api/radial.md describes what `optical_axis` fits,
+  not its refit rule; `fit_camera`'s docstrings name it only as the route to the axis).
+- Prose checked for check_naming's banned words (R7, R14) by a grep of the diff: none.
+
+## 3. Gates
+
+The docs build (strict, `checkdocs = :public`, no `warnonly`) and the `docs`, `readme`, `quality` and `naming` items
+run in the fresh-clone gate of the head that carries this record (scripts/patch-est0117). No dev runs: kaimon was down,
+so all Julia went through that gate.
+
 docs-pass: b798a0c3
 
 # VisualGeometryToolkitCore 0.10.9 docs pass (julia-docs-pass) — branch patch-core0109

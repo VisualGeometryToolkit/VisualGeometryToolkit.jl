@@ -51,6 +51,11 @@ turned frame).
 ### Known
 
 - No suite test reaches `optical_axis`'s refusal: no synthetic source was found whose every refit fails.
+- The exact resample bounds neither the extension nor the subdivision beyond a factor of 2^20 per axis: a region far
+  past the image, or a very fine `lattice_spacing`, builds a lattice as large as asked. A region in which the source
+  images fewer than 16 quadrature points is refused by the fidelity quadrature ("the source images too few points").
+- `extrapolated_fraction` is a share of the image's area for a fitted lattice and of the region's pixels for a
+  resampled SplineLens source (both: where the result has no source ray).
 - The non-central fit's line offset is reported, not bounded: the direction tolerance does not bound it (an offset
   tolerance for the spacing search is a follow-up).
 
@@ -59,11 +64,12 @@ turned frame).
 - **A `grid_size` with a SplineLens source is an `ArgumentError` naming `lattice_spacing`.** A SplineLens source is
   resampled exactly, and its lattice has `m (n − 3) + 3` nodes per axis, which no given count chooses: give the target
   cell, `lattice_spacing`. (0.11.5 refused a `grid_size` here too, the source's backward being kept; a branch draft of
-  0.11.6 accepted one and refitted by least squares, and is superseded.) Callers that passed a `grid_size` with a
-  SplineLens source must pass `lattice_spacing` instead.
+  0.11.6 accepted one and refitted by least squares, and is superseded.) A caller that gave a `grid_size` with a
+  SplineLens source gives `lattice_spacing` instead.
 - **A region past a SplineLens source's valid domain is accepted** (0.11.5: a `RegionBeyondSupport`): the source's
-  lattice is extended over it, the new nodes marked. A parametric source's region is checked against its support, as
-  before.
+  lattice is extended over it, the new nodes marked. A `support` the caller states is still checked (a re-gridded
+  camera's calibration: its lattice is never extended past it); `support` now defaults to `nothing`, meaning the
+  source's `valid_domain` for every other source. A parametric source's region is checked as before.
 - Core compat floor `"0.10.8"` (package, test and docs environments; `extend_lattice`, `subdivide_lattice`,
   `folded_pixels`, `lattice_spacing`).
 - The SplineLens target turns a gauge-`K` source onto its axis before its backward is kept or fitted (it turned the

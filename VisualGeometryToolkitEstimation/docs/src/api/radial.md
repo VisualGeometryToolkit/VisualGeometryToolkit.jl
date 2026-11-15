@@ -135,7 +135,9 @@ Three verbs regress one camera model onto a source camera over a region of its s
   OpenCV models, Fisheye624), and refuses a family with none (`DoubleSphere`, `Unified`, `ExtendedUnified`, a `Tilt` or
   `FieldOfView` term) with an `ArgumentError` naming the two verbs below. Its targets `SplineLens` (a `CameraModel`
   whose lens is the backward spline of rays over the image) and `NoncentralSplineModel` (its direction and point
-  splines) are penalized linear least squares. `pspline_grid(T, source, region, grid_size)` is the spline targets' one
+  splines) are penalized linear least squares; a SplineLens SOURCE is instead resampled exactly (Core's
+  `extend_lattice` over the region, `subdivide_lattice` to the `lattice_spacing` cell, then the turn onto its optical
+  axis), its extension and fold report recorded. `pspline_grid(T, source, region, grid_size)` is the spline targets' one
   penalized solve on a given lattice, `grid_size = (columns, rows)` in Core's order; `fit_camera` repeats it at each
   spacing it tries.
 - `refine_camera(guess, source, region; …)` is the chart LM from a guess to the exact pixel least-squares minimum of

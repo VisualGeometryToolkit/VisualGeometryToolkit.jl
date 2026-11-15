@@ -1,3 +1,9 @@
+docs-pass: ff3639a0
+
+# VisualGeometryToolkitEstimation 0.11.6 docs pass addendum — branch patch-est0116-on-core
+
+ff3639a0 corrects the subdivision tie rule in the CHANGELOG and in `fit_camera`'s docstring: a near tie goes to the target's cell aspect (square only for one number), as `_resample_factors` does since b37eadec. No code changed.
+
 docs-pass: 20295371
 
 # VisualGeometryToolkitEstimation 0.11.6 docs pass addendum — branch patch-est0116-on-core

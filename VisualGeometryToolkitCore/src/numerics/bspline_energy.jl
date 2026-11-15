@@ -152,8 +152,8 @@ difference_stencil(order::Integer) =
     ntuple(k -> Float64((-1)^(k - 1) * binomial(Int(order), k - 1)), Int(order) + 1)
 
 """
-    difference_rows(mask::AbstractMatrix{Bool}, order; axes = (1, 2)) -> SparseMatrixCSC{Float64, Int}
-    difference_rows(dims::Dims{2}, order; axes = (1, 2))
+    difference_rows(mask::AbstractMatrix{Bool}, order; axes = (1, 2), mixed = false) -> SparseMatrixCSC{Float64, Int}
+    difference_rows(dims::Dims{2}, order; axes = (1, 2), mixed = false)
 
 The forward differences `Δᵒʳᵈᵉʳ` ([`difference_stencil`](@ref), any order ≥ 1: 1 a
 gradient, 2 the natural rule's, 3 the P-spline's) of a 2-D lattice of coefficients along
@@ -170,9 +170,17 @@ annihilates a quadratic along each axis, so only the variation beyond it is pena
 An `N × 1` mask is a profile (rows along its one axis only). The isotropic pairing of
 the order-1 rows is [`gradient_pairs`](@ref); a device solve takes the operator as a
 [`CSRMatrix`](@ref).
+
+`mixed = true` (order 2 only) appends the mixed differences `Δ₁Δ₂c = c(i, j) − c(i + 1, j)
+− c(i, j + 1) + c(i + 1, j + 1)`, one row per 2 × 2 window that lies wholly in `mask`
+(`j` outer), after the axis rows. Then `‖D_axes c‖² + 2‖D_mixed c‖²` is the discrete
+second-order bending energy `Σ Δ₁₁² + 2Δ₁₂² + Δ₂₂²`, which annihilates exactly the affine
+functions of the node indices (the thin-plate discretization; [`extend_lattice`](@ref)'s
+extrapolation reads it). The default `mixed = false` gives the axis rows alone.
 """
-function difference_rows(mask::AbstractMatrix{Bool}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2))
+function difference_rows(mask::AbstractMatrix{Bool}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2), mixed::Bool = false)
     order >= 1 || throw(ArgumentError("difference_rows: order must be ≥ 1, got $order"))
+    (!mixed || order == 2) || throw(ArgumentError("difference_rows: the mixed differences are of order 2, got order $order"))
     (!isempty(axes) && issubset(axes, (1, 2)) && issorted(axes; lt = <=)) ||
         throw(ArgumentError("difference_rows: axes is (1,), (2,) or (1, 2), got $axes"))
     s = difference_stencil(order)
@@ -189,9 +197,20 @@ function difference_rows(mask::AbstractMatrix{Bool}, order::Integer; axes::Tuple
             push!(I, row); push!(J, L[CartesianIndex(i, j) + k * δ]); push!(V, s[k + 1])
         end
     end
+    if mixed
+        w = ((0, 0, 1.0), (1, 0, -1.0), (0, 1, -1.0), (1, 1, 1.0))   # Δ₁Δ₂ on a 2 × 2 window
+        for j in 1:(n2 - 1), i in 1:(n1 - 1)
+            all(d -> mask[i + d[1], j + d[2]], w) || continue
+            row += 1
+            for (di, dj, v) in w
+                push!(I, row); push!(J, L[i + di, j + dj]); push!(V, v)
+            end
+        end
+    end
     return sparse(I, J, V, row, length(mask))
 end
-difference_rows(dims::Dims{2}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2)) = difference_rows(trues(dims), order; axes)
+difference_rows(dims::Dims{2}, order::Integer; axes::Tuple{Vararg{Int}} = (1, 2), mixed::Bool = false) =
+    difference_rows(trues(dims), order; axes, mixed)
 
 """
     gradient_pairs(mask::AbstractMatrix{Bool}) -> Matrix{NTuple{2, Int}}

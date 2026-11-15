@@ -8,7 +8,7 @@
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm, cross, dot
     using Random: AbstractRNG
-    export random_camera, raw, angle_between, boehm_refine, pixels_in, second_differences, ring_of
+    export random_camera, raw, ray_angle, boehm_refine, pixels_in, second_differences, ring_of
 
     # A SplineLens camera of `gx × gy` random direction controls (near ẑ, a smooth trend plus
     # noise) over a calibrated area whose cells are not square, with a supplied K.
@@ -22,7 +22,7 @@
 
     # The backward spline at a pixel, continued past its area (its raw 3-vector).
     raw(c, p) = c.lens.backward(VgtkCore.normalized_point(c.intrinsics, p))
-    angle_between(a, b) = atan(norm(cross(a, b)), dot(a, b))
+    ray_angle(a, b) = atan(norm(cross(a, b)), dot(a, b))
     function pixels_in(rng, r, n)
         o = VgtkCore.GeometryBasics.origin(r); w = VgtkCore.GeometryBasics.widths(r)
         return [SVector(o[1] + rand(rng) * w[1], o[2] + rand(rng) * w[2]) for _ in 1:n]
@@ -87,7 +87,7 @@ end
         dom = valid_domain(cam)
         pts = [pixels_in(rng, dom, 400); [SVector(37.0, 21.0), SVector(938.0, 724.0)]]
         @test maximum(p -> norm(raw(fine, p) - raw(cam, p)) / norm(raw(cam, p)), pts) <= 1.0e-12
-        @test maximum(p -> angle_between(VgtkCore.backproject(fine, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-9
+        @test maximum(p -> ray_angle(VgtkCore.backproject(fine, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-9
         # the continuation past the area is the same cubic
         past = pixels_in(rng, Rect2(0.0, 0.0, 1000.0, 760.0), 200)
         @test maximum(p -> norm(raw(fine, p) - raw(cam, p)) / norm(raw(cam, p)), past) <= 1.0e-12
@@ -155,7 +155,7 @@ end
         @test C[rows, cols] == C0
         pts = [pixels_in(rng, A, 500); [SVector(37.0, 21.0), SVector(938.0, 724.0), SVector(37.0, 724.0)]]
         @test maximum(p -> norm(raw(e.camera, p) - raw(cam, p)) / norm(raw(cam, p)), pts) <= 1.0e-12
-        @test maximum(p -> angle_between(VgtkCore.backproject(e.camera, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-12
+        @test maximum(p -> ray_angle(VgtkCore.backproject(e.camera, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-12
         # a region inside the area, or the area itself, adds nothing: the camera as it was
         for r in (A, Rect2(100.0, 100.0, 50.0, 50.0))
             n = extend_lattice(cam, r)
@@ -232,9 +232,10 @@ end
     @testset "subdivision: a fine node is present when every coarse node it reads is" begin
         for m in ((2, 3), (3, 2), (5, 4))
             fine = subdivide_lattice(cam, m).camera
-            @test valid_domain(fine) == A
+            V = valid_domain(fine)                                     # the same rectangle, its corners on the fine nodes
+            @test all(isapprox.(V.origin, A.origin; rtol = 1.0e-12)) && all(isapprox.(V.widths, A.widths; rtol = 1.0e-12))
             @test all(p -> imaged(fine, p) == imaged(cam, p), pts)
-            @test maximum(p -> angle_between(VgtkCore.backproject(fine, p), VgtkCore.backproject(cam, p)), filter(p -> imaged(cam, p), pts)) <= 1.0e-9
+            @test maximum(p -> ray_angle(VgtkCore.backproject(fine, p), VgtkCore.backproject(cam, p)), filter(p -> imaged(cam, p), pts)) <= 1.0e-9
             F = present_nodes(fine)
             @test any(.!F) && all(i -> all(isfinite, fine.lens.backward.controls[i]) == F[i], eachindex(F))
         end
@@ -261,7 +262,7 @@ end
         @test all(p -> imaged(e.camera, p), pixels_in(rng, region, 500))
         src = filter(p -> imaged(cam, p), pts)
         @test all(p -> imaged(e.camera, p), src)
-        @test maximum(p -> angle_between(VgtkCore.backproject(e.camera, p), VgtkCore.backproject(cam, p)), src) <= 1.0e-12
+        @test maximum(p -> ray_angle(VgtkCore.backproject(e.camera, p), VgtkCore.backproject(cam, p)), src) <= 1.0e-12
         V = valid_domain(e.camera)
         @test V.origin[1] <= region.origin[1] + 1.0e-9 && V.origin[2] <= region.origin[2] + 1.0e-9
     end
@@ -284,7 +285,7 @@ end
         f = subdivide_lattice(e.camera, m; e.extrapolated)
         pts = pixels_in(rng, A, 400)
         @test maximum(p -> norm(raw(f.camera, p) - raw(cam, p)) / norm(raw(cam, p)), pts) <= 1.0e-12
-        @test maximum(p -> angle_between(VgtkCore.backproject(f.camera, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-9
+        @test maximum(p -> ray_angle(VgtkCore.backproject(f.camera, p), VgtkCore.backproject(cam, p)), pts) <= 1.0e-9
         @test valid_domain(f.camera) == valid_domain(e.camera)
         # a marked fine node reads an extrapolated node; none of them reaches the source's domain
         @test any(f.extrapolated) && !all(f.extrapolated)

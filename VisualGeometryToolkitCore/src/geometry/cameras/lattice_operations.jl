@@ -1,0 +1,265 @@
+# ==============================================================================
+# Exact lattice operations: a SplineLens lattice extended on its own spacing, and
+# a uniform cubic lattice subdivided by integers
+# ==============================================================================
+#
+# Two host-side operations on a uniform cubic lattice (node j at cell j − 2, `size − 3`
+# cells per axis over the closed area), which a resample of one SplineLens onto another
+# lattice composes (VisualGeometryToolkitEstimation's `fit_camera(SplineLens, spline
+# source)`):
+#
+# - `subdivide_lattice`: the same function on a lattice whose every cell is split into
+#   m_x × m_y equal cells. Knot insertion (Boehm 1980) of the m − 1 knots k + i/m into
+#   every span of a uniform knot vector has a closed form, the m-ary refinement of the
+#   cardinal cubic B-spline M (support [0, 4]):
+#
+#       M(t) = Σₖ aₖ M(m t − k),   a(z) = m⁻³ (1 + z + … + z^{m−1})⁴,   k = 0 … 4(m − 1),
+#
+#   so the coarse node j (basis M(t − j + 4)) is Σₖ aₖ times the fine node
+#   j′ = m(j − 4) + k + 4 (basis M(m t − j′ + 4), centred at (j′ − 2)/m). The fine
+#   controls are d = R c per axis, R the n′ × n matrix of those aₖ, n′ = m(n − 3) + 3,
+#   and on the lattice D = R_y C R_xᵀ. The representation is unique, so this is the
+#   result of inserting the knots one at a time (the tests compare it with a literal
+#   Boehm insertion). The fine nodes 1 … n′ read coarse nodes 1 … n only, so the fine
+#   spline is the coarse one on the whole closed area. Each fine edge cell is a piece
+#   of the coarse edge cell's cubic, so the continuation past the area is the same
+#   cubic too.
+#
+# - `extend_lattice`: the lattice grown outward by whole cells, with the same origin and
+#   phase, until every node whose open support meets a region exists. The source's
+#   present nodes keep their controls bit for bit. Every window inside the source's area
+#   reads source nodes only, so the spline there is unchanged to the rounding of the
+#   lattice coordinate. The new nodes (and the absent source nodes the region needs) are
+#   the minimiser of the discrete second-order bending energy
+#   Σ Δxx² + 2Δxy² + Δyy² (`difference_rows(·, 2; mixed = true)`), the present source
+#   nodes held: rotation-invariant, so neither the normal nor the tangential curvature
+#   grows outward, and its null space is the affine functions, so an affine lattice is
+#   continued exactly. In 1-D (no tangential variation) it is the natural rule
+#   c₀ = 2c₁ − c₂ (`natural_extrapolation`). It sets the START values of the
+#   extrapolated nodes only: no refinement's objective holds it.
+#
+# Neither operation runs on a device: they build a new lattice once on the host. The
+# camera they return evaluates on a device like any SplineLens camera.
+
+# ------------------------------------------------------------------------------
+# Subdivision
+# ------------------------------------------------------------------------------
+
+# The m-ary refinement mask of the cardinal cubic B-spline, (a₀, …, a_{4(m−1)}):
+# the coefficients of m⁻³ (1 + z + … + z^{m−1})⁴. Each residue class mod m sums to
+# one, so a fine node's coefficients sum to one (a constant is reproduced).
+function _subdivision_mask(m::Int)
+    a = [1.0]
+    for _ in 1:4
+        b = zeros(length(a) + m - 1)
+        for i in eachindex(a), j in 0:(m - 1)
+            b[i + j] += a[i]
+        end
+        a = b
+    end
+    return a ./ m^3
+end
+
+# The refinement matrix of one axis: the `m(n − 3) + 3` fine nodes as combinations of
+# the `n` coarse ones (`d = R c`), fine node j′ = m(j − 4) + k + 4 taking aₖ of coarse j.
+function _subdivision_matrix(n::Int, m::Int)
+    a = _subdivision_mask(m)
+    nf = m * (n - 3) + 3
+    R = zeros(nf, n)
+    for j in 1:n, k in 0:(length(a) - 1)
+        jf = m * (j - 4) + k + 4
+        1 <= jf <= nf && (R[jf, j] += a[k + 1])
+    end
+    return R
+end
+
+# `(m_x, m_y)` from an integer or a pair, each ≥ 1.
+_subdivision_factors(m::Integer) = _subdivision_factors((m, m))
+function _subdivision_factors(factors::Tuple{Integer, Integer})
+    all(>=(1), factors) || throw(ArgumentError("subdivide_lattice: the factors are integers ≥ 1, got $factors"))
+    return Int(factors[1]), Int(factors[2])
+end
+
+# `R_y C R_xᵀ` per component, the controls `SVector{K, T}`s as given (computed in Float64,
+# rounded once to `T`).
+function _subdivided_controls(C::AbstractMatrix{SVector{K, T}}, Ry, Rx) where {K, T}
+    D = ntuple(k -> Ry * Float64.(getindex.(Matrix(C), k)) * transpose(Rx), K)
+    return [SVector{K, T}(ntuple(k -> D[k][i], K)) for i in CartesianIndices(D[1])]
+end
+
+# The fine nodes that read any coarse node of `mask` (`[gy, gx]`): a nonzero entry of
+# R_y or R_x is a node read (every mask coefficient is positive).
+_reads_any(Ry, Rx, mask::AbstractMatrix{Bool}) =
+    BitMatrix(Int.(Ry .!= 0) * Int.(mask) * transpose(Int.(Rx .!= 0)) .> 0)
+
+"""
+    subdivide_lattice(spline::ChartSpline, factors) -> ChartSpline
+
+The same spline on a lattice whose every cell is split into `m_x × m_y` equal cells:
+`factors = (m_x, m_y)`, integers ≥ 1 (along the chart's first and second coordinate,
+the `grid_size` order), or one integer for both. The area is the same, and each axis
+of `n` controls becomes `m (n − 3) + 3`. It is exact knot insertion (Boehm's, every
+span at once): the fine controls are `R_y C R_xᵀ`, with `R` the m-ary refinement of
+the cubic B-spline, `m⁻³ (1 + z + … + z^{m−1})⁴`. The value is the same at every
+point, the continuation past the area included, to the rounding of the sums.
+Host-side.
+"""
+function subdivide_lattice(cs::ChartSpline, factors)
+    mx, my = _subdivision_factors(factors)
+    gh, gw = size(cs.controls)
+    return ChartSpline(cs.area, _subdivided_controls(cs.controls, _subdivision_matrix(gh, my), _subdivision_matrix(gw, mx)))
+end
+
+"""
+    subdivide_lattice(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, factors; extrapolated = nothing)
+        -> (; camera, extrapolated::BitMatrix)
+
+The same [`SplineLens`](@ref) camera on a lattice whose every cell is split into
+`m_x × m_y` equal cells: its backward spline subdivided by `factors = (m_x, m_y)`
+(integers ≥ 1, or one integer for both; [`subdivide_lattice`](@ref)`(::ChartSpline, factors)`).
+The backward spline is exact knot insertion, so it is the same function everywhere.
+`K`, the backward area and the forward spline are kept (the backward has not changed).
+[`lattice_spacing`](@ref) is divided by `factors`.
+
+- **Presence.** A fine node is present when every coarse node it reads is present.
+  The camera then images exactly the pixels the source images, and its
+  [`valid_domain`](@ref) is the source's. An absent node holds NaN.
+- **Marks.** `extrapolated` (a `Bool` matrix of the source lattice's size, `[gy, gx]`,
+  such as [`extend_lattice`](@ref)'s) marks coarse nodes. The returned `extrapolated`
+  marks every fine node that reads a marked coarse node (all `false` without marks).
+  No fine node that reads an unmarked node only is marked.
+
+Host-side lattice algebra: the result evaluates on a device like any SplineLens camera.
+"""
+function subdivide_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, factors; extrapolated::Union{Nothing, AbstractMatrix{Bool}} = nothing)
+    mx, my = _subdivision_factors(factors)
+    l = cam.lens
+    b = l.backward
+    gsz = gh, gw = size(b.controls)
+    extrapolated === nothing || size(extrapolated) == gsz ||
+        throw(DimensionMismatch("subdivide_lattice: a $(size(extrapolated)) extrapolated mask for a $gsz lattice"))
+    Ry, Rx = _subdivision_matrix(gh, my), _subdivision_matrix(gw, mx)
+    C = Matrix(b.controls)
+    l.present === nothing || (C = map((v, p) -> p ? v : zero(v), C, l.present))   # an absent slot is never read
+    fine = _subdivided_controls(C, Ry, Rx)
+    present = l.present === nothing ? nothing : .!_reads_any(Ry, Rx, .!l.present)
+    present === nothing || (fine = _absent_nan(fine, present))
+    marks = extrapolated === nothing ? falses(size(fine)) : _reads_any(Ry, Rx, extrapolated)
+    lens = SplineLens(ChartSpline(b.area, fine); l.forward, present)
+    return (; camera = CameraModel(cam.intrinsics, lens), extrapolated = marks)
+end
+
+# ------------------------------------------------------------------------------
+# Extension
+# ------------------------------------------------------------------------------
+
+# The rounding slack of a region edge's cell coordinate: a quotient within it of an
+# integer is that integer (a region equal to the source's own area adds no ring).
+const _CELL_TOL = 1.0e-9
+
+# The cell coordinates `t` of the nodes whose open support `(t − 2, t + 2)` meets the
+# closed interval `[q_lo, q_hi]` (in cells from the area's origin): `q_lo − 2 < t < q_hi + 2`.
+_needed_cells(qlo, qhi) = (floor(Int, qlo - 2 + _CELL_TOL) + 1, ceil(Int, qhi + 2 - _CELL_TOL) - 1)
+
+"""
+    extend_lattice(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::Rect)
+        -> (; camera, extrapolated::BitMatrix, offset::NTuple{2, Int})
+
+The [`SplineLens`](@ref) camera's lattice extended outward on its own spacing, with the
+same origin and phase, until every node whose support meets `region` exists. `region`
+is a rectangle in pixels of the camera's pixel frame, typically the calibrated area of
+the lattice a resample targets. A node's support here is open: the open rectangle
+`node ± 2·spacing`, where its basis is nonzero. So a region equal to the source's
+calibrated area adds nothing. The lattice never shrinks. The extended camera has the
+same `K`, and its backward area grows by the whole cells added, so the region lies
+in its [`valid_domain`](@ref).
+
+- **Inside the source's domain** every present source node keeps its control bit for
+  bit, so the spline is unchanged there, to the rounding of the lattice coordinate.
+- **The extrapolated nodes** are the new nodes, and every absent source node whose
+  support meets the region. Their controls minimise the discrete second-order bending
+  energy `Σ Δxx² + 2Δxy² + Δyy²` of the extended lattice
+  ([`difference_rows`](@ref)`(·, 2; mixed = true)`, per component), with the present
+  source nodes held fixed. The energy is rotation-invariant (the thin-plate
+  discretization), so the curvature, normal, tangential and mixed, does not grow
+  outward, corners included. Its null space is the affine functions of the node
+  indices, so an affine lattice is continued exactly; without tangential variation it
+  is the natural rule `c₀ = 2c₁ − c₂` ([`natural_extrapolation`](@ref)). Across the
+  source's domain edge the spline is C², since a uniform cubic B-spline is C² at every
+  knot. This penalty gives only the start values of the extrapolated nodes. It is not
+  part of any refinement's objective: a later fit moves those nodes by its own terms.
+- **Presence.** Every node is present except an absent source node whose support does
+  not meet the region (it stays absent, NaN in its slot). A source with every node
+  present gives a camera with every node present.
+- **`extrapolated`** marks the extrapolated nodes, a `BitMatrix` of the extended lattice
+  (`[gy, gx]`, like its controls), `false` for a source node kept as it was.
+  [`subdivide_lattice`](@ref)'s keyword carries it to a subdivided lattice.
+- **`offset`** is the 0-based `(row, col)` of the source's first control in the
+  extended grid ([`window_offset`](@ref)'s convention).
+- **The forward spline** is dropped, since the backward changed outside the domain.
+  When nothing is extrapolated, `camera` is the input camera, its forward kept.
+
+An `ArgumentError` for a region that is not a finite rectangle, or when the present
+nodes do not determine the extrapolation (no complete 4 × 4 window is present).
+Host-side lattice algebra: the result evaluates on a device like any SplineLens camera.
+"""
+function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::GeometryBasics.HyperRectangle{2})
+    l = cam.lens
+    b = l.backward
+    gsz = gh, gw = size(b.controls)
+    ro = GeometryBasics.origin(region); rw = GeometryBasics.widths(region)
+    (all(isfinite, ro) && all(isfinite, rw) && all(>=(0), rw)) ||
+        throw(ArgumentError("extend_lattice: the region must be a finite rectangle, got $region"))
+    rect = _pixel_area(cam.intrinsics, b.area)
+    h = _lattice_spacing(rect, gsz)
+    o = GeometryBasics.origin(rect)
+    tx = _needed_cells((ro[1] - o[1]) / h[1], (ro[1] + rw[1] - o[1]) / h[1])
+    ty = _needed_cells((ro[2] - o[2]) / h[2], (ro[2] + rw[2] - o[2]) / h[2])
+    # the source's nodes sit at the cell coordinates −1 … g − 2
+    left, right = max(0, -1 - tx[1]), max(0, tx[2] - (gw - 2))
+    top, bottom = max(0, -1 - ty[1]), max(0, ty[2] - (gh - 2))
+    ngh, ngw = gh + top + bottom, gw + left + right
+    rows, cols = top .+ (1:gh), left .+ (1:gw)
+    known = falses(ngh, ngw)
+    known[rows, cols] .= l.present === nothing ? trues(gsz) : l.present
+    source = falses(ngh, ngw); source[rows, cols] .= true
+    needed = BitMatrix([ty[1] <= iy - top - 2 <= ty[2] && tx[1] <= ix - left - 2 <= tx[2] for iy in 1:ngh, ix in 1:ngw])
+    present = known .| .!source .| needed
+    filled = present .& .!known
+    any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0))
+    T = eltype(eltype(b.controls))
+    C = fill!(Matrix{SVector{3, T}}(undef, ngh, ngw), SVector{3, T}(NaN, NaN, NaN))
+    C[rows, cols] .= Matrix(b.controls)
+    _extrapolate_controls!(C, known)
+    present_mask = all(present) ? nothing : present
+    present_mask === nothing || (C = _absent_nan(C, present_mask))
+    # the backward area grown by the whole cells added, on the source's own spacing
+    ao = GeometryBasics.origin(b.area); aw = GeometryBasics.widths(b.area)
+    hn = (aw[1] / (gw - 3), aw[2] / (gh - 3))
+    area = Rect2{Float64}(ao[1] - left * hn[1], ao[2] - top * hn[2], aw[1] + (left + right) * hn[1], aw[2] + (top + bottom) * hn[2])
+    lens = SplineLens(ChartSpline(area, C); present = present_mask)
+    return (; camera = CameraModel(cam.intrinsics, lens), extrapolated = filled, offset = (top, left))
+end
+
+# The controls of the nodes `.!known` filled in place by the minimiser of the bending
+# energy ‖D_axes c‖² + 2‖D_mixed c‖² over the lattice (`difference_rows(size, 2; mixed =
+# true)`, the mixed rows weighted √2; per component), the `known` nodes held: the normal
+# equations DᵤᵀDᵤ cᵤ = −DᵤᵀD_k c_k, one sparse Cholesky factorization for the components.
+function _extrapolate_controls!(C::AbstractMatrix{SVector{K, T}}, known::BitMatrix) where {K, T}
+    D = difference_rows(size(known), 2; mixed = true)
+    n1, n2 = size(known)
+    n_axis = (n1 - 2) * n2 + n1 * (n2 - 2)                                # the axis rows come first
+    D = LinearAlgebra.Diagonal([i <= n_axis ? 1.0 : sqrt(2.0) for i in axes(D, 1)]) * D
+    k = vec(known)
+    Du, Dk = D[:, .!k], D[:, k]
+    F = try
+        LinearAlgebra.cholesky(LinearAlgebra.Symmetric(SparseMatrixCSC{Float64, Int}(transpose(Du) * Du)))
+    catch e
+        e isa LinearAlgebra.PosDefException || rethrow()
+        throw(ArgumentError("extend_lattice: the present nodes do not determine the extrapolation (no complete 4 × 4 window present)"))
+    end
+    ck = vec(C)[k]
+    x = ntuple(i -> F \ (-(transpose(Du) * (Dk * Float64.(getindex.(ck, i))))), K)
+    C[.!known] .= [SVector{K, T}(ntuple(i -> x[i][j], K)) for j in eachindex(x[1])]
+    return C
+end

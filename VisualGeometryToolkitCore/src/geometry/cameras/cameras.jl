@@ -77,6 +77,8 @@ using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (pr
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/correspondence_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
+using ..VisualGeometryToolkitCore: difference_rows         # the sparse difference rows (numerics/bspline_energy.jl): extend_lattice's bending energy
+using SparseArrays: SparseMatrixCSC                     # extend_lattice's normal equations
 using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
 using ..VisualGeometryToolkitCore: shape_matrix, boundary_point   # an ellipse's quadratic form and boundary: region containment (image_circle.jl)
 using ..VisualGeometryToolkitCore: rect_corners   # the one corner order of a rect (primitives/rectangles.jl): farthest_radius's corners
@@ -210,6 +212,7 @@ include("chart_spline.jl")    # ChartSpline: a uniform cubic B-spline on a recta
 include("spline_lens.jl")     # SplineLens: the central grid camera as a CameraModel lens; the spline lattice's shared helpers
 include("noncentral_spline_model.jl")  # NoncentralSplineModel: the non-central grid on ChartSpline (the SplineLens's directions plus a point spline)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the spline models' lattice)
+include("lattice_operations.jl") # extend_lattice, subdivide_lattice: exact operations on a SplineLens lattice (host-side)
 include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
 include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("blur.jl")            # GaussianBlur: one blur of an imaging model, the density N(0, Σ) by its covariance (extends Statistics' cov/var/std, Core's propagate)
@@ -1252,6 +1255,7 @@ export spline_window_sums                 # the one 4 × 4 window sweep: value, 
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part (likewise)
 export axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis (spline_lens.jl)
+export extend_lattice, subdivide_lattice   # a SplineLens lattice extended on its own spacing; subdivided exactly by integers (public, not exported, at the top level)
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export plane_map                         # a posed camera's z = 0 plane → image map (public, not exported, at the top level)

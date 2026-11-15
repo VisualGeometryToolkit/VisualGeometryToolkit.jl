@@ -1,5 +1,45 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.8
+
+A patch, additive: exact lattice operations on a `SplineLens` camera, which VisualGeometryToolkitEstimation 0.11.6's
+`fit_camera(SplineLens, spline source)` composes to resample a spline source exactly. Both are host-side lattice algebra
+(no device path); the cameras they return evaluate on a device like any SplineLens camera.
+
+### Added
+- **`subdivide_lattice(camera, factors; extrapolated = nothing) -> (; camera, extrapolated)`** and
+  **`subdivide_lattice(spline::ChartSpline, factors) -> ChartSpline`** (public): the same spline on a lattice whose every
+  cell is split into `m_x × m_y` equal cells, with `factors = (m_x, m_y)` any integers ≥ 1 (one integer for both). It
+  is exact knot insertion (Boehm's, every span at once, in its closed form): per axis the fine controls are `R c`, `R`
+  the m-ary refinement mask of the cubic B-spline `m⁻³(1 + z + … + z^{m−1})⁴`, and `R_y C R_xᵀ` on the lattice. The
+  value is the same at every point, the continuation past the area included (tested ≤ 1e-12 relative and directions
+  ≤ 1e-9 rad on 16×18 and 26×20 lattices with non-square cells, m = (1,1), (2,3), (3,2), (5,4), and against a literal
+  Boehm insertion). `K`, the area and the forward spline are kept. A fine node is present when every coarse node it
+  reads is present, so the imaged region and `valid_domain` are the source's. The `extrapolated` keyword's coarse marks
+  carry to the fine nodes that read them.
+- **`extend_lattice(camera, region) -> (; camera, extrapolated, offset)`** (public): the lattice extended outward on its
+  own spacing, with the same origin and phase, until every node whose open support meets `region` (a pixel rectangle)
+  exists.
+  - The present source nodes keep their controls bit for bit, so inside the source's domain the spline is unchanged, to
+    the rounding of the lattice coordinate.
+  - The new nodes, and the absent source nodes the region needs, minimise the discrete second-order bending energy
+    `Σ Δxx² + 2Δxy² + Δyy²`, the present source nodes held. That energy is rotation-invariant, so no curvature (normal,
+    tangential or mixed) grows outward, corners included. Affine lattices are continued exactly. The spline is C² across
+    the domain's edge.
+  - The energy only gives the extrapolated nodes' start values. It is not part of any refinement's objective.
+  - `extrapolated` marks those nodes (a `BitMatrix` of the extended grid), and `offset` is the source's 0-based
+    `(row, col)` in it.
+  - An absent source node the region does not need stays absent. The forward spline is dropped.
+- **`difference_rows(mask, 2; mixed = true)`**: the mixed second differences `Δ₁Δ₂c`, one row per 2 × 2 window wholly in
+  the mask, appended after the axis rows. With them weighted `√2`, the operator's square is the discrete bending energy
+  that `extend_lattice` minimises. The default `mixed = false` returns the axis rows bit for bit as before, so every
+  existing caller is unchanged (Estimation's P-spline Δ³ penalty included). `mixed = true` at another order is an
+  `ArgumentError`.
+
+### Docs
+- The Lenses guide, "Extending and subdividing a lattice", derives the subdivision's exactness (the two-scale relation of
+  the cubic B-spline), the presence rule, and the extension's continuity, invariance and uniqueness.
+
 ## 0.10.7
 
 A patch, additive: the noise law's variance at a given value.

@@ -300,6 +300,90 @@ w = window(cam, 5:14, 15:24)                       # rows (y) × cols (x) of the
 backproject(w, SVector(700.0, 400.0)) ≈ backproject(cam, SVector(700.0, 400.0))
 ```
 
+## Extending and subdividing a lattice
+
+Two host-side operations put a `SplineLens` on another lattice without changing it
+where it is defined. Resampling one spline lens onto a target lattice composes
+them: extend to cover the target's area, then subdivide towards its spacing.
+
+```julia
+ext  = extend_lattice(cam, target_area)                  # (; camera, extrapolated, offset)
+fine = subdivide_lattice(ext.camera, (2, 3); ext.extrapolated)   # (; camera, extrapolated)
+```
+
+**Subdivision is exact.** On a uniform cubic lattice, node `j` sits at cell `j − 2`.
+Its basis is the cardinal cubic B-spline `M(t − j + 4)`, with `M` supported on
+`[0, 4]`. Splitting every cell into `m` equal cells inserts the knots `k + i/m`,
+`0 < i < m`, into every span. Inserting them one at a time is Boehm's algorithm,
+and inserting them all at once has a closed form, the two-scale relation of `M`:
+
+```math
+M(t) = \sum_{k=0}^{4(m-1)} a_k\, M(mt - k), \qquad
+\sum_k a_k z^k = m^{-3}\,(1 + z + \dots + z^{m-1})^4 .
+```
+
+It follows from `M` being the four-fold convolution of the unit box `B` on
+`[0, 1)`. The box splits into `m` boxes, `B(t) = Σᵢ₌₀^{m−1} B(mt − i)`, and a
+convolution of two functions of `mt` is `1/m` times the function of `mt` of their
+convolution. Four boxes give the mask `(1 + z + … + z^{m−1})⁴` and three
+convolutions the factor `m⁻³`. Coarse node `j` is
+therefore `Σₖ aₖ` times the fine node `j′ = m(j − 4) + k + 4`. The fine controls
+are `d = R c` per axis, with `R` the `(m(n − 3) + 3) × n` matrix of those `aₖ`. On
+the lattice, `D = R_y C R_xᵀ`.
+
+- The coefficients of each residue class mod `m` sum to one, so a constant is
+  reproduced.
+- The fine nodes `1 … m(n − 3) + 3`, those whose support meets the area, read
+  coarse nodes `1 … n` only. So the fine spline equals the coarse one on the whole
+  closed area.
+- Each fine edge cell is a piece of the coarse edge cell's cubic. So the
+  continuation past the area, which runs on the edge cell's cubic, is the same too.
+- The representation in the refined space is unique, so this is exactly what
+  Boehm's insertion gives. The tests check it against a literal insertion.
+
+A fine node is present when every coarse node it reads is present. A fine window
+inside a present coarse cell reads only coarse nodes of that cell's window, so it
+is present. A coarse cell with an absent node has, in each of its fine cells, a
+fine node that reads that node, since every `aₖ > 0`. The imaged region and the
+[`valid_domain`](@ref) are therefore the source's.
+
+**Extension keeps the source bit for bit.** The lattice grows by whole cells on its
+own spacing, so its origin and phase are the source's. The new node count per side
+is set by the region: a node at cell `t` is needed when its open support
+`(t − 2, t + 2)` meets the region. Every present source node keeps its control.
+Every window inside the source's area reads source nodes only, so the spline there
+is the source's, to the rounding of the lattice coordinate.
+
+The other needed nodes, new or absent in the source, are extrapolated. Their
+controls minimise the discrete bending energy of the extended lattice, with the
+present source nodes held:
+
+```math
+E(c) = \sum \Delta_{xx}c^2 + 2\,\Delta_{xy}c^2 + \Delta_{yy}c^2 ,
+```
+
+per component. The rows are `difference_rows(dims, 2; mixed = true)`, the mixed rows
+weighted `√2`, and the minimiser is one sparse Cholesky solve.
+
+- **Continuity.** A uniform cubic B-spline is C² at every knot, whatever its
+  controls, and the source's domain edge is a knot. So the extended spline is C²
+  across the edge: its one-sided value, slope and curvature there are the source's.
+- **Rotation invariance.** `E` is the thin-plate energy's discretization. It weighs
+  the normal, tangential and mixed curvature alike, so none of them can grow
+  outward, corners included.
+- **Null space.** The null space of `E` is the affine functions of the node indices.
+  An affine lattice is continued exactly, and a lattice without tangential
+  variation is continued by the natural rule `c₀ = 2c₁ − c₂`
+  ([`natural_extrapolation`](@ref)), whose curvature vanishes one cell out.
+- **Uniqueness.** The minimiser exists and is unique once one complete 4 × 4 window
+  is present: an affine function that vanishes on four rows vanishes everywhere.
+
+The penalty gives only the START values of the extrapolated nodes. No refinement's
+objective holds it, and a later fit moves those nodes by its own terms. The
+`extrapolated` mask says which they are. A subdivision carries the marks: a fine
+node is marked when it reads a marked coarse node. No marked fine node's support
+reaches the source's area, so the source's region reads unmarked nodes only.
+
 ## The lens record
 
 [`lens_record`](@ref) writes a lens as a self-describing record, the form

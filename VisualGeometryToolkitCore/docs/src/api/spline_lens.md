@@ -24,6 +24,19 @@ Private = false
 Pages = ["cameras/spline_lens.jl"]
 ```
 
+## Exact lattice operations
+
+A `SplineLens` lattice extended outward on its own spacing (the extrapolated nodes
+marked), and a uniform cubic lattice subdivided by integers, the same function. A
+resample of one spline lens onto another lattice composes them. Derivations in the
+[Lenses](../guide/lenses.md#Extending-and-subdividing-a-lattice) guide.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["cameras/lattice_operations.jl"]
+```
+
 ## The non-central grid on the lens's directions
 
 `NoncentralSplineModel`: the central grid's directions (a `SplineLens`'s backward

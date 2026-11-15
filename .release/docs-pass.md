@@ -1,8 +1,8 @@
-docs-pass: 9aad1a9c
+docs-pass: fdf0418b
 
 # VisualGeometryToolkitCore 0.10.10 and VisualGeometryToolkitIO 0.10.4 docs review (julia-docs-pass) — branch patch-core0110
 
-Baseline: Core 0.10.9 and IO 0.10.3, on origin/main b38dd88b (Estimation 0.11.7). The review covers the tree 9aad1a9c.
+Baseline: Core 0.10.9 and IO 0.10.3, on origin/main b38dd88b (Estimation 0.11.7). The review covers the tree fdf0418b.
 After it, only this record changes (`.release/` is outside the gate). No code outside VisualGeometryToolkitCore and
 VisualGeometryToolkitIO.
 
@@ -22,6 +22,10 @@ VisualGeometryToolkitIO.
 
 - `PolygonRegion`: the vertex ring and its device form (adapted, membership inside a kernel; the other operations
   host-side).
+- `valid_domain` and `_fold_polygon`'s note: beside a jump of the fold radius between two samples (`_FOLD_JUMP`, 10 %
+  between neighbours, its derivation beside it) a vertex is capped at the nearer neighbour's fold and kept outside the
+  disc of the smallest fold; a discontinuity narrower than one sample's spacing that both neighbours miss cannot be seen.
+  The CHANGELOG's Fixed entry says so (an overclaim at a fold-radius jump, and vertices inside the disc there).
 - `valid_domain`, `angle_of_view` (the polygon is pulled in by at most its chords' sag, so the answer can understate
   rather than overstate), `check_region_support` and `farthest_radius` (their region lists name the polygon),
   `extend_lattice` and `folded_pixels` (the polygon is a lattice region), `SimilarityMap`'s region action (the polygon,
@@ -40,8 +44,9 @@ VisualGeometryToolkitIO.
 Core and IO docs builds strict (no `warnonly`; only the size warnings Documenter does not count as errors), each
 package's `docs`, `README`, `quality`, `naming` and `agent docs` items: run 19798 at ba59240f (the same tree as
 cf6fd13e), Core green, IO one refusal case that still read `polygon` as an unknown kind, fixed in 4cad0dc0; the gate's first
-run (4f969046) found the fifteen byte-for-byte fixtures still naming generator 0.10.3, re-recorded in 9aad1a9c (the
-gate reruns every item at the final head). No README example changes: neither README names the valid domain or the region
+run (4f969046) found the fifteen byte-for-byte fixtures still naming generator 0.10.3, re-recorded in 9aad1a9c ; the
+review of finding 1 (the fold-radius jump: red at e5dc4ce2, its green and the bit-for-bit check of the decentred OpenCV
+polygons) added the lines above at fdf0418b (the gate reruns every item at the final head). No README example changes: neither README names the valid domain or the region
 body.
 
 docs-pass: 1f396e7c

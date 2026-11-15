@@ -491,7 +491,6 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
         θ = Float64(view_angle_limit(lens(s)))
         refits += 1
     end
-    fold = folds ? fold : nothing
     # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
     converged(r) || throw(ArgumentError(
         "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *
@@ -500,8 +499,9 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     ))
     md = metadata(r)
     return FitResult(estimate(r), retcode(r), stop_rule(r), iterations(r), rms(r), r.n,
-                     CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge, (; md.family..., start_fold = fold),
-                                       md.rotation, md.symmetry_residual, md.residuals))
+                     CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge,
+                                       (; md.family..., start_fold = folds ? fold : nothing), md.rotation, md.symmetry_residual,
+                                       md.residuals))
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
 const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold angle, where the start's forward is monotonic
@@ -509,7 +509,7 @@ const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold 
 # start's rule); else the sooner of the start's and its stalled iterate's (RadiometricCamera's ag10fe Schöps source, 2026-11-15:
 # the start folding at 96.385°, the iterate at 96.358°, the region's widest angle 96.359°). A non-finite iterate: `θ`.
 function _stall_fold(θ::Float64, r)
-    θ < metadata(r).family.θ_max && return θ
+    (converged(r) || θ < metadata(r).family.θ_max) && return θ   # converged: not refitted, no iterate fold
     t = Float64(view_angle_limit(lens(estimate(r))))
     return isfinite(t) ? min(θ, t) : θ
 end

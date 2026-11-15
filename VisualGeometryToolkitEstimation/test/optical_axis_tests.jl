@@ -362,7 +362,7 @@ end
                                    VgtkCore.default_device())
     plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
     θfold, θmax = Float64(view_angle_limit(lens(start))), metadata(plain).family.θ_max
-    @test θmax < θfold < θmax / 0.9
+    @test θmax < θfold < θmax / E._INSIDE_FOLD
     @test !converged(plain)
     # the axis: refitted inside the fold, converged, the start's fold not recorded (it does not fold inside the region)
     r = optical_axis(src)

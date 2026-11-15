@@ -6,16 +6,17 @@ A patch: one answer that was wrong. A `SplineLens` projection without a forward 
 axis.
 
 ### Fixed
-- **A `SplineLens` projection's cold start is the ray's equidistant chart point, not its pinhole point.** `project`'s
+- **A `SplineLens` projection's cold start is the backward area's centre, not the ray's pinhole point.** `project`'s
   LM (scalar, batched without a finite seed, and `NoncentralSplineModel`'s two-argument form) started at
   `(X₁/X₃, X₂/X₃)` where the lens images it. For a fisheye ray about 55° off axis that point lies at `tan θ`, past the
   image circle but inside a sensor-wide lattice, on controls the data do not pin; the LM stalled there (residual
-  0.38–0.52 rad) and the ray was not imaged. RadiometricCamera's refined fx3 fisheye lattices lost 156 and 11
-  registered dots in a band at r/R 0.64–0.69 of the image circle this way. The start is now the ray's point of the
-  equidistant chart about ẑ (`forward_chart`, the forward spline's own chart: radius θ), the same first-order inverse
-  at the axis and a fisheye's to every order it is equidistant, else the area's centre as before. Only the start
-  moved: over the golden cameras the projection is the centre start's to 2.6e-12 px with the same imaged mask, and no
-  recorded golden value changed.
+  0.38–0.52 rad) and the ray was not imaged. RadiometricCamera's refined fx3 fisheye lattices lost 153 and 11
+  registered dots in a band at r/R 0.64–0.69 of the image circle this way. The equidistant chart point
+  (`forward_chart`, radius θ) was tried and refused: near the rim of a lens that compresses there it lands past the
+  circle too, and the LM converged onto the outer lattice's fold, 15–160 px from the imaged point (38 of the refined
+  lattice's rim dots). The start is now the area's centre for every ray, the start `_solved_projection` (the
+  refinement's solve) already used. Over the golden cameras the projection is the centre start's bit for bit with
+  the same imaged mask; no recorded golden value changed.
 
 ## 0.10.9
 

@@ -1,5 +1,21 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.11.0 (unreleased; breaking, with the stack cascade)
+
+### Changed (breaking)
+- **A tolerance stop of the host LM is converged** (owner ruling, 2026-11-15: "if it hits our tolerance we mark it as
+  converged; whether the tolerance is too loose is another story"). `lmsolve_chart!` (every form) and `nlls_termination`
+  map a stop on the relative cost decrease (`ftol`, `CostDecrease`) or on the step size (`xtol`, or the new `xtol_rel`,
+  `IncrementSize`) to `ReturnCode.Success`, with NO stationarity postcondition (until 0.10.11 one that failed it was
+  `Stalled`, `converged = -2`). The iteration and time caps stay `MaxIters` / `MaxTime` (not converged), failures keep
+  their codes, and the consecutive-rejection cap — no tolerance — is still judged by the postcondition (`Stalled` when it
+  fails). One schema for every caller of the host LM (Estimation's LO refits and bundles, PanoramaStitching's rotation
+  bundle, RadiometricCamera's radiometry LM): a fit that stalled on a tolerance short of a stationary point now reads
+  as converged. The device LM (`static_lm`, the lens inverses and Features' refinement) keeps its success rule
+  (stationary and accepted: a validity gate).
+  Estimation's `optical_axis`, whose fold refit read the old Stalled, already reads its own fold gate (`_folds_inside`,
+  Estimation 0.11.8).
+
 ## 0.10.11
 
 A patch: the projective radial profile's knots continue past the rim at the pixel spacing (T. Harder's analysis,

@@ -8,6 +8,12 @@ are now taken in the turned frame).
 
 ### Added
 
+- **`refine_camera_and_poses(camera, views::RotationCenterViews, correspondences, residual)`: a residual type.**
+  `BearingResidual()` (the default) is the bearing refine as before; `ReprojectionResidual()` runs it, then a second
+  stage from its estimate on the exact pixel reprojection error (`_BoardViewResidual` on a rotation-centre view; a
+  SplineLens camera projected by inverting its backward spline, its forward dropped, Core's implicit-function
+  derivatives). A candidate update that leaves a prediction undefined costs +Inf and is rejected by the LM, never clamped.
+  The dots that do not project at the bearing estimate make no row: `without_projection` (metadata and result).
 - **A SplineLens source resampled by `grid_size`.** `fit_camera(SplineLens, source::BoundedCamera, region; grid_size,
   tolerance, forward)` with a SplineLens camera source and a `grid_size` other than its own lattice's — its counts
   and its area: a lattice of the same counts over another calibrated area than the full image is resampled too (it was an
@@ -21,6 +27,26 @@ are now taken in the turned frame).
   lattice's) where the fit has no source ray — outside the region, or where the source images none — so the penalty
   alone holds the lattice there. With the held-out direction error against the source (`max_px`, `max_px_edge`,
   `rms`), it states a resample's fidelity to its source. A kept backward fits nothing: its `extrapolated_fraction` is `nothing`.
+
+### Fixed
+
+- **The SplineLens and non-central fits' held-out error is the direct angle.** `max_px`, `max_px_edge`, `rms` (and the
+  tolerance they meet) are `f·angle` to the source's ray where the source images one, `f` the lattice K's focal length,
+  no longer a pixel mapping through the source's back-projection Jacobian, whose pseudo-inverse blew up where the source's
+  ray field degenerates (a Schöps source's domain edge reported 2.6·10⁵ px for a 17 px angle). `n_held_out_dropped` is 0:
+  no held-out pixel is dropped for its Jacobian. The spacing search stops where `f·angle` meets the tolerance: a coarser
+  lattice than before past ~60° off axis.
+- **`optical_axis` never silently returns a 0° axis.** A linear start that folds before the region's widest angle
+  (`metadata.family.start_fold`, radians; `nothing` when it does not fold) is refitted, when its refine did not converge,
+  over the region inside the fold (up to four refits, each inside the last; `metadata.region` the region used): the Sigma
+  14 mm f/4 Schöps source (folding at 55.8° in a region to 61.9°) stalled at 0°, it converges at 0.39°. An axis fit that
+  does not converge is an `ArgumentError`.
+
+### Known
+
+- No suite test reaches `optical_axis`'s refusal: no synthetic source was found whose every refit fails.
+- The non-central fit's line offset is reported, not bounded: the direction tolerance does not bound it (an offset
+  tolerance for the spacing search is a follow-up).
 
 ### Changed
 

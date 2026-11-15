@@ -211,6 +211,7 @@ region a lens without an image circle images (`valid_domain`), beside the
 """
     (S::SimilarityMap{2})(r::Rect{2}) -> Rect{2, Float64}
     (S::SimilarityMap{2})(s::RegionIntersection) -> RegionIntersection
+    (S::SimilarityMap{2})(P::PolygonRegion) -> PolygonRegion
 
 The similarity's action on a region: a `Rect`'s image is the axis-aligned
 `Rect` of its mapped corners, defined when the rotation is exactly a multiple of
@@ -218,9 +219,11 @@ The similarity's action on a region: a `Rect`'s image is the axis-aligned
 quarter turns of the pixel-frame maps, a Bayer plane's map among them). Its widths are
 `s` times the widths (swapped by a quarter turn), exactly. Any other rotation
 turns a rectangle off the axes, which a `Rect` cannot hold: an
-`ArgumentError`. An intersection maps part by part (`S(a ∩ b) = S(a) ∩ S(b)`,
+`ArgumentError`. A [`PolygonRegion`](@ref VisualGeometryToolkitCore.Primitives.PolygonRegion)
+(a decentred lens's valid domain) maps vertex by vertex with its centre, a star
+polygon about the mapped centre. An intersection maps part by part (`S(a ∩ b) = S(a) ∩ S(b)`,
 each part by its own action, so `p ∈ s ⟺ S(p) ∈ S(s)` up to rounding), and
-with the `Ellipse`, `Circle` and [`WholePlane`](@ref
+with the `Ellipse`, `Circle`, polygon and [`WholePlane`](@ref
 VisualGeometryToolkitCore.Primitives.WholePlane) actions every region
 [`pixel_mask`](@ref) reads maps without testing its type.
 """
@@ -239,13 +242,9 @@ end
         "this one turns by $(rad2deg(_rigid_angle(S.R)))°: map the corners, or an Ellipse"
 ))
 @inline (S::SimilarityMap{2})(s::RegionIntersection) = RegionIntersection(S(s.a), S(s.b))
-# A star polygon (the valid domain of a lens that is not radially symmetric) is derived from its camera model, in that
-# camera's pixel frame: it is never moved to another pixel convention or serialized (VisualGeometryToolkitIO's region
-# body moves every region through this action), so the action refuses it by name rather than leave a MethodError.
-(S::SimilarityMap{2})(::PolygonRegion) = throw(ArgumentError(
-    "a PolygonRegion (the valid domain of a lens that is not radially symmetric) is derived from its camera model and is " *
-        "never moved between pixel frames or serialized: map or store the camera, and take its valid_domain there"
-))
+# A star polygon (the valid domain of a lens that is not radially symmetric) maps vertex by vertex, its centre with it:
+# a similarity keeps it a star polygon about the mapped centre (the constructor re-reads its discs and box). Host-side.
+(S::SimilarityMap{2})(P::PolygonRegion) = PolygonRegion([S(SVector{2, Float64}(v)) for v in P.vertices], S(P.centre))
 @inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
     V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
     n′ = S.R * normal(l)

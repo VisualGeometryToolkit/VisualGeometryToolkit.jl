@@ -245,6 +245,7 @@ end
         lattice_spacing, KannalaBrandt, px
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: fit_camera
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     angle(a, b) = atan(norm(cross(a, b)), dot(a, b))
     # the direct angle between the result and the turned source, over the pixels of `region` the source images
     function max_angle(src, r, region; stride = 7.0)
@@ -292,6 +293,15 @@ end
     # 4. a region within the source's domain: nothing extrapolated, nothing marked
     ri = fit_camera(SplineLens, part, Rect(200, 200, 600, 600); tolerance = 1.0e-3, lattice_spacing = 20.0, forward = false)
     @test !any(metadata(ri).family.extrapolated) && metadata(ri).family.extrapolated_fraction == 0
+    # a `support` the caller states is checked: the lattice is never extended past a re-gridded camera's calibration
+    @test_throws VgtkCore.RegionBeyondSupport fit_camera(SplineLens, part, REGION; tolerance = 1.0e-3, lattice_spacing = 20.0,
+        support = Rect(100, 100, 800, 800), forward = false)
+    # the factors: the cell aspect nearest the target's among near ties (here 20 × 10 px cells, not the squarer 20 × 10.5);
+    # a pixel quantity taken, a non-positive or a length refused
+    @test VgtkEstimation._resample_factors((100.0, 105.0), (20.0, 10.0)) == (5, 11)
+    @test VgtkEstimation._resample_factors((27.0, 27.0), 9.0px) == (3, 3)
+    @test_throws ArgumentError VgtkEstimation._resample_factors((27.0, 27.0), 0.0)
+    @test_throws Exception VgtkEstimation._resample_factors((27.0, 27.0), 9.0VgtkCore.mm)
     # `lattice_spacing` is the spline source's: a parametric source takes `grid_size`
     @test_throws r"lattice_spacing" fit_camera(SplineLens, BoundedCamera(lens14, sensor), Rect(0, 0, 4256, 2848); tolerance = 1.0e-3, lattice_spacing = 60.0)
 end
@@ -759,5 +769,5 @@ end
     filter!(isfinite, direct)
     # the reported maximum is the direct error's (at the held-out pixels, a subset of the region): never a Jacobian blow-up
     @test md.max_px <= 1.5 * maximum(direct) + 1.0e-9
-    @test md.max_px >= 0.1 * maximum(direct)
+    @test md.max_px < 1.0e-6   # an exact resample: rounding, never a Jacobian blow-up
 end

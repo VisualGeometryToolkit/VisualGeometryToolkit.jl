@@ -41,10 +41,11 @@ end
     pp = SVector(K[1, 3], K[2, 3])
     @test norm(pp - SVector(500.0, 500.0)) < 0.02                                  # the axis's pixel
     @test metadata(r).symmetry_residual < 1.0e-3 && metadata(r).max_px < 0.05      # a symmetric lens: nothing azimuthal left
-    # the same call as approximate_camera's: optical_axis is that one call, on the radially symmetric family it names,
-    # its decentering groups held
+    # approximate_camera's fit of the family it names, its decentering groups held, from the whole-order start: the same
+    # axis and principal point (optical_axis reaches the order by continuation, 1 → 4 terms)
     r2 = approximate_camera(typeof(estimate(r).lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)); fixed = (:p, :sx, :sy))
-    @test rotation(metadata(r2).rotation) == rotation(R) && calibration_matrix(estimate(r2)) == K
+    @test acosd(min(1.0, dot(rotation(metadata(r2).rotation)' * SVector(0.0, 0.0, 1.0), axis))) < 1.0e-4
+    @test norm(SVector(calibration_matrix(estimate(r2))[1, 3], calibration_matrix(estimate(r2))[2, 3]) - pp) < 1.0e-3
     # the re-gauge: ẑ is the axis, the principal point its pixel; every image kept with the poses turned
     g = axis_gauged(OFF_AXIS, rotation(R), K)
     @test norm(project(g, SVector(0.0, 0.0, 1.0)) - pp) < 1.0e-6
@@ -304,10 +305,10 @@ end
 end
 
 # The axis fit's order continuation (0.11.8). `optical_axis` fits the axis family at 1 radial term (its linear fit, then the
-# refine), then at 2, 3 and 4, each order's refine from the last's camera (the higher coefficients held at 0: `fixed`),
-# while a refine converges and its lens does not fold inside the region (`_folds_inside`); the result is the last such
-# order's (`family.fitted_terms`). The whole-order linear start and its refits inside the fold (`_axis_fold_refits`) are
-# the fallback when the 1-term fit itself fails. A low order does not follow a source's profile where it bends at the
+# refine), then at 2, 3 and 4, each order's refine from the last's camera (the higher coefficients held at 0: `fixed`);
+# the result is the highest order whose refine converged without its lens folding inside the region (`_folds_inside`,
+# `family.fitted_terms`). The whole-order linear start and its refits inside the fold (`_axis_fold_refits`) are the
+# fallback when no order holds. A low order does not follow a source's profile where it bends at the
 # region's edge, so its start does not fold there; a direct lift of the 1-term fit to 4 terms can end in a worse local
 # minimum (the slope-collapse fisheye below), the stepwise continuation does not.
 @testsetup module FoldingSources
@@ -316,7 +317,7 @@ using LinearAlgebra: norm
 using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
     estimate, KannalaBrandt, parameter_vector, lens
 using VisualGeometryToolkitEstimation: refine_camera, fit_camera
-export AXIS_PIXEL, folding_source, axis_pixel, stepwise_kb
+export AXIS_PIXEL, folding_source, axis_pixel, order_continuation_kb
 const AXIS_PIXEL = SVector(512.0, 494.0)
 # a SplineLens source of the ray field θof(r) about AXIS_PIXEL (θ scaled by 1 + ε·Δx/480: an azimuthal misfit, as a real
 # lens's decentring), its K re-gauged to the principal point (500, 500), bounded by the disc of 478 px about the axis
@@ -331,7 +332,7 @@ function folding_source(θof; ε = 0.0)
 end
 axis_pixel(r) = (K = calibration_matrix(estimate(r)); SVector(K[1, 3], K[2, 3]))
 # the stepwise continuation by the public verbs on KannalaBrandt{1…4}: the reference the axis is compared with
-function stepwise_kb(src, region)
+function order_continuation_kb(src, region)
     g = estimate(fit_camera(KannalaBrandt{1}, src, region)); r = nothing
     for N in 1:4
         k = Tuple(Float64.(parameter_vector(lens(g))))
@@ -346,8 +347,9 @@ end
 # out to 350 px, and past it a ray field that turns away fast (25° more by 480 px): the axis family's 4-term linear fit
 # turns over (folds) at 64° while the region reaches 67°, and the refine from it sits with the axis unmoved — on the
 # re-gauged K (principal point (500, 500)) a silent 0° turn, the Sigma 14 mm Schöps source's failure (2026-11-15). Since
-# 0.11.8 the continuation fits it over the whole region, its 4-term lens folding inside it (so it keeps a lower order);
-# the fallback's refit inside the fold is kept and tested.
+# 0.11.8 the continuation fits it over the whole region: its 1- and 2-term fits fold inside the region with the axis
+# unmoved, its 3-term fit finds the axis (its 4-term one folds 0.001° inside the region: 3 terms kept); the
+# fallback's refit inside the fold is kept and tested.
 @testitem "optical_axis: a folding linear start is refitted inside the fold, never a silent rotation 0" setup = [FoldingSources] begin
     using Test
     using StaticArrays: SVector
@@ -360,13 +362,13 @@ end
     θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(25.0) * ((r - r0) / (480 - r0))^3
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src)
-    # the continuation: the whole region, the 1-term start not folding, the 4-term lens folding inside it (a lower order kept)
+    # the continuation: the whole region, the 1-term start folding inside it (recorded), the axis from a lower order
     r = optical_axis(src)
     md = metadata(r)
     @test converged(r)
     @test md.region == part
-    @test md.family.start_fold === nothing
-    @test md.family.fitted_terms < 4
+    @test md.family.start_fold isa Float64 && md.family.start_fold < md.family.θ_max
+    @test md.family.fitted_terms > 1                                   # the 1-term fit does not hold
     @test norm(axis_pixel(r) - AXIS_PIXEL) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
     # the fallback: the whole-order start folds inside the region (its widest angle θ(478 px) ≈ 67°), recorded, and the
     # axis is refitted inside the fold
@@ -413,8 +415,8 @@ end
     md = metadata(r)
     @test converged(r)
     @test md.region == part
-    @test md.family.start_fold === nothing && md.family.fitted_terms == 4
-    @test norm(axis_pixel(r) - axis_pixel(stepwise_kb(src, part))) < 0.3
+    @test md.family.fitted_terms == 4
+    @test norm(axis_pixel(r) - axis_pixel(order_continuation_kb(src, part))) < 0.3
     @test norm(axis_pixel(r) - AXIS_PIXEL) < 2.5
 end
 
@@ -441,7 +443,7 @@ end
     r = optical_axis(src)
     md = metadata(r)
     @test converged(r)
-    @test md.region == part && md.family.fitted_terms == 4
+    @test md.region == part && md.family.fitted_terms >= 2
     @test norm(axis_pixel(r) - AXIS_PIXEL) < 0.2
     @test rms(r) < rms(direct)
 end

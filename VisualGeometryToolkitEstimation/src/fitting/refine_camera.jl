@@ -428,12 +428,13 @@ The radially symmetric camera closest to `camera` over `region ∩ imaged_region
 bound, its `imaged_region` (the sensor ∩ its lens coverage ∩ the model's valid domain); given a `region` (a `Rect2`, an
 `Ellipse`, or their `∩`, in the camera's pixel frame), its part the camera images — a target's rectangle, where the rays
 are measured, keeps out a lattice's unconstrained edge (RadiometricCamera's siemens start camera stalls over its whole
-image and converges over its board). It is [`approximate_camera`](@ref) of the Fisheye624 form
+image and converges over its board). It approximates `camera` by the Fisheye624 form
 (COLMAP's `RAD_TAN_THIN_PRISM_FISHEYE`, `Lens(Equidistant(), Additive(Tangential, ThinPrism{2}) ∘ Radial{Even, n})`, with
 `n = 4` radial terms, θ³…θ⁹: configs/default.toml `[optical_axis] radial_terms`, the smallest order that locates the axis
 as well as 6 terms do on the cameras studied, and far better conditioned;
-its decentering held at zero) onto `camera`, that one call, nothing more: the linear fit of its radial coefficients
-and focal, then the refine with the principal point and the axis free.
+its decentering held at zero), as [`approximate_camera`](@ref) does — the linear fit of its radial coefficients and
+focal, then the refine with the principal point and the axis free — but order by order (below): on a source the
+4-term start fits well, it lands where `approximate_camera` of that family does.
 - The region is the bound or a part of it, never more. A circular fisheye's lens coverage (its image circle) keeps the
   corners out, where a grid's rays are its extrapolation. A whole-sensor fit is a camera whose bound is the whole sensor.
 - A bare model has no bound: an `ArgumentError`. Wrap it in `BoundedCamera(model, size; lens_coverage)`.
@@ -450,15 +451,24 @@ camera's `valid_domain` by default; for a camera re-gridded from a calibration (
 the board), the calibration's support — RadiometricCamera's siemens start camera, refused over its whole sensor, fits
 over its Schöps support.
 
-A linear start that FOLDS before the region's widest angle (its forward's `view_angle_limit` below `θ_max`: a rectilinear
-lens to 62° whose 4-term fit turns over at 56°) is recorded as `metadata(r).family.start_fold` (radians; `nothing` when
-the start does not fold); when the refine from it does not converge, the axis is fitted again over the part of the
-region inside the fold (out to 0.9 of the fold angle, about the start's principal point), `metadata(r).region` then the
-region used. A start whose fold lies past the widest angle but inside the band that refit leaves out (the region reaching
-past 0.9 of the start's fold) is refitted the same way when its refine stalls: the 8 mm fisheye whose 4-term start
-folds 0.03° past the region's 96.4° (`start_fold` stays `nothing`: the start does not fold inside the region). A stall
-from a start folding farther out is refused as before. An axis fit that still does not converge is an `ArgumentError`: the axis re-gauge is applied always
-(`fit_camera(SplineLens, …)`), and a stalled fit is never a silent rotation 0.
+The fit is an ORDER CONTINUATION. The family is fitted at `[optical_axis] start_radial_terms` radial terms (1: its linear
+fit, then the refine), then at each next order up to `radial_terms` (2, 3, 4), each order's refine starting from the
+last order's camera, its higher coefficients held at 0. A low order does not follow a source's profile where it bends at
+the region's edge, so its start never folds there; raising the order one term at a time keeps each refine in the basin
+of the last (a direct lift from 1 to 4 terms can end in a worse local minimum). An order HOLDS when its refine converged
+and its lens does not fold inside the region (`view_angle_limit` below `θ_max`); every order is refined, each from the
+last one's camera whether or not it held (a rectilinear lens turning at the rim: its 1- and 2-term fits fold inside the
+region with the axis unmoved, its 3-term one does not), and the result is the highest order that held,
+`metadata(r).family.fitted_terms` (its higher coefficients 0).
+
+When no order holds, the fallback is the whole-order linear start. A start that FOLDS before the region's
+widest angle (a rectilinear lens to 62° whose 4-term fit turns over at 56°) is recorded as
+`metadata(r).family.start_fold` (radians; `nothing` when the start does not fold); when the refine from it does not
+converge or its lens still folds inside the region, the axis is fitted again over the part of the region inside the
+fold (out to 0.9 of the fold angle, about the start's principal point), `metadata(r).region` then the region used; a
+start folding just past the widest angle, inside the band that refit leaves out, is refitted the same way. An axis fit
+that still fails is an `ArgumentError`: the axis re-gauge is applied always (`fit_camera(SplineLens, …)`), and a stalled
+fit is never a silent rotation 0.
 
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
@@ -469,20 +479,63 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     # Core's one guard on the caller's region (never clipped past the support), then its part the camera images
     part = _imaged_part(camera, VgtkCore.check_region_support(support, region; who = "optical_axis"))
     src = model(camera)
+    r, start, fitted = _axis_continuation(src, part, device)
+    if r === nothing
+        # no order held: the whole-order start, its stall refitted inside its fold
+        r, start_fold, ok = _axis_fold_refits(src, part, device)
+        # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
+        ok || throw(ArgumentError(
+            "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *
+                "$(round(metadata(r).symmetry_residual; sigdigits = 3)) px over $(metadata(r).region)); fit it over a region " *
+                "the camera images well (a target's rectangle), `optical_axis(camera, region)`"
+        ))
+        fitted = _AXIS_TERMS
+    else
+        fold = Float64(view_angle_limit(lens(start)))
+        start_fold = fold < metadata(r).family.θ_max ? fold : nothing
+    end
+    md = metadata(r)
+    return FitResult(estimate(r), retcode(r), stop_rule(r), iterations(r), rms(r), r.n,
+                     CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge,
+                                       (; md.family..., start_fold, fitted_terms = fitted), md.rotation, md.symmetry_residual,
+                                       md.residuals))
+end
+# The order continuation over `part`: the axis family's linear fit at `_AXIS_START_TERMS` (the higher coefficients held at
+# 0), its refine, then the refine at each next order from the last order's camera (a non-finite one is not a start: the
+# last finite camera is). Returns the highest order's refine that holds (`_axis_fit_valid`; `nothing` when none does), the
+# linear start, and that order.
+function _axis_continuation(src::CameraModel, part, device)
+    start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image,
+                                 (_AXIS_FIXED..., _axis_held(_AXIS_START_TERMS)...), device)
+    r, guess, fitted = nothing, start, 0
+    for m in _AXIS_START_TERMS:_AXIS_TERMS
+        rm = _refine_camera(guess, src, part; fixed = (_AXIS_FIXED..., _axis_held(m)...), device)
+        _axis_fit_valid(rm) && ((r, fitted) = (rm, m))
+        isfinite(metadata(rm).family.focal_scale) && (guess = estimate(rm))
+    end
+    return r, start, fitted
+end
+# An axis fit that holds: its refine converged and its lens does not fold inside the region it was fitted over.
+_axis_fit_valid(r) = converged(r) && !_folds_inside(r)
+# The radial coefficients above order `m` (k_(m+1) … k_n), held at 0 in an order-`m` fit of the axis family.
+_axis_held(m::Int) = ntuple(i -> Symbol(:k, m + i), _AXIS_TERMS - m)
+# `optical_axis`'s fallback: the axis family's whole-order linear start and its refine over `part`; a stall from a start
+# folding before the region's widest angle, or just past it, refitted inside the fold. Returns the last refine, the start's
+# fold when it folds inside the region (`nothing` otherwise), and whether the fit holds.
+function _axis_fold_refits(src::CameraModel, part, device)
     start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image, _AXIS_FIXED, device)
     r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
     # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
     # are capped there, and it can stall with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). Such a
-    # stall — a fit that did not converge, or (Core 0.10.11: a tolerance stop is converged, so the stall is read by its
-    # own validity gate) one whose refined lens still folds inside the region it was fitted over (`_folds_inside`) — is
-    # fitted again over the part of the region inside the fold (`_inside_fold`); a fit that left the fold keeps its whole
-    # region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
+    # stall — a fit that did not converge, or one whose refined lens still folds inside the region it was fitted over
+    # (`_folds_inside`: a tolerance stop can read converged with the axis unmoved) — is fitted again over the part of the
+    # region inside the fold (`_inside_fold`); a fit that left the fold keeps its whole region.
     fold = Float64(view_angle_limit(lens(start)))
     folds = fold < metadata(r).family.θ_max
     # a stall is refitted when the region reaches past the disc a refit keeps, `_INSIDE_FOLD` of the start's fold; a start
     # folding just past the region's widest angle stalls as one folding inside it (an 8 mm fisheye, 0.03° past 96.4°).
     # Each refit: the disc inside `_INSIDE_FOLD` of the current start's fold (or of the last region's widest angle, if that
-    # is smaller), at most `_FOLD_REFITS` times. A stall from a start folding farther out is not refitted (the refusal below).
+    # is smaller), at most `_FOLD_REFITS` times. A stall from a start folding farther out is not refitted.
     θ, s, refits = fold, start, 0
     near = _INSIDE_FOLD * fold < metadata(r).family.θ_max
     while near && (!converged(r) || _folds_inside(r)) && refits < _FOLD_REFITS
@@ -492,17 +545,7 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
         θ = Float64(view_angle_limit(lens(s)))
         refits += 1
     end
-    # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
-    (converged(r) && !(near && _folds_inside(r))) || throw(ArgumentError(
-        "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *
-            "$(round(metadata(r).symmetry_residual; sigdigits = 3)) px over $(metadata(r).region)); fit it over a region " *
-            "the camera images well (a target's rectangle), `optical_axis(camera, region)`"
-    ))
-    md = metadata(r)
-    return FitResult(estimate(r), retcode(r), stop_rule(r), iterations(r), rms(r), r.n,
-                     CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge,
-                                       (; md.family..., start_fold = folds ? fold : nothing), md.rotation, md.symmetry_residual,
-                                       md.residuals))
+    return r, folds ? fold : nothing, converged(r) && !(near && _folds_inside(r))
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
 const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold angle, where the start's forward is monotonic
@@ -527,8 +570,15 @@ optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = thr
 # `[optical_axis] radial_terms` radial coefficients (configs/default.toml, read once: 4, θ³…θ⁹; the derivation is
 # beside the key) fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the
 # focal, aspect, principal point, radial coefficients and the axis free).
+const _AXIS_TERMS = _dflt("optical_axis", "radial_terms")::Int
 const _AXIS_FAMILY = typeof(
     VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘
-                  VgtkCore.Radial(ntuple(_ -> 0.0, _dflt("optical_axis", "radial_terms")::Int)))
+                  VgtkCore.Radial(ntuple(_ -> 0.0, _AXIS_TERMS)))
 )
+# The order continuation's first order (`[optical_axis] start_radial_terms`, configs/default.toml, read once; the
+# derivation is beside the key), in 1:_AXIS_TERMS.
+const _AXIS_START_TERMS = let m = _dflt("optical_axis", "start_radial_terms")::Int
+    1 <= m <= _AXIS_TERMS || throw(ArgumentError("configs/default.toml [optical_axis]: start_radial_terms = $m must lie in 1:radial_terms ($_AXIS_TERMS)"))
+    m
+end
 const _AXIS_FIXED = (:p, :sx, :sy)

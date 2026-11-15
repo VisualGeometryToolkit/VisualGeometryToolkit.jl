@@ -383,6 +383,13 @@ node that stays absent is not part of the lattice the energy sums over.
   affine function that vanishes on a 4 × 4 block vanishes everywhere. Without such a
   window, `extend_lattice` refuses.
 
+**Folds.** The extension is C² and its curvature does not grow, but it is not guaranteed
+injective. A source whose own rim is already strongly curved continues that curvature
+into the band, and the band can fold: a Schöps grid past its lens coverage is often
+non-injective itself. [`folded_pixels`](@ref)`(camera, region; spacing)` lists the samples
+of a region where the backward map's orientation `d · (∂d/∂u × ∂d/∂v)` turns. Check it
+over the region a resample needs.
+
 The penalty gives only the START values of the extrapolated nodes. No refinement's
 objective holds it, and a later fit moves those nodes by its own terms. The
 `extrapolated` mask says which they are. A subdivision carries the marks: a fine

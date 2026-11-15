@@ -314,6 +314,48 @@ end
     @test one_sign(src, samples(valid_domain(src), 101)) && one_sign(extend_lattice(src, region).camera, samples(region, 161))
 end
 
+@testitem "lattice operations: folded_pixels" setup = [LatticeOps] begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: extend_lattice, folded_pixels, lattice_spacing, valid_domain, backproject_with_jacobian,
+        Rect2, KannalaBrandt, Ellipse, Point2
+    using StaticArrays: SVector
+    using LinearAlgebra: dot, cross
+
+    fish = VgtkCore.CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(-4 / (3π^2)))
+    lattice(half) = VgtkCore.CameraModel(VgtkCore.SplineLens, fish, VgtkCore.Size2(1280, 960); grid_size = (15, 15),
+        calib_area = VgtkCore.Rect(640 - half, 480 - half, 2half, 2half), init = :quasi_interpolate)
+    grown(c, n) = (A = valid_domain(c); h = lattice_spacing(c);
+        Rect2(A.origin[1] - n * h[1], A.origin[2] - n * h[2], A.widths[1] + 2n * h[1], A.widths[2] + 2n * h[2]))
+    orientation(c, p) = ((d, M) = backproject_with_jacobian(c, p); dot(d, cross(M[:, 1], M[:, 2])))
+
+    @testset "a lattice that does not fold, and one whose extension does" begin
+        src = lattice(180)
+        r = folded_pixels(extend_lattice(src, grown(src, 3)).camera, grown(src, 3); spacing = 4.0)
+        @test isempty(r.folded) && r.samples > 10_000 && r.unimaged == 0
+        # corners past the lens's own fold (r ≈ 283 px against 262): the extension folds in its band
+        src = lattice(200)
+        e = extend_lattice(src, grown(src, 3)).camera
+        r = folded_pixels(e, grown(src, 3); spacing = 4.0)
+        @test !isempty(r.folded) && length(r.folded) < r.samples
+        @test all(p -> orientation(e, p) < 0, r.folded)                       # each folded sample: the opposite sign
+        @test all(p -> !(p ∈ valid_domain(src)), r.folded)                   # in the band, not in the source's domain
+        @test isempty(folded_pixels(src, valid_domain(src); spacing = 4.0).folded)
+    end
+
+    @testset "the region and the samples" begin
+        src = lattice(180)
+        A = valid_domain(src)
+        r = folded_pixels(src, A; spacing = 10.0)
+        @test r.samples == length(range(A.origin[1], A.origin[1] + A.widths[1]; step = 10.0)) * length(range(A.origin[2], A.origin[2] + A.widths[2]; step = 10.0))
+        disc = A ∩ Ellipse(Point2(640.0, 480.0), 100.0, 100.0, 0.0)
+        @test 0 < folded_pixels(src, disc; spacing = 10.0).samples < r.samples          # only the samples in the region
+        # past the area the lens images nothing: counted, not folded
+        u = folded_pixels(src, Rect2(A.origin[1] - 50, A.origin[2], A.widths[1] + 50, A.widths[2]); spacing = 10.0)
+        @test u.unimaged > 0 && isempty(u.folded)
+        @test_throws ArgumentError folded_pixels(src, A; spacing = 0)
+    end
+end
+
 @testitem "lattice operations: extend, then subdivide" setup = [LatticeOps] begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: extend_lattice, subdivide_lattice, valid_domain, lattice_spacing, Rect2, support, nodes

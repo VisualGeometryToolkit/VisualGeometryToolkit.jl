@@ -1255,7 +1255,7 @@ export spline_window_sums                 # the one 4 × 4 window sweep: value, 
 export cubic_bspline_weights             # a uniform cubic B-spline span's four weights (public, not exported, at the top level)
 export with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part (likewise)
 export axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis (spline_lens.jl)
-export extend_lattice, subdivide_lattice   # a SplineLens lattice extended on its own spacing; subdivided exactly by integers (public, not exported, at the top level)
+export extend_lattice, subdivide_lattice, folded_pixels   # a SplineLens lattice extended on its own spacing; subdivided exactly by integers; where its backward map folds (public, not exported, at the top level)
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
 export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export plane_map                         # a posed camera's z = 0 plane → image map (public, not exported, at the top level)

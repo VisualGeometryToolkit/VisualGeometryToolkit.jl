@@ -33,6 +33,11 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
   - An absent source node the region does not need stays absent, outside the energy. The forward spline is dropped.
   - A source with no complete 4 × 4 present window is an `ArgumentError` (its nodes need not determine the
     extrapolation).
+- **`folded_pixels(camera, region; spacing = 8.0) -> (; folded, samples, unimaged)`** (public): where a SplineLens
+  camera's backward map folds over a region (a `Rect`, an `Ellipse` or their intersection). On a grid of `spacing` px,
+  a sample folds when the orientation `d · (∂d/∂u × ∂d/∂v)` does not have the sign it has at the centre of the camera's
+  valid domain. The orientation is chart-free, so a ray past 90° counts. The check that an extension, or any lattice,
+  is locally injective at a stated density.
 - **`difference_rows(mask, 2; mixed)`**: a nonzero `mixed` appends the mixed second differences `Δ₁Δ₂c`, weighted by
   `mixed`, one row per 2 × 2 window wholly in the mask, after the axis rows of `axes = (1, 2)`, or alone with
   `axes = ()`. At `mixed = √2`, `‖D c‖²` is the discrete bending energy of a lattice of square cells. A one-axis

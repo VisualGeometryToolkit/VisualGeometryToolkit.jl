@@ -273,3 +273,58 @@ function _extrapolate_controls!(C::AbstractMatrix{SVector{K, T}}, known::BitMatr
     C[u] .= SVector{K, T}.(eachrow(x))
     return C
 end
+
+# ------------------------------------------------------------------------------
+# The orientation check: where the backward map folds
+# ------------------------------------------------------------------------------
+
+# The orientation of the backward map at pixel `p`: d · (∂d/∂u × ∂d/∂v), the signed area
+# its Jacobian spans on the sphere (chart-free, so a ray past 90° counts). NaN where the
+# camera images nothing.
+function _orientation(cam, p)
+    d, M = backproject_with_jacobian(cam, p)
+    return dot(d, cross(SVector{3}(M[:, 1]), SVector{3}(M[:, 2])))
+end
+
+"""
+    folded_pixels(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing = 8.0) -> (; folded, samples, unimaged)
+
+Where the backward map pixel → direction of the [`SplineLens`](@ref) `camera` folds over `region` (a `Rect`, an
+`Ellipse` or an intersection of them, in pixels of the camera's pixel frame). The
+check samples the pixels of `region` on a grid of `spacing` px, aligned to the
+corner of its bounding box. At each sample it forms the orientation
+`d · (∂d/∂u × ∂d/∂v)` ([`backproject_with_jacobian`](@ref)), the signed area the map's
+Jacobian spans on the sphere. Being chart-free, it holds for rays past 90°. A sample
+folds when its orientation does not have the sign of the camera's at the centre of
+its [`valid_domain`](@ref), the source's own interior for an
+[`extend_lattice`](@ref)-ed camera, or is zero.
+
+Returns the folded samples, `folded::Vector{SVector{2, Float64}}`, the number of
+samples in `region` (`samples`), and the number of those the camera does not image
+(`unimaged`, NaN directions: no orientation, not counted as folded). An empty
+`folded` means the map is locally injective at that sampling density. A fold narrower
+than `spacing` can escape it. An `ArgumentError` when the camera does not image the
+centre of its valid domain, or `spacing` is not positive.
+"""
+function folded_pixels(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing::Real = 8.0)
+    spacing > 0 || throw(ArgumentError("folded_pixels: spacing must be positive, got $spacing"))
+    V = Rect2{Float64}(valid_domain(cam))
+    s0 = _orientation(cam, SVector{2, Float64}(centroid(V)))
+    (isfinite(s0) && !iszero(s0)) || throw(ArgumentError("folded_pixels: the camera does not image the centre of its valid domain"))
+    B = Rect2(region)
+    o = GeometryBasics.origin(B); w = GeometryBasics.widths(B)
+    folded = SVector{2, Float64}[]
+    samples = unimaged = 0
+    for y in range(o[2], o[2] + w[2]; step = spacing), x in range(o[1], o[1] + w[1]; step = spacing)
+        p = SVector{2, Float64}(x, y)
+        p ∈ region || continue
+        samples += 1
+        s = _orientation(cam, p)
+        if !isfinite(s)
+            unimaged += 1
+        elseif !(sign(s) == sign(s0))
+            push!(folded, p)
+        end
+    end
+    return (; folded, samples, unimaged)
+end

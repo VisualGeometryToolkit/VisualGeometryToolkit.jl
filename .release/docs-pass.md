@@ -1,3 +1,12 @@
+docs-pass: 20295371
+
+# VisualGeometryToolkitEstimation 0.11.6 docs pass addendum — branch patch-est0116-on-core
+
+The strict docs build of the gate on 0072ad8c (18695) failed: `BearingResidual` and `ReprojectionResidual` shared
+`AbstractViewResidual`'s docstring through `@doc (@doc …)`, which no `@docs` block included (2 missing docstrings, 3
+unresolved `@ref`s). 20295371 gives each its own docstring and lists both in api/radial.md's `@docs` block; no code
+changed. The gate is re-run on 20295371. Every other tier on 0072ad8c was green.
+
 docs-pass: 0072ad8c
 
 # VisualGeometryToolkitEstimation 0.11.6 docs pass (julia-docs-pass) — branch patch-est0116-on-core

@@ -458,7 +458,38 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
                       device = default_device())
     # Core's one guard on the caller's region (never clipped past the support), then its part the camera images
     part = _imaged_part(camera, VgtkCore.check_region_support(support, region; who = "optical_axis"))
-    return _approximate_camera(_AXIS_FAMILY, model(camera), part; fixed = _AXIS_FIXED, device)
+    src = model(camera)
+    start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image, _AXIS_FIXED, device)
+    r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
+    # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
+    # are capped there and it stalls with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). The axis
+    # is fitted again over the part of the region inside the fold (`_inside_fold`).
+    fold = Float64(view_angle_limit(lens(start)))
+    if fold < metadata(r).family.θ_max
+        inner = part ∩ _inside_fold(start, fold)
+        start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
+        r = _refine_camera(start, src, inner; fixed = _AXIS_FIXED, device)
+    else
+        fold = nothing
+    end
+    # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
+    converged(r) || throw(ArgumentError(
+        "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *
+            "$(round(metadata(r).symmetry_residual; sigdigits = 3)) px over $(metadata(r).region)); fit it over a region " *
+            "the camera images well (a target's rectangle), `optical_axis(camera, region)`"
+    ))
+    md = metadata(r)
+    return FitResult(estimate(r), retcode(r), stop_rule(r), iterations(r), rms(r), r.n,
+                     CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge, (; md.family..., start_fold = fold),
+                                       md.rotation, md.symmetry_residual, md.residuals))
+end
+# The image disc inside a linear start's fold: about its principal point, out to its radius at 0.9 of the fold angle
+# (the start's forward is monotonic there), so the refit's start images every sample.
+function _inside_fold(start::CameraModel, fold::Float64)
+    K = SMatrix{3, 3, Float64}(calibration_matrix(start))
+    θ = 0.9 * fold
+    ρ = norm(SVector{2, Float64}(VgtkCore.project(start, SVector(sin(θ), 0.0, cos(θ)))) - K[1:2, 3])
+    return VgtkCore.Ellipse(SVector(K[1, 3], K[2, 3]), ρ, ρ, 0.0)
 end
 optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = throw(
     ArgumentError(

@@ -1,3 +1,9 @@
+docs-pass: fe0b47a1
+
+# VisualGeometryToolkitCore 0.10.8 docs pass addendum — branch patch-core0108
+
+fe0b47a1 corrects one CHANGELOG sentence: the real-source fold check (ag30 over its sensor folds: 196 own + 191 past its domain; the fisheye 30 cm number came from a coverage ellipse the owner ruled out, item 1010). No docstring, guide or code changed.
+
 docs-pass: 8a7d7a0f
 
 # VisualGeometryToolkitCore 0.10.8 docs pass (julia-docs-pass) — branch patch-core0108

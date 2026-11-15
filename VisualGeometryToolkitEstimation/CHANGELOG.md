@@ -1,6 +1,9 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased
+## 0.11.7
+
+A patch: `optical_axis` refits a stall beside the start's fold, not only inside it. VisualGeometryToolkitCore's floor is
+0.10.9.
 
 ### Fixed
 

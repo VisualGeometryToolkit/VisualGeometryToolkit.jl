@@ -89,7 +89,7 @@ using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, _ellipse_or_nothin
 using ..VisualGeometryToolkitCore: _Unchecked   # the unchecked inner constructor's sentinel (CameraCalibrationMat, base/types.jl)
 import ..VisualGeometryToolkitCore: _padding_value   # FixedModels' padding of a type with no valid zero (CameraCalibrationMat)
 using ..VisualGeometryToolkitCore: intersects   # a node's support against the imaged region (support.jl)
-using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane   # the conic matrix a valid domain is built from, and the whole plane (image_circle.jl)
+using ..VisualGeometryToolkitCore: HomEllipseMat, WholePlane, PolygonRegion   # the conic matrix a valid domain is built from, the whole plane and the star polygon (image_circle.jl)
 import ..VisualGeometryToolkitCore: HomographyMap  # Import (not using) to extend the labeled camera lift
 import ..VisualGeometryToolkitCore: homography   # its TargetHomographies method, as pose(tp, t, id) (captures.jl)
 

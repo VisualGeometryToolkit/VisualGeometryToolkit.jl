@@ -14,7 +14,7 @@
 # (`_spherical_signed_area`, beside `signed_area`), not a pixel area.
 
 using ..VisualGeometryToolkitCore: angle_between   # the well-conditioned atan(‖u × v‖, u · v) (transforms/euclidean_map.jl)
-using ..Primitives: RegionIntersection, _convex_clip!, _spherical_signed_area, signed_area
+using ..Primitives: RegionIntersection, PolygonRegion, _convex_clip!, _spherical_signed_area, signed_area
 
 # A direction is imaged by a lens when its pixel brings it back within this angle (rad).
 const _ROUND_TRIP_ANGLE = 1.0e-6
@@ -218,10 +218,17 @@ function _region_ring(e::Ellipse, n::Int)
     signed_area(ring) < 0 && reverse!(ring)
     return ring
 end
-_region_ring(s::RegionIntersection, n::Int) = _deduplicated!(_convex_clip!(_region_ring(s.a, n), _region_ring(s.b, n)))
+# A star polygon (the valid domain of a lens that is not radially symmetric) is its own ring, and need not be convex:
+# in an intersection it is the SUBJECT of the clip (Sutherland–Hodgman's subject may be non-convex, its clip may not).
+_region_ring(s::PolygonRegion, ::Int) = Point2{Float64}[Point2{Float64}(v[1], v[2]) for v in GeometryBasics.coordinates(s.polygon)]
+_region_ring(s::RegionIntersection, n::Int) = _deduplicated!(_clipped_ring(s.a, s.b, n))
+_clipped_ring(a, b, n::Int) = _convex_clip!(_region_ring(a, n), _region_ring(b, n))
+_clipped_ring(a, b::PolygonRegion, n::Int) = _convex_clip!(_region_ring(b, n), _region_ring(a, n))
+_clipped_ring(::PolygonRegion, ::PolygonRegion, ::Int) =
+    throw(ArgumentError("view_overlap: a footprint meets two star polygons; their intersection need not be star-shaped"))
 _region_ring(::WholePlane, ::Int) = throw(ArgumentError("view_overlap: the whole plane is not a footprint; bound the camera"))
 _region_ring(r, ::Int) = throw(
-    ArgumentError("view_overlap: a footprint region is a Rect, an Ellipse or their ∩ (imaged_region); got $(typeof(r))")
+    ArgumentError("view_overlap: a footprint region is a Rect, an Ellipse, a PolygonRegion or their ∩ (imaged_region); got $(typeof(r))")
 )
 
 # Consecutive vertices closer than 10⁻⁹ px merged (a clip leaves a vertex on a clip edge twice).

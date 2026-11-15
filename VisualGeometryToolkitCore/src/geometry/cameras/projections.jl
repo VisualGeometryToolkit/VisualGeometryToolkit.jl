@@ -153,19 +153,25 @@ valid domain's inscribed radius and the spline lattice's sampler do.
 """
 function view_angle_limit(lens::AbstractLensModel; cap::Real = _SPHERE_EDGE)
     θs = range(1.0e-4, float(cap); length = 1024)
+    k = _last_increasing(θ -> try
+        Float64(projected_radius(lens, θ))
+    catch
+        NaN
+    end, θs)
+    return θs[max(k, 1)]
+end
+# The length of the leading run of `θs` on which `radius` is finite and strictly increasing from 0: the index of the
+# last sample before a radial profile first folds, turns non-finite or fails (0 when the first sample does). The one
+# monotonicity scan: the generic `view_angle_limit` above (azimuth 0) and each azimuth's fold of the valid domain
+# (`_azimuth_fold`, image_circle.jl).
+function _last_increasing(radius, θs)
     rprev = 0.0
-    θok = 1.0e-4
-    for θ in θs
-        r = try
-            Float64(projected_radius(lens, θ))
-        catch
-            break
-        end
-        (isfinite(r) && r > rprev) || break
+    for (k, θ) in enumerate(θs)
+        r = radius(θ)
+        (isfinite(r) && r > rprev) || return k - 1
         rprev = r
-        θok = θ
     end
-    return θok
+    return length(θs)
 end
 # A forward lens with a fixed projection: its radial factor's first fold or pole,
 # read through the frame's radial profile (`_frame_backproject` at azimuth 0) —
@@ -225,7 +231,11 @@ function _nan_onset(imaged, edge)
     k = findfirst(!imaged, θs)
     k === nothing && return float(edge)
     k == 1 && return first(θs)
-    lo, hi = θs[k - 1], θs[k]
+    return _last_imaged(imaged, θs[k - 1], θs[k])
+end
+# The last angle of [lo, hi] at which `imaged` holds, `imaged(lo)` holding and `imaged(hi)` not: bisected to rounding
+# (60 halvings). The one bisection of an imaging onset: `_nan_onset` and each azimuth's onset (`_azimuth_fold`).
+function _last_imaged(imaged, lo, hi)
     for _ in 1:60
         m = (lo + hi) / 2
         imaged(m) ? (lo = m) : (hi = m)

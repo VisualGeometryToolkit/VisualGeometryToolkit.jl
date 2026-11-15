@@ -103,7 +103,7 @@ using StructArrays: StructArrays
 # -----------------------------------------------------------------------------
 export Point2, Point3, Point2f, Vec2, Vec3, Rect, Rect2, HyperRectangle
 export Circle, Ellipse, AbstractConic3D, Ellipse3D, Circle3D
-public RegionIntersection, WholePlane   # `a ∩ b` of two 2-D regions, held lazily, and the identity of ∩ (primitives/regions.jl)
+public RegionIntersection, WholePlane, PolygonRegion   # `a ∩ b` of two 2-D regions, held lazily, the identity of ∩, a star polygon (primitives/regions.jl)
 export boundary_point, boundary_points
 export centroid, area
 public signed_area   # the signed shoelace area of a closed ring of 2-D points (primitives/operators.jl)

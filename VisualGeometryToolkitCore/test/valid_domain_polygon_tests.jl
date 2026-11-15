@@ -4,12 +4,12 @@
 # pixels between it and their own azimuth's fold, which the model maps injectively (the fisheye 10 cm chrome set: 714
 # dots for BC5, 31 for OCV14).
 
-@testsnippet FoldReference begin
+@testsetup module FoldReference
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection, view_angle_limit
-    using GeometryBasics: Point2, Rect2
+    using GeometryBasics: Point2
     using LinearAlgebra: norm
     using StaticArrays
+    export mk, ray, reference_fold, pixel, bc, ocv
 
     mk(fx, fy, cx, cy, l) = CameraModel(CameraCalibrationMat(@SMatrix([fx 0.0 cx; 0.0 fy cy; 0.0 0.0 1.0])); lens = l)
     ray(θ, ψ) = SVector(sin(θ) * cos(ψ), sin(θ) * sin(ψ), cos(θ))
@@ -38,6 +38,10 @@ end
 
 @testitem "valid_domain: a decentred lens's domain reaches each azimuth's own fold" setup = [FoldReference] begin
     using Test
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
+    using GeometryBasics: Point2, Rect2
+    using LinearAlgebra: norm
+    using StaticArrays
     for l in (bc, ocv)
         cam = mk(800.0, 800.0, 640.0, 480.0, l)
         q = valid_domain(cam)
@@ -67,6 +71,10 @@ end
 
 @testitem "valid_domain polygon: membership, bounding box, pixel mask and containment agree" setup = [FoldReference] begin
     using Test
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
+    using GeometryBasics: Point2, Rect2
+    using LinearAlgebra: norm
+    using StaticArrays
     using VisualGeometryToolkitCore: farthest_radius, intersects, check_region_support, dilate, Ellipse, pixel_mask
     using GeometryBasics: coordinates, Rect
     cam = mk(800.0, 800.0, 700.0, 700.0, bc)
@@ -123,6 +131,10 @@ end
 
 @testitem "valid_domain polygon: a radially symmetric lens keeps its exact disc, which the polygon reproduces" setup = [FoldReference] begin
     using Test
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
+    using GeometryBasics: Point2, Rect2
+    using LinearAlgebra: norm
+    using StaticArrays
     using VisualGeometryToolkitCore: Ellipse, KannalaBrandt, shape_matrix
     for l in (KannalaBrandt(-0.1), Lens(Perspective(), Radial((-0.2,))))
         cam = mk(900.0, 600.0, 640.0, 480.0, l)
@@ -143,6 +155,10 @@ end
 
 @testitem "valid_domain polygon: a footprint for view_overlap" setup = [FoldReference] begin
     using Test
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection
+    using GeometryBasics: Point2, Rect2
+    using LinearAlgebra: norm
+    using StaticArrays
     using Rotations: RotY
     # the imaged region of a decentred lens holds the star polygon; view_overlap rings it (the polygon as the clip's
     # subject, the sensor rect as its convex clip)
@@ -154,4 +170,26 @@ end
     turned = view_overlap(oriented(RotY(0.0)), oriented(RotY(0.3)); boundary_points = 64)
     @test 0 < turned.fraction_i < 1
     @test turned.fraction_i ≈ turned.fraction_j rtol = 1.0e-9                  # two frames of one camera
+end
+
+@testitem "valid_domain polygon: built once, membership is cheap (timing guard)" setup = [FoldReference] begin
+    using Test
+    using GeometryBasics: Point2
+    using StaticArrays
+    # The polygon is built once per model (about 10 ms: 720 azimuth folds) and reused; a caller holds it (a fit's
+    # support, a bundle's camera variable), never rebuilds it per point. Membership is the crossing number on the stored
+    # ring behind the inscribed/circumscribed discs: about 0.1–0.5 µs a point (measured 4.5 ms for 10⁴ points all in the
+    # annulus between the discs, the worst case). The bounds are 10× generous; a regression to a per-point rebuild or to
+    # an unfiltered test fails them.
+    cam = mk(1500.0, 1500.0, 2128.0, 1424.0, bc)
+    valid_domain(cam)                                                 # compiled
+    t_build = minimum(@elapsed(valid_domain(cam)) for _ in 1:3)
+    @test t_build < 0.5
+    q = valid_domain(cam)
+    c = q.centre
+    ann = [Point2{Float64}(c + (q.inner + (q.outer - q.inner) * ((k * 0.6180339887) % 1)) * SVector(cos(k), sin(k))) for k in 1:10_000]
+    count(p -> p ∈ q, ann)
+    t_member = minimum(@elapsed(count(p -> p ∈ q, ann)) for _ in 1:3)
+    @test t_member < 0.05                                             # 10⁴ points in the annulus, under 50 ms
+    @test 0 < count(p -> p ∈ q, ann) < length(ann)
 end

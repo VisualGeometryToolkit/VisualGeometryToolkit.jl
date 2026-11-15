@@ -196,7 +196,7 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
                  gitpath::AbstractString = project_root())
     dir = product_dir(s)
     # `produced` is the reuse rule, for a file and a directory output alike: produce_or_load's own reuse test is
-    # `isfile` (saving_files.jl:95), which a directory output never passes, so it would run `f` again on every call
+    # `isfile` (saving_files.jl:95), false for a directory output, so it would run `f` again on every call
     !force && produced(s) && return dir
     assert_not_input(dir; producer)
     _recorded_code_trees(gitpath, dir)                                # a run of record of uncommitted code is refused before it computes

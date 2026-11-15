@@ -765,3 +765,56 @@ end
     @test reduce_cost(cost_row!, r; partials) === reduce_cost(apart) && got[1] ≈ reduce_cost(apart)
     @test got[1] ≈ 0.5 * sum(x -> sum(abs2, x), r) && got[2] ≈ sum(i -> J[i]' * r[i], 1:n)
 end
+
+# Core 0.10.11: the RELATIVE step tolerance `xtol_rel`, Ceres' parameter tolerance — stop once ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
+# (Euclidean norms; ‖x‖ over the free variables, a chart coordinate one chart unit) — alongside the absolute `xtol` (NLLSsolver's
+# `dstep`) and the per-step relative `ftol`, all read through `LmStops`. A step-size stop: its verdict is the stationarity
+# postcondition's, Success at a stationary point (the termination record's `IncrementSize`). A problem far from the origin,
+# whose absolute step stops a 1e-10 tolerance never reaches before the rounding of x: with ftol = xtol = 0 the fit runs to its
+# cap; with xtol_rel = 1e-6 it stops at the first step below 1e-6·‖x‖ = 100.
+@testitem "lmsolve_chart!(::LmProblem): the relative step tolerance xtol_rel (Ceres' parameter tolerance)" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, IncrementSize, IterationCap
+    struct _FarOffset <: NLLSsolver.AbstractResidual
+        a::Float64
+    end
+    NLLSsolver.ndeps(::_FarOffset) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_FarOffset) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_FarOffset) = SVector(1)
+    NLLSsolver.getvars(::_FarOffset, vars::Vector) = (vars[1]::SVector{1, Float64},)
+    Base.eltype(::_FarOffset) = Float64
+    NLLSsolver.computeresidual(r::_FarOffset, x) = SVector(x[1] - r.a)
+    rows = [_FarOffset(1.0e8 + d) for d in (-1.0, 0.0, 1.0)]
+    solve(stops) = (p = LmProblem([SVector(1.0e8 + 1.0e4)], rows); (lmsolve_chart!(p, stops), p.variables[1][1]))
+    # the default is no relative stop: Core's fits before 0.10.11, bit for bit ([lm] xtol_rel = 0)
+    @test LmStops().xtol_rel == 0
+    @test_throws ArgumentError LmStops(; xtol_rel = -1.0e-6)
+    @test_throws ArgumentError LmStops(; xtol_rel = NaN)
+    off, _ = solve(LmStops(; ftol = 0, xtol = 0, max_iter = 50))
+    @test off.rule === IterationCap && off.code === ReturnCode.MaxIters && off.iterations == 50
+    on, x = solve(LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6, max_iter = 50))
+    @test on.rule === IncrementSize && on.code === ReturnCode.Success      # a stop on xtol is a convergence: Success
+    @test on.iterations == 2                                               # the 1e4 step, then one below 100
+    @test x ≈ 1.0e8 atol = 1.0e-3
+    # the relative stop's threshold is xtol_rel·(‖x‖ + xtol_rel): a tolerance whose threshold the second step exceeds runs on
+    big, _ = solve(LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-14, max_iter = 50))
+    @test big.iterations > 2
+    # with the defaults' ftol and xtol, the relative stop leaves an ordinary fit as it was
+    p1 = LmProblem([SVector(0.0)], [_FarOffset(d) for d in (0.9, 1.0, 1.1)])
+    p2 = LmProblem([SVector(0.0)], [_FarOffset(d) for d in (0.9, 1.0, 1.1)])
+    s1 = lmsolve_chart!(p1); s2 = lmsolve_chart!(p2, LmStops(; xtol_rel = 0.0))
+    @test s1 == s2 && p1.variables == p2.variables && s1.code === ReturnCode.Success
+    # a user callback still terminates the solve as before (Terminated), the relative stop on or off
+    cb = (cost, args...) -> (cost, 1)
+    pt = LmProblem([SVector(1.0e8 + 1.0e4)], rows)
+    st = lmsolve_chart!(pt, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = cb)
+    @test st.code === ReturnCode.Terminated && st.iterations == 1
+    # the test itself: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
+    @test VgtkCore._relative_step_stop(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_step_stop(1.1, 1.0e6, 1.0e-6)
+    @test !VgtkCore._relative_step_stop(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never
+    # its termination bit (31) decodes as a step-size stop, under the postcondition
+    @test VgtkCore.nlls_termination(1 << 31, true) == (ReturnCode.Success, IncrementSize)
+    @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Stalled, IncrementSize)
+    @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_step_size] && VgtkCore.nlls_stop_code(1 << 31) == 2
+end

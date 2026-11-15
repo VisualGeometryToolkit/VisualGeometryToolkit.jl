@@ -104,14 +104,15 @@ its centre ([`RADIAL_CHARTS`](@ref), [`radial_chart`](@ref)): linear,
 `ρ = d / radius`, constant beyond the radius; or projective (`chart =
 :projective`, [`projective_chart`](@ref)), `ρ = d / (radius + d)`, ½ at the
 radius and never beyond the knots ([`projective_knots`](@ref): uniform in the
-distance up to the radius, one tail span beyond), so a profile whose centre
+distance up to the radius and `degree − 1` spans past it at the same pixel
+spacing, then the span to 1), so a profile whose centre
 moves still covers every pixel. [`with_center`](@ref) moves the centre and
 [`center_gradient`](@ref) is `∂V/∂c`, for a fit with the centre as a parameter.
-Ported from RadiometricCamera, bit for bit.
+Ported from RadiometricCamera (the chart bit for bit; the knots past the radius are Core 0.10.11's).
 
 ```julia
 v = RadialVignetting(12, SVector(2128.0, 1424.0), 1700.0)   # control points, centre and radius (camera pixels); V ≡ 1
-w = RadialVignetting(13, SVector(2128.0, 1424.0), 2560.0; chart = :projective)   # ρ = ½ at the farthest corner
+w = RadialVignetting(15, SVector(2128.0, 1424.0), 2560.0; chart = :projective)   # ρ = ½ at the farthest corner
 v = with_control_points(v, pole_regular_basis(v) * y)        # a profile with V′(0) = 0
 v(SVector(2500.0, 1300.0))                                   # V at a sensor point
 ```

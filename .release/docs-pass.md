@@ -1,3 +1,49 @@
+docs-pass: 9aad1a9c
+
+# VisualGeometryToolkitCore 0.10.10 and VisualGeometryToolkitIO 0.10.4 docs review (julia-docs-pass) — branch patch-core0110
+
+Baseline: Core 0.10.9 and IO 0.10.3, on origin/main b38dd88b (Estimation 0.11.7). The review covers the tree 9aad1a9c.
+After it, only this record changes (`.release/` is outside the gate). No code outside VisualGeometryToolkitCore and
+VisualGeometryToolkitIO.
+
+## 1. Public API since Core 0.10.9 / IO 0.10.3
+
+- Core: one public name added, `PolygonRegion` (`VisualGeometryToolkitCore.PolygonRegion`, exported from `Primitives`),
+  parametrized on its vertex ring (`PolygonRegion{V}`, field `vertices`). New methods only, no removal and no
+  re-signature: `valid_domain` returns it for a lens that is not radially symmetric (`Union{Ellipse{Float64},
+  PolygonRegion, WholePlane}`), and it joins the region algebra (`∈`, `⊆`, `∩`, `intersects`, `Rect2`, `dilate`,
+  `pixel_mask`, `farthest_radius`, `view_overlap`, `extend_lattice`, `folded_pixels`), a `SimilarityMap`'s action,
+  `Adapt.adapt` (a `RegionIntersection` part by part) and `GeometryBasics.Polygon(s)`.
+- IO: no name added or removed. The region body gains the `polygon` kind; `JSON.lower(s, ::PolygonRegion)` and
+  `JSON.lift` into it. No kind's schema version moves (no committed kind schema embeds the composite region body;
+  `lens_coverage` stays leaf-only). Core floor 0.10.10 in IO's package, test, docs and benchmark environments.
+
+## 2. Docstrings and pages brought up to date
+
+- `PolygonRegion`: the vertex ring and its device form (adapted, membership inside a kernel; the other operations
+  host-side).
+- `valid_domain`, `angle_of_view` (the polygon is pulled in by at most its chords' sag, so the answer can understate
+  rather than overstate), `check_region_support` and `farthest_radius` (their region lists name the polygon),
+  `extend_lattice` and `folded_pixels` (the polygon is a lattice region), `SimilarityMap`'s region action (the polygon,
+  vertex by vertex), `RegionBeyondSupport`'s advice (`with_lens_coverage` for a Rect or an Ellipse support only),
+  the internal comments of `_valid_domain_radius` and `view_angle_limit` (the inscribed radius now serves the symmetric
+  disc and the spline sampler).
+- Core guide `lenses.md`: an Ellipse for a radially symmetric lens; the polygon otherwise, moved by a pixel-frame map
+  (IO writes it as a `polygon`) and to a device.
+- IO: the region body's docstring (`JSON.lower`/`JSON.lift` on `VgioStyle`), the JSON Schema `region` definition, and
+  the kinds guide's region row.
+- CHANGELOGs: Core 0.10.10 (heading released; Added: the polygon's lattice, similarity and device forms; the IO 0.10.4
+  dependency of a record that stores an imaged region), IO 0.10.4 (Added, Fixed, Compat).
+
+## 3. Gates
+
+Core and IO docs builds strict (no `warnonly`; only the size warnings Documenter does not count as errors), each
+package's `docs`, `README`, `quality`, `naming` and `agent docs` items: run 19798 at ba59240f (the same tree as
+cf6fd13e), Core green, IO one refusal case that still read `polygon` as an unknown kind, fixed in 4cad0dc0; the gate's first
+run (4f969046) found the fifteen byte-for-byte fixtures still naming generator 0.10.3, re-recorded in 9aad1a9c (the
+gate reruns every item at the final head). No README example changes: neither README names the valid domain or the region
+body.
+
 docs-pass: 1f396e7c
 
 # VisualGeometryToolkitEstimation 0.11.7 docs pass (julia-docs-pass) — branch patch-est0117

@@ -1,3 +1,37 @@
+docs-pass: 0072ad8c
+
+# VisualGeometryToolkitEstimation 0.11.6 docs pass (julia-docs-pass) — branch patch-est0116-on-core
+
+Baseline: Estimation 0.11.5 (0005582b's record, docs-pass 3dc35e52), rebased onto patch-core0108 b1d5a020 (Core
+0.10.8). The pass covers the gated tree 0072ad8c. After it, only this record changed (`.release/` is outside the gate).
+
+## 1. Public API since 0.11.5 (additive, one keyword's behaviour changed)
+
+- `fit_camera(SplineLens, source, region; lattice_spacing = nothing, support = nothing, …)`: a SplineLens source is
+  resampled exactly (Core's `extend_lattice`, `subdivide_lattice`, then the optical-axis turn). `lattice_spacing` is
+  the target cell in px. A `grid_size` with a SplineLens source is an `ArgumentError` naming `lattice_spacing` (0.11.5
+  refused it too). The region may exceed the source's valid domain; a stated `support` is checked.
+- `refine_camera_and_poses(camera, views::RotationCenterViews, correspondences, residual)`: `AbstractViewResidual`,
+  `BearingResidual`, `ReprojectionResidual`, and `without_projection` (public).
+- The family record of a resampled SplineLens source: `subdivision`, `lattice_spacing`, `extension_offset`,
+  `extrapolated`, `extrapolated_fraction`, `folds`. The other results' `max_px`, `max_px_edge` and `rms` are `f·angle`.
+- No name was removed.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| docstrings | `fit_camera`'s SplineLens section and its family record rewritten for the exact path; `AbstractViewResidual` (one docstring for the three types), `without_projection`, `optical_axis` (the fold refit, the refusal) |
+| `checkdocs = :public`, doctests, cross-references | no new page; the names live in files already in api/radial.md's `@autodocs`. The strict docs build is in the gate |
+| guide / API page | api/radial.md names the exact resample |
+| README and landing page | unchanged: no example touches the changed API |
+| check_naming | one R7 on 95342208 (a banned stem in the CHANGELOG, 18637), reworded in 0072ad8c; the test helper's banned keyword renamed in 8fcfe6e0's /simplify commit |
+| CHANGELOG | `## 0.11.6`: Added, Fixed, Known, Changed (the `grid_size` refusal names `lattice_spacing`; a region past a SplineLens source's domain accepted; `support` defaults to `nothing`; the Core floor 0.10.8) |
+| versions, floors | Estimation 0.11.6; Core compat "0.10.8" (package, test, docs) |
+
+/simplify and /code-review high were run on the exact-resample delta and their fixes committed (d3f829b9 tests, red 18674;
+b37eadec fixes, green 18675). The full release gate on 0072ad8c starts with prep 18691.
+
 docs-pass: fe0b47a1
 
 # VisualGeometryToolkitCore 0.10.8 docs pass addendum — branch patch-core0108

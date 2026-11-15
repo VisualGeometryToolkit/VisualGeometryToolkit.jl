@@ -332,3 +332,43 @@ end
                                        Size2(1000, 1000)))
     @test metadata(plain).family.start_fold === nothing && converged(plain)
 end
+
+# A linear start that folds just PAST the region's widest angle. The source is the folding test's pinhole and rim turn
+# (19.5° by 480 px) with an azimuthal misfit (θ scaled by 1 + 0.02·Δx/480, no radially symmetric camera represents it, as
+# a real lens's decentring): the 4-term start folds at 62.67° while the region reaches 62.53°, and the refine stalls
+# beside the fold, the start never folding inside the region — RadiometricCamera's ag10fe start (an 8 mm fisheye's
+# Schöps source over the sensor ∩ its image circle ∩ his rectangle, its start folding 0.03° past the region's 96.36°),
+# refused by Estimation 0.11.6. Such a stall is refitted inside the fold as a folding start's is.
+@testitem "optical_axis: a start folding just past the region's widest angle — its stall refitted inside the fold, not refused" begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    using LinearAlgebra: norm
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
+        estimate, metadata, converged, view_angle_limit, lens
+    using VisualGeometryToolkitEstimation: optical_axis
+    import VisualGeometryToolkitEstimation as E
+    c = SVector(512.0, 494.0); f = 600.0; r0 = 350.0
+    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(19.5) * ((r - r0) / (480 - r0))^3
+    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r) * (1 + 0.02 * v[1] / 480);
+              r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
+    grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
+    K0 = calibration_matrix(grid)
+    src = BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
+                        Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
+    # the premise: the start folds past the region's widest angle, within the band a refit leaves out, and its refine stalls
+    part = VgtkCore.imaged_region(src)
+    start = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, VgtkCore.model(src), part, :image, E._AXIS_FIXED,
+                                   VgtkCore.default_device())
+    plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
+    θfold, θmax = Float64(view_angle_limit(lens(start))), metadata(plain).family.θ_max
+    @test θmax < θfold < θmax / 0.9
+    @test !converged(plain)
+    # the axis: refitted inside the fold, converged, the start's fold not recorded (it does not fold inside the region)
+    r = optical_axis(src)
+    md = metadata(r)
+    @test converged(r)
+    @test md.region != part
+    @test md.family.start_fold === nothing
+    @test norm(calibration_matrix(estimate(r))[1:2, 3] - c) < 2.0     # the axis pixel: (512, 494), not the gauge's (500, 500)
+end

@@ -1,5 +1,21 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.11.0 (unreleased; breaking, with the stack cascade)
+
+### Changed (breaking)
+- **A tolerance stop of the host LM is converged** (owner ruling, 2026-11-15: "if it hits our tolerance we mark it as
+  converged; whether the tolerance is too loose is another story"). `lmsolve_chart!` (every form) and `nlls_termination`
+  map a stop on the relative cost decrease (`ftol`, `CostDecrease`) or on the step size (`xtol`, or the new `xtol_rel`,
+  `IncrementSize`) to `ReturnCode.Success`, with NO stationarity postcondition (until 0.10.11 one that failed it was
+  `Stalled`, `converged = -2`). The iteration and time caps stay `MaxIters` / `MaxTime` (not converged), failures keep
+  their codes, and the consecutive-rejection cap — no tolerance — is still judged by the postcondition (`Stalled` when it
+  fails). One schema for every caller of the host LM (Estimation's LO refits and bundles, PanoramaStitching's rotation
+  bundle, RadiometricCamera's radiometry LM): a fit that stalled on a tolerance short of a stationary point now reads
+  as converged. The device LM (`static_lm`, the lens inverses and Features' refinement) keeps its success rule
+  (stationary and accepted: a validity gate).
+  Estimation's `optical_axis`, whose fold refit read the old Stalled, reads its own fold gate (Estimation's change on this
+  branch, released with it).
+
 ## 0.10.11 (unreleased)
 
 A patch: the projective radial profile's knots continue past the rim at the pixel spacing (T. Harder's analysis,
@@ -29,7 +45,7 @@ A patch: the projective radial profile's knots continue past the rim at the pixe
   unit: the exact-fit threshold's operand units). Alongside the absolute `xtol` (NLLSsolver's `dstep`) and the
   relative cost tolerance `ftol`, read through the same `LmStops` and Core's `[lm]` table (`xtol_rel = 0.0`: none,
   every fit as before, bit for bit). A step-size stop: its verdict is the stationarity postcondition's
-  (`ReturnCode.Success` or `Stalled`, `IncrementSize`), as an `ftol` or `xtol` stop's is. NLLSsolver has no such
+  (`ReturnCode.Success` or `Stalled`, `IncrementSize`), as an `ftol` or `xtol` stop's is (0.11.0: converged). NLLSsolver has no such
   option, so it runs in NLLSsolver's callback slot after the caller's callback (a callback's own stop is unchanged);
   its termination bit (31, a callback flag `2¹⁵` Core reserves) decodes in `nlls_stop_code` / `nlls_termination` as
   the step-size stop and in `nlls_stop_reasons` as `:relative_increment_size`.

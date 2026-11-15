@@ -29,8 +29,9 @@ meaning is SciMLBase's:
   default): a record of a solve that never ran, such as a RANSAC result's
   local-optimization record when no local optimization ran. Not successful.
 - `ReturnCode.Success` — the solve succeeded: a tolerance or stop rule ended
-  an iteration (an LM's step-size or rejection stop once its stationarity
-  postcondition holds), a closed-form solve, a RANSAC that reached its
+  an iteration (an LM's cost-decrease or step-size tolerance, converged by
+  definition; its rejection cap once its stationarity postcondition holds), a
+  closed-form solve, a RANSAC that reached its
   confidence or drew every sample. Successful.
 - `ReturnCode.Terminated` — a user callback ended the solve (NLLSsolver's
   callback flags). Successful, as in SciMLBase.
@@ -38,8 +39,10 @@ meaning is SciMLBase's:
   on the last iteration; for a RANSAC, the trial budget was drawn without
   reaching the confidence. Not successful.
 - `ReturnCode.MaxTime` — the time cap. Not successful.
-- `ReturnCode.Stalled` — an LM stopped (step size, rejections) at a point that
-  fails the stationarity postcondition. Not successful.
+- `ReturnCode.Stalled` — an LM stopped at a point that fails the stationarity
+  postcondition: the host LM's consecutive-rejection cap (a tolerance stop, the
+  cost decrease or the step size, is `Success`: Core 0.11.0's owner ruling), the
+  device LM's (`static_lm`) stops short of its success rule. Not successful.
 - `ReturnCode.InitialFailure` — the start was unusable: too few data or a
   degenerate configuration before any iteration, or a non-finite cost or
   gradient at the start point. Not successful.

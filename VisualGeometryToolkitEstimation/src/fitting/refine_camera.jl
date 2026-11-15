@@ -470,14 +470,16 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
     # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
     # are capped there, and it can stall with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). Such a
-    # stall is fitted again over the part of the region inside the fold (`_inside_fold`); a fit that converged from a
-    # folding start keeps its whole region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
+    # stall — a fit that did not converge, or (Core 0.11.0: a tolerance stop is converged, so the stall is read by its
+    # own validity gate) one whose refined lens still folds inside the region it was fitted over (`_folds_inside`) — is
+    # fitted again over the part of the region inside the fold (`_inside_fold`); a fit that left the fold keeps its whole
+    # region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
     fold = Float64(view_angle_limit(lens(start)))
     folds = fold < metadata(r).family.θ_max
     # each refit: the disc inside 0.9 of the current start's fold (or of the last region's widest angle, if that is
     # smaller), at most `_FOLD_REFITS` times
     θ, s, refits = fold, start, 0
-    while folds && !converged(r) && refits < _FOLD_REFITS
+    while folds && (!converged(r) || _folds_inside(r)) && refits < _FOLD_REFITS
         inner = part ∩ _inside_fold(s, min(θ, metadata(r).family.θ_max))
         s = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
         r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
@@ -486,7 +488,7 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     end
     fold = folds ? fold : nothing
     # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
-    converged(r) || throw(ArgumentError(
+    (converged(r) && !(folds && _folds_inside(r))) || throw(ArgumentError(
         "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *
             "$(round(metadata(r).symmetry_residual; sigdigits = 3)) px over $(metadata(r).region)); fit it over a region " *
             "the camera images well (a target's rectangle), `optical_axis(camera, region)`"
@@ -497,6 +499,9 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
                                        md.rotation, md.symmetry_residual, md.residuals))
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
+# The validity gate of an axis fit from a folding start: its refined lens still folds before the widest angle of the region it
+# was fitted over (the residuals capped at the fold: the axis can sit unmoved at a tolerance stop).
+_folds_inside(r) = Float64(view_angle_limit(lens(estimate(r)))) < metadata(r).family.θ_max
 # The image disc inside a linear start's fold: about its principal point, out to its radius at 0.9 of the fold angle
 # (the start's forward is monotonic there), so the refit's start images every sample.
 function _inside_fold(start::CameraModel, fold::Float64)

@@ -110,7 +110,7 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `max_iter` | the iteration cap (`[lm]` 1000) | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first, so the cap bounds accepted steps, not work |
 | `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the final point's rounding, `_exact_fit_threshold`) | `reldcost` |
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
-| `xtol_rel` | RELATIVE step tolerance (`[lm]` 0: none), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ `xtol_rel`·(‖x‖ + `xtol_rel`), Euclidean norms of the step and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart unit: the exact-fit threshold's operand units, `_operand_unit`). A step-size stop like `xtol`'s (`IncrementSize`, the postcondition decides it) | — (the stack's own test, `_RelativeIncrementStop`, in NLLSsolver's callback slot: a callback's flag `2¹⁵` is Core's own) |
+| `xtol_rel` | RELATIVE step tolerance (`[lm]` 0: none), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ `xtol_rel`·(‖x‖ + `xtol_rel`), Euclidean norms of the step and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart unit: the exact-fit threshold's operand units, `_operand_unit`). A step-size stop like `xtol`'s (`IncrementSize`: converged, `Success`) | — (the stack's own test, `_RelativeIncrementStop`, in NLLSsolver's callback slot: a callback's flag `2¹⁵` is Core's own) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
 | `residual_resolution` | the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
@@ -548,14 +548,17 @@ _chart_problem_type(::Type{P}, ::Type{B}, d::LmDamping) where {P, B} =
 end
 
 # THE solve, every form's: NLLSsolver under the stop settings on the kept problem and cache, its stop code
-# (`nlls_stop_code`) and termination record (`nlls_termination`) under THE success rule — the stationarity
-# postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold the final point's
-# `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides every stop that is not a
-# failure or a cap: the cost-decrease stop, the step-size stop and the rejection cap alike. A stop it fails is `_LM_STALLED`.
+# (`nlls_stop_code`) and termination record (`nlls_termination`) under THE success rule (owner ruling, Core 0.11.0):
+# a stop on a TOLERANCE — the relative cost decrease (`ftol`), the step size (`xtol`, absolute, or `xtol_rel`) — is
+# converged, `Success`, whatever the gradient there (whether the tolerance is too loose is the configuration's
+# question). The stationarity postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold
+# the final point's `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides only the
+# stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule). A stop it fails is
+# `_LM_STALLED`.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
     code = nlls_stop_code(result.termination)
-    stationary = (code == 1 || code == 2 || code == 4) ? postcondition(_FinalRounding(stops.residual_resolution))::Bool : true
+    stationary = code == 4 ? postcondition(_FinalRounding(stops.residual_resolution))::Bool : true
     stationary || (code = _LM_STALLED)
     return result, code, nlls_termination(result, stationary)
 end
@@ -623,10 +626,10 @@ that applies:
    (10), a start point whose cost or gradient is not finite (11), a gradient
    that is not finite at an accepted point (12) — WITHOUT a
    step-size stop: `-3`, `:solve_failed`;
-2. the step-size stop (6, or Core's relative one, 31: `LmStops`' `xtol_rel`): `2`, the stall postcondition decides it (checked
+2. the step-size stop (6, or Core's relative one, 31: `LmStops`' `xtol_rel`): `2`, a tolerance met: converged (checked
    before the cost tolerance: a tiny last step at a wall also shows a tiny
    cost decrease);
-3. a relative or absolute cost-decrease stop (2, 3): `1`, the postcondition decides it (a
+3. a relative or absolute cost-decrease stop (2, 3): `1`, a tolerance met: converged (a
    tolerance outranks a cap);
 4. the consecutive-failure cap (7): `4`, the postcondition decides it;
 5. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
@@ -688,17 +691,18 @@ decoded in `nlls_stop_code`'s one order:
 |:--|:--|:--|
 | 11, a non-finite start point (no step tried) | `NonFinite` | `InitialFailure` |
 | 0, 1, 4, 5, 10, 12 without a step-size stop | `NonFinite` | `Failure` |
-| 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`) | `IncrementSize` | `Success` if the postcondition holds, else `Stalled` |
-| 2, 3, a cost decrease | `CostDecrease` | `Success` if the postcondition holds, else `Stalled` |
+| 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`) | `IncrementSize` | `Success` (a tolerance met: converged) |
+| 2, 3, a cost decrease | `CostDecrease` | `Success` (a tolerance met: converged) |
 | 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
 | 16 and above only, a user callback | `Callback` | `Terminated` |
 | 9, the time cap | `TimeCap` | `MaxTime` |
 | 8, the iteration cap | `IterationCap` | `MaxIters` |
 
 `postcondition` is the stall postcondition at the returned point — a `Bool`, or a
-callable `() -> Bool` that runs only for the stops that need it (a cost-decrease,
-step-size or rejection stop: [`is_stationary`](@ref), or the chart LM's own test) — THE success
-rule: no stop is a success without it. A tolerance
+callable `() -> Bool` that runs only for the stops that need it (the rejection cap:
+[`is_stationary`](@ref), or the chart LM's own test). A tolerance stop is converged
+without it (owner ruling, Core 0.11.0: "if it hits our tolerance we mark it as
+converged; whether the tolerance is too loose is another story"). A tolerance
 met on the last iteration outranks the cap, so `MaxIters` means no tolerance
 fired.
 """
@@ -709,8 +713,11 @@ function nlls_termination(bits::Integer, postcondition)
     code == _LM_FAILED && return (ReturnCode.Failure, NonFinite)
     code == _LM_MAX_TIME && return (ReturnCode.MaxTime, TimeCap)
     code == -1 && return (ReturnCode.MaxIters, IterationCap)
-    # the stops whose verdict is the postcondition's (a cost decrease, a step-size stop, the rejection cap), and a callback's
-    rule = code == 1 ? CostDecrease : code == 2 ? IncrementSize : bits & (1 << 7) != 0 ? RejectionCap : bits >> 16 != 0 ? Callback : NoRule
+    # a tolerance stop (the cost decrease, the step size) is converged (owner ruling, Core 0.11.0); the rejection cap's verdict
+    # is the postcondition's; a callback's is Terminated
+    code == 1 && return (ReturnCode.Success, CostDecrease)
+    code == 2 && return (ReturnCode.Success, IncrementSize)
+    rule = bits & (1 << 7) != 0 ? RejectionCap : bits >> 16 != 0 ? Callback : NoRule
     rule == Callback && return (ReturnCode.Terminated, Callback)
     return (_holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, rule)
 end
@@ -761,18 +768,18 @@ accepted step each; a start at a stationary point takes one zero step, and only 
 finite stops at 0, `:solve_failed`), and `(code, rule)` the termination record, a [`ReturnCode`](@ref) and a
 [`StopRule`](@ref) (`nlls_termination`'s decode).
 
-THE SUCCESS RULE. A stop is a success only at a STATIONARY point: for the cost-decrease stop, the step-size stop and
-the rejection cap alike, stationarity is TESTED at the returned point, and a stop that fails it is
-`ReturnCode.Stalled` (`converged = -2`) with the rule that fired. A tiny cost decrease or a tiny step proves nothing: a
-run whose damping grew until no step could lower the cost (a wrong-sign Jacobian; a NaN wall the minimizer lies
-behind) stops there. Stationary means the cost is zero by the exact-fit test — below the rounding of the
+THE SUCCESS RULE (owner ruling, Core 0.11.0). A stop on a TOLERANCE is converged, `ReturnCode.Success`: the
+relative cost decrease (`ftol`, `CostDecrease`) and the step size (`xtol` absolute or `xtol_rel` relative,
+`IncrementSize`), whatever the gradient at the returned point — whether a tolerance is too loose is the
+configuration's question, not the termination record's. The iteration and time caps are not converged (`MaxIters`,
+`MaxTime`), a failed solve is `Failure`. Only the consecutive-rejection cap, which is no tolerance, is judged by the
+stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
 final point's residuals, `F < (16ε)²·Σᵢ sᵢ²` over their operand scales sᵢ (`_exact_fit_threshold`, Core 0.10.4: a
 run that starts at an exact fit, a restart from a solve's minimum, ends at one), floored by the square of the
 residual-vector norm the data resolve, `stops.residual_resolution` (`0` by default; `stops.ftol` is the relative
 cost-decrease stop, never this test). Otherwise stationary means every column of
 the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`
-(√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)). The iteration and time caps are `MaxIters`
-and `MaxTime`, a failed solve `Failure`.
+(√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)).
 """
 function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm::L, stops::LmStops = LmStops()) where {N, L}
     R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}, _ChartRows{N, L}, stops.damping)

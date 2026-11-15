@@ -129,11 +129,15 @@ end
     term = VgtkCore.nlls_termination
     @test retcode_symbol(term(1 << 7, true)...) === :converged               # once the postcondition holds
     @test retcode_symbol(term(1 << 0, true)...) === :solve_failed && retcode_symbol(term(1 << 9, true)...) === :max_time
-    # THE success rule: a cost-decrease stop is a success only where the postcondition holds
+    # THE success rule (owner ruling, Core 0.11.0): a tolerance stop — the cost decrease, the step size — is converged
+    # whatever the postcondition says; only the rejection cap is judged by it; a cap is not converged
     @test term(1 << 2, true) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
-    @test term(1 << 2, false) === (VgtkCore.ReturnCode.Stalled, VgtkCore.CostDecrease)
+    @test term(1 << 2, false) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
+    @test term(1 << 6, false) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
+    @test term(1 << 7, false) === (VgtkCore.ReturnCode.Stalled, VgtkCore.RejectionCap)
     calls = Ref(0); probe = () -> (calls[] += 1; true)
-    @test term(1 << 2, probe) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && calls[] == 1
+    @test term(1 << 2, probe) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && calls[] == 0   # a tolerance needs none
+    @test term(1 << 7, probe) === (VgtkCore.ReturnCode.Success, VgtkCore.RejectionCap) && calls[] == 1
     @test term(1 << 8, probe) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && calls[] == 1   # a cap needs none
     # the bits named in public; the decode is the adapter's own
     @test !Base.ispublic(VgtkCore, :nlls_stop_code) && !Base.ispublic(VgtkCore, :nlls_termination) && Base.ispublic(VgtkCore, :nlls_stop_reasons)
@@ -146,13 +150,15 @@ end
 @testset "a NaN wall at the production cost tolerance" begin
     # The stack's ftol (1e-10, Core's configs [lm]): near the wall the last steps'
     # cost decrease and step size shrink together; the step stop is decoded
-    # first, so the stall postcondition runs and the stop is :stalled.
+    # first. A step-size stop is a tolerance met: converged (owner ruling, Core
+    # 0.10.11), though the point is the wall's, not the minimizer's — whether the
+    # tolerance is too loose is the configuration's question.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall)
     @test isfinite(F) && x[3] <= 0.25
-    @test retcode_symbol(term...) === :stalled
-    # the termination record agrees: a step-size stop that fails the postcondition
-    @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
+    @test term === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && c == 2
+    @test !VgtkCore.is_stationary(VgtkCore.residual_jacobian_rows!(zeros(5, 4), lm_wall, x), VgtkCore.residual_rows!(zeros(5), lm_wall, x);
+                                  tol = LmStops().stationarity_tol, ftol = 0.0)          # converged with a nonzero gradient
 end
 
 @testset "the stop settings: one owner, mapped once" begin
@@ -180,15 +186,17 @@ end
     @test Base.ispublic(VgtkCore, :LmStops) && Base.ispublic(VgtkCore, :LmProblem) && Base.ispublic(VgtkCore, :StaticLmStops)
 end
 
-@testset "a cost-decrease stop short of stationarity is :stalled" begin
+@testset "a cost-decrease stop short of stationarity is converged (owner ruling, Core 0.11.0)" begin
     # A relative cost tolerance of 1 − 1e-6 stops at the first accepted step that does not lower the cost by 99.9999%:
-    # far from the minimizer (the start's slope b = 0 against the data's −0.8, the residuals of order 100 — far above
-    # the exact-fit floor, which this ftol also sets), where the gradient is not orthogonal to the rows. The old rule
-    # called a cost-decrease stop converged unchecked; THE success rule tests it.
+    # far from the minimizer (the start's slope b = 0 against the data's −0.8, the residuals of order 100), where the
+    # gradient is not orthogonal to the rows. "If it hits our tolerance we mark it as converged; whether the tolerance is
+    # too loose is another story": Success, CostDecrease (Core ≤ 0.10.11: Stalled).
     s = collect(range(0.0, 2.0; length = 40))
     lm = _ExpFitLm(s, [100 * (1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 + 0.05 * sin(7si)) for si in s], SVector(1.0, 0.0, 0.0, 0.0))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm, LmStops(; ftol = 1 - 1.0e-6))
-    @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.CostDecrease) && c == -2
+    @test term === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && c == 1
+    @test !VgtkCore.is_stationary(VgtkCore.residual_jacobian_rows!(zeros(length(s), 4), lm, x), VgtkCore.residual_rows!(zeros(length(s)), lm, x);
+                                  tol = LmStops().stationarity_tol, ftol = 0.0)        # the gradient there is not zero
     # the same fit at the stack's settings is a success at a stationary point
     _, _, c0, _, term0 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
     @test retcode_symbol(term0...) === :converged && c0 in (1, 2)
@@ -373,9 +381,10 @@ end
 # 1e-3 (cost ≈ 2.4e-5 at the start, far below a relative ftol of 0.5) stops on the cost-decrease rule (a step that
 # lowers the cost by less than half) after its first steps, well short of the minimum, where the gradient is not
 # orthogonal to the residual.
-@testitem "lmsolve_chart!(::LmProblem): a low-cost stop short of stationarity is not a Success" begin
+@testitem "lmsolve_chart!(::LmProblem): a low-cost stop at a loose ftol is converged, short of stationarity (owner ruling)" begin
     using Test, StaticArrays
-    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, CostDecrease
+    import VisualGeometryToolkitCore as VgtkCore
     struct _ScaledRosenbrock <: NLLSsolver.AbstractResidual
         s::Float64
     end
@@ -389,7 +398,10 @@ end
     sol = lmsolve_chart!(p, LmStops(; ftol = 0.5))
     @test sol.cost < 0.5                                       # a cost below the relative tolerance's value …
     @test p.variables[1][1] < 0.9                              # … far from the minimum at (1, 1)
-    @test sol.code !== ReturnCode.Success                      # so not a Success: the exact-fit test is not ftol
+    # a tolerance met is converged (Core 0.11.0's owner ruling; until 0.10.11 Stalled): the gradient is not zero there,
+    # the exact-fit test is not ftol, and whether ftol = 0.5 is too loose is the configuration's question
+    @test sol.code === ReturnCode.Success && sol.rule === CostDecrease
+    @test !VgtkCore._lm_problem_stationary!(p, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))
     # the same problem to its minimum is a Success (an exact fit there: the cost at its rounding)
     q = LmProblem([SVector(-1.2, 1.0)], [_ScaledRosenbrock(1.0e-3)])
     full = lmsolve_chart!(q)
@@ -468,11 +480,13 @@ end
 # large start, exceeded a cost the run had merely stalled at. 10⁶ residuals rᵢ = x + dᵢ (dᵢ = ±10⁻³, the minimum
 # F = 1 at x = 0) from x = 10⁶ (F₀ = 10¹⁸, so m·ε·F₀ ≈ 2·10⁸), the Jacobian reported with the wrong sign within 10⁻³
 # of the minimum (and 1.5 outside it): the run descends to F ≈ 1, where no step lowers the cost, and stops there
-# with the gradient far from orthogonal to the residual — Stalled, not an exact fit. The data's own resolution, a
+# with the gradient far from orthogonal to the residual — not an exact fit (its tolerance stop is converged since
+# Core 0.11.0's owner ruling; the postcondition the rejection cap reads is tested directly). The data's own resolution, a
 # residual norm (√m·q for a per-sample quantum q) whose square exceeds that cost, does make it one.
 @testitem "lmsolve_chart!(::LmProblem): a stall below m·ε·F₀ is not an exact fit" begin
     using Test, StaticArrays
     using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode
+    import VisualGeometryToolkitCore as VgtkCore
     struct _FlippedRow <: NLLSsolver.AbstractResidual
         d::Float64
     end
@@ -486,13 +500,18 @@ end
         (SVector(x[1] + r.d), SMatrix{1, 1, Float64}(abs(x[1]) > 1.0e-3 ? 1.5 : -1.0))
     m = 10^6
     rows = [_FlippedRow(isodd(i) ? 1.0e-3 : -1.0e-3) for i in 1:m]
-    solve(stops) = (p = LmProblem([SVector(1.0e6)], rows); (lmsolve_chart!(p, stops), p.variables[1][1]))
-    sol, x = solve(LmStops())
+    solve(stops) = (p = LmProblem([SVector(1.0e6)], rows); (lmsolve_chart!(p, stops), p.variables[1][1], p))
+    sol, x, p = solve(LmStops())
     @test 1 <= sol.cost < 2                                    # stalled near the minimum, F ≈ 1 …
     @test m * eps() * 1.0e18 > 1.0e8                           # … far below m·ε·F₀ (the threshold until 0.10.3)
     @test abs(x) > 1.0e-5                                      # off the minimum: the cosine |x|/√(x² + 10⁻⁶) is large
-    @test sol.code === ReturnCode.Stalled
-    sr, xr = solve(LmStops(; residual_resolution = 2.0))       # data resolved to a residual norm of 2: F < 4 is zero
+    # a tolerance stop: converged (Core 0.11.0's owner ruling). The postcondition (the rejection cap's verdict) is NOT
+    # an exact fit there: the threshold is the final point's rounding, not m·ε·F₀ …
+    @test sol.code === ReturnCode.Success
+    @test !VgtkCore._lm_problem_stationary!(p, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))
+    # … floored by the data's resolution: a residual norm of 2 makes F < 4 zero
+    @test VgtkCore._lm_problem_stationary!(p, LmStops().stationarity_tol, VgtkCore._FinalRounding(2.0))
+    sr, xr, _ = solve(LmStops(; residual_resolution = 2.0))
     @test sr.code === ReturnCode.Success && xr == x && sr.cost == sol.cost
 end
 
@@ -696,11 +715,12 @@ end
     @test t(1 << 11) === (ReturnCode.InitialFailure, NonFinite)
     @test t((1 << 1) | (1 << 11)) === (ReturnCode.InitialFailure, NonFinite)
     @test t(1 << 2) === (ReturnCode.Success, CostDecrease) && t(1 << 3) === (ReturnCode.Success, CostDecrease)
-    @test t(1 << 2, false) === (ReturnCode.Stalled, CostDecrease)               # THE success rule: a cost stop too
+    # THE success rule (owner ruling, Core 0.11.0): a tolerance stop is converged, the postcondition unread
+    @test t(1 << 2, false) === (ReturnCode.Success, CostDecrease)
     @test t(1 << 6) === (ReturnCode.Success, IncrementSize)
-    @test t(1 << 6, false) === (ReturnCode.Stalled, IncrementSize)
-    @test t((1 << 2) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # the step stop first
-    @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Stalled, IncrementSize)      # a NaN trial at a step stop
+    @test t(1 << 6, false) === (ReturnCode.Success, IncrementSize)
+    @test t((1 << 2) | (1 << 6), false) === (ReturnCode.Success, IncrementSize)      # the step stop first
+    @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Success, IncrementSize)      # a NaN trial at a step stop
     @test t(1 << 7) === (ReturnCode.Success, RejectionCap)
     @test t(1 << 7, false) === (ReturnCode.Stalled, RejectionCap)
     @test t(1 << 16, false) === (ReturnCode.Terminated, Callback)
@@ -708,23 +728,24 @@ end
     @test t((1 << 8) | (1 << 9)) === (ReturnCode.MaxTime, TimeCap)              # time outranks iterations
     @test t(1 << 8) === (ReturnCode.MaxIters, IterationCap)
     @test t((1 << 8) | (1 << 2)) === (ReturnCode.Success, CostDecrease)         # a tolerance outranks the cap
-    @test t((1 << 8) | (1 << 2), false) === (ReturnCode.Stalled, CostDecrease)
+    @test t((1 << 8) | (1 << 2), false) === (ReturnCode.Success, CostDecrease)
     @test t((1 << 1) | (1 << 8) | (1 << 9)) === (ReturnCode.Failure, NonFinite)  # failure outranks the caps
     # the postcondition runs only where it decides
     calls = Ref(0)
     probe = () -> (calls[] += 1; false)
     @test nlls_termination(1 << 8, probe) === (ReturnCode.MaxIters, IterationCap) && calls[] == 0
-    @test nlls_termination(1 << 2, probe) === (ReturnCode.Stalled, CostDecrease) && calls[] == 1
-    @test nlls_termination(1 << 6, probe) === (ReturnCode.Stalled, IncrementSize) && calls[] == 2
-    # with the real postcondition (`is_stationary`), at a least-squares optimum and off it: THE success rule reads it at
-    # every stop that is not a failure or a cap — a cost-decrease stop off the optimum is :stalled (until the one
-    # success rule, 2026-11-13, it was :converged unchecked)
+    @test nlls_termination(1 << 2, probe) === (ReturnCode.Success, CostDecrease) && calls[] == 0
+    @test nlls_termination(1 << 6, probe) === (ReturnCode.Success, IncrementSize) && calls[] == 0
+    @test nlls_termination(1 << 7, probe) === (ReturnCode.Stalled, RejectionCap) && calls[] == 1
+    # with the real postcondition (`is_stationary`), at a least-squares optimum and off it: a tolerance stop is converged
+    # either way (Core 0.11.0's owner ruling; 2026-11-13 – 0.10.11 it was :stalled off the optimum); the rejection cap
+    # alone reads it
     J = [1.0 0.0; 0.0 2.0; 1.0 1.0]; y = [1.0, 2.0, 4.0]; x̂ = J \ y
     r_opt = J * x̂ - y; r_off = J * (x̂ .+ 0.1) - y
     sym(bits, r) = VisualGeometryToolkitCore.retcode_symbol(nlls_termination(bits, () -> VisualGeometryToolkitCore.is_stationary(J, r; tol = 1.0e-6, ftol = eps()))...)
-    @test sym(1 << 2, r_opt) === :converged && sym(1 << 2, r_off) === :stalled
-    @test sym((1 << 8) | (1 << 2), r_opt) === :converged && sym((1 << 8) | (1 << 2), r_off) === :stalled
-    @test sym(1 << 6, r_opt) === :converged && sym((1 << 2) | (1 << 6), r_off) === :stalled
+    @test sym(1 << 2, r_opt) === :converged && sym(1 << 2, r_off) === :converged
+    @test sym((1 << 8) | (1 << 2), r_opt) === :converged && sym((1 << 8) | (1 << 2), r_off) === :converged
+    @test sym(1 << 6, r_opt) === :converged && sym((1 << 2) | (1 << 6), r_off) === :converged
     @test sym(1 << 7, r_opt) === :converged && sym(1 << 7, r_off) === :stalled
     @test sym(1 << 8, r_off) === :max_iterations
 end
@@ -815,6 +836,6 @@ end
     @test !VgtkCore._relative_increment_met(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never
     # its termination bit (31) decodes as a step-size stop, under the postcondition
     @test VgtkCore.nlls_termination(1 << 31, true) == (ReturnCode.Success, IncrementSize)
-    @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Stalled, IncrementSize)
+    @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Success, IncrementSize)   # a tolerance: converged
     @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_increment_size] && VgtkCore.nlls_stop_code(1 << 31) == 2
 end

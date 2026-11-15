@@ -450,6 +450,13 @@ camera's `valid_domain` by default; for a camera re-gridded from a calibration (
 the board), the calibration's support — RadiometricCamera's siemens start camera, refused over its whole sensor, fits
 over its Schöps support.
 
+A linear start that FOLDS before the region's widest angle (its forward's `view_angle_limit` below `θ_max`: a rectilinear
+lens to 62° whose 4-term fit turns over at 56°) is recorded as `metadata(r).family.start_fold` (radians; `nothing` when
+the start does not fold); when the refine from it does not converge, the axis is fitted again over the part of the
+region inside the fold (out to 0.9 of the fold angle, about the start's principal point), `metadata(r).region` then the
+region used. An axis fit that still does not converge is an `ArgumentError`: the axis re-gauge is applied always
+(`fit_camera(SplineLens, …)`), and a stalled fit is never a silent rotation 0.
+
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
 axis. `fit_camera(SplineLens, …)` does this first, always (a held SplineLens camera's `refine_camera_and_poses` does not:
 it returns the camera as given).
@@ -462,16 +469,17 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image, _AXIS_FIXED, device)
     r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
     # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
-    # are capped there and it stalls with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). The axis
-    # is fitted again over the part of the region inside the fold (`_inside_fold`).
+    # are capped there, and it can stall with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). Such a
+    # stall is fitted again over the part of the region inside the fold (`_inside_fold`); a fit that converged from a
+    # folding start keeps its whole region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
     fold = Float64(view_angle_limit(lens(start)))
-    if fold < metadata(r).family.θ_max
+    folds = fold < metadata(r).family.θ_max
+    if folds && !converged(r)
         inner = part ∩ _inside_fold(start, fold)
-        start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
-        r = _refine_camera(start, src, inner; fixed = _AXIS_FIXED, device)
-    else
-        fold = nothing
+        inner_start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
+        r = _refine_camera(inner_start, src, inner; fixed = _AXIS_FIXED, device)
     end
+    fold = folds ? fold : nothing
     # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
     converged(r) || throw(ArgumentError(
         "optical_axis: the axis fit did not converge ($(VgtkCore.retcode_symbol(r)), symmetry residual " *

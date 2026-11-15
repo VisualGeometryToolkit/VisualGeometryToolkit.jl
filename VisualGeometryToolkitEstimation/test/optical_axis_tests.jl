@@ -300,3 +300,35 @@ end
     kb = CameraModel(SMatrix{3, 3, Float64}(300, 0, 0, 0, 300, 0, 320, 240, 1); lens = KannalaBrandt(-0.135))
     @test_throws RegionBeyondSupport fit_camera(KannalaBrandt{4}, kb, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5))
 end
+
+# 0.11.6: a linear start that folds inside the region. The source images a pinhole (f = 600 px, its axis at (512, 494))
+# out to 350 px, and past it a ray field that turns away fast (25° more by 480 px): the axis family's 4-term linear fit
+# turns over (folds) at 64° while the region reaches 67°, and the refine from it stalls with the axis unmoved — on the
+# re-gauged K (principal point (500, 500)) a silent 0° turn, the Sigma 14 mm Schöps source's failure (2026-11-15).
+@testitem "optical_axis: a folding linear start is refitted inside the fold, never a silent rotation 0" begin
+    using Test
+    using StaticArrays: SMatrix, SVector
+    using LinearAlgebra: norm
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
+        estimate, metadata, converged
+    using VisualGeometryToolkitEstimation: optical_axis
+    c = SVector(512.0, 494.0); f = 600.0; r0 = 350.0
+    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(25.0) * ((r - r0) / (480 - r0))^3
+    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r);
+              r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
+    grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
+    K0 = calibration_matrix(grid)
+    src = BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
+                        Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
+    r = optical_axis(src)
+    md = metadata(r)
+    @test converged(r)
+    @test md.family.start_fold isa Float64 && md.family.start_fold < md.family.θ_max   # the start folded, and it is recorded
+    @test md.region != VgtkCore.imaged_region(src)                                     # the axis was fitted inside the fold
+    @test norm(calibration_matrix(estimate(r))[1:2, 3] - c) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
+    # a start that does not fold records none
+    plain = optical_axis(BoundedCamera(CameraModel(SplineLens, CameraModel(; pp = (512.0, 494.0), focal = 600.0), Size2(1000, 1000); grid_size = (30, 30)),
+                                       Size2(1000, 1000)))
+    @test metadata(plain).family.start_fold === nothing && converged(plain)
+end

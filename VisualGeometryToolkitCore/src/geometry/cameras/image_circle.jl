@@ -50,6 +50,10 @@ the chord between neighbours; its chords lie within `R·(1 − cos(π/720)) ≈ 
 radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
 the pixels between it and their own azimuth's fold.
 
+Cost: building the polygon is about 10 ms (720 azimuth folds; the disc of a radially symmetric lens about 13 µs), and
+membership in it about 0.1–0.5 µs a point. Build it ONCE per model and hold it — a fit's `support`, an `imaged_region`,
+a bundle's camera variable — never per point or per residual.
+
 The [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane) when the
 lens has no limit of its own: `view_angle_limit` reports only the edge it stops
 at by construction — the perspective or orthographic chart's edge, or the

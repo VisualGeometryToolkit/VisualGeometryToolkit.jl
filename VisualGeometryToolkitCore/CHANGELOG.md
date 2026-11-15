@@ -30,7 +30,10 @@ axis, and the valid domain of a decentred lens stopped at its smallest fold.
   (`_last_increasing`, `_last_imaged`) so the valid domain's azimuth scan reuses them; their answers are unchanged.
   Return type: `valid_domain(camera)` is now `Union{Ellipse{Float64}, PolygonRegion, WholePlane}`. Code that read an
   asymmetric lens's domain as an `Ellipse` (`q.a`, `shape_matrix(q)`) reads `q.inner`/`q.outer` or uses the region
-  interface. The polygon is derived from the model, never serialized: a lens coverage stays a `Rect2`, `Circle` or
+  interface. Building the polygon costs about 10 ms (the disc about 13 µs) and membership about 0.1–0.5 µs a point
+  (a timing guard test holds both): a caller builds the domain once per model and holds it, never per point (the stack's
+  callers do; PanoramaStitching's camera variable must widen its domain field to hold the polygon). The polygon is
+  derived from the model, never serialized: a lens coverage stays a `Rect2`, `Circle` or
   `Ellipse`, and VisualGeometryToolkitIO's camera round trip is unchanged.
 - **A `SplineLens` projection's cold start is the backward area's centre, not the ray's pinhole point.** `project`'s
   LM (scalar, batched without a finite seed, and `NoncentralSplineModel`'s two-argument form) started at

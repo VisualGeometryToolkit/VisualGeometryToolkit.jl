@@ -223,6 +223,16 @@ imaged_region(bc::BoundedCamera) = (Rect(0, 0, extent(bc)...) ∩ lens_coverage(
 # 10 ms (one 1024-sample scan and a refinement each).
 const _FOLD_AZIMUTHS = 720
 
+# A jump of the fold radius between two neighbouring azimuth samples: a relative difference above this. The bulge bound
+# (`dip`, h²|R''|/8) covers a SMOOTH fold curve between samples; a discontinuity between them (an azimuth range that
+# folds beside one that does not, or folds much farther out) it does not, and a chord across it can claim past the
+# nearer fold. A smooth fold curve of a lens's distortion is a low harmonic of the azimuth: a relative variation of
+# amplitude ε ≤ 0.5 at harmonic m ≤ 3 changes R by at most ε·m·h ≈ 1.5·(2π/720) ≈ 1.3 % between neighbours (its bulge
+# h²|R''|/8 ≈ 10⁻⁵ R adds nothing at that scale). A difference of 10 %, nearly 8× the steepest such curve, is taken as
+# a discontinuity, and the vertex beside it is capped at the smaller of its neighbours' radii. Smooth lenses never reach
+# it (their polygon is bit for bit the uncapped one).
+const _FOLD_JUMP = 0.1
+
 # The valid domain of a lens that is not radially symmetric: the star polygon about the distortion centre (the image
 # of the optical axis) through each ray azimuth's own fold (`_azimuth_fold`), in the camera's pixels. In the
 # normalized plane each fold point is pulled toward the centre by the relative margin 10⁻⁹ of the radius (what the
@@ -232,8 +242,10 @@ const _FOLD_AZIMUTHS = 720
 # its own curvature), so the polygon never claims a point past the fold. R'' is the polygon's own second difference at
 # its non-uniform spacing, doubled as a safety factor (the fold curve of a polynomial distortion is a low harmonic of the
 # azimuth, so its second derivative varies little over the 1.5° stencil), and read locally: each vertex is pulled by
-# the bound of its own two sectors, so a kink (an azimuth range that folds beside one that does not) costs margin
-# only beside it. No vertex comes nearer the centre than the disc of the smallest fold (`_valid_domain_radius`, the
+# the bound of its own two sectors, so a kink costs margin only beside it. A jump of the fold radius between two
+# samples (`_FOLD_JUMP`) is no curve the bound covers: the vertices beside it are capped at the nearer neighbour's
+# fold, so no chord across it claims past that fold. A discontinuity narrower than one sample's spacing that both
+# neighbours miss cannot be seen. No vertex comes nearer the centre than the disc of the smallest fold (`_valid_domain_radius`, the
 # domain until Core 0.10.9, inside every fold): beside a jump of the fold radius the bound can exceed the radius itself,
 # and the clamp keeps every vertex radius positive, so the ring is star-shaped about the centre whenever the fold points'
 # image directions run round it in order (the fold curve of a distortion that keeps its azimuth's order). The vertices
@@ -257,8 +269,12 @@ function _fold_polygon(camera::CameraModel)
     # own fold sample; a vertex the bulge bound would pull past it (beside a jump of the fold radius) stops there
     ρ = _valid_domain_radius(l)
     disc(i) = min(ρ, R[i] * (1 - 1.0e-9))
+    # beside a jump (a neighbour's radius more than _FOLD_JUMP away), no farther out than the nearer neighbour's fold
+    jump(i) = any(j -> abs(R[mod1(j, n)] - R[i]) > _FOLD_JUMP * R[i], (i - 1, i + 1))
+    cap(i) = jump(i) ? min(R[mod1(i - 1, n)], R[i], R[mod1(i + 1, n)]) * (1 - 1.0e-9) : Inf
+    radius(i) = max(min(R[i] * (1 - 1.0e-9) - dip(i), cap(i)), disc(i))
     pixel = affine_part(SMatrix{3, 3, Float64}(calibration_matrix(camera)))   # K's pixel affine
-    vertices = [pixel(c + max(R[i] * (1 - 1.0e-9) - dip(i), disc(i)) / R[i] * d[i]) for i in 1:n]
+    vertices = [pixel(c + radius(i) / R[i] * d[i]) for i in 1:n]
     return PolygonRegion(vertices, pixel(c))
 end
 

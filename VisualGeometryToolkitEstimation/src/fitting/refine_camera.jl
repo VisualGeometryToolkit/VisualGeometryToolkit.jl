@@ -454,7 +454,10 @@ A linear start that FOLDS before the region's widest angle (its forward's `view_
 lens to 62° whose 4-term fit turns over at 56°) is recorded as `metadata(r).family.start_fold` (radians; `nothing` when
 the start does not fold); when the refine from it does not converge, the axis is fitted again over the part of the
 region inside the fold (out to 0.9 of the fold angle, about the start's principal point), `metadata(r).region` then the
-region used. An axis fit that still does not converge is an `ArgumentError`: the axis re-gauge is applied always
+region used. A start whose fold lies past the widest angle but inside the band that refit leaves out (the region reaching
+past 0.9 of the fold of the start, or of its stalled iterate if that folds sooner) is refitted the same way when its
+refine stalls: the 8 mm fisheye whose 4-term start folds 0.03° past the region's 96.4° (`start_fold` stays `nothing`:
+the start does not fold inside the region). An axis fit that still does not converge is an `ArgumentError`: the axis re-gauge is applied always
 (`fit_camera(SplineLens, …)`), and a stalled fit is never a silent rotation 0.
 
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
@@ -474,10 +477,14 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     # folding start keeps its whole region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
     fold = Float64(view_angle_limit(lens(start)))
     folds = fold < metadata(r).family.θ_max
-    # each refit: the disc inside 0.9 of the current start's fold (or of the last region's widest angle, if that is
-    # smaller), at most `_FOLD_REFITS` times
-    θ, s, refits = fold, start, 0
-    while folds && !converged(r) && refits < _FOLD_REFITS
+    # a stall is refitted when the region reaches past the disc a refit keeps, `_INSIDE_FOLD` of the fold the refine
+    # stalled against (`_stall_fold`: the start's, or its stalled iterate's if sooner); a start folding just past the
+    # region's widest angle stalls as one folding inside it (an 8 mm fisheye, 0.03° past 96.4°). The first refit: the disc
+    # inside that fold; each later one inside `_INSIDE_FOLD` of the current start's fold (or of the last region's widest
+    # angle, if that is smaller), at most `_FOLD_REFITS` times. A stall far from any fold is not refitted (the refusal below).
+    θ, s, refits = _stall_fold(fold, r), start, 0
+    near = _INSIDE_FOLD * θ < metadata(r).family.θ_max
+    while near && !converged(r) && refits < _FOLD_REFITS
         inner = part ∩ _inside_fold(s, min(θ, metadata(r).family.θ_max))
         s = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
         r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
@@ -497,11 +504,20 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
                                        md.rotation, md.symmetry_residual, md.residuals))
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
-# The image disc inside a linear start's fold: about its principal point, out to its radius at 0.9 of the fold angle
-# (the start's forward is monotonic there), so the refit's start images every sample.
+const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold angle, where the start's forward is monotonic
+# The fold a stalled axis refine `r` stalled against: its start's, `θ`, when that folds inside the region (the folding
+# start's rule); else the sooner of the start's and its stalled iterate's (RadiometricCamera's ag10fe Schöps source, 2026-11-15:
+# the start folding at 96.385°, the iterate at 96.358°, the region's widest angle 96.359°). A non-finite iterate: `θ`.
+function _stall_fold(θ::Float64, r)
+    θ < metadata(r).family.θ_max && return θ
+    t = Float64(view_angle_limit(lens(estimate(r))))
+    return isfinite(t) ? min(θ, t) : θ
+end
+# The image disc inside a linear start's fold: about its principal point, out to its radius at `_INSIDE_FOLD` of the
+# fold angle (the start's forward is monotonic there), so the refit's start images every sample.
 function _inside_fold(start::CameraModel, fold::Float64)
     K = SMatrix{3, 3, Float64}(calibration_matrix(start))
-    θ = 0.9 * fold
+    θ = _INSIDE_FOLD * fold
     ρ = norm(SVector{2, Float64}(VgtkCore.project(start, SVector(sin(θ), 0.0, cos(θ)))) - K[1:2, 3])
     return VgtkCore.Ellipse(SVector(K[1, 3], K[2, 3]), ρ, ρ, 0.0)
 end

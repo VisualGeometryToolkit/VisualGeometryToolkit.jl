@@ -72,7 +72,9 @@ end
         """{"intersection": [{"rect": [0, 0, 1, 1]}]}""" => "got 1",
         """{"intersection": [{"rect": [0, 0, 1, 1]}, {"whole_plane": {}}, {"circle": [0, 0, 1]}]}""" => "got 3",
         """{"intersection": {"rect": [0, 0, 1, 1]}}""" => "an intersection is two regions",
-        """{"polygon": [[0, 0], [1, 0], [0, 1]]}""" => "region.polygon: not a region",
+        """{"polygon": [[0, 0], [1, 0], [0, 1]]}""" => "region.polygon: expected an object",          # a polygon is its centre and ring
+        """{"polygon": {"centre": [0, 0], "vertices": [[1, 0], [0, 1]]}}""" => "a polygon has at least 3 vertices, got 2",
+        """{"polygon": {"vertices": [[1, 0], [0, 1], [-1, -1]]}}""" => "region.polygon.centre: missing",
         """{}""" => "a region is an object of ONE key",
         """{"rect": [0, 0, 1, 1], "circle": [0, 0, 1]}""" => "a region is an object of ONE key",
         """[0, 0, 1, 1]""" => "a region is an object of ONE key",

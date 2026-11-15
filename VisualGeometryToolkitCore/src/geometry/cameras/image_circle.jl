@@ -46,9 +46,11 @@ polygon about the distortion centre (the image of the optical axis) through each
 ray azimuths the image radius `|project(lens, ray(θ, ψ))|` is followed out in `θ` to where it first stops being finite
 and strictly increasing (refined past the 1024-sample scan), and that point goes through `K`. The polygon never claims
 past a fold: each vertex is pulled in by a relative 10⁻⁹ and by a bound on how far the fold curve can bulge inward of
-the chord between neighbours, but never nearer the centre than the disc of the smallest fold (inside every fold, so a
-fold radius that jumps between azimuths still gives a star polygon); its chords lie within `R·(1 − cos(π/720)) ≈ R·10⁻⁵`
-of the curve (0.012 px at a fold radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
+the chord between neighbours, but never nearer the centre than the disc of the smallest fold (inside every fold); beside
+a jump of the fold radius between two samples (more than 10 % between neighbours: an azimuth range that does not fold
+beside one that does) a vertex is capped at the nearer neighbour's fold, so no chord across the jump claims past it. A
+discontinuity narrower than one sample's spacing (0.5°) that both neighbours miss cannot be seen. Its chords lie within
+`R·(1 − cos(π/720)) ≈ R·10⁻⁵` of a smooth fold curve (0.012 px at a fold radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
 the pixels between it and their own azimuth's fold.
 
 Cost: building the polygon is about 10 ms (720 azimuth folds; the disc of a radially symmetric lens about 13 µs), and

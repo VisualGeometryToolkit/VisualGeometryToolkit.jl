@@ -1,3 +1,34 @@
+docs-pass: 5d94948c
+
+# VisualGeometryToolkitEval 0.9.1 docs pass (julia-docs-pass) — branch patch-eval091
+
+Baseline: Eval 0.9.0 on origin/main 5de83b93. The pass covers the tree 5d94948c; after it only this record changes
+(`.release/` is outside the gate). Two fixes, no code outside VisualGeometryToolkitEval.
+
+## 1. Public API since 0.9.0
+
+No name added, removed or re-signatured. The new helpers (`_lower_integers`, `_key_path`, src/code_identity.jl) are
+private. Behaviour: the content key (`run_key`, the runner's stage key; `tuning_hash` through the same function)
+lowers every integer to `Int64` and refuses one past ±2^53 by its key path; `produce` reuses a `produced` product
+whatever its output's kind (a directory output was run again on every call).
+
+## 2. Docstrings and pages brought up to date
+
+- `_content_key` (private) and `run_key`: an integer of any type keys as its value (TOML's hex `0x0b10b5eed` as
+  `2970312429`); `_content_key` states the ±2^53 refusal by key path.
+- `produce`: "reused or produced"; nothing runs while `produced`, for a file and a directory output alike.
+  products.jl's header, `Stage`'s docstring (stages.jl) and Experiments.jl's include comment no longer say
+  `produce_or_load` loads: `produced` is the reuse rule, `produce_or_load` the producer.
+- docs/src/paper-projects.md, the keyed-product bullet: the same correction.
+- CHANGELOG.md: 0.9.1, Fixed (both).
+- README and the landing page: no claim affected (no example keys a hex config or a directory output).
+
+## 3. Gates
+
+The docs build (strict, `checkdocs = :public`, no `warnonly`) and the `docs`, `readme`, `quality` and `naming` items
+run in the fresh-clone gate of this tree. Dev runs (Julia 1.13.3, depwarn=error, a GPU each): red 18909 (integer, at
+9f7602a3) and 18921 (directory output, at 093eed87); green 18913 (b8979f4e), 18922 (f80b8a0b), 18936 (5d94948c).
+
 docs-pass: ff3639a0
 
 # VisualGeometryToolkitEstimation 0.11.6 docs pass addendum — branch patch-est0116-on-core

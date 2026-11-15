@@ -149,7 +149,7 @@ lens whose bound is radially symmetric reads it at azimuth 0. `cap` bounds the a
 scan runs to it (default `π − 10⁻³`); the closed forms clamp to it (default
 none). A ray projected EXACTLY at the limit can be NaN (a lift's root there is
 √eps-conditioned); a caller that needs a finite value steps inside, as the
-valid domain's inscribed radius and the spline lattice's sampler do.
+valid domain's disc radius and the spline lattice's sampler do.
 """
 function view_angle_limit(lens::AbstractLensModel; cap::Real = _SPHERE_EDGE)
     θs = range(1.0e-4, float(cap); length = 1024)
@@ -221,8 +221,8 @@ end
 # The minimum of a function of the azimuth ψ: `n` samples around the circle, the
 # least refined by Brent's method between its neighbours (`grid_brent_minimum`);
 # the smallest value evaluated. The one azimuthal minimizer: the chain's
-# view-angle limit above and the valid domain's inscribed radius
-# (image_circle.jl).
+# view-angle limit above and the inscribed radius (`_valid_domain_radius`,
+# image_circle.jl: the disc of a radially symmetric lens, the spline sampler's bound).
 _azimuth_minimum(f, n::Int) = grid_brent_minimum(f, range(0, 2π; length = n + 1)[1:n]; periodic = true).value
 # The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
 # first failure to rounding; `edge` when it never fails.

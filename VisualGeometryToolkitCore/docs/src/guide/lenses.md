@@ -159,15 +159,18 @@ Two regions of the sensor, easy to confuse and never interchangeable:
   datasheet's image-circle diameter through the sensor's pitch. A circle
   measured from images serves equally; it is never predicted from the model.
 
-Both are an [`Ellipse`](@ref) in pixels about the principal point (an ellipse
-proper for an anisotropic `K` or pitch), so the region algebra treats them
-alike.
+For a radially symmetric lens both are an [`Ellipse`](@ref) in pixels about the
+principal point (an ellipse proper for an anisotropic `K` or pitch), so the
+region algebra treats them alike.
 
 - For a lens that is not radially symmetric (a composed distortion with a tilt
   stage, tangential or thin-prism terms) the fold radius depends on the
   azimuth, and the valid domain is a
   [`PolygonRegion`](@ref VisualGeometryToolkitCore.Primitives.PolygonRegion):
   the star polygon through each azimuth's own fold, in the same region algebra.
+  A pixel-frame map moves it vertex by vertex (VisualGeometryToolkitIO's region
+  body writes it as a `polygon`), and `Adapt.adapt` moves it to a device, where
+  `p ∈ v` runs inside a kernel.
 - A lens with no limit of its own (a perspective lens, an undistorted
   equidistant lens: `view_angle_limit` reports only its chart's or the
   sphere's edge, a cap) has the [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)

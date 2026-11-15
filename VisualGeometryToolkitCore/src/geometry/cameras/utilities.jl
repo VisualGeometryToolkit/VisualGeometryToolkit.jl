@@ -97,9 +97,9 @@ edge when the principal point is off-centre, so the cone of that full angle
 about the optical axis is imaged in that dimension. A camera whose whole sensor
 is covered (the default coverage) reads the sensor's edges. A principal point
 outside the coverage images nothing about the axis: an `ArgumentError`. For a
-lens that is not radially symmetric the [`valid_domain`](@ref) is inscribed, so
-a point between it and the true limit counts as the lens's limit: the answer can
-then overstate the angle slightly.
+lens that is not radially symmetric the [`valid_domain`](@ref) is the star
+polygon through each azimuth's fold, pulled in by at most its chords' sag
+(`R·10⁻⁵`), so the answer can understate the angle by that much.
 
 A [`SplineLens`](@ref) camera reads about its gauge principal point, the
 pixel imaging ẑ, so the angles are about the optical axis.

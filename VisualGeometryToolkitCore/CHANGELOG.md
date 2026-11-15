@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.10.10 (unreleased)
+## 0.10.10
 
 A patch: two answers that were wrong. A `SplineLens` projection without a forward spline lost fisheye rays about 55° off
 axis, and the valid domain of a decentred lens stopped at its smallest fold.
@@ -11,8 +11,13 @@ axis, and the valid domain of a decentred lens stopped at its smallest fold.
   `p ∈ s` (Core's one crossing-number test, skipped inside the inscribed and outside the circumscribed disc about the
   centre), `Rect2(s)`, `∩` with a `Rect`, an `Ellipse`, a `Circle`, an intersection or the `WholePlane`, exact `⊆` of
   a `Rect`, an `Ellipse` or another polygon into it (and of it into a `Rect` or an `Ellipse`), `Rect ∈ s`,
-  `intersects(s, rect)`, `pixel_mask`, `farthest_radius`, `dilate` about the centre, a `view_overlap` footprint.
-  A ring that is not star-shaped about its centre is an `ArgumentError`. `RegionIntersection` now compares by value
+  `intersects(s, rect)`, `pixel_mask`, `farthest_radius`, `dilate` about the centre, a `view_overlap` footprint, a
+  lattice operation's region (`extend_lattice`, `folded_pixels`), and the action of a `SimilarityMap` (a pixel-frame
+  map: vertex by vertex with its centre, so VisualGeometryToolkitIO 0.10.4's region body writes and reads it). It is
+  parametrized on its vertex ring (`s.vertices`; `GeometryBasics.Polygon(s)` is the GeometryBasics polygon) and moves
+  to a device with `Adapt.adapt` (a `RegionIntersection` part by part): `p ∈ s` runs inside a KernelAbstractions
+  kernel as on the host (tested on the GPU against the host's membership). A ring that is not star-shaped about its
+  centre is an `ArgumentError`. `RegionIntersection` now compares by value
   (`==`, `hash`), so two calls of `imaged_region` on one camera are equal.
 
 ### Fixed
@@ -33,9 +38,11 @@ axis, and the valid domain of a decentred lens stopped at its smallest fold.
   interface. Building the polygon costs about 10 ms (the disc about 13 µs) and membership about 0.1–0.5 µs a point
   (a timing guard test holds both): a caller builds the domain once per model and holds it, never per point (the stack's
   callers do; PanoramaStitching's camera variable must widen its domain field to hold the polygon). The polygon is
-  derived from the model, never serialized (the chain-equivalence goldens' ellipse domains of the four decentred OpenCV
-  lenses, opencv5/8/12/14, are set aside as moved on purpose; every other golden is unchanged): a lens coverage stays a `Rect2`, `Circle` or
-  `Ellipse`, and VisualGeometryToolkitIO's camera round trip is unchanged.
+  derived from the model (the chain-equivalence goldens' ellipse domains of the four decentred OpenCV lenses,
+  opencv5/8/12/14, are set aside as moved on purpose; every other golden is unchanged): a lens coverage stays a `Rect2`,
+  `Circle` or `Ellipse`, and VisualGeometryToolkitIO's camera round trip is unchanged. A record that stores an imaged
+  region (RadiometricCamera's initialization region, `Rect ∩ valid_domain`) needs VisualGeometryToolkitIO 0.10.4, whose
+  region body has the `polygon` kind.
 - **A `SplineLens` projection's cold start is the backward area's centre, not the ray's pinhole point.** `project`'s
   LM (scalar, batched without a finite seed, and `NoncentralSplineModel`'s two-argument form) started at
   `(X₁/X₃, X₂/X₃)` where the lens images it. For a fisheye ray about 55° off axis that point lies at `tan θ`, past the

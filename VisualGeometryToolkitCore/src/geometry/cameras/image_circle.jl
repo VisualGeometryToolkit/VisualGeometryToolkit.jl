@@ -143,7 +143,8 @@ function image_circle(bc::BoundedCamera, diameter::Quantity)
 end
 
 # The lens model's valid domain as a normalized radius ρ (the radius of the disc
-# the θ_max cone images, inscribed), or `nothing` when the lens has no limit of
+# the θ_max cone images, inscribed over the azimuths: exact for a radially symmetric
+# lens, the smallest fold for any other), or `nothing` when the lens has no limit of
 # its own. The one owner of that radius: `valid_domain` (a radially symmetric
 # lens, where it is exact) and the spline lattice's node sampler (spline_lens.jl)
 # read it here.
@@ -319,7 +320,8 @@ re-gridded copy whose own domain no longer records it) — and a
 [`RegionBeyondSupport`](@ref) naming `who`, the region and the support
 otherwise. Never a warning: a fit over an extrapolated model is refused.
 Containment is `region ⊆ support`, Core's one region containment over a `Rect`,
-an `Ellipse`, their `∩` and the `WholePlane`.
+an `Ellipse`, a `PolygonRegion` (a decentred lens's domain), their `∩` and the
+`WholePlane`.
 """
 check_region_support(camera::Union{CameraModel, PosedCamera, BoundedCamera, NoncentralSplineModel}, region; who::AbstractString) =
     check_region_support(valid_domain(camera), region; who)
@@ -346,9 +348,9 @@ for an [`imaged_region`](@ref)).
   the coordinates that `A` maps to pixels.
 
 The region is any bounded 2-D region that answers `p ∈ region`: a `Rect`, an
-`Ellipse`, a `Circle`, or their `∩`. It must contain `center` and be
-star-shaped about it, which every intersection of convex parts containing
-`center` is. A `Rect`'s farthest point is a corner from any `center`, inside or
+`Ellipse`, a `Circle`, a `PolygonRegion`, or their `∩`. It must contain `center`
+and be star-shaped about it, which every intersection of convex parts containing
+`center` is (and a polygon valid domain about its distortion centre). A `Rect`'s farthest point is a corner from any `center`, inside or
 not (an image's farthest corner from a distortion centre:
 [`division_bounded`](@ref)).
 

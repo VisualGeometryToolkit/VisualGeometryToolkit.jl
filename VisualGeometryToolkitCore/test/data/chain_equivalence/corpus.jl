@@ -251,6 +251,8 @@ function expected_core_value(key::AbstractString, g, V)
         field == "regularizer" && return g[r]
         return g
     end
+    # (`:aside`: a decentred lens's valid domain is a polygon now, moved on purpose)
+    hasproperty(V, :polygon_domains) && name in V.polygon_domains && field == "camera/valid_domain" && return :aside
     blocks = lens_blocks(name)
     blocks === nothing && return g
     p = block_permutation(blocks, V.lens_ct_order)

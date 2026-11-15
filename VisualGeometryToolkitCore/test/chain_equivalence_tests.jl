@@ -54,6 +54,12 @@
         # The goldens' surface fields of the H and T cases are set aside; the
         # surface is checked against RadiometricCamera in mapped_surface_tests.jl.
         mapped_surfaces = true,
+        # the valid domain of a lens that is not radially symmetric is the star
+        # polygon through each azimuth's own fold (0.10.10), not the disc at the
+        # smallest fold: the goldens' ellipses of the decentred OpenCV lenses
+        # (tangential, thin-prism and tilt terms) are set aside; the polygon is
+        # checked in valid_domain_polygon_tests.jl.
+        polygon_domains = Set(["opencv5", "opencv8", "opencv12", "opencv14"]),
         compose_calibrations = members -> ∘(reverse(members)...),
         compose_distortions = stages -> ∘(reverse(stages)...),
         jacobian_theta = transform_deriv_params,

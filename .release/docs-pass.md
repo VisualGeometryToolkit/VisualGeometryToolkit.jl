@@ -1,3 +1,38 @@
+docs-pass: b798a0c3
+
+# VisualGeometryToolkitCore 0.10.9 docs pass (julia-docs-pass) — branch patch-core0109
+
+Baseline: Core 0.10.8 on origin/main 23c29974. The pass covers the tree b798a0c3. After it only this record changes
+(`.release/` is outside the gate). No code outside VisualGeometryToolkitCore.
+
+## 1. Public API since 0.10.8
+
+No name added, removed or re-signatured. New methods of Base functions: `issubset(::RegionIntersection, ::Rect)` and
+`(::RegionIntersection, ::Ellipse)` (split from one method), `issubset` with a `Circle` on either side. One private
+helper, `_region_bounds` (regions.jl). Behaviour: an intersection lies in a `Rect` when its bounding box does (compared
+at the parts' own bounds), in an `Ellipse` when its box or either part does; `Rect ∈ a ∩ b` is `Rect ⊆ a ∩ b`;
+`canonical_json` refuses `typemin(Int64)`.
+
+## 2. Docstrings and pages brought up to date
+
+- `RegionIntersection`: a containment paragraph. Never a false `true` (to rounding, and `Ellipse ⊆ Ellipse`'s 8 eps
+  slack); into an intersection as exact as its two tests; into a `Rect` or an `Ellipse` sufficient, not exact (the
+  meet of the parts' boxes can reach out where the set does not, and an empty intersection makes no claim).
+- regions.jl's containment comment block: the same rule, and why the box is not rebuilt as `origin + widths`.
+- `canonical_json`: its docstring already says "an `Int64` past ±2^53" is refused, which is now true for −2^63 too.
+- `check_region_support`'s docstring ("Core's one region containment"): unchanged, still true.
+- CHANGELOG.md: 0.10.9, Fixed (the containment with RadiometricCamera's 14 mm case, the `Circle` part, the
+  `typemin(Int64)` bound).
+- README, the landing page and docs/src: no claim affected (none states the containment rule or the integer bound).
+- Prose checked for check_naming's banned words (R7 and the rest) by a grep of the diff: none.
+
+## 3. Gates
+
+The docs build (strict, `checkdocs = :public`, no `warnonly`) and the `docs`, `readme`, `quality` and `naming` items
+run in the fresh-clone gate of this tree. Dev runs (Julia 1.13.3, depwarn=error): red 19161 (at cc613413: 5 failed, 1
+errored, all in the new assertions), green 19182 (at b798a0c3: 9345 of 9345, the region, bounded-camera, image-circle
+and canonical items).
+
 docs-pass: 744a5758
 
 # VisualGeometryToolkitEval 0.9.1 docs pass addendum — branch patch-eval091

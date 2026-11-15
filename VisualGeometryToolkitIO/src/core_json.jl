@@ -280,6 +280,7 @@ _frame_cov_size(f, Σ) = size(Σ, 1) == frame_dof(f) || throw(ArgumentError(
 # -----------------------------------------------------------------------------
 #
 #   {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
+#     | {"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}
 #     | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
 #
 # Its leaves are the positional records style.jl writes and reads (and validate.jl's `_AREA`, `_ELLIPSE` and `_CIRCLE`
@@ -295,7 +296,12 @@ const _REGION_LEAVES = (
     circle = (type = Circle, spec = _CIRCLE, extents = (3,)),
 )
 const _RegionLeaf = Union{Rect2, Ellipse, Circle}
-const _RegionValue = Union{_RegionLeaf, RegionIntersection, WholePlane}
+const _RegionValue = Union{_RegionLeaf, PolygonRegion, RegionIntersection, WholePlane}
+# A star polygon (Core's `PolygonRegion`: the valid domain of a lens that is not radially symmetric): its centre and its
+# vertex ring, counter-clockwise about it. Not a leaf: a lens coverage is never one. Core's constructor checks the rest
+# (star-shaped about the centre) on read, an `ArgumentError`.
+const _POLYGON = _Obj(:centre => _XY, :vertices => _CheckedSpec(_Vec(_XY), v -> length(v) >= 3 ? nothing :
+    "a polygon has at least 3 vertices, got $(length(v))"; rule = "at least 3 vertices", schema = ["minItems" => 3]))
 _region_tag(::Rect2) = :rect
 _region_tag(::Ellipse) = :ellipse
 _region_tag(::Circle) = :circle
@@ -308,7 +314,7 @@ end
 const _REGION = _RegionSpec(true)
 const _REGION_LEAF = _RegionSpec(false)
 _region_tags(s::_RegionSpec) =
-    s.composite ? Symbol[collect(keys(_REGION_LEAVES)); :intersection; :whole_plane] : collect(Symbol, keys(_REGION_LEAVES))
+    s.composite ? Symbol[collect(keys(_REGION_LEAVES)); :polygon; :intersection; :whole_plane] : collect(Symbol, keys(_REGION_LEAVES))
 function _validate(s::_RegionSpec, x, file, at)
     tags = _region_tags(s)
     shape = join(("`$(t)`" for t in tags), ", ", " or ")
@@ -320,6 +326,8 @@ function _validate(s::_RegionSpec, x, file, at)
         _validate(_REGION_LEAVES[k].spec, v, file, _at(at, k))
         msg = _region_leaf_problem(k, v)
         msg === nothing || _refuse(file, _at(at, k), msg)
+    elseif k === :polygon
+        _validate(_POLYGON, v, file, _at(at, k))
     elseif k === :intersection
         (v isa AbstractVector && length(v) == 2) || _refuse(
             file, _at(at, k), "an intersection is two regions, [a, b] (nest one for more); got $(v isa AbstractVector ? length(v) : repr(v))")
@@ -344,6 +352,8 @@ _pixel_region_map(from, to) = SimilarityMap(EuclideanMap(from, to))
 _region_json(s::VgioStyle, r) = _region_record(s, _pixel_region_map(CANONICAL_PIXEL_FRAME, _pixel_frame(s))(r))
 _region_record(s::VgioStyle, r::_RegionLeaf) = NamedTuple{(_region_tag(r),)}((JSON.lower(s, r),))
 _region_record(s::VgioStyle, r::RegionIntersection) = (intersection = Any[_region_record(s, r.a), _region_record(s, r.b)],)
+_region_record(::VgioStyle, P::PolygonRegion) =
+    (polygon = (centre = Float64[P.centre[1], P.centre[2]], vertices = [Float64[v[1], v[2]] for v in P.vertices]),)
 _region_record(::VgioStyle, ::WholePlane) = (whole_plane = (;),)
 # …and back, in the record's frame: an intersection by Core's constructor, its parts as stored (never `∩`, which
 # would fold two rectangles into one and a circle into its ellipse).
@@ -352,31 +362,37 @@ function _region_from(s::VgioStyle, x)
     v = _getkey(x, k)
     k === :intersection && return RegionIntersection(_region_from(s, v[1]), _region_from(s, v[2]))
     k === :whole_plane && return WholePlane()
+    k === :polygon && return PolygonRegion([Point2{Float64}(Float64(p[1]), Float64(p[2])) for p in _getkey(v, :vertices)],
+                                           (Float64(_getkey(v, :centre)[1]), Float64(_getkey(v, :centre)[2])))
     return JSON.lift(s, _REGION_LEAVES[k].type, convert(Vector{Any}, v))
 end
 
 """
-    JSON.lower(s::VgioStyle, r::Union{RegionIntersection, WholePlane})
+    JSON.lower(s::VgioStyle, r::Union{PolygonRegion, RegionIntersection, WholePlane})
     JSON.lower(s::VgioStyle, r, (; region = true))
     JSON.lift(s::VgioStyle, T, x)
 
 THE region body: a 2-D region of VisualGeometryToolkitCore's — a `Rect2`, an
-`Ellipse`, a `Circle`, their `RegionIntersection` (nested to any depth) or the
+`Ellipse`, a `Circle`, a `PolygonRegion` (the valid domain of a lens that is not
+radially symmetric), their `RegionIntersection` (nested to any depth) or the
 `WholePlane` — as one tagged object,
 
     {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
+      | {"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}
       | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
 
 its leaves the positional records a `Rect2`, `Ellipse` and `Circle` are
 written as everywhere (extents positive, an ellipse's major semi-axis first,
 θ in radians), an intersection Core's binary one with its two parts in order
-(nest one for more). The numbers are PIXELS in the file's `units.pixel`
+(nest one for more), a polygon its star centre and its vertex ring (at least
+3 vertices, star-shaped about the centre: Core's constructor checks it on read).
+The numbers are PIXELS in the file's `units.pixel`
 frame: the writer moves the region from Core's canonical frame into the
 style's pixel frame and the reader back, by Core's action of the pixel-frame
 map on every region. A camera's `lens_coverage` is this body restricted to
 its leaves.
 
-An intersection or the whole plane is lowered by the two-argument form; a
+A polygon, an intersection or the whole plane is lowered by the two-argument form; a
 leaf lowers to its positional record there, so a field that holds any region
 asks for the region body by the tag `(; region = true)` (which an
 intersection and the whole plane take too). The lift reads the body from an
@@ -396,7 +412,7 @@ JSON.json((initial_region = r,); style = s)
 JSON.lift(s, typeof(r), JSON.parse(JSON.json(r; style = s))) == r     # true
 ```
 """
-JSON.lower(s::VgioStyle, r::Union{RegionIntersection, WholePlane}) = _region_json(s, r)
+JSON.lower(s::VgioStyle, r::Union{PolygonRegion, RegionIntersection, WholePlane}) = _region_json(s, r)
 JSON.lower(s::VgioStyle, r::_RegionValue, tags::NamedTuple) = get(tags, :region, false) === true ? _region_json(s, r) : JSON.lower(s, r)
 function JSON.lift(s::VgioStyle, ::Type{T}, x::_ParsedObject, tags::NamedTuple = (;)) where {T <: _RegionValue}
     x isa AbstractDict && _validate(_REGION, x, "a region", "")

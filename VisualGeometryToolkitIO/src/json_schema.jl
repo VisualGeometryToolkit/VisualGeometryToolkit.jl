@@ -195,9 +195,10 @@ function _json_schema(s::_RegionSpec, defs)
     if !haskey(defs, "region")
         defs["region"] = true                                      # a placeholder while an intersection refers to it
         defs["region"] = _jobj(
-            "description" => "a region in pixels of units.pixel: a leaf, the intersection of two regions (in order) or the whole plane",
+            "description" => "a region in pixels of units.pixel: a leaf, a star polygon (its centre and vertex ring), the intersection of two regions (in order) or the whole plane",
             "oneOf" => Any[
                 _jobj("\$ref" => "#/\$defs/region_leaf"),
+                _region_object(:polygon, _json_schema(_POLYGON, defs)),
                 _region_object(:intersection, _jobj("type" => "array", "items" => _jobj("\$ref" => "#/\$defs/region"),
                                                     "minItems" => 2, "maxItems" => 2)),
                 _region_object(:whole_plane, _json_schema(_Obj(), defs)),

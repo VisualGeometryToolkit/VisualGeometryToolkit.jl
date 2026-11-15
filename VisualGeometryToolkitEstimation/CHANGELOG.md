@@ -9,13 +9,13 @@ A patch: `optical_axis` refits a stall beside the start's fold, not only inside 
 
 - **`optical_axis`: a start that folds just past the region's widest angle no longer refuses the axis.** A stalled
   refine is refitted inside the fold (as a start folding inside the region is, the same disc, up to four refits) when
-  the region reaches past 0.9 of the fold of its start, or of its stalled iterate if that folds sooner — the band the
-  refit leaves out. RadiometricCamera's ag10fe start (the 8 mm fisheye's Schöps source over the sensor ∩ its measured
-  image circle ∩ his calibrated rectangle) folded at 96.385° in a region to 96.359°, its refine stalled at 0.05° with
-  the iterate folding at 96.358°, and `fit_camera(SplineLens, …)` threw; it converges at 1.13° (the axis pixel
-  (2137.9, 1439.6), within 1.7 px of the axis pixel fitted over 0.8–0.95 of the circle and over the whole circle on the extended
-  lattice). `start_fold` stays the start's fold inside the region (`nothing` here); `metadata.region` is the refit's.
-  A fit that converged, and a stall far from any fold, are unchanged.
+  the region reaches past 0.9 of its start's fold — the band the refit leaves out. RadiometricCamera's ag10fe start (the
+  8 mm fisheye's Schöps source over the sensor ∩ its measured image circle ∩ his calibrated rectangle) folded at 96.385°
+  in a region to 96.359° (0.9 of the fold, 86.75°, inside it), its refine stalled at 0.05°, and
+  `fit_camera(SplineLens, …)` threw; it converges at 1.13° (the axis pixel (2137.9, 1439.6), within 1.7 px of the axis
+  pixel fitted over 0.8–0.95 of the circle and over the whole circle on the extended lattice). `start_fold` stays the
+  start's fold inside the region (`nothing` here); `metadata.region` is the refit's. A fit that converged, and a stall
+  from a start folding past the region by more than the band (or not at all), are unchanged.
 
 ## 0.11.6
 

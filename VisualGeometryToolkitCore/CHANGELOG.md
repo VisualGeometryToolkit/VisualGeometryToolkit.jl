@@ -2,19 +2,24 @@
 
 ## 0.10.9
 
-A patch: two answers that were wrong. Region containment refused an intersection inside a rectangle whenever neither
-part alone fitted it, which stopped RadiometricCamera's exact start for every 14 mm housing case; `canonical_json`
-accepted `typemin(Int64)`.
+A patch: three answers that were wrong. Region containment refused an intersection inside a rectangle whenever neither
+part alone fitted it, which stopped RadiometricCamera's exact start for every 14 mm housing case; a `Circle`
+part was a `MethodError`; `canonical_json` accepted `typemin(Int64)`.
 
 ### Fixed
 - **`a ∩ b ⊆ region` reads the intersection as a whole.** An intersection was in a `Rect` or an `Ellipse` only when
   one of its parts was. A sensor ∩ its lens coverage in a grid's support that neither the sensor nor the ellipse fits
   answered `false`, so `check_region_support` threw `RegionBeyondSupport` (RadiometricCamera: the 4256 × 2848 sensor ∩
-  its 1718.85 × 1716.49 px ellipse in `Rect(321, -155.29, 3722, 3159.59)`). Now an intersection is in a `Rect` or an
-  `Ellipse` when its bounding box `Rect2(a ∩ b)` is, or either part is. Never a false `true`; not exact
-  either (the `RegionIntersection` docstring says when a true containment still answers `false`). Audited for the same
-  fault, and without it: `x ⊆ a ∩ b` (`x ⊆ a && x ⊆ b`, exact), `Rect`/`Ellipse` into one another (exact to rounding)
-  and the `WholePlane` rules.
+  its 1718.85 × 1716.49 px ellipse in `Rect(321, -155.29, 3722, 3159.59)`). Now an intersection is in a `Rect` when its
+  bounding box is, and in an `Ellipse` when its box or either part is. The box is the meet of the parts' bounds,
+  compared where they are stored (a `Rect`'s corners, an `Ellipse`'s `extrema`), not rebuilt as `origin + widths`,
+  which can round an ulp inside them. Never a false `true`; not exact either (the `RegionIntersection` docstring says
+  when a true containment still answers `false`, an empty intersection among them).
+- **A `Circle` in a containment is its `Ellipse`.** A `Circle` part of an intersection built directly (as
+  VisualGeometryToolkitIO lifts a region) reached Base's iterable `issubset`, a `MethodError`; a `Circle` on either
+  side of `⊆` now reads as `Ellipse(c)`, as it does in `∩`. A `WholePlane` part bounds nothing. The other containments
+  were audited for the "one part must fit" fault, and are without it: `x ⊆ a ∩ b` (`x ⊆ a && x ⊆ b`),
+  `Rect`/`Ellipse` into one another and the `WholePlane` rules.
 - **`canonical_json` refuses `typemin(Int64)`.** The bound `abs(n) ≤ 2^53` overflowed there (`abs(typemin(Int64))` is
   negative), so −2^63, which no double holds exactly, was written. It reads `-2^53 ≤ n ≤ 2^53` now; every other
   integer's answer is unchanged.

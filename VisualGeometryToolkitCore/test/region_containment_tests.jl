@@ -23,7 +23,7 @@ end
 @testitem "region containment: an intersection in a region when only the whole of it fits" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: check_region_support
+    using VisualGeometryToolkitCore: WholePlane, RegionIntersection, check_region_support
     R(x, y, w, h) = Rect(Float64(x), Float64(y), Float64(w), Float64(h))
     E(x, y, a, b, θ = 0.0) = Ellipse(Point2(Float64(x), Float64(y)), Float64(a), Float64(b), Float64(θ))
     # RadiometricCamera's 14 mm housing case: a sensor ∩ its lens coverage inside a grid's support. Neither the sensor
@@ -43,4 +43,17 @@ end
     @test !(strip ⊆ target) && !(disc ⊆ target)
     @test (strip ∩ disc) ⊆ target && (disc ∩ strip) ⊆ target
     @test !((strip ∩ disc) ⊆ E(50, 5, 9, 8))                                        # the disc reaches x = 40 < 50 − 9
+    # parts an intersection built directly may hold (VisualGeometryToolkitIO's lifted regions): a WholePlane, a Circle
+    whole = RegionIntersection(R(0, 0, 10, 10), WholePlane())
+    @test whole ⊆ R(-1, -1, 20, 20) && !(whole ⊆ R(1, 0, 20, 20)) && whole ⊆ E(5, 5, 8, 8) && !(whole ⊆ E(5, 5, 6, 6))
+    round_part = RegionIntersection(strip, Circle(Point2(50.0, 5.0), 10.0))
+    @test round_part ⊆ target && !(round_part ⊆ R(45, 0, 10, 10)) && Circle(Point2(50.0, 5.0), 1.0) ⊆ round_part
+    @test !((R(0, 0, 1, 1) ∩ E(100, 100, 1, 1)) ⊆ R(50, 50, 1, 1))                  # disjoint boxes: no claim
+    # the box is compared at the parts' bounds: rebuilt as origin + widths its right edge rounds to 205.20473411499006,
+    # inside a support the ellipse's edge (205.20473411499052, at y = 5, in the strip) reaches past
+    wide = RegionIntersection(R(-6350.047276530968, -1, 1e5, 12), E(-3143.0456368850096, 5, 3348.250371, 1e5))
+    support = R(-7000, -2, 7205.20473411499, 14)
+    @test maximum(support)[1] < -3143.0456368850096 + 3348.250371                  # the ellipse's edge is outside
+    @test maximum(Rect2(wide))[1] <= maximum(support)[1]                           # the rebuilt box is not
+    @test !(wide ⊆ support)
 end

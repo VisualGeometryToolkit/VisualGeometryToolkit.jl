@@ -95,7 +95,7 @@ function canonical_json(io::IO, x)
         print(io, x ? "true" : "false")
     elseif x isa Int64
         # the bound reads n itself, not abs(n): abs(typemin(Int64)) overflows to a negative
-        -2^53 <= x <= 2^53 || throw(ArgumentError("integer $(x) in canonical tree is not exactly a double (|n| ≤ 2^53)"))
+        -(Int64(2)^53) <= x <= Int64(2)^53 || throw(ArgumentError("integer $(x) in canonical tree is not exactly a double (|n| ≤ 2^53)"))
         print(io, x)
     elseif x isa Float64
         _jcs_number(io, x)

@@ -243,3 +243,35 @@ end
     @test Sr isa RegionIntersection && Sr.b isa PolygonRegion
     @test [p ∈ Sr for p in ps] == [inv(S)(p) ∈ r for p in ps]
 end
+
+@testitem "valid_domain polygon: a fold radius that jumps between azimuths stays a star polygon, inside every fold" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: PolygonRegion
+    using StaticArrays
+    using LinearAlgebra: norm
+    # a lens type without the RadialSymmetry trait (only `project`): r = θ(1 − a θ²), a = 0.1 on the half plane
+    # cos ψ > 0 (a fold at θ = √(10/3), r = 1.217) and a = 0.02 elsewhere (no fold before the sphere's edge, r = 2.52
+    # there): the fold radius doubles across ψ = ±π/2. The bulge bound beside the jump exceeds the radius; the vertex
+    # radius is clamped at the disc of the smallest fold (inside every fold), so the ring stays star-shaped about the
+    # centre and the domain never claims past an azimuth's own fold.
+    struct JumpLens <: AbstractLensModel end
+    a(ψ) = cos(ψ) > 0 ? 0.1 : 0.02
+    function VisualGeometryToolkitCore.project(::JumpLens, X::StaticVector{3})
+        θ = atan(hypot(X[1], X[2]), X[3]); ψ = atan(X[2], X[1]); ρ = θ * (1 - a(ψ) * θ^2)
+        return SVector(ρ * cos(ψ), ρ * sin(ψ))
+    end
+    f = 400.0
+    cam = CameraModel(CameraCalibrationMat(@SMatrix([f 0.0 640.0; 0.0 f 480.0; 0.0 0.0 1.0])); lens = JumpLens())
+    q = valid_domain(cam)
+    @test q isa PolygonRegion
+    pixel(ρ, ψ) = SVector(640.0 + f * ρ * cos(ψ), 480.0 + f * ρ * sin(ψ))
+    θf = sqrt(10 / 3); ρf = θf * (1 - 0.1θf^2)                              # the folding half's fold radius
+    θe = π - 1.0e-3; ρe = θe * (1 - 0.02θe^2)                              # the other half's: the sphere's edge
+    ψs = range(0, 2π; length = 2001)[1:2000]
+    fold(ψ) = cos(ψ) > 0 ? ρf : ρe
+    @test all(ψ -> pixel((1 - 1.0e-4) * ρf, ψ) ∈ q, ψs)                    # the disc of the smallest fold is inside
+    @test all(ψ -> pixel((1 + 1.0e-7) * fold(ψ), ψ) ∉ q, ψs)               # never past an azimuth's own fold
+    far = filter(ψ -> cos(ψ) < -0.2, ψs)                                    # the non-folding half, away from the jump
+    @test all(ψ -> pixel(0.99ρe, ψ) ∈ q, far)                              # reaches its own (far) edge there
+end

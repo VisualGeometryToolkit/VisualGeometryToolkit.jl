@@ -270,6 +270,15 @@ max_iter = 100
 # converging RC camera, its cond(J) 47–160× below n = 6's and 1–4 iterations fewer. n = 2 is 7σ off (RC's
 # radiometric_refinement start); n = 3 up to 1.2σ. Until 0.11.0 the family was Fisheye624's own, n = 6 (θ³…θ¹³).
 radial_terms = 4
+# The first order of the axis fit's order continuation (`optical_axis`: the family fitted at this many radial terms, its
+# linear fit then the refine, then at each next order to `radial_terms`, each from the last; the higher coefficients
+# held at 0). 1 (θ³), from the order study of 2026-11-15 (rc-convergence optaxis/order, job 19824; RC's ag10fe start, a
+# Schöps source whose r(θ) slope falls from 11 to 3 px/° over 85–95°, its region reaching 96.36°): the 1-term linear
+# fit folds at 169.5°, the 2-, 3- and 4-term ones at 118.6°, 102.0° and 96.39° (just past the region, and its refine
+# stalls 14.9 px off the axis). Every start of order 1–3 converges on one axis (within 0.26 px and 0.02°); stepping one
+# order at a time also finds the axis of a synthetic slope-collapse fisheye that a direct 1 → 4 lift misses by 1.8 px
+# (optaxis/cont, scan5).
+start_radial_terms = 1
 
 # SIMFIT++ (`SimFitPP`, Edstedt 2025): the reference implementation's constructor
 # defaults (github.com/Parskatt/simfitpp).

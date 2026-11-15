@@ -1,14 +1,24 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased (with VisualGeometryToolkitCore 0.10.11)
+## Unreleased
 
 ### Fixed
-- **`optical_axis` reads a stall from a folding start by its own validity gate.** Core 0.10.11 marks a tolerance stop of
-  the LM converged (owner ruling, 2026-11-15), so the refine from a linear start that folds inside the region — its
-  residuals capped at the fold, the axis unmoved — no longer reads as unconverged, and the refit inside the fold never ran
-  (the axis pixel 13 px off on the folding-start test: a silent wrong turn). The refit now also runs while the refined
-  lens still folds before the widest angle of the region it was fitted over (`_folds_inside`), and a fit that ends so is
-  refused as an unconverged one was. Needs Core 0.10.11 (its floor goes with the release).
+
+- **`optical_axis` fits the axis by order continuation.** The axis family is fitted at 1 radial term (its linear fit,
+  then the refine), then at 2, 3 and 4 terms, each order's refine from the last order's camera (the higher coefficients
+  held at 0, through `fixed`), and the result is the highest order whose refine converged without its lens folding
+  inside the region (`metadata.family.fitted_terms`; configs/default.toml `[optical_axis] start_radial_terms = 1`). A
+  lower order that does not hold does not stop the continuation: a rectilinear lens turning at its rim folds at 1 and 2
+  terms with the axis unmoved, and its 3-term fit finds the axis. The 4-term
+  linear start followed a source's profile where it bends at the region's edge and folded there: RadiometricCamera's
+  ag10fe start (an 8 mm fisheye's Schöps source, its r(θ) slope falling from 11 to 3 px/° over 85–95°) folded at
+  96.385° in a region to 96.359°, and its refine stalled 14.9 px and 1.16° off the axis. The 1-term start folds at
+  169.5°; the continuation converges over the whole region, on the axis every start of order 1–3 finds (within
+  0.26 px). Stepping one order at a time, not lifting the 1-term fit to 4 terms at once, keeps each refine in the last
+  one's basin: a direct lift ends 1.8 px off on a fisheye whose slope collapses at the edge (a new test).
+- **The fold refit is the fallback**, run only when no order holds. Its stall is now also read by a validity
+  gate, so a refine that reads converged with its lens still folding inside the region is refitted (or refused) as an
+  unconverged one is, whatever the LM's termination calls a tolerance stop (`_folds_inside`).
 
 ## 0.11.7
 

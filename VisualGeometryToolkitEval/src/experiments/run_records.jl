@@ -166,11 +166,12 @@ end
 Parse a run config: it must carry `[experiment]` with `dataset`, `matcher`,
 `problem` and `pool_dir` — or, for a project whose results are not laid out by
 pool, a `layout` (an array of path segments: the project's `Product` experiment path) — and an unknown key in a section
-this package owns ([`RUN_CONFIG_KEYS`](@ref)) is refused.
+this package owns ([`RUN_CONFIG_KEYS`](@ref)) is refused. Every integer is an `Int64`, the value [`run_key`](@ref) keys
+(TOML's hex `0x0b10b5eed` is `2970312429`; past ±2^53 an `ArgumentError` naming its key path).
 """
 function load_run_config(path::AbstractString)
     isfile(path) || error("run config not found: $path")
-    cfg = TOML.parsefile(path)
+    cfg = _lower_integers(TOML.parsefile(path), "")   # a hex/octal/binary literal as the Int64 it keys as (code_identity.jl)
     haskey(cfg, "experiment") || error("run config $path: no [experiment] table")
     if !haskey(cfg["experiment"], "layout")
         for k in ("dataset", "matcher", "problem", "pool_dir")
@@ -204,7 +205,8 @@ the one content key behind `tuning_hash` and the runner's stage key too), with t
 `[tuning.<name>]` entry resolved to its COMPLETE table (`resolve_tuning!`: a
 default of this package's configs/tuning.toml that the config inherits keys
 the run like a stated one). Key order does not move it, nor a number's
-spelling (`3` and `3.0` key alike, as do TOML's hex `0x0b10b5eed` and `2970312429`), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
+spelling (`3` and `3.0` key alike, as do TOML's hex `0x0b10b5eed` and
+`2970312429`), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
 `run_key(TOML.parsefile("_config.toml"))` names the directory that holds it.
 
 What a run depends on beyond its config is folded in by name, so a project

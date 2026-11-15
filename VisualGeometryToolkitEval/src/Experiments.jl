@@ -56,7 +56,7 @@ using VisualGeometryToolkitCore: SensorModel, component_sources   # a run record
 import VisualGeometryToolkitIO as VgtkIO   # a product's record saved and loaded (products.jl)
 using SHA: sha256   # a product's outputs hashed (products.jl)
 using ..Tuning: resolve_tuning!
-import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
+import .._content_key, .._lower_integers   # src/code_identity.jl: run_key's content key, and the integers of a loaded config (run_records.jl)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
 import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 

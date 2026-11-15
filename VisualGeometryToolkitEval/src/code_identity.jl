@@ -89,17 +89,30 @@ stage key.
 _content_key(tree) = bytes2hex(sha256(canonical_json(_lower_integers(tree, ""))))[1:16]
 
 # The caller's lowering of a TOML tree for `canonical_json` (Core's encoding takes `Int64` only, and leaves lowering to
-# the caller): every integer to its `Int64`, refused by its key path past ±2^53.
+# the caller; Experiments' `load_run_config` lowers a config with it too, so a run computes with the values it is keyed
+# by): every integer to its `Int64`, refused by its key path past ±2^53. A container is copied only when a value below
+# it changes, so a tree of `Int64`s comes back as it was (`===`).
 _lower_integers(x, path) = x
 _lower_integers(x::Bool, path) = x                                # an Integer, and stays a Bool
 function _lower_integers(x::Integer, path)
-    -2^53 <= x <= 2^53 ||
-        throw(ArgumentError("content key: the integer $(x) at `$(path)` is not exactly a double (|n| ≤ 2^53)"))
+    -2^53 <= x <= 2^53 || throw(ArgumentError(
+        "the integer $(x) at `$(path)` is not exactly a double (|n| ≤ 2^53): no content key holds it; write it as a string"))
     return Int64(x)
 end
-_lower_integers(x::AbstractVector, path) = Any[_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
-_lower_integers(x::AbstractDict, path) =
-    Dict{keytype(x), Any}(k => _lower_integers(v, isempty(path) ? string(k) : "$(path).$(k)") for (k, v) in x)
+function _lower_integers(x::AbstractVector, path)
+    y = [_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
+    return all(((a, b),) -> a === b, zip(x, y)) ? x : y
+end
+function _lower_integers(x::AbstractDict, path)
+    y = Dict{keytype(x), Any}(k => _lower_integers(v, _key_path(path, k)) for (k, v) in x)
+    return all(k -> x[k] === y[k], keys(x)) ? x : y
+end
+# A TOML key path: dotted, a key that is not bare TOML quoted (`arm."seeds.b"`), as TOML writes it.
+function _key_path(path, k)
+    s = string(k)
+    s = occursin(r"^[A-Za-z0-9_-]+$", s) ? s : repr(s)
+    return isempty(path) ? s : "$(path).$(s)"
+end
 
 # The registered stack packages, identified by their Manifest `git-tree-sha1` when the environment loads a released
 # version (a package loaded from a path, `[sources]` or `Pkg.develop`, is identified by its own repository's trees,

@@ -195,23 +195,22 @@ function produce(f, s::Product; driver::AbstractString, config_source::AbstractS
                  producer::Bool = false, fields::AbstractDict = Dict{String, Any}(), force::Bool = false,
                  gitpath::AbstractString = project_root())
     dir = product_dir(s)
-    reuse = !force && produced(s)
-    if !reuse
-        assert_not_input(dir; producer)
-        _recorded_code_trees(gitpath, dir)                            # a run of record of uncommitted code is refused before it computes
-        rm(joinpath(dir, PROVENANCE_FILE); force = true)
-        rm(product_output(s); force = true, recursive = true)        # a save that fails never leaves an earlier output standing
-    end
+    # `produced` is the reuse rule, for a file and a directory output alike: produce_or_load's own reuse test is
+    # `isfile` (saving_files.jl:95), which a directory output never passes, so it would run `f` again on every call
+    !force && produced(s) && return dir
+    assert_not_input(dir; producer)
+    _recorded_code_trees(gitpath, dir)                                # a run of record of uncommitted code is refused before it computes
+    rm(joinpath(dir, PROVENANCE_FILE); force = true)
+    rm(product_output(s); force = true, recursive = true)            # a save that fails never leaves an earlier output standing
     read = String[]                                                   # the inputs f says it read
     DrWatson.produce_or_load(s.record, dirname(dir); filename = _ -> joinpath(s.key, s.output), prefix = "", suffix = "",
-                             tag = false, loadfile = false, force = !reuse, verbose = false) do _
+                             tag = false, loadfile = false, force = true, verbose = false) do _
         mkpath(dir)
         out = f(dir)
         out = out isa Produced ? out : Produced(out)
         append!(read, out.inputs)
         out
     end
-    reuse && return dir
     ispath(product_output(s)) || error("$(s.experiment)/$(s.name): $(product_output(s)) was not saved (the error is printed above)")
     rec_fields = merge(Dict{String, Any}(String(k) => v for (k, v) in fields),
                        Dict{String, Any}("output_sha256" => _output_sha256(dir),

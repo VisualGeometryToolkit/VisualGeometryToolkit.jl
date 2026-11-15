@@ -8,9 +8,16 @@ On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGe
 
 - **An integer's spelling no longer breaks or moves a key.** TOML parses a hex, octal or binary literal
   (`ransac_seed = 0x0b10b5eed`) as an unsigned integer, which VisualGeometryToolkitCore's `canonical_json` refuses, so
-  `run_key`, `tuning_hash` and the runner's stage key threw on such a config. The content key now lowers every integer
-  to its `Int64` before encoding: `0x0b10b5eed` and `2970312429` key alike, and every other key is unchanged. An integer past ±2^53 (not
-  exactly a double) is an `ArgumentError` naming its key path (`arm.seeds[2]`), never an unnamed refusal.
+  `run_key` and the runner's stage key threw on such a config (`tuning_hash` reads typed spec fields and never did).
+  The content key now lowers every integer to its `Int64` before encoding, so `0x0b10b5eed` and `2970312429` key
+  alike; `load_run_config` lowers the config the same way, so a run computes with the value it is keyed by. Every key
+  Core encoded exactly is unchanged. An integer past ±2^53 (not exactly a double) is an `ArgumentError` naming its
+  key path (`arm.seeds[2]`), never an unnamed refusal; that includes `typemin(Int64)`, which Core's own bound let
+  through.
+- **A produced directory output is reused.** `produce` left reuse to DrWatson's `produce_or_load`, whose test is
+  `isfile(output)`, so a product whose `output` is a directory (documented since 0.9.0) ran `f` again on every call
+  into its standing output, though `produced` held. `produced(product)` is now the one reuse rule for a file and a
+  directory output alike: a produced product runs nothing, and `produce_or_load` only produces.
 
 ## 0.9.0
 

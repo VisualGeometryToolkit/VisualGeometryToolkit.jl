@@ -44,6 +44,14 @@
         dec = TOML.parse("[arm]\nransac_seed = 2970312429\nmask = 15\nbits = [5, 7.0]\n")
         @test hex["arm"]["ransac_seed"] isa Unsigned                     # TOML's hex literal is unsigned
         @test RR.run_key(hex) == RR.run_key(dec) == VgtkEval._content_key(dec)
+        @test RR.run_key(TOML.parse(sprint(TOML.print, hex))) == RR.run_key(hex)   # TOML writes it back as hex
+        # a loaded config holds the Int64 it is keyed by, so a run computes with what its key says
+        p = joinpath(mktempdir(), "c.toml")
+        write(p, "[experiment]\nlayout = [\"x\"]\n[arm]\nransac_seed = 0x0b10b5eed\nbits = [0b101, 7]\n")
+        loaded = RR.load_run_config(p)
+        @test loaded["arm"]["ransac_seed"] === 2970312429 && loaded["arm"]["bits"] == [5, 7] && loaded["arm"]["bits"] isa Vector{Int64}
+        tree = TOML.parse("n = 3\n[a]\nv = [1, 2]\n")
+        @test VgtkEval._lower_integers(tree, "") === tree                                  # nothing to lower: the tree itself
         @test VgtkEval._content_key(Dict{String,Any}("b" => true)) != VgtkEval._content_key(Dict{String,Any}("b" => 1))   # a Bool stays a Bool
         other = deepcopy(hex); other["arm"]["ransac_seed"] += 1
         @test RR.run_key(other) != RR.run_key(hex)                       # its value still moves it
@@ -55,6 +63,8 @@
         @test e isa ArgumentError && occursin("arm.bits[2]", e.msg)
         e = refusal(Dict{String,Any}("arm" => Dict{String,Any}("huge" => big(2)^70)))
         @test e isa ArgumentError && occursin("arm.huge", e.msg)
+        e = refusal(Dict{String,Any}("arm" => Dict{String,Any}("seeds.b" => typemin(Int64))))   # a quoted key, quoted
+        @test e isa ArgumentError && occursin("arm.\"seeds.b\"", e.msg)
         e = refusal(Dict{String,Any}("n" => 2^53 + 1))                     # an Int64 past Core's bound: named too
         @test e isa ArgumentError && occursin("`n`", e.msg)
     end

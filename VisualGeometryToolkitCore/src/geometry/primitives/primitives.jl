@@ -46,6 +46,7 @@ import FlexUnits
 using FlexUnits: Units, ustrip
 using CoordinateTransformations: CoordinateTransformations, AffineMap, PerspectiveMap
 using Rotations: Rotations
+using Adapt: Adapt   # a PolygonRegion's and a RegionIntersection's device form (regions.jl)
 using Random: Random
 using SpatialIndexing: SpatialIndexing
 

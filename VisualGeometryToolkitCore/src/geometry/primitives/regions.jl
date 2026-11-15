@@ -79,23 +79,28 @@ struct WholePlane end
     PolygonRegion(polygon::Polygon, centre)
     PolygonRegion(vertices::AbstractVector{<:StaticVector{2}}, centre)
 
-A 2-D region bounded by a simple polygon that is STAR-SHAPED about `centre`: a thin wrapper of a GeometryBasics
-`Polygon` (`Float64` vertices, counter-clockwise; a clockwise ring is reversed) that takes part in the region
-interface — `p ∈ s`, the bounding box `Rect2(s)`, `∩` (a
+A 2-D region bounded by a simple polygon that is STAR-SHAPED about `centre`: its vertex ring `s.vertices`
+(`Point2{Float64}`, counter-clockwise; a clockwise ring is reversed; `GeometryBasics.Polygon(s)` is it as a
+GeometryBasics `Polygon`) in the region interface — `p ∈ s`, the bounding box `Rect2(s)`, `∩` (a
 [`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection)), `⊆` and `∈` of a `Rect`,
 `intersects(s, rect)`, `pixel_mask`, `dilate` about `centre`. What
 [`valid_domain`](@ref VisualGeometryToolkitCore.Cameras.valid_domain) answers for a lens that is not radially
 symmetric: its boundary runs through each azimuth's own fold.
 
-Membership is Core's one crossing-number test of a point in a `Polygon` (`p ∈ s.polygon`), skipped where it cannot
-change the answer: a point nearer `centre` than every edge (`s.inner`) is in, one farther than every vertex
-(`s.outer`) is out — so a pixel mask over a sensor tests the polygon only in the annulus between the two.
+Membership is Core's one crossing-number test of a point in a polygon's ring (a `Polygon`'s `p ∈ polygon`), skipped
+where it cannot change the answer: a point nearer `centre` than every edge (`s.inner`) is in, one farther than every
+vertex (`s.outer`) is out — so a pixel mask over a sensor tests the polygon only in the annulus between the two.
+
+On a device: `Adapt.adapt(backend, s)` moves the vertex ring (the region is parametrized on its container, one
+implementation for host and device), and `p ∈ s` evaluates inside a KernelAbstractions kernel as on the host; so does an
+intersection holding it (an [`imaged_region`](@ref VisualGeometryToolkitCore.Cameras.imaged_region)). The other
+operations (containment, `intersects`, `dilate`, `pixel_mask`) are host-side.
 
 The constructor refuses (`ArgumentError`) a ring of fewer than 3 vertices, or one that is not star-shaped about `centre`
 (every edge must turn the same way about it, once round).
 """
-struct PolygonRegion
-    polygon::GeometryBasics.Polygon{2, Float64}
+struct PolygonRegion{V <: AbstractVector{Point2{Float64}}}
+    vertices::V               # the ring, counter-clockwise about `centre` (a device array once adapted)
     centre::SVector{2, Float64}
     inner::Float64            # the distance from `centre` to the nearest edge: the disc of that radius is inside
     outer::Float64            # the distance from `centre` to the farthest vertex: the polygon lies in that disc
@@ -119,15 +124,20 @@ function PolygonRegion(vertices::AbstractVector{<:StaticVector{2}}, centre)
     outer = maximum(v -> norm(v - c), ring)
     lo = SVector(minimum(first, ring), minimum(last, ring))
     hi = SVector(maximum(first, ring), maximum(last, ring))
-    return PolygonRegion(GeometryBasics.Polygon(ring), c, inner, outer, lo, hi)
+    return PolygonRegion{typeof(ring)}(ring, c, inner, outer, lo, hi)
 end
+GeometryBasics.Polygon(s::PolygonRegion) = GeometryBasics.Polygon(collect(s.vertices))
+# The device form: the vertex ring moved, the discs and the box as they are (the same region, no re-validation).
+Adapt.adapt_structure(to, s::PolygonRegion) = (v = Adapt.adapt(to, s.vertices); PolygonRegion{typeof(v)}(v, s.centre, s.inner, s.outer, s.lo, s.hi))
+# An intersection moves part by part, so an imaged region holding a polygon reaches a kernel whole.
+Adapt.adapt_structure(to, s::RegionIntersection) = RegionIntersection(Adapt.adapt(to, s.a), Adapt.adapt(to, s.b))
 # The distance from the point p to the closed segment ab.
 function _segment_distance(p, a, b)
     d = SVector{2, Float64}(b - a)
     t = dot(d, d) > 0 ? clamp(dot(SVector{2, Float64}(p - a), d) / dot(d, d), 0.0, 1.0) : 0.0
     return norm(SVector{2, Float64}(p - a) - t * d)
 end
-_vertices(s::PolygonRegion) = GeometryBasics.coordinates(s.polygon)
+_vertices(s::PolygonRegion) = s.vertices
 _edges(s::PolygonRegion) = (v = _vertices(s); ((v[i], v[mod1(i + 1, length(v))]) for i in eachindex(v)))
 Base.:(==)(a::PolygonRegion, b::PolygonRegion) = a.centre == b.centre && _vertices(a) == _vertices(b)
 Base.hash(s::PolygonRegion, h::UInt) = hash(_vertices(s), hash(s.centre, hash(:PolygonRegion, h)))
@@ -135,7 +145,7 @@ function Base.in(p::StaticVector{2}, s::PolygonRegion)
     d = hypot(p[1] - s.centre[1], p[2] - s.centre[2])
     d < s.inner && return true
     d > s.outer && return false
-    return Point2{Float64}(p[1], p[2]) ∈ s.polygon         # Core's one point-in-polygon test (operators.jl)
+    return _point_in_ring(Point2{Float64}(p[1], p[2]), s.vertices)   # Core's one point-in-polygon test (operators.jl)
 end
 Base.in(r::Rect{2}, s::PolygonRegion) = r ⊆ s
 dilate(s::PolygonRegion, factor::Real) = PolygonRegion([s.centre + factor * (SVector{2, Float64}(v) - s.centre) for v in _vertices(s)], s.centre)

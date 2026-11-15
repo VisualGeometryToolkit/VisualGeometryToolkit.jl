@@ -76,17 +76,17 @@ end
     using LinearAlgebra: norm
     using StaticArrays
     using VisualGeometryToolkitCore: farthest_radius, intersects, check_region_support, dilate, Ellipse, pixel_mask
-    using GeometryBasics: coordinates, Rect
+    using GeometryBasics: Rect, Polygon
     cam = mk(800.0, 800.0, 700.0, 700.0, bc)
     q = valid_domain(cam)
     W, H = 1400, 1400                                               # the polygon (radius 587–687 px) inside the sensor
     # the mask is membership at the pixel centres, and the prefilter (the inscribed and circumscribed discs) answers as
     # the crossing-number test of the bare polygon does
     m = pixel_mask(q, W, H)
-    @test m == BitMatrix([Point2{Float64}(u - 0.5, v - 0.5) ∈ q.polygon for v in 1:H, u in 1:W])
+    @test m == BitMatrix([Point2{Float64}(u - 0.5, v - 0.5) ∈ Polygon(q) for v in 1:H, u in 1:W])
     @test 0 < count(m) < W * H
     # the bounding box is the vertices' extremes, and holds every masked pixel; the mask reaches it within a pixel
-    vs = coordinates(q.polygon)
+    vs = q.vertices
     box = Rect2(q)
     @test minimum(box) ≈ Point2(minimum(first, vs), minimum(last, vs))
     @test maximum(box) ≈ Point2(maximum(first, vs), maximum(last, vs))

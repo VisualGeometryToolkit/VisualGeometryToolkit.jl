@@ -324,7 +324,9 @@ end
     r = optical_axis(src)
     md = metadata(r)
     @test converged(r)
-    @test md.family.start_fold isa Float64 && md.family.start_fold < md.family.θ_max   # the start folded, and it is recorded
+    # the start folded inside the region (its widest angle θ(478 px) ≈ 67°), and it is recorded (`md.family.θ_max` is the
+    # region the axis was finally fitted over, inside the fold)
+    @test md.family.start_fold isa Float64 && md.family.start_fold < θof(478.0) && md.family.θ_max < md.family.start_fold
     @test md.region != VgtkCore.imaged_region(src)                                     # the axis was fitted inside the fold
     @test norm(calibration_matrix(estimate(r))[1:2, 3] - c) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
     # a start that does not fold records none

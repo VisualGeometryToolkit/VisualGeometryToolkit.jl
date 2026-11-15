@@ -42,15 +42,13 @@ The identity of `∩` is [`WholePlane`](@ref VisualGeometryToolkitCore.Primitive
 answers for a lens with no limit of its own).
 
 Containment `s ⊆ region` (a `Rect`, an `Ellipse`, an intersection or the
-`WholePlane`) never answers `true` for an `s` that is not contained (to the
-rounding of its membership tests). Into an
-intersection it is exact: `s ⊆ a ∩ b` is `s ⊆ a && s ⊆ b`. Into a `Rect` or an
-`Ellipse` it is sufficient, not exact: `true` when the bounding box `Rect2(s)`
-lies in the region or when either part does. Neither part alone need fit. A
-sensor ∩ its lens coverage lies in a support that neither the sensor nor the
-ellipse fits, because its box does. A containment can still answer `false`
-when `Rect2(s)`, the meet of the parts' boxes, reaches out of the region where
-`s` does not (a tilted ellipse's box corner past an `Ellipse` region, say).
+`WholePlane`) never answers `true` for an `s` that is not contained, to the
+rounding of its membership tests. Into an intersection it is exact:
+`s ⊆ a ∩ b` is `s ⊆ a && s ⊆ b`. Into a `Rect` or an `Ellipse` it is `true`
+when `Rect2(s)` or either part lies in the region: sufficient, not exact. Neither
+part alone need fit, but `Rect2(s)`, the meet of the parts' boxes, can reach
+out of the region where `s` does not, and then a true containment answers
+`false`.
 """
 struct RegionIntersection{A, B}
     a::A
@@ -99,19 +97,17 @@ Base.in(::StaticVector{2}, ::WholePlane) = true
 Base.in(r::Rect{2}, s::RegionIntersection) = r ∈ s.a && r ∈ s.b
 Base.in(::Rect{2}, ::WholePlane) = true
 # THE region containment, `a ⊆ b` (`issubset`), every pair of the regions a fit and a support take — a `Rect`, an
-# `Ellipse`, their `∩`, the `WholePlane` — so Base's iterable `issubset` is never reached. Sound: no method answers
-# `true` for a region that is not contained (see RegionIntersection's docstring for which are exact).
-# - X ⊆ a ∩ b: X ⊆ a && X ⊆ b, exact (it is the definition), as exact as its two calls.
-# - a ∩ b ⊆ a Rect or an Ellipse: when its bounding box `Rect2(a ∩ b)` does (a ∩ b lies in its box), or either part
-#   does (a ∩ b ⊆ a). Neither part need fit (a sensor ∩ its lens coverage in a grid's support): the box is the test
-#   that reads the two together. Not exact: the box of the two boxes can poke out of the region where the
-#   intersection does not, so a true containment can answer `false`.
+# `Ellipse`, their `∩`, the `WholePlane` — so Base's iterable `issubset` is never reached. Sound, not always exact (see
+# RegionIntersection's docstring): an intersection lies in a region when its bounding box does (a ∩ b ⊆ Rect2(a ∩ b))
+# or either part does; in an intersection when it lies in both parts.
 const _PlaneRegion = Union{Rect{2}, Ellipse, RegionIntersection, WholePlane}
 Base.issubset(a::Rect{2}, b::Rect{2}) = a ∈ b                 # GeometryBasics' box-in-box
 Base.issubset(a::Rect{2}, b::Ellipse) = a ∈ b                 # the corners (containment.jl): the ellipse is convex
 Base.issubset(a::Ellipse, b::Rect{2}) = a ∈ b                 # the ellipse's exact bounding box (containment.jl)
 # an ellipse in an ellipse: cameras/image_circle.jl (it reads the 1-D minimizer, numerics/minimize.jl, loaded later)
 Base.issubset(a::Union{Rect{2}, Ellipse, RegionIntersection}, b::RegionIntersection) = a ⊆ b.a && a ⊆ b.b
+# the box first (cheap); the parts after: an Ellipse part may fit an Ellipse where its box does not, and a part's own
+# test reads its exact bounds where the meet's `origin + widths` can round an ulp past them
 Base.issubset(a::RegionIntersection, b::Union{Rect{2}, Ellipse}) = GeometryBasics.Rect2(a) ⊆ b || a.a ⊆ b || a.b ⊆ b
 Base.issubset(::_PlaneRegion, ::WholePlane) = true
 Base.issubset(::WholePlane, ::Union{Rect{2}, Ellipse, RegionIntersection}) = false

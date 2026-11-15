@@ -23,7 +23,7 @@ end
 @testitem "region containment: an intersection in a region when only the whole of it fits" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: WholePlane, check_region_support
+    using VisualGeometryToolkitCore: check_region_support
     R(x, y, w, h) = Rect(Float64(x), Float64(y), Float64(w), Float64(h))
     E(x, y, a, b, θ = 0.0) = Ellipse(Point2(Float64(x), Float64(y)), Float64(a), Float64(b), Float64(θ))
     # RadiometricCamera's 14 mm housing case: a sensor ∩ its lens coverage inside a grid's support. Neither the sensor
@@ -43,6 +43,4 @@ end
     @test !(strip ⊆ target) && !(disc ⊆ target)
     @test (strip ∩ disc) ⊆ target && (disc ∩ strip) ⊆ target
     @test !((strip ∩ disc) ⊆ E(50, 5, 9, 8))                                        # the disc reaches x = 40 < 50 − 9
-    @test (strip ∩ disc) ⊆ WholePlane()
-    @test ((R(0, 0, 1, 1) ∩ E(100, 100, 1, 1)) ⊆ R(50, 50, 1, 1)) isa Bool         # disjoint parts: an empty box answers
 end

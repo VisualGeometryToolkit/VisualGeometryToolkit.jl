@@ -205,6 +205,10 @@
             write_model(names) = d -> (m = mkpath(joinpath(d, "model")); foreach(f -> write(joinpath(m, f), f), names); nothing)
             E.produce(write_model(["a.txt", "b.txt"]), s; args...)
             @test E.produced(s)
+            # produced, it is reused like a file output: `f` never runs again (DrWatson's produce_or_load reuses a file only)
+            n = Ref(0)
+            @test E.produce(d -> (n[] += 1; error("must not run")), s; args...) == E.product_dir(s) && n[] == 0
+            @test readdir(E.product_output(s)) == ["a.txt", "b.txt"]
             E.produce(write_model(["a.txt"]), s; args..., force = true)
             @test E.produced(s) && readdir(E.product_output(s)) == ["a.txt"]
         end

@@ -303,15 +303,13 @@ end
 Project the camera-frame point `X` — plain metres, the point spline's unit — to
 a pixel: Levenberg–Marquardt in the normalized plane on the reference's
 tangent-plane point-to-line residual, so a converged pixel's observation line
-goes through `X`. The two-argument form starts at the point's direction's point
-of the equidistant chart about ẑ (`forward_chart`, a central
-[`SplineLens`](@ref)'s cold start) where the model images that point, else at the
-area's centre; the
+goes through `X`. The two-argument form starts at the area's centre (a central
+[`SplineLens`](@ref)'s cold start); the
 three-argument form at the seed pixel `p₀` (a good seed matters for a
 non-central model; positional, per-call data). NaN when the solve does not
 converge onto a point the model images (inside the area, its window present).
 """
-project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_direction_lens(m), SVector{3}(X[1], X[2], X[3])))
+project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_direction_lens(m)))
 # A point carrying ForwardDiff Duals (`transform_deriv` of a posed non-central camera's `plane_map`, `ForwardDiff.jacobian`
 # of a projection): the projection of the point's next layer's values (the plain solve at the bottom: no Dual enters
 # the LM), its partials by the implicit function theorem at the solved normalized point p, as a SplineLens's

@@ -766,29 +766,21 @@ end
     end
     b = l.backward
     lb, ub, s = _spline_lm_box(b.area)
-    x₀ = all(isfinite, x₀) ? x₀ : SVector{2, Float64}(centroid(b.area))      # a non-finite seed (a failed warm start): the cold start's fallback
+    x₀ = all(isfinite, x₀) ? x₀ : _cold_start(l)      # a non-finite seed (a failed warm start): the cold start
     x, ok = _spline_project(b.controls, b.area, X, x₀, lb, ub, s, maxiter, tol2)
     return ok && _in_backward(l, x) ? (x, true) : (nan, false)
 end
 
 
-# The cold start of a projection solve of the ray (or camera-frame point) `X` through
-# the lens `l`: its point of the equidistant chart about ẑ (`forward_chart`, the
-# forward spline's own chart: radius θ along the ray's azimuth) — the gauge's
-# first-order inverse (`K` images ẑ at the principal point, at the local scale), and
-# a fisheye's to every order its lens is equidistant — where the lens images it
-# (`_in_backward`: in the area, its window present), else the backward area's centre
-# (a point off the area or on an absent window, a zero or non-finite ray). Not the
-# pinhole point `(X₁/X₃, X₂/X₃)`: at tan θ, a fisheye ray 55° off axis lands past the
-# image circle on a lattice the data do not pin, where the LM stalls (residual
-# 0.4–0.5 rad; tested). Only the start: the solve's answer is the same to its
-# tolerance (from the centre start over the golden cameras, the imaged mask identical;
-# tested).
-@inline function _cold_start(l::SplineLens, X::StaticVector{3})
-    c = SVector{2, Float64}(centroid(l.backward.area))
-    p = SVector{2, Float64}(_FORWARD_CHART(SVector{3, Float64}(X[1], X[2], X[3])))
-    return all(isfinite, p) && _in_backward(l, p) ? p : c
-end
+# The cold start of a projection solve through the lens `l`: the backward area's centre,
+# `_solved_projection`'s start — ONE start for every solve not given a seed, whatever the
+# ray. Not a guess from the ray: the pinhole point `(X₁/X₃, X₂/X₃)` puts a fisheye ray
+# 55° off axis at tan θ, and the equidistant chart point (`forward_chart`, radius θ) a ray
+# near the rim of a lens that compresses there; both land past the image circle on a
+# lattice the data do not pin, where the LM stalls (residual 0.4–0.5 rad) or converges
+# onto a fold of the outer lattice, a confident wrong pixel (both tested). From the
+# centre the solve walks out along the ray's azimuth and meets the imaged point first.
+@inline _cold_start(l::SplineLens) = SVector{2, Float64}(centroid(l.backward.area))
 
 """
     project(lens::SplineLens, X::StaticVector{3}) -> SVector{2}
@@ -799,13 +791,11 @@ value at the ray's point of the equidistant chart about ẑ (fixed in the camera
 frame, so no choice of K moves it), NaN outside the forward's fitted chart (more than one
 knot cell past its area) or where the backward spline does not image the
 point. Without one, Levenberg–Marquardt on the backward spline's direction
-mismatch (100 iterations, converged below a 1e-6 residual) from the ray's point
-of that same equidistant chart (radius θ along its azimuth) where the lens images
-that point, else from the backward area's centre; NaN unless it converges onto a
-point whose window is present.
+mismatch (100 iterations, converged below a 1e-6 residual) from the backward
+area's centre; NaN unless it converges onto a point whose window is present.
 """
 @inline project(l::SplineLens, X::StaticVector{3}) =
-    first(_project_lens(l, X, _cold_start(l, X), _STATIC_LM_MAX_ITER, _PROJECT_TOL^2))
+    first(_project_lens(l, X, _cold_start(l), _STATIC_LM_MAX_ITER, _PROJECT_TOL^2))
 
 # A ray carrying ForwardDiff Duals (a pose refine's `transform_deriv`, `ForwardDiff.jacobian` of a projection): the
 # value and its partials from the SAME map. With a forward spline, that map: the ray's chart point and the forward's
@@ -844,10 +834,10 @@ end
         ok_out[i] = ok
     end
 end
-@inline _projection_seed(l, X, seed_map, ::Nothing, i) = _cold_start(l, X)
+@inline _projection_seed(l, X, seed_map, ::Nothing, i) = _cold_start(l)
 @inline function _projection_seed(l, X, seed_map, seeds, i)
     s = SVector{2, Float64}(seed_map(@inbounds seeds[i]))
-    return all(isfinite, s) ? s : _cold_start(l, X)
+    return all(isfinite, s) ? s : _cold_start(l)
 end
 
 # The batched projection of the camera-frame points `rays` through the lens `l` to its

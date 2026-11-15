@@ -44,6 +44,9 @@
     # an integer is the double it is: exact up to 2^53, refused past it
     @test canonical_json(Int64(2)^53) == "9007199254740992"
     @test_throws ArgumentError canonical_json(Int64(2)^53 + 1)
+    @test canonical_json(-Int64(2)^53) == "-9007199254740992"
+    @test_throws ArgumentError canonical_json(-Int64(2)^53 - 1)
+    @test_throws ArgumentError canonical_json(typemin(Int64))      # abs(typemin) is negative: the bound reads n itself
 end
 
 @testitem "canonical_json: RFC 8785 strings, sorting and the §3.2.4 example" begin

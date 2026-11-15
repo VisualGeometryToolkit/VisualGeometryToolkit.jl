@@ -36,15 +36,16 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
     extension is C² and its curvature does not grow, but it is not guaranteed injective: a source whose rim is already
     folded or strongly curved continues that into the band (a synthetic fisheye whose spline reaches past its lens's
     fold; a real Schöps grid extended over a sensor larger than its lens coverage). `extend_lattice` never refuses on a
-    fold. The caller reads `folds` and decides: Estimation's `fit_camera` records it in its metadata, and the
-    application sets the policy. On RC's real sources (four FX3 Schöps grids and a fisheye 30 cm front end) over the
+    fold. The caller reads `folds` and decides (Estimation 0.11.6's `fit_camera` is to record it in its metadata, the
+    application to set the policy). `fold_spacing = nothing` skips the check. The orientation's sign is the source's
+    own (the centre of its valid domain), so a band never sets it. On RC's real sources (four FX3 Schöps grids and a fisheye 30 cm front end) over the
     regions RC requests, no sample folds at 8 px.
   - A source with no complete 4 × 4 present window is an `ArgumentError` (its nodes need not determine the
     extrapolation).
-- **`folded_pixels(camera, region; spacing = 8.0) -> (; folded, samples, unimaged)`** (public): where a SplineLens
+- **`folded_pixels(camera, region; spacing = 8.0, reference = nothing) -> (; folded, samples, unimaged)`** (public): where a SplineLens
   camera's backward map folds over a region (a `Rect`, an `Ellipse` or their intersection). On a grid of `spacing` px,
-  a sample folds when the orientation `d · (∂d/∂u × ∂d/∂v)` does not have the sign it has at the centre of the camera's
-  valid domain. The orientation is chart-free, so a ray past 90° counts. The check that an extension, or any lattice,
+  a sample folds when the orientation `d · (∂d/∂u × ∂d/∂v)` does not have the sign it has at `reference` (default: the
+  centre of the camera's valid domain, or of its first complete window). A posed or bounded camera answers its model's. The orientation is chart-free, so a ray past 90° counts. The check that an extension, or any lattice,
   is locally injective at a stated density.
 - **`difference_rows(mask, 2; mixed)`**: a nonzero `mixed` appends the mixed second differences `Δ₁Δ₂c`, weighted by
   `mixed`, one row per 2 × 2 window wholly in the mask, after the axis rows of `axes = (1, 2)`, or alone with

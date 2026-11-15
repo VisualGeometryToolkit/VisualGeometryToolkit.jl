@@ -151,6 +151,9 @@ end
 # Extension
 # ------------------------------------------------------------------------------
 
+# The regions a lattice operation takes, in pixels: a rectangle, an ellipse, a circle, an intersection of them.
+const _LatticeRegion = Union{GeometryBasics.HyperRectangle{2}, Ellipse, Circle, RegionIntersection}
+
 # The rounding slack of a region edge's cell coordinate: a quotient within it of an
 # integer is that integer (a region equal to the source's own area adds no ring).
 const _CELL_TOL = 1.0e-9
@@ -166,8 +169,8 @@ _needed_cells(qlo, qhi) = (floor(Int, qlo - 2 + _CELL_TOL) + 1, ceil(Int, qhi + 
 The [`SplineLens`](@ref) camera's lattice extended outward on its own spacing, with the
 same origin and phase, until every node whose support meets `region` exists. `region`
 is a region in pixels of the camera's pixel frame: a `Rect` (the calibrated area of the
-lattice a resample targets), an `Ellipse` or an intersection of them (a sensor ∩ its
-lens coverage). Its bounding box sets the nodes. A node's support here is open: the open rectangle
+lattice a resample targets), an `Ellipse`, a `Circle` or an intersection of them (a
+sensor ∩ its lens coverage). Its bounding box sets the nodes. A node's support here is open: the open rectangle
 `node ± 2·spacing`, where its basis is nonzero. So a region equal to the source's
 calibrated area adds nothing. (A node's [`support`](@ref) for [`node_mask`](@ref) is the
 closed footprint, so a node touching the region only at its edge is free there but not
@@ -204,18 +207,22 @@ in its [`valid_domain`](@ref).
   When nothing is extrapolated, `camera` is the input camera, its forward kept.
 - **`folds`** reports where the extended camera's backward map folds over `region`:
   [`folded_pixels`](@ref)`(camera, region; spacing = fold_spacing)`, its `folded`
-  samples, `samples` and `unimaged`. The extension is C² and its curvature does not
-  grow, but it is not guaranteed injective. A source whose rim is already folded or
-  strongly curved continues that into the band. `extend_lattice` never refuses on a
-  fold: the caller reads `folds` and decides (a fit records it in its metadata). An
-  empty `folds.folded` means no fold at that density.
+  samples, `samples` and `unimaged`, the orientation's sign taken in the source's own
+  domain. `fold_spacing = nothing` skips the check (`folds = nothing`). The extension
+  is C² and its curvature does not grow, but it is not guaranteed injective. A source
+  whose rim is already folded or strongly curved continues that into the band. `extend_lattice` never refuses on a
+  fold: the caller reads `folds` and decides (a fit can record it in its metadata).
+  An empty `folds.folded` with `folds.unimaged == 0` means no fold at that density.
 
 An `ArgumentError` for a region whose bounding box is not a finite rectangle, or when no complete
 4 × 4 window of the source is present (its present nodes then need not determine the
 extrapolation).
 Host-side lattice algebra: the result evaluates on a device like any SplineLens camera.
 """
-function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; fold_spacing::Real = 8.0)
+function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::_LatticeRegion;
+        fold_spacing::Union{Nothing, Real} = 8.0)
+    fold_spacing === nothing || fold_spacing > 0 ||
+        throw(ArgumentError("extend_lattice: fold_spacing must be positive (or nothing: no fold report), got $fold_spacing"))
     l = cam.lens
     b = l.backward
     gsz = gh, gw = size(b.controls)
@@ -240,7 +247,9 @@ function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, re
         "extend_lattice: no complete 4 × 4 window of the source is present, so its present nodes do not determine the extrapolation"))
     present = trues(ngh, ngw); present[rows, cols] .= known[rows, cols] .| needed[rows, cols]
     filled = present .& .!known
-    any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0), folds = folded_pixels(cam, region; spacing = fold_spacing))
+    # the folds over the region, the orientation's sign the source's own (a band never sets it)
+    folds(c) = fold_spacing === nothing ? nothing : folded_pixels(c, region; spacing = fold_spacing, reference = _reference_pixel(cam))
+    any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0), folds = folds(cam))
     C = fill(SVector{3, eltype(eltype(b.controls))}(NaN, NaN, NaN), ngh, ngw)
     C[rows, cols] .= b.controls
     _extrapolate_controls!(C, known, present, h)
@@ -248,7 +257,7 @@ function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, re
     area = _window_area(b.area, gsz, (1 - top):(gh + bottom), (1 - left):(gw + right))
     lens = SplineLens(ChartSpline(area, _absent_nan(C, present)); present)
     extended = CameraModel(cam.intrinsics, lens)
-    return (; camera = extended, extrapolated = filled, offset = (top, left), folds = folded_pixels(extended, region; spacing = fold_spacing))
+    return (; camera = extended, extrapolated = filled, offset = (top, left), folds = folds(extended))
 end
 
 # Whether some 4 × 4 window of the lattice holds `mask` nodes only.
@@ -296,37 +305,60 @@ function _orientation(cam, p)
     return dot(d, cross(SVector{3}(M[:, 1]), SVector{3}(M[:, 2])))
 end
 
-"""
-    folded_pixels(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing = 8.0) -> (; folded, samples, unimaged)
-    folded_pixels(camera::Union{PosedCamera, BoundedCamera}, region; spacing = 8.0)
+# A pixel the camera images inside its own lattice: the centre of its valid domain, or
+# where that is not imaged (a presence mask with a hole there) the centre of the first
+# complete 4 × 4 window's cell. `nothing` when it has none.
+function _reference_pixel(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens})
+    l = cam.lens
+    gsz = gh, gw = size(l.backward.controls)
+    any(_window_present(l.present, ix, iy) for iy in 3:(gh - 1), ix in 3:(gw - 1)) || return nothing
+    c = SVector{2, Float64}(centroid(Rect2{Float64}(valid_domain(cam))))
+    isfinite(_orientation(cam, c)) && return c
+    rect = _pixel_area(cam.intrinsics, l.backward.area)
+    for iy in 3:(gh - 1), ix in 3:(gw - 1)
+        _window_present(l.present, ix, iy) || continue
+        return SVector{2, Float64}(centroid(_window_area(rect, gsz, (iy - 2):(iy + 1), (ix - 2):(ix + 1))))
+    end
+end
 
-Where the backward map pixel → direction of the [`SplineLens`](@ref) `camera` folds over `region` (a `Rect`, an
-`Ellipse` or an intersection of them, in pixels of the camera's pixel frame). The
-check samples the pixels of `region` on a grid of `spacing` px, aligned to the
-corner of its bounding box. At each sample it forms the orientation
+"""
+    folded_pixels(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing = 8.0, reference = nothing)
+        -> (; folded, samples, unimaged)
+    folded_pixels(camera::Union{PosedCamera, BoundedCamera}, region; spacing, reference)
+
+Where the backward map pixel → direction of the [`SplineLens`](@ref) `camera` folds over
+`region` (a `Rect`, an `Ellipse`, a `Circle` or an intersection of them, in pixels of the
+camera's pixel frame). The check samples the pixels of `region` on a grid of `spacing`
+px, aligned to the corner of its bounding box. At each sample it forms the orientation
 `d · (∂d/∂u × ∂d/∂v)` ([`backproject_with_jacobian`](@ref)), the signed area the map's
 Jacobian spans on the sphere. Being chart-free, it holds for rays past 90°. A sample
-folds when its orientation does not have the sign of the camera's at the centre of
-its [`valid_domain`](@ref), the source's own interior for an
-[`extend_lattice`](@ref)-ed camera, or is zero.
+folds when its orientation does not have the sign of the camera's at `reference`, or is
+zero. `reference` is a pixel: by default the centre of the camera's
+[`valid_domain`](@ref), or the centre of its first complete 4 × 4 window where that
+centre is not imaged. [`extend_lattice`](@ref) passes the source's, so a band never
+sets the sign.
 
 Returns the folded samples, `folded::Vector{SVector{2, Float64}}`, the number of
 samples in `region` (`samples`), and the number of those the camera does not image
-(`unimaged`, NaN directions: no orientation, not counted as folded). An empty
-`folded` means the map is locally injective at that sampling density. A fold narrower
-than `spacing` can escape it. An `ArgumentError` when the camera does not image the
-centre of its valid domain, or `spacing` is not positive.
+(`unimaged`, NaN directions: no orientation, not counted as folded). The map is locally
+injective at that density over the imaged samples when `folded` is empty, and over the
+whole region when `unimaged` is zero too. A fold narrower than `spacing` can escape it,
+and an empty region has no samples. An `ArgumentError` when the camera does not image
+`reference` (or has no complete window), when `spacing` is not positive, or when the
+region's bounding box is not finite.
 """
-# (a posed and a bounded camera: cameras.jl, beside `axis_gauged`'s)
-function folded_pixels(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing::Real = 8.0)
+function folded_pixels(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::_LatticeRegion; spacing::Real = 8.0,
+        reference::Union{Nothing, StaticVector{2}} = nothing)
     spacing > 0 || throw(ArgumentError("folded_pixels: spacing must be positive, got $spacing"))
-    V = Rect2{Float64}(valid_domain(cam))
-    s0 = _orientation(cam, SVector{2, Float64}(centroid(V)))
-    (isfinite(s0) && !iszero(s0)) || throw(ArgumentError("folded_pixels: the camera does not image the centre of its valid domain"))
-    B = Rect2(region)
-    o = GeometryBasics.origin(B); w = GeometryBasics.widths(B)
+    ref = reference === nothing ? _reference_pixel(cam) : SVector{2, Float64}(reference)
+    s0 = ref === nothing ? NaN : _orientation(cam, ref)
+    (isfinite(s0) && !iszero(s0)) || throw(ArgumentError("folded_pixels: the camera does not image its reference pixel $ref"))
     folded = SVector{2, Float64}[]
     samples = unimaged = 0
+    B = Rect2(region)
+    o = GeometryBasics.origin(B); w = GeometryBasics.widths(B)
+    any(<(0), w) && return (; folded, samples, unimaged)                # an empty region
+    (all(isfinite, o) && all(isfinite, w)) || throw(ArgumentError("folded_pixels: the region's bounding box must be finite, got $B"))
     for y in range(o[2], o[2] + w[2]; step = spacing), x in range(o[1], o[1] + w[1]; step = spacing)
         p = SVector{2, Float64}(x, y)
         p ∈ region || continue

@@ -73,6 +73,7 @@ using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (transforms/conversions.jl)
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)
 using ..Primitives: rect_edges, EdgeGrid, Closed   # its edges on a closed grid: the frame walk (camera_models.jl)
+using ..Primitives: RegionIntersection   # a region of `∩` (primitives/regions.jl): the lattice operations' regions
 using ..Primitives: _closed_meet   # Core's one rect-meet convention, closed (primitives/regions.jl): a node's support clip (support.jl)
 using ..VisualGeometryToolkitCore: block_order   # grouped data: the sorted-key block order (base/correspondence_set.jl)
 using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundary condition of a uniform cubic lattice (numerics/bspline_energy.jl, BSplineKit)
@@ -673,7 +674,7 @@ axis_gauged(c::PosedCamera, rotation::Rotation{3}, K′::AbstractMatrix) =
     PosedCamera(axis_gauged(c.model, rotation, K′), axis_gauged(c.extrinsics, rotation))
 axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = _rebound(bc, axis_gauged(bc.camera, rotation, K′))
 # `folded_pixels` (lattice_operations.jl) of a posed or a bounded camera: its model's
-folded_pixels(c::Union{PosedCamera, BoundedCamera}, region; spacing::Real = 8.0) = folded_pixels(model(c), region; spacing)
+folded_pixels(c::Union{PosedCamera, BoundedCamera}, region; kwargs...) = folded_pixels(model(c), region; kwargs...)
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()
@@ -1329,12 +1330,13 @@ export HomographyMat                   # 3x3 homography matrix
 # and `backproject` are the two `@inline` maps above. As those two never did, no
 # forwarded verb applies the bound (the image extent is `image_circle`,
 # `imaged_region` and `lens_coverage`, which a BoundedCamera answers itself). The
-# model constructors (`pinhole`, `window`, `with_parameters`) and the parameter
+# model constructors (`pinhole`, `window`, `with_parameters`, `extend_lattice`,
+# `subdivide_lattice`) and the parameter
 # protocol are the model's, not forwarded (as is the synthetic-scene generator
 # `sample_p3p`, which takes its own sensor bounds): call them on `model(bc)` and rebound with
 # `with_model`. A verb with its own BoundedCamera method is not in the list (an
 # ambiguity otherwise): `valid_domain` (image_circle.jl, through `model`),
-# `with_directions`, `with_present`, `axis_gauged`, `image_circle`.
+# `with_directions`, `with_present`, `axis_gauged`, `image_circle`, `folded_pixels`.
 MacroTools.@forward BoundedCamera.camera (
     model, intrinsics, lens, focal_length, calibration_matrix,
     pose, extrinsics,

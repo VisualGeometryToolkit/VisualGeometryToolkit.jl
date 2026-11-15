@@ -286,7 +286,7 @@ end
 
     # The backward map pixel → direction is locally injective where its orientation d · (∂d/∂u × ∂d/∂v) keeps one
     # sign (chart-free, so rays past 90° count), over a dense sampling of the requested region, band and corners.
-    orientation(c, p) = ((d, M) = backproject_with_jacobian(c, p); dot(d, cross(M[:, 1], M[:, 2])))
+    orientation(c, p) = VgtkCore.Cameras._orientation(c, p)
     grown(A, h, n) = Rect2(A.origin[1] - n * h[1], A.origin[2] - n * h[2], A.widths[1] + 2n * h[1], A.widths[2] + 2n * h[2])
     function samples(r, n)
         return [SVector(x, y) for x in range(r.origin[1] + 0.5, r.origin[1] + r.widths[1] - 0.5; length = n),
@@ -326,7 +326,7 @@ end
         calib_area = VgtkCore.Rect(640 - half, 480 - half, 2half, 2half), init = :quasi_interpolate)
     grown(c, n) = (A = valid_domain(c); h = lattice_spacing(c);
         Rect2(A.origin[1] - n * h[1], A.origin[2] - n * h[2], A.widths[1] + 2n * h[1], A.widths[2] + 2n * h[2]))
-    orientation(c, p) = ((d, M) = backproject_with_jacobian(c, p); dot(d, cross(M[:, 1], M[:, 2])))
+    orientation(c, p) = VgtkCore.Cameras._orientation(c, p)
 
     @testset "a lattice that does not fold, and one whose extension does" begin
         src = lattice(180)
@@ -362,6 +362,14 @@ end
         u = folded_pixels(src, Rect2(A.origin[1] - 50, A.origin[2], A.widths[1] + 50, A.widths[2]); spacing = 10.0)
         @test u.unimaged > 0 && isempty(u.folded)
         @test_throws ArgumentError folded_pixels(src, A; spacing = 0)
+        @test_throws ArgumentError extend_lattice(src, A; fold_spacing = 0)
+        @test extend_lattice(src, grown(src, 1); fold_spacing = nothing).folds === nothing
+        empty = A ∩ Ellipse(Point2(5000.0, 5000.0), 10.0, 10.0, 0.0)                 # disjoint: no samples
+        @test folded_pixels(src, empty).samples == 0
+        # the sign is the reference's: from a folded sample every unfolded one reads as folded
+        f = extend_lattice(lattice(200), grown(lattice(200), 3); fold_spacing = 8.0)
+        flip = folded_pixels(f.camera, grown(lattice(200), 3); spacing = 8.0, reference = first(f.folds.folded))
+        @test length(flip.folded) == flip.samples - flip.unimaged - length(f.folds.folded)
         @test folded_pixels(VgtkCore.BoundedCamera(src, VgtkCore.Size2(1280, 960)), A; spacing = 10.0) == r   # its model's
     end
 end

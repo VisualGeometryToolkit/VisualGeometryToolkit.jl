@@ -38,6 +38,11 @@
 #   c₀ = 2c₁ − c₂ (`natural_extrapolation`). It sets the START values of the
 #   extrapolated nodes only: no refinement's objective holds it.
 #
+# - `folded_pixels`: where a lattice's backward map folds over a region (the orientation
+#   d · (∂d/∂u × ∂d/∂v) against the source's sign). `extend_lattice` reports it as
+#   `folds` and never refuses: the extension is C² but not guaranteed injective past a
+#   rim the source has already folded, and the policy is the caller's.
+#
 # Neither operation runs on a device: they build a new lattice once on the host. The
 # camera they return evaluates on a device like any SplineLens camera.
 
@@ -335,7 +340,7 @@ Jacobian spans on the sphere. Being chart-free, it holds for rays past 90°. A s
 folds when its orientation does not have the sign of the camera's at `reference`, or is
 zero. `reference` is a pixel: by default the centre of the camera's
 [`valid_domain`](@ref), or the centre of its first complete 4 × 4 window where that
-centre is not imaged. [`extend_lattice`](@ref) passes the source's, so a band never
+centre is not imaged. [`extend_lattice`](@ref) gives it the source's, so a band never
 sets the sign.
 
 Returns the folded samples, `folded::Vector{SVector{2, Float64}}`, the number of

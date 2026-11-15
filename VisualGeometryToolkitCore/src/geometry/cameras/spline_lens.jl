@@ -773,18 +773,21 @@ end
 
 
 # The cold start of a projection solve of the ray (or camera-frame point) `X` through
-# the lens `l`: its pinhole point `(X₁/X₃, X₂/X₃)` — the gauge's first-order inverse
-# (`K` images ẑ at the principal point, at the local scale) — where the lens images it
+# the lens `l`: its point of the equidistant chart about ẑ (`forward_chart`, the
+# forward spline's own chart: radius θ along the ray's azimuth) — the gauge's
+# first-order inverse (`K` images ẑ at the principal point, at the local scale), and
+# a fisheye's to every order its lens is equidistant — where the lens images it
 # (`_in_backward`: in the area, its window present), else the backward area's centre
-# (a ray at or behind the image plane, a point off the area or on an absent window, a
-# non-finite ray). Only the start: the solve's answer is the same to its tolerance
-# (measured 2.7e-12 px from the centre start over the golden cameras, the imaged mask
-# identical; tested).
+# (a point off the area or on an absent window, a zero or non-finite ray). Not the
+# pinhole point `(X₁/X₃, X₂/X₃)`: at tan θ, a fisheye ray 55° off axis lands past the
+# image circle on a lattice the data do not pin, where the LM stalls (residual
+# 0.4–0.5 rad; tested). Only the start: the solve's answer is the same to its
+# tolerance (from the centre start over the golden cameras, the imaged mask identical;
+# tested).
 @inline function _cold_start(l::SplineLens, X::StaticVector{3})
     c = SVector{2, Float64}(centroid(l.backward.area))
-    X[3] > 0 || return c
-    p = SVector{2, Float64}(X[1] / X[3], X[2] / X[3])
-    return _in_backward(l, p) ? p : c
+    p = SVector{2, Float64}(_FORWARD_CHART(SVector{3, Float64}(X[1], X[2], X[3])))
+    return all(isfinite, p) && _in_backward(l, p) ? p : c
 end
 
 """
@@ -796,9 +799,10 @@ value at the ray's point of the equidistant chart about ẑ (fixed in the camera
 frame, so no choice of K moves it), NaN outside the forward's fitted chart (more than one
 knot cell past its area) or where the backward spline does not image the
 point. Without one, Levenberg–Marquardt on the backward spline's direction
-mismatch (100 iterations, converged below a 1e-6 residual) from the ray's
-pinhole point `(X₁/X₃, X₂/X₃)` where the lens images that point, else from the
-backward area's centre; NaN unless it converges onto a point whose window is present.
+mismatch (100 iterations, converged below a 1e-6 residual) from the ray's point
+of that same equidistant chart (radius θ along its azimuth) where the lens images
+that point, else from the backward area's centre; NaN unless it converges onto a
+point whose window is present.
 """
 @inline project(l::SplineLens, X::StaticVector{3}) =
     first(_project_lens(l, X, _cold_start(l, X), _STATIC_LM_MAX_ITER, _PROJECT_TOL^2))

@@ -1,5 +1,22 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.10 (unreleased)
+
+A patch: one answer that was wrong. A `SplineLens` projection without a forward spline lost fisheye rays about 55° off
+axis.
+
+### Fixed
+- **A `SplineLens` projection's cold start is the ray's equidistant chart point, not its pinhole point.** `project`'s
+  LM (scalar, batched without a finite seed, and `NoncentralSplineModel`'s two-argument form) started at
+  `(X₁/X₃, X₂/X₃)` where the lens images it. For a fisheye ray about 55° off axis that point lies at `tan θ`, past the
+  image circle but inside a sensor-wide lattice, on controls the data do not pin; the LM stalled there (residual
+  0.38–0.52 rad) and the ray was not imaged. RadiometricCamera's refined fx3 fisheye lattices lost 156 and 11
+  registered dots in a band at r/R 0.64–0.69 of the image circle this way. The start is now the ray's point of the
+  equidistant chart about ẑ (`forward_chart`, the forward spline's own chart: radius θ), the same first-order inverse
+  at the axis and a fisheye's to every order it is equidistant, else the area's centre as before. Only the start
+  moved: over the golden cameras the projection is the centre start's to 2.6e-12 px with the same imaged mask, and no
+  recorded golden value changed.
+
 ## 0.10.9
 
 A patch: three answers that were wrong. Region containment refused an intersection inside a rectangle whenever neither

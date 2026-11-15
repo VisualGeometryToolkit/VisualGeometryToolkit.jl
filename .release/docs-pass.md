@@ -1,3 +1,9 @@
+docs-pass: 744a5758
+
+# VisualGeometryToolkitEval 0.9.1 docs pass addendum — branch patch-eval091
+
+744a5758 rewords one source comment in `produce` (check_naming R7, a banned word). No docstring, guide or code changed.
+
 docs-pass: 5d94948c
 
 # VisualGeometryToolkitEval 0.9.1 docs pass (julia-docs-pass) — branch patch-eval091

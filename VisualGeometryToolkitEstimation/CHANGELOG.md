@@ -1,5 +1,15 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased (with VisualGeometryToolkitCore 0.10.11)
+
+### Fixed
+- **`optical_axis` reads a stall from a folding start by its own validity gate.** Core 0.10.11 marks a tolerance stop of
+  the LM converged (owner ruling, 2026-11-15), so the refine from a linear start that folds inside the region — its
+  residuals capped at the fold, the axis unmoved — no longer reads as unconverged, and the refit inside the fold never ran
+  (the axis pixel 13 px off on the folding-start test: a silent wrong turn). The refit now also runs while the refined
+  lens still folds before the widest angle of the region it was fitted over (`_folds_inside`), and a fit that ends so is
+  refused as an unconverged one was. Needs Core 0.10.11 (its floor goes with the release).
+
 ## 0.11.6
 
 A feature: `fit_camera(SplineLens, …)` resamples a SplineLens source exactly, on Core 0.10.8's lattice operations, over

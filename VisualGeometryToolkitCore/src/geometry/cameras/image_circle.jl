@@ -221,7 +221,9 @@ const _FOLD_AZIMUTHS = 720
 # h²/8 · max|R''| of the interpolant through them, and a chord curves away from the centre (it only gains margin from
 # its own curvature), so the polygon never claims a point past the fold. R'' is the polygon's own second difference at
 # its non-uniform spacing, doubled as a safety factor (the fold curve of a polynomial distortion is a low harmonic of the
-# azimuth, so its second derivative varies little over the 1.5° stencil). The vertices then go through K (affine: the
+# azimuth, so its second derivative varies little over the 1.5° stencil), and read locally: each vertex is pulled by
+# the bound of its own two sectors, so a kink (an azimuth range that folds beside one that does not) costs margin
+# only beside it. The vertices then go through K (affine: the
 # polygon of the mapped vertices is the mapped polygon). The polygon is star-shaped about the centre when the fold curve
 # is (each image direction from the centre meets it once); one that is not is refused by `PolygonRegion`.
 function _fold_polygon(camera::CameraModel)
@@ -236,10 +238,11 @@ function _fold_polygon(camera::CameraModel)
     h(i) = mod(φ[mod1(i + 1, n)] - φ[i], 2π)                         # the sector from sample i to i + 1
     D2(i) = (hm = h(mod1(i - 1, n)); hp = h(i);
         2 * ((R[mod1(i + 1, n)] - R[i]) / hp - (R[i] - R[mod1(i - 1, n)]) / hm) / (hp + hm))
-    dip = 2 * maximum(i -> abs(D2(i)), 1:n) * maximum(h, 1:n)^2 / 8
+    # vertex i bounds the bulge of its two sectors (i − 1 → i, i → i + 1), from the second differences at both ends of each
+    dip(i) = 2 * maximum(j -> abs(D2(mod1(j, n))), (i - 1):(i + 1)) * max(h(mod1(i - 1, n)), h(i))^2 / 8
     K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
     pixel(x) = SVector(K[1, 1] * x[1] + K[1, 2] * x[2] + K[1, 3], K[2, 1] * x[1] + K[2, 2] * x[2] + K[2, 3])
-    vertices = [pixel(c + (R[i] * (1 - 1.0e-9) - dip) / R[i] * d[i]) for i in 1:n]
+    vertices = [pixel(c + (R[i] * (1 - 1.0e-9) - dip(i)) / R[i] * d[i]) for i in 1:n]
     return PolygonRegion(vertices, pixel(c))
 end
 

@@ -311,11 +311,18 @@ end
 intersects(r::Rect{2}, s::RegionIntersection) = intersects(s, r)
 # A star polygon meets a closed rectangle, exactly: a corner of the rectangle lies in it, a vertex of it in the
 # rectangle, or their boundaries cross.
+# Settled first by the bounding box (compared at its own bounds, never rebuilt as `origin + widths`) and by the discs
+# the region holds: a rectangle whose nearest point to `centre` lies past `outer` misses it, one that meets the inner
+# disc meets it.
 function intersects(s::PolygonRegion, r::Rect{2})
     b = GeometryBasics.Rect2{Float64}(r)
-    _closed_meet(b, GeometryBasics.Rect2{Float64}(s.lo, s.hi .- s.lo)) === nothing && return false
+    lo, hi = SVector{2, Float64}(minimum(b)), SVector{2, Float64}(maximum(b))
+    (all(lo .<= s.hi) && all(s.lo .<= hi)) || return false
+    nearest = norm(clamp.(s.centre, lo, hi) - s.centre)
+    nearest > s.outer && return false
+    nearest < s.inner && return true
     any(p -> Point2{Float64}(p) ∈ s, rect_corners(b)) && return true
-    any(v -> all(minimum(b) .<= v .<= maximum(b)), _vertices(s)) && return true
+    any(v -> all(lo .<= v .<= hi), _vertices(s)) && return true
     return _boundary_meets(s, _rect_edges(b))
 end
 intersects(r::Rect{2}, s::PolygonRegion) = intersects(s, r)

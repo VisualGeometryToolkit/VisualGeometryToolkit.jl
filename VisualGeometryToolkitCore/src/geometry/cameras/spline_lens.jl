@@ -828,14 +828,14 @@ end
     i = @index(Global)
     @inbounds begin
         X = rays[i]
-        x, ok = _project_lens(lens, X, _projection_seed(lens, X, seed_map, seeds, i), iters, tol2)
+        x, ok = _project_lens(lens, X, _projection_seed(lens, seed_map, seeds, i), iters, tol2)
         u = out_map(x)
         out[i] = SVector{2, Float64}(u[1], u[2])
         ok_out[i] = ok
     end
 end
-@inline _projection_seed(l, X, seed_map, ::Nothing, i) = _cold_start(l)
-@inline function _projection_seed(l, X, seed_map, seeds, i)
+@inline _projection_seed(l, seed_map, ::Nothing, i) = _cold_start(l)
+@inline function _projection_seed(l, seed_map, seeds, i)
     s = SVector{2, Float64}(seed_map(@inbounds seeds[i]))
     return all(isfinite, s) ? s : _cold_start(l)
 end

@@ -85,7 +85,7 @@ interface — `p ∈ s`, the bounding box `Rect2(s)`, `∩` (a
 [`RegionIntersection`](@ref VisualGeometryToolkitCore.Primitives.RegionIntersection)), `⊆` and `∈` of a `Rect`,
 `intersects(s, rect)`, `pixel_mask`, `dilate` about `centre`. What
 [`valid_domain`](@ref VisualGeometryToolkitCore.Cameras.valid_domain) answers for a lens that is not radially
-symmetric: its boundary passes through each azimuth's own fold.
+symmetric: its boundary runs through each azimuth's own fold.
 
 Membership is Core's one crossing-number test of a point in a `Polygon` (`p ∈ s.polygon`), skipped where it cannot
 change the answer: a point nearer `centre` than every edge (`s.inner`) is in, one farther than every vertex

@@ -31,7 +31,7 @@
 #   reads source nodes only, so the spline there is unchanged to the rounding of the
 #   lattice coordinate. The new nodes (and the absent source nodes the region needs) are
 #   the minimiser of the discrete second-order bending energy
-#   Σ Δxx² + 2Δxy² + Δyy² (`difference_rows(·, 2; mixed = true)`), the present source
+#   Σ Δxx² + 2Δxy² + Δyy² (`difference_rows(·, 2; mixed = √2)`), the present source
 #   nodes held: rotation-invariant, so neither the normal nor the tangential curvature
 #   grows outward, and its null space is the affine functions, so an affine lattice is
 #   continued exactly. In 1-D (no tangential variation) it is the natural rule
@@ -65,12 +65,12 @@ end
 function _subdivision_matrix(n::Int, m::Int)
     a = _subdivision_mask(m)
     nf = m * (n - 3) + 3
-    R = zeros(nf, n)
+    I, J, V = Int[], Int[], Float64[]
     for j in 1:n, k in 0:(length(a) - 1)
         jf = m * (j - 4) + k + 4
-        1 <= jf <= nf && (R[jf, j] += a[k + 1])
+        1 <= jf <= nf && (push!(I, jf); push!(J, j); push!(V, a[k + 1]))
     end
-    return R
+    return sparse(I, J, V, nf, n)
 end
 
 # `(m_x, m_y)` from an integer or a pair, each ≥ 1.
@@ -83,14 +83,15 @@ end
 # `R_y C R_xᵀ` per component, the controls `SVector{K, T}`s as given (computed in Float64,
 # rounded once to `T`).
 function _subdivided_controls(C::AbstractMatrix{SVector{K, T}}, Ry, Rx) where {K, T}
-    D = ntuple(k -> Ry * Float64.(getindex.(Matrix(C), k)) * transpose(Rx), K)
-    return [SVector{K, T}(ntuple(k -> D[k][i], K)) for i in CartesianIndices(D[1])]
+    D = ntuple(k -> Matrix(Ry * (Float64.(getindex.(C, k)) * transpose(Rx))), K)
+    return map((d...) -> SVector{K, T}(d), D...)
 end
 
-# The fine nodes that read any coarse node of `mask` (`[gy, gx]`): a nonzero entry of
-# R_y or R_x is a node read (every mask coefficient is positive).
+# The fine nodes that read any coarse node of `mask` (`[gy, gx]`): a stored entry of R_y
+# or R_x is a node read (every mask coefficient is positive).
 _reads_any(Ry, Rx, mask::AbstractMatrix{Bool}) =
-    BitMatrix(Int.(Ry .!= 0) * Int.(mask) * transpose(Int.(Rx .!= 0)) .> 0)
+    BitMatrix(Matrix(_pattern(Ry) * (Float64.(mask) * transpose(_pattern(Rx)))) .> 0)
+_pattern(R::SparseMatrixCSC) = SparseMatrixCSC(R.m, R.n, R.colptr, R.rowval, ones(length(R.nzval)))
 
 """
     subdivide_lattice(spline::ChartSpline, factors) -> ChartSpline
@@ -139,8 +140,7 @@ function subdivide_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens},
     extrapolated === nothing || size(extrapolated) == gsz ||
         throw(DimensionMismatch("subdivide_lattice: a $(size(extrapolated)) extrapolated mask for a $gsz lattice"))
     Ry, Rx = _subdivision_matrix(gh, my), _subdivision_matrix(gw, mx)
-    C = Matrix(b.controls)
-    l.present === nothing || (C = map((v, p) -> p ? v : zero(v), C, l.present))   # an absent slot is never read
+    C = l.present === nothing ? b.controls : map((v, p) -> p ? v : zero(v), b.controls, l.present)   # an absent slot is never read
     fine = _subdivided_controls(C, Ry, Rx)
     present = l.present === nothing ? nothing : .!_reads_any(Ry, Rx, .!l.present)
     present === nothing || (fine = _absent_nan(fine, present))
@@ -170,7 +170,9 @@ same origin and phase, until every node whose support meets `region` exists. `re
 is a rectangle in pixels of the camera's pixel frame, typically the calibrated area of
 the lattice a resample targets. A node's support here is open: the open rectangle
 `node ± 2·spacing`, where its basis is nonzero. So a region equal to the source's
-calibrated area adds nothing. The lattice never shrinks. The extended camera has the
+calibrated area adds nothing. (A node's [`support`](@ref) for [`node_mask`](@ref) is the
+closed footprint, so a node touching the region only at its edge is free there but not
+needed here: its basis is zero on the region.) The lattice never shrinks. The extended camera has the
 same `K`, and its backward area grows by the whole cells added, so the region lies
 in its [`valid_domain`](@ref).
 
@@ -179,7 +181,7 @@ in its [`valid_domain`](@ref).
 - **The extrapolated nodes** are the new nodes, and every absent source node whose
   support meets the region. Their controls minimise the discrete second-order bending
   energy `Σ Δxx² + 2Δxy² + Δyy²` of the extended lattice
-  ([`difference_rows`](@ref)`(·, 2; mixed = true)`, per component), with the present
+  ([`difference_rows`](@ref)`(·, 2; mixed = √2)`, per component), with the present
   source nodes held fixed. The energy is rotation-invariant (the thin-plate
   discretization), so the curvature, normal, tangential and mixed, does not grow
   outward, corners included. Its null space is the affine functions of the node
@@ -188,6 +190,8 @@ in its [`valid_domain`](@ref).
   source's domain edge the spline is C², since a uniform cubic B-spline is C² at every
   knot. This penalty gives only the start values of the extrapolated nodes. It is not
   part of any refinement's objective: a later fit moves those nodes by its own terms.
+  (A refinement's own rule for the nodes outside an imaged region is
+  [`BoundaryRule`](@ref), ring by ring from the interior.)
 - **Presence.** Every node is present except an absent source node whose support does
   not meet the region (it stays absent, NaN in its slot). A source with every node
   present gives a camera with every node present.
@@ -213,53 +217,48 @@ function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, re
     rect = _pixel_area(cam.intrinsics, b.area)
     h = _lattice_spacing(rect, gsz)
     o = GeometryBasics.origin(rect)
+    # the needed nodes' cell coordinates per axis; the source's nodes sit at −1 … g − 2
     tx = _needed_cells((ro[1] - o[1]) / h[1], (ro[1] + rw[1] - o[1]) / h[1])
     ty = _needed_cells((ro[2] - o[2]) / h[2], (ro[2] + rw[2] - o[2]) / h[2])
-    # the source's nodes sit at the cell coordinates −1 … g − 2
-    left, right = max(0, -1 - tx[1]), max(0, tx[2] - (gw - 2))
-    top, bottom = max(0, -1 - ty[1]), max(0, ty[2] - (gh - 2))
+    (left, right), (top, bottom) = _added_nodes(tx, gw), _added_nodes(ty, gh)
     ngh, ngw = gh + top + bottom, gw + left + right
     rows, cols = top .+ (1:gh), left .+ (1:gw)
-    known = falses(ngh, ngw)
-    known[rows, cols] .= l.present === nothing ? trues(gsz) : l.present
-    source = falses(ngh, ngw); source[rows, cols] .= true
-    needed = BitMatrix([ty[1] <= iy - top - 2 <= ty[2] && tx[1] <= ix - left - 2 <= tx[2] for iy in 1:ngh, ix in 1:ngw])
-    present = known .| .!source .| needed
+    # every node is present but an absent source node the region does not need
+    needed = falses(ngh, ngw)
+    needed[(ty[1] + top + 2):(ty[2] + top + 2), (tx[1] + left + 2):(tx[2] + left + 2)] .= true
+    known = falses(ngh, ngw); known[rows, cols] .= present_nodes(cam)
+    present = trues(ngh, ngw); present[rows, cols] .= known[rows, cols] .| needed[rows, cols]
     filled = present .& .!known
     any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0))
-    T = eltype(eltype(b.controls))
-    C = fill!(Matrix{SVector{3, T}}(undef, ngh, ngw), SVector{3, T}(NaN, NaN, NaN))
-    C[rows, cols] .= Matrix(b.controls)
+    C = fill(SVector{3, eltype(eltype(b.controls))}(NaN, NaN, NaN), ngh, ngw)
+    C[rows, cols] .= b.controls
     _extrapolate_controls!(C, known)
-    present_mask = all(present) ? nothing : present
-    present_mask === nothing || (C = _absent_nan(C, present_mask))
-    # the backward area grown by the whole cells added, on the source's own spacing
-    ao = GeometryBasics.origin(b.area); aw = GeometryBasics.widths(b.area)
-    hn = (aw[1] / (gw - 3), aw[2] / (gh - 3))
-    area = Rect2{Float64}(ao[1] - left * hn[1], ao[2] - top * hn[2], aw[1] + (left + right) * hn[1], aw[2] + (top + bottom) * hn[2])
-    lens = SplineLens(ChartSpline(area, C); present = present_mask)
+    # the backward area grown by the whole cells added: the source lattice's own nodes
+    area = _window_area(b.area, gsz, (1 - top):(gh + bottom), (1 - left):(gw + right))
+    lens = SplineLens(ChartSpline(area, _absent_nan(C, present)); present)
     return (; camera = CameraModel(cam.intrinsics, lens), extrapolated = filled, offset = (top, left))
 end
 
+# The nodes added before and after an axis of `g` nodes (cell coordinates −1 … g − 2) for
+# the needed cell coordinates `t = (t_lo, t_hi)`; the lattice never shrinks.
+_added_nodes(t, g) = (max(0, -1 - t[1]), max(0, t[2] - (g - 2)))
+
 # The controls of the nodes `.!known` filled in place by the minimiser of the bending
-# energy ‖D_axes c‖² + 2‖D_mixed c‖² over the lattice (`difference_rows(size, 2; mixed =
-# true)`, the mixed rows weighted √2; per component), the `known` nodes held: the normal
-# equations DᵤᵀDᵤ cᵤ = −DᵤᵀD_k c_k, one sparse Cholesky factorization for the components.
+# energy ‖D c‖² over the lattice (`difference_rows(size, 2; mixed = √2)`, per component),
+# the `known` nodes held: the normal equations DᵤᵀDᵤ cᵤ = −DᵤᵀD_k c_k, one sparse Cholesky
+# factorization and one solve for every component.
 function _extrapolate_controls!(C::AbstractMatrix{SVector{K, T}}, known::BitMatrix) where {K, T}
-    D = difference_rows(size(known), 2; mixed = true)
-    n1, n2 = size(known)
-    n_axis = (n1 - 2) * n2 + n1 * (n2 - 2)                                # the axis rows come first
-    D = LinearAlgebra.Diagonal([i <= n_axis ? 1.0 : sqrt(2.0) for i in axes(D, 1)]) * D
+    D = difference_rows(size(known), 2; mixed = sqrt(2.0))   # ‖D c‖²: the bending energy
     k = vec(known)
     Du, Dk = D[:, .!k], D[:, k]
     F = try
-        LinearAlgebra.cholesky(LinearAlgebra.Symmetric(SparseMatrixCSC{Float64, Int}(transpose(Du) * Du)))
+        LinearAlgebra.cholesky(LinearAlgebra.Symmetric(transpose(Du) * Du))
     catch e
         e isa LinearAlgebra.PosDefException || rethrow()
         throw(ArgumentError("extend_lattice: the present nodes do not determine the extrapolation (no complete 4 × 4 window present)"))
     end
-    ck = vec(C)[k]
-    x = ntuple(i -> F \ (-(transpose(Du) * (Dk * Float64.(getindex.(ck, i))))), K)
-    C[.!known] .= [SVector{K, T}(ntuple(i -> x[i][j], K)) for j in eachindex(x[1])]
+    ck = [Float64(v[i]) for v in vec(C)[k], i in 1:K]       # the held controls, one column per component
+    x = F \ Matrix(-(transpose(Du) * (Dk * ck)))
+    C[.!known] .= SVector{K, T}.(eachrow(x))
     return C
 end

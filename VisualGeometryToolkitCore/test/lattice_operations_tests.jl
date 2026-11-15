@@ -147,7 +147,7 @@ end
         @test all(v -> all(isfinite, v), C)
         # the region lies in the extended camera's domain
         V = valid_domain(e.camera)
-        @test VgtkCore.GeometryBasics.origin(V)[1] <= region.origin[1] + 1.0e-9 && VgtkCore.GeometryBasics.origin(V)[2] <= region.origin[2] + 1.0e-9
+        @test V.origin[1] <= region.origin[1] + 1.0e-9 && V.origin[2] <= region.origin[2] + 1.0e-9
         @test V.origin[1] + V.widths[1] >= region.origin[1] + region.widths[1] - 1.0e-9
     end
 
@@ -189,16 +189,16 @@ end
         br, bc = big.offset[1] .+ (1:18), big.offset[2] .+ (1:16)
         R = maximum(ring_of(i, j, br, bc) for i in axes(B, 1), j in axes(B, 2))
         @test R >= 5
-        ring_max(r, k) = maximum(second_differences(B, i, j)[k] for i in 2:(size(B, 1) - 1), j in 2:(size(B, 2) - 1) if ring_of(i, j, br, bc) == r)
-        corner_max(r, k) = maximum(second_differences(B, i, j)[k] for i in 2:(size(B, 1) - 1), j in 2:(size(B, 2) - 1)
-            if ring_of(i, j, br, bc) == r && !(i in br) && !(j in bc))
+        # the largest second difference `k` over ring `r` (over its corner blocks only: `corner`)
+        ring_max(r, k; corner = false) = maximum(second_differences(B, i, j)[k] for i in 2:(size(B, 1) - 1), j in 2:(size(B, 2) - 1)
+            if ring_of(i, j, br, bc) == r && (!corner || (!(i in br) && !(j in bc))))
         for k in 1:3                                       # along x, along y, mixed
             edge = ring_max(0, k)
             m = [ring_max(r, k) for r in 1:(R - 1)]
             @test all(<=(edge * (1 + 1.0e-9)), m)
             @test all(diff(m) .<= 1.0e-12)                 # non-increasing outward
             @test m[end] < m[1]
-            c = [corner_max(r, k) for r in 1:(R - 1)]
+            c = [ring_max(r, k; corner = true) for r in 1:(R - 1)]
             @test all(<=(edge * (1 + 1.0e-9)), c)
             @test all(diff(c) .<= 1.0e-12)
         end
@@ -304,7 +304,7 @@ end
     using Random: MersenneTwister
     rng = MersenneTwister(5)
     D0 = difference_rows((6, 7), 2)
-    D = difference_rows((6, 7), 2; mixed = true)
+    D = difference_rows((6, 7), 2; mixed = 1)
     nm = 5 * 6
     @test size(D) == (size(D0, 1) + nm, 42) && D[1:size(D0, 1), :] == D0       # the axis rows unchanged, first
     c = randn(rng, 6, 7)
@@ -315,6 +315,9 @@ end
     @test maximum(abs, D * vec(aff)) <= 1.0e-12
     @test maximum(abs, D * vec([Float64(i * j) for i in 1:6, j in 1:7])) > 0.5
     mask = trues(6, 7); mask[3, 4] = false
-    @test size(difference_rows(mask, 2; mixed = true), 1) == size(difference_rows(mask, 2), 1) + nm - 4
-    @test_throws ArgumentError difference_rows((6, 7), 3; mixed = true)
+    @test size(difference_rows(mask, 2; mixed = 1), 1) == size(difference_rows(mask, 2), 1) + nm - 4
+    # weighted √2: ‖D c‖² is the bending energy Σ Δ₁₁² + 2Δ₁₂² + Δ₂₂²
+    @test sum(abs2, difference_rows((6, 7), 2; mixed = sqrt(2)) * vec(c)) ≈ sum(abs2, D0 * vec(c)) + 2 * sum(abs2, Dc)
+    @test difference_rows((6, 7), 2; mixed = 0) == D0
+    @test_throws ArgumentError difference_rows((6, 7), 3; mixed = 1)
 end

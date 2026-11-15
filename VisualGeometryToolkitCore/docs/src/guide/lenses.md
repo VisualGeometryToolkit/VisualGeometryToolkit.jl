@@ -362,8 +362,8 @@ present source nodes held:
 E(c) = \sum \Delta_{xx}c^2 + 2\,\Delta_{xy}c^2 + \Delta_{yy}c^2 ,
 ```
 
-per component. The rows are `difference_rows(dims, 2; mixed = true)`, the mixed rows
-weighted `√2`, and the minimiser is one sparse Cholesky solve.
+per component. The rows are `difference_rows(dims, 2; mixed = √2)`, whose `‖D c‖²` is
+`E`, and the minimiser is one sparse Cholesky solve.
 
 - **Continuity.** A uniform cubic B-spline is C² at every knot, whatever its
   controls, and the source's domain edge is a knot. So the extended spline is C²

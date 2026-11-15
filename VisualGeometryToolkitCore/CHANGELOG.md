@@ -30,11 +30,11 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
   - `extrapolated` marks those nodes (a `BitMatrix` of the extended grid), and `offset` is the source's 0-based
     `(row, col)` in it.
   - An absent source node the region does not need stays absent. The forward spline is dropped.
-- **`difference_rows(mask, 2; mixed = true)`**: the mixed second differences `Δ₁Δ₂c`, one row per 2 × 2 window wholly in
-  the mask, appended after the axis rows. With them weighted `√2`, the operator's square is the discrete bending energy
-  that `extend_lattice` minimises. The default `mixed = false` returns the axis rows bit for bit as before, so every
-  existing caller is unchanged (Estimation's P-spline Δ³ penalty included). `mixed = true` at another order is an
-  `ArgumentError`.
+- **`difference_rows(mask, 2; mixed)`**: a nonzero `mixed` appends the mixed second differences `Δ₁Δ₂c`, weighted by
+  `mixed`, one row per 2 × 2 window wholly in the mask, after the axis rows. At `mixed = √2`, `‖D c‖²` is the discrete
+  bending energy that `extend_lattice` minimises. The default `mixed = 0` returns the axis rows bit for bit as before, so
+  every existing caller is unchanged (Estimation's P-spline Δ³ penalty included). A nonzero `mixed` at another order is
+  an `ArgumentError`.
 
 ### Docs
 - The Lenses guide, "Extending and subdividing a lattice", derives the subdivision's exactness (the two-scale relation of

@@ -250,7 +250,7 @@ over the region. The target type selects the family and the solve:
   until every node whose support meets `region` exists (Core's `extend_lattice`:
   its nodes bit for bit, the new ones by Core's bending-energy continuation,
   marked), subdivided by the integers whose cell is nearest `lattice_spacing`
-  (near ties toward square cells; `nothing` keeps the source's spacing) by Core's
+  (near ties toward the target's cell aspect, square for one number; `nothing` keeps the source's spacing) by Core's
   exact knot insertion (`subdivide_lattice`), and turned onto the source's optical
   axis: [`optical_axis`](@ref) of the source over its own bound (an
   [`approximate_camera`](@ref); refused when it does not converge), Core's exact

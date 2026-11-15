@@ -19,7 +19,7 @@ turned frame).
   tolerance, forward)`.** With a SplineLens camera source: its lattice extended on its own spacing until every node
   whose support meets `region` exists (Core's `extend_lattice`: the source's nodes bit for bit, the new ones by Core's
   bending-energy continuation and marked), subdivided by the integers `(m_x, m_y)` whose cell is nearest the target
-  `lattice_spacing` (px, a number or `(sx, sy)`; near ties toward square cells; `nothing`, the source's own spacing:
+  `lattice_spacing` (px, a number or `(sx, sy)`; near ties toward the target's cell aspect, square for one number; `nothing`, the source's own spacing:
   1 × 1) by Core's exact knot insertion (`subdivide_lattice`), then turned onto the source's optical axis
   (`optical_axis`, Core's `axis_gauged`), then the forward per `forward`. Inside the source's domain the result is the
   source's function to rounding (≤ 1e-9 rad). `region` may exceed the source's valid domain (no `RegionBeyondSupport`

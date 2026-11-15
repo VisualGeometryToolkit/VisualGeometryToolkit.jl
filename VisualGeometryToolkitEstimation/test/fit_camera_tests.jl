@@ -607,7 +607,7 @@ end
     # frame in = frame out: translating every source line by t translates the
     # fitted points and the anchor by t (absolute points, not relative to c*)
     t = SVector(0.5, -0.25, 2.0)
-    rt = fit_camera(NoncentralSplineModel, noncentral_source(t), REGION; tolerance = 1.0e-3)
+    rt = fit_camera(NoncentralSplineModel, noncentral_source(t), REGION; tolerance = tol)
     @test metadata(rt).family.grid_size == md.family.grid_size
     @test maximum(norm.(estimate(rt).points.controls .- g.points.controls .- Ref(t))) < 1.0e-9
     @test norm(metadata(rt).family.center - md.family.center - t) < 1.0e-12

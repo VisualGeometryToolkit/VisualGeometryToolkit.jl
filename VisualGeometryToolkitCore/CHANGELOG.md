@@ -42,7 +42,7 @@ A patch: the projective radial profile's knots continue past the rim at the pixe
   every fit as before, bit for bit). A step-size stop: converged (`ReturnCode.Success`, `IncrementSize`), as an `ftol` or `xtol` stop is. NLLSsolver has no such
   option, so it runs in NLLSsolver's callback slot after the caller's callback (a callback's own stop is unchanged);
   its termination bit (31, a callback flag `2¹⁵` Core reserves) decodes in `nlls_stop_code` / `nlls_termination` as
-  the step-size stop and in `nlls_stop_reasons` as `:relative_step_size`.
+  the step-size stop and in `nlls_stop_reasons` as `:relative_increment_size`.
 
 ## 0.10.10 (unreleased)
 

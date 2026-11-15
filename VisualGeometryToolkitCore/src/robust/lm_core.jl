@@ -110,7 +110,7 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `max_iter` | the iteration cap (`[lm]` 1000) | `maxiters`: outer iterations, one ACCEPTED step each; an iteration's damping loop may reject ~8–10 candidate steps first, so the cap bounds accepted steps, not work |
 | `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the final point's rounding, `_exact_fit_threshold`) | `reldcost` |
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
-| `xtol_rel` | RELATIVE step tolerance (`[lm]` 0: none), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ `xtol_rel`·(‖x‖ + `xtol_rel`), Euclidean norms of the step and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart unit: the exact-fit threshold's operand units, `_operand_unit`). A step-size stop like `xtol`'s (`IncrementSize`: converged, `Success`) | — (the stack's own test, `_RelativeStepStop`, in NLLSsolver's callback slot: a callback's flag `2¹⁵` is Core's own) |
+| `xtol_rel` | RELATIVE step tolerance (`[lm]` 0: none), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ `xtol_rel`·(‖x‖ + `xtol_rel`), Euclidean norms of the step and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart unit: the exact-fit threshold's operand units, `_operand_unit`). A step-size stop like `xtol`'s (`IncrementSize`: converged, `Success`) | — (the stack's own test, `_RelativeIncrementStop`, in NLLSsolver's callback slot: a callback's flag `2¹⁵` is Core's own) |
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
 | `residual_resolution` | the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
@@ -162,24 +162,24 @@ _nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 0.0
 # THE relative step stop (Core 0.10.11, `LmStops`' `xtol_rel`): Ceres' parameter tolerance, ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel),
 # which NLLSsolver (its `dstep` absolute) has no option for. It runs in NLLSsolver's callback slot, after the caller's callback
 # (whose own stop it leaves as it is), on the step NLLSsolver's own step test reads (`getx` of the linear system: the last
-# trial) and the free variables before it; it flags `_RELATIVE_STEP_FLAG`, termination bit `_RELATIVE_STEP_BIT`, which the
+# trial) and the free variables before it; it flags `_RELATIVE_INCREMENT_FLAG`, termination bit `_RELATIVE_INCREMENT_BIT`, which the
 # decoder reads as a step-size stop. `xtol_rel = 0`: never (one comparison per iteration; the fit as before, bit for bit).
-@inline _relative_step_stop(step_norm::Real, x_norm::Real, xtol_rel::Real) = xtol_rel > 0 && step_norm <= xtol_rel * (x_norm + xtol_rel)
-const _RELATIVE_STEP_FLAG = 1 << 15                 # a callback's terminate value, shifted by NLLSsolver into bit 16 + 15
-const _RELATIVE_STEP_BIT = 16 + 15
-struct _RelativeStepStop{F, U}
+@inline _relative_increment_met(dx_norm::Real, x_norm::Real, xtol_rel::Real) = xtol_rel > 0 && dx_norm <= xtol_rel * (x_norm + xtol_rel)
+const _RELATIVE_INCREMENT_FLAG = 1 << 15                 # a callback's terminate value, shifted by NLLSsolver into bit 16 + 15
+const _RELATIVE_INCREMENT_BIT = 16 + 15
+struct _RelativeIncrementStop{F, U}
     callback::F
     xtol_rel::Float64
     free::U                    # NLLSsolver's unfixed mask (`nothing`: every variable; an index: one chart variable)
 end
-@inline function (s::_RelativeStepStop)(cost, problem, data, iteratedata)
+@inline function (s::_RelativeIncrementStop)(cost, problem, data, iteratedata)
     cost, terminate = s.callback(cost, problem, data, iteratedata)
     (terminate != 0 || s.xtol_rel <= 0) && return (cost, terminate)
-    step = 0.0
+    dx2 = 0.0
     for d in NLLSsolver.getx(data.linsystem)
-        step += Float64(d)^2
+        dx2 += Float64(d)^2
     end
-    return _relative_step_stop(sqrt(step), _free_norm(problem.variables, s.free), s.xtol_rel) ? (cost, _RELATIVE_STEP_FLAG) : (cost, terminate)
+    return _relative_increment_met(sqrt(dx2), _free_norm(problem.variables, s.free), s.xtol_rel) ? (cost, _RELATIVE_INCREMENT_FLAG) : (cost, terminate)
 end
 # ‖x‖ over the free variables' coordinates in the exact-fit threshold's operand units (`_operand_unit`: a Euclidean coordinate
 # its value, a chart coordinate one chart unit).
@@ -556,7 +556,7 @@ end
 # stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule). A stop it fails is
 # `_LM_STALLED`.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
-    result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, _RelativeStepStop(callback, stops.xtol_rel, p.unfixed), p.cache)
+    result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
     code = nlls_stop_code(result.termination)
     stationary = code == 4 ? postcondition(_FinalRounding(stops.residual_resolution))::Bool : true
     stationary || (code = _LM_STALLED)
@@ -641,9 +641,9 @@ NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
 """
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
-    step = bit(6) || bit(_RELATIVE_STEP_BIT)        # NLLSsolver's absolute step stop, or Core's relative one (`xtol_rel`)
-    any(bit, (0, 1, 4, 5, 10, 11, 12)) && !step && return _LM_FAILED
-    step && return 2
+    increment = bit(6) || bit(_RELATIVE_INCREMENT_BIT)        # NLLSsolver's absolute step stop, or Core's relative one (`xtol_rel`)
+    any(bit, (0, 1, 4, 5, 10, 11, 12)) && !increment && return _LM_FAILED
+    increment && return 2
     (bit(2) || bit(3)) && return 1
     bit(7) && return 4
     bit(9) && return _LM_MAX_TIME
@@ -656,7 +656,7 @@ const _NLLS_STOP_BITS = (
     (0, :cost_infinite), (1, :cost_nan), (2, :relative_cost_decrease), (3, :absolute_cost_decrease),
     (4, :delta_infinite), (5, :delta_nan), (6, :delta_size), (7, :max_consecutive_rejections),
     (8, :max_iterations), (9, :max_time), (10, :cost_disagreement), (11, :nonfinite_start), (12, :nonfinite_gradient),
-    (16, :callback), (_RELATIVE_STEP_BIT, :relative_step_size),
+    (16, :callback), (_RELATIVE_INCREMENT_BIT, :relative_increment_size),
 )
 
 """
@@ -671,7 +671,7 @@ best), `:max_iterations` (8), `:max_time` (9), `:cost_disagreement` (10, the
 residual and the residual-Jacobian evaluations disagree), `:nonfinite_start`
 (11, the start point's cost or gradient is not finite: no step is tried),
 `:nonfinite_gradient` (12, the gradient at an accepted point is not finite: the
-solve stops there, its best point kept), `:callback` (16), `:relative_step_size`
+solve stops there, its best point kept), `:callback` (16), `:relative_increment_size`
 (31, Core's relative step stop, `LmStops`' `xtol_rel`: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)).
 A report of the stop; `nlls_stop_code` is the one decision read from
 the same bits.

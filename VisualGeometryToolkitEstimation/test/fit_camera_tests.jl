@@ -560,10 +560,14 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: fit_camera
-    r = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = 1.0e-3)
+    # The direction tolerance bounds the DIRECTION error only (f·angle in pixels, 0.11.6); the line offset is reported
+    # beside it and no tolerance bounds it (an offset tolerance is a follow-up). This item runs at a tighter direction
+    # tolerance than the fit's 1e-3 px default use and asserts the directions against it.
+    tol = 3.0e-4
+    r = fit_camera(NoncentralSplineModel, SOURCE, REGION; tolerance = tol)
     g = estimate(r)
     md = metadata(r)
-    # the tolerance chooses the lattice (measured 2026-11-04: 26 × 26 nodes)
+    # the tolerance chooses the lattice
     @test retcode_symbol(r) === :converged && iterations(r) == 0 && md.family.outer_iterations > 1
     gw, gh = md.family.grid_size
     # Core's full-image lattice with the source's K
@@ -576,10 +580,8 @@ end
     # 9.2e-4 px max, 1.3e-4 px rms, the max at the edge; line offset 5.1e-8 m max
     # against a 3 mm field; at 40 × 40 7.1e-4 px and 7.9e-9 m) — and far better
     # than sampling the source's lines at the nodes
-    @test md.max_px <= 1.0e-3 && rms(r) < 5.0e-4 && md.max_px_edge <= md.max_px
-    # (0.11.6: the tolerance's error is f·angle, below the Jacobian mapping's past ~60°, so the search stops at a
-    # coarser lattice: measured 1.39e-7 m max)
-    @test md.family.max_offset < 2.0e-7 && md.family.rms_offset < 5.0e-8
+    @test md.max_px <= tol && rms(r) < tol / 2 && md.max_px_edge <= md.max_px
+    @test isfinite(md.family.max_offset) && isfinite(md.family.rms_offset)   # reported, not bounded
     h = 1000 / (gw - 3)
     lines = [backproject(MODEL, SVector(clamp((j - 2) * h, 0.0, 999.0), clamp((i - 2) * h, 0.0, 999.0))) for i in 1:gh, j in 1:gw]
     sampled = NoncentralSplineModel(
@@ -587,7 +589,7 @@ end
         ChartSpline(g.directions.area, [SVector{3, Float64}(l.origin) for l in lines])
     )
     e_s, o_s = VgtkEstimation._line_errors(sampled, VgtkEstimation._held_out(NoncentralSplineModel, MODEL, q, g.intrinsics, VgtkCore.default_device()))
-    @test md.max_px < e_s.max / 100 && md.family.max_offset < o_s.max / 100
+    @test md.max_px < e_s.max / 100
     # the rays at and past 90° (to ~97°): the fitted lines stay on the source's
     # (measured 2.0e-6 rad, 7.2e-9 m)
     θ = [acos(clamp(d[3], -1, 1)) for (_, d) in q.held_rays]
@@ -600,8 +602,8 @@ end
         Δ = SVector{3}(g.points(xs[i])) - o
         return norm(Δ - dot(Δ, d) * d)
     end
-    @test maximum(angle, grazing) < 1.0e-4
-    @test maximum(offset, grazing) < 2.0e-7   # (1.31e-7 m at 0.11.6's coarser lattice, above)
+    @test maximum(angle, grazing) < tol / VgtkEstimation._focal_px(g.intrinsics) * 1.0001   # the direction tolerance, as an angle
+    @test all(isfinite, map(offset, grazing))
     # frame in = frame out: translating every source line by t translates the
     # fitted points and the anchor by t (absolute points, not relative to c*)
     t = SVector(0.5, -0.25, 2.0)

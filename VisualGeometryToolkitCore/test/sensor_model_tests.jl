@@ -819,12 +819,27 @@ end
 @testitem "sensor model: CPU = GPU — LinearRaw with a ChannelBlack, a Dark, a DefectList and a PoissonGaussian; the estimators" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
     import Distributions
-    using VisualGeometryToolkitCore: sensor_fixture, parse_unit
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, value_of
     using StableRNGs: StableRNG
     using Adapt: adapt
     using StructArrays: components
     using CUDA: CUDA
+    using Statistics: var
     s = parse_unit("s")
+    # Host and device agree bit for bit in every value and flag, a variance up to the device's fused multiply-add.
+    # The device compiler contracts the law's `max(x, 0)·α + gauss` (sensor_model.jl `_value_variance`; α the Poisson
+    # slope, gauss = g²/m²·Σ s_k/d_k², both ≥ 0) into an FMA: one rounding of the product skipped, every other operation
+    # (the divisions, the sums with no product beside them, `rel²·x² = 0` added exactly) the same on both. With S the
+    # exact sum p + gauss and u = ε/2, the host's round(round(p) + gauss) lies within u·p + u·S + O(u²) ≤ 2u·S of S and
+    # the device's round(p + gauss) within u·S, so they differ by at most 3u·S + O(u²) = 1.5ε relatively: rtol = 2ε, the
+    # next whole multiple (measured on dgx01: at most 1 ulp, 0.97ε; the kernel's PTX holds fma.rn.f64). The values
+    # (`(code − black)/span`, the green mean, × gain) have no product beside a sum: compared exactly, as are the flags
+    # and the element types. A kernel reading a neighbouring photosite's dark variance
+    # (an off-by-one) or a wrong dark_scale (1 + 1/9 for 1 + 1/8) moves every variance of this fixture by at least
+    # 6.8e-7 resp. 7.6e-6 relatively (measured, the Poisson term dominating): 3·10⁹ ε and more, far outside 2ε.
+    rtol_var = 2 * eps(Float64)
+    agree(A, B) = eltype(A) === eltype(B) && (eltype(A) <: Real ? A == B :
+                  value_of.(A) == value_of.(B) && all(isapprox.(var.(A), var.(B); rtol = rtol_var)))
     if CUDA.functional()
         rng = StableRNG(9)
         H, W = 12, 16
@@ -842,9 +857,9 @@ end
             for md in (model, adapt(CUDA.CuArray, model))                  # the model on the host or on the device
                 Lh = LinearRaw(wh; mode, sensor_model = model)
                 Ld = LinearRaw(wd; mode, sensor_model = md)
-                @test adapt(Array, Ld.image) == Lh.image && Array(Ld.saturated) == Lh.saturated
+                @test agree(adapt(Array, Ld.image), Lh.image) && Array(Ld.saturated) == Lh.saturated
                 # the lazy view read on the device (its materialised copy, a broadcast of the view there) = the host's (D14)
-                @test adapt(Array, copy(linearview(wd; sensor_model = md))) == copy(linearview(wh; sensor_model = model))
+                @test agree(adapt(Array, copy(linearview(wd; sensor_model = md))), copy(linearview(wh; sensor_model = model)))
             end
         end
         @test components(LinearRaw(d; mode = :bin2, sensor_model = models[2]).image)[1] isa CUDA.CuArray

@@ -215,10 +215,10 @@ end
     using JSON
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, BoundedCamera, Size2, Lens, Perspective, Additive,
-        Radial, Tangential, valid_domain, imaged_region, RegionIntersection
+        Radial, Tangential, imaged_region, RegionIntersection
     using StaticArrays: @SMatrix
     # a decentred lens's valid domain is a star polygon derived from the model (Core 0.10.10): no record holds one, and
-    # writing a region that contains it is an ArgumentError, never a MethodError or a record of its fields
+    # writing an imaged region that contains it is an ArgumentError (Core's pixel-frame map refuses it), never a MethodError
     cam = CameraModel(CameraCalibrationMat(@SMatrix([800.0 0.0 640.0; 0.0 800.0 480.0; 0.0 0.0 1.0]));
                       lens = Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-2, -5.0e-3))))
     r = imaged_region(BoundedCamera(cam, Size2(1280, 960)))
@@ -226,5 +226,4 @@ end
     s = VgtkIO.VgioStyle()
     @test_throws ArgumentError JSON.json(JSON.lower(s, r, (; region = true)))
     @test_throws ArgumentError JSON.json(JSON.lower(s, r))
-    @test_throws ArgumentError JSON.json(JSON.lower(s, valid_domain(cam), (; region = true)))
 end

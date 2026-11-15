@@ -239,6 +239,13 @@ end
         "this one turns by $(rad2deg(_rigid_angle(S.R)))°: map the corners, or an Ellipse"
 ))
 @inline (S::SimilarityMap{2})(s::RegionIntersection) = RegionIntersection(S(s.a), S(s.b))
+# A star polygon (the valid domain of a lens that is not radially symmetric) is derived from its camera model, in that
+# camera's pixel frame: it is never moved to another pixel convention or serialized (VisualGeometryToolkitIO's region
+# body moves every region through this action), so the action refuses it by name rather than leave a MethodError.
+(S::SimilarityMap{2})(::PolygonRegion) = throw(ArgumentError(
+    "a PolygonRegion (the valid domain of a lens that is not radially symmetric) is derived from its camera model and is " *
+        "never moved between pixel frames or serialized: map or store the camera, and take its valid_domain there"
+))
 @inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
     V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
     n′ = S.R * normal(l)

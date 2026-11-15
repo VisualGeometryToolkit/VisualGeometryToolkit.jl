@@ -27,7 +27,7 @@ using Dates: Dates
 
 One stage of a codified experiment. A stage that PRODUCES declares its items (`items()`: the cases, sets or names it treats —
 cheap: no GPU, no heavy loads), each item's keyed product (`product(item)`, an experiment's `Product`) and its runner (`run(item)`,
-which calls `produce`: a produced product loads, a pending one is produced — DrWatson's `produce_or_load`), so `run` is called for
+which calls `produce`: a produced product loads, a pending one is produced through DrWatson's `produce_or_load`), so `run` is called for
 every item of the stage and a stage whose products are all produced costs their checks only. A stage that only CHECKS (its inputs
 present, a refusal, a deploy) declares `check()`, run every time. Declared in figure/table order and executed by
 [`run_stages`](@ref).

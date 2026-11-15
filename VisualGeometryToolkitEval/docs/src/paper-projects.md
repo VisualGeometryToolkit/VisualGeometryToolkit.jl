@@ -55,8 +55,9 @@ from the data layer of `Experiments`, never from a literal machine path.
   and its output's content hash, recorded when it was produced, so an upstream
   produced again with another output re-keys its consumers; build the products
   when their stage runs) — so a later step's setting never recomputes an earlier
-  one. `produce(f, product)` is DrWatson's `produce_or_load` on the step's output:
-  produced once, loaded after; a record `f` returns is saved atomically (a
+  one. `produce(f, product)` produces the step's output once, through DrWatson's
+  `produce_or_load`, and runs nothing while `produced(product)` holds (a file or a
+  directory output alike); a record `f` returns is saved atomically (a
   temporary file renamed onto the output) — a `.jld2` output as JLD2's object
   `"record"` (any Julia value), any other through `VisualGeometryToolkitIO.save` —
   and read with `load_output`; a product that writes its own outputs returns

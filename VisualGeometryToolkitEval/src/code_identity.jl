@@ -89,9 +89,8 @@ stage key.
 _content_key(tree) = bytes2hex(sha256(canonical_json(_lower_integers(tree, ""))))[1:16]
 
 # The caller's lowering of a TOML tree for `canonical_json` (Core's encoding takes `Int64` only, and leaves lowering to
-# the caller; Experiments' `load_run_config` lowers a config with it too, so a run computes with the values it is keyed
-# by): every integer to its `Int64`, refused by its key path past ±2^53. A container is copied only when a value below
-# it changes, so a tree of `Int64`s comes back as it was (`===`).
+# the caller): every integer to its `Int64`, refused by its key path past ±2^53. Keying only: a config keeps the
+# integers it parsed, as `3` and `3.0` key alike and stay apart.
 _lower_integers(x, path) = x
 _lower_integers(x::Bool, path) = x                                # an Integer, and stays a Bool
 function _lower_integers(x::Integer, path)
@@ -99,18 +98,12 @@ function _lower_integers(x::Integer, path)
         "the integer $(x) at `$(path)` is not exactly a double (|n| ≤ 2^53): no content key holds it; write it as a string"))
     return Int64(x)
 end
-function _lower_integers(x::AbstractVector, path)
-    y = [_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
-    return all(((a, b),) -> a === b, zip(x, y)) ? x : y
-end
-function _lower_integers(x::AbstractDict, path)
-    y = Dict{keytype(x), Any}(k => _lower_integers(v, _key_path(path, k)) for (k, v) in x)
-    return all(k -> x[k] === y[k], keys(x)) ? x : y
-end
-# A TOML key path: dotted, a key that is not bare TOML quoted (`arm."seeds.b"`), as TOML writes it.
+_lower_integers(x::AbstractVector, path) = Any[_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
+_lower_integers(x::AbstractDict, path) = Dict{keytype(x), Any}(k => _lower_integers(v, _key_path(path, k)) for (k, v) in x)
+# A TOML key path: dotted, a key that is not a bare TOML key quoted (`arm."seeds.b"`).
 function _key_path(path, k)
     s = string(k)
-    s = occursin(r"^[A-Za-z0-9_-]+$", s) ? s : repr(s)
+    s = occursin(r"^[A-Za-z0-9_-]+\z", s) ? s : string('"', escape_string(s), '"')
     return isempty(path) ? s : "$(path).$(s)"
 end
 

@@ -1,6 +1,6 @@
 # =============================================================================
-# products.jl — the ONE cache of a codified experiment: a keyed product, produced or
-# loaded by DrWatson's `produce_or_load`.
+# products.jl — the ONE cache of a codified experiment: a keyed product, reused while
+# `produced`, else produced through DrWatson's `produce_or_load`.
 #
 # A product of an experiment (decode, detect, index, a start state, a refinement,
 # an evaluation, a figure) is keyed by ONLY what it reads — its own config
@@ -22,8 +22,8 @@
 # directory and its `output` the file it writes last.
 #
 # The key is the dependency tracking (`Product`: the record, the upstream keys and
-# their outputs' hashes, the pinned inputs, the code trees); produce_or_load
-# produces or loads the keyed output. Justified extension, applied around the call: a save that
+# their outputs' hashes, the pinned inputs, the code trees); `produced` decides reuse (produce_or_load's own test,
+# `isfile`, never reuses a directory output) and produce_or_load produces the keyed output. Justified extension, applied around the call: a save that
 # fails is an error (produce_or_load warns and returns, saving_files.jl:107-116).
 # =============================================================================
 
@@ -182,8 +182,8 @@ end
     produce(f, s::Product; driver, config_source, inputs = String[], producer = false, fields = Dict(),
             force = false, gitpath = project_root()) -> String
 
-The product `s` produced or loaded — DrWatson's `produce_or_load` on the product's output (`loadfile = false`). When it is
-[`produced`](@ref) (and not `force`) nothing runs; otherwise its old provenance is removed (a failed product never reads as
+The product `s` reused or produced — produced through DrWatson's `produce_or_load` on the product's output (`loadfile = false`). When it is
+[`produced`](@ref) (and not `force`) nothing runs, for a file and a directory output alike; otherwise its old provenance is removed (a failed product never reads as
 produced), `f(dir)` runs in the product's directory and returns the product's record — saved by produce_or_load atomically, a `.jld2` output
 as JLD2's object `"record"`, any other through `VisualGeometryToolkitIO.save` — or `nothing` when `f` wrote `s.output` itself, or a [`Produced`](@ref) (a record or `nothing`,
 with the inputs `f` read and the save's keywords); the product's records are written last ([`write_run_records`](@ref):

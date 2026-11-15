@@ -275,3 +275,34 @@ end
     far = filter(ψ -> cos(ψ) < -0.2, ψs)                                    # the non-folding half, away from the jump
     @test all(ψ -> pixel(0.99ρe, ψ) ∈ q, far)                              # reaches its own (far) edge there
 end
+
+@testitem "valid_domain polygon: the decentred OpenCV lenses' polygons are bit for bit Core 0.10.10's first build" begin
+    using Test
+    using VisualGeometryToolkitCore
+    using StaticArrays
+    # the chain-equivalence corpus's OpenCV 5-, 8-, 12- and 14-coefficient lenses (corpus.jl `opencv`): smooth fold
+    # curves, which neither the disc floor nor the jump cap (`_FOLD_JUMP`) touches. Their polygons' vertices and centre,
+    # FNV-1a over the bit patterns, are the ones the build without either gave (recorded at cc4a30f3).
+    CV = [-0.21419017050355535, 0.05885963864959478, 0.0017309703615326448, -0.0016899562175219018, -0.013228653203705452,
+          -0.008422246136598874, 0.0009299940131988482, -0.004808424838594422, 0.0009362676014743785, 0.002042933538859527,
+          -0.0005042701635291866, -0.00011669406371264847, 0.006487455083713491, 0.005372244699677389]
+    function opencv(v)
+        n = length(v)
+        terms = (Radial((v[1], v[2], v[5]), n >= 8 ? (v[6], v[7], v[8]) : ()), Tangential(v[3], v[4]))
+        n >= 12 && (terms = (terms..., ThinPrism((v[9], v[10]), (v[11], v[12]))))
+        add = Additive(terms...)
+        return n == 14 ? Lens(Perspective(), Tilt(v[13], v[14]) ∘ add) : Lens(Perspective(), add)
+    end
+    function fingerprint(q)
+        h = 0xcbf29ce484222325
+        for x in Iterators.flatten((Iterators.flatten((v[1], v[2]) for v in q.vertices), (q.centre[1], q.centre[2])))
+            h = (h ⊻ reinterpret(UInt64, Float64(x))) * 0x100000001b3
+        end
+        return h
+    end
+    recorded = Dict(5 => 0x00751efdd7f475b5, 8 => 0xa8f41a1670485883, 12 => 0xaf8d1273cafbbf2b, 14 => 0xba739373b9a580bc)
+    K = CameraCalibrationMat(@SMatrix([1200.0 0.0 2000.0; 0.0 1190.0 1500.0; 0.0 0.0 1.0]))
+    for n in (5, 8, 12, 14)
+        @test fingerprint(valid_domain(CameraModel(K; lens = opencv(CV[1:n])))) == recorded[n]
+    end
+end

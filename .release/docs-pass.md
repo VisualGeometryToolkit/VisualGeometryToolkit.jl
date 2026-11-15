@@ -1,3 +1,43 @@
+docs-pass: 8a7d7a0f
+
+# VisualGeometryToolkitCore 0.10.8 docs pass (julia-docs-pass) — branch patch-core0108
+
+Baseline: GitHub main 10e39aaa (Core 0.10.7). The pass is of the gated tree 8a7d7a0f. After it, only this record
+changed (`.release/` is outside the gate).
+
+## 1. Public API since 0.10.7 (additive)
+
+- `extend_lattice(camera, region; fold_spacing = 8.0) -> (; camera, extrapolated, offset, folds)` (public, not
+  exported). A SplineLens lattice extended on its own spacing. Its extrapolation minimises the bending energy in pixels.
+  `folds` is the fold report over the region; the function never refuses.
+- `subdivide_lattice(camera, factors; extrapolated) -> (; camera, extrapolated)` and
+  `subdivide_lattice(::ChartSpline, factors)` (public): exact integer knot insertion.
+- `folded_pixels(camera, region; spacing = 8.0, reference = nothing) -> (; folded, samples, unimaged)` (public; a
+  posed or bounded camera answers its model's): the orientation check of the backward map.
+- `difference_rows(…; mixed = 0)`: mixed Δ₁Δ₂ rows at a weight, with `axes = (1, 2)` or alone with `axes = ()`. The
+  default is bit for bit 0.10.7's.
+- No name was removed or re-signatured.
+
+## 2. Findings and static checks
+
+| check | result |
+|---|---|
+| every public name has a docstring, attached, signatures matching | the three new names' docstrings list every method form and keyword. The `docs` items run in the gate (CPU and depwarn=yes) |
+| `checkdocs = :public`, doctests, cross-references | new API section "Exact lattice operations" in api/spline_lens.md (`Pages = ["cameras/lattice_operations.jl"]`). The strict docs build is in the gate |
+| README and landing page | unchanged: no example touches the new API |
+| guide | lenses.md "Extending and subdividing a lattice" derives the subdivision's exactness (the two-scale relation `m⁻³(1 + … + z^{m−1})⁴`), the presence rule, and the extension's continuity, invariance, null space and uniqueness. It also covers the fold report and the start-values-only role of the penalty |
+| docstrings | `extend_lattice`, `subdivide_lattice` (both forms), `folded_pixels`, `difference_rows` (`mixed`) |
+| check_naming | one R7 finding on e95757a3 (a banned stem in `folded_pixels`' docstring), reworded in 8a7d7a0f. The 10e39aaa..HEAD diff holds no other banned or retired word |
+| CHANGELOG | `## 0.10.8` (Added, Docs) |
+| versions, floors | Core 0.10.8. The downstream floors are unchanged (an additive patch) |
+
+## 3. Executed
+
+Julia 1.13.3, fresh `git clone --shared`, nice 0, the per-agent depot `depot-core0108` (General a GitHub clone,
+`JULIA_PKG_SERVER=""`). Gate on 8a7d7a0f: prep 18586, CPU 18587, CPU depwarn=yes 18588, GPU 18589, docs 18590. The
+tier results are in the release report; the earlier gates d4107021 (18337–18341) and e95757a3 (18419–18423) were
+superseded.
+
 docs-pass: 884058c9
 
 # VisualGeometryToolkitEval 0.9.0 docs pass addendum — branch patch-feat096

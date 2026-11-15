@@ -30,10 +30,10 @@ axis, and the valid domain of a decentred lens stopped at its smallest fold.
   polygon about the distortion centre through each of 720 ray azimuths' first fold of `|project(lens, ray(θ, ψ))|`
   (refined past the 1024-sample scan: Brent's method on a fold, bisection on an onset of unimaged rays), each vertex
   pulled in by a relative 10⁻⁹ and by a bound on the fold curve's inward bulge between samples, so it never claims
-  past a fold (no vertex nearer the centre than the disc of the smallest fold; beside a jump of the fold radius between
-  two samples, an azimuth range that does not fold beside one that does, a vertex capped at the nearer neighbour's fold,
-  which the bulge bound alone did not hold: there a chord claimed past the nearer fold and a vertex could fall inside
-  the disc; smooth lenses' polygons are unchanged by either); the chords lie within `R·10⁻⁵` of the curve (0.012 px at R = 1300 px). A radially symmetric lens keeps
+  past a fold (beside a jump of the fold radius between two samples, an azimuth range that does not fold beside one that
+  does, a vertex is capped at the nearer neighbour's fold and kept outside the disc of the smallest fold, which the
+  bulge bound alone did not hold: there a chord claimed past the nearer fold and a vertex fell inside the disc; a smooth
+  lens's polygon is the bulge bound's alone); the chords lie within `R·10⁻⁵` of the curve (0.012 px at R = 1300 px). A radially symmetric lens keeps
   its exact disc, bit for bit. The generic `view_angle_limit` scan and the imaging-onset bisection are factored
   (`_last_increasing`, `_last_imaged`) so the valid domain's azimuth scan reuses them; their answers are unchanged.
   Return type: `valid_domain(camera)` is now `Union{Ellipse{Float64}, PolygonRegion, WholePlane}`. Code that read an

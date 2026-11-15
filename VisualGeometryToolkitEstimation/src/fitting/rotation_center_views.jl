@@ -113,7 +113,7 @@ function _free_camera_parameters(_role, cm, kw)
 end
 
 """
-    refine_camera_and_poses(camera, views::RotationCenterViews, correspondences; fixed, optimization_strategy, scale | width,
+    refine_camera_and_poses(camera, views::RotationCenterViews, correspondences, residual = BearingResidual(); fixed, optimization_strategy, scale | width,
                             max_iter, ftol, xtol, max_time = nothing)
         -> FitResult{<:NamedTuple{(:camera, :views)}, RotationCenterRefineMetadata}
 
@@ -144,10 +144,15 @@ free along it against the offset, and is an `ArgumentError`.
 
 The estimate is `(; camera, views)`: the camera as given, and the refined
 `RotationCenterViews` keyed like the input.
+
+`residual` (the fourth argument): [`BearingResidual`](@ref)`()`, the default, the bearing residual above;
+[`ReprojectionResidual`](@ref)`()` that refine, then a second stage from its estimate on the exact pixel
+reprojection error (the result's views, retcode and record are the second stage's).
 """
 function refine_camera_and_poses(
         camera::_RefinedCamera, views::RotationCenterViews{K},
-        correspondences::AbstractDict{K, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}};
+        correspondences::AbstractDict{K, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}},
+        residual::AbstractViewResidual = BearingResidual();
         kwargs...
     ) where {K}
     ids = block_order(correspondences, views.rotations)
@@ -172,10 +177,83 @@ function refine_camera_and_poses(
                                              for (v, k) in enumerate(ids))
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
+    out = RotationCenterViews{K}(Rout, c, d)
+    residual isa ReprojectionResidual && return _rotation_center_reprojection(camera, cm, out, ids, correspondences, without, kw)
     md = RotationCenterRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
         _recorded_scale(kw.input), VgtkCore.scale_source(kw.input), sqrt(_sq_loss_width(kw.loss)),
         length(without), without)
+    return FitResult((; camera, views = out), sol.code, sol.rule, sol.iterations, sol.rms, sol.n, md)
+end
+
+"""
+    BearingResidual()
+    ReprojectionResidual()
+
+The residual of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref), its fourth argument:
+
+- `BearingResidual()` (the default): each dot back-projected ONCE to its bearing, the tangent-plane angle to the
+  predicted bearing whitened into pixels by the dot's back-projection Jacobian — never a projection inside the solve,
+  so it converges from a rotation-centre start whatever the lens's domain;
+- `ReprojectionResidual()`: that bearing refine, then a SECOND stage from its estimate on the exact pixel reprojection
+  error, `project(camera, R_k (X − c) + d) − u` (Core's `reprojection_error`; a SplineLens camera projected by inverting
+  its backward spline, its forward dropped, Core's implicit-function derivatives). A candidate update that leaves a
+  dot's prediction undefined (off the lens's domain) costs +Inf and is rejected by the LM, never clamped. The dots of
+  the second stage are the first stage's rows that project at its estimate; those that do not are
+  [`without_projection`](@ref). The result's views, retcode, rms and record are the second stage's.
+"""
+abstract type AbstractViewResidual end
+@doc (@doc AbstractViewResidual) struct BearingResidual <: AbstractViewResidual end
+@doc (@doc AbstractViewResidual) struct ReprojectionResidual <: AbstractViewResidual end
+
+# The pixel stage of `ReprojectionResidual()`: from the bearing estimate `views`, one `_BoardViewResidual` per dot on the
+# view's rotation chart (2 + v), the centre (1) and the offset (2), the camera held and projected exactly
+# (`_without_forward` for a SplineLens camera), the bundle's solve at the same keywords.
+function _rotation_center_reprojection(camera, cm, views::RotationCenterViews{K}, ids, correspondences, without_bearing, kw) where {K}
+    pc = _exact_projection(cm)
+    bad = Set(without_bearing)
+    blocks = NLLSsolver.AbstractResidual[]
+    without_projection = Tuple{K, Int}[]
+    for (v, k) in enumerate(ids)
+        P = rotation_center_pose(views.rotations[k], views.center, views.offset)
+        for (j, c) in enumerate(correspondences[k])
+            (k, j) in bad && continue
+            X, u = _correspondence(v, j, c)
+            if all(isfinite, VgtkCore.reprojection_error(pc, P, X, u))
+                push!(blocks, _BoardViewResidual{3, _ROTATION_CENTER_VIEW, typeof(pc)}(SVector(2 + v, 1, 2), pc, _IDENTITY_POSE, _IDENTITY_POSE, X, u))
+            else
+                push!(without_projection, (k, j))
+            end
+        end
+    end
+    N = length(ids); p = 6 + 3N
+    2length(blocks) > p || throw(ArgumentError(
+        "refine_camera_and_poses: underdetermined pixel stage: $(length(blocks)) correspondences project at the bearing estimate ($(2length(blocks)) rows) for $p unknowns"))
+    vars0 = _CenterVar[views.center, views.offset]
+    foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
+    sol = _solve_bundle(blocks, vars0, p, kw)
+    c, d = sol.variables[1]::SVector{3, Float64}, sol.variables[2]::SVector{3, Float64}
+    Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(sol.variables[2 + v]::_ViewRotationChart)))
+                                             for (v, k) in enumerate(ids))
+    (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
+        throw(ErrorException("refine_camera_and_poses: the LM step is not finite"))
+    md = RotationCenterRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
+        _recorded_scale(kw.input), VgtkCore.scale_source(kw.input), sqrt(_sq_loss_width(kw.loss)),
+        length(without_bearing), without_bearing, without_projection)
     return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, sol.iterations, sol.rms, sol.n, md)
+end
+# The camera a pixel residual projects through exactly: a SplineLens camera's backward inverted (its forward dropped), any
+# other camera as it is.
+_exact_projection(cm::CameraModel) = lens(cm) isa SplineLens ? _without_forward(cm) : cm
+const _IDENTITY_POSE = EuclideanMap(SMatrix{3, 3, Float64, 9}(I), zero(SVector{3, Float64}))
+
+# `_BoardViewResidual` on a rotation-centre view: its variables the view's rotation chart, the centre and the offset (no
+# pose chart), the view's pose `(R, d − R c)` (`rotation_center_pose`), the camera and the board held.
+const _ROTATION_CENTER_VIEW = (false, :rotation_center, false)
+NLLSsolver.getvars(r::_BoardViewResidual{3, _ROTATION_CENTER_VIEW}, vars::Vector{_CenterVar}) =
+    (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
+function NLLSsolver.computeresidual(r::_BoardViewResidual{3, _ROTATION_CENTER_VIEW}, ch, c, d)
+    e = VgtkCore.reprojection_error(r.camera, rotation_center_pose(model(ch), c, d), r.X, r.u)
+    return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e
 end
 
 """
@@ -199,9 +277,12 @@ struct RotationCenterRefineMetadata{L, W <: AbstractVector{Float64}, P <: Abstra
     loss_width::Float64
     n_without_bearing::Int
     without_bearing::P
+    without_projection::P       # `ReprojectionResidual()`'s dots that do not project at the bearing estimate (empty otherwise)
 end
-RotationCenterRefineMetadata{L}(residuals, s², ν, norms, weights::W, scale, source, loss_width, n, without::P) where {L, W, P} =
-    RotationCenterRefineMetadata{L, W, P}(residuals, Float64(s²), Int(ν), norms, weights, Float64(scale), source, Float64(loss_width), Int(n), without)
+RotationCenterRefineMetadata{L}(residuals, s², ν, norms, weights::W, scale, source, loss_width, n, without::P,
+                                without_projection = empty(without)) where {L, W, P} =
+    RotationCenterRefineMetadata{L, W, P}(residuals, Float64(s²), Int(ν), norms, weights, Float64(scale), source, Float64(loss_width), Int(n),
+                                          without, convert(P, without_projection))
 VgtkCore.weight_kind(::Type{<:RotationCenterRefineMetadata{L}}) where {L} = VgtkCore.weight_kind(L)
 
 """
@@ -221,6 +302,16 @@ of its result `r` or its [`RotationCenterRefineMetadata`](@ref).
 """
 without_bearing(md::RotationCenterRefineMetadata) = md.without_bearing
 without_bearing(r::FitResult{<:Any, <:RotationCenterRefineMetadata}) = without_bearing(metadata(r))
+
+"""
+    without_projection(r) -> AbstractVector{Tuple{K, Int}}
+
+The dots a rotation-centre refine's [`ReprojectionResidual`](@ref) stage made no row of — they back-project, but do not
+project at the bearing estimate — as `(view, correspondence index)` pairs: of its result `r` or its
+[`RotationCenterRefineMetadata`](@ref). Empty for the bearing residual.
+"""
+without_projection(md::RotationCenterRefineMetadata) = md.without_projection
+without_projection(r::FitResult{<:Any, <:RotationCenterRefineMetadata}) = without_projection(metadata(r))
 
 # The bearing block of one correspondence: point i of its view's BearingPoseProblem at the view's pose (R_k, d − R_k c),
 # on the view's rotation chart (variable 2 + v), the centre (1) and the offset (2). The residual is the problem's own

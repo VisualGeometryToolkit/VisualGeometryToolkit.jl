@@ -77,7 +77,12 @@ whitened into pixels by the back-projection Jacobian (the
 dot it does not back-project, or whose Jacobian cannot whiten its residual
 ([`pixel_whitening_defect`](@ref)), makes no row and is counted in the metadata
 (`n_without_bearing`, `without_bearing`). Its `fixed` holds the whole camera:
-`fixed = held_parameters(camera)`.
+`fixed = held_parameters(camera)`. Its fourth argument, the residual type, is
+`BearingResidual()` by default; `ReprojectionResidual()` adds a second stage from the
+bearing estimate on the exact pixel reprojection error (a SplineLens camera projected
+by inverting its backward spline), a candidate update that leaves a prediction
+undefined rejected by the LM, the dots that do not project at the bearing estimate
+counted (`without_projection`).
 
 ```@docs
 refine_camera_and_poses
@@ -88,6 +93,8 @@ held_parameters
 RotationCenterRefineMetadata
 n_without_bearing
 without_bearing
+without_projection
+AbstractViewResidual
 ```
 
 Every bundle — this one, [`refine_robot_world_hand_eye`](@ref) and a downstream package's

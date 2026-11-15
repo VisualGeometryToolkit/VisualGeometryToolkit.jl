@@ -912,3 +912,40 @@ end
         end
     end
 end
+
+# 0.11.6: `ReprojectionResidual()` — the bearing refine, then a second stage from its estimate on the exact pixel
+# reprojection error (a SplineLens camera projected by inverting its backward spline, its forward dropped). From noisy
+# pixels the bearing estimate is first order in the pixel residual; the pixel stage lowers the pixel residual from it,
+# and the projection round trip it relies on is exact.
+@testitem "refine_camera_and_poses: rotation-centre views — the ReprojectionResidual stage from the bearing estimate" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: norm, normalize
+    using VisualGeometryToolkitCore: estimate, converged, exp_so3, backproject, project, reprojection_error
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses, RotationCenterViews, rotation_center_pose, BearingResidual,
+        ReprojectionResidual, without_projection, n_without_bearing
+    import VisualGeometryToolkitEstimation as VE
+    cam = spline_truth()
+    axes = 4 .* [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04)]
+    t = center_truth(axes)
+    start = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),
+                                t.c + SVector(0.01, -0.008, 0.012), t.d + SVector(-0.005, 0.004, 0.006))
+    views = center_views(cam, t; σ = 0.5)
+    exact_cam = VE._without_forward(cam)
+    # the pixel residual of a result's views: the rms over every dot of the exact reprojection error
+    function pixel_rms(v)
+        e = [reprojection_error(exact_cam, rotation_center_pose(v.rotations[k], v.center, v.offset), X, u) for k in keys(views) for (X, u) in views[k]]
+        return sqrt(sum(x -> sum(abs2, x), e) / length(e))
+    end
+    rb = refine_camera_and_poses(cam, start, views; fixed = (:controls,), optimization_strategy = nothing)
+    rd = refine_camera_and_poses(cam, start, views, BearingResidual(); fixed = (:controls,), optimization_strategy = nothing)
+    @test estimate(rd).views.center == estimate(rb).views.center          # the default is the bearing residual
+    rp = refine_camera_and_poses(cam, start, views, ReprojectionResidual(); fixed = (:controls,), optimization_strategy = nothing)
+    @test converged(rb) && converged(rp)
+    @test isempty(without_projection(rp)) && n_without_bearing(rp) == 0 && isempty(without_projection(rb))
+    # the pixel stage lowers the pixel residual from the bearing estimate, and reports it (its rms IS the pixel residual)
+    @test pixel_rms(estimate(rp).views) < pixel_rms(estimate(rb).views)
+    @test isapprox(rp.rms, pixel_rms(estimate(rp).views); rtol = 1.0e-6)
+    # the round trip the pixel residual relies on: a dot back-projected and projected again through the exact projection
+    us = [u for k in keys(views) for (_, u) in views[k]]
+    @test maximum(u -> norm(project(exact_cam, normalize(backproject(cam, u))) - u), us) < 1.0e-9
+end

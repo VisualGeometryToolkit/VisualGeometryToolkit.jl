@@ -367,11 +367,11 @@ public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_s
     RadialLift, CameraFitMetadata
 public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
-public RotationCenterRefineMetadata, n_without_bearing, without_bearing   # the rotation-centre refine's metadata and its dots without a bearing
+public RotationCenterRefineMetadata, n_without_bearing, without_bearing, without_projection   # the rotation-centre refine's metadata and its dots without a bearing
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
-public RotationCenterViews, rotation_center_pose   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
+public RotationCenterViews, rotation_center_pose, AbstractViewResidual, BearingResidual, ReprojectionResidual   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
 public held_parameters   # the `fixed` that holds every parameter of a camera in a refine (the rotation-centre views require it)
 public pixel_whitening_defect   # why a back-projection Jacobian cannot whiten a bearing residual into pixels (BearingPoseProblem's test of its M column)
 # Configuration: configs/default.toml is the config of record; these select a

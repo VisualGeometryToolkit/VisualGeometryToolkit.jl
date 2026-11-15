@@ -1274,7 +1274,12 @@ function fit_camera(
     )
     _check_tolerance(tolerance)
     # a SplineLens source: the exact resample (extend, subdivide, turn), never a least-squares refit
-    _is_spline_camera(model(source)) && return _exact_resample(model(source), source, region; tolerance, grid_size, lattice_spacing, forward, device)
+    if _is_spline_camera(model(source))
+        grid_size === nothing || throw(ArgumentError(
+            "fit_camera(SplineLens, …): a SplineLens source is resampled exactly — its lattice extended to the region and " *
+                "subdivided by integers — so `grid_size` chooses no lattice: give the target cell size, `lattice_spacing` (px)"))
+        return _exact_resample(model(source), source, region; tolerance, lattice_spacing, forward, device)
+    end
     lattice_spacing === nothing || throw(ArgumentError(
         "fit_camera(SplineLens, …): `lattice_spacing` resamples a SplineLens source; a $(nameof(typeof(model(source)))) source's lattice is fitted (`grid_size`, or the spacing search to `tolerance`)"))
     VgtkCore.check_region_support(support, region; who = "fit_camera")   # Core's one guard
@@ -1283,13 +1288,7 @@ function fit_camera(
     gauge = _source_axis_gauge(model(source), source, region, grid_size, tolerance, device)
     back, code, family = _spline_backward(gauge.camera, VgtkCore.with_model(source, gauge.camera), region, grid_size, tolerance, device)
     code = worst_retcode(code, gauge.code)   # Core's record of several stages: the most severe, the axis's on a tie (as before 0.11.6)
-    cam = back.camera
-    fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
-    fwd === nothing || (code = worst_retcode(code, fwd.code))
-    out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
-    ff = fwd === nothing ? nothing :
-        (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
-            max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
+    out, code, ff = _forward_stage(back.camera, code, region, tolerance, forward, device)
     return FitResult(
         out, code..., 0, back.errors.rms, back.n,
         CameraFitMetadata(
@@ -1320,6 +1319,16 @@ function _axis_gauge(::VgtkCore.Cameras.GaugeIntrinsics, src, source::BoundedCam
     R = metadata(r).rotation
     camera = VgtkCore.axis_gauged(cam, rotation(R), K)
     return (; camera, rotation = R, K, metadata(r).symmetry_residual, code = (retcode(r), stop_rule(r)))
+end
+
+# The forward stage of a SplineLens target whose backward is `cam` (`forward = true`): the camera with its forward, the
+# termination record with the forward's folded in (the most severe), and the forward's family record (`nothing` without).
+function _forward_stage(cam, code, region, tolerance, forward, device)
+    forward || return cam, code, nothing
+    fwd = _forward_spline(cam, region, tolerance, device)
+    ff = (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
+        max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
+    return _with_forward(cam, fwd.spline), worst_retcode(code, fwd.code), ff
 end
 
 # Any other source has no image for the lattice — a bare camera model as well (it
@@ -1445,17 +1454,14 @@ _is_spline_camera(m) = m isa CameraModel && lens(m) isa SplineLens
 # source over its own bound; Core's exact `axis_gauged`), and the forward fitted as for any source. The backward is the
 # source's function to rounding inside its domain; the held-out error (f·angle) against the turned source's rays where
 # the source images one states it. Core's fold report is recorded, never acted on (the caller's policy).
-function _exact_resample(m::CameraModel, source::BoundedCamera, region; tolerance, grid_size, lattice_spacing, forward, device)
-    grid_size === nothing || throw(ArgumentError(
-        "fit_camera(SplineLens, …): a SplineLens source is resampled exactly — its lattice extended to the region and " *
-            "subdivided by integers — so `grid_size` chooses no lattice: give the target cell size, `lattice_spacing` (px)"))
+function _exact_resample(m::CameraModel, source::BoundedCamera, region; tolerance, lattice_spacing, forward, device)
     src = _without_forward(m)
     ext = VgtkCore.extend_lattice(src, region)
     factors = lattice_spacing === nothing ? (1, 1) : _resample_factors(VgtkCore.lattice_spacing(ext.camera), lattice_spacing)
-    sub = factors == (1, 1) ? (; ext.camera, ext.extrapolated) : VgtkCore.subdivide_lattice(ext.camera, factors; extrapolated = ext.extrapolated)
+    sub = VgtkCore.subdivide_lattice(ext.camera, factors; extrapolated = ext.extrapolated)   # (1, 1): the same lattice
     # the optical axis of the SOURCE over its own bound (never the extrapolated band; refused when it does not
     # converge), the resampled lattice turned by the same rotation and K
-    axis = _axis_gauge(VgtkCore.Cameras.GaugeIntrinsics(), src, source, device)
+    axis = _axis_gauge(VgtkCore.Cameras.GaugeIntrinsics(), m, source, device)
     turned = axis.camera
     cam = VgtkCore.axis_gauged(sub.camera, rotation(axis.rotation), axis.K)
     # the fidelity: the held-out f·angle against the turned source's rays, where the source images one
@@ -1466,13 +1472,7 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
     # camera (defined there) against the source's
     all_px = _image_quadrature(cam, region; device)
     fraction = clamp(1 - length(q.fit_px) / length(all_px.fit_px), 0.0, 1.0)
-    code = axis.code
-    fwd = forward ? _forward_spline(cam, region, tolerance, device) : nothing
-    fwd === nothing || (code = worst_retcode(code, fwd.code))
-    out = fwd === nothing ? cam : _with_forward(cam, fwd.spline)
-    ff = fwd === nothing ? nothing :
-        (; spacing = fwd.r.h, counts = fwd.r.counts, λ = fwd.r.λ, outer_iterations = fwd.n,
-            max_px = fwd.r.errors.max, max_px_edge = fwd.r.errors.max_edge, rms = fwd.r.errors.rms)
+    out, code, ff = _forward_stage(cam, axis.code, region, tolerance, forward, device)
     family = (; λ = nothing, grid_size = VgtkCore.grid_size(cam), subdivision = factors,
               lattice_spacing = Tuple(Float64.(VgtkCore.lattice_spacing(cam))), extension_offset = ext.offset,
               extrapolated = sub.extrapolated, extrapolated_fraction = fraction, folds = ext.folds,

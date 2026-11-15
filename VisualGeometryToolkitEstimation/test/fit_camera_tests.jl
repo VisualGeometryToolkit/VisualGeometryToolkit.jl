@@ -247,13 +247,13 @@ end
     using VisualGeometryToolkitEstimation: fit_camera
     angle(a, b) = atan(norm(cross(a, b)), dot(a, b))
     # the direct angle between the result and the turned source, over the pixels of `region` the source images
-    function max_angle(src, r, region; step = 7.0)
-        R = SMatrix{3, 3, Float64}(rotation(metadata(r).rotation)); cam = estimate(r)
+    function max_angle(src, r, region; stride = 7.0)
+        R = SMatrix{3, 3, Float64}(rotation(metadata(r).rotation)); cam = estimate(r); ms = VgtkCore.model(src)
         W, H = VgtkCore.extent(src)
         a = 0.0
-        for y in 3.0:step:(H - 1), x in 3.0:step:(W - 1)
+        for y in 3.0:stride:(H - 1), x in 3.0:stride:(W - 1)
             p = SVector(x, y); p ∈ region || continue
-            s = backproject(VgtkCore.model(src), p); all(isfinite, s) || continue
+            s = backproject(ms, p); all(isfinite, s) || continue
             a = max(a, angle(SVector{3, Float64}(backproject(cam, p)), R * normalize(SVector{3, Float64}(s))))
         end
         return a
@@ -275,7 +275,7 @@ end
         h = lattice_spacing(VgtkCore.model(src))
         # per axis an integer bracketing h / 60 (the nearer cell, or the squarer near tie), the cell h / m exactly
         @test all(max.(1, floor.(Int, h ./ 60)) .<= f.subdivision .<= ceil.(Int, h ./ 60)) && all(abs.(f.lattice_spacing .- h ./ f.subdivision) .< 1.0e-9)
-        @test max_angle(src, rs, reg; step = 37.0) < 1.0e-9
+        @test max_angle(src, rs, reg; stride = 37.0) < 1.0e-9
     end
     # 3. a region past the source's domain: a lattice over a calibrated area of 100 … 900 px, the region the disc of
     # 480 px; every node the region needs exists and is finite, the new ones marked, the region inside the result's

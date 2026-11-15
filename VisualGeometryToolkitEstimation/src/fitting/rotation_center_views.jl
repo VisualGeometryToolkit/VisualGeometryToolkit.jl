@@ -70,8 +70,7 @@ RotationCenterViews(rotations::AbstractDict{K}, center::AbstractVector{<:Real}, 
                            SVector{3, Float64}(center), SVector{3, Float64}(offset))
 
 """
-    BearingResidual()
-    ReprojectionResidual()
+    AbstractViewResidual
 
 The residual of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref), its fourth argument:
 
@@ -86,8 +85,23 @@ The residual of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@re
   [`without_projection`](@ref). The result's views, retcode, rms and record are the second stage's.
 """
 abstract type AbstractViewResidual end
-@doc (@doc AbstractViewResidual) struct BearingResidual <: AbstractViewResidual end
-@doc (@doc AbstractViewResidual) struct ReprojectionResidual <: AbstractViewResidual end
+
+"""
+    BearingResidual()
+
+The default [`AbstractViewResidual`](@ref) of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref): the
+bearing refine alone.
+"""
+struct BearingResidual <: AbstractViewResidual end
+
+"""
+    ReprojectionResidual()
+
+The [`AbstractViewResidual`](@ref) of [`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref) that adds the
+second stage on the exact pixel reprojection error; the dots that do not project at the bearing estimate are
+[`without_projection`](@ref).
+"""
+struct ReprojectionResidual <: AbstractViewResidual end
 
 # The rotation-centre refusal: at least three views, and relative rotations R₁ᵀR_k spanning two axes — the second
 # singular value of their stacked rotation vectors (log_so3) above rounding (√eps of the first).

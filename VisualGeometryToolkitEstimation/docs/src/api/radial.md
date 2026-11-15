@@ -95,6 +95,8 @@ n_without_bearing
 without_bearing
 without_projection
 AbstractViewResidual
+BearingResidual
+ReprojectionResidual
 ```
 
 Every bundle — this one, [`refine_robot_world_hand_eye`](@ref) and a downstream package's

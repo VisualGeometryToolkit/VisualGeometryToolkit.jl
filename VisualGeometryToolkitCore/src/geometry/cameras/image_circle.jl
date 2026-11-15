@@ -46,8 +46,9 @@ polygon about the distortion centre (the image of the optical axis) through each
 ray azimuths the image radius `|project(lens, ray(θ, ψ))|` is followed out in `θ` to where it first stops being finite
 and strictly increasing (refined past the 1024-sample scan), and that point goes through `K`. The polygon never claims
 past a fold: each vertex is pulled in by a relative 10⁻⁹ and by a bound on how far the fold curve can bulge inward of
-the chord between neighbours; its chords lie within `R·(1 − cos(π/720)) ≈ R·10⁻⁵` of the curve (0.012 px at a fold
-radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
+the chord between neighbours, but never nearer the centre than the disc of the smallest fold (inside every fold, so a
+fold radius that jumps between azimuths still gives a star polygon); its chords lie within `R·(1 − cos(π/720)) ≈ R·10⁻⁵`
+of the curve (0.012 px at a fold radius of 1300 px). Until Core 0.10.9 such a lens got the disc at the SMALLEST fold over the azimuths, which excluded
 the pixels between it and their own azimuth's fold.
 
 Cost: building the polygon is about 10 ms (720 azimuth folds; the disc of a radially symmetric lens about 13 µs), and
@@ -232,9 +233,12 @@ const _FOLD_AZIMUTHS = 720
 # its non-uniform spacing, doubled as a safety factor (the fold curve of a polynomial distortion is a low harmonic of the
 # azimuth, so its second derivative varies little over the 1.5° stencil), and read locally: each vertex is pulled by
 # the bound of its own two sectors, so a kink (an azimuth range that folds beside one that does not) costs margin
-# only beside it. The vertices then go through K (affine: the
-# polygon of the mapped vertices is the mapped polygon). The polygon is star-shaped about the centre when the fold curve
-# is (each image direction from the centre meets it once); one that is not is refused by `PolygonRegion`.
+# only beside it. No vertex comes nearer the centre than the disc of the smallest fold (`_valid_domain_radius`, the
+# domain until Core 0.10.9, inside every fold): beside a jump of the fold radius the bound can exceed the radius itself,
+# and the clamp keeps every vertex radius positive, so the ring is star-shaped about the centre whenever the fold points'
+# image directions run round it in order (the fold curve of a distortion that keeps its azimuth's order). The vertices
+# then go through K (affine: the polygon of the mapped vertices is the mapped polygon). `PolygonRegion` still refuses a
+# ring that is not star-shaped (a fold curve whose image directions do not run in order).
 function _fold_polygon(camera::CameraModel)
     l = lens(camera)
     edge = _view_angle_edge(l)
@@ -249,8 +253,12 @@ function _fold_polygon(camera::CameraModel)
         2 * ((R[mod1(i + 1, n)] - R[i]) / hp - (R[i] - R[mod1(i - 1, n)]) / hm) / (hp + hm))
     # vertex i bounds the bulge of its two sectors (i − 1 → i, i → i + 1), from the second differences at both ends of each
     dip(i) = 2 * maximum(j -> abs(D2(mod1(j, n))), (i - 1):(i + 1)) * max(h(mod1(i - 1, n)), h(i))^2 / 8
+    # the floor: the disc of the smallest fold (`_valid_domain_radius`, inside every azimuth's fold), never past a vertex's
+    # own fold sample; a vertex the bulge bound would pull past it (beside a jump of the fold radius) stops there
+    ρ = _valid_domain_radius(l)
+    disc(i) = min(ρ, R[i] * (1 - 1.0e-9))
     pixel = affine_part(SMatrix{3, 3, Float64}(calibration_matrix(camera)))   # K's pixel affine
-    vertices = [pixel(c + (R[i] * (1 - 1.0e-9) - dip(i)) / R[i] * d[i]) for i in 1:n]
+    vertices = [pixel(c + max(R[i] * (1 - 1.0e-9) - dip(i), disc(i)) / R[i] * d[i]) for i in 1:n]
     return PolygonRegion(vertices, pixel(c))
 end
 

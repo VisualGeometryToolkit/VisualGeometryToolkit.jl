@@ -210,20 +210,44 @@ end
     end
 end
 
-@testitem "region body: a valid domain polygon is refused, never written" begin
+@testitem "region body: a valid domain polygon round-trips, bare and in an imaged region; an unknown kind is refused" begin
     using Test
     using JSON
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: CameraModel, CameraCalibrationMat, BoundedCamera, Size2, Lens, Perspective, Additive,
-        Radial, Tangential, imaged_region, RegionIntersection
-    using StaticArrays: @SMatrix
-    # a decentred lens's valid domain is a star polygon derived from the model (Core 0.10.10): no record holds one, and
-    # writing an imaged region that contains it is an ArgumentError (Core's pixel-frame map refuses it), never a MethodError
+        Radial, Tangential, valid_domain, imaged_region, RegionIntersection, PolygonRegion, Rect2, PixelFrame
+    using StaticArrays: @SMatrix, SVector
+    # a decentred lens's valid domain is a star polygon (Core 0.10.10): the region body's `polygon` kind holds its centre
+    # and its vertex ring, in pixels of units.pixel; read back, it is the same region (membership identical on a grid)
     cam = CameraModel(CameraCalibrationMat(@SMatrix([800.0 0.0 640.0; 0.0 800.0 480.0; 0.0 0.0 1.0]));
                       lens = Lens(Perspective(), Additive(Radial((-0.3, 0.04)), Tangential(1.0e-2, -5.0e-3))))
+    q = valid_domain(cam)
     r = imaged_region(BoundedCamera(cam, Size2(1280, 960)))
-    @test r isa RegionIntersection
+    @test q isa PolygonRegion && r isa RegionIntersection && r.b isa PolygonRegion
+    ps = vec([SVector(x, y) for x in -150.25:6.5:1430.0, y in -150.25:6.5:1110.0])
+    for frame in (PixelFrame{:colmap}, PixelFrame{:opencv}, PixelFrame{:julia})
+        s = VgtkIO.VgioStyle(; pixel_frame = frame)
+        for (region, T) in ((q, PolygonRegion), (r, RegionIntersection))
+            text = JSON.json(JSON.lower(s, region, (; region = true)))
+            @test occursin("\"polygon\"", text)
+            back = JSON.lift(s, T, JSON.parse(text))
+            @test back isa T
+            @test [p ∈ back for p in ps] == [p ∈ region for p in ps]
+            frame === PixelFrame{:colmap} && @test back == region                   # Core's frame: the numbers as they are
+            @test JSON.lift(s, Union{Rect2, PolygonRegion, RegionIntersection}, JSON.parse(text)) isa T
+        end
+    end
     s = VgtkIO.VgioStyle()
-    @test_throws ArgumentError JSON.json(JSON.lower(s, r, (; region = true)))
-    @test_throws ArgumentError JSON.json(JSON.lower(s, r))
+    text = JSON.json(JSON.lower(s, q, (; region = true)))
+    @test startswith(text, "{\"polygon\":{\"centre\":[")
+    # refused: an unknown kind, a polygon of fewer than 3 vertices, one not star-shaped about its centre, an extra key
+    bad = ("""{"hexagon": [0.0, 0.0, 1.0]}""",
+           """{"polygon": {"centre": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0]]}}""",
+           """{"polygon": {"centre": [5.0, 5.0], "vertices": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]}}""",
+           """{"polygon": {"centre": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]], "inner": 0.1}}""")
+    for b in bad
+        @test_throws ArgumentError JSON.lift(s, Union{Rect2, PolygonRegion, RegionIntersection}, JSON.parse(b))
+    end
+    # a lens coverage is the body restricted to its leaves: a polygon is not one
+    @test_throws ArgumentError JSON.lift(s, VgtkIO._RegionLeaf, JSON.parse(text))
 end

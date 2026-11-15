@@ -53,8 +53,10 @@
         @test e isa ArgumentError && occursin("arm.ransac_seed", e.msg)
         e = refusal(TOML.parse("[arm]\nbits = [1, 0x8000000000000000]\n"))
         @test e isa ArgumentError && occursin("arm.bits[2]", e.msg)
-        e = refusal(Dict{String,Any}("big" => big(2)^70))
-        @test e isa ArgumentError && occursin("big", e.msg)
+        e = refusal(Dict{String,Any}("arm" => Dict{String,Any}("huge" => big(2)^70)))
+        @test e isa ArgumentError && occursin("arm.huge", e.msg)
+        e = refusal(Dict{String,Any}("n" => 2^53 + 1))                     # an Int64 past Core's bound: named too
+        @test e isa ArgumentError && occursin("`n`", e.msg)
     end
 
     @testset "load_run_config sanity" begin

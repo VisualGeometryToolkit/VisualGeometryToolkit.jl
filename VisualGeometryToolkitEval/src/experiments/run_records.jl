@@ -204,7 +204,8 @@ the one content key behind `tuning_hash` and the runner's stage key too), with t
 `[tuning.<name>]` entry resolved to its COMPLETE table (`resolve_tuning!`: a
 default of this package's configs/tuning.toml that the config inherits keys
 the run like a stated one). Key order does not move it, nor a number's
-spelling (`3` and `3.0` key alike), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
+spelling (`3` and `3.0` key alike, as do TOML's hex `0x0b10b5eed` and its decimal `2970312429`; an integer past ±2^53 is
+an `ArgumentError` naming its key path), the Julia version does not move it, and a TOML round trip of the effective config reproduces it, so
 `run_key(TOML.parsefile("_config.toml"))` names the directory that holds it.
 
 What a run depends on beyond its config is folded in by name, so a project

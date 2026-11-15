@@ -78,12 +78,28 @@ isdefined(@__MODULE__, :canonical_json) || error(
     _content_key(tree) -> String
 
 The content key of the evaluation stack: the SHA-256 (hex, first 16) of `tree`'s canonical JSON (VisualGeometryToolkitCore's
-`canonical_json`, the stack's one canonical encoding; `tree` a lowered tree: `nothing`, `Bool`, `Int64`, `Float64`,
-strings, vectors and string-keyed dicts, as a TOML config parses). Key order does not move it, nor a number's spelling:
-an integral float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`). Fixed across Julia versions (unlike
-`Base.hash`). Behind Experiments `run_key`, Tuning `tuning_hash` and the runner's stage key.
+`canonical_json`, the stack's one canonical encoding; `tree` a TOML config's tree: `nothing`, `Bool`, integers,
+`Float64`, strings, vectors and string-keyed dicts). Key order does not move it, nor a number's spelling: an integral
+float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`), and an integer of any type is its value (TOML
+parses `0x0b10b5eed`, `0o17` and `0b101` as unsigned integers; each keys as its decimal, `2970312429`, `15` and `5`).
+An integer past ±2^53 (not exactly a double: Core's bound) is an `ArgumentError` naming its key path (`arm.seeds[2]`).
+Fixed across Julia versions (unlike `Base.hash`). Behind Experiments `run_key`, Tuning `tuning_hash` and the runner's
+stage key.
 """
-_content_key(tree) = bytes2hex(sha256(canonical_json(tree)))[1:16]
+_content_key(tree) = bytes2hex(sha256(canonical_json(_lower_integers(tree, ""))))[1:16]
+
+# The caller's lowering of a TOML tree for `canonical_json` (Core's encoding takes `Int64` only, and leaves lowering to
+# the caller): every integer to its `Int64`, refused by its key path past ±2^53.
+_lower_integers(x, path) = x
+_lower_integers(x::Bool, path) = x                                # an Integer, and stays a Bool
+function _lower_integers(x::Integer, path)
+    -2^53 <= x <= 2^53 ||
+        throw(ArgumentError("content key: the integer $(x) at `$(path)` is not exactly a double (|n| ≤ 2^53)"))
+    return Int64(x)
+end
+_lower_integers(x::AbstractVector, path) = Any[_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
+_lower_integers(x::AbstractDict, path) =
+    Dict{keytype(x), Any}(k => _lower_integers(v, isempty(path) ? string(k) : "$(path).$(k)") for (k, v) in x)
 
 # The registered stack packages, identified by their Manifest `git-tree-sha1` when the environment loads a released
 # version (a package loaded from a path, `[sources]` or `Pkg.develop`, is identified by its own repository's trees,

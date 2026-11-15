@@ -82,12 +82,16 @@ Rect(extent(cam)) ∈ v                       # is the model valid over the whol
 """
 function valid_domain(camera::CameraModel)
     l = lens(camera)
-    _own_view_angle_limit(l, Float64(view_angle_limit(l))) || return WholePlane()   # the edge is a cap
     # A radially symmetric lens folds at one radius: the disc of it, exact, through K. Any other lens (decentring
     # terms, a tilt stage, a lens type without the trait: `RadialSymmetry` fails closed) folds at a radius that depends
     # on the azimuth: the star polygon through each azimuth's own fold. The trait is a type, so the branch is resolved
-    # at compile time.
-    return RadialSymmetry(l) isa RadiallySymmetric ? _pixel_disc(camera, _valid_domain_radius(l)) : _fold_polygon(camera)
+    # at compile time. Either way the whole plane when the edge is a cap (no limit of its own).
+    if RadialSymmetry(l) isa RadiallySymmetric
+        ρ = _valid_domain_radius(l)
+        return ρ === nothing ? WholePlane() : _pixel_disc(camera, ρ)
+    end
+    _own_view_angle_limit(l, Float64(view_angle_limit(l))) || return WholePlane()
+    return _fold_polygon(camera)
 end
 valid_domain(c::Union{PosedCamera, BoundedCamera}) = valid_domain(model(c))
 
@@ -244,8 +248,7 @@ function _fold_polygon(camera::CameraModel)
         2 * ((R[mod1(i + 1, n)] - R[i]) / hp - (R[i] - R[mod1(i - 1, n)]) / hm) / (hp + hm))
     # vertex i bounds the bulge of its two sectors (i − 1 → i, i → i + 1), from the second differences at both ends of each
     dip(i) = 2 * maximum(j -> abs(D2(mod1(j, n))), (i - 1):(i + 1)) * max(h(mod1(i - 1, n)), h(i))^2 / 8
-    K = SMatrix{3, 3, Float64}(calibration_matrix(camera))
-    pixel(x) = SVector(K[1, 1] * x[1] + K[1, 2] * x[2] + K[1, 3], K[2, 1] * x[1] + K[2, 2] * x[2] + K[2, 3])
+    pixel = affine_part(SMatrix{3, 3, Float64}(calibration_matrix(camera)))   # K's pixel affine
     vertices = [pixel(c + (R[i] * (1 - 1.0e-9) - dip(i)) / R[i] * d[i]) for i in 1:n]
     return PolygonRegion(vertices, pixel(c))
 end

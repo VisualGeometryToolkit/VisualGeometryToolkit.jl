@@ -1,5 +1,15 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased (tests only)
+
+No source change and no release needed: one test fixture follows VisualGeometryToolkitCore 0.10.11's projective knots.
+
+### Changed
+- **The IO 0.9 migration fixture `test/fixtures/old/vignetting_v1_chart.json` has 8 control points (was 6).** Core
+  0.10.11's `projective_knots(n, p)` continues the knots past the rim at the pixel spacing and needs `n > 2p`; the
+  fixture's 6 at degree 3 is refused there. A hand-written record, not a calibration: its purpose (a v1 vignetting
+  record with its chart tag, migrated) is unchanged, and no other stored projective record exists in the stack.
+
 ## 0.10.3
 
 A patch: no API change, no schema change; no file is written differently, but where IO 0.10.2 returned the nearest

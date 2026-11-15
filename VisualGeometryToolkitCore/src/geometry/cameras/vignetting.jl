@@ -228,16 +228,23 @@ dehomogenized by `PerspectiveMap` (`ρ(r) = ½`, `ρ(∞) = 1`). Isbits: it runs
 """
     projective_knots(n, p) -> SVector{n + p + 1, Float64}
 
-The knots of a radial profile on the projective chart of `n` control points of degree `p`: `m = n − p − 1` spans uniform in the
-distance up to the radius — knots at `d = k·r/m`, which the chart maps to `k / (m + k)`, `k = 0 … m` (so ½ at the radius) — and one
-tail span `[½, 1)` for every point beyond, clamped (`p + 1` knots at each end). Needs `n > p + 1`. With `n` one more than a linear
-profile's count, the pixel spacing up to the radius is the linear profile's.
+The knots of a radial profile on the projective chart of `n` control points of degree `p`: `m = n − 2p` spans uniform in the
+distance up to the radius — knots at `d = k·r/m`, which the chart maps to `k / (m + k)` — continued PAST the radius at the same
+pixel spacing, `k = 1 … m + p − 1` (`k = m` is the rim, `ρ = ½`; `p − 1` more beyond it), then the span to 1 for every point
+farther out, clamped (`p + 1` knots at each end). Needs `n > 2p` (`ArgumentError` otherwise, naming the minimum `2p + 1`).
+With `n` = a linear profile's count + `p`, the pixel spacing up to the radius is the linear profile's (19 for the linear 16, `p = 3`).
+
+Why the `p − 1` knots past the rim (Core 0.10.11, T. Harder's analysis of 2026-11-15): with ONE span `[½, 1)` after the rim —
+the rule until 0.10.10, `m = n − p − 1` — that span is ~25× wider in `ρ` than the last span on the sensor, so the last basis
+functions nearly vanish on `d ≤ r` (peaks `[0.667, 0.921, 0.111, 0.001, 0]` of the last five for `n = 17`): coefficients the
+fitted pixels barely determine. Continued at the pixel spacing, every function that acts on `d ≤ r` acts there as a uniform
+B-spline's does (`n = 19`: peaks `[0.667, 0.667, 0.667, 0.186, 0, 0, 0]` of the last seven, 16 functions on the fitted pixels).
 """
 function projective_knots(n::Integer, p::Integer)
-    m = Int(n) - Int(p) - 1
-    m >= 1 || throw(ArgumentError("projective_knots: need more than p + 1 = $(p + 1) control points, got $n"))
+    m = Int(n) - 2 * Int(p)
+    m >= 1 || throw(ArgumentError("projective_knots: need at least 2p + 1 = $(2 * Int(p) + 1) control points (more than 2p) of degree $p, got $n"))
     χ = projective_chart(Float64(m))                                       # the chart at radius m: d = k ↦ k / (m + k)
-    interior = [only(χ(SVector(Float64(k)))) for k in 1:m]                 # k = m is the rim, ρ = ½; then the tail span to 1
+    interior = [only(χ(SVector(Float64(k)))) for k in 1:(m + Int(p) - 1)]   # k = m is the rim, ρ = ½; p − 1 more past it; then the span to 1
     return SVector{Int(n) + Int(p) + 1}(vcat(zeros(Int(p) + 1), interior, ones(Int(p) + 1)))
 end
 
@@ -282,7 +289,8 @@ over a normalized radius `ρ ∈ [0, 1]` of the distance `d = ‖u − center‖
 - `:projective`: `ρ = d / (radius + d)` ([`projective_chart`](@ref)), `½` at
   `radius` and `→ 1` at infinity, so no sensor point is ever beyond the knots
   whatever the centre; on the knots [`projective_knots`](@ref)`(n, degree)`:
-  uniform in the distance up to `radius` and one tail span beyond.
+  uniform in the distance up to `radius` and `degree − 1` spans past it at the
+  same pixel spacing, then the span to 1 (`n > 2·degree`).
 
 Radially symmetric by construction: a field about one centre.
 [`pole_regular_basis`](@ref) is the subspace of the profiles that are smooth at

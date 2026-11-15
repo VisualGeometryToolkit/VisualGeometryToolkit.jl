@@ -1,5 +1,39 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.10.11 (unreleased)
+
+A patch: the projective radial profile's knots continue past the rim at the pixel spacing (T. Harder's analysis,
+2026-11-15), and the host LM gains Ceres' relative step tolerance.
+
+### Changed
+- **`projective_knots(n, p)` keeps the pixel spacing past the rim.** Until 0.10.10 the rule put `m = n − p − 1` spans
+  uniform in the distance up to the radius (knots `k / (m + k)` on `ρ = d / (r + d)`) and then ONE span `[½, 1)`, ~25×
+  wider in `ρ` than the last on-sensor span, so the last basis functions nearly vanished on `d ≤ r` (peaks
+  `[0.667, 0.921, 0.111, 0.001, 0]` of the last five for `n = 17`, `p = 3`, at r = 1340 px): coefficients the fitted
+  pixels barely determine. Now `m = n − 2p` spans up to the radius, the interior knots `k / (m + k)` for
+  `k = 1 … m + p − 1` (`k = m` the rim, `p − 1` more at the same pixel spacing past it), then the span to 1, clamped;
+  `n > 2p` is required (`ArgumentError` naming the minimum `2p + 1`). For `n = 19`, `p = 3` (13 spans, the linear
+  profile of 16's spacing) the last seven functions peak at `[0.667, 0.667, 0.667, 0.186, 0, 0, 0]` on `d ≤ r`, 16
+  act on the fitted pixels, and a pixel beyond the radius (r + 40 px, 3r) stays inside the knots. At `p = 1` the two
+  rules agree. **A record on the projective chart changes meaning** (IO rebuilds its knots from its count, degree and
+  chart): no stored projective record exists in the stack but IO's hand-written 0.9 migration fixture, raised to 8
+  control points (owner ruling, 2026-11-15). The RC-equivalence fixture `test/data/radial_projective_rc/rc_values.toml`
+  is unchanged: its profiles are rebuilt from their recorded knots (the knots form), so every recorded value keeps its
+  meaning, and the item checks the recorded knot vectors are no longer `projective_knots`' for `p > 1`. A caller
+  that chose `n` for the old spacing (`n` = linear + 1) chooses `n` = linear + `p` now (RadiometricCamera: 16 → 19).
+
+### Added
+- **`LmStops(; xtol_rel)`: the relative step tolerance, Ceres' parameter tolerance** — stop once
+  `‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)`, Euclidean norms of the step (NLLSsolver's last trial, the step its own `dstep`
+  test reads) and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart
+  unit: the exact-fit threshold's operand units). Alongside the absolute `xtol` (NLLSsolver's `dstep`) and the
+  relative cost tolerance `ftol`, read through the same `LmStops` and Core's `[lm]` table (`xtol_rel = 0.0`: none,
+  every fit as before, bit for bit). A step-size stop: its verdict is the stationarity postcondition's
+  (`ReturnCode.Success` or `Stalled`, `IncrementSize`), as an `ftol` or `xtol` stop's is. NLLSsolver has no such
+  option, so it runs in NLLSsolver's callback slot after the caller's callback (a callback's own stop is unchanged);
+  its termination bit (31, a callback flag `2¹⁵` Core reserves) decodes in `nlls_stop_code` / `nlls_termination` as
+  the step-size stop and in `nlls_stop_reasons` as `:relative_step_size`.
+
 ## 0.10.10 (unreleased)
 
 A patch: two answers that were wrong. A `SplineLens` projection without a forward spline lost fisheye rays about 55° off

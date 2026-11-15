@@ -194,6 +194,45 @@ end
     @test err isa ArgumentError && occursin("tensor_product", err.msg)
 end
 
+# Core 0.10.11 (T. Harder's analysis, 2026-11-15): the projective knots keep the pixel spacing PAST the rim. Until 0.10.10
+# `projective_knots(n, p)` put m = n − p − 1 uniform spans up to the radius and then ONE span [½, 1), ~25× wider in ρ than
+# the last on-sensor span, so the last basis functions nearly vanished on d ≤ r: their peaks there were
+# [0.667, 0.921, 0.111, 0.001, 0] for n = 17 — coefficients the fitted pixels barely determine. Now m = n − 2p spans up
+# to the radius and p − 1 more at the same pixel spacing before the span to 1: for n = 19, p = 3 (13 spans, the linear
+# profile of 16's spacing) the last seven peak at [0.667, 0.667, 0.667, 0.186, 0, 0, 0] and 16 functions act on the
+# pixels a fit sees; a pixel beyond the radius is still inside the knots.
+@testitem "vignetting: projective knots keep the pixel spacing past the rim" begin
+    using Test
+    using StaticArrays: SVector
+    using VisualGeometryToolkitCore: RadialVignetting, coefficient_jacobian, n_control_points, projective_knots, knot_vectors,
+        radial_coordinate, clamped_knots
+    c, r, p = SVector(2128.0, 1424.0), 1340.0, 3
+    raw_peak(v) = [maximum(coefficient_jacobian(v, c + SVector(d, 0.0))[i] for d in range(0, r; length = 2001)) for i in 1:n_control_points(v)]
+    v = RadialVignetting(19, c, r; degree = p, chart = :projective)
+    pk = raw_peak(v)
+    @test round.(pk[13:19]; digits = 3) == [0.667, 0.667, 0.667, 0.186, 0.0, 0.0, 0.0]
+    @test count(>(0), pk) == 16                                   # the functions that act on d ≤ r
+    # the knots: m = 13 spans uniform in the distance to the rim (ρ = ½ at k = m), p − 1 = 2 more at that spacing, the span to 1
+    k = projective_knots(19, 3)
+    @test k == only(knot_vectors(v)) && length(k) == 23 && all(k[1:4] .== 0) && all(k[20:23] .== 1)
+    @test collect(k[5:19]) ≈ [j / (13 + j) for j in 1:15] && k[17] == 0.5
+    # the knots lie at the distances j·r/13: the linear profile of 16's pixel spacing, continued past the rim
+    @test [radial_coordinate(v, c + SVector(j * r / 13, 0.0)) for j in 1:15] ≈ collect(k[5:19])
+    @test collect(clamped_knots(16, 3, 0.0, 1.0)[5:16]) .* r ≈ [j * r / 13 for j in 1:12]
+    # beyond the rim: still in the domain (ρ < 1, a partition of unity), on functions the rim does not reach
+    for d in (r + 40.0, 3r)
+        u = c + SVector(d, 0.0)
+        @test 0.5 < radial_coordinate(v, u) < 1 && sum(coefficient_jacobian(v, u)) ≈ 1
+    end
+    @test coefficient_jacobian(v, c + SVector(r + 40.0, 0.0)) != coefficient_jacobian(v, c + SVector(r, 0.0))
+    @test coefficient_jacobian(v, c + SVector(3r, 0.0))[end] > 0
+    # n ≤ 2p: no span up to the radius — refused, naming the minimum
+    @test_throws ArgumentError projective_knots(6, 3)
+    @test_throws r"at least 2p \+ 1 = 7" projective_knots(6, 3)
+    @test_throws r"at least 2p \+ 1 = 5" projective_knots(4, 2)
+    @test length(projective_knots(7, 3)) == 11
+end
+
 # The radial profile's chart (`chart = :projective`, ported from RadiometricCamera's ProjectiveRadialVignetting, owner
 # decision 22): the knots, the chart's values, the basis on the chart, the pole, the knots form, the centre moved and
 # differentiated, isbits on a device.
@@ -214,10 +253,11 @@ end
     vl = RadialVignetting(16, SVector(W / 2, H / 2), 2560.5)
     @test radial_chart(vp) == :projective && radial_chart(vl) == :linear && radial_chart(LogVignetting(vp)) == :projective
     @test_throws ArgumentError RadialVignetting(8, c0, 100.0; chart = :polar)
-    # the knots: k / (m + k) up to ½ (m = n − p − 1 spans uniform in the distance), one tail span to 1, clamped
+    # the knots: k / (m + k) up to ½ (m = n − 2p = 11 spans uniform in the distance), p − 1 = 2 more at that spacing past the
+    # rim, the span to 1, clamped (Core 0.10.11; the item above)
     k = knot_vectors(vp)[1]
     @test k == projective_knots(17, 3) && length(k) == 21 && all(k[1:4] .== 0) && all(k[18:21] .== 1)
-    @test collect(k[5:17]) ≈ [j / (13 + j) for j in 1:13] && k[17] == 0.5
+    @test collect(k[5:17]) ≈ [j / (11 + j) for j in 1:13] && k[15] == 0.5
     @test_throws ArgumentError projective_knots(4, 3)
     # the chart: ½ at the radius, 2/3 at twice it, below 1 however far, 0 at the centre
     r0 = field_radius(vp)
@@ -273,14 +313,25 @@ end
         active_coefficients, convert_eltype, projective_knots, with_center, center_gradient
     fx = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "data", "radial_projective_rc", "rc_values.toml"))
     @test occursin("254a3a3b", fx["provenance"]["rc_commit"])
+    # Core 0.10.11 continued the knots past the rim at the pixel spacing (the knots item above): the recorded knot vectors
+    # are RC's rule's, no longer `projective_knots`' for p > 1 (a count n ≤ 2p is refused now; at p = 1 the rules agree). The profiles are rebuilt from their
+    # RECORDED knots (the knots form), so every recorded value keeps its meaning: the chart, the basis on it, the
+    # Jacobians, the moved centre and the Float32 field are still RC's, to rounding. The fixture is never regenerated.
     for e in fx["projective_knots"]
-        @test collect(projective_knots(e["n"], e["p"])) == Float64.(e["knots"])
+        n, p = e["n"], e["p"]
+        if p == 1                         # degree 1: p − 1 = 0 knots past the rim, m = n − 2p = n − p − 1, the rules agree
+            @test collect(projective_knots(n, p)) == Float64.(e["knots"])
+        elseif n > 2p
+            @test collect(projective_knots(n, p)) != Float64.(e["knots"])
+        else
+            @test_throws ArgumentError projective_knots(n, p)
+        end
     end
     near(a, b) = isapprox(a, b; rtol = 4eps(), atol = 4eps())
     n_points = 0
     for pr in fx["profiles"]
         c = SVector{2}(Float64.(pr["center"]))
-        v = with_control_points(RadialVignetting(pr["n"], c, pr["radius"]; degree = pr["degree"], chart = :projective), Float64.(pr["P"]))
+        v = RadialVignetting(Float64.(pr["knots"]), c, pr["radius"], Float64.(pr["P"]); degree = pr["degree"], chart = :projective)
         @test collect(only(knot_vectors(v))) == Float64.(pr["knots"])
         moved = with_center(v, c .+ SVector(7.25, -3.5))
         v32 = convert_eltype(Float32, v)

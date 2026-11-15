@@ -474,10 +474,15 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
     # folding start keeps its whole region (refitting it inside the fold measured 1–3 px worse at the axis pixel).
     fold = Float64(view_angle_limit(lens(start)))
     folds = fold < metadata(r).family.θ_max
-    if folds && !converged(r)
-        inner = part ∩ _inside_fold(start, fold)
-        inner_start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
-        r = _refine_camera(inner_start, src, inner; fixed = _AXIS_FIXED, device)
+    # each pass: the disc inside 0.9 of the current start's fold (or of the last region's widest angle, if that is
+    # smaller), at most `_FOLD_PASSES` times
+    θ, s, passes = fold, start, 0
+    while folds && !converged(r) && passes < _FOLD_PASSES
+        inner = part ∩ _inside_fold(s, min(θ, metadata(r).family.θ_max))
+        s = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
+        r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
+        θ = Float64(view_angle_limit(lens(s)))
+        passes += 1
     end
     fold = folds ? fold : nothing
     # the axis re-gauge is applied ALWAYS (`fit_camera(SplineLens, …)`): a stalled axis would be a silent wrong turn
@@ -491,6 +496,7 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
                      CameraFitMetadata(md.region, md.weight, md.max_px, md.max_px_edge, (; md.family..., start_fold = fold),
                                        md.rotation, md.symmetry_residual, md.residuals))
 end
+const _FOLD_PASSES = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
 # The image disc inside a linear start's fold: about its principal point, out to its radius at 0.9 of the fold angle
 # (the start's forward is monotonic there), so the refit's start images every sample.
 function _inside_fold(start::CameraModel, fold::Float64)

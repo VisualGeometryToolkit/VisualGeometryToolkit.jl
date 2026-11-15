@@ -38,8 +38,9 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
     fold; a real Schöps grid extended over a sensor larger than its lens coverage). `extend_lattice` never refuses on a
     fold. The caller reads `folds` and decides (Estimation 0.11.6's `fit_camera` is to record it in its metadata, the
     application to set the policy). `fold_spacing = nothing` skips the check. The orientation's sign is the source's
-    own (the centre of its valid domain), so a band never sets it. On RC's real sources (four FX3 Schöps grids and a fisheye 30 cm front end) over the
-    regions RC requests, no sample folds at 8 px.
+    own (the centre of its valid domain), so a band never sets it. Checked at 8 px on RC's Schöps grids: ag10fe and
+    f4_14mm extend with no fold over the regions checked; ag30 (no housing, the region its sensor), whose own grid
+    already folds at 196 samples, adds 191 within 0–19 px past its domain.
   - A source with no complete 4 × 4 present window is an `ArgumentError` (its nodes need not determine the
     extrapolation).
 - **`folded_pixels(camera, region; spacing = 8.0, reference = nothing) -> (; folded, samples, unimaged)`** (public): where a SplineLens

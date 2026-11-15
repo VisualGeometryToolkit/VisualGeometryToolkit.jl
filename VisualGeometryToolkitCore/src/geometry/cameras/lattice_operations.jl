@@ -160,13 +160,14 @@ const _CELL_TOL = 1.0e-9
 _needed_cells(qlo, qhi) = (floor(Int, qlo - 2 + _CELL_TOL) + 1, ceil(Int, qhi + 2 - _CELL_TOL) - 1)
 
 """
-    extend_lattice(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::Rect)
-        -> (; camera, extrapolated::BitMatrix, offset::NTuple{2, Int})
+    extend_lattice(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; fold_spacing = 8.0)
+        -> (; camera, extrapolated::BitMatrix, offset::NTuple{2, Int}, folds)
 
 The [`SplineLens`](@ref) camera's lattice extended outward on its own spacing, with the
 same origin and phase, until every node whose support meets `region` exists. `region`
-is a rectangle in pixels of the camera's pixel frame, typically the calibrated area of
-the lattice a resample targets. A node's support here is open: the open rectangle
+is a region in pixels of the camera's pixel frame: a `Rect` (the calibrated area of the
+lattice a resample targets), an `Ellipse` or an intersection of them (a sensor ∩ its
+lens coverage). Its bounding box sets the nodes. A node's support here is open: the open rectangle
 `node ± 2·spacing`, where its basis is nonzero. So a region equal to the source's
 calibrated area adds nothing. (A node's [`support`](@ref) for [`node_mask`](@ref) is the
 closed footprint, so a node touching the region only at its edge is free there but not
@@ -201,19 +202,27 @@ in its [`valid_domain`](@ref).
   extended grid ([`window_offset`](@ref)'s convention).
 - **The forward spline** is dropped, since the backward changed outside the domain.
   When nothing is extrapolated, `camera` is the input camera, its forward kept.
+- **`folds`** reports where the extended camera's backward map folds over `region`:
+  [`folded_pixels`](@ref)`(camera, region; spacing = fold_spacing)`, its `folded`
+  samples, `samples` and `unimaged`. The extension is C² and its curvature does not
+  grow, but it is not guaranteed injective. A source whose rim is already folded or
+  strongly curved continues that into the band. `extend_lattice` never refuses on a
+  fold: the caller reads `folds` and decides (a fit records it in its metadata). An
+  empty `folds.folded` means no fold at that density.
 
-An `ArgumentError` for a region that is not a finite rectangle, or when no complete
+An `ArgumentError` for a region whose bounding box is not a finite rectangle, or when no complete
 4 × 4 window of the source is present (its present nodes then need not determine the
 extrapolation).
 Host-side lattice algebra: the result evaluates on a device like any SplineLens camera.
 """
-function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region::GeometryBasics.HyperRectangle{2})
+function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; fold_spacing::Real = 8.0)
     l = cam.lens
     b = l.backward
     gsz = gh, gw = size(b.controls)
-    ro = GeometryBasics.origin(region); rw = GeometryBasics.widths(region)
+    box = Rect2(region)
+    ro = GeometryBasics.origin(box); rw = GeometryBasics.widths(box)
     (all(isfinite, ro) && all(isfinite, rw) && all(>=(0), rw)) ||
-        throw(ArgumentError("extend_lattice: the region must be a finite rectangle, got $region"))
+        throw(ArgumentError("extend_lattice: the region's bounding box must be a finite rectangle, got $box"))
     rect = _pixel_area(cam.intrinsics, b.area)
     h = _lattice_spacing(rect, gsz)
     o = GeometryBasics.origin(rect)
@@ -231,14 +240,15 @@ function extend_lattice(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, re
         "extend_lattice: no complete 4 × 4 window of the source is present, so its present nodes do not determine the extrapolation"))
     present = trues(ngh, ngw); present[rows, cols] .= known[rows, cols] .| needed[rows, cols]
     filled = present .& .!known
-    any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0))
+    any(filled) || return (; camera = cam, extrapolated = falses(gsz), offset = (0, 0), folds = folded_pixels(cam, region; spacing = fold_spacing))
     C = fill(SVector{3, eltype(eltype(b.controls))}(NaN, NaN, NaN), ngh, ngw)
     C[rows, cols] .= b.controls
     _extrapolate_controls!(C, known, present, h)
     # the backward area grown by the whole cells added: the source lattice's own nodes
     area = _window_area(b.area, gsz, (1 - top):(gh + bottom), (1 - left):(gw + right))
     lens = SplineLens(ChartSpline(area, _absent_nan(C, present)); present)
-    return (; camera = CameraModel(cam.intrinsics, lens), extrapolated = filled, offset = (top, left))
+    extended = CameraModel(cam.intrinsics, lens)
+    return (; camera = extended, extrapolated = filled, offset = (top, left), folds = folded_pixels(extended, region; spacing = fold_spacing))
 end
 
 # Whether some 4 × 4 window of the lattice holds `mask` nodes only.
@@ -288,6 +298,7 @@ end
 
 """
     folded_pixels(camera::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing = 8.0) -> (; folded, samples, unimaged)
+    folded_pixels(camera::Union{PosedCamera, BoundedCamera}, region; spacing = 8.0)
 
 Where the backward map pixel → direction of the [`SplineLens`](@ref) `camera` folds over `region` (a `Rect`, an
 `Ellipse` or an intersection of them, in pixels of the camera's pixel frame). The
@@ -306,6 +317,7 @@ samples in `region` (`samples`), and the number of those the camera does not ima
 than `spacing` can escape it. An `ArgumentError` when the camera does not image the
 centre of its valid domain, or `spacing` is not positive.
 """
+# (a posed and a bounded camera: cameras.jl, beside `axis_gauged`'s)
 function folded_pixels(cam::CameraModel{<:AbstractIntrinsics, <:SplineLens}, region; spacing::Real = 8.0)
     spacing > 0 || throw(ArgumentError("folded_pixels: spacing must be positive, got $spacing"))
     V = Rect2{Float64}(valid_domain(cam))

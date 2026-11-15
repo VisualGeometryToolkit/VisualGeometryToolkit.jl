@@ -332,11 +332,20 @@ end
         src = lattice(180)
         r = folded_pixels(extend_lattice(src, grown(src, 3)).camera, grown(src, 3); spacing = 4.0)
         @test isempty(r.folded) && r.samples > 10_000 && r.unimaged == 0
+        x = extend_lattice(src, grown(src, 3))                                # the default density, 8 px
+        @test isempty(x.folds.folded) && x.folds == folded_pixels(x.camera, grown(src, 3))
+        # a region that is not a rectangle: the sensor ∩ an image circle; its bounding box sets the nodes
+        circle = VgtkCore.Rect(0, 0, 1280, 960) ∩ Ellipse(Point2(640.0, 480.0), 300.0, 300.0, 0.0)
+        xc = extend_lattice(src, circle)
+        @test xc.camera.lens.backward.controls == extend_lattice(src, Rect2(circle)).camera.lens.backward.controls
+        @test isempty(xc.folds.folded) && xc.folds.samples == folded_pixels(xc.camera, circle).samples
         # corners past the lens's own fold (r ≈ 283 px against 262): the extension folds in its band
         src = lattice(200)
-        e = extend_lattice(src, grown(src, 3)).camera
+        x = extend_lattice(src, grown(src, 3); fold_spacing = 4.0)
+        e = x.camera
         r = folded_pixels(e, grown(src, 3); spacing = 4.0)
         @test !isempty(r.folded) && length(r.folded) < r.samples
+        @test x.folds == r                                                    # extend_lattice reports it, never refuses
         @test all(p -> orientation(e, p) < 0, r.folded)                       # each folded sample: the opposite sign
         @test all(p -> !(p ∈ valid_domain(src)), r.folded)                   # in the band, not in the source's domain
         @test isempty(folded_pixels(src, valid_domain(src); spacing = 4.0).folded)
@@ -353,6 +362,7 @@ end
         u = folded_pixels(src, Rect2(A.origin[1] - 50, A.origin[2], A.widths[1] + 50, A.widths[2]); spacing = 10.0)
         @test u.unimaged > 0 && isempty(u.folded)
         @test_throws ArgumentError folded_pixels(src, A; spacing = 0)
+        @test folded_pixels(VgtkCore.BoundedCamera(src, VgtkCore.Size2(1280, 960)), A; spacing = 10.0) == r   # its model's
     end
 end
 

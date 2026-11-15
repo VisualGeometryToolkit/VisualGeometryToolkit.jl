@@ -307,7 +307,7 @@ where it is defined. Resampling one spline lens onto a target lattice composes
 them: extend to cover the target's area, then subdivide towards its spacing.
 
 ```julia
-ext  = extend_lattice(cam, target_area)                  # (; camera, extrapolated, offset)
+ext  = extend_lattice(cam, target_area)                  # (; camera, extrapolated, offset, folds)
 fine = subdivide_lattice(ext.camera, (2, 3); ext.extrapolated)   # (; camera, extrapolated)
 ```
 
@@ -387,8 +387,9 @@ node that stays absent is not part of the lattice the energy sums over.
 injective. A source whose own rim is already strongly curved continues that curvature
 into the band, and the band can fold: a Schöps grid past its lens coverage is often
 non-injective itself. [`folded_pixels`](@ref)`(camera, region; spacing)` lists the samples
-of a region where the backward map's orientation `d · (∂d/∂u × ∂d/∂v)` turns. Check it
-over the region a resample needs.
+of a region where the backward map's orientation `d · (∂d/∂u × ∂d/∂v)` turns, and
+`extend_lattice` returns it over the requested region as `folds`. Core reports a fold
+and never refuses one: the caller sets the policy.
 
 The penalty gives only the START values of the extrapolated nodes. No refinement's
 objective holds it, and a later fit moves those nodes by its own terms. The

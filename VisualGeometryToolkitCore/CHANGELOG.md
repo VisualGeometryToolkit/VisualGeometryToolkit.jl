@@ -17,9 +17,10 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
   Boehm insertion). `K`, the area and the forward spline are kept. A fine node is present when every coarse node it
   reads is present, so the imaged region and `valid_domain` are the source's. The `extrapolated` keyword's coarse marks
   carry to the fine nodes that read them.
-- **`extend_lattice(camera, region) -> (; camera, extrapolated, offset)`** (public): the lattice extended outward on its
-  own spacing, with the same origin and phase, until every node whose open support meets `region` (a pixel rectangle)
-  exists.
+- **`extend_lattice(camera, region; fold_spacing = 8.0) -> (; camera, extrapolated, offset, folds)`** (public): the
+  lattice extended outward on its own spacing, with the same origin and phase, until every node whose open support
+  meets `region` exists. The region is in pixels: a `Rect`, an `Ellipse` or their intersection (a sensor ∩ its lens
+  coverage), and its bounding box sets the nodes.
   - The present source nodes keep their controls bit for bit, so inside the source's domain the spline is unchanged, to
     the rounding of the lattice coordinate.
   - The new nodes, and the absent source nodes the region needs, minimise the discrete second-order bending energy
@@ -31,6 +32,13 @@ A patch, additive: exact lattice operations on a `SplineLens` camera, which Visu
   - `extrapolated` marks those nodes (a `BitMatrix` of the extended grid), and `offset` is the source's 0-based
     `(row, col)` in it.
   - An absent source node the region does not need stays absent, outside the energy. The forward spline is dropped.
+  - `folds` reports where the extended backward map folds over the region (`folded_pixels` at `fold_spacing` px). The
+    extension is C² and its curvature does not grow, but it is not guaranteed injective: a source whose rim is already
+    folded or strongly curved continues that into the band (a synthetic fisheye whose spline reaches past its lens's
+    fold; a real Schöps grid extended over a sensor larger than its lens coverage). `extend_lattice` never refuses on a
+    fold. The caller reads `folds` and decides: Estimation's `fit_camera` records it in its metadata, and the
+    application sets the policy. On RC's real sources (four FX3 Schöps grids and a fisheye 30 cm front end) over the
+    regions RC requests, no sample folds at 8 px.
   - A source with no complete 4 × 4 present window is an `ArgumentError` (its nodes need not determine the
     extrapolation).
 - **`folded_pixels(camera, region; spacing = 8.0) -> (; folded, samples, unimaged)`** (public): where a SplineLens

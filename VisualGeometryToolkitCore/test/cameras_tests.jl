@@ -195,6 +195,8 @@ end
     not_forwarded = Dict(
         :pinhole => "a model constructor: forwarded it would drop the bound (`with_model(bc, pinhole(model(bc)))`)",
         :window => "a model constructor (a SplineLens window), as `pinhole`",
+        :extend_lattice => "a model constructor (a SplineLens lattice extended), as `pinhole`",
+        :subdivide_lattice => "a model constructor (a SplineLens lattice subdivided), as `pinhole`",
         :with_parameters => "a model constructor, as `pinhole`",
         :parameter_vector => "the parameter protocol is the LM variable's: `model(bc)`",
         :parameter_names => "the parameter protocol, as `parameter_vector`",

@@ -672,6 +672,8 @@ with_directions(bc::BoundedCamera, D::AbstractMatrix) = with_model(bc, with_dire
 axis_gauged(c::PosedCamera, rotation::Rotation{3}, K′::AbstractMatrix) =
     PosedCamera(axis_gauged(c.model, rotation, K′), axis_gauged(c.extrinsics, rotation))
 axis_gauged(bc::BoundedCamera, rotation::Rotation{3}, K′::AbstractMatrix) = _rebound(bc, axis_gauged(bc.camera, rotation, K′))
+# `folded_pixels` (lattice_operations.jl) of a posed or a bounded camera: its model's
+folded_pixels(c::Union{PosedCamera, BoundedCamera}, region; spacing::Real = 8.0) = folded_pixels(model(c), region; spacing)
 
 # Trait opt-in — instance form (matches VGC convention: see has_boundary(::Ellipse) etc.)
 bounds_trait(::BoundedCamera) = HasBounds()

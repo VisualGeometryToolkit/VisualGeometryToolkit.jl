@@ -181,17 +181,23 @@ end
     # ring behind the inscribed/circumscribed discs: about 0.1–0.5 µs a point (measured 4.5 ms for 10⁴ points all in the
     # annulus between the discs, the worst case). The bounds are 10× generous; a regression to a per-point rebuild or to
     # an unfiltered test fails them.
-    cam = mk(1500.0, 1500.0, 2128.0, 1424.0, bc)
-    valid_domain(cam)                                                 # compiled
-    t_build = minimum(@elapsed(valid_domain(cam)) for _ in 1:3)
-    @test t_build < 0.5
-    q = valid_domain(cam)
-    c = q.centre
-    ann = [Point2{Float64}(c + (q.inner + (q.outer - q.inner) * ((k * 0.6180339887) % 1)) * SVector(cos(k), sin(k))) for k in 1:10_000]
-    count(p -> p ∈ q, ann)
-    t_member = minimum(@elapsed(count(p -> p ∈ q, ann)) for _ in 1:3)
-    @test t_member < 0.05                                             # 10⁴ points in the annulus, under 50 ms
-    @test 0 < count(p -> p ∈ q, ann) < length(ann)
+    # Wall-clock bounds hold only uninstrumented: under coverage (CI's `Pkg.test(; coverage = true)`) every line of the
+    # scan is counted, the guard records a skip.
+    if Base.JLOptions().code_coverage != 0
+        @test_skip "timing guard: not under coverage"
+    else
+        cam = mk(1500.0, 1500.0, 2128.0, 1424.0, bc)
+        valid_domain(cam)                                                 # compiled
+        t_build = minimum(@elapsed(valid_domain(cam)) for _ in 1:3)
+        @test t_build < 0.5
+        q = valid_domain(cam)
+        c = q.centre
+        ann = [Point2{Float64}(c + (q.inner + (q.outer - q.inner) * ((k * 0.6180339887) % 1)) * SVector(cos(k), sin(k))) for k in 1:10_000]
+        count(p -> p ∈ q, ann)
+        t_member = minimum(@elapsed(count(p -> p ∈ q, ann)) for _ in 1:3)
+        @test t_member < 0.05                                             # 10⁴ points in the annulus, under 50 ms
+        @test 0 < count(p -> p ∈ q, ann) < length(ann)
+    end
 end
 
 @testitem "valid_domain polygon: a lattice operation takes it as its region" setup = [FoldReference] begin

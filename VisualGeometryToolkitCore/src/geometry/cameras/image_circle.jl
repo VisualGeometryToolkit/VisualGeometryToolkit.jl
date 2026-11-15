@@ -303,8 +303,9 @@ struct RegionBeyondSupport <: Exception
 end
 Base.showerror(io::IO, e::RegionBeyondSupport) = print(io, "RegionBeyondSupport: ", e.who, ": the region ", e.region,
     " reaches beyond the source camera's calibrated support ", e.support, " (its valid_domain): a fit there reads the model ",
-    "where it is extrapolated. Fit over a region inside the support (`imaged_region` of the camera bounded to it, ",
-    "`with_lens_coverage(camera, support)`), or calibrate the rest.")
+    "where it is extrapolated. Fit over a region inside the support (`imaged_region` of the camera bounded to it: ",
+    "`with_lens_coverage(camera, support)` for a Rect or an Ellipse support, the region ∩ the support otherwise), or ",
+    "calibrate the rest.")
 
 """
     check_region_support(camera, region; who::AbstractString) -> region

@@ -162,11 +162,11 @@ _nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 0.0
 # THE relative step stop (Core 0.10.11, `LmStops`' `xtol_rel`): Ceres' parameter tolerance, ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel),
 # which NLLSsolver (its `dstep` absolute) has no option for. It runs in NLLSsolver's callback slot, after the caller's callback
 # (whose own stop it leaves as it is), on the step NLLSsolver's own step test reads (`getx` of the linear system: the last
-# trial) and the free variables before it; it flags `_RELATIVE_INCREMENT_FLAG`, termination bit `_RELATIVE_INCREMENT_BIT`, which the
+# candidate step) and the free variables before it; it flags `_RELATIVE_INCREMENT_FLAG`, termination bit `_RELATIVE_INCREMENT_BIT`, which the
 # decoder reads as a step-size stop. `xtol_rel = 0`: never (one comparison per iteration; the fit as before, bit for bit).
 @inline _relative_increment_met(dx_norm::Real, x_norm::Real, xtol_rel::Real) = xtol_rel > 0 && dx_norm <= xtol_rel * (x_norm + xtol_rel)
 const _RELATIVE_INCREMENT_FLAG = 1 << 15                 # a callback's terminate value, shifted by NLLSsolver into bit 16 + 15
-const _RELATIVE_INCREMENT_BIT = 16 + 15
+const _RELATIVE_INCREMENT_BIT = 16 + trailing_zeros(_RELATIVE_INCREMENT_FLAG)   # 31
 struct _RelativeIncrementStop{F, U}
     callback::F
     xtol_rel::Float64

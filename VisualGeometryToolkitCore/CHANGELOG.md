@@ -24,7 +24,7 @@ A patch: the projective radial profile's knots continue past the rim at the pixe
 
 ### Added
 - **`LmStops(; xtol_rel)`: the relative step tolerance, Ceres' parameter tolerance** — stop once
-  `‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)`, Euclidean norms of the step (NLLSsolver's last trial, the step its own `dstep`
+  `‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)`, Euclidean norms of the step (NLLSsolver's last candidate step, the step its own `dstep`
   test reads) and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart
   unit: the exact-fit threshold's operand units). Alongside the absolute `xtol` (NLLSsolver's `dstep`) and the
   relative cost tolerance `ftol`, read through the same `LmStops` and Core's `[lm]` table (`xtol_rel = 0.0`: none,

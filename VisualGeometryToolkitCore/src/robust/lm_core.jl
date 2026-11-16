@@ -633,23 +633,29 @@ that applies:
    (10), a start point whose cost or gradient is not finite (11), a gradient
    that is not finite at an accepted point (12) — WITHOUT a
    step-size stop: `-3`, `:solve_failed`;
-2. the step-size stop (6, or Core's relative one, 31: `LmStops`' `xtol_rel`): `2`, a tolerance met: converged (checked
+2. the same non-finite bits WITH a step-size stop — the last trial non-finite, the step tiny because no finite one is
+   left (a NaN wall): `-2` (`_LM_STALLED`), `:stalled`: no convergence (Core 0.11.0: a tolerance converges a FINITE
+   step only), the returned point the last accepted one;
+3. the step-size stop (6, or Core's relative one, 31: `LmStops`' `xtol_rel`), every trial finite: `2`, a tolerance met: converged (checked
    before the cost tolerance: a tiny last step at a wall also shows a tiny
    cost decrease, and the record names the step's rule);
-3. a relative or absolute cost-decrease stop (2, 3): `1`, a tolerance met: converged (a
+4. a relative or absolute cost-decrease stop (2, 3): `1`, a tolerance met: converged (a
    tolerance outranks a cap);
-4. the consecutive-failure cap (7): `4`, the postcondition decides it;
-5. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
+5. the consecutive-failure cap (7): `4`, the postcondition decides it;
+6. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
    `:max_iterations`;
-6. anything else (16, a user callback): `4`.
+7. anything else (16, a user callback): `4`.
 
 A non-finite TRIAL at a step-size stop (bits 0 or 1 with 6: the chart LM's
-NaN wall, its non-finite cost read as +Inf) is a step-size stop, not a failure.
+NaN wall, its non-finite cost read as +Inf) is no failure — NLLSsolver returns the
+last accepted, finite point — and no convergence either: a stall.
 """
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
     increment = bit(6) || bit(_RELATIVE_INCREMENT_BIT)        # NLLSsolver's absolute step stop, or Core's relative one (`xtol_rel`)
-    any(bit, (0, 1, 4, 5, 10, 11, 12)) && !increment && return _LM_FAILED
+    nonfinite = any(bit, (0, 1, 4, 5, 10, 11, 12))
+    nonfinite && !increment && return _LM_FAILED
+    nonfinite && return _LM_STALLED      # a step stop at a non-finite trial (a NaN wall): no convergence (Core 0.11.0)
     increment && return 2
     (bit(2) || bit(3)) && return 1
     bit(7) && return 4
@@ -698,7 +704,8 @@ decoded in `nlls_stop_code`'s one order:
 |:--|:--|:--|
 | 11, a non-finite start point (no step tried) | `NonFinite` | `InitialFailure` |
 | 0, 1, 4, 5, 10, 12 without a step-size stop | `NonFinite` | `Failure` |
-| 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`) | `IncrementSize` | `Success` (a tolerance met: converged) |
+| 0, 1, 4, 5, 10, 12 with a step-size stop (a NaN wall: the last trial non-finite) | `NonFinite` | `Stalled` (no convergence: a tolerance converges a finite step only) |
+| 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`), every trial finite | `IncrementSize` | `Success` (a tolerance met: converged) |
 | 2, 3, a cost decrease | `CostDecrease` | `Success` (a tolerance met: converged) |
 | 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
 | 16 and above only (31 excepted: a callback's own value never sets it), a user callback | `Callback` | `Terminated` |
@@ -718,6 +725,7 @@ function nlls_termination(bits::Integer, postcondition)
     bits & (1 << 11) != 0 && bits & (1 << 6) == 0 && return (ReturnCode.InitialFailure, NonFinite)
     code = nlls_stop_code(bits)
     code == _LM_FAILED && return (ReturnCode.Failure, NonFinite)
+    code == _LM_STALLED && return (ReturnCode.Stalled, NonFinite)      # a step stop at a NaN wall: no convergence
     code == _LM_MAX_TIME && return (ReturnCode.MaxTime, TimeCap)
     code == -1 && return (ReturnCode.MaxIters, IterationCap)
     # a tolerance stop (the cost decrease, the step size) is converged (owner ruling, Core 0.11.0); the rejection cap's verdict
@@ -741,8 +749,9 @@ const _LM_MAX_TIME = -4
 
 The code [`lmsolve_chart!`](@ref) returns in place of the tolerance-free stop
 (`4`: the rejection cap, a stop of no rule) when the returned point fails the
-stationarity test: `-2`; its record is `ReturnCode.Stalled`. A tolerance stop
-(`1`, `2`) is converged without the test (Core 0.11.0).
+stationarity test, and `nlls_stop_code` returns for a step-size stop at a non-finite trial (a NaN wall): `-2`; its
+record is `ReturnCode.Stalled` (the rule `RejectionCap`/`NoRule`, or `NonFinite` at a NaN wall). A tolerance stop
+at a finite step (`1`, `2`) is converged without the test (Core 0.11.0).
 """
 const _LM_STALLED = -2
 
@@ -779,7 +788,9 @@ finite stops at 0, `:solve_failed`), and `(code, rule)` the termination record, 
 THE SUCCESS RULE (owner ruling, Core 0.11.0). A stop on a TOLERANCE is converged, `ReturnCode.Success`: the
 relative cost decrease (`ftol`, `CostDecrease`) and the step size (`xtol` absolute or `xtol_rel` relative,
 `IncrementSize`), whatever the gradient at the returned point — whether a tolerance is too loose is the
-configuration's question, not the termination record's. The iteration and time caps are not converged (`MaxIters`,
+configuration's question, not the termination record's. A FINITE step only: a step-size stop whose last trial was
+non-finite (a NaN wall, the step tiny because no finite one is left) is `(ReturnCode.Stalled, NonFinite)`,
+`converged = -2`, at the last accepted point. The iteration and time caps are not converged (`MaxIters`,
 `MaxTime`), a failed solve is `Failure`. Only the consecutive-rejection cap, which is no tolerance, is judged by the
 stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
 final point's residuals, `F < (16ε)²·Σᵢ sᵢ²` over their operand scales sᵢ (`_exact_fit_threshold`, Core 0.10.4: a

@@ -257,10 +257,13 @@ end
     # With every trial finite — f(x) = x − 3 with a wrong-sign Jacobian (no step
     # descends; the run ends at the start) — a tolerance met, so converged (Core
     # 0.11.0's owner ruling: "if it hits our tolerance we mark it as converged;
-    # whether the tolerance is too loose is another story"). At a NaN wall — the
-    # true Jacobian, NaN at x > 0.5, the minimizer x = 3 behind it — the step is
-    # tiny because no finite one is left: no convergence, `:stalled` (the rule
-    # NonFinite; a tolerance converges a FINITE step only).
+    # whether the tolerance is too loose is another story"). A NaN wall the run
+    # CREEPS up to — the true Jacobian, NaN at x > 0.5, the minimizer x = 3 behind
+    # it — ends on an accepted FINITE step (x = 0.5 − 1e-10, bits 2|6: NLLSsolver
+    # flags only the terminating iteration's trial, never the inner loop's rejected
+    # NaN trials), so it reads converged too; a stop whose terminating trial is
+    # non-finite is `(Stalled, NonFinite)` (lm_driver_tests: a NaN wall at the
+    # production cost tolerance, and the decode's bit table).
     struct _WrongSignLm end
     VgtkCore.residual_rows!(f, ::_WrongSignLm, x) = (f[1] = x[1] - 3.0; f)
     VgtkCore.residual_jacobian_rows!(J, ::_WrongSignLm, x) = (J[1, 1] = -1.0; J)
@@ -271,7 +274,7 @@ end
     @test cw == 2 && recw == (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)   # the step-size stop, converged
     @test xw == SVector(0.0) && Fw == 9.0 && retcode_symbol(recw...) === :converged
     xn, Fn, cn, _, recn = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _NanWallLm())
-    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && recn == (VgtkCore.ReturnCode.Stalled, VgtkCore.NonFinite) && cn == VgtkCore._LM_STALLED
+    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && retcode_symbol(recn...) === :converged && cn in (1, 2)
 end
 
 @testitem "tree_sum!: a workgroup's sum on the CPU (a group of one) and on CUDA (256, a partial group; availability-gated)" begin

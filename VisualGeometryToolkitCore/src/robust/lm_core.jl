@@ -560,13 +560,13 @@ end
 # question). The stationarity postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold
 # the final point's `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides only the
 # stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule). A stop it fails is
-# `_LM_STALLED`.
+# `_LM_STALLED`. `nlls_termination` is the one decider: it reads the postcondition (lazily) only where it decides, and the
+# stop code follows its record.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
-    code = nlls_stop_code(result.termination)
-    stationary = code == 4 ? postcondition(_FinalRounding(stops.residual_resolution))::Bool : true
-    stationary || (code = _LM_STALLED)
-    return result, code, nlls_termination(result, stationary)
+    record = nlls_termination(result, () -> postcondition(_FinalRounding(stops.residual_resolution))::Bool)
+    code = record[1] === ReturnCode.Stalled ? _LM_STALLED : nlls_stop_code(result.termination)
+    return result, code, record
 end
 
 # THE exact-fit threshold (Core 0.10.4) — of the host LM's success rule and of `static_lm`'s, one derivation:

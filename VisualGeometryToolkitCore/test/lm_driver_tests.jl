@@ -122,9 +122,9 @@ end
     @test code((1 << 6) | (1 << 7)) == 2
     # maxfails outranks the caps (it is a stop of the run, the caps are budgets)
     @test code((1 << 7) | (1 << 8)) == 4 && code((1 << 7) | (1 << 9)) == 4
-    # a tolerance outranks a cap; a non-finite trial at a step stop is a step stop
+    # a tolerance outranks a cap; a non-finite trial at a step stop (a NaN wall) is no convergence: stalled, −2
     @test code((1 << 8) | (1 << 2)) == 1 && code((1 << 8) | (1 << 6)) == 2
-    @test code((1 << 0) | (1 << 6)) == 2 && code((1 << 1) | (1 << 6)) == 2
+    @test code((1 << 0) | (1 << 6)) == -2 && code((1 << 1) | (1 << 6)) == -2 && code((1 << 1) | (1 << 31)) == -2
     @test code((1 << 1) | (1 << 8) | (1 << 9)) == -3
     term = VgtkCore.nlls_termination
     @test retcode_symbol(term(1 << 7, true)...) === :converged               # once the postcondition holds
@@ -150,14 +150,14 @@ end
 @testset "a NaN wall at the production cost tolerance" begin
     # The stack's ftol (1e-10, Core's configs [lm]): near the wall the last steps'
     # cost decrease and step size shrink together; the step stop is decoded
-    # first. A step-size stop is a tolerance met: converged (owner ruling, Core
-    # 0.11.0), though the point is the wall's, not the minimizer's — whether the
-    # tolerance is too loose is the configuration's question.
+    # first. The step is tiny because no finite step is left (its last trial NaN):
+    # a stop at a NaN wall is no convergence (Core 0.11.0: a tolerance converges a
+    # FINITE step only), Stalled with the rule NonFinite, the point the wall's.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall)
     @test isfinite(F) && x[3] <= 0.25
-    @test term === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && c == 2
-    @test !VgtkCore._lm_stationary(ManifoldLmWorkspace(5, 4), lm_wall, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # converged off a stationary point
+    @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.NonFinite) && c == VgtkCore._LM_STALLED
+    @test !VgtkCore._lm_stationary(ManifoldLmWorkspace(5, 4), lm_wall, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # off a stationary point
 end
 
 @testset "the stop settings: one owner, mapped once" begin
@@ -718,7 +718,10 @@ end
     @test t(1 << 6) === (ReturnCode.Success, IncrementSize)
     @test t(1 << 6, false) === (ReturnCode.Success, IncrementSize)
     @test t((1 << 2) | (1 << 6), false) === (ReturnCode.Success, IncrementSize)      # the step stop first
-    @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Success, IncrementSize)      # a NaN trial at a step stop
+    # a non-finite trial at a step stop (a NaN wall: the step is tiny because no finite one is left) is no convergence:
+    # Stalled, its rule NonFinite, whatever the postcondition says (the tolerance converges a FINITE step only)
+    @test t((1 << 1) | (1 << 6), false) === (ReturnCode.Stalled, NonFinite)
+    @test t((1 << 1) | (1 << 6), true) === (ReturnCode.Stalled, NonFinite) && t((1 << 0) | (1 << 31), true) === (ReturnCode.Stalled, NonFinite)
     @test t(1 << 7) === (ReturnCode.Success, RejectionCap)
     @test t(1 << 7, false) === (ReturnCode.Stalled, RejectionCap)
     @test t(1 << 16, false) === (ReturnCode.Terminated, Callback)

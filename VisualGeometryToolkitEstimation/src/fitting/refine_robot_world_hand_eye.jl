@@ -87,9 +87,10 @@ camera-and-poses bundle's one solve at its settings ([`refine_camera_and_poses`]
 `max_iter`, `ftol`, `xtol` of `configs/default.toml [refine_camera_and_poses]`,
 Marquardt's DᵀD damping): this refine has no LM settings of its own. Its termination
 record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's one LM, `lmsolve_chart!`) is
-`ReturnCode.Success` only when the estimate is stationary, `MaxIters` at the
+`ReturnCode.Success` at a tolerance stop (`ftol`, `xtol`; Core 0.11.0: whatever the gradient there) or at the
+rejection cap when the estimate is stationary, `MaxIters` at the
 iteration cap (no time cap: it runs without `max_time`), `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
-failed (the estimate is then the last accepted one) and `Stalled` otherwise
+failed (the estimate is then the last accepted one) and `Stalled` at the rejection cap short of a stationary point
 (under a robust strategy the stationarity of the robust cost). Rig poses, points and pixels must
 be finite, and every point must project at the guess (in front of the camera,
 inside the lens's domain): an `ArgumentError` names the first that does not.
@@ -242,7 +243,7 @@ function _refine_robot_world_hand_eye(
     # (configs/default.toml [refine_camera_and_poses]: Marquardt's DᵀD damping, its ftol and xtol; no time cap): least
     # squares (`optimization_strategy = nothing`), or the refine contract's one fixed-scale robust path from the guess
     # with no least-squares stage, Triggs, ONE robustified LM at the caller's frozen scale or width (an Irls is refused
-    # by `bundle_loss`). Its termination record is the solve's (NLLSsolver's bits under the stall postcondition).
+    # by `bundle_loss`). Its termination record is the solve's (NLLSsolver's bits under Core's success rule).
     kw = (; lo, loss, max_iter, ftol = _dflt("refine_camera_and_poses", "ftol"), xtol = _dflt("refine_camera_and_poses", "xtol"),
           max_time = nothing)
     sol = _solve_bundle(costs, poses0, 6 * (length(guess.ids) + 1), kw)

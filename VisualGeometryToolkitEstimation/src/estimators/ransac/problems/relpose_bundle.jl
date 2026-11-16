@@ -327,7 +327,7 @@ end
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
 # per-point √weights → `(; R, t, sol)`: the refined (R, t) (‖t‖=1) and Core's
 # solve record `sol = (; code, rule, iterations, cost)` (`lmsolve_chart!`: its one
-# success rule, the stationarity postcondition at the returned point; a `:stalled`
+# success rule, a tolerance stop converged and the rejection cap judged by the stationarity postcondition; a `:stalled`
 # bundle's pose is still scored by the caller, the LO's acceptance, as a converged
 # one is). `nothing` on failure: a singular system (Core's `Failure`) or a
 # non-finite pose. Positional and

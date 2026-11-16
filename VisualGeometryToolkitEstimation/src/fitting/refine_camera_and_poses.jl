@@ -25,8 +25,8 @@
 # on the camera and its view's pose (on the pose alone with nothing free in the
 # camera), differentiated by NLLSsolver (ForwardDiff through the retractions and
 # the lens). The driver is Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`, Marquardt's DᵀD damping, its
-# stop settings `LmStops`); the stop is recorded under its one success rule, the stall postcondition on the rows and
-# their Jacobian at the estimate.
+# stop settings `LmStops`); the stop is recorded under its one success rule (Core 0.11.0: a tolerance stop is converged;
+# the rejection cap is judged by the stall postcondition on the rows and their Jacobian at the estimate).
 #
 # Hoisted from RadiometricCamera's experiments (`refine_lens_and_poses`,
 # experiments/lib/lens_tools.jl: the same model and LM on its sensor-chart
@@ -204,17 +204,17 @@ scratch and the camera keeps its family (its lens type).
   records the one it ran with (`scale`, `scale_source`, `loss_width`) and the
   weights ρ′/ρ′(0) at the estimate.
 - `max_iter` — the LM's cap on ACCEPTED iterations (NLLSsolver's count);
-  `ftol` — its relative cost decrease and the stall postcondition's exact-fit
-  test; `xtol` — its step tolerance (chart units); `max_time` — its
+  `ftol` — its relative cost decrease; `xtol` — its step tolerance (chart units); `max_time` — its
   wall-clock cap in seconds (`nothing` or `Inf`: none), for a camera whose
   projection makes an iteration slow; it stops with `:max_time`.
 
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
 each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
-VisualGeometryToolkitCore's one LM (`lmsolve_chart!`): `ReturnCode.Success` only at a stationary point, else `MaxIters`
+VisualGeometryToolkitCore's one LM (`lmsolve_chart!`): `ReturnCode.Success` at a tolerance stop (`ftol`, `xtol`;
+Core 0.11.0: whatever the gradient there) or at the rejection cap when the estimate is stationary, else `MaxIters`
 (the iteration cap), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
-`Stalled`; `rms` is
+`Stalled` (the rejection cap short of a stationary point); `rms` is
 `√(Σ‖rᵢ‖² / n)` over the `n` correspondences (pixels). The metadata
 ([`CameraPosesRefineMetadata`](@ref)) carries the residual rows, `s²`, `ν` and
 the free parameter names. Plain least squares: the correspondences must be
@@ -534,7 +534,8 @@ function _solve_bundle(blocks::AbstractVector, vars0::AbstractVector, p::Integer
     costs = convert(Vector{RT}, blocks)
     n = length(costs)
     # Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`) at the bundle's own stop settings (its keywords, read from
-    # [refine_camera_and_poses]); its record is Core's one success rule (the √ρ′-weighted stationarity postcondition)
+    # [refine_camera_and_poses]); its record is Core's one success rule (a tolerance stop converged; the rejection cap judged by the √ρ′-weighted
+    # stationarity postcondition)
     stops = LmStops(; max_iter = kw.max_iter, ftol = kw.ftol, xtol = kw.xtol, max_time = kw.max_time)
     if lo === nothing
         lp = LmProblem(copy(vars0), costs)

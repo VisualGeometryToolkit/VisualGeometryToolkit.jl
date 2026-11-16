@@ -157,8 +157,7 @@ end
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall)
     @test isfinite(F) && x[3] <= 0.25
     @test term === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && c == 2
-    @test !VgtkCore.is_stationary(VgtkCore.residual_jacobian_rows!(zeros(5, 4), lm_wall, x), VgtkCore.residual_rows!(zeros(5), lm_wall, x);
-                                  tol = LmStops().stationarity_tol, ftol = 0.0)          # converged with a nonzero gradient
+    @test !VgtkCore._lm_stationary(ManifoldLmWorkspace(5, 4), lm_wall, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # converged off a stationary point
 end
 
 @testset "the stop settings: one owner, mapped once" begin
@@ -195,8 +194,7 @@ end
     lm = _ExpFitLm(s, [100 * (1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 + 0.05 * sin(7si)) for si in s], SVector(1.0, 0.0, 0.0, 0.0))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm, LmStops(; ftol = 1 - 1.0e-6))
     @test term === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && c == 1
-    @test !VgtkCore.is_stationary(VgtkCore.residual_jacobian_rows!(zeros(length(s), 4), lm, x), VgtkCore.residual_rows!(zeros(length(s)), lm, x);
-                                  tol = LmStops().stationarity_tol, ftol = 0.0)        # the gradient there is not zero
+    @test !VgtkCore._lm_stationary(ManifoldLmWorkspace(length(s), 4), lm, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # not stationary there
     # the same fit at the stack's settings is a success at a stationary point
     _, _, c0, _, term0 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
     @test retcode_symbol(term0...) === :converged && c0 in (1, 2)

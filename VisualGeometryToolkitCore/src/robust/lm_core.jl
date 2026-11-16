@@ -974,6 +974,21 @@ function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, exact)
     return _column_cosine(g, LinearAlgebra.diag(H), sqrt(F)) <= tol
 end
 
+"""
+    is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops = LmStops()) -> Bool
+
+The chart LM's stationarity postcondition for the state `lm` at the chart point `x` (an `SVector{N}`, the chart
+coordinates [`lmsolve_chart!`](@ref) returns), under `stops`' `stationarity_tol` and `residual_resolution`: the
+cost is zero by the exact-fit test (below the final point's rounding, floored by `residual_resolution`²), or every
+column of the rows' Jacobian is numerically orthogonal to the rows (the column cosine at most `stationarity_tol`).
+It reads the state's reduction at `x` (`residual_normal_equations!`) into `ews`'s buffers.
+
+The host LM converges a tolerance stop at a finite step without this test (Core 0.11.0); a caller whose own
+validity gate needs a stationary point (VisualGeometryToolkitEstimation's optical axis) runs it at the solution.
+"""
+is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops = LmStops()) =
+    _lm_stationary(ews, lm, x, stops.stationarity_tol, _FinalRounding(stops.residual_resolution))
+
 # max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)
 # (0 when ‖f‖ = 0; an all-zero column is skipped; NaN propagates, and
 # NaN ≤ tol is false).

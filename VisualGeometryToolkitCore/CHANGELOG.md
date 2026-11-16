@@ -13,7 +13,9 @@ VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.
   `(ReturnCode.Success, IncrementSize)` for an `xtol` or `xtol_rel` stop, without testing stationarity. Until 0.10.11
   such a stop at a non-stationary point was `(ReturnCode.Stalled, …)`, `converged = -2`. **A finite step only**: a
   step-size stop whose last trial was non-finite (a NaN wall: the step is tiny because no finite step is left) is no
-  convergence, `(ReturnCode.Stalled, NonFinite)`, `converged = -2`, at the last accepted point. `Stalled` otherwise
+  convergence, `(ReturnCode.Stalled, NonFinite)`, `converged = -2`, at the last accepted point. (NLLSsolver flags the
+  terminating iteration's trial only: a run that creeps up to a wall on accepted finite steps ends on a finite step,
+  converged.) `Stalled` otherwise
   comes only from the consecutive-rejection cap (or a stop of no rule) short of a stationary point; NLLSsolver 5.3's LM
   sets the step-size flag on the first iteration that raises the cost, so that cap is not reached by Core's LM in
   practice. The device LM (`static_lm`) is unchanged.

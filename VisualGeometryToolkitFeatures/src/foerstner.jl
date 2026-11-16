@@ -235,7 +235,7 @@ noise (`noise` on a matrix, the gain-carrying `sensor_model` on a `LinearRaw`; w
 `:none` (the default) keeps every seed.
 
 `f_tests`: a [`FoerstnerTests`](@ref) table the F-test's critical values are read from (each window half-width's
-computed once, on its first use): pass one table to every call of a configuration (a set of photographs), else each
+computed once, on its first use): give one table to every call of a configuration (a set of photographs), else each
 call computes them again on the host. The rows are the same either way.
 
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
@@ -265,7 +265,7 @@ effective degrees of freedom) is computed on its first use and read by every lat
 configuration only — the gradient taps (`derivative`, `derivative_sigma`), the half-width ρ, the pixel noise's
 structure (white input pixels, or the photosites through a mosaic's bilinear green image) and `significance_level` —
 and each entry is keyed by all four, so one table serves calls of different settings and the rows are bit-identical to
-a call without one. The caller makes one per detect configuration and passes it to each of its calls (a set of
+a call without one. The caller makes one per detect configuration and gives it to each of its calls (a set of
 photographs: the host computation was most of a seeded call's time). Safe to share between threads.
 """
 struct FoerstnerTests

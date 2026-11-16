@@ -145,7 +145,7 @@ points = detect_foerstner(img, seeds; noise = 2)  # one row per seed whose windo
 The rows are those of `detect_foerstner(img)`; at the windows `detect_foerstner(img)`
 chose, the seeded form returns its rows bit for bit (a test item). The seeded form
 takes only the window estimation's keywords (`device`, `noise`, `derivative`,
-`derivative_sigma`, `significance_level`) and `polarity` (below); the image-wide search's are refused by
+`derivative_sigma`, `significance_level`, `f_tests`) and `polarity` (below); the image-wide search's are refused by
 name. On a RAW's green cells both take the `LinearRaw`: `detect_sfop(L)` and
 `detect_foerstner(Float64, L, seeds; sensor_model)`, positions on the cell grid and
 the covariance under the frame's sensor model.
@@ -178,6 +178,25 @@ input pixels'). On synthetic dots on a Bayer mosaic the covariance is calibrated
 95 % coverage) and the spread is about two thirds of the green cells'. The greens G1 and
 G2 are taken to respond alike: the sensor model carries no per-channel response, so a
 G1/G2 mismatch stays in the image as a checkerboard of its amplitude (a known limit).
+
+### A set of photographs: the F-test's table
+
+The F-test's critical values depend on the configuration only (the gradient taps, the
+window half-width ρ, the noise structure, `significance_level`), never on the image, but
+each call computes them on the host, one ρ at a time; under the photosite noise of a
+mosaic that is eight lattice phases and centre parities per ρ, and on the GPU it was most
+of a seeded call's time. A [`FoerstnerTests`](@ref) table holds them: make one per detect
+configuration and give it to each call as `f_tests`. Each entry is keyed by everything it
+depends on, so one table can serve calls of different settings, and the rows are
+bit-identical to the calls without it (a test item, CPU and GPU):
+
+```julia
+f_tests = FoerstnerTests()                         # one per configuration, held by the caller
+for m in mosaics
+    seeds  = detect_sfop(m; sensor_model, device)
+    points = detect_foerstner(m, seeds; sensor_model, device, f_tests)
+end
+```
 
 ### Polarity
 

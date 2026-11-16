@@ -25,7 +25,7 @@ const _FoerstnerDetection = Attributed{
                      derivative = :gaussian2d, integration = :box,
                      derivative_sigma = 1.0, integration_sigma = 1.41 * derivative_sigma,
                      precision_threshold = 0.5, roundness_threshold = 0.3,
-                     significance_level = 0.999) -> StructArray{<:Detection}
+                     significance_level = 0.999, f_tests = nothing) -> StructArray{<:Detection}
     detect_foerstner([T = Float32], L::LinearRaw; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner interest operator [Foerstner1987](@cite): the junction (corner)
@@ -98,6 +98,8 @@ is read in `T`.
 - `precision_threshold`: the largest accepted point standard deviation, input px.
 - `roundness_threshold`: the smallest accepted roundness (`:foerstner` only).
 - `significance_level`: of the F-test that labels a point corner or circular.
+- `f_tests`: a [`FoerstnerTests`](@ref) table the F-test's critical values are read from, one per configuration,
+  shared by its calls; `nothing` (the default) computes them in each call. The rows are the same either way.
 
 # Algorithm (ip_fop.m, step by step)
 1. The image is doubled bilinearly (the package's one 2× upsampling, ASIFT's)

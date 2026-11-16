@@ -11,15 +11,24 @@ VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.
 - **The host LM's success rule.** `lmsolve_chart!` (all three forms: the chart LM, the robust chart LM and an
   `LmProblem`) and `nlls_termination` now return `(ReturnCode.Success, CostDecrease)` for an `ftol` stop and
   `(ReturnCode.Success, IncrementSize)` for an `xtol` or `xtol_rel` stop, without testing stationarity. Until 0.10.11
-  such a stop at a non-stationary point was `(ReturnCode.Stalled, …)`, `converged = -2`. `Stalled` now comes only from
-  the consecutive-rejection cap (or a stop of no rule) short of a stationary point. The device LM (`static_lm`) is
-  unchanged.
+  such a stop at a non-stationary point was `(ReturnCode.Stalled, …)`, `converged = -2`. **A finite step only**: a
+  step-size stop whose last trial was non-finite (a NaN wall: the step is tiny because no finite step is left) is no
+  convergence, `(ReturnCode.Stalled, NonFinite)`, `converged = -2`, at the last accepted point. `Stalled` otherwise
+  comes only from the consecutive-rejection cap (or a stop of no rule) short of a stationary point; NLLSsolver 5.3's LM
+  sets the step-size flag on the first iteration that raises the cost, so that cap is not reached by Core's LM in
+  practice. The device LM (`static_lm`) is unchanged.
 - **Migration.** Code that read `Stalled` (or `!converged(r)`, `!successful_retcode(retcode(r))`) as "the fit stopped
   short of a minimum" after a tolerance stop no longer sees it. A caller that needs the old meaning tests the point
   itself: `is_stationary(J, f; tol, ftol)` on its rows, or the caller's own validity gate (VisualGeometryToolkitEstimation
   0.11.8's `optical_axis` reads its fold gate, for example). A caller whose tolerance is too loose for its problem
   tightens `ftol` / `xtol` / `xtol_rel` in its `LmStops` or its `[lm]` table. Nothing else changes: the stop settings,
   the iteration and time caps (`MaxIters`, `MaxTime`), the failure codes and the stop rules are as in 0.10.11.
+
+### Added
+
+- **`is_stationary(ews::ManifoldLmWorkspace, lm, x, stops = LmStops())`**, the chart LM's stationarity postcondition
+  at a chart point, public: a caller whose own validity gate needs a stationary point runs it at the solution
+  (VisualGeometryToolkitEstimation's `optical_axis`). One implementation with the postcondition the LM reads.
 
 ### Changed (the ruling)
 - **A tolerance stop of the host LM is converged** (owner ruling, 2026-11-15: "if it hits our tolerance we mark it as

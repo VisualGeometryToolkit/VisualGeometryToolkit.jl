@@ -275,7 +275,7 @@ struct FoerstnerTests
 end
 Base.length(t::FoerstnerTests) = lock(() -> length(t.critical), t.lock)
 Base.isempty(t::FoerstnerTests) = length(t) == 0
-Base.show(io::IO, t::FoerstnerTests) = print(io, "FoerstnerTests(", length(t), " windows)")
+Base.show(io::IO, t::FoerstnerTests) = print(io, "FoerstnerTests(", length(t), " entries)")   # an entry: one (taps, ρ, noise, level)
 
 # The F-test's two critical values at half-width ρ (`_foerstner_classes`' corner and circular thresholds): computed, or
 # read from (and on a miss added to) the table `f_tests`.

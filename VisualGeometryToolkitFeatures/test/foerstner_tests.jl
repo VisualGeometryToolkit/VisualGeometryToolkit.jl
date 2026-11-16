@@ -607,3 +607,48 @@ end
     # the image-wide search reads it too
     @test all(same(a, b) for (a, b) in zip(detect_foerstner(Float64, img; f_tests = tests), detect_foerstner(Float64, img)))
 end
+
+# The table on the chrome detect's own inputs: a RAW mosaic's bilinear green image (the F-test under the photosite noise,
+# eight lattice phases and centre parities per ρ) and the GPU (the mosaic, the seeded and the image-wide search on a
+# matrix, Float32 and Float64). Every row is bit-identical to the call without a table (`isequal`: NaN = NaN), and a
+# table filled on the CPU and read on the GPU gives the GPU's own rows.
+@testitem "detect_foerstner: FoerstnerTests on a RawMosaic and on CUDA, the rows bit-identical" setup = [FoerstnerFixture, NoisyMosaic, BayerDots] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: Disc, Point2
+    using Random: Xoshiro
+    identical(a, b) = length(a) == length(b) && isequal(collect(a), collect(b))
+    e = dot_scene(150, 150, dot_centres(3), 2.0)
+    m = noisy_mosaic(Xoshiro(2), (i, j) -> e[i, j], 150, 150; electrons_per_dn = 2.5, read_dn = 3.0)
+    model = pg_model(2.5, 3.0)
+    raw_seeds = detect_sfop(m; sensor_model = model, device = KA.CPU())
+    truth, img = blob_grid(120, 160)
+    seeds = [Detection(Disc(Point2(x, y), σ), (; precision = 1.0)) for ((x, y), σ) in zip(truth, Iterators.cycle((1.3, 1.8, 2.4)))]
+    calls(T, device) = (f_tests -> detect_foerstner(T, m, raw_seeds; sensor_model = model, device, f_tests),
+                        f_tests -> detect_foerstner(T, img, seeds; device, noise = 2.0, f_tests),
+                        f_tests -> detect_foerstner(T, img; device, noise = 2.0, f_tests))
+    host = FoerstnerTests()
+    for T in (Float32, Float64), call in calls(T, KA.CPU())
+        plain = call(nothing)
+        @test identical(call(host), plain)          # computed into the table
+        @test identical(call(host), plain)          # read from it
+    end
+    @test !isempty(host)
+    cuda = try
+        c = Base.require(Main, :CUDA)
+        (c !== nothing && Base.invokelatest(getproperty(c, :functional))) ? c : nothing
+    catch
+        nothing
+    end
+    if cuda === nothing
+        @test_skip "no functional CUDA device"
+    else
+        gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
+        device_tests = FoerstnerTests()
+        for T in (Float32, Float64), call in calls(T, gpu)
+            plain = Base.invokelatest(call, nothing)
+            @test identical(Base.invokelatest(call, device_tests), plain)
+            @test identical(Base.invokelatest(call, device_tests), plain)
+            @test identical(Base.invokelatest(call, host), plain)      # the CPU's table, read on the GPU
+        end
+    end
+end

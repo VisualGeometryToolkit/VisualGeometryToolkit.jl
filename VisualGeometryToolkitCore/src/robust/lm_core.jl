@@ -180,14 +180,16 @@ end
     for d in NLLSsolver.getx(data.linsystem)
         dx2 += Float64(d)^2
     end
-    return _relative_increment_met(sqrt(dx2), _free_norm(problem.variables, s.free), s.xtol_rel) ? (cost, _RELATIVE_INCREMENT_FLAG) : (cost, terminate)
+    return _relative_increment_met(sqrt(dx2), _free_norm(problem, s.free), s.xtol_rel) ? (cost, _RELATIVE_INCREMENT_FLAG) : (cost, terminate)
 end
 # A caller's callback stop with Core's flag cleared, so it never decodes as the relative step stop (a value that sets bit 15,
 # -1 or 2¹⁵: still a non-zero stop, its other bits kept): it stays a callback stop (`Terminated`, `Callback`).
 _callback_stop(terminate::Integer) = (t = terminate & ~_RELATIVE_INCREMENT_FLAG; t == 0 ? one(t) : t)
 # ‖x‖ over the free variables' coordinates in the exact-fit threshold's operand units (`_operand_unit`: a Euclidean coordinate
-# its value, a chart coordinate one chart unit).
-function _free_norm(variables, free)
+# its value, a chart coordinate one chart unit). A chart LM's one variable is its chart vector, centred at the
+# linearization point: one chart unit per coordinate, √N (the method beside `_DatumRows`, below).
+_free_norm(problem::NLLSsolver.NLLSProblem, free) = _variables_norm(problem.variables, free)
+function _variables_norm(variables, free)
     s = 0.0
     for i in eachindex(variables)
         _is_free(free, i) || continue
@@ -883,6 +885,8 @@ function lmsolve_chart!(
 end
 const _ONE_FREE = (true,)      # the chart LMs' one variable, free
 _operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the linearization point: a chart unit
+# the relative step stop's ‖x‖ in a chart LM (plain or robust): every coordinate one chart unit (`_free_norm`)
+_free_norm(::NLLSsolver.NLLSProblem{SVector{N, Float64}, <:Union{_ChartRows, _DatumRows}}, free) where {N} = sqrt(Float64(N))
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
 function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(; damping = p.damping); callback = nothing)

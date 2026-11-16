@@ -436,7 +436,7 @@ end
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
     # the direct lift: the 1-term linear start, then the 4-term refine at once
-    s1 = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, m, part, :image, (E._AXIS_FIXED..., :k2, :k3, :k4),
+    s1 = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, m, part, :image, (E._AXIS_FIXED..., E._axis_held(1)...),
                                 VgtkCore.default_device())
     direct = E._refine_camera(s1, m, part; fixed = E._AXIS_FIXED)
     @test norm(axis_pixel(direct) - AXIS_PIXEL) > 1.0

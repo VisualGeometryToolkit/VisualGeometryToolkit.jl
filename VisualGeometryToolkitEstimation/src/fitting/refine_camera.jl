@@ -491,8 +491,7 @@ function optical_axis(camera::BoundedCamera, region = VgtkCore.imaged_region(cam
         ))
         fitted = _AXIS_TERMS
     else
-        fold = Float64(view_angle_limit(lens(start)))
-        start_fold = fold < metadata(r).family.θ_max ? fold : nothing
+        start_fold = _start_fold(start, metadata(r).family.θ_max)
     end
     md = metadata(r)
     return FitResult(estimate(r), retcode(r), stop_rule(r), iterations(r), rms(r), r.n,
@@ -530,28 +529,31 @@ function _axis_fold_refits(src::CameraModel, part, device)
     # stall — a fit that did not converge, or one whose refined lens still folds inside the region it was fitted over
     # (`_folds_inside`: a tolerance stop can read converged with the axis unmoved) — is fitted again over the part of the
     # region inside the fold (`_inside_fold`); a fit that left the fold keeps its whole region.
-    fold = Float64(view_angle_limit(lens(start)))
-    folds = fold < metadata(r).family.θ_max
+    fold, start_fold = _fold_angle(start), _start_fold(start, metadata(r).family.θ_max)   # over the whole region
     # a stall is refitted when the region reaches past the disc a refit keeps, `_INSIDE_FOLD` of the start's fold; a start
     # folding just past the region's widest angle stalls as one folding inside it (an 8 mm fisheye, 0.03° past 96.4°).
     # Each refit: the disc inside `_INSIDE_FOLD` of the current start's fold (or of the last region's widest angle, if that
     # is smaller), at most `_FOLD_REFITS` times. A stall from a start folding farther out is not refitted.
     θ, s, refits = fold, start, 0
     near = _INSIDE_FOLD * fold < metadata(r).family.θ_max
-    while near && (!converged(r) || _folds_inside(r)) && refits < _FOLD_REFITS
+    while near && !_axis_fit_valid(r) && refits < _FOLD_REFITS
         inner = part ∩ _inside_fold(s, min(θ, metadata(r).family.θ_max))
         s = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
         r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
-        θ = Float64(view_angle_limit(lens(s)))
+        θ = _fold_angle(s)
         refits += 1
     end
-    return r, folds ? fold : nothing, converged(r) && !(near && _folds_inside(r))
+    return r, start_fold, near ? _axis_fit_valid(r) : converged(r)
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
 const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold angle, where the start's forward is monotonic
 # The validity gate of an axis fit from a folding start: its refined lens still folds before the widest angle of the region it
 # was fitted over (the residuals capped at the fold: the axis can sit unmoved at a tolerance stop).
-_folds_inside(r) = Float64(view_angle_limit(lens(estimate(r)))) < metadata(r).family.θ_max
+_folds_inside(r) = _fold_angle(estimate(r)) < metadata(r).family.θ_max
+# A camera's fold angle (its lens' `view_angle_limit`, radians), and a start's fold when it lies before `θ_max`, the
+# widest angle of the region (`nothing` otherwise: `metadata(r).family.start_fold`).
+_fold_angle(camera) = Float64(view_angle_limit(lens(camera)))
+_start_fold(start, θ_max) = (fold = _fold_angle(start); fold < θ_max ? fold : nothing)
 # The image disc inside a linear start's fold: about its principal point, out to its radius at `_INSIDE_FOLD` of the
 # fold angle (the start's forward is monotonic there), so the refit's start images every sample.
 function _inside_fold(start::CameraModel, fold::Float64)

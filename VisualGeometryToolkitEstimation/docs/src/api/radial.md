@@ -149,10 +149,12 @@ Three verbs regress one camera model onto a source camera over a region of its s
   no sample where the camera images nothing.
 
 A SplineLens camera's `K` is a gauge, so its ẑ and principal point are wherever its frame put them.
-`optical_axis(camera::BoundedCamera[, region])` is the one `approximate_camera` call that finds the lens's optical axis: the
-closest radially symmetric camera over the camera's own bound (a circular fisheye's image circle keeps its corners out),
-or over a given image region within it (a target's rectangle: the pixels whose rays are measured), with its principal
-point and its axis free. `fit_camera(SplineLens, …)` and the SplineLens
+`optical_axis(camera::BoundedCamera[, region])` finds the lens's optical axis: the closest radially symmetric camera
+over the camera's own bound (a circular fisheye's image circle keeps its corners out), or over a given image region
+within it (a target's rectangle: the pixels whose rays are measured), with its principal point and its axis free. It
+fits as `approximate_camera` does, order by order (1 → 2 → 3 → 4 radial terms, each refine from the last order's
+camera), and keeps the highest order that converged without folding inside the region
+(`metadata(r).family.fitted_terms`). `fit_camera(SplineLens, …)` and the SplineLens
 `refine_camera_and_poses` turn the camera onto that axis first (Core's `axis_gauged`).
 
 `fit_forward_spline(camera; tolerance)` gives a SplineLens camera its forward spline and keeps everything else — its

@@ -621,6 +621,21 @@ const _LM_LINEAR_FAILURES = Union{
 # The chart LM — NLLSsolver on a linearization state, and its stop codes
 # =============================================================================
 
+# The termination bits that state a non-finite value (NLLSsolver 5.3.4, `optimizeloop!` in src/optimize.jl): the cost
+# (0 `isinf(cost)`, 1 `isnan(cost)`) or the step (4 `isinf(maxstep)`, 5 `isnan(maxstep)`) of the last trial, a start
+# point whose cost or gradient is not finite (11, set before any iteration), a gradient that is not finite at an
+# accepted point (12, `!all(isfinite, getgrad(...))` after the relinearization). NOT bit 10, `!isapprox(cost_, cost)`:
+# the relinearization's cost against the iterate's at the same accepted point, under isapprox's default rtol = √ε and
+# atol = 0 — at an exact fit (a cost of 1e-24, every residual finite) the two evaluations' rounding differs by far more
+# than √ε relative, so bit 10 fires with nothing non-finite (Core 0.11.0 read it as a NaN wall: an exact fit Stalled,
+# NonFinite). NLLSsolver tests bit 10 only on an iteration that set no other bit (it `break`s first when `converged != 0`,
+# which a set bit 10 also makes the NEXT iteration do: the solve stops one iteration later, on that iteration's bits),
+# so `cost` is finite there; a non-finite relinearized cost `cost_` comes from non-finite residuals, which make the
+# gradient non-finite too (Jᵀr, a NaN or Inf row times any Jacobian entry): bit 12, tested right after. So bit 10
+# never adds a non-finite case the other bits miss: it counts NEVER — "only alongside a genuine non-finite bit" would
+# decide nothing that bit does not already. (Core 0.10.11 read bit 10 without a step stop as a failure too.)
+const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
+
 """
     nlls_stop_code(bits::Integer) -> Int
 
@@ -657,21 +672,6 @@ The cost disagreement (10) states nothing non-finite (Core 0.11.1; see
 solve one iteration later; with a tolerance's bit that stop is the tolerance's,
 alone it is a stop of no rule (`4`).
 """
-# The termination bits that state a non-finite value (NLLSsolver 5.3.4, `optimizeloop!` in src/optimize.jl): the cost
-# (0 `isinf(cost)`, 1 `isnan(cost)`) or the step (4 `isinf(maxstep)`, 5 `isnan(maxstep)`) of the last trial, a start
-# point whose cost or gradient is not finite (11, set before any iteration), a gradient that is not finite at an
-# accepted point (12, `!all(isfinite, getgrad(...))` after the relinearization). NOT bit 10, `!isapprox(cost_, cost)`:
-# the relinearization's cost against the iterate's at the same accepted point, under isapprox's default rtol = √ε and
-# atol = 0 — at an exact fit (a cost of 1e-24, every residual finite) the two evaluations' rounding differs by far more
-# than √ε relative, so bit 10 fires with nothing non-finite (Core 0.11.0 read it as a NaN wall: an exact fit Stalled,
-# NonFinite). NLLSsolver tests bit 10 only on an iteration that set no other bit (it `break`s first when `converged != 0`,
-# which a set bit 10 also makes the NEXT iteration do: the solve stops one iteration later, on that iteration's bits),
-# so `cost` is finite there; a non-finite relinearized cost `cost_` comes from non-finite residuals, which make the
-# gradient non-finite too (Jᵀr, a NaN or Inf row times any Jacobian entry): bit 12, tested right after. So bit 10 never adds a non-finite case the other bits miss: it counts NEVER —
-# "only alongside a genuine non-finite bit" would decide nothing that bit does not already. (Core 0.10.11 read bit 10
-# without a step stop as a failure; it is a report only, `nlls_stop_reasons`' `:cost_disagreement`.)
-const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
-
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
     increment = bit(6) || bit(_RELATIVE_INCREMENT_BIT)        # NLLSsolver's absolute step stop, or Core's relative one (`xtol_rel`)

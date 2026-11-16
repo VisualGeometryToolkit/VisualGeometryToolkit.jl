@@ -28,9 +28,9 @@ xtol = 1.0e-10
 # fit of record stops on ftol and the absolute xtol alone, as before 0.10.11, bit for bit; a fit whose unknowns sit far
 # from the origin (where an absolute 1e-10 step is below their rounding) states its own in its [lm] table.
 xtol_rel = 0.0
-# THE stationarity postcondition: the device LM's success rule and the host LM's verdict at a stop of no tolerance (the
-# rejection cap; the stop after a cost disagreement, NLLSsolver's bit 10 alone, Core 0.11.1) (a host
-# tolerance stop is converged without it, Core 0.11.0): the cost is zero by the
+# THE stationarity postcondition: the device LM's success rule and the host LM's verdict at a stop of no tolerance —
+# the rejection cap, or NLLSsolver's bit 10 alone (Core 0.11.1); a host tolerance stop is converged without it
+# (Core 0.11.0): the cost is zero by the
 # exact-fit test, or max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point. Measured 2026-10-01 (the cosine at
 # every step-size stop): genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM benchmark
 # scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a residual's rounding floor — the noiseless

@@ -1,3 +1,44 @@
+docs-pass: 8f15d3ed
+
+# VisualGeometryToolkitCore 0.10.11, VisualGeometryToolkitIO 0.10.5 and VisualGeometryToolkitEstimation 0.11.8 docs review (julia-docs-pass) — branch patch-w2
+
+Baseline: Core 0.10.10, IO 0.10.4 and Estimation 0.11.7, on origin/main a7cdde09. The review covers the tree 8f15d3ed.
+After it, only this record changes (`.release/` is outside the gate).
+
+## 1. Public API since Core 0.10.10 / IO 0.10.4 / Estimation 0.11.7
+
+- Core: no name added or removed. `LmStops` gains the keyword and field `xtol_rel` (Ceres' parameter tolerance, `[lm]
+  xtol_rel = 0.0`: none; ‖x‖ over the free variables, a chart LM's √N); `nlls_stop_reasons` names bit 31
+  `:relative_increment_size`, and `nlls_stop_code` / `nlls_termination` read it as the step-size stop (a caller's
+  callback value is handed on with that flag cleared). `projective_knots(n, p)` keeps its signature with a new rule
+  for `p > 1` (`m = n − 2p` spans to the radius, `p − 1` knots past it at the pixel spacing) and refuses `n ≤ 2p`.
+- IO: no name added or removed, no schema version moved. A projective vignetting record is read on Core 0.10.11's
+  knots; one of `n ≤ 2p` control points is refused by the reader (`ArgumentError` naming the record, its count and
+  degree, the minimum and the Core release). Core floor 0.10.11 in the package, test, docs and benchmark environments;
+  the fifteen byte-for-byte fixtures name generator 0.10.5.
+- Estimation: no name added or removed. `optical_axis` fits by order continuation; `metadata(r).family` gains
+  `fitted_terms`; configs/default.toml gains `[optical_axis] start_radial_terms = 1`. Core floor 0.10.10 in the
+  package, test and docs environments.
+
+## 2. Docstrings and pages brought up to date
+
+- Core: `LmStops` (the `xtol_rel` row), `nlls_stop_reasons` and `nlls_termination` (bit 31; the callback row excepts
+  it), `projective_knots` (the rule and why, the minimum `2p + 1`), `RadialVignetting`'s projective chart and the
+  batched API page's projective knots line; configs/default.toml `[lm] xtol_rel`. CHANGELOG 0.10.11: "Changed (stored
+  projective records)" states the rule change for `p > 1`, the refusal of `n ≤ 2p` and why.
+- IO: `load(AbstractVignetting, path)` (a radial profile's knots are its chart's rule; the refusal of `n ≤ 2p`) and
+  `save(path, ::AbstractVignetting)` ("bit for bit" holds for a profile on its chart's own knots: the record holds no
+  knots). The JSON Schemas are unchanged (the refusal is the reader's, not the validator's). CHANGELOG 0.10.5.
+- Estimation: `optical_axis` (the continuation, the hold rule, `fitted_terms`, the fold refit as the fallback), the
+  radial API page's `optical_axis` paragraph, configs/default.toml `start_radial_terms` with its derivation.
+  CHANGELOG 0.11.8.
+
+## 3. Gates
+
+Core, IO and Estimation docs builds strict (no `warnonly`), and every item of the three packages (`docs`, `README`,
+`quality`, `naming`, `agent docs` among them) in the patch-w2 gate at the final head. No README example changes: no
+README names `LmStops`, `projective_knots`, `optical_axis` or a vignetting record.
+
 docs-pass: fdf0418b
 
 # VisualGeometryToolkitCore 0.10.10 and VisualGeometryToolkitIO 0.10.4 docs review (julia-docs-pass) — branch patch-core0110

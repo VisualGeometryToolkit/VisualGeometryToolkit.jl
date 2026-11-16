@@ -196,8 +196,13 @@ end
     @test term === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && c == 1
     @test !VgtkCore._lm_stationary(ManifoldLmWorkspace(length(s), 4), lm, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # not stationary there
     # the same fit at the stack's settings is a success at a stationary point
-    _, _, c0, _, term0 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
+    x0, _, c0, _, term0 = lmsolve_chart!(ManifoldLmWorkspace(length(s), 4), lm)
     @test retcode_symbol(term0...) === :converged && c0 in (1, 2)
+    # the public form of the postcondition, for a caller whose own validity gate needs stationarity (Estimation's
+    # optical axis): the chart LM's rows at a point, under the stop settings' cosine and data resolution
+    @test !VgtkCore.is_stationary(ManifoldLmWorkspace(length(s), 4), lm, x, LmStops())
+    @test VgtkCore.is_stationary(ManifoldLmWorkspace(length(s), 4), lm, x0, LmStops())
+    @test VgtkCore.is_stationary(ManifoldLmWorkspace(length(s), 4), lm, x, LmStops(; residual_resolution = 1.0e6))   # zero to the data
 end
 
 @testset "a NaN trial is a rejected step" begin

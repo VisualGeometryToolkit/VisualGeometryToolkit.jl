@@ -410,6 +410,11 @@ end
     θfold, θmax = Float64(view_angle_limit(lens(start))), metadata(plain).family.θ_max
     @test θmax < θfold < θmax / E._INSIDE_FOLD
     @test !converged(plain) || (!E._folds_inside(plain) && norm(axis_pixel(plain) - AXIS_PIXEL) > 5.0)
+    # Estimation's own validity gate refuses that fit whatever the LM's verdict (on the axis: its regression stationary;
+    # no fold inside the region), and the whole-order fallback never reports an off-axis fit as holding
+    @test !E._axis_fit_valid(plain)
+    rf, _, ok = E._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
+    @test !ok || norm(axis_pixel(rf) - AXIS_PIXEL) < 5.0
     # the axis: the continuation over the whole region, on the stepwise path's axis, ~2 px from (512, 494) (the misfit's bias)
     r = optical_axis(src)
     md = metadata(r)

@@ -1,5 +1,45 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.11.1
+
+A patch: a rounding-level cost disagreement at an exact fit is no NaN wall (a 0.11.0 regression, found by the
+CaliBlobs 0.8.0 gate).
+
+### Fixed
+- **An exact fit of the host LM is converged again.** NLLSsolver's termination bit 10 (`:cost_disagreement`,
+  `!isapprox(cost_, cost)`: the relinearization's cost against the iterate's at an accepted point, at `isapprox`'s
+  default `rtol = √ε`) fires on rounding alone near an exact fit — two costs of ~1e-24 that differ in their last digits
+  differ by far more than √ε relative — with every residual finite. 0.11.0 decoded it with the genuinely non-finite
+  bits (0, 1, 4, 5, 11, 12), so a step-size stop beside it read as a NaN wall: `(ReturnCode.Stalled, NonFinite)`,
+  `converged = -2`, `converged(res)` false (0.10.11: `(Success, IncrementSize)`). The affected case: CaliBlobs'
+  README "refine a calibration from correspondences" (`refine_camera_and_poses` of a Division camera and six board
+  poses from exact correspondences, rms 1.8e-13 px, bits 1088 = 6 | 10). 0.11.1 counts only the non-finite bits
+  (`_NLLS_NONFINITE_BITS`): bit 10 never, since NLLSsolver tests it only on an iteration that set no other bit (the cost
+  finite), and a non-finite relinearized cost would make the gradient non-finite too (bit 12). With bit 10 the stop is
+  now decoded as the rest of its bits say: a step-size stop is `(Success, IncrementSize)`, a cost-decrease stop
+  `(Success, CostDecrease)`, and bit 10 alone (NLLSsolver stops one iteration after it) a stop of no rule, judged by the
+  stationarity postcondition (`Success` at an exact fit, else `Stalled`; `NoRule`). Those last two read
+  `(Failure, NonFinite)` in 0.11.0 and 0.10.11 alike; they are fixed with it. A genuine NaN wall is unchanged
+  (`(Stalled, NonFinite)`, the existing "a NaN wall at the production cost tolerance" test).
+- **What callers saw under 0.11.0, and what 0.11.1 restores** (every host-LM caller whose rows round the residual
+  differently in `computeresidual` and `computeresjac` — the hand-Jacobian blocks — and that reaches an exact fit):
+  - VisualGeometryToolkitEstimation `refine_camera_and_poses` (and CaliBlobs' calibration refine on it): an exact fit
+    read `Stalled`/`NonFinite` (bits 6 | 10) or `Failure`/`NonFinite` (bit 10 alone), `converged(res)` false;
+    0.11.1: `Success` (`IncrementSize`, or `NoRule` at the exact-fit test). Tested in Estimation's suite (four starts and
+    view counts, three of them not converged under 0.11.0).
+  - The other callers, by what they do with the record (none of their tests, nor targeted exact fits — 30 README-style
+    `find_homography` runs with exact inliers, 100 noiseless `refine_relative_pose` bundles, six `optical_axis` fits of
+    Kannala–Brandt cameras the axis family represents exactly — set bit 10 under 0.11.0; the full suites of
+    Estimation, PanoramaStitching 0.10.0 and LocalOptimizationDoneRight 0.7.1 were run with every bit-10 solve logged:
+    none): Estimation's `optical_axis` validity gate (`_axis_fit_valid`: converged, stationary, no fold inside) would
+    have rejected such an order — 0.11.1 accepts it; the relpose bundle (`refine_relative_pose`, the
+    `RelposeBundleProblem` LO refit) keeps a `Stalled` pose but returns `nothing` on `Failure`, so bit 10 alone or with
+    a cost-decrease stop refused an exact two-view fit (since 0.10.11 at least) — 0.11.1 returns it; an LO refit's
+    record enters the RANSAC result through `worst_retcode` (`_terminal_record`), so the result read `Stalled`/`Failure`
+    (`NonFinite`) — 0.11.1 keeps the search's; PanoramaStitching's rotation bundle returns the record as it is.
+  `stationarity_tol` and `residual_resolution` are again read by a host verdict, at that stop of no rule (0.11.0 read
+  them only in `is_stationary`).
+
 ## 0.11.0
 
 A breaking release: the host LM's termination semantics. A stop on a tolerance is converged. Every in-repo dependent's

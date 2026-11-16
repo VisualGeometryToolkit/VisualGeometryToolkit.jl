@@ -112,15 +112,16 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `ftol` | relative cost tolerance (`[lm]` 1e-10): stop once a step lowers the cost by less than `ftol`·F (a relative tolerance: never the exact-fit test, whose threshold is the final point's rounding, `_exact_fit_threshold`) | `reldcost` |
 | `xtol` | step tolerance (`[lm]` 1e-10) | `dstep`: ABSOLUTE, the step's max-norm in chart units (max\\|pᵢ\\| < xtol) |
 | `xtol_rel` | RELATIVE step tolerance (`[lm]` 0: none), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ `xtol_rel`·(‖x‖ + `xtol_rel`), Euclidean norms of the step and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart unit: the exact-fit threshold's operand units, `_operand_unit`). A step-size stop like `xtol`'s (`IncrementSize`: converged, `Success`) | — (the stack's own test, `_RelativeIncrementStop`, in NLLSsolver's callback slot: a callback's flag `2¹⁵` is Core's own) |
-| `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05). Read only by [`is_stationary`](@ref) (no host verdict uses it since 0.11.0: a tolerance stop is converged, and the rejection cap that read it is unreachable through NLLSsolver 5.3's LM) | — (the stack's own test, [`is_stationary`](@ref)) |
+| `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05). Read by [`is_stationary`](@ref), and by the host verdict only at a stop of no tolerance: the rejection cap (unreachable through NLLSsolver 5.3's LM) and the stop one iteration after a cost disagreement (NLLSsolver's bit 10 alone, Core 0.11.1); a tolerance stop is converged without it (0.11.0) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
-| `residual_resolution` | read only by [`is_stationary`](@ref) (no host verdict uses it since 0.11.0); the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
+| `residual_resolution` | read by [`is_stationary`](@ref), and by the host verdict only where `stationarity_tol` is; the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
 | `damping` | the step's damping, a strategy type: [`MarquardtDamping`](@ref) (the default, λ·DᵀD) or [`LevenbergDamping`](@ref) (λ·I) | `iterator`: `:levenbergmarquardt_dtd` / `:levenbergmarquardt` |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 
 The initial λ is NLLSsolver's (`1e-6`), not a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
-tolerance: a tolerance stop is converged, and the stationarity postcondition judges the rejection cap ([`lmsolve_chart!`](@ref)).
+tolerance: a tolerance stop is converged, and the stationarity postcondition judges the rejection cap and the stop after a cost
+disagreement ([`lmsolve_chart!`](@ref)).
 """
 struct LmStops{D <: LmDamping}
     max_iter::Int
@@ -560,7 +561,8 @@ end
 # converged, `Success`, whatever the gradient there (whether the tolerance is too loose is the configuration's
 # question). The stationarity postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold
 # the final point's `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides only the
-# stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule). A stop it fails is
+# stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule: the iteration after a
+# cost disagreement, NLLSsolver's bit 10 alone, Core 0.11.1). A stop it fails is
 # `_LM_STALLED`. `nlls_termination` is the one decider: it reads the postcondition (lazily) only where it decides, and the
 # stop code follows its record.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
@@ -629,10 +631,9 @@ of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 [`nlls_stop_reasons`](@ref) for every bit that is set). One order, the first
 that applies:
 
-1. a failure — a non-finite cost (0, 1) or step (4, 5), a cost disagreement
-   (10), a start point whose cost or gradient is not finite (11), a gradient
-   that is not finite at an accepted point (12) — WITHOUT a
-   step-size stop: `-3`, `:solve_failed`;
+1. a failure — a non-finite cost (0, 1) or step (4, 5), a start point whose
+   cost or gradient is not finite (11), a gradient that is not finite at an
+   accepted point (12) — WITHOUT a step-size stop: `-3`, `:solve_failed`;
 2. the same non-finite bits WITH a step-size stop — the last trial non-finite, the step tiny because no finite one is
    left (a NaN wall): `-2` (`_LM_STALLED`), `:stalled`: no convergence (Core 0.11.0: a tolerance converges a FINITE
    step only), the returned point the last accepted one;
@@ -644,16 +645,37 @@ that applies:
 5. the consecutive-failure cap (7): `4`, the postcondition decides it;
 6. the time cap (9): `-4`, `:max_time`; then the iteration cap (8): `-1`,
    `:max_iterations`;
-7. anything else (16, a user callback): `4`.
+7. anything else (16, a user callback; 10 alone, the stop one iteration after a
+   cost disagreement): `4`.
 
 A non-finite TRIAL at a step-size stop (bits 0 or 1 with 6: the chart LM's
 NaN wall, its non-finite cost read as +Inf) is no failure — NLLSsolver returns the
 last accepted, finite point — and no convergence either: a stall.
+
+The cost disagreement (10) states nothing non-finite (Core 0.11.1; see
+`_NLLS_NONFINITE_BITS`): an exact fit sets it at rounding level. It stops the
+solve one iteration later; with a tolerance's bit that stop is the tolerance's,
+alone it is a stop of no rule (`4`).
 """
+# The termination bits that state a non-finite value (NLLSsolver 5.3.4, `optimizeloop!` in src/optimize.jl): the cost
+# (0 `isinf(cost)`, 1 `isnan(cost)`) or the step (4 `isinf(maxstep)`, 5 `isnan(maxstep)`) of the last trial, a start
+# point whose cost or gradient is not finite (11, set before any iteration), a gradient that is not finite at an
+# accepted point (12, `!all(isfinite, getgrad(...))` after the relinearization). NOT bit 10, `!isapprox(cost_, cost)`:
+# the relinearization's cost against the iterate's at the same accepted point, under isapprox's default rtol = √ε and
+# atol = 0 — at an exact fit (a cost of 1e-24, every residual finite) the two evaluations' rounding differs by far more
+# than √ε relative, so bit 10 fires with nothing non-finite (Core 0.11.0 read it as a NaN wall: an exact fit Stalled,
+# NonFinite). NLLSsolver tests bit 10 only on an iteration that set no other bit (it `break`s first when `converged != 0`,
+# which a set bit 10 also makes the NEXT iteration do: the solve stops one iteration later, on that iteration's bits),
+# so `cost` is finite there; a non-finite relinearized cost `cost_` comes from non-finite residuals, which make the
+# gradient non-finite too (Jᵀr, a NaN or Inf row times any Jacobian entry): bit 12, tested right after. So bit 10 never adds a non-finite case the other bits miss: it counts NEVER —
+# "only alongside a genuine non-finite bit" would decide nothing that bit does not already. (Core 0.10.11 read bit 10
+# without a step stop as a failure; it is a report only, `nlls_stop_reasons`' `:cost_disagreement`.)
+const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
+
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
     increment = bit(6) || bit(_RELATIVE_INCREMENT_BIT)        # NLLSsolver's absolute step stop, or Core's relative one (`xtol_rel`)
-    nonfinite = any(bit, (0, 1, 4, 5, 10, 11, 12))
+    nonfinite = any(bit, _NLLS_NONFINITE_BITS)
     nonfinite && !increment && return _LM_FAILED
     nonfinite && return _LM_STALLED      # a step stop at a non-finite trial (a NaN wall): no convergence (Core 0.11.0)
     increment && return 2
@@ -681,7 +703,10 @@ bit order: `:cost_infinite` (0), `:cost_nan` (1), `:relative_cost_decrease`
 `:delta_infinite` (4), `:delta_nan` (5), `:delta_size` (6, the LM update δ below `dstep`),
 `:max_consecutive_rejections` (7, `maxfails` iterations whose cost exceeded the
 best), `:max_iterations` (8), `:max_time` (9), `:cost_disagreement` (10, the
-residual and the residual-Jacobian evaluations disagree), `:nonfinite_start`
+cost and the relinearization's cost at an accepted point differ beyond `isapprox`'s
+default tolerance — rounding near an exact fit sets it; NLLSsolver stops one iteration
+later, and it is no failure),
+`:nonfinite_start`
 (11, the start point's cost or gradient is not finite: no step is tried),
 `:nonfinite_gradient` (12, the gradient at an accepted point is not finite: the
 solve stops there, its best point kept), `:callback` (16), `:relative_increment_size`
@@ -703,12 +728,13 @@ decoded in `nlls_stop_code`'s one order:
 | bits (the first that applies) | `StopRule` | `ReturnCode` |
 |:--|:--|:--|
 | 11, a non-finite start point (no step tried) | `NonFinite` | `InitialFailure` |
-| 0, 1, 4, 5, 10, 12 without a step-size stop | `NonFinite` | `Failure` |
-| 0, 1, 4, 5, 10, 12 with a step-size stop (a NaN wall: the last trial non-finite) | `NonFinite` | `Stalled` (no convergence: a tolerance converges a finite step only) |
+| 0, 1, 4, 5, 12 without a step-size stop | `NonFinite` | `Failure` |
+| 0, 1, 4, 5, 12 with a step-size stop (a NaN wall: the last trial non-finite) | `NonFinite` | `Stalled` (no convergence: a tolerance converges a finite step only) |
 | 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`), every trial finite | `IncrementSize` | `Success` (a tolerance met: converged) |
 | 2, 3, a cost decrease | `CostDecrease` | `Success` (a tolerance met: converged) |
 | 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
 | 16 and above only (31 excepted: a callback's own value never sets it), a user callback | `Callback` | `Terminated` |
+| 10 alone, the stop one iteration after a cost disagreement (rounding at an exact fit: nothing non-finite) | `NoRule` | `Success` if the postcondition holds, else `Stalled` |
 | 9, the time cap | `TimeCap` | `MaxTime` |
 | 8, the iteration cap | `IterationCap` | `MaxIters` |
 
@@ -791,8 +817,10 @@ relative cost decrease (`ftol`, `CostDecrease`) and the step size (`xtol` absolu
 configuration's question, not the termination record's. A FINITE step only: a step-size stop whose last trial was
 non-finite (a NaN wall, the step tiny because no finite one is left) is `(ReturnCode.Stalled, NonFinite)`,
 `converged = -2`, at the last accepted point. The iteration and time caps are not converged (`MaxIters`,
-`MaxTime`), a failed solve is `Failure`. Only the consecutive-rejection cap, which is no tolerance, is judged by the
-stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
+`MaxTime`), a failed solve is `Failure`. A rounding-level cost disagreement (NLLSsolver's bit 10, as at an exact fit)
+is neither (Core 0.11.1): a tolerance's stop beside it is that tolerance's, and the stop it makes alone one iteration
+later is of no rule. Only the stops that are no tolerance — the consecutive-rejection cap and that stop of no rule — are
+judged by the stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
 final point's residuals, `F < (16ε)²·Σᵢ sᵢ²` over their operand scales sᵢ (`_exact_fit_threshold`, Core 0.10.4: a
 run that starts at an exact fit, a restart from a solve's minimum, ends at one), floored by the square of the
 residual-vector norm the data resolve, `stops.residual_resolution` (`0` by default; `stops.ftol` is the relative

@@ -285,13 +285,15 @@ function _f_critical(::Nothing, taps, ρ, noise, significance_level)
     return (quantile(f, significance_level), quantile(f, 1 - significance_level))
 end
 # The level is keyed as given, with its type: `1 − level` is computed in it, so 0.999 and 999//1000 (or 0.999f0 and its
-# Float64) are different entries.
-_f_critical(t::FoerstnerTests, taps, ρ, noise, significance_level) =
-    lock(t.lock) do
-        get!(t.critical, (Matrix{Float64}(taps), Int(ρ), noise, (typeof(significance_level), significance_level))) do
-            _f_critical(nothing, taps, ρ, noise, significance_level)
-        end
-    end
+# Float64) are different entries. The value is computed outside the lock: threads sharing a table wait only for the
+# dictionary, never for one another's host linear algebra (a duplicate on a race is the same deterministic value).
+function _f_critical(t::FoerstnerTests, taps, ρ, noise, significance_level)
+    key = (Matrix{Float64}(taps), Int(ρ), noise, (typeof(significance_level), significance_level))
+    known = lock(() -> get(t.critical, key, nothing), t.lock)
+    known === nothing || return known
+    value = _f_critical(nothing, taps, ρ, noise, significance_level)
+    return lock(() -> get!(t.critical, key, value), t.lock)
+end
 
 # The seeded call's keywords, once for both inputs (the pixel noise already resolved): the image-wide search's are not
 # read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.

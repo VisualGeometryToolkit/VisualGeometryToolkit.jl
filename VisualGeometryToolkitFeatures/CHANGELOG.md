@@ -1,5 +1,11 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.7
+
+A patch: on VisualGeometryToolkitCore 0.11 and VisualGeometryToolkitEstimation 0.12 (`[compat]` `"0.11"`, `"0.12"`).
+Features' refinement runs Core's device LM (`static_lm`), whose success rule Core 0.11.0 keeps (stationary and
+accepted), and it reads no host-LM verdict; no behaviour or API changes.
+
 ## 0.9.6
 
 A patch for SFOP's wrong detections on the RAW chrome photographs: a polarity gate, the sensor model's noise in

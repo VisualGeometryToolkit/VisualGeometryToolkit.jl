@@ -1,5 +1,25 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.12.0
+
+A minor (breaking) release on VisualGeometryToolkitCore 0.11.0, whose host LM marks a tolerance stop converged
+(`[compat]` VisualGeometryToolkitCore `"0.11"`). Estimation's code paths are unchanged (its docstrings now state Core's rule); what its fits report and return
+moves with Core's success rule, so the version moves with it.
+
+### Changed (breaking)
+
+- **A fit on Core's host LM that stops on a tolerance reports `ReturnCode.Success`.** `refine_camera_and_poses`,
+  `refine_robot_world_hand_eye`, `refine_camera`, `optical_axis`, the relative-pose bundle and every other fit whose
+  record is `lmsolve_chart!`'s now return `(Success, CostDecrease)` or `(Success, IncrementSize)` where 0.11.8 returned
+  `(Stalled, …)` at a non-stationary point. `Stalled` remains for the rejection cap short of a stationary point.
+- **Results can move where a fit branches on that record.** `optical_axis`'s order continuation keeps the highest order
+  whose refine converged without its lens folding inside the region (`_axis_fit_valid`): an order whose refine stopped
+  on a tolerance short of a stationary point now holds where 0.11.8 refused it, so `metadata(r).family.fitted_terms`
+  (and with it the axis) can differ. The fold gate (`_folds_inside`, 0.11.8) still refuses a fit that folds inside the
+  region, whatever the LM's verdict. A RANSAC's record (`worst_retcode` of the search and its refits) reads the new
+  verdict too; the LO refits do not read it (the scoring decides), so a RANSAC's model and inliers are unchanged.
+- **Migration.** A caller that read `Stalled` from these fits as "short of a minimum" tests the estimate itself (its own
+  validity gate, or Core's `is_stationary` on its rows), or tightens the fit's `ftol` / `xtol`.
 ## 0.11.9
 
 A patch: the exact resample of a SplineLens source (`fit_camera(SplineLens, source, region; …)`) returns a lattice

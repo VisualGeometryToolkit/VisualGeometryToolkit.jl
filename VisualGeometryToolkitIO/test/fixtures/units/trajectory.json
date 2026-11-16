@@ -2,7 +2,7 @@
     "schema": "vgio/trajectory/v5.0",
     "generator": {
         "name": "VisualGeometryToolkitIO",
-        "version": "0.10.5"
+        "version": "0.10.6"
     },
     "units": {
         "length": "mm",

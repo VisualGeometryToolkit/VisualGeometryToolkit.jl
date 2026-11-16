@@ -1,5 +1,10 @@
 # PoseLib changelog
 
+## 0.3.1
+
+A patch: on VisualGeometryToolkitCore 0.11 (`[compat]` `"0.11"`). PoseLib's refiners report PoseLib's own
+termination, not Core's host LM, so no behaviour or API changes.
+
 ## 0.3.0 (unreleased)
 
 The breaking wave 10, on VisualGeometryToolkitCore 0.10.

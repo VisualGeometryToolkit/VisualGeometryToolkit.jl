@@ -1,5 +1,11 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.6
+
+A patch: on VisualGeometryToolkitCore 0.11 (`[compat]` `"0.11"`). IO does not read Core's LM verdict, so no reader,
+writer or schema changes; a stored fit record's `retcode` is written and read as it is given. The fifteen fixtures a
+writer reproduces byte for byte name their generator 0.10.6 (their envelope `generator.version`; no number changes).
+
 ## 0.10.5
 
 A patch for VisualGeometryToolkitCore 0.10.11, whose projective knot rule changed for degree `p > 1`. No kind's schema

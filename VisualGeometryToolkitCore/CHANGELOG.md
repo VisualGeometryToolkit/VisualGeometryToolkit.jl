@@ -1,8 +1,27 @@
 # VisualGeometryToolkitCore changelog
 
-## 0.11.0 (unreleased; breaking, with the stack cascade)
+## 0.11.0
 
-### Changed (breaking)
+A breaking release: the host LM's termination semantics. A stop on a tolerance is converged. Every in-repo dependent's
+`[compat]` moves to `"0.11"` in the same commit (VisualGeometryToolkitEstimation 0.12.0, VisualGeometryToolkitIO 0.10.6,
+VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.3.1).
+
+### Breaking
+
+- **The host LM's success rule.** `lmsolve_chart!` (all three forms: the chart LM, the robust chart LM and an
+  `LmProblem`) and `nlls_termination` now return `(ReturnCode.Success, CostDecrease)` for an `ftol` stop and
+  `(ReturnCode.Success, IncrementSize)` for an `xtol` or `xtol_rel` stop, without testing stationarity. Until 0.10.11
+  such a stop at a non-stationary point was `(ReturnCode.Stalled, …)`, `converged = -2`. `Stalled` now comes only from
+  the consecutive-rejection cap (or a stop of no rule) short of a stationary point. The device LM (`static_lm`) is
+  unchanged.
+- **Migration.** Code that read `Stalled` (or `!converged(r)`, `!successful_retcode(retcode(r))`) as "the fit stopped
+  short of a minimum" after a tolerance stop no longer sees it. A caller that needs the old meaning tests the point
+  itself: `is_stationary(J, f; tol, ftol)` on its rows, or the caller's own validity gate (VisualGeometryToolkitEstimation
+  0.11.8's `optical_axis` reads its fold gate, for example). A caller whose tolerance is too loose for its problem
+  tightens `ftol` / `xtol` / `xtol_rel` in its `LmStops` or its `[lm]` table. Nothing else changes: the stop settings,
+  the iteration and time caps (`MaxIters`, `MaxTime`), the failure codes and the stop rules are as in 0.10.11.
+
+### Changed (the ruling)
 - **A tolerance stop of the host LM is converged** (owner ruling, 2026-11-15: "if it hits our tolerance we mark it as
   converged; whether the tolerance is too loose is another story"). `lmsolve_chart!` (every form) and `nlls_termination`
   map a stop on the relative cost decrease (`ftol`, `CostDecrease`) or on the step size (`xtol`, or the new `xtol_rel`,

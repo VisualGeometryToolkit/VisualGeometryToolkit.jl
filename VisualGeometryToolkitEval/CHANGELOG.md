@@ -1,5 +1,10 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.9.2
+
+A patch: on VisualGeometryToolkitCore 0.11 and VisualGeometryToolkitEstimation 0.12 (`[compat]` `"0.11"`, `"0.12"`).
+Eval reads no LM verdict (no `converged`, `retcode` or `Stalled` in its code); no behaviour or API changes.
+
 ## 0.9.1
 
 On VisualGeometryToolkitCore 0.10.7, VisualGeometryToolkitIO 0.10.3 and VisualGeometryToolkitEstimation 0.11.5 (unchanged).

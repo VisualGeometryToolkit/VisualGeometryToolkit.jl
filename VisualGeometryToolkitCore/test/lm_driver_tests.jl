@@ -151,7 +151,7 @@ end
     # The stack's ftol (1e-10, Core's configs [lm]): near the wall the last steps'
     # cost decrease and step size shrink together; the step stop is decoded
     # first. A step-size stop is a tolerance met: converged (owner ruling, Core
-    # 0.10.11), though the point is the wall's, not the minimizer's — whether the
+    # 0.11.0), though the point is the wall's, not the minimizer's — whether the
     # tolerance is too loose is the configuration's question.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
     x, F, c, _, term = lmsolve_chart!(ManifoldLmWorkspace(5, 4), lm_wall)
@@ -789,8 +789,8 @@ end
 
 # Core 0.10.11: the RELATIVE step tolerance `xtol_rel`, Ceres' parameter tolerance — stop once ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
 # (Euclidean norms; ‖x‖ over the free variables, a chart coordinate one chart unit) — alongside the absolute `xtol` (NLLSsolver's
-# `dstep`) and the per-step relative `ftol`, all read through `LmStops`. A step-size stop: its verdict is the stationarity
-# postcondition's, Success at a stationary point (the termination record's `IncrementSize`). A problem far from the origin,
+# `dstep`) and the per-step relative `ftol`, all read through `LmStops`. A step-size stop: converged (Core 0.11.0: `Success`,
+# the termination record's `IncrementSize`). A problem far from the origin,
 # whose absolute step stops a 1e-10 tolerance never reaches before the rounding of x: with ftol = xtol = 0 the fit runs to its
 # cap; with xtol_rel = 1e-6 it stops at the first step below 1e-6·‖x‖ = 100.
 @testitem "lmsolve_chart!(::LmProblem): the relative step tolerance xtol_rel (Ceres' parameter tolerance)" begin
@@ -859,7 +859,7 @@ end
     # the test itself: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
     @test VgtkCore._relative_increment_met(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_increment_met(1.1, 1.0e6, 1.0e-6)
     @test !VgtkCore._relative_increment_met(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never
-    # its termination bit (31) decodes as a step-size stop, under the postcondition
+    # its termination bit (31) decodes as a step-size stop: a tolerance, converged
     @test VgtkCore.nlls_termination(1 << 31, true) == (ReturnCode.Success, IncrementSize)
     @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Success, IncrementSize)   # a tolerance: converged
     @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_increment_size] && VgtkCore.nlls_stop_code(1 << 31) == 2

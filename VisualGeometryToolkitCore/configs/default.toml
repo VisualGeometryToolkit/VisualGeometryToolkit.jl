@@ -19,16 +19,17 @@ max_iter = 25
 max_iter = 1000
 # The relative cost tolerance (NLLSsolver's `reldcost`: stop once a step lowers the cost by less than ftol·F).
 # eps runs every refit to its rounding floor; 1e-10 stops it once the cost has settled (the LO-refit
-# measurements: CHANGELOG.md, the LM driver). Also the stationarity postcondition's exact-fit test (F < ftol).
+# measurements: CHANGELOG.md, the LM driver). A stop on it is converged (Core 0.11.0).
 ftol = 1.0e-10
 # The step tolerance: NLLSsolver's `dstep`, ABSOLUTE (max|pᵢ| < xtol, chart units; a chart LM starts at x = 0).
 xtol = 1.0e-10
 # The RELATIVE step tolerance (Core 0.10.11), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
-# (Euclidean, over the free variables; a step-size stop, its verdict the stationarity postcondition's). 0: none — every
+# (Euclidean, over the free variables; a step-size stop: converged, Core 0.11.0). 0: none — every
 # fit of record stops on ftol and the absolute xtol alone, as before 0.10.11, bit for bit; a fit whose unknowns sit far
 # from the origin (where an absolute 1e-10 step is below their rounding) states its own in its [lm] table.
 xtol_rel = 0.0
-# THE stationarity postcondition every LM's success requires (host and device alike): the cost is zero by the
+# THE stationarity postcondition: the device LM's success rule and the host LM's rejection-cap verdict (a host
+# tolerance stop is converged without it, Core 0.11.0): the cost is zero by the
 # exact-fit test, or max_j |J_jᵀf| / (‖J_j‖‖f‖) ≤ this at the returned point. Measured 2026-10-01 (the cosine at
 # every step-size stop): genuine convergence on noisy data ≤ 6.2e-7 (218 346 LO refits of the LM benchmark
 # scenes; the RVG suite's noisy fits ≤ 4e-8); convergence at a residual's rounding floor — the noiseless

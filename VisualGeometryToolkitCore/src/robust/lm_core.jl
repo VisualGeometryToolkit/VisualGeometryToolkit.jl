@@ -4,9 +4,9 @@
 #
 # Every nonlinear least-squares fit of the stack runs through this file: ONE host
 # adapter over NLLSsolver, `lmsolve_chart!`, under ONE owner of the stop settings,
-# `LmStops` (configs/default.toml [lm]), with ONE success rule (the stationarity
-# postcondition at the returned point, at every stop that is not a failure or a
-# cap); and ONE device LM, `static_lm` (a KernelAbstractions kernel's fixed-N solve,
+# `LmStops` (configs/default.toml [lm]), with ONE success rule (a tolerance stop
+# is converged; the stationarity postcondition at the returned point judges the
+# rejection cap; Core 0.11.0); and ONE device LM, `static_lm` (a KernelAbstractions kernel's fixed-N solve,
 # which NLLSsolver's heap problems cannot be), under `StaticLmStops`, owned with the
 # host's and judged by the same rule. No package calls NLLSsolver's solver API or the
 # adapter's internals directly: `check_duplication`'s `:lm_primitive` pattern fails
@@ -119,7 +119,7 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 
 The initial λ is NLLSsolver's (`1e-6`), not a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
-tolerance: success is the stationarity postcondition's ([`lmsolve_chart!`](@ref)).
+tolerance: a tolerance stop is converged, and the stationarity postcondition judges the rejection cap ([`lmsolve_chart!`](@ref)).
 """
 struct LmStops{D <: LmDamping}
     max_iter::Int
@@ -738,9 +738,10 @@ const _LM_MAX_TIME = -4
 """
     _LM_STALLED
 
-The code [`lmsolve_chart!`](@ref) returns in place of a cost-decrease, step-size
-or tolerance-free stop (`1`, `2`, `4`) when the returned point fails the
-stationarity test: `-2`; its record is `ReturnCode.Stalled`.
+The code [`lmsolve_chart!`](@ref) returns in place of the tolerance-free stop
+(`4`: the rejection cap, a stop of no rule) when the returned point fails the
+stationarity test: `-2`; its record is `ReturnCode.Stalled`. A tolerance stop
+(`1`, `2`) is converged without the test (Core 0.11.0).
 """
 const _LM_STALLED = -2
 
@@ -992,8 +993,9 @@ evaluated is a stationary point of `F = ‖f‖²` — `F < ftol` (an exact fit,
 whose residual points in no particular direction), or every column `Jⱼ`
 numerically orthogonal to `f`, `max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖) ≤ tol`
 (scale-invariant in the residuals and in each unknown; an all-zero column is
-skipped, a NaN fails). A fit whose solver stopped without this holding stopped
-where its damping grew, not at a minimizer: its retcode is `:stalled`.
+skipped, a NaN fails). A rejection-cap stop at which this fails stopped where
+its damping grew, not at a minimizer: its retcode is `:stalled` (a tolerance stop is
+converged without it, Core 0.11.0).
 """
 function is_stationary(J::AbstractMatrix, f::AbstractVector; tol::Real, ftol::Real)
     sum(abs2, f) < ftol && return true

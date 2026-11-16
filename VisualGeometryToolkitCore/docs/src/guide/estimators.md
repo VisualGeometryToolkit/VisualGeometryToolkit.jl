@@ -245,12 +245,13 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   its own robustifier). Its stop settings have ONE owner, `LmStops`
   (configs/default.toml `[lm]`); an `LmProblem`'s damping is the problem's own
   (its kept cache is built for it: the default stops take it, explicit stops of
-  another damping are refused). Every solve has ONE success rule: the
-  stationarity postcondition at the returned point (`is_stationary`), at every
-  stop that is not a failure or a cap, a cost below the final point's rounding
+  another damping are refused). Every solve has ONE success rule (Core 0.11.0):
+  a tolerance stop (`ftol`, `xtol`, `xtol_rel`) is converged, and the
+  consecutive-rejection cap is judged by the stationarity postcondition at the
+  returned point (`is_stationary`), a cost below the final point's rounding
   ((16ε)²·Σᵢ sᵢ² over the residuals' operand scales, floored by the data's
   `residual_resolution`²) an exact fit. A kernel's fixed-N solve is the one device
-  LM, `static_lm`, under `StaticLmStops` and the same rule. No package calls
+  LM, `static_lm`, under `StaticLmStops` and its own rule (stationary and accepted). No package calls
   NLLSsolver's solver API directly: `check_duplication` fails it. The Schur
   complement (NLLSsolver pull request #60, still
   open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The

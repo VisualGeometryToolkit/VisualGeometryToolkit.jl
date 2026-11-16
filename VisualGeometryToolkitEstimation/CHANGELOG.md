@@ -14,13 +14,14 @@ whose valid domain always holds the region, a region on the source's lattice edg
   `extend_lattice` rightly added no ring, and the result's domain could come back a rounding inside the region:
   0.11.8's axis (its order continuation) left the top edge of a Schöps source over a 640 × 480 sensor 2.8e-14 px
   below the sensor's, and `region ⊆ valid_domain` refused it. The turned lattice's area is now searched, per axis, so
-  that each edge of its valid domain is the extended lattice's, or the region's where the region reaches past it
-  within the extension's rounding tolerance, and Core's support guard checks the result. An edge is exact wherever a
-  float lands on it, otherwise rounded OUTWARD to the nearest edge Core's map of the area through K′ reaches: one
-  step of that map, fx·eps(x) px, so the domain claims at most that step beyond the data (2.8e-14 px here: the map
-  skips the float 0 at that edge). Of the area values giving that edge the outermost is taken, so a pixel on the
-  edge back-projects. Core's `⊆` and the gauge K′ are unchanged; the controls and the presence mask are kept, and the
-  area moves by a few ulps, so a ray moves by that rounding of its lattice coordinate.
+  that its valid domain holds the extended lattice's and, by Core's own `⊆`, the region wherever the region reaches
+  past the lattice's edge within the extension's rounding tolerance (1e-9 of a cell, where no ring is added). An edge
+  is exact wherever a float lands on it, otherwise rounded OUTWARD to the nearest edge Core's map of the area through
+  K′ reaches: one step of that map, fx·eps(x) px, so the domain claims at most that step beyond the data (2.8e-14 px
+  here: the map skips the float 0 at that edge). Of the area values giving that edge the outermost is taken, so a
+  pixel on the edge back-projects. Core's `⊆` and the gauge K′ are unchanged; the controls and the presence mask are
+  kept. The area moves by a few ulps, or by as far as the region reaches past the edge (at most the extension's
+  tolerance), so a ray moves by at most that much of its lattice coordinate.
 - **RadiometricCamera 0.11.3's exact start works again.** On 0.11.8, `exact_start` of a SplineLens source whose
   resampled support is not exact (a Schöps source calibrated over the whole sensor; a subdivided start of one) threw
   `RegionBeyondSupport` in its coverage check: three items of RadiometricCamera 0.11.3's own grid I/O and lattice

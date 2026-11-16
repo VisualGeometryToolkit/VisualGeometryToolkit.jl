@@ -324,9 +324,11 @@ end
     src = BoundedCamera(CameraModel(SplineLens, controls, Size2(640, 480); calib_area = Rect(0, 0, 640, 480), unit_controls = true), Size2(640, 480))
     R(r) = SMatrix{3, 3, Float64}(rotation(metadata(r).rotation))
     edges(b) = SVector(minimum(b)..., maximum(b)...)
-    # one step of K′'s map here: fx·eps(x) ≈ 1340 · 2.8e-17 ≈ 3.7e-14 px (the edge found 2.8e-14 px outside 0)
-    within_ulp(b, target) = maximum(abs.(edges(b) - edges(target))) <= 1.0e-13
-    for (region, spacing) in ((sensor, nothing), (sensor, 80.0), (sensor ∩ Ellipse(SVector(320.0, 240.0), 380.0, 380.0, 0.0), nothing))
+    # one step of K′'s map (fx·eps(x) ≈ 1340 · 2.8e-17 ≈ 3.7e-14 px: the edge found 2.8e-14 px outside 0), or one ulp of 640
+    within_ulp(b, target) = maximum(abs.(edges(b) - edges(target))) <= 2 * eps(640.0)
+    # (a coverage disc whose bounding box's far edge is a rounded sum, 0.1 + 639.9: the region's own bounds are Core's `⊆`'s)
+    for (region, spacing) in ((sensor, nothing), (sensor, 80.0), (sensor ∩ Ellipse(SVector(320.0, 240.0), 380.0, 380.0, 0.0), nothing),
+                              (sensor ∩ Ellipse(SVector(320.05, 240.0), 319.95, 400.0, 0.0), nothing))
         r = fit_camera(SplineLens, src, region; tolerance = Inf, forward = false, lattice_spacing = spacing)
         cam = estimate(r)
         @test region ⊆ valid_domain(cam) && sensor ⊆ valid_domain(cam) && within_ulp(valid_domain(cam), sensor)

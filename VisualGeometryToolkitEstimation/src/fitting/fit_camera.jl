@@ -421,7 +421,8 @@ fit_camera(::Type{L}, source::NoncentralSplineModel, region; kwargs...) where {L
 # written exactly: K₀ · diag(s, s, 1) made 0·Inf = NaN in row 3 for a non-finite s, which the structure check refuses)
 # — and its metadata from the round trip's errors `e` per sample (px): their weighted rms, maximum and edge-band
 # maximum, their norms per sample.
-function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, (code, rule)::Tuple{ReturnCode.T, StopRule}, iters)
+function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, (code, rule)::Tuple{ReturnCode.T, StopRule}, iters;
+                          stationary::Union{Bool, Nothing} = nothing)
     s, a, δ = fit.s, fit.a, fit.δ
     m = K0[1, 1] * (M * δ)
     Kb = CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1] * s, 0, 0, K0[1, 2] * s, K0[2, 2] * s * a, 0, K0[1, 3] + m[1], K0[2, 3] + m[2], 1); check = false)
@@ -434,7 +435,8 @@ function _lens_fit_result(role, fit, K0, M, pr, e, region, weight, (code, rule):
         out, code, rule, iters, rms_px, length(pr.rays),
         CameraFitMetadata(
             region, weight, maximum(residuals), maximum(residuals[edge]),
-            (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source),
+            stationary === nothing ? (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source) :
+                (; focal_scale = s, aspect = a, θ_max = float(pr.θ_max), pr.θ_source, stationary),
             _source_to_fitted(fit.R), _symmetry_residual(role, e, map(y -> M * (y - δ), pr.points), w), residuals,
         )
     )

@@ -197,14 +197,16 @@ function _sample_errors(lm::_LensRegressionLm, x, θcap)
 end
 
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
-# zero), its termination record `(code, rule)` and its iterations — a function barrier static in the N
+# zero), its termination record `(code, rule)`, its iterations and whether the regression is stationary there (Core's
+# chart-LM postcondition, `is_stationary(ews, lm, x, stops)`: Core 0.11.0 converges a tolerance stop without it, and
+# `optical_axis`' validity gate reads it) — a function barrier static in the N
 # coordinates (the focal's and the family's). The workspace holds no rows: the state's reductions keep them on its
 # device (one placeholder row, NLLSsolver's problem needs one). `stops` are Core's stop settings (`LmStops`, its
 # `[lm]` table), the caller overriding a field only from its own table (`refine_camera`: the cap, `[refine_camera]`).
 function _regress_lens(lm::_LensRegressionLm, ::Val{N}, stops::LmStops) where {N}
     ews = _lm_workspace(nothing, 1, Val(N))      # the one LO-buffer reuse policy (interface.jl)
     x, _, _, iterations, record = lmsolve_chart!(ews, lm, stops)
-    return x, record, iterations
+    return x, record, iterations, all(isfinite, x) && VgtkCore.is_stationary(ews, lm, x, stops)
 end
 
 # ==============================================================================
@@ -258,7 +260,9 @@ past the family's view-angle limit (the perspective plane's 90° for a gnomonic 
 `[refine_camera]`); the termination record (`retcode`, `stop_rule`) is the LM's, a refine that ends at a non-finite
 focal rescale is `(ReturnCode.Failure, NonFinite)` (`:solve_failed`), never a throw, and one with nothing free (the
 guess returned, no LM) is a closed form, `(ReturnCode.Success, ClosedForm)`. The metadata is [`CameraFitMetadata`](@ref): the round trip's errors per sample in
-`residuals` (px), their maximum and edge-band maximum, the result's `rms` their weighted root mean square.
+`residuals` (px), their maximum and edge-band maximum, the result's `rms` their weighted root mean square, and
+`family.stationary`: whether the regression is stationary at the estimate (Core's chart-LM postcondition; Core 0.11.0
+reads a tolerance stop `Success` without it, so a `converged` refine can stop short of the minimum).
 
 A `NoncentralSplineModel` source is an `ArgumentError`: not supported yet.
 
@@ -300,7 +304,7 @@ function _refine_camera(
     θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     # nothing free (a physical K with `free = ()`; a gauge K's axis is always free): the guess itself, no LM
-    p, record, iters = tangent_size(P) == 0 ? (SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0) :
+    p, record, iters, stationary = tangent_size(P) == 0 ? (SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0, true) :
         _regress_lens(lm, Val(tangent_size(P)), LmStops(; max_iter))
 
     fit = _regression_parts(retract(P, p))
@@ -308,7 +312,7 @@ function _refine_camera(
     isfinite(fit.s) || (record = (ReturnCode.Failure, NonFinite))
     # the round trip's error per sample, in pixels: the forward form, its radius capped inside the refined lens's domain
     e = K0[1, 1] .* _sample_errors(lm, p, _domain_cap(L, fit.lens, isfinite(fit.s), pr.θ_max))   # (fit_camera.jl)
-    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters)
+    return _lens_fit_result(role, fit, K0, M, pr, e, region, weight, record, iters; stationary = stationary && isfinite(fit.s))
 end
 # A bounded camera's model is the source, over the part of the region it images (`_imaged_part`).
 refine_camera(guess::CameraModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
@@ -455,7 +459,8 @@ The fit is an ORDER CONTINUATION. The family is fitted at `[optical_axis] start_
 fit, then the refine), then at each next order up to `radial_terms` (2, 3, 4), each order's refine starting from the
 last order's camera, its higher coefficients held at 0. A low order does not follow a source's profile where it bends at
 the region's edge, so its start never folds there; raising the order one term at a time keeps each refine in the basin
-of the last (a direct lift from 1 to 4 terms can end in a worse local minimum). An order HOLDS when its refine converged
+of the last (a direct lift from 1 to 4 terms can end in a worse local minimum). An order HOLDS when its refine converged, its regression is stationary at the estimate (`family.stationary`: on the
+axis, Core 0.11.0 reading a tolerance stop converged without it)
 and its lens does not fold inside the region (`view_angle_limit` below `θ_max`); every order is refined, each from the
 last one's camera whether or not it held (a rectilinear lens turning at the rim: its 1- and 2-term fits fold inside the
 region with the axis unmoved, its 3-term one does not), and the result is the highest order that held,
@@ -464,10 +469,10 @@ region with the axis unmoved, its 3-term one does not), and the result is the hi
 When no order holds, the fallback is the whole-order linear start. A start that FOLDS before the region's
 widest angle (a rectilinear lens to 62° whose 4-term fit turns over at 56°) is recorded as
 `metadata(r).family.start_fold` (radians; `nothing` when the start does not fold); when the refine from it does not
-converge or its lens still folds inside the region, the axis is fitted again over the part of the region inside the
+hold (the same gate: converged, stationary, no fold inside the region), the axis is fitted again over the part of the region inside the
 fold (out to 0.9 of the fold angle, about the start's principal point), `metadata(r).region` then the region used; a
 start folding just past the widest angle, inside the band that refit leaves out, is refitted the same way. An axis fit
-that still fails is an `ArgumentError`: the axis re-gauge is applied always (`fit_camera(SplineLens, …)`), and a stalled
+that still fails the gate (from any start, folding or not) is an `ArgumentError`: the axis re-gauge is applied always (`fit_camera(SplineLens, …)`), and a stalled
 fit is never a silent rotation 0.
 
 Core's `axis_gauged(camera, rotation(metadata(r).rotation), calibration_matrix(estimate(r)))` then turns the camera so ẑ is the
@@ -514,8 +519,11 @@ function _axis_continuation(src::CameraModel, part, device)
     end
     return r, start, fitted
 end
-# An axis fit that holds: its refine converged and its lens does not fold inside the region it was fitted over.
-_axis_fit_valid(r) = converged(r) && !_folds_inside(r)
+# An axis fit that holds — Estimation's own validity gate, never the LM's verdict alone: its refine stopped on a rule
+# (not a cap or a failure), ON THE AXIS — its regression stationary at the estimate (`metadata(r).family.stationary`,
+# Core's postcondition: Core 0.11.0 reads a tolerance stop converged without it, and a fit can stop there ~12 px off the
+# axis) — and its lens does not fold inside the region it was fitted over. 0.11.8's guarantee under 0.11.0's semantics.
+_axis_fit_valid(r) = converged(r) && metadata(r).family.stationary && !_folds_inside(r)
 # The radial coefficients above order `m` (k_(m+1) … k_n), held at 0 in an order-`m` fit of the axis family.
 _axis_held(m::Int) = ntuple(i -> Symbol(:k, m + i), _AXIS_TERMS - m)
 # `optical_axis`'s fallback: the axis family's whole-order linear start and its refine over `part`; a stall from a start
@@ -543,7 +551,7 @@ function _axis_fold_refits(src::CameraModel, part, device)
         θ = _fold_angle(s)
         refits += 1
     end
-    return r, start_fold, near ? _axis_fit_valid(r) : converged(r)
+    return r, start_fold, _axis_fit_valid(r)
 end
 const _FOLD_REFITS = 4   # the refits inside a folding start's fold, each inside the last (a stall, then a refusal)
 const _INSIDE_FOLD = 0.9   # the refit's disc: out to this fraction of the fold angle, where the start's forward is monotonic

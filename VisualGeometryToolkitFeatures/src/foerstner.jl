@@ -267,10 +267,10 @@ a call without one. The caller makes one per detect configuration and passes it 
 photographs: the host computation was most of a seeded call's time). Safe to share between threads.
 """
 struct FoerstnerTests
-    critical::Dict{Tuple{Matrix{Float64}, Int, Any, Float64}, NTuple{2, Float64}}
+    critical::Dict{Tuple{Matrix{Float64}, Int, Any, Float64}, NTuple{2, Float64}}   # (taps, ρ, noise, level) => critical F
     lock::ReentrantLock
+    FoerstnerTests() = new(Dict(), ReentrantLock())   # converted to the field's type: the key spelled once
 end
-FoerstnerTests() = FoerstnerTests(Dict{Tuple{Matrix{Float64}, Int, Any, Float64}, NTuple{2, Float64}}(), ReentrantLock())
 Base.length(t::FoerstnerTests) = lock(() -> length(t.critical), t.lock)
 Base.isempty(t::FoerstnerTests) = length(t) == 0
 Base.show(io::IO, t::FoerstnerTests) = print(io, "FoerstnerTests(", length(t), " windows)")

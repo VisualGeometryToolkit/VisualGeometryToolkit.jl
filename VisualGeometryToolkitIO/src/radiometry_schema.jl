@@ -139,7 +139,14 @@ function _lift_vignetting(s::VgioStyle, ::Type{<:RadialVignetting}, b::Record)
     c = _vignetting_offset(s, _pixel_frame(s), CANONICAL_PIXEL_FRAME)
     P = Float64[Float64(x::Real) for x in b.control_points]
     chart = Symbol(b.chart::String)
-    v = RadialVignetting(length(P), SVector(Float64(b.center[1]) + c[1], Float64(b.center[2]) + c[2]), Float64(b.radius); degree = Int(b.degree), chart)
+    p = Int(b.degree)
+    # the projective knots need more than 2p control points (VisualGeometryToolkitCore 0.10.11: p − 1 knots past the rim at
+    # the pixel spacing); a record of fewer was written under the earlier rule, which no reader rebuilds
+    (chart === :projective && length(P) <= 2p) && throw(ArgumentError(
+        "load: a vgio/vignetting radial profile on the projective chart has $(length(P)) control points of degree $p; its knots " *
+            "(VisualGeometryToolkitCore 0.10.11's projective_knots) need at least $(2p + 1) (2p + 1). A record of fewer " *
+            "was written under the knot rule before Core 0.10.11 (one span past the rim): refit the profile"))
+    v = RadialVignetting(length(P), SVector(Float64(b.center[1]) + c[1], Float64(b.center[2]) + c[2]), Float64(b.radius); degree = p, chart)
     return with_control_points(v, P)
 end
 
@@ -150,7 +157,8 @@ Write a VGC vignetting field — a `TensorProductVignetting`, `RadialVignetting`
 or `LogVignetting` — as a `vgio/vignetting/v2.0` file: its type, degree, knots
 (a tensor surface's, stated) or centre, radius and chart (a radial profile's), and
 control points, positions in COLMAP pixels (the file's `units.pixel`).
-[`load`](@ref) gives the same field back, bit for bit.
+[`load`](@ref) gives the same field back, bit for bit, for a radial profile on its chart's own knots (the record
+holds no knots: a profile built from explicit knots reads back on its chart's rule).
 """
 function save(path::AbstractString, v::AbstractVignetting; provenance::NamedTuple = (;))
     s = VgioStyle()
@@ -164,7 +172,9 @@ end
 Read a `vgio/vignetting/v2.0` file: the vignetting field [`save`](@ref) wrote,
 its positions moved from the file's `units.pixel` into COLMAP pixels (VGC's
 fields' own). A v1 file (with or without its `chart`, which IO 0.9 added inside
-v1) is read through its version step.
+v1) is read through its version step. A radial profile's knots are its chart's rule at its count and degree
+(VisualGeometryToolkitCore's `projective_knots` on the projective chart, whose rule changed in Core 0.10.11); a
+projective record of `n ≤ 2p` control points is refused (`ArgumentError`), the knots needing at least `2p + 1`.
 """
 function load(::Type{AbstractVignetting}, path::AbstractString)
     d = _read_store(path, "vignetting")

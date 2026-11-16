@@ -63,6 +63,29 @@ end
     @test parameter_vector(est.camera)[3] == 0.0                                       # the skew is held by default
 end
 
+# Core 0.11.1: an exact fit is converged. CaliBlobs' README refine of a Division camera and six board poses from exact
+# correspondences ends at rms 1.8e-13 px with NLLSsolver's bit 10 (a rounding-level cost disagreement) beside its step
+# stop: under Core 0.11.0 it read (Stalled, NonFinite), `converged(res)` false — and from other starts and view counts
+# (Failure, NonFinite) — every residual finite.
+@testitem "refine_camera_and_poses: an exact fit from exact correspondences is converged (Core 0.11.1)" begin
+    using VisualGeometryToolkitCore: CameraModel, LogicalIntrinsics, CameraCalibrationMat, Division, EuclideanMap, Vec3, project, px,
+        retcode, stop_rule, rms, estimate, converged, ReturnCode, NonFinite, parameter_vector
+    using Rotations: RotationVec
+    using VisualGeometryToolkitEstimation: refine_camera_and_poses
+    truth = CameraModel(LogicalIntrinsics(CameraCalibrationMat(900.0px, [2120.0px, 1416.0px])), Division(-0.2, -0.08))
+    board = [Vec3(x, y, 0.0) for x in -60.0:30.0:60.0 for y in -60.0:30.0:60.0]
+    poses = Dict(t => EuclideanMap(RotationVec(0.2sin(t), 0.2cos(t), 0.1t), Vec3(40.0t - 140, 20.0 - 10t, 300.0)) for t in 1:6)
+    views = Dict(t => [X => project(truth, P(X)) for X in board] for (t, P) in poses)
+    for (n, f0) in ((6, 945.0), (6, 930.0), (4, 945.0), (3, 945.0))   # 0.11.0: Stalled, Stalled, Failure, Success
+        start = CameraModel(LogicalIntrinsics(CameraCalibrationMat(f0 * px, [2120.0px, 1416.0px])), Division(-0.18, -0.072))
+        res = refine_camera_and_poses(start, Dict(t => poses[t] for t in 1:n), Dict(t => views[t] for t in 1:n);
+                                      fixed = (:aspect,), optimization_strategy = nothing)
+        @test retcode(res) === ReturnCode.Success && converged(res)
+        @test stop_rule(res) !== NonFinite && rms(res) < 1.0e-10
+        @test abs(parameter_vector(estimate(res).camera)[1] - 900.0) < 1.0e-9 * 900.0      # f recovered
+    end
+end
+
 @testitem "refine_camera_and_poses: a fisheye past 90°, camera and poses recovered" setup = [CameraPoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector

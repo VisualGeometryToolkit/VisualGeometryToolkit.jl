@@ -113,7 +113,7 @@ end
     @test code(1 << 6) == 2
     @test code(1 << 8) == -1 && code(1 << 9) == -4 && code((1 << 8) | (1 << 9)) == -4
     @test code(1 << 7) == 4 && code(1 << 16) == 4
-    for bit in (0, 1, 4, 5, 10, 11)
+    for bit in (0, 1, 4, 5, 11, 12)
         @test code(1 << bit) == -3
     end
     # the step stop is checked before the cost tolerance
@@ -712,7 +712,7 @@ end
         f === :termination ? F(bits) : F <: Enum ? first(instances(F)) : zero(F)
     end...)
     t(bits, p = true) = @inferred nlls_termination(res(bits), p)
-    for b in (0, 1, 4, 5, 10, 12)
+    for b in (0, 1, 4, 5, 12)
         @test t(1 << b) === (ReturnCode.Failure, NonFinite)
     end
     @test t(1 << 11) === (ReturnCode.InitialFailure, NonFinite)
@@ -743,12 +743,13 @@ end
     @test nlls_termination(1 << 2, probe) === (ReturnCode.Success, CostDecrease) && calls[] == 0
     @test nlls_termination(1 << 6, probe) === (ReturnCode.Success, IncrementSize) && calls[] == 0
     @test nlls_termination(1 << 7, probe) === (ReturnCode.Stalled, RejectionCap) && calls[] == 1
-    # A fact about NLLSsolver 5.3.4, so these rows are tested on bits only: the rejection cap (bit 7) and a stop of no
-    # rule are unreachable through `lmsolve_chart!`. Its LM iterators accept a trial only when its cost is not above the
+    # A fact about NLLSsolver 5.3.4, so these rows are tested on bits only: the rejection cap (bit 7) is unreachable
+    # through `lmsolve_chart!`. Its LM iterators accept a trial only when its cost is not above the
     # best, or when the step is below `dstep` (which sets bit 6 in that same iteration); a non-finite step returns NaN and
     # sets bit 5. So the first iteration that raises the cost always carries a step or non-finite flag, and
-    # `optimizeloop!` breaks on it: `fails` never exceeds `maxfails = 3`. The loop breaks only on a nonzero flag, so a
-    # termination with no rule bit cannot occur either.
+    # `optimizeloop!` breaks on it: `fails` never exceeds `maxfails = 3`. The loop breaks only on a nonzero flag; the one
+    # stop of no rule is the iteration after a cost disagreement (bit 10 alone, Core 0.11.1: the postcondition decides
+    # it; "a cost disagreement at an exact fit is no NaN wall", below).
     # with the real postcondition (`is_stationary`), at a least-squares optimum and off it: a tolerance stop is converged
     # either way (Core 0.11.0's owner ruling; 2026-11-13 – 0.10.11 it was :stalled off the optimum); the rejection cap
     # alone reads it
@@ -875,4 +876,66 @@ end
     @test VgtkCore.nlls_termination(1 << 31, true) == (ReturnCode.Success, IncrementSize)
     @test VgtkCore.nlls_termination(1 << 31, false) == (ReturnCode.Success, IncrementSize)   # a tolerance: converged
     @test VgtkCore.nlls_stop_reasons(1 << 31) == [:relative_increment_size] && VgtkCore.nlls_stop_code(1 << 31) == 2
+end
+
+# Core 0.11.1: NLLSsolver's bit 10, `:cost_disagreement` (`!isapprox(cost_, cost)`: the relinearization's cost against
+# the iterate's at an accepted point, rtol √ε, atol 0), states nothing non-finite. Near an exact fit both costs are
+# rounding (≈1e-25 here, every residual finite) and differ by far more than √ε relative: Core 0.11.0 read the bit as a
+# NaN wall, and an exact fit was (Stalled, NonFinite) at a step stop or (Failure, NonFinite) at a cost-decrease stop or
+# alone (the stop one iteration later; 0.10.11 the same for those two). The fits below are exact at pixel scale (data
+# ~1e3, so the residuals' rounding is ~1e-13), their hand-written `computeresjac` rounding the residual otherwise than
+# `computeresidual` does, as the stack's hand-Jacobian blocks do (CaliBlobs' README refine: rms 1.8e-13 px, bits 1088).
+@testitem "lmsolve_chart!: a cost disagreement at an exact fit is no NaN wall (Core 0.11.1)" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test, StaticArrays
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, IncrementSize, CostDecrease, NoRule, NonFinite
+    code, term = VgtkCore.nlls_stop_code, VgtkCore.nlls_termination
+    # the bits: 10 with a step stop is the step stop; with a cost-decrease stop, the cost decrease; alone, a stop of no
+    # rule (the postcondition decides); with a genuinely non-finite bit, that bit decides
+    @test code((1 << 6) | (1 << 10)) == 2 && term(1088, true) === (ReturnCode.Success, IncrementSize)
+    @test term(1088, false) === (ReturnCode.Success, IncrementSize)
+    @test code((1 << 2) | (1 << 10)) == 1 && term((1 << 2) | (1 << 10), false) === (ReturnCode.Success, CostDecrease)
+    @test code(1 << 10) == 4 && term(1 << 10, true) === (ReturnCode.Success, NoRule) && term(1 << 10, false) === (ReturnCode.Stalled, NoRule)
+    @test code((1 << 1) | (1 << 6) | (1 << 10)) == VgtkCore._LM_STALLED && term((1 << 1) | (1 << 6) | (1 << 10), true) === (ReturnCode.Stalled, NonFinite)
+    @test code((1 << 10) | (1 << 12)) == -3 && term((1 << 10) | (1 << 12), true) === (ReturnCode.Failure, NonFinite)
+    @test VgtkCore.nlls_stop_reasons(1088) == [:delta_size, :cost_disagreement]
+    # end to end: y = a·exp(b·s) + c, exact data at pixel scale
+    struct _PixelExp <: NLLSsolver.AbstractResidual
+        s::Float64
+        y::Float64
+    end
+    NLLSsolver.ndeps(::_PixelExp) = NLLSsolver.static(1)
+    NLLSsolver.nres(::_PixelExp) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_PixelExp) = SVector(1)
+    NLLSsolver.getvars(::_PixelExp, vars::Vector) = (vars[1]::SVector{3, Float64},)
+    Base.eltype(::_PixelExp) = Float64
+    NLLSsolver.computeresidual(r::_PixelExp, p) = SVector(p[1] * exp(p[2] * r.s) + p[3] - r.y)
+    function NLLSsolver.computeresjac(_flags, r::_PixelExp, p)
+        e = exp(p[2] * r.s)
+        return SVector((p[1] * e - r.y) + p[3]), SMatrix{1, 3}(e, p[1] * r.s * e, 1.0)     # the same residual, rounded otherwise
+    end
+    truth = SVector(912.345678, -0.3141592, 1416.271828)
+    cases = (   # abscissae and starts whose solves set bit 10 (NLLSsolver 5.3.4, Julia 1.13, x86-64): 1024, 1028, 1088, 1088
+        ([-1.6358667162828153, -1.3943002969539142, 0.7278315535397719, 1.5274212084861447], SVector(990.7864091414449, -0.2923892917040004, 1454.2515979133889)),
+        ([-1.4622584420809277, -1.3688616565471343, -0.7123813403818273, 0.5602711716345525, 0.8729321728796196, 0.9530458783918077],
+         SVector(928.6520221319772, -0.299523649167211, 1324.2678467854923)),
+        ([-1.6817712748308202, -0.9309799200059556, -0.8788551917533036, 0.06776000459213494, 0.6165093537699877, 1.8992585965475435],
+         SVector(887.8722714754306, -0.3328644637661987, 1570.4152565927666)),
+        ([-1.8914572439152817, -1.184100828939485, -0.30658255488405217, -0.19182322707441823, -0.06362132776209917, 0.5914645305957182,
+          1.1553306238720906, 1.4802024292662086, 1.5624645290537202, 1.9753740277815912], SVector(932.3563636180769, -0.2844714332201311, 1424.9416692498523)),
+    )
+    stops = LmStops(; ftol = 1.0e-12, xtol = 1.0e-12)
+    tripped = 0
+    for (s, x0) in cases
+        rows = [_PixelExp(si, truth[1] * exp(truth[2] * si) + truth[3]) for si in s]
+        p = LmProblem([x0], rows)
+        result, _, _ = VgtkCore._lm_run!(p, stops, NLLSsolver.nullcallback, _ -> true)
+        tripped += result.termination & (1 << 10) != 0
+        q = LmProblem([x0], rows)
+        sol = lmsolve_chart!(q, stops)
+        @test sol.code === ReturnCode.Success                   # an exact fit, every residual finite: converged
+        @test sol.rule !== NonFinite && sol.cost < 1.0e-20
+        @test maximum(abs, q.variables[1] - truth) < 1.0e-9 * maximum(abs, truth)
+    end
+    @test tripped >= 1                                          # the cost disagreement is exercised (all four, as recorded)
 end

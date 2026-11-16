@@ -259,8 +259,13 @@ over the region. The target type selects the family and the solve:
   backward is the source's function to rounding; its held-out error against the
   turned source's rays (`max_px`, `max_px_edge`, `rms`, where the source images a
   ray) states it. `region` may exceed the source's valid domain (no
-  `RegionBeyondSupport`; `valid_domain` of the result holds it exactly: a region on
-  the source's lattice edge is never refused for a rounding). A `grid_size` with
+  `RegionBeyondSupport`), and `region ⊆ valid_domain` of the result always holds, a
+  region on the source's lattice edge included. Each edge of that domain is the
+  extended lattice's, or the region's where the region reaches past it within the
+  extension's rounding tolerance: exact wherever a float lands on it, otherwise
+  rounded OUTWARD by one output ulp (Core maps the lattice's area through K′, which
+  rounds), so the domain claims at most one ulp beyond the data; Core's `⊆` and the
+  gauge K′ are unchanged. A `grid_size` with
   a SplineLens source is an `ArgumentError` naming `lattice_spacing`, and a
   `lattice_spacing` with any other source is one too.
   Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
@@ -1458,8 +1463,8 @@ _is_spline_camera(m) = m isa CameraModel && lens(m) isa SplineLens
 # (Core's `subdivide_lattice`, the marks carried), then TURNED onto the source's optical axis (`optical_axis` of the
 # source over its own bound; Core's exact `axis_gauged`), and the forward fitted as for any source. The backward is the
 # source's function to rounding inside its domain; the held-out error (f·angle) against the turned source's rays where
-# the source images one states it. The turned lattice's pixel area is the extended one's exactly, a region on its edge
-# the region's edge (`_exact_pixel_area`). Core's fold report is recorded, never acted on (the caller's policy).
+# the source images one states it. The turned lattice's valid domain holds the region, its edges the extended
+# lattice's or the region's to one outward ulp (`_exact_valid_domain`). Core's fold report is recorded, never acted on (the caller's policy).
 function _exact_resample(m::CameraModel, source::BoundedCamera, region; tolerance, lattice_spacing, forward, device)
     src = _without_forward(m)
     # the factors from the source's spacing, which the extension keeps (validated before any lattice work)
@@ -1470,7 +1475,7 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
     # converge), the resampled lattice turned by the same rotation and K
     axis = _axis_gauge(VgtkCore.Cameras.GaugeIntrinsics(), m, source, device)
     turned = axis.camera
-    cam = _exact_pixel_area(VgtkCore.axis_gauged(sub.camera, rotation(axis.rotation), axis.K), ext.camera, region)
+    cam = _exact_valid_domain(VgtkCore.axis_gauged(sub.camera, rotation(axis.rotation), axis.K), ext.camera, region)
     # the fidelity: the held-out f·angle against the turned source's rays, where the source images one
     q = _image_quadrature(turned, region; device)
     held = _held_out(SplineLens, turned, q, cam.intrinsics, device)
@@ -1488,35 +1493,51 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
                      CameraFitMetadata(region, :image, errors.max, errors.max_edge, family, axis.rotation, axis.symmetry_residual, errors.values))
 end
 
-# The turned resample `cam` with its backward area re-anchored so that its pixel area (Core's `_pixel_area`, what
-# `valid_domain` reads) is the extended lattice's (`before`; a subdivision keeps its area) bit for bit, an edge within
-# `extend_lattice`'s tolerance (`_CELL_TOL` of a cell) of the region's bounding box moved onto the region's edge. Per
-# axis the origin is the largest float whose pixel edge is at most the target's, then the width the smallest whose far
-# edge is at least the target's: the target exactly when a float maps onto it. The controls, K′ and the mask are kept.
-function _exact_pixel_area(cam, before, region)
-    pixel(o, w) = VgtkCore.Cameras._pixel_area(cam.intrinsics, Rect2{Float64}(o, w))
-    old = VgtkCore.Cameras._pixel_area(before.intrinsics, lens(before).backward.area)
-    box = Rect2{Float64}(Rect2(region))
-    tol = VgtkCore.Cameras._CELL_TOL .* SVector{2, Float64}(Float64.(VgtkCore.lattice_spacing(before)))
-    snap(e, r, t) = abs(e - r) <= t ? r : e
-    lo = snap.(SVector{2, Float64}(minimum(old)), SVector{2, Float64}(minimum(box)), tol)
-    hi = snap.(SVector{2, Float64}(maximum(old)), SVector{2, Float64}(maximum(box)), tol)
-    o = SVector{2, Float64}(VgtkCore.normalized_point(cam.intrinsics, lo))   # the search's start: a few ulps away
-    w = SVector{2, Float64}(VgtkCore.normalized_point(cam.intrinsics, hi)) - o
-    all(>(0), w) || return cam
-    for i in 1:2
-        at(v, x) = ifelse.(SVector(1, 2) .== i, x, v)   # `v` with its i-th coordinate `x`
-        o = at(o, _last_float(x -> minimum(pixel(at(o, x), w))[i] <= lo[i], o[i], nextfloat, prevfloat))
-        w = at(w, _last_float(x -> maximum(pixel(o, at(w, x)))[i] >= hi[i], w[i], prevfloat, nextfloat))
-    end
+# The turned resample `cam` with its backward area re-anchored so that its `valid_domain` holds the region: each edge
+# the extended lattice's (`before`; a subdivision keeps its area), or the region's where the region reaches past it by
+# under a cell (`extend_lattice` adds no ring within its rounding tolerance of the lattice's edge). Core maps the
+# normalized area through K′, which rounds, so the area is searched per axis: the largest origin whose low edge is at
+# most the target's, then the smallest width whose high edge is at least it. An edge is the target exactly wherever a
+# float lands on it, otherwise rounded OUTWARD by one output ulp. The controls, K′ and the presence mask are kept.
+function _exact_valid_domain(cam, before, region)
     l = lens(cam)
+    domain(o, w) = VgtkCore.valid_domain(CameraModel(cam.intrinsics, SplineLens(ChartSpline(Rect2{Float64}(o, w), l.backward.controls); present = l.present)))
+    old, box = VgtkCore.valid_domain(before), Rect2{Float64}(Rect2(region))
+    h = SVector{2, Float64}(Float64.(VgtkCore.lattice_spacing(before)))
+    lo0, hi0 = SVector{2, Float64}(minimum(old)), SVector{2, Float64}(maximum(old))
+    rlo, rhi = SVector{2, Float64}(minimum(box)), SVector{2, Float64}(maximum(box))
+    lo = ifelse.(lo0 .- h .< rlo .< lo0, rlo, lo0)
+    hi = ifelse.(hi0 .< rhi .< hi0 .+ h, rhi, hi0)
+    a = l.backward.area
+    o, w = SVector{2, Float64}(minimum(a)), SVector{2, Float64}(maximum(a) - minimum(a))   # the search's start
+    for i in 1:2
+        o, w = _anchor_axis(domain, o, w, i, lo[i], hi[i])
+    end
     return CameraModel(cam.intrinsics, SplineLens(ChartSpline(Rect2{Float64}(o, w), l.backward.controls); present = l.present))
 end
-# The last float from `x` toward `step` at which the monotone predicate `ok` holds (`back` steps the other way).
-function _last_float(ok, x, step, back)
-    while !ok(x); x = back(x); end
-    while ok(step(x)); x = step(x); end
-    return x
+# Axis `i` of the area `(o, w)` for `domain(o, w)`'s low edge at most `lo` and its high edge at least `hi`, each the
+# extreme float that holds.
+function _anchor_axis(domain, o, w, i, lo, hi)
+    o′ = Base.setindex(o, _extreme_float(x -> minimum(domain(Base.setindex(o, x, i), w))[i] <= lo, o[i], -1), i)
+    return o′, Base.setindex(w, _extreme_float(x -> maximum(domain(o′, Base.setindex(w, x, i)))[i] >= hi, w[i], 1), i)
+end
+# The extreme float at which the monotone predicate `ok` holds, near `x`: the largest when `ok` holds below its boundary
+# (`dir = -1`), the smallest when above (`dir = 1`). A bracket grown by doubling, then bisection to adjacent floats, so
+# a run of floats with one image (an edge at K′'s principal point) costs no more than any other.
+function _extreme_float(ok, x, dir)
+    δ = 8 * eps(abs(x)) + 8 * eps()
+    for _ in 1:64
+        good, bad = x + dir * δ, x - dir * δ
+        if ok(good) && !ok(bad)
+            while true
+                m = good / 2 + bad / 2
+                (m == good || m == bad) && return good
+                ok(m) ? (good = m) : (bad = m)
+            end
+        end
+        δ *= 2
+    end
+    throw(ArgumentError("fit_camera: no area edge brackets the target domain edge (an exact resample's valid domain)"))
 end
 
 # The subdivision factors `(m_x, m_y)` whose cells come closest to the target spacing `s` (px: a number, or `(s_x, s_y)`;

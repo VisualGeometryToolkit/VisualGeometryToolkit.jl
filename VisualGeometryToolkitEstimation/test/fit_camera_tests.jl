@@ -306,7 +306,7 @@ end
     @test_throws r"lattice_spacing" fit_camera(SplineLens, BoundedCamera(lens14, sensor), Rect(0, 0, 4256, 2848); tolerance = 1.0e-3, lattice_spacing = 60.0)
 end
 
-@testitem "fit_camera(SplineLens): a region on the source's lattice edge lies in the resample's domain exactly (0.11.9)" begin
+@testitem "fit_camera(SplineLens): a region on the source's lattice edge lies in the resample's domain (0.11.9)" begin
     using Test
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize
@@ -317,21 +317,25 @@ end
     # reader builds it so): Core's constructor maps the area through K⁻¹ and back, so its domain's top edge is 2.8e-14 px below
     # the sensor's. The sensor is on its lattice edge (extend_lattice adds no ring), and the axis turn moved the area by K′⁻¹K
     # again; under 0.11.8's axis the resample's domain started 2.8e-14 px inside the sensor and `sensor ⊆ valid_domain` failed
-    # (RadiometricCamera's exact start refused it: RegionBeyondSupport)
+    # (RadiometricCamera's exact start refused it: RegionBeyondSupport). Now each edge is the target's where a float lands on it,
+    # else one output ulp outside: the domain holds the region and claims at most that rounding beyond it
     controls = [normalize(SVector(0.12 * (gx - 4), 0.12 * (gy - 3.5), 1.0)) for gy in 1:6, gx in 1:7]
     sensor = Rect(0.0, 0.0, 640.0, 480.0)
     src = BoundedCamera(CameraModel(SplineLens, controls, Size2(640, 480); calib_area = Rect(0, 0, 640, 480), unit_controls = true), Size2(640, 480))
     R(r) = SMatrix{3, 3, Float64}(rotation(metadata(r).rotation))
+    edges(b) = SVector(minimum(b)..., maximum(b)...)
+    within_ulp(b, target) = maximum(abs.(edges(b) - edges(target))) <= 1.0e-12   # one output ulp here: 2.8e-14 px
     for (region, spacing) in ((sensor, nothing), (sensor, 80.0), (sensor ∩ Ellipse(SVector(320.0, 240.0), 380.0, 380.0, 0.0), nothing))
         r = fit_camera(SplineLens, src, region; tolerance = Inf, forward = false, lattice_spacing = spacing)
         cam = estimate(r)
-        @test valid_domain(cam) == sensor && region ⊆ valid_domain(cam)     # the region's edges, bit for bit
+        @test region ⊆ valid_domain(cam) && sensor ⊆ valid_domain(cam) && within_ulp(valid_domain(cam), sensor)
         # the source's nodes, turned, bit for bit (unsubdivided)
         spacing === nothing && @test lens(cam).backward.controls == map(c -> R(r) * c, lens(model(src)).backward.controls)
     end
-    # a region strictly inside the lattice: the turn keeps the source's own domain bit for bit, nothing moved onto the region
+    # a region strictly inside the lattice: the turn keeps the source's own domain (to an outward ulp), nothing moved onto the region
     inner = Rect(10.0, 10.0, 600.0, 440.0)
-    @test valid_domain(estimate(fit_camera(SplineLens, src, inner; tolerance = Inf, forward = false))) == valid_domain(model(src))
+    vd = valid_domain(estimate(fit_camera(SplineLens, src, inner; tolerance = Inf, forward = false)))
+    @test valid_domain(model(src)) ⊆ vd && within_ulp(vd, valid_domain(model(src)))
 end
 
 @testitem "fit_camera: the forward spline's error is non-increasing in its size" setup = [FitCameraFisheye] begin

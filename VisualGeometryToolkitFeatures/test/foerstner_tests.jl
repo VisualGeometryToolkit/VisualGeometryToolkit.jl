@@ -630,7 +630,9 @@ end
     for T in (Float32, Float64), call in calls(T, KA.CPU())
         plain = call(nothing)
         @test identical(call(host), plain)          # computed into the table
+        entries = length(host)
         @test identical(call(host), plain)          # read from it
+        @test length(host) == entries               # nothing recomputed (the mosaic's noise structure a key too)
     end
     @test !isempty(host)
     cuda = try

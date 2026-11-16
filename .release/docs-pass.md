@@ -1,3 +1,48 @@
+docs-pass: ad999834
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: it names no LM verdict and no version)
+
+# VisualGeometryToolkitCore 0.11.0 and its monorepo cascade docs review (julia-docs-pass) — branch core-0110-term
+
+Released: Core 0.11.0 (breaking), Estimation 0.12.0 (minor, carrying 0.11.9's exact resample), IO 0.10.6, Features
+0.9.7, Eval 0.9.2, PoseLib 0.3.1 (patches). Baseline: origin/main 3416bb16 (Core 0.10.11, IO 0.10.5, Estimation 0.11.9,
+Features 0.9.6, Eval 0.9.1, PoseLib 0.3.0). The review covers the tree ad999834. After it, only this record changes
+(`.release/` is outside the gate).
+
+## 1. Public API since the baseline
+
+- Core: one method added to a public name, `is_stationary(ews::ManifoldLmWorkspace, lm, x, stops = LmStops())` (the
+  chart LM's stationarity postcondition at a point). No name added, removed or re-signatured otherwise. The meaning
+  of the host LM's termination record changes (owner ruling, 2026-11-15, and the desktop's rulings of 2026-11-16): an
+  `ftol`, `xtol` or `xtol_rel` stop at a FINITE step is `(Success, CostDecrease | IncrementSize)` without the
+  stationarity postcondition; a step stop whose terminating trial is non-finite (a NaN wall) is `(Stalled,
+  NonFinite)`, `converged = -2`. The rejection cap and a stop of no rule are unreachable through NLLSsolver 5.3.4's
+  LM; `LmStops`' `stationarity_tol` and `residual_resolution` are read only by `is_stationary`. The device LM keeps
+  its rule. `nlls_termination` is the one decider.
+- Estimation: no name added or removed. `optical_axis` reads its own validity gate (converged, its regression
+  stationary at the estimate, no fold inside the region) in the continuation and the fallback; `refine_camera`'s
+  metadata gains `family.stationary`. Its fits on Core's host LM report the new verdict. 0.11.9's exact resample
+  (`_exact_valid_domain`, `_exact_resample`) is carried unchanged.
+- Every in-repo `[compat]` on Core is `"0.11"` and on Estimation `"0.12"` (package, test, docs, examples, validation
+  and benchmark environments, `ci`). IO's fifteen byte-for-byte fixtures name generator 0.10.6.
+
+## 2. Docstrings and pages brought up to date
+
+- Core: `lm_core.jl`'s header, `LmStops` (the closing line; `stationarity_tol`, `residual_resolution`),
+  `_LM_STALLED`, `nlls_stop_code`'s list, the `nlls_termination` table and paragraph, `lmsolve_chart!`'s success
+  rule, both `is_stationary` docstrings, `static_lm` and `StaticLmStops`, the workspace's `r` field;
+  `ReturnCode.Success` / `Stalled`; the estimators guide's "one LM" paragraph; `configs/default.toml` `[lm]`
+  comments. CHANGELOG 0.11.0: "Breaking" (the finite-step rule, the migration, the two knobs) and "Added".
+- Estimation: `refine_camera` (`family.stationary`), `optical_axis` (the hold rule, the fallback's gate),
+  `refine_camera_and_poses`, `refine_robot_world_hand_eye`, the relative-pose bundle's comments, the radial API
+  page's `optical_axis` paragraph. CHANGELOG 0.12.0 above 0.11.9's (unchanged).
+- IO, Features, Eval, PoseLib: CHANGELOG entries only (no docstring or page states an LM verdict).
+
+## 3. Gates
+
+Every bumped package's docs build strict (no `warnonly`), and every item (`docs`, `README`, `quality`, `naming`,
+`agent docs` among them) at depwarn=error and depwarn=yes, in the core0110-term gate at the final head. No README or
+landing example changes.
+
 docs-pass: dcd7c649
 
 # VisualGeometryToolkitEstimation 0.11.9 docs review (julia-docs-pass) — branch patch-est0119

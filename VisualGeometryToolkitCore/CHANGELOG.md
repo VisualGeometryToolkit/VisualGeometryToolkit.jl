@@ -24,7 +24,7 @@ VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.
 ### Changed (the ruling)
 - **A tolerance stop of the host LM is converged** (owner ruling, 2026-11-15: "if it hits our tolerance we mark it as
   converged; whether the tolerance is too loose is another story"). `lmsolve_chart!` (every form) and `nlls_termination`
-  map a stop on the relative cost decrease (`ftol`, `CostDecrease`) or on the step size (`xtol`, or the new `xtol_rel`,
+  map a stop on the relative cost decrease (`ftol`, `CostDecrease`) or on the step size (`xtol`, or 0.10.11's `xtol_rel`,
   `IncrementSize`) to `ReturnCode.Success`, with NO stationarity postcondition (until 0.10.11 one that failed it was
   `Stalled`, `converged = -2`). The iteration and time caps stay `MaxIters` / `MaxTime` (not converged), failures keep
   their codes, and the consecutive-rejection cap — no tolerance — is still judged by the postcondition (`Stalled` when it

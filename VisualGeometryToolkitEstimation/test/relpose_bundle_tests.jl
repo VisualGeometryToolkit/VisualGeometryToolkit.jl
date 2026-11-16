@@ -239,8 +239,8 @@ end
         @test rotdeg(SMatrix{3, 3, Float64, 9}(Rr), R) <= 1.0e-6
         @test dirdeg(SVector{3, Float64}(tr), t) <= 1.0e-6
         @test abs(F - b.F) <= 1.0e-12 * b.F
-        # converged at exit: the cost-tolerance stop, and stationary (Core's one
-        # success rule, the stall postcondition on the stacked rows)
+        # converged at exit: the cost-tolerance stop (Core 0.11.0's success rule: a
+        # tolerance stop is converged)
         @test VisualGeometryToolkitCore.retcode_symbol(retcode...) === :converged
         iterations_to_stop[N] = (iters, k1e6)
     end

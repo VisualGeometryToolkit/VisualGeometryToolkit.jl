@@ -8,7 +8,8 @@
 # is converged; the stationarity postcondition at the returned point judges the
 # rejection cap; Core 0.11.0); and ONE device LM, `static_lm` (a KernelAbstractions kernel's fixed-N solve,
 # which NLLSsolver's heap problems cannot be), under `StaticLmStops`, owned with the
-# host's and judged by the same rule. No package calls NLLSsolver's solver API or the
+# host's and judged by its own rule (stationary and accepted, a validity gate: a device tolerance stop is not
+# converged by itself). No package calls NLLSsolver's solver API or the
 # adapter's internals directly: `check_duplication`'s `:lm_primitive` pattern fails
 # any such call outside this file (and its own tests).
 #
@@ -223,7 +224,7 @@ the distance.
 """
 mutable struct ManifoldLmWorkspace{N}
     const sqrtw::Vector{Float64}   # per-row √weights — filled by VisualGeometryToolkitEstimation's LO refits, not read here
-    const r::Vector{Float64}       # the rows at the iterate
+    const r::Vector{Float64}       # the rows of the last evaluation (scratch: at the returned point only where the postcondition ran)
     const J::Matrix{Float64}       # their n × N Jacobian
     const g::MVector{N, Float64}   # the stall postcondition's Jᵀr …
     const w::MVector{N, Float64}   # … and squared column norms
@@ -634,7 +635,7 @@ that applies:
    step-size stop: `-3`, `:solve_failed`;
 2. the step-size stop (6, or Core's relative one, 31: `LmStops`' `xtol_rel`): `2`, a tolerance met: converged (checked
    before the cost tolerance: a tiny last step at a wall also shows a tiny
-   cost decrease);
+   cost decrease, and the record names the step's rule);
 3. a relative or absolute cost-decrease stop (2, 3): `1`, a tolerance met: converged (a
    tolerance outranks a cap);
 4. the consecutive-failure cap (7): `4`, the postcondition decides it;
@@ -1210,7 +1211,8 @@ const _LM_AREA_UNITS = 1000
 # every trial point's Jacobian is the next iteration's when the step is accepted),
 # from `x₀`, the point bounded to the box `[lb, ub]` (a step is clipped at the
 # bound), for at most `max_iter` LM iterations; converged means a STATIONARY point (the
-# host LM's success rule, its exact-fit floor and column cosine) whose cost is below the
+# host LM's stationarity postcondition, its exact-fit floor and column cosine; the host converges a tolerance stop
+# without it since Core 0.11.0, the device does not) whose cost is below the
 # acceptance `tol2`. Returns the point, whether it converged and the Jacobian at the point
 # (the callers that need only the first two destructure them; the lens inverse
 # reads its determinant). `s` is the problem's unit per axis, as the reference's
@@ -1264,8 +1266,8 @@ const _LM_AREA_UNITS = 1000
 
 THE stop settings of the device LM [`static_lm`](@ref) (isbits: a kernel takes it as an argument), owned with the
 host LM's ([`LmStops`](@ref)): every keyword has a default of record — `max_iter` configs/default.toml
-`[lm] device_max_iter`, `acceptance` `[lm] device_acceptance`, `stationarity_tol` `[lm] stationarity_tol` (the ONE
-success rule's cosine, the host's), and the floors' neutral values.
+`[lm] device_max_iter`, `acceptance` `[lm] device_acceptance`, `stationarity_tol` `[lm] stationarity_tol` (the
+stationarity postcondition's cosine, the host's), and the floors' neutral values.
 
 - `scale`: the problem's unit per coordinate, in which the step tolerance (`1e-10·(eps(T)/eps(Float64)) ./ scale`,
   RELATIVE to the coordinate) and the DᵀD clamp (`[1e-12, 1e16]·scale²`) are read.
@@ -1306,7 +1308,8 @@ so it allocates nothing, never throws, and runs inside a KernelAbstractions kern
 with the same bits in every compiled copy. `fj(x)` returns `(r, J, …)` (the residual
 `SVector`, its `SMatrix` Jacobian, anything else returned with them as `e`); `stops`
 its stop settings ([`StaticLmStops`](@ref)); `bound` a relative step radius (`nothing`: none).
-`converged` is THE success rule of the stack's LMs — the point is STATIONARY: zero to what
+`converged` is the device LM's success rule — the point is STATIONARY (unlike the host LM's tolerance stops, which
+Core 0.11.0 converges without the test): zero to what
 the stops resolve (the cost below the exact-fit floor, the gradient below its floor, or the
 undamped Gauss–Newton step from the point below the step tolerance: the device form of the
 host's exact-fit test), or `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`, the host

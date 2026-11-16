@@ -260,12 +260,13 @@ over the region. The target type selects the family and the solve:
   turned source's rays (`max_px`, `max_px_edge`, `rms`, where the source images a
   ray) states it. `region` may exceed the source's valid domain (no
   `RegionBeyondSupport`), and `region ⊆ valid_domain` of the result always holds, a
-  region on the source's lattice edge included. Each edge of that domain is the
-  extended lattice's, or the region's where the region reaches past it within the
-  extension's rounding tolerance: exact wherever a float lands on it, otherwise
-  rounded OUTWARD by one output ulp (Core maps the lattice's area through K′, which
-  rounds), so the domain claims at most one ulp beyond the data; Core's `⊆` and the
-  gauge K′ are unchanged. A `grid_size` with
+  region on the source's lattice edge included (Core's support guard checks it on the
+  result). Each edge of that domain is the extended lattice's, or the region's where
+  the region reaches past it within the extension's rounding tolerance: exact wherever
+  a float lands on it, otherwise rounded OUTWARD to the nearest edge Core's map of the
+  lattice's area through K′ reaches, one step of that map (fx·eps(x) px: 2.8e-14 px
+  for a 640 × 480 source), so the domain claims at most that step beyond the data;
+  Core's `⊆` and the gauge K′ are unchanged. A `grid_size` with
   a SplineLens source is an `ArgumentError` naming `lattice_spacing`, and a
   `lattice_spacing` with any other source is one too.
   Its FORWARD spline (`forward = true`) is a `ChartSpline{2}` from the
@@ -1464,7 +1465,7 @@ _is_spline_camera(m) = m isa CameraModel && lens(m) isa SplineLens
 # source over its own bound; Core's exact `axis_gauged`), and the forward fitted as for any source. The backward is the
 # source's function to rounding inside its domain; the held-out error (f·angle) against the turned source's rays where
 # the source images one states it. The turned lattice's valid domain holds the region, its edges the extended
-# lattice's or the region's to one outward ulp (`_exact_valid_domain`). Core's fold report is recorded, never acted on (the caller's policy).
+# lattice's or the region's, rounded outward at most (`_exact_valid_domain`). Core's fold report is recorded, never acted on (the caller's policy).
 function _exact_resample(m::CameraModel, source::BoundedCamera, region; tolerance, lattice_spacing, forward, device)
     src = _without_forward(m)
     # the factors from the source's spacing, which the extension keeps (validated before any lattice work)
@@ -1494,32 +1495,42 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
 end
 
 # The turned resample `cam` with its backward area re-anchored so that its `valid_domain` holds the region: each edge
-# the extended lattice's (`before`; a subdivision keeps its area), or the region's where the region reaches past it by
-# under a cell (`extend_lattice` adds no ring within its rounding tolerance of the lattice's edge). Core maps the
-# normalized area through K′, which rounds, so the area is searched per axis: the largest origin whose low edge is at
-# most the target's, then the smallest width whose high edge is at least it. An edge is the target exactly wherever a
-# float lands on it, otherwise rounded OUTWARD by one output ulp. The controls, K′ and the presence mask are kept.
+# the extended lattice's (`before`; a subdivision keeps its area), or the region's where the region reaches past it
+# within twice `extend_lattice`'s rounding tolerance (1e-9 of a cell: no ring added). Core maps the normalized area
+# through K′, which rounds, so the area is searched per axis: the edge nearest the target on its outer side that K′'s
+# map reaches (exact wherever a float lands on the target), and of the area values giving that edge the outermost, so
+# that a pixel on the edge back-projects. Core's support guard checks the result (a `RegionBeyondSupport`). The
+# controls, K′ and the presence mask are kept.
 function _exact_valid_domain(cam, before, region)
     l = lens(cam)
-    domain(o, w) = VgtkCore.valid_domain(CameraModel(cam.intrinsics, SplineLens(ChartSpline(Rect2{Float64}(o, w), l.backward.controls); present = l.present)))
+    rebuilt(o, w) = CameraModel(cam.intrinsics, SplineLens(ChartSpline(Rect2{Float64}(o, w), l.backward.controls); present = l.present))
+    domain(o, w) = VgtkCore.valid_domain(rebuilt(o, w))
     old, box = VgtkCore.valid_domain(before), Rect2{Float64}(Rect2(region))
-    h = SVector{2, Float64}(Float64.(VgtkCore.lattice_spacing(before)))
+    tol = 2.0e-9 .* SVector{2, Float64}(Float64.(VgtkCore.lattice_spacing(before)))
     lo0, hi0 = SVector{2, Float64}(minimum(old)), SVector{2, Float64}(maximum(old))
     rlo, rhi = SVector{2, Float64}(minimum(box)), SVector{2, Float64}(maximum(box))
-    lo = ifelse.(lo0 .- h .< rlo .< lo0, rlo, lo0)
-    hi = ifelse.(hi0 .< rhi .< hi0 .+ h, rhi, hi0)
+    lo = ifelse.(lo0 .- tol .<= rlo .< lo0, rlo, lo0)
+    hi = ifelse.(hi0 .< rhi .<= hi0 .+ tol, rhi, hi0)
     a = l.backward.area
     o, w = SVector{2, Float64}(minimum(a)), SVector{2, Float64}(maximum(a) - minimum(a))   # the search's start
     for i in 1:2
         o, w = _anchor_axis(domain, o, w, i, lo[i], hi[i])
     end
-    return CameraModel(cam.intrinsics, SplineLens(ChartSpline(Rect2{Float64}(o, w), l.backward.controls); present = l.present))
+    out = rebuilt(o, w)
+    VgtkCore.check_region_support(VgtkCore.valid_domain(out), region; who = "fit_camera (the exact resample's domain)")
+    return out
 end
-# Axis `i` of the area `(o, w)` for `domain(o, w)`'s low edge at most `lo` and its high edge at least `hi`, each the
-# extreme float that holds.
+# Axis `i` of the area `(o, w)`: the low edge of `domain(o, w)` the largest at most `lo`, the high edge the smallest at
+# least `hi`, each by the outermost area value giving it.
 function _anchor_axis(domain, o, w, i, lo, hi)
-    o′ = Base.setindex(o, _extreme_float(x -> minimum(domain(Base.setindex(o, x, i), w))[i] <= lo, o[i], -1), i)
-    return o′, Base.setindex(w, _extreme_float(x -> maximum(domain(o′, Base.setindex(w, x, i)))[i] >= hi, w[i], 1), i)
+    low(t) = minimum(domain(Base.setindex(o, t, i), w))[i]
+    x = _extreme_float(t -> low(t) <= lo, o[i], -1)
+    e = low(x)
+    o′ = Base.setindex(o, _extreme_float(t -> low(t) >= e, x, 1), i)
+    high(t) = maximum(domain(o′, Base.setindex(w, t, i)))[i]
+    y = _extreme_float(t -> high(t) >= hi, w[i], 1)
+    f = high(y)
+    return o′, Base.setindex(w, _extreme_float(t -> high(t) <= f, y, -1), i)
 end
 # The extreme float at which the monotone predicate `ok` holds, near `x`: the largest when `ok` holds below its boundary
 # (`dir = -1`), the smallest when above (`dir = 1`). A bracket grown by doubling, then bisection to adjacent floats, so

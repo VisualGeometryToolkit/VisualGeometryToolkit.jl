@@ -311,7 +311,7 @@ end
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize
     using VisualGeometryToolkitCore: estimate, metadata, SplineLens, CameraModel, BoundedCamera, Size2, Rect, Ellipse, lens,
-        valid_domain, model, rotation
+        valid_domain, model, rotation, backproject
     using VisualGeometryToolkitEstimation: fit_camera
     # a Schöps central-generic source calibrated over the whole 640 × 480 sensor (7 × 6 nodes of 160 px; VisualGeometryToolkitIO's
     # reader builds it so): Core's constructor maps the area through K⁻¹ and back, so its domain's top edge is 2.8e-14 px below
@@ -324,11 +324,14 @@ end
     src = BoundedCamera(CameraModel(SplineLens, controls, Size2(640, 480); calib_area = Rect(0, 0, 640, 480), unit_controls = true), Size2(640, 480))
     R(r) = SMatrix{3, 3, Float64}(rotation(metadata(r).rotation))
     edges(b) = SVector(minimum(b)..., maximum(b)...)
-    within_ulp(b, target) = maximum(abs.(edges(b) - edges(target))) <= 1.0e-12   # one output ulp here: 2.8e-14 px
+    # one step of K′'s map here: fx·eps(x) ≈ 1340 · 2.8e-17 ≈ 3.7e-14 px (the edge found 2.8e-14 px outside 0)
+    within_ulp(b, target) = maximum(abs.(edges(b) - edges(target))) <= 1.0e-13
     for (region, spacing) in ((sensor, nothing), (sensor, 80.0), (sensor ∩ Ellipse(SVector(320.0, 240.0), 380.0, 380.0, 0.0), nothing))
         r = fit_camera(SplineLens, src, region; tolerance = Inf, forward = false, lattice_spacing = spacing)
         cam = estimate(r)
         @test region ⊆ valid_domain(cam) && sensor ⊆ valid_domain(cam) && within_ulp(valid_domain(cam), sensor)
+        # the region's edge imaged: its low corner and the corner pixels' centres back-project (the outermost area value)
+        @test all(p -> all(isfinite, backproject(cam, p)), (SVector(0.0, 0.0), SVector(0.5, 0.5), SVector(639.5, 0.5), SVector(0.5, 479.5), SVector(639.5, 479.5)))
         # the source's nodes, turned, bit for bit (unsubdivided)
         spacing === nothing && @test lens(cam).backward.controls == map(c -> R(r) * c, lens(model(src)).backward.controls)
     end

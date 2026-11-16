@@ -1,16 +1,16 @@
-docs-pass: ad999834
+docs-pass: 38514880
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: it names no LM verdict and no version)
 
 # VisualGeometryToolkitCore 0.11.0 and its monorepo cascade docs review (julia-docs-pass) — branch core-0110-term
 
 Released: Core 0.11.0 (breaking), Estimation 0.12.0 (minor, carrying 0.11.9's exact resample), IO 0.10.6, Features
 0.9.7, Eval 0.9.2, PoseLib 0.3.1 (patches). Baseline: origin/main 3416bb16 (Core 0.10.11, IO 0.10.5, Estimation 0.11.9,
-Features 0.9.6, Eval 0.9.1, PoseLib 0.3.0). The review covers the tree ad999834. After it, only this record changes
+Features 0.9.6, Eval 0.9.1, PoseLib 0.3.0). The review covers the tree 38514880. After it, only this record changes
 (`.release/` is outside the gate).
 
 ## 1. Public API since the baseline
 
-- Core: one method added to a public name, `is_stationary(ews::ManifoldLmWorkspace, lm, x, stops = LmStops())` (the
+- Core: one method added to a public name, `is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops)` (the
   chart LM's stationarity postcondition at a point). No name added, removed or re-signatured otherwise. The meaning
   of the host LM's termination record changes (owner ruling, 2026-11-15, and the desktop's rulings of 2026-11-16): an
   `ftol`, `xtol` or `xtol_rel` stop at a FINITE step is `(Success, CostDecrease | IncrementSize)` without the

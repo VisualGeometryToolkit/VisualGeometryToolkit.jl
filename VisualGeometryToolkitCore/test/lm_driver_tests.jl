@@ -831,6 +831,12 @@ end
     pt = LmProblem([SVector(1.0e8 + 1.0e4)], rows)
     st = lmsolve_chart!(pt, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = cb)
     @test st.code === ReturnCode.Terminated && st.iterations == 1
+    # the postcondition is read only where it decides (the rejection cap, a stop of no rule): never at a callback's stop,
+    # whose record is Terminated and whose code stays the stop's (never `_LM_STALLED`)
+    calls = Ref(0); probe = exact -> (calls[] += 1; false)
+    pr = LmProblem([SVector(1.0e8 + 1.0e4)], rows)
+    _, code, rec = VgtkCore._lm_run!(pr, LmStops(; ftol = 0, xtol = 0), cb, probe)
+    @test rec == (ReturnCode.Terminated, VgtkCore.Callback) && code == 4 && calls[] == 0
     # … whatever non-zero value it returns: one that sets the flag 2¹⁵ (-1, 2¹⁵ itself, shifted by NLLSsolver into bit 31)
     # is the callback's stop, never read as the relative step stop
     for t in (-1, 1 << 15, (1 << 15) | 1)

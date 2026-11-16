@@ -187,6 +187,7 @@ export batched_rows             # the describe backends' chunking skeleton
 export detect_mser, region_mask   # MSER (VLFeat's selection on ImageMorphology's MaxTree)
 public MserRegion, boundary_contours
 export detect_foerstner        # the Förstner interest operator: labelled corner / circular points
+export FoerstnerTests          # the F-test's critical values, computed once per configuration (detect_foerstner's f_tests)
 export gaussian_scale_space, GaussianScaleSpace, detect_sfop   # an image's Gaussian scale space, ASIFT's pyramid (its octaves' Gaussian levels)
 public level_sigma             # a scale-space level's blur in input pixels
 export gaussian_gradient       # an image's Gaussian-derivative gradient (gx, gy), optionally masked as gaussian_blur: one KA kernel, CPU and GPU (Förstner's)

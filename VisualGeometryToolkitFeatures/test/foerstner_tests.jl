@@ -578,3 +578,32 @@ end
         end
     end
 end
+
+# The F-test's critical values depend on the configuration only (the gradient taps, each window's half-width ρ, the noise
+# structure, the significance level), not on the image: a `FoerstnerTests` table computes each once and every later call
+# of that configuration reads it (the chrome detect computed them again on every photograph, 94 % of its time). The rows
+# are bit-identical to the call without a table, and a table shared by calls of different settings stays correct.
+@testitem "detect_foerstner: FoerstnerTests computes each window's F-test once, the rows bit-identical" setup = [FoerstnerFixture] begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: Disc, Point2
+    using Statistics: cov
+    truth, img = blob_grid(120, 160)
+    seeds = [Detection(Disc(Point2(x, y), σ), (; precision = 1.0)) for ((x, y), σ) in zip(truth, Iterators.cycle((1.3, 1.8, 2.4)))]
+    plain = detect_foerstner(Float64, img, seeds; device = KA.CPU(), noise = 2.0)
+    tests = FoerstnerTests()
+    @test isempty(tests)
+    first_ = detect_foerstner(Float64, img, seeds; device = KA.CPU(), noise = 2.0, f_tests = tests)
+    @test length(tests) == 3                                    # one entry per distinct ρ of the seeds
+    again = detect_foerstner(Float64, img, seeds; device = KA.CPU(), noise = 2.0, f_tests = tests)
+    @test length(tests) == 3                                    # read, not recomputed
+    same(a, b) = a.label === b.label && a.F === b.F && a.window == b.window && a.center == b.center && cov(a.value) == cov(b.value)
+    for rows in (first_, again)
+        @test length(rows) == length(plain) == length(seeds) && all(same(a, b) for (a, b) in zip(rows, plain))
+    end
+    # another configuration in the same table: its own entries, its own rows
+    other = detect_foerstner(Float64, img, seeds; device = KA.CPU(), noise = 2.0, significance_level = 0.99, f_tests = tests)
+    @test length(tests) == 6
+    @test all(same(a, b) for (a, b) in zip(other, detect_foerstner(Float64, img, seeds; device = KA.CPU(), noise = 2.0, significance_level = 0.99)))
+    # the image-wide search reads it too
+    @test all(same(a, b) for (a, b) in zip(detect_foerstner(Float64, img; f_tests = tests), detect_foerstner(Float64, img)))
+end

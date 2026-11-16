@@ -205,7 +205,7 @@ const _SeedDetection = Detection{<:Union{_ScaledFrame, Uncertain{<:_ScaledFrame,
 """
     detect_foerstner([T = Float32], img, seeds::AbstractVector{<:Detection}; device = default_device(),
                      noise = nothing, derivative = :gaussian2d, derivative_sigma = 1.0,
-                     significance_level = 0.999, polarity = :none) -> StructArray{<:Detection}
+                     significance_level = 0.999, polarity = :none, f_tests = nothing) -> StructArray{<:Detection}
     detect_foerstner([T = Float32], L::LinearRaw, seeds; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 The Förstner operator's window estimation (steps 4–6 of the method above, its
@@ -232,6 +232,10 @@ scale-normalised Laplacian of Gaussian at the seed's σ, its sign significant at
 noise (`noise` on a matrix, the gain-carrying `sensor_model` on a `LinearRaw`; with none known the call is refused).
 `:none` (the default) keeps every seed.
 
+`f_tests`: a [`FoerstnerTests`](@ref) table the F-test's critical values are read from (each window half-width's
+computed once, on its first use): pass one table to every call of a configuration (a set of photographs), else each
+call computes them again on the host. The rows are the same either way.
+
 Returns the rows of `detect_foerstner(img)` (label, frame and covariance,
 window, F; the F-test of each window at its own half-width's degrees of freedom), one per kept seed whose
 window lies inside the doubled image, in the order of `seeds`. Two seeds of one blob (a dot SFOP sees at two
@@ -250,20 +254,56 @@ detect_foerstner(::Type{T}, L::LinearRaw; sensor_model::SensorModel = SensorMode
 detect_foerstner(::Type{T}, L::LinearRaw, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
                  kw...) where {T <: AbstractFloat} = _detect_seeded(T, _raw_inputs(L, sensor_model)..., seeds; kw...)
 
+"""
+    FoerstnerTests()
+
+A table of the Förstner F-test's critical values ([`detect_foerstner`](@ref)'s `f_tests` keyword): each window
+half-width's pair (the corner's and the circular point's critical `F` at the significance level, from the residual sums'
+effective degrees of freedom) is computed on its first use and read by every later call. The values depend on the
+configuration only — the gradient taps (`derivative`, `derivative_sigma`), the half-width ρ, the pixel noise's
+structure (white input pixels, or the photosites through a mosaic's bilinear green image) and `significance_level` —
+and each entry is keyed by all four, so one table serves calls of different settings and the rows are bit-identical to
+a call without one. The caller makes one per detect configuration and passes it to each of its calls (a set of
+photographs: the host computation was most of a seeded call's time). Safe to share between threads.
+"""
+struct FoerstnerTests
+    critical::Dict{Tuple{Matrix{Float64}, Int, Any, Float64}, NTuple{2, Float64}}
+    lock::ReentrantLock
+end
+FoerstnerTests() = FoerstnerTests(Dict{Tuple{Matrix{Float64}, Int, Any, Float64}, NTuple{2, Float64}}(), ReentrantLock())
+Base.length(t::FoerstnerTests) = lock(() -> length(t.critical), t.lock)
+Base.isempty(t::FoerstnerTests) = length(t) == 0
+Base.show(io::IO, t::FoerstnerTests) = print(io, "FoerstnerTests(", length(t), " windows)")
+
+# The F-test's two critical values at half-width ρ (`_foerstner_classes`' corner and circular thresholds): computed, or
+# read from (and on a miss added to) the table `f_tests`.
+function _f_critical(::Nothing, taps, ρ, noise, significance_level)
+    d = _residual_dof(taps, ρ, noise)
+    f = FDist(d.corner.ν, d.circular.ν)
+    return (quantile(f, significance_level), quantile(f, 1 - significance_level))
+end
+_f_critical(t::FoerstnerTests, taps, ρ, noise, significance_level) =
+    lock(t.lock) do
+        get!(t.critical, (Matrix{Float64}(taps), Int(ρ), noise, Float64(significance_level))) do
+            _f_critical(nothing, taps, ρ, noise, significance_level)
+        end
+    end
+
 # The seeded call's keywords, once for both inputs (the pixel noise already resolved): the image-wide search's are not
 # read at given windows, and a caller who gives one expects an effect it cannot have, so they are refused by name.
 function _detect_seeded(
         ::Type{T}, img, noise, seeds; device::KA.Backend = default_device(), derivative::Symbol = :gaussian2d,
-        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, polarity::Symbol = :none, unread...
+        derivative_sigma::Real = 1.0, significance_level::Real = 0.999, polarity::Symbol = :none,
+        f_tests::Union{Nothing, FoerstnerTests} = nothing, unread...
     ) where {T}
     _refuse_unread_seed_keywords(unread)
     _check_seeds(seeds)
-    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level, polarity)
+    return _detect_foerstner(T, img, noise; seeds, device, derivative, derivative_sigma, significance_level, polarity, f_tests)
 end
 
 _refuse_unread_seed_keywords(unread) = isempty(unread) || throw(ArgumentError(
     "detect_foerstner(img, seeds): $(join(string.(keys(unread)), ", ")) not read by the seeded call (each window's " *
-    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level, polarity and the pixel noise " *
+    "scale is its seed's σ): it takes device, derivative, derivative_sigma, significance_level, polarity, f_tests and the pixel noise " *
     "(noise on a matrix, sensor_model on a LinearRaw)"))
 
 # Every seed a detection of a frame with a scale (`_SeedDetection`): a point's window has no scale.
@@ -300,7 +340,8 @@ function _detect_foerstner(
         roundness_threshold::Real = 0.3,
         significance_level::Real = 0.999,
         seeds::Union{Nothing, AbstractVector{<:Detection}} = nothing,
-        polarity::Symbol = :none
+        polarity::Symbol = :none,
+        f_tests::Union{Nothing, FoerstnerTests} = nothing
     ) where {T <: AbstractFloat}
     _check_precision(T)
     0 < significance_level < 1 ||
@@ -316,7 +357,7 @@ function _detect_foerstner(
         device, doubled; method, noise_sigma, derivative, integration, derivative_sigma,
         integration_sigma, precision_threshold, roundness_threshold
     ) : _foerstner_seeded(device, doubled, seeds; derivative, derivative_sigma)
-    classes = _foerstner_classes(found, significance_level, _noise_terms(model))
+    classes = _foerstner_classes(found, significance_level, _noise_terms(model), f_tests)
     _noise_known(model) || return _foerstner_points(found, classes, _undouble)
     covariances = _propagated_covariances(device, found, classes, _device_noise(T, device, model, size(g))...)
     return _foerstner_points(found, classes, _undouble; covariances, covariance_status = _noise_status(model))
@@ -550,9 +591,8 @@ end
 # 427–429: each window's class from the F-test of `F = Ω_corner / Ω_circular`: 1 a corner, −1 a circular point,
 # 0 unknown (the reference's noclass). The F distribution's degrees of freedom are the two residual sums' effective
 # ones (`_residual_dof`, one per window half-width ρ), not the reference's pixel count `(2ρ + 1)² − 2`.
-function _foerstner_classes(found, significance_level, noise = _WhiteNoise())
-    tests = Dict(ρ => (d = _residual_dof(found.taps, ρ, noise); f = FDist(d.corner.ν, d.circular.ν);
-                       (quantile(f, significance_level), quantile(f, 1 - significance_level))) for ρ in unique(found.ρ))
+function _foerstner_classes(found, significance_level, noise = _WhiteNoise(), f_tests = nothing)
+    tests = Dict(ρ => _f_critical(f_tests, found.taps, ρ, noise, significance_level) for ρ in unique(found.ρ))
     function class(k, e)
         corner_critical, circular_critical = tests[_per_window(found.ρ, k)]
         return (e[7] / e[14] < corner_critical) - (e[7] / e[14] > circular_critical)

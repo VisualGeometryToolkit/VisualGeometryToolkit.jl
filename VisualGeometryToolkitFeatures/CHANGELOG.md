@@ -1,5 +1,19 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.8
+
+A patch, additive: the Förstner F-test's critical values computed once per configuration.
+
+- **`FoerstnerTests()`** and `detect_foerstner(…; f_tests)` (seeded and image-wide, every input): a table of the F-test's
+  critical values per window half-width ρ, keyed by everything they depend on (the gradient taps, ρ, the pixel noise's
+  structure, `significance_level`), each computed on its first use and read by every later call. The caller makes one
+  per detect configuration (a set of photographs). Without it (the default, `nothing`) every call computes them again,
+  as before; the rows are bit-identical either way.
+- Why: the values are dense host linear algebra (`_residual_dof`; on a mosaic's bilinear green image eight lattice
+  phases and centre parities per ρ) and a seeded call on a chrome photograph has one ρ per distinct seed scale, so on
+  the GPU they were nearly all of a RAW chrome photograph's detect time (RC's chrome detect, Sony FX3 fisheye 30 cm set,
+  one B200: the seeded call 5.9–9.0 s of 6.3–9.4 s per photograph, the GPU mostly idle).
+
 ## 0.9.7
 
 A patch: on VisualGeometryToolkitCore 0.11 and VisualGeometryToolkitEstimation 0.12 (`[compat]` `"0.11"`, `"0.12"`).

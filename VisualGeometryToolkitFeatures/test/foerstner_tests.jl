@@ -652,3 +652,18 @@ end
         end
     end
 end
+
+# A table entry is the value the call without a table computes for ITS level: two levels that compare equal as Float64
+# (0.999 and 999//1000, 0.999f0 and its Float64) but give different `1 − level` keep their own entries.
+@testitem "FoerstnerTests: each significance level its own entry, as the call without a table computes it" begin
+    VGF = VisualGeometryToolkitFeatures
+    taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)
+    noise = VGF._WhiteNoise()
+    for levels in ((0.999, 999 // 1000), (Float64(0.999f0), 0.999f0))
+        table = FoerstnerTests()
+        for level in levels, ρ in (2, 3)
+            @test VGF._f_critical(table, taps, ρ, noise, level) === VGF._f_critical(nothing, taps, ρ, noise, level)
+        end
+        @test length(table) == 4
+    end
+end

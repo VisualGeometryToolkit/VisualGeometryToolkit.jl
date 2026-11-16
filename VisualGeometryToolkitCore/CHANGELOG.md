@@ -19,6 +19,9 @@ VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.
   comes only from the consecutive-rejection cap (or a stop of no rule) short of a stationary point; NLLSsolver 5.3's LM
   sets the step-size flag on the first iteration that raises the cost, so that cap is not reached by Core's LM in
   practice. The device LM (`static_lm`) is unchanged.
+- **`LmStops`' `stationarity_tol` and `residual_resolution` are read only by `is_stationary`**: no host verdict uses them
+  since 0.11.0 (a tolerance stop is converged, and the rejection cap that read them is unreachable). They are kept, for
+  `is_stationary(ews, lm, x, stops)` and the device LM's `StaticLmStops`.
 - **Migration.** Code that read `Stalled` (or `!converged(r)`, `!successful_retcode(retcode(r))`) as "the fit stopped
   short of a minimum" after a tolerance stop no longer sees it. A caller that needs the old meaning tests the point
   itself: `is_stationary(J, f; tol, ftol)` on its rows, or the caller's own validity gate (VisualGeometryToolkitEstimation

@@ -743,6 +743,12 @@ end
     @test nlls_termination(1 << 2, probe) === (ReturnCode.Success, CostDecrease) && calls[] == 0
     @test nlls_termination(1 << 6, probe) === (ReturnCode.Success, IncrementSize) && calls[] == 0
     @test nlls_termination(1 << 7, probe) === (ReturnCode.Stalled, RejectionCap) && calls[] == 1
+    # A fact about NLLSsolver 5.3.4, so these rows are tested on bits only: the rejection cap (bit 7) and a stop of no
+    # rule are unreachable through `lmsolve_chart!`. Its LM iterators accept a trial only when its cost is not above the
+    # best, or when the step is below `dstep` (which sets bit 6 in that same iteration); a non-finite step returns NaN and
+    # sets bit 5. So the first iteration that raises the cost always carries a step or non-finite flag, and
+    # `optimizeloop!` breaks on it: `fails` never exceeds `maxfails = 3`. The loop breaks only on a nonzero flag, so a
+    # termination with no rule bit cannot occur either.
     # with the real postcondition (`is_stationary`), at a least-squares optimum and off it: a tolerance stop is converged
     # either way (Core 0.11.0's owner ruling; 2026-11-13 – 0.10.11 it was :stalled off the optimum); the rejection cap
     # alone reads it

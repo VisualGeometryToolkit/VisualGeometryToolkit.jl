@@ -5,7 +5,13 @@
 A patch: the projective radial profile's knots continue past the rim at the pixel spacing (T. Harder's analysis,
 2026-11-15), and the host LM gains Ceres' relative step tolerance.
 
-### Changed
+### Changed (stored projective records)
+- **The projective knot rule changed for `p > 1`, and `n ≤ 2p` is now refused.** A profile on the projective chart
+  (`RadialVignetting(…; chart = :projective)`, and every stored record of one: VisualGeometryToolkitIO rebuilds the
+  knots from the record's count, degree and chart) now has the knots below for the same `n` and `p`, so a record
+  written before 0.10.11 evaluates to a different field, and one of `n ≤ 2p` control points no longer loads (IO 0.10.5
+  refuses it by name). Why: the old rule's last basis functions barely acted on the fitted pixels (below). At `p = 1`
+  the rules agree, and a profile built from explicit knots (the knots form) is unchanged.
 - **`projective_knots(n, p)` keeps the pixel spacing past the rim.** Until 0.10.10 the rule put `m = n − p − 1` spans
   uniform in the distance up to the radius (knots `k / (m + k)` on `ρ = d / (r + d)`) and then ONE span `[½, 1)`, ~25×
   wider in `ρ` than the last on-sensor span, so the last basis functions nearly vanished on `d ≤ r` (peaks
@@ -26,7 +32,7 @@ A patch: the projective radial profile's knots continue past the rim at the pixe
 - **`LmStops(; xtol_rel)`: the relative step tolerance, Ceres' parameter tolerance** — stop once
   `‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)`, Euclidean norms of the step (NLLSsolver's last candidate step, the step its own `dstep`
   test reads) and of the free variables before it (a Euclidean coordinate its value, a chart coordinate one chart
-  unit: the exact-fit threshold's operand units). Alongside the absolute `xtol` (NLLSsolver's `dstep`) and the
+  unit, so a chart LM's ‖x‖ is √N: the exact-fit threshold's operand units). Alongside the absolute `xtol` (NLLSsolver's `dstep`) and the
   relative cost tolerance `ftol`, read through the same `LmStops` and Core's `[lm]` table (`xtol_rel = 0.0`: none,
   every fit as before, bit for bit). A step-size stop: its verdict is the stationarity postcondition's
   (`ReturnCode.Success` or `Stalled`, `IncrementSize`), as an `ftol` or `xtol` stop's is. NLLSsolver has no such

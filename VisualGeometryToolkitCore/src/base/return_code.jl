@@ -104,7 +104,8 @@ Which rule ended a fit — the detail behind its [`ReturnCode`](@ref) (the
 verdict), read by [`stop_rule`](@ref):
 
 - `NoRule` — no rule fired: a run that never iterated (a degenerate start, a
-  non-finite start point);
+  non-finite start point), or a host-LM run NLLSsolver stopped after a cost
+  disagreement with no tolerance met (`nlls_termination`, Core 0.11.1);
 - `ClosedForm` — a one-shot solve (no iteration), or a selection among fixed
   candidates;
 - `CostDecrease` — the cost decrease fell below its tolerance (NLLSsolver's
@@ -159,7 +160,7 @@ An `@enum` (isbits): a metadata that carries it stays concretely typed.
 end
 
 for (v, doc) in (
-        (:NoRule, "no rule fired: the run never iterated"),
+        (:NoRule, "no rule fired: the run never iterated, or the host LM stopped after a cost disagreement"),
         (:ClosedForm, "a one-shot solve, or a selection among fixed candidates"),
         (:CostDecrease, "the cost decrease fell below its tolerance"),
         (:IncrementSize, "the update fell below its tolerance"),

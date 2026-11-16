@@ -631,9 +631,12 @@ const _LM_LINEAR_FAILURES = Union{
 # NonFinite). NLLSsolver tests bit 10 only on an iteration that set no other bit (it `break`s first when `converged != 0`,
 # which a set bit 10 also makes the NEXT iteration do: the solve stops one iteration later, on that iteration's bits),
 # so `cost` is finite there; a non-finite relinearized cost `cost_` comes from non-finite residuals, which make the
-# gradient non-finite too (Jᵀr, a NaN or Inf row times any Jacobian entry): bit 12, tested right after. So bit 10
-# never adds a non-finite case the other bits miss: it counts NEVER — "only alongside a genuine non-finite bit" would
-# decide nothing that bit does not already. (Core 0.10.11 read bit 10 without a step stop as a failure too.)
+# gradient non-finite too (Jᵀr, a NaN or Inf row times any Jacobian entry): bit 12, tested right after (a robust loss
+# whose ρ′ vanishes there, or a square that overflows, can leave the gradient finite: then the postcondition below
+# judges the stop). So bit 10 counts NEVER as non-finite — "only alongside a genuine non-finite bit" would decide
+# nothing that bit does not already. What it does mean, a stop forced one iteration later, is read by
+# `nlls_termination`: the postcondition decides every stop that carries it (an exact fit passes; a residual and
+# Jacobian that truly disagree do not). (Core 0.10.11 read bit 10 without a step stop as a failure too.)
 const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
 
 """
@@ -669,8 +672,9 @@ last accepted, finite point — and no convergence either: a stall.
 
 The cost disagreement (10) states nothing non-finite (Core 0.11.1; see
 `_NLLS_NONFINITE_BITS`): an exact fit sets it at rounding level. It stops the
-solve one iteration later; with a tolerance's bit that stop is the tolerance's,
-alone it is a stop of no rule (`4`).
+solve one iteration later; with a tolerance's bit that stop keeps the tolerance's
+code, alone it is a stop of no rule (`4`). Either way `nlls_termination` reads the
+postcondition there: the tolerance's bit on that forced iteration is incidental.
 """
 function nlls_stop_code(bits::Integer)
     bit(k) = bits & (1 << k) != 0
@@ -735,6 +739,7 @@ decoded in `nlls_stop_code`'s one order:
 | 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
 | 16 and above only (31 excepted: a callback's own value never sets it), a user callback | `Callback` | `Terminated` |
 | 10 alone, the stop one iteration after a cost disagreement (rounding at an exact fit: nothing non-finite) | `NoRule` | `Success` if the postcondition holds, else `Stalled` |
+| 10 with 6, 31, 2 or 3 (the tolerance's bit set on the iteration NLLSsolver forces after the disagreement) | `IncrementSize` / `CostDecrease` | `Success` if the postcondition holds, else `Stalled` |
 | 9, the time cap | `TimeCap` | `MaxTime` |
 | 8, the iteration cap | `IterationCap` | `MaxIters` |
 
@@ -756,8 +761,12 @@ function nlls_termination(bits::Integer, postcondition)
     code == -1 && return (ReturnCode.MaxIters, IterationCap)
     # a tolerance stop (the cost decrease, the step size) is converged (owner ruling, Core 0.11.0); the rejection cap's verdict
     # is the postcondition's; a callback's is Terminated
-    code == 1 && return (ReturnCode.Success, CostDecrease)
-    code == 2 && return (ReturnCode.Success, IncrementSize)
+    # … except beside a cost disagreement (bit 10, Core 0.11.1): NLLSsolver stops on the iteration after it whatever that
+    # iteration shows, so the tolerance's bit there is incidental, and the postcondition decides (an exact fit, the
+    # rounding disagreement's own case, passes it; a residual and Jacobian that truly disagree do not)
+    agreed = bits & (1 << 10) == 0
+    code == 1 && return (agreed || _holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, CostDecrease)
+    code == 2 && return (agreed || _holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, IncrementSize)
     rule = bits & (1 << 7) != 0 ? RejectionCap : bits >> 16 != 0 ? Callback : NoRule
     rule == Callback && return (ReturnCode.Terminated, Callback)
     return (_holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, rule)
@@ -818,9 +827,9 @@ configuration's question, not the termination record's. A FINITE step only: a st
 non-finite (a NaN wall, the step tiny because no finite one is left) is `(ReturnCode.Stalled, NonFinite)`,
 `converged = -2`, at the last accepted point. The iteration and time caps are not converged (`MaxIters`,
 `MaxTime`), a failed solve is `Failure`. A rounding-level cost disagreement (NLLSsolver's bit 10, as at an exact fit)
-is neither (Core 0.11.1): a tolerance's stop beside it is that tolerance's, and the stop it makes alone one iteration
-later is of no rule. Only the stops that are no tolerance — the consecutive-rejection cap and that stop of no rule — are
-judged by the stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
+is neither (Core 0.11.1): NLLSsolver stops one iteration after it, whatever that iteration shows, so a stop with it is
+no tolerance stop. The stops that are no tolerance — the consecutive-rejection cap and any stop after a cost
+disagreement (its rule the tolerance's bit, else `NoRule`) — are judged by the stationarity postcondition at the returned point, `ReturnCode.Stalled` (`converged = -2`) when it fails. Stationary means the cost is zero by the exact-fit test — below the rounding of the
 final point's residuals, `F < (16ε)²·Σᵢ sᵢ²` over their operand scales sᵢ (`_exact_fit_threshold`, Core 0.10.4: a
 run that starts at an exact fit, a restart from a solve's minimum, ends at one), floored by the square of the
 residual-vector norm the data resolve, `stops.residual_resolution` (`0` by default; `stops.ftol` is the relative

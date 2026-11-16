@@ -888,13 +888,20 @@ end
 @testitem "lmsolve_chart!: a cost disagreement at an exact fit is no NaN wall (Core 0.11.1)" begin
     import VisualGeometryToolkitCore as VgtkCore
     using Test, StaticArrays
-    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, IncrementSize, CostDecrease, NoRule, NonFinite
+    using VisualGeometryToolkitCore: LmProblem, LmStops, lmsolve_chart!, NLLSsolver, ReturnCode, IncrementSize, CostDecrease, NoRule, NonFinite,
+        IterationCap
     code, term = VgtkCore.nlls_stop_code, VgtkCore.nlls_termination
     # the bits: 10 with a step stop is the step stop; with a cost-decrease stop, the cost decrease; alone, a stop of no
     # rule (the postcondition decides); with a genuinely non-finite bit, that bit decides
     @test code((1 << 6) | (1 << 10)) == 2 && term(1088, true) === (ReturnCode.Success, IncrementSize)
-    @test term(1088, false) === (ReturnCode.Success, IncrementSize)
-    @test code((1 << 2) | (1 << 10)) == 1 && term((1 << 2) | (1 << 10), false) === (ReturnCode.Success, CostDecrease)
+    # … but the tolerance's bit came on the iteration NLLSsolver forces after the disagreement: the postcondition decides
+    @test term(1088, false) === (ReturnCode.Stalled, IncrementSize)
+    @test code((1 << 2) | (1 << 10)) == 1 && term((1 << 2) | (1 << 10), true) === (ReturnCode.Success, CostDecrease)
+    @test term((1 << 2) | (1 << 10), false) === (ReturnCode.Stalled, CostDecrease)
+    @test term((1 << 8) | (1 << 10), true) === (ReturnCode.MaxIters, IterationCap)   # a cap stays a cap (0.11.0: Failure)
+    calls = Ref(0); probe = () -> (calls[] += 1; true)
+    @test term(1 << 6, probe) === (ReturnCode.Success, IncrementSize) && calls[] == 0   # no disagreement: a tolerance, unread
+    @test term(1088, probe) === (ReturnCode.Success, IncrementSize) && calls[] == 1
     @test code(1 << 10) == 4 && term(1 << 10, true) === (ReturnCode.Success, NoRule) && term(1 << 10, false) === (ReturnCode.Stalled, NoRule)
     @test code((1 << 1) | (1 << 6) | (1 << 10)) == VgtkCore._LM_STALLED && term((1 << 1) | (1 << 6) | (1 << 10), true) === (ReturnCode.Stalled, NonFinite)
     @test code((1 << 10) | (1 << 12)) == -3 && term((1 << 10) | (1 << 12), true) === (ReturnCode.Failure, NonFinite)

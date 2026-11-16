@@ -1,5 +1,32 @@
-docs-pass: 38514880
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (no change: it names no LM verdict and no version)
+docs-pass: 74bd5037
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (not re-read: no local clone on dgx01; the patch adds a keyword and a type, which no landing text lists)
+
+# VisualGeometryToolkitFeatures 0.9.8 docs review (julia-docs-pass) — branch patch-feat098
+
+Released: Features 0.9.8 (a patch, additive). Baseline: origin/main 164a4fbb (Features 0.9.7, Core 0.11.0, Estimation
+0.12.0). The review covers the tree 74bd5037. After it, only this record changes (`.release/` is outside the gate). No
+code outside VisualGeometryToolkitFeatures.
+
+## 1. Public API since Features 0.9.7
+
+- Added: the export `FoerstnerTests` (a caller-held, locked table of the Förstner F-test's critical values, keyed by
+  the gradient taps, ρ, the noise structure and the significance level as given) and the keyword `f_tests =
+  nothing` on every `detect_foerstner` form (image-wide and seeded; matrix, `LinearRaw`, `RawMosaic`). No name
+  removed, no signature otherwise changed. Compat unchanged (Core `"0.11"`, Estimation `"0.12"`).
+
+## 2. Docstrings and pages brought up to date
+
+- `FoerstnerTests`' docstring (in the API page through `foerstner.jl`'s `@autodocs`); `detect_foerstner`'s image-wide
+  signature and keyword list (`f_tests`) and the seeded form's paragraph; the Förstner guide: `f_tests` in the seeded
+  form's keyword list and a section "A set of photographs: the F-test's table" with its example. CHANGELOG 0.9.8. No
+  README or landing example changes.
+
+## 3. Gates
+
+Features' docs build strict (no `warnonly`) and every Features item (`docs`, `README`, `quality`, `naming`, `agent
+docs` among them) at depwarn=error and depwarn=yes, the GPU items on a device, in the patch-feat098 gate at the final
+head.
+
 
 # VisualGeometryToolkitCore 0.11.0 and its monorepo cascade docs review (julia-docs-pass) — branch core-0110-term
 

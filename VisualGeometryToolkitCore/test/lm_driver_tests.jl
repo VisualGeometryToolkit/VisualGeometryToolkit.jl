@@ -817,6 +817,18 @@ end
         sc = lmsolve_chart!(pc, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = (cost, args...) -> (cost, t))
         @test sc.code === ReturnCode.Terminated && sc.iterations == 1
     end
+    # a CHART LM's ‖x‖ is one chart unit per coordinate (its chart vector is centred at the linearization point, its value
+    # no operand): r(x) = (p₀ + x)², p₀ = 1e-3, from x = 0, Gauss–Newton halves p₀ + x each step (Δₖ ≈ p₀/2ᵏ). At
+    # xtol_rel = 1e-4 the stop is the first step below 1e-4·(1 + 1e-4): the 4th or 5th. Read as the chart vector's value
+    # (|x| ≈ 1e-3) the threshold is 1e-7, ~14 steps
+    struct _SquareChart
+        p0::Float64
+    end
+    VgtkCore.residual_rows!(r, lm::_SquareChart, x) = (r[1] = (lm.p0 + x[1])^2; r)
+    VgtkCore.residual_jacobian_rows!(J, lm::_SquareChart, x) = (J[1, 1] = 2 * (lm.p0 + x[1]); J)
+    _, _, _, itc, (_, rulec) = lmsolve_chart!(VgtkCore.ManifoldLmWorkspace(1, 1), _SquareChart(1.0e-3),
+                                              LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-4, max_iter = 50))
+    @test rulec === IncrementSize && itc <= 8
     # the test itself: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
     @test VgtkCore._relative_increment_met(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_increment_met(1.1, 1.0e6, 1.0e-6)
     @test !VgtkCore._relative_increment_met(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never

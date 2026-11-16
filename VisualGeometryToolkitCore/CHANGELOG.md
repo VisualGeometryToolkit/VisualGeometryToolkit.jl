@@ -31,7 +31,7 @@ VisualGeometryToolkitFeatures 0.9.7, VisualGeometryToolkitEval 0.9.2, PoseLib 0.
 
 ### Added
 
-- **`is_stationary(ews::ManifoldLmWorkspace, lm, x, stops = LmStops())`**, the chart LM's stationarity postcondition
+- **`is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops)`**, the chart LM's stationarity postcondition
   at a chart point, public: a caller whose own validity gate needs a stationary point runs it at the solution
   (VisualGeometryToolkitEstimation's `optical_axis`). One implementation with the postcondition the LM reads.
 

@@ -975,7 +975,7 @@ function _lm_stationary(ews::ManifoldLmWorkspace, lm, x, tol::Real, exact)
 end
 
 """
-    is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops = LmStops()) -> Bool
+    is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops) -> Bool
 
 The chart LM's stationarity postcondition for the state `lm` at the chart point `x` (an `SVector{N}`, the chart
 coordinates [`lmsolve_chart!`](@ref) returns), under `stops`' `stationarity_tol` and `residual_resolution`: the
@@ -985,8 +985,10 @@ It reads the state's reduction at `x` (`residual_normal_equations!`) into `ews`'
 
 The host LM converges a tolerance stop at a finite step without this test (Core 0.11.0); a caller whose own
 validity gate needs a stationary point (VisualGeometryToolkitEstimation's optical axis) runs it at the solution.
+`stops` is required (`LmStops()` for the configuration of record): a 3-argument form would be ambiguous with the
+block form `is_stationary(blocks, variables, free)`.
 """
-is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops = LmStops()) =
+is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops) =
     _lm_stationary(ews, lm, x, stops.stationarity_tol, _FinalRounding(stops.residual_resolution))
 
 # max_j |Jⱼᵀ f| / (‖Jⱼ‖ ‖f‖), with `g` and `w` scratch of length size(J, 2)

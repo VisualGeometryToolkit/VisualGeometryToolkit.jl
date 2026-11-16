@@ -1,5 +1,26 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.10.5
+
+A patch for VisualGeometryToolkitCore 0.10.11, whose projective knot rule changed for degree `p > 1`. No kind's schema
+version moves.
+
+### Changed (stored projective records)
+
+- **A vignetting record on the projective chart is read with Core 0.10.11's knots.** The reader rebuilds a radial
+  profile's knots from its count, degree and chart (`vgio/vignetting/v2.0`, and a v1 file through its version step),
+  so a projective record written before Core 0.10.11 with `p > 1` now evaluates to a different field: Core's
+  `projective_knots(n, p)` keeps the pixel spacing past the rim (`p − 1` more knots there) where the old rule had one
+  wide span. At `p = 1` the two rules agree. No stored projective record is known in the stack beyond IO's own fixture.
+- **A projective record of `n ≤ 2p` control points is refused** (`ArgumentError`): the new knots need at least
+  `2p + 1`. The message names the record, its count and degree, the minimum and the Core release; refit the profile.
+- The IO 0.9 migration fixture `test/fixtures/old/vignetting_v1_chart.json` has 8 control points, replacing the 6 the
+  new rule refuses at degree 3 (a hand-written record: its purpose, a v1 record with its chart, is unchanged).
+
+### Compat
+
+- VisualGeometryToolkitCore 0.10.11 (the projective knots), in the package, test, docs and benchmark environments.
+
 ## 0.10.4
 
 A patch for VisualGeometryToolkitCore 0.10.10, whose `valid_domain` of a lens that is not radially symmetric is a star

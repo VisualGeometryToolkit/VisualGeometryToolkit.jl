@@ -810,6 +810,13 @@ end
     pt = LmProblem([SVector(1.0e8 + 1.0e4)], rows)
     st = lmsolve_chart!(pt, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = cb)
     @test st.code === ReturnCode.Terminated && st.iterations == 1
+    # … whatever non-zero value it returns: one that sets the flag 2¹⁵ (-1, 2¹⁵ itself, shifted by NLLSsolver into bit 31)
+    # is the callback's stop, never read as the relative step stop
+    for t in (-1, 1 << 15, (1 << 15) | 1)
+        pc = LmProblem([SVector(1.0e8 + 1.0e4)], rows)
+        sc = lmsolve_chart!(pc, LmStops(; ftol = 0, xtol = 0, xtol_rel = 1.0e-6); callback = (cost, args...) -> (cost, t))
+        @test sc.code === ReturnCode.Terminated && sc.iterations == 1
+    end
     # the test itself: ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
     @test VgtkCore._relative_increment_met(1.0, 1.0e6, 1.0e-6) && !VgtkCore._relative_increment_met(1.1, 1.0e6, 1.0e-6)
     @test !VgtkCore._relative_increment_met(1.0e-20, 0.0, 0.0)                 # xtol_rel = 0: never

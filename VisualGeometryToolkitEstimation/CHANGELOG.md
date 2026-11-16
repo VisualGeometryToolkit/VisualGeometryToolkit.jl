@@ -1,6 +1,9 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased
+## 0.11.8
+
+A patch: `optical_axis` fits the axis order by order (1 → 2 → 3 → 4 radial terms) and keeps the highest order that
+converged without folding inside the region. VisualGeometryToolkitCore's floor is 0.10.10.
 
 ### Fixed
 

@@ -1,5 +1,29 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.11.9
+
+A patch: the exact resample of a SplineLens source (`fit_camera(SplineLens, source, region; …)`) returns a lattice
+whose valid domain always holds the region, a region on the source's lattice edge included. It fixes a regression of
+0.11.8 that broke the registered RadiometricCamera 0.11.3. VisualGeometryToolkitCore's floor stays 0.10.10.
+
+### Fixed
+
+- **`region ⊆ valid_domain` of the resample always holds.** Core's `axis_gauged` re-expresses the lattice's
+  normalized area under the axis's K′ (through K′⁻¹K), and that rounds; so does Core's constructor of the source.
+  When the region lay on the source's lattice edge (a source calibrated over the whole sensor and resampled over it),
+  `extend_lattice` rightly added no ring, and the result's domain could come back a rounding inside the region:
+  0.11.8's axis (its order continuation) left the top edge of a Schöps source over a 640 × 480 sensor 2.8e-14 px
+  below the sensor's, and `region ⊆ valid_domain` refused it. The turned lattice's area is now searched, per axis, so
+  that each edge of its valid domain is the extended lattice's, or the region's where the region reaches past it
+  within the extension's rounding tolerance. An edge is exact wherever a float lands on it, otherwise rounded
+  OUTWARD by one output ulp, so the domain claims at most one ulp beyond the data (about 2.8e-14 px here: Core's
+  K′ map skips the float 0 at that edge). Core's `⊆` and the gauge K′ are unchanged; the controls and the presence
+  mask are kept, and the area moves by a few ulps, so a ray moves by that rounding of its lattice coordinate.
+- **RadiometricCamera 0.11.3's exact start works again.** On 0.11.8, `exact_start` of a SplineLens source whose
+  resampled support is not exact (a Schöps source calibrated over the whole sensor; a subdivided start of one) threw
+  `RegionBeyondSupport` in its coverage check: three items of RadiometricCamera 0.11.3's own grid I/O and lattice
+  padding tests fail on the registered Core 0.10.11, IO 0.10.5 and Estimation 0.11.8. 0.11.9 restores it.
+
 ## 0.11.8
 
 A patch: `optical_axis` fits the axis order by order (1 → 2 → 3 → 4 radial terms) and keeps the highest order that

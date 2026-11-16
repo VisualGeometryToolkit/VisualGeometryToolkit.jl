@@ -38,6 +38,13 @@
         edited(f) = (t = JSON.parse(read(joinpath(dir, "r.json"), String)); f(t); q = joinpath(dir, "bad.json"); write(q, JSON.json(t)); q)
         @test_throws ArgumentError load(AbstractVignetting, edited(t -> delete!(t["vignetting"], "chart")))   # v2.0: required
         @test_throws ArgumentError load(AbstractVignetting, edited(t -> t["vignetting"]["chart"] = "polar"))
+        # a projective profile of n ≤ 2p control points (written under the knot rule before VisualGeometryToolkitCore 0.10.11)
+        # is refused by the record's reader, naming the record, the count and the rule's minimum 2p + 1
+        save(joinpath(dir, "r.json"), pv)
+        few = edited(t -> t["vignetting"]["control_points"] = t["vignetting"]["control_points"][1:6])
+        @test_throws ArgumentError load(AbstractVignetting, few)
+        @test_throws r"vgio/vignetting.*projective.*6 control points.*degree 3.*at least 7.*0\.10\.11" load(AbstractVignetting, few)
+        save(joinpath(dir, "r.json"), rv)
         L = with_unit(EnvironmentLight(SphericalHarmonicMap([w(i, j) for i in 1:3, j in 1:9], 2), SVector(0.1, -0.2, 0.3), 1.5), m)
         p = joinpath(dir, "light.json")
         save(p, L)

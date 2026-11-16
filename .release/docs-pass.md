@@ -1,3 +1,31 @@
+docs-pass: dcd7c649
+
+# VisualGeometryToolkitEstimation 0.11.9 docs review (julia-docs-pass) — branch patch-est0119
+
+Baseline: Estimation 0.11.8, on origin/main 1d86fa8b (Core 0.10.11, IO 0.10.5). The review covers the tree dcd7c649.
+After it, only this record changes (`.release/` is outside the gate). No code outside VisualGeometryToolkitEstimation.
+
+## 1. Public API since Estimation 0.11.8
+
+- No name added or removed, no signature changed, no configs/default.toml key. `fit_camera(SplineLens, source,
+  region; …)` of a SplineLens source (the exact resample) returns a lattice whose `valid_domain` holds the region by
+  Core's own `⊆`, a region on the source's lattice edge included; each edge exact where a float lands on it, else
+  rounded outward by one step of K′'s map. New private helpers only (`_exact_valid_domain`, `_anchor_axis`,
+  `_extreme_float`, `_low_holds`, `_high_holds`, `_axis_rect`). Core floor 0.10.10 in the package, test and docs
+  environments, unchanged.
+
+## 2. Docstrings and pages brought up to date
+
+- `fit_camera`'s SplineLens-source paragraph (the domain statement: containment, the outward step, Core's `⊆` and K′
+  unchanged), the radial API page's `fit_camera` paragraph, the comment above `_exact_resample`. CHANGELOG 0.11.9
+  (Fixed: the domain; RadiometricCamera 0.11.3's exact start restored). No README change: the README names no
+  exact resample or `valid_domain`.
+
+## 3. Gates
+
+The Estimation docs build strict (no `warnonly`), and every Estimation item (`docs`, `README`, `quality`, `naming`,
+`agent docs` among them) in the patch-est0119 gate at the final head.
+
 docs-pass: 8f15d3ed
 
 # VisualGeometryToolkitCore 0.10.11, VisualGeometryToolkitIO 0.10.5 and VisualGeometryToolkitEstimation 0.11.8 docs review (julia-docs-pass) — branch patch-w2

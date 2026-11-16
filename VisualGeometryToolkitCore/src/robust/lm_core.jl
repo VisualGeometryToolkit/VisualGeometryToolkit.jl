@@ -174,13 +174,17 @@ struct _RelativeIncrementStop{F, U}
 end
 @inline function (s::_RelativeIncrementStop)(cost, problem, data, iteratedata)
     cost, terminate = s.callback(cost, problem, data, iteratedata)
-    (terminate != 0 || s.xtol_rel <= 0) && return (cost, terminate)
+    terminate != 0 && return (cost, _callback_stop(terminate))
+    s.xtol_rel <= 0 && return (cost, terminate)
     dx2 = 0.0
     for d in NLLSsolver.getx(data.linsystem)
         dx2 += Float64(d)^2
     end
     return _relative_increment_met(sqrt(dx2), _free_norm(problem.variables, s.free), s.xtol_rel) ? (cost, _RELATIVE_INCREMENT_FLAG) : (cost, terminate)
 end
+# A caller's callback stop with Core's flag cleared, so it never decodes as the relative step stop (a value that sets bit 15,
+# -1 or 2¹⁵: still a non-zero stop, its other bits kept): it stays a callback stop (`Terminated`, `Callback`).
+_callback_stop(terminate::Integer) = (t = terminate & ~_RELATIVE_INCREMENT_FLAG; t == 0 ? one(t) : t)
 # ‖x‖ over the free variables' coordinates in the exact-fit threshold's operand units (`_operand_unit`: a Euclidean coordinate
 # its value, a chart coordinate one chart unit).
 function _free_norm(variables, free)
@@ -691,7 +695,7 @@ decoded in `nlls_stop_code`'s one order:
 | 6 or 31, the step size (absolute `xtol`, relative `xtol_rel`) | `IncrementSize` | `Success` if the postcondition holds, else `Stalled` |
 | 2, 3, a cost decrease | `CostDecrease` | `Success` if the postcondition holds, else `Stalled` |
 | 7, the consecutive-rejection cap | `RejectionCap` | `Success` if the postcondition holds, else `Stalled` |
-| 16 and above only, a user callback | `Callback` | `Terminated` |
+| 16 and above only (31 excepted: a callback's own value never sets it), a user callback | `Callback` | `Terminated` |
 | 9, the time cap | `TimeCap` | `MaxTime` |
 | 8, the iteration cap | `IterationCap` | `MaxIters` |
 

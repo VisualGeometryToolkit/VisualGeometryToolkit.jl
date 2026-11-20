@@ -312,9 +312,4 @@ which leaves a launch of few heavy rows to few threads: a caller with such
 rows hands over `OnBackend(backend; workgroupsize)` with a small group).
 """
 _launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N} = _launch_rows!(OnBackend(get_backend(out)), row!, out, n, args...)
-function _launch_rows!(exec::OnBackend, row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
-    n > 0 || return out
-    exec(_row_kernel!)((row!, out, args...); ndrange = n)
-    KA.synchronize(exec.backend)
-    return out
-end
+# (the `exec` method: geometry/transforms/pointwise.jl, after `OnBackend`)

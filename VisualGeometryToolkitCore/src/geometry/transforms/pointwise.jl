@@ -73,6 +73,14 @@ _launch_backend(backend::KernelAbstractions.Backend) = backend
 end
 @inline (p::OnBackend)(kernel, ndrange) = kernel(p.backend, p.workgroupsize, ndrange)
 
+# The row launch on a given backend and workgroup size (`_launch_rows!`, base/device.jl: its docstring and kernel).
+function _launch_rows!(exec::OnBackend, row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N}
+    n > 0 || return out
+    exec(_row_kernel!)((row!, out, args...); ndrange = n)
+    KernelAbstractions.synchronize(exec.backend)
+    return out
+end
+
 """
     pointwise!(f, out, xs...; exec = OnBackend(get_backend(out))) -> out
 

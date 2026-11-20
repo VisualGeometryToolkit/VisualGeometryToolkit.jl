@@ -239,7 +239,7 @@ end
     for a in (z, -z, SVector(1.0, 0.0, 0.0), SVector(0.0, -1.0, 0.0), normalize(SVector(0.3, -0.2, 0.9)),
               normalize(SVector(-0.7, 0.1, -0.4)), normalize(SVector(1.0e-9, 2.0e-9, -1.0)), normalize(SVector(0.2, 0.2, 0.1)))
         @test VE._axis_rotation(a) == ref(a)
-        @test VE._axis_rotation(a) * a ≈ z atol = 1.0e-12
+        @test VE._axis_rotation(a) * a ≈ z atol = 1.0e-8    # (the half turn of an axis within rounding of −ẑ is exact to the axis's own offset)
     end
     for u in (SVector(0.0, 0.0, -1.0), SVector(0.5, -0.5, 0.5), SVector(-2.0, 1.0, 1.0), SVector(0.1, 0.3, -0.2), SVector(1.0, 1.0, 1.0))
         @test VE._perpendicular(u) == Rotations.perpendicular_vector(u)

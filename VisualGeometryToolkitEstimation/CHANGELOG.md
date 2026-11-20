@@ -1,5 +1,18 @@
 # VisualGeometryToolkitEstimation changelog
 
+## Unreleased
+
+### Fixed
+- **`optical_axis` and the exact resample of `fit_camera(SplineLens, …)` run on a CUDA device.** The regression kernel
+  of a gauge-K source retracts the axis chart in every row, and the chart's rotation (Rotations' `rotation_between`)
+  built its perpendicular vector with a comprehension no GPU compiler takes: the kernel did not compile for CUDA
+  (`InvalidIRError`), so a central-generic start could not be computed on the GPU. The rotation is written out
+  operation for operation (bit for bit Rotations' on the host, both branches, under duals); a GPU test now runs the
+  public calls on the device and compares them with the host's.
+
+### Changed
+- On VisualGeometryToolkitCore 0.12.0 (`primal_value` by its public name).
+
 ## 0.12.0
 
 A minor (breaking) release on VisualGeometryToolkitCore 0.11.0, whose host LM marks a tolerance stop converged

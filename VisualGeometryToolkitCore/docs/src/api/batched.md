@@ -70,7 +70,7 @@ weight's unit: [`penalty_scale`](@ref) with [`mean_positive_eigenvalue`](@ref)
 (m̄). The linear solve on sparse operators, on any KernelAbstractions device:
 [`cgls`](@ref) on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es
 (Krylov.jl's CGLS on the stacked operator `[A; √W D]`; on CUDA the products are
-cuSPARSE's, under its reproducible algorithm), or [`normal_cg`](@ref) on a normal
+cuSPARSE's, under its reproducible algorithm), or [`normal_cg`](@ref) (Krylov.jl's CG) on a normal
 operator `AᵀA + DᵀWD` that is only applied (its rows never stored); each
 Jacobi-preconditioned on request, each with a stopping rule relative to the
 normal equations' right-hand side `‖Aᵀb + DᵀWh‖`. The

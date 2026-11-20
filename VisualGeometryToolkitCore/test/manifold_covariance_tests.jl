@@ -195,7 +195,13 @@
         A, B = constraint_jacobians(ch2, zero(SVector{5, Float64}), cs12)
         Σhand = inv(Symmetric(A' * Diagonal([1 / sum(abs2, B[i, :]) for i in 1:12]) * A))
         @test rel(implicit_covariance(ch2, cs12), Σhand) < 1.0e-10
-        @test implicit_covariance(blocks(A, B, 1, 4), 1:12) ≈ implicit_covariance(ch2, cs12) rtol = 1.0e-12   # chart form = stacked rows
+        # Two forms of one covariance: each inverts the same normal matrix AᵀW₀A, with its rows summed in another order
+        # (a chart's static rows, dense row slices, another BLAS kernel on another CPU). A backward-stable inverse is
+        # within c·κ·ε of the exact one, κ the normal matrix's condition number, so two of them agree to 2c·κ·ε; c = 4
+        # covers the 12 rows' sums. Measured: 1.4e-12 on an Intel node, 3e-12 on an AMD one.
+        κ = cond(Symmetric(A' * Diagonal([1 / sum(abs2, B[i, :]) for i in 1:12]) * A))
+        forms_rtol = 8 * κ * eps()
+        @test implicit_covariance(blocks(A, B, 1, 4), 1:12) ≈ implicit_covariance(ch2, cs12) rtol = forms_rtol   # chart form = stacked rows
         @test_throws ArgumentError implicit_covariance(ch2, cs12[1:4])       # fewer constraints than dof
         @test implicit_covariance(zeros(2, 2), ones(2, 4)) === nothing   # singular square A (the chart's minimal solve)
         # the dense square form: A⁻¹·B·Σx·Bᵀ·A⁻ᵀ with one Σx shape per column block of B
@@ -210,12 +216,10 @@
         T2 = retract_jacobian(ch2)
         eblock(i) = (cd = VgtkCore.constraint_with_jacobians(model(ch2), cs12[i].first, cs12[i].second);
             (transpose(T2) * cd[3], cd[2]))
-        @test implicit_covariance(eblock, 1:12) ≈ implicit_covariance(blocks(A, B, 1, 4), 1:12) rtol = 1.0e-12
+        @test implicit_covariance(eblock, 1:12) ≈ implicit_covariance(blocks(A, B, 1, 4), 1:12) rtol = forms_rtol
         sh12 = CHar.make_point_covs(rng, 12; aniso = true)
-        # static rows vs dense row slices round differently, and the normal matrix
-        # here has cond ≈ 2.4e5: measured 1.4e-12 (norm-relative), so the rtol is
-        # the neighbouring comparisons' 1e-10, not 1e-12
-        @test implicit_covariance(i -> (eblock(i)..., sh12[i]), 1:12) ≈ implicit_covariance(i -> (blocks(A, B, 1, 4)(i)..., sh12[i]), 1:12) rtol = 1.0e-10
+        # (the sandwich with point covariances inverts the same normal matrix AᵀW₀A on either side: the same bound)
+        @test implicit_covariance(i -> (eblock(i)..., sh12[i]), 1:12) ≈ implicit_covariance(i -> (blocks(A, B, 1, 4)(i)..., sh12[i]), 1:12) rtol = forms_rtol
         # noise_weighted: the (BᵢΣxᵢBᵢᵀ)⁻¹-weighted estimator, (AᵀW₀A)⁻¹ — Σxᵢ folded into Bᵢ
         foldblock(i) = (eblock(i)[1], SMatrix{1, 4}(Tuple(eblock(i)[2])) * cholesky(Symmetric(SMatrix{4, 4}(sh12[i]))).L)
         Σnw = implicit_covariance(i -> (eblock(i)..., SMatrix{4, 4}(sh12[i])), 1:12; noise_weighted = true)

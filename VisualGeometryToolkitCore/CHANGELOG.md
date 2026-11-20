@@ -24,6 +24,8 @@ board and device Jacobian.
   renamed): the plain number under every Dual layer, a pixel-sized argument as a plain number, and a point's and a
   length's unit moves, which a downstream carrier of pixels and lengths is built from. **`center`, `has_units`,
   `with_unit`** are contract generics.
+- **`parameter_offsets(ch::ParameterManifold, x)`** (public; `_parameter_offsets` renamed): a model's chart coordinates
+  on a parameter manifold, what a downstream model's `local_coordinates` method is.
 - **`MOVED_NAMES`** (public): the names retired by a move to another package; `check_duplication`'s name ownership
   skips a module's `MOVED_NAMES`, so the new owner is not reported for defining them.
 - **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
@@ -38,9 +40,6 @@ board and device Jacobian.
   Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.
 
 ### Changed
-- **`local_coordinates(ch::ParameterManifold, x)`** takes any model with the parameter protocol (`parameter_vector`,
-  `with_parameters`), not a closed list of Core's types: another package's model is on its `ParameterManifold` without
-  a method of its own.
 - **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations

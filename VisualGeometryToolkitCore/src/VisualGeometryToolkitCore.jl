@@ -364,6 +364,7 @@ public radial_part      # a lens's radially symmetric part (shared with VisualGe
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
+public parameter_offsets   # a model's chart coordinates on a ParameterManifold (a downstream model's local_coordinates)
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)

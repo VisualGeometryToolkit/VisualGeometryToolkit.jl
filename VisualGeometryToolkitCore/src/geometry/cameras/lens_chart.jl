@@ -642,8 +642,19 @@ function _parameter_jacobian(m::CameraModel, X)
     Xf = _float_static(X)
     return _jacobian(q -> project(with_parameters(m, q), Xf), parameter_vector(m))
 end
-local_coordinates(ch::ParameterManifold, x::_ParametricModel) = _parameter_offsets(ch, x)
-function _parameter_offsets(ch::ParameterManifold, x)
+local_coordinates(ch::ParameterManifold, x::_ParametricModel) = parameter_offsets(ch, x)
+"""
+    parameter_offsets(ch::ParameterManifold, x) -> SVector
+
+The chart coordinates of the model `x` on the parameter manifold `ch` of a
+model of the same structure: its parameters' offsets from the manifold's model
+(through the bounded parameters' charts, in the manifold's scale). What
+`local_coordinates(ch, x)` is for every model with the parameter protocol
+([`parameter_vector`](@ref), [`with_parameters`](@ref)); a model of another
+package defines `local_coordinates(ch::ParameterManifold, x::ItsModel) =
+parameter_offsets(ch, x)`. A model of another structure is an `ArgumentError`.
+"""
+function parameter_offsets(ch::ParameterManifold, x)
     _same_structure(ch.model, x) || throw(
         ArgumentError("local_coordinates: a $(_structure_name(x)) is not on the manifold of $(_structure_name(ch.model))")
     )

@@ -333,6 +333,19 @@ function migrate_file(::Type{T}, kind::KindSpec, src::AbstractString, dst::Abstr
 end
 
 """
+    matrix_rows(A::AbstractMatrix) -> Vector{Vector{Float64}}
+    rows_matrix(rows) -> Matrix{Float64}
+
+A matrix as a record holds it, its rows (each a `Vector{Float64}`, row 1
+first), and the matrix read back from such rows: the one form of a matrix body
+(a surface's control points, a map's coefficients per channel) for a kind of
+this package or of another.
+"""
+matrix_rows(A::AbstractMatrix) = [Float64[A[i, j] for j in axes(A, 2)] for i in axes(A, 1)]
+rows_matrix(rows) = reduce(vcat, (permutedims(Float64[Float64(x::Real) for x in r]) for r in rows))
+@doc (@doc matrix_rows) rows_matrix
+
+"""
     migrate_body(T, body::AbstractDict) -> Dict{String, Any}
 
 A body VisualGeometryToolkitIO 0.9 wrote, embedded in another package's

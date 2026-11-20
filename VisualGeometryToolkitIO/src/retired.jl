@@ -17,6 +17,17 @@
 # no alias, no forwarding, not public.
 # =============================================================================
 
+"""
+    MOVED_NAMES
+
+The names this package retired by moving them to another package
+(`save_panorama` and `load_panorama`: PanoramaStitching's), each a refusal
+here. The stack's duplication check reads it (VisualGeometryToolkitCore's
+`MOVED_NAMES` convention): the package that took a name over is not reported
+for defining it.
+"""
+const MOVED_NAMES = (:save_panorama, :load_panorama)
+
 _moved_to_panorama_stitching(name::Symbol) = throw(ArgumentError(
     "VisualGeometryToolkitIO.$name is retired (0.11.0): $(_moved_kind_message("panorama"))"))
 

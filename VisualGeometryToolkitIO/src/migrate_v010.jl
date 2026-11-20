@@ -111,11 +111,18 @@ end
 _rotations_v010!(x::AbstractVector) = (foreach(_rotations_v010!, x); x)
 _rotations_v010!(x) = x
 
-# A key renamed in a dict (a copy; absent, the dict as it is).
-_renamed_key(d::AbstractDict, from::AbstractString, to::AbstractString) =
+"""
+    renamed_key(d::AbstractDict, from, to) -> Dict{String, Any}
+
+The record `d` with its key `from` named `to` (a copy with `String` keys; a
+record without the key comes back as that copy unchanged): the one move of a
+version step that renames a field, in this package's steps and in an owner's
+([`migrate_schema`](@ref)).
+"""
+renamed_key(d::AbstractDict, from::AbstractString, to::AbstractString) =
     haskey(d, from) ? Dict{String, Any}((k == from ? to : String(k)) => v for (k, v) in d) : Dict{String, Any}(d)
 # The frame join key of every frame of a record, `t` → `frame_index`.
-_frames_v010(t::AbstractDict) = haskey(t, "frames") ? merge(t, Dict{String, Any}("frames" => Any[_renamed_key(f, "t", "frame_index") for f in t["frames"]])) : t
+_frames_v010(t::AbstractDict) = haskey(t, "frames") ? merge(t, Dict{String, Any}("frames" => Any[renamed_key(f, "t", "frame_index") for f in t["frames"]])) : t
 # A frame name of the grammar as 0.10 names it (`camera_optical` → `camera`).
 _frame_name_v010(s) = s == "camera_optical" ? "camera" : s
 function _frame_names_v010(t::AbstractDict, keys_ = ("from", "to", "frame"))
@@ -407,8 +414,8 @@ migrate_schema(::Val{Symbol("vgio/capture_settings/v1")}, t::AbstractDict) = _ca
 # object, which 0.9's free-form `metrics` held — moves, as it stands, under
 # `provenance.metrics` (the one free-form object), where nothing reads it.
 function _manifest_v2_to_v3(old::AbstractDict)
-    t = _renamed_key(migrate_envelope(old, "vgio/calibration/v3.0"), "kind", "result_kind")
-    t["files"] = Any[_renamed_key(f, "kind", "schema") for f in t["files"]]
+    t = renamed_key(migrate_envelope(old, "vgio/calibration/v3.0"), "kind", "result_kind")
+    t["files"] = Any[renamed_key(f, "kind", "schema") for f in t["files"]]
     if haskey(t, "metrics")
         ms = pop!(t, "metrics")
         numbers = Dict{String, Any}(k => v for (k, v) in ms if VgtkCore.is_finite_real(v))

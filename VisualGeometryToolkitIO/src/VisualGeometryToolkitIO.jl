@@ -280,6 +280,9 @@ public migrate_envelope               # a pre-0.10 record's envelope as the 0.10
 # A kind of another package with its table (kind_spec.jl): the kind, its two file boundaries, the table's combinators,
 # the tables and the 0.9 → 0.10 steps of the bodies this package writes, the file form of an owner's version step.
 public KindSpec, write_kind, read_kind, migrate_file, migrate_body
+public matrix_rows, rows_matrix   # a matrix as a record holds it (its rows), and back
+public renamed_key               # a record with one key renamed: a version step's move
+public MOVED_NAMES               # the names retired by a move to another package (the duplication check reads it)
 public object_spec, token_spec, integer_spec, real_spec, array_spec, named_spec, checked_spec, if_key_spec, tagged_spec, body_spec
 public fit_record_json, fit_record_from_json   # a fit's termination record, the one a kind that stores a fit embeds
 public pixel_frame, pixel_frame_offset   # a style's pixel frame; the translation between two pixel frames

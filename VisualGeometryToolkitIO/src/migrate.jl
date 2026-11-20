@@ -283,7 +283,9 @@ each kind's current one), never kept by hand: per current kind, its earlier
 schemas (a former kind's among them: `generic_camera` and `noncentral_spline`
 for `cameras`; `target_points2d`, `target_points3d`, `target_detections` for
 `observations`) in version order, then its current one. The docs table of the
-versions read is generated from it.
+versions read is generated from it. A kind that moved to its owner
+(`"vignetting"`, …: VisualRadiometryToolkitIO's) is an `ArgumentError` naming
+that owner, whose own table is `schema_versions(::KindSpec)`.
 """
 function schema_versions(kind::AbstractString)
     old = String[]
@@ -413,6 +415,7 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
         return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
+    (!_has_migration(s) && _moved_kind(s) !== nothing) && _refuse_moved(path, something(_moved_kind(s)), s)   # its owner is not loaded
     _has_migration(s) || throw(ArgumentError(_is_current(s) ?
         "$(path): a $(s) file is a version this VisualGeometryToolkitIO writes: nothing to migrate" :
         "$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))
@@ -1433,8 +1436,8 @@ for s in _OLD_TARGET_VERSIONS
     @eval migrate_schema(::Val{Symbol($s)}, src::AbstractString, dst::AbstractString) = _migrate_target($s, src, dst)
 end
 # Every other kind's, through its value: `length` whether its writer takes the
-# file's length unit (a kind with no length — the homographies, the vignetting
-# field — writes none).
+# file's length unit (a kind with no length — the homographies — writes none).
+# (An owner's kind has the same file form through `migrate_file`, kind_spec.jl.)
 for (s, T, kind, what, length) in (
         ("vgio/target_detections/v1", TargetObservations, "observations", "the target observations", true),
         ("vgio/target_points2d/v1", TargetObservations, "observations", "the target observations (2D)", true),
@@ -1453,8 +1456,6 @@ for (s, T, kind, what, length) in (
         ("vgio/transforms/v4", Vector{EuclideanMap}, "transforms", "the transforms", true),
         ("vgio/cameras/v5", Dict{Symbol, BoundedCamera}, "cameras", "the camera store", true),
         ("vgio/capture_settings/v1", CaptureSettings, "capture_settings", "the capture settings", true),
-        ("vgio/vignetting/v1", AbstractVignetting, "vignetting", "the vignetting field", false),
-        ("vgio/environment_light/v1", EnvironmentLight, "environment_light", "the environment light", true),
     )
     @eval migrate_schema(::Val{Symbol($s)}, src::AbstractString, dst::AbstractString) =
         (_migrate_file($T, src, dst, $what; length = $length); (; to = _schema($kind)))

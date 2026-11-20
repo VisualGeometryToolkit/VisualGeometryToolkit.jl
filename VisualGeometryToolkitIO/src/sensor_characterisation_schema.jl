@@ -61,19 +61,6 @@ const _SENSOR_SOURCES = [string(s) for s in instances(VgtkCore.SensorSource.T) i
 const _SENSOR_SOURCE = _Named(in(_SENSOR_SOURCES), "a present component's source ($(join(_SENSOR_SOURCES, ", ")))")
 const _FOUR = _Vec(_Real(), 4)
 
-# A slot's component body, its kind by `type`: one of `alts` (tag => the body's table, its `type` included).
-struct _ByType <: _Spec
-    what::String
-    alts::Vector{Pair{String, _Spec}}
-end
-function _validate(s::_ByType, x, file, at)
-    tags = join(first.(s.alts), ", ")
-    x isa AbstractDict && haskey(x, :type) || _refuse(file, at, "$(s.what) is an object with a `type` ($(tags))")
-    i = findfirst(a -> a.first == x[:type], s.alts)
-    i === nothing && _refuse(file, _at(at, :type), "$(repr(x[:type])) is not $(s.what)'s type ($(tags))")
-    return _validate(s.alts[i].second, x, file, at)
-end
-
 const _CHANNEL_BLACK = _Obj(Pair{Symbol, _Spec}[:type => _Tok("channel"), :values => _FOUR, :source => _SENSOR_SOURCE],
                             Pair{Symbol, _Spec}[:std_error => _FOUR])
 const _DARK_BODY = _Obj(Pair{Symbol, _Spec}[:type => _Tok("dark"), :exposure_band => _Vec(_Real(), 2), :frames => _PosInt(),

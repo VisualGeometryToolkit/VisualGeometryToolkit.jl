@@ -25,7 +25,8 @@
 #                 table states for the check (`allOf`) where JSON Schema can say it
 #   _SchemaTok    the kind's schema string at its major version, any minor (`pattern`)
 #   _Cov          `oneOf` the three storages (rows, {"diagonal"}, {"isotropic"})
-#   _RowRuns, _LengthRoles, _VignettingBody, _ByType   their structure, their order rules in words
+#   _RowRuns, _LengthRoles, _ByType   their structure, their order rules in words (a `_ByType` with a `def`:
+#                 `\$ref` to `\$defs/<def>`, a body that holds itself)
 #   _RegionSpec   `$ref` to `$defs/region` (recursive: an intersection's parts) or `$defs/region_leaf`
 #
 # The Julia validator stays the authority: a cross-field check JSON Schema
@@ -65,14 +66,19 @@ julia> VgtkIO.json_schema("transforms")["title"]
 """
 function json_schema(kind::AbstractString, v::Tuple{Int, Int} = _schema_version(kind))
     spec = (_schema_version(kind); _spec(kind, v))  # an unknown kind: the ArgumentError listing the kinds
+    return _json_schema_document(spec, _schema(kind, v), _JSON_SCHEMA_ID_BASE, "VisualGeometryToolkitIO")
+end
+# The schema document of the table `spec` of the files of `schema` (`<owner>/<kind>/v<major>.<minor>`), which the
+# package `package` writes and reads, its `\$id` below `id_base`.
+function _json_schema_document(spec::_Spec, schema::AbstractString, id_base::AbstractString, package::AbstractString)
     defs = JSON.Object{String, Any}()
     body = _json_schema(spec, defs)
-    about = "A $(_schema(kind, v)) file, as VisualGeometryToolkitIO writes and reads it; generated " *
+    about = "A $(schema) file, as $(package) writes and reads it; generated " *
             "from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only " *
             "in a `description` is the reader's. A file of a higher minor version of this major may hold keys this " *
             "version does not declare: validate it against its own version's schema."
-    out = JSON.Object{String, Any}("\$schema" => _JSON_SCHEMA_DIALECT, "\$id" => _JSON_SCHEMA_ID_BASE * _json_schema_path(kind, v),
-                                   "title" => _schema(kind, v), "description" => about)
+    out = JSON.Object{String, Any}("\$schema" => _JSON_SCHEMA_DIALECT, "\$id" => id_base * schema * ".json",
+                                   "title" => schema, "description" => about)
     for (k, v) in body
         out[k] = k == "description" ? about * " " * v : v
     end
@@ -145,6 +151,12 @@ function _json_schema(s::_SchemaTok, defs)
     return _jobj("type" => "string", "description" => "$(_schema(s.kind, s.version)), or the same major version at any minor",
                  "pattern" => "^vgio/$(s.kind)/v$(M)(\\.[0-9]+)?\$")
 end
+# An owner's kind (kind_spec.jl): its schema string at its major version, any minor.
+function _json_schema(s::_OwnedSchemaTok, defs)
+    v = something(_split_owned(s.schema))
+    return _jobj("type" => "string", "description" => "$(s.schema), or the same major version at any minor",
+                 "pattern" => "^$(v.owner)/$(v.kind)/v$(v.major)(\\.[0-9]+)?\$")
+end
 function _json_schema(s::_Cov, defs)
     n = s.d > 0 ? s.d : nothing
     vec(elem) = (o = _jobj("type" => "array", "items" => elem); n === nothing || (o["minItems"] = n; o["maxItems"] = n); o)
@@ -177,15 +189,6 @@ _json_schema(::_LengthRoles, defs) = _jobj(
     "propertyNames" => _jobj("pattern" => _LENGTH_ROLE_RE.pattern, "not" => _jobj("enum" => collect(_RESERVED_ROLES))),
     "additionalProperties" => _jobj("anyOf" => Any[_json_schema(_LENGTH_UNIT, defs), _jobj("const" => _CHART_ROLE)]),
 )
-# A vignetting body names its kind by `type` (VGC's VIGNETTING_TAGS), and a log body holds a spline
-# body: one definition, referenced (its own recursion included).
-function _json_schema(::_VignettingBody, defs)
-    if !haskey(defs, "vignetting")
-        defs["vignetting"] = true                                  # a placeholder while the bodies refer to it
-        defs["vignetting"] = _jobj("oneOf" => Any[_json_schema(_vignetting_body(VIGNETTING_TAGS[t]), defs) for t in keys(VIGNETTING_TAGS)])
-    end
-    return _jobj("\$ref" => "#/\$defs/vignetting")
-end
 # THE region body (core_json.jl): its leaves one definition (`region_leaf`, a camera's lens coverage), any region
 # another that refers to them and, for an intersection's two parts, to itself.
 function _json_schema(s::_RegionSpec, defs)
@@ -220,7 +223,15 @@ end
 
 _json_schema(::_Bool, defs) = _jobj("type" => "boolean")
 # A slot's component body, its kind by `type`: one of the bodies (each states its `type` as a const).
-_json_schema(s::_ByType, defs) = _jobj("description" => "$(s.what), its kind by `type`", "oneOf" => Any[_json_schema(b, defs) for (_, b) in s.alts])
+# With a `def` (a body that holds itself): one definition under `\$defs`, referenced, its own recursion included.
+function _json_schema(s::_ByType, defs)
+    isempty(s.def) && return _jobj("description" => "$(s.what), its kind by `type`", "oneOf" => Any[_json_schema(b, defs) for (_, b) in s.alts])
+    if !haskey(defs, s.def)
+        defs[s.def] = true                                  # a placeholder while the bodies refer to it
+        defs[s.def] = _jobj("oneOf" => Any[_json_schema(b, defs) for (_, b) in s.alts])
+    end
+    return _jobj("\$ref" => "#/\$defs/$(s.def)")
+end
 # A detection file declares its records' shape in its header (`detection`: the frame type, the attributes, the
 # covariance storage): the record schema of each frame type, selected by the header's `frame` (`if`/`then`), its
 # `attributes` an object of the declared types' values (which names, the validator checks against the header).

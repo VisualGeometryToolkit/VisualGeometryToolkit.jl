@@ -49,8 +49,7 @@ end
 
 @testitem "migrate v0.10: every IO 0.9 file reads through its step and vgio_migrate rewrites it" setup = [VGIoFixtures, V010Fixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetObservations, CaptureSettings,
-        AbstractVignetting, EnvironmentLight
+    using VisualGeometryToolkitCore: Rig, AbstractTarget, Trajectory, TargetPoses, TargetObservations, CaptureSettings
     files = [
         "rig_v9.json" => Rig, "rig_v9_pitch.json" => Rig, "rig_v9_targets.json" => Rig, "rig_v6_every_kind.json" => Rig,
         "target_v5_planar.json" => AbstractTarget, "target_v5_points.json" => AbstractTarget,
@@ -58,8 +57,6 @@ end
         "target_detections_v2.json" => TargetObservations,
         "capture_settings_v1.json" => CaptureSettings, "cameras_v5_spline_masked.json" => Dict{Symbol, BoundedCamera},
         "noncentral_spline_v1.json" => Dict{Symbol, BoundedCamera},
-        "vignetting_v1_linear.json" => AbstractVignetting, "vignetting_v1_chart.json" => AbstractVignetting,
-        "environment_light_v1.json" => EnvironmentLight,
     ]
     mktempdir() do dir
         for (name, T) in files
@@ -133,24 +130,10 @@ end
     end
 end
 
-@testitem "migrate v0.10: vignetting v1 with and without its chart (the review's I1)" setup = [VGIoFixtures, V010Fixtures] begin
+@testitem "migrate v0.10: capture settings, units sidecar, manifest" setup = [VGIoFixtures, V010Fixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: AbstractVignetting, RadialVignetting, LogVignetting, radial_chart, log_spline
-    v = load(AbstractVignetting, old09("vignetting_v1_linear.json"))
-    @test v isa RadialVignetting && radial_chart(v) === :linear
-    w = load(AbstractVignetting, old09("vignetting_v1_chart.json"))
-    @test w isa LogVignetting && radial_chart(log_spline(w)) === :projective
-    t = VgtkIO.migrate_record(tree09(old09("vignetting_v1_linear.json")))
-    @test t["vignetting"]["chart"] == "linear" && t["units"]["pixel"] == "colmap"
-end
-
-@testitem "migrate v0.10: environment light, capture settings, units sidecar, manifest" setup = [VGIoFixtures, V010Fixtures] begin
-    import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: EnvironmentLight, CaptureSettings, max_degree
+    using VisualGeometryToolkitCore: CaptureSettings
     using VisualGeometryToolkitIO: UnitContract
-    @test max_degree(load(EnvironmentLight, old09("environment_light_v1.json"))) == 1
-    t = VgtkIO.migrate_record(tree09(old09("environment_light_v1.json")))
-    @test t["map"]["max_degree"] == 1 && !haskey(t["map"], "l_max") && t["units"]["length"] == "mm"
     # capture settings: the one device-identity encoding, the sources, the EXIF claim
     c = VgtkIO.migrate_record(tree09(old09("capture_settings_v1.json")))
     @test c["device"] == Dict("body" => Dict("make" => "Sony", "model" => "ILME-FX3"),

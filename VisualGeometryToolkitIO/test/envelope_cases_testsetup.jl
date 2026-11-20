@@ -12,9 +12,9 @@
     using VisualGeometryToolkitCore: mm, m, px, CameraModel, CameraCalibrationMat, KannalaBrandt, Size2, EuclideanMap,
         BoundedCamera, PosedCamera, Rig, PosedTarget, PlanarTarget, PointTarget, AbstractTarget, Trajectory, TargetPoses,
         TargetHomographies, HomographyMap, HomographyMat, TargetObservations, CaptureSettings, ExposureSettings, LensSettings,
-        DeviceIdentity, Attributed, AbstractVignetting, RadialVignetting, LogVignetting, EnvironmentLight, SphericalHarmonicMap,
+        DeviceIdentity, Attributed,
         GaussianBlur, PixelFrame, WorldFrame, CameraFrame, BodyFrame, TargetFrame, ViewFrame, Uncertain, CovMat, relabel,
-        correspondences, withattrs, with_control_points, with_unit, sign_normalize, parse_unit
+        correspondences, withattrs, sign_normalize, parse_unit
     using StaticArrays: SVector, SMatrix
     using Rotations: QuatRotation
     using JSON: JSON
@@ -48,8 +48,6 @@
                 CaptureSettings(Dict(1 => (exposure = ExposureSettings(0.01 * sec, 4.0, 100), lens_settings = LensSettings(VgtkIO.read_length(14.0, mm))));
                     body = DeviceIdentity(; make = "Sony", model = "ILME-FX3"), lens = DeviceIdentity(; model = "14mm")),
                 (; identity_sources = (body = "exif", lens = "exif"), sensor = "cam"))),
-            "vignetting" => (AbstractVignetting, LogVignetting(with_control_points(RadialVignetting(6, SVector(320.0, 240.0), 400.0), [0.5 + 0.01i for i in 1:6]))),
-            "environment_light" => (EnvironmentLight, with_unit(EnvironmentLight(SphericalHarmonicMap(ones(3, 4), 1), SVector(0.1, -0.2, 0.3), 1.5), m)),
             "blur" => (Dict{Symbol, GaussianBlur}, Dict(:R => GaussianBlur(relabel(PixelFrame{:colmap}, CovMat(SMatrix{2, 2, Float64}(0.5, 0.1, 0.1, 0.4)))))),
         ]
     end

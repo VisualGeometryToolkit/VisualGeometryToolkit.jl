@@ -154,6 +154,12 @@ point (`CONTRACT_GENERICS`). An owner that adds a method for its `owner` has a
 reader [`load_manifest`](@ref) runs on every listed file of its kinds (after the
 hash check every listed file gets); the method throws an `ArgumentError` naming
 what is wrong. VGIo's own kinds are checked by [`validate`](@ref).
+
+A `vgio` kind that moved to its owner (`vignetting`, `environment_light`,
+`radial_profile`, `panorama`) keeps its schema name, so its owner is keyed by
+the kind: `validate_record(::Val{Symbol("vgio/<kind>")}, path, schema)`, the
+method VisualRadiometryToolkitIO adds for each of its kinds. `validate` and
+`load_manifest` run it when the owner is loaded.
 """
 function validate_record end
 
@@ -272,6 +278,8 @@ end
 # owner with none is bound by its hash alone).
 function _validate_listed(full, s)
     v = _split_owned(s)
+    mk = _moved_kind(s)   # a vgio kind that moved to its owner: that owner's check when it is loaded, as another owner's
+    mk === nothing || return _has_moved_validator(mk) ? _validate_moved(full, mk, s) : nothing
     v.owner == "vgio" && return (validate(full); nothing)
     # (the owner's method is found at run time: a package loaded after this one adds it)
     hasmethod(validate_record, Tuple{Val{Symbol(v.owner)}, String, String}) &&

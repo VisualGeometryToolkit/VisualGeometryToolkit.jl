@@ -167,7 +167,7 @@ const _TRAJECTORY_FRAME = _Obj(
     Pair{Symbol, _Spec}[:image => _NonEmpty(), :time => _Real(), :recovered => _Tok(true)],
 )
 # The trajectory body (`JSON.lower(::VgioStyle, ::Trajectory)`'s): the file's fields but its envelope, the one table a
-# kind embedding a trajectory (vgio/panorama's `rotations`) composes.
+# kind embedding a trajectory (PanoramaStitching's panorama: its `rotations`) composes, `body_spec(Trajectory)`.
 const _TRAJECTORY_BODY_REQUIRED = Pair{Symbol, _Spec}[:from => _FRAME_NAME, :to => _FRAME_NAME, :frames => _Vec(_TRAJECTORY_FRAME)]
 const _TRAJECTORY_BODY = _CheckedSpec(_Obj(_TRAJECTORY_BODY_REQUIRED, _CAPTURE_OPTIONAL), _FRAMES_CHECK)
 const _TRAJECTORY_SPEC = _kind_spec(

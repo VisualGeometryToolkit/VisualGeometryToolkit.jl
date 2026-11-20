@@ -110,6 +110,28 @@ function _chart_roles(c::UnitContract, charts)
     return Tuple(charts)
 end
 _pixel_frame(::VgioStyle{U, F}) where {U, F} = F
+"""
+    pixel_frame(style::VgioStyle) -> Type{<:PixelFrame}
+
+The pixel frame `style` declares (a file's `units.pixel`): the frame every
+pixel coordinate of a record written or read on it is in. A `lower` or `lift`
+method of a value that holds pixel positions in a frame of its own (VGC's
+values hold COLMAP pixels) moves them by [`pixel_frame_offset`](@ref).
+"""
+pixel_frame(s::VgioStyle) = _pixel_frame(s)
+"""
+    pixel_frame_offset(F, G) -> SVector{2, Float64}
+
+The offset of a position written in the pixel frame `G` for one held in the
+pixel frame `F` (pixel frames differ by a translation): `x_G = x_F + offset`.
+`pixel_frame_offset(PixelFrame{:colmap}, PixelFrame{:opencv})` is `[-0.5, -0.5]`.
+
+```jldoctest
+julia> VgtkIO.pixel_frame_offset(PixelFrame{:colmap}, PixelFrame{:julia}) == [0.5, 0.5]
+true
+```
+"""
+pixel_frame_offset(F::Type{<:PixelFrame}, G::Type{<:PixelFrame}) = (o = EuclideanMap(F, G)(SVector(0.0, 0.0)); SVector(o[1], o[2]))
 # The same style with another length form (a placed target's calibration: chart numbers).
 _with_length(s::VgioStyle{U, F, C}, u) where {U, F, C} = VgioStyle{typeof(u), F, C}(u, s.contract, s.charts)
 # What a length role's numbers are: its length unit, `_CHART` (a chart role's plain numbers), or `nothing` (undeclared).

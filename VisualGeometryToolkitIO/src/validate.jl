@@ -30,6 +30,11 @@
 #   _IfKey(key, a, b)          `a` if the object holds `key`, else `b`
 #   _SchemaTok(kind) / _Cov(d) / _RowRuns / _LengthRoles   a schema string of the kind's
 #                              major; a covariance; lattice runs; length roles
+#   _ByType(what, tag => s, …) an object told by its `type`: the body of that tag
+#
+# A package that owns a kind of its own builds its table from the public
+# constructors of these combinators and reads and writes its files through the
+# same two boundaries (kind_spec.jl: `KindSpec`, `read_kind`, `write_kind`).
 #
 # The same tables drive the tests: every required key of every kind is deleted
 # in turn from a valid file, and each deletion must be refused by name.
@@ -176,6 +181,27 @@ function _validate(s::_CheckedSpec, x, file, at)
     return nothing
 end
 
+# A body told by its `type`: one of `alts` (tag => the body's table, its `type` included). `def` names it among the
+# JSON Schema's `\$defs` (a body that holds itself, a recursive one, needs the name; empty: stated inline); `unknown`
+# is the refusal of a tag none of `alts` has (a registry's message: a retired tag with its successor), or `nothing`.
+struct _ByType <: _Spec
+    what::String
+    alts::Vector{Pair{String, _Spec}}
+    def::String
+    unknown::Union{Nothing, Function}
+end
+_ByType(what::AbstractString, alts::Vector{Pair{String, _Spec}}) = _ByType(String(what), alts, "", nothing)
+function _validate(s::_ByType, x, file, at)
+    tags = join(first.(s.alts), ", ")
+    x isa AbstractDict && haskey(x, :type) || _refuse(file, at, "$(s.what) is an object with a `type` ($(tags))")
+    i = findfirst(a -> a.first == x[:type], s.alts)
+    if i === nothing
+        (s.unknown !== nothing && x[:type] isa AbstractString) && _refuse(file, _at(at, :type), s.unknown(x[:type]))
+        _refuse(file, _at(at, :type), "$(repr(x[:type])) is not $(s.what)'s type ($(tags))")
+    end
+    return _validate(s.alts[i].second, x, file, at)
+end
+
 # -----------------------------------------------------------------------------
 # Shared pieces
 # -----------------------------------------------------------------------------
@@ -317,14 +343,17 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "target" => (6, 0), "target_poses" => (3, 0), "target_homographies" => (2, 0),
     "observations" => (3, 0),   # (v3: `vgio/observations/v2` was a retired kind of another meaning, refused by name)
     "capture_settings" => (2, 0), "calibration" => (3, 0),
-    "vignetting" => (2, 0), "environment_light" => (2, 0), "blur" => (2, 0),
+    "blur" => (2, 0),
     "units" => (3, 0),
-    "panorama" => (2, 0),   # (v1: IO 0.9.4's, read through its step)
-    "detection" => (1, 0), "sensor_characterisation" => (2, 0), "radial_profile" => (1, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v2, IO 0.10.2: the darks body; v1.0 through its step); a binned radial profile
+    "detection" => (1, 0), "sensor_characterisation" => (2, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v2, IO 0.10.2: the darks body; v1.0 through its step)
     "raster" => (2, 0),     # (v1: IO 0.9.5's, read through its step)
 )
-_schema_version(kind::AbstractString) = (v = get(_SCHEMA_VERSION, kind, nothing);
-    v === nothing ? throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))")) : v)
+function _schema_version(kind::AbstractString)
+    v = get(_SCHEMA_VERSION, kind, nothing)
+    v === nothing || return v
+    haskey(_MOVED_KINDS, kind) && throw(ArgumentError(_moved_kind_message(kind)))
+    throw(ArgumentError("no vgio kind $(repr(kind)) (the kinds: $(join(sort!(collect(keys(_SCHEMA_VERSION))), ", ")))"))
+end
 _version_string((M, n)::Tuple{Int, Int}) = "v$(M).$(n)"
 _schema(kind) = _schema(kind, _schema_version(kind))
 _schema(kind, v::Tuple{Int, Int}) = "vgio/$(kind)/$(_version_string(v))"
@@ -347,6 +376,19 @@ struct _SchemaTok <: _Spec
     version::Tuple{Int, Int}
 end
 _schema_tok(kind, version = _schema_version(kind)) = _SchemaTok(kind, version)
+# …and the same for a kind of another package (kind_spec.jl), by its whole schema string `<owner>/<kind>/v<major>.<minor>`.
+struct _OwnedSchemaTok <: _Spec
+    schema::String
+end
+function _validate(s::_OwnedSchemaTok, x, file, at)
+    _is_major_of(x, s.schema) || _refuse(file, at, "must be $(repr(s.schema)) (any minor version), got $(repr(x))")
+    return nothing
+end
+# Whether the schema string `s` is `schema`'s owner and kind at its major version (any minor).
+function _is_major_of(s, schema::AbstractString)
+    a, b = _split_owned(s), something(_split_owned(schema))
+    return a !== nothing && a.owner == b.owner && a.kind == b.kind && a.major == b.major
+end
 function _validate(s::_SchemaTok, x, file, at)
     v = _split_schema(x)
     (v !== nothing && v.kind == s.kind && v.major == first(s.version)) ||
@@ -430,8 +472,9 @@ const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 # THE TERMINATION RECORD of a fit (VisualGeometryToolkitCore's `FitResult` core, the robust-estimation contract §14):
 # `{"retcode": <ReturnCode name>, "stop_rule": <StopRule name>, "iterations": n ≥ 0, "rms": r ≥ 0, "n": m ≥ 0}` —
 # why it stopped, which rule fired, the loop count, the RMS of the residuals (in the residuals' own unit) and their
-# number. The ONE record every kind that stores a fit's outcome embeds (the panorama's bundle); its estimate and
-# metadata are the kind's own fields. Read back as a `FitResult{Nothing, Nothing}`.
+# number. The ONE record every kind that stores a fit's outcome embeds (PanoramaStitching's panorama: its bundle); its
+# estimate and metadata are the kind's own fields. Read back as a `FitResult{Nothing, Nothing}`. Another package's kind
+# embeds it by `body_spec(FitResult)`, `fit_record_json` and `fit_record_from_json` (kind_spec.jl).
 const _RETCODE_NAMES = Tuple(String(Symbol(c)) for c in instances(VgtkCore.ReturnCode.T))
 const _STOP_RULE_NAMES = Tuple(String(Symbol(r)) for r in instances(VgtkCore.StopRule))
 const _FIT_RECORD = _CheckedSpec(
@@ -441,9 +484,26 @@ const _FIT_RECORD = _CheckedSpec(
     rule = "iterations, rms and n are ≥ 0",
     schema = [Dict("properties" => Dict("iterations" => Dict("minimum" => 0), "n" => Dict("minimum" => 0), "rms" => Dict("minimum" => 0)))],
 )
-_fit_record_json(r::FitResult) = (retcode = String(Symbol(VgtkCore.retcode(r))), stop_rule = String(Symbol(VgtkCore.stop_rule(r))),
+"""
+    fit_record_json(r::FitResult) -> NamedTuple
+
+The termination record of a fit, the one every kind that stores a fit's outcome
+embeds: `(; retcode, stop_rule, iterations, rms, n)` — VisualGeometryToolkitCore's
+`ReturnCode` and `StopRule` by name, the loop count, the RMS of the residuals (in
+their own unit) and their number. The estimate and the metadata of `r` are not
+part of it (they are the embedding kind's own fields). Its table is
+[`body_spec`](@ref)`(FitResult)`; [`fit_record_from_json`](@ref) reads it back.
+"""
+fit_record_json(r::FitResult) = (retcode = String(Symbol(VgtkCore.retcode(r))), stop_rule = String(Symbol(VgtkCore.stop_rule(r))),
                                   iterations = VgtkCore.iterations(r), rms = VgtkCore.rms(r), n = getfield(r, :n))
-_fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, Symbol(x.retcode::String)),
+"""
+    fit_record_from_json(record) -> FitResult{Nothing, Nothing}
+
+The fit a termination record ([`fit_record_json`](@ref)'s, parsed: read by
+property access) states: its return code, stop rule, iterations, RMS and
+residual count, its estimate and metadata `nothing`.
+"""
+fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, Symbol(x.retcode::String)),
                                      only(r for r in instances(VgtkCore.StopRule) if String(Symbol(r)) == x.stop_rule),
                                      Int(x.iterations::Integer), Float64(x.rms::Real), Int(x.n::Integer), nothing)
 
@@ -541,6 +601,33 @@ const _RETIRED_KINDS = Dict(
     "vgio/correspondences/v2" => "export/correspondences/v2, an export (save_correspondences) that no reader reads",
 )
 
+# KINDS THAT MOVED TO THEIR OWNER (IO 0.11): the radiometric kinds are VisualRadiometryToolkitIO's with the types they
+# hold (VisualRadiometryToolkitCore's: radiometry builds on geometry, never the reverse), a panorama's results are
+# PanoramaStitching's. Each keeps its schema name (`vgio/<kind>/v<major>.<minor>`), so every file written before the
+# move reads with its owner. This package holds no table, reader, writer or version step of them: a file of one is
+# refused BY NAME with its owner (`_moved_kind_message`), unless that owner is loaded and answers for the kind through
+# the declared extension points — `validate_record(::Val{Symbol("vgio/<kind>")}, path, schema)` for `validate` and a
+# manifest's listed file, the file form of `migrate_schema` for `vgio_migrate`.
+const _MOVED_KINDS = Dict(
+    "vignetting" => (owner = "VisualRadiometryToolkitIO", reader = "VisualGeometryToolkitIO.load(AbstractVignetting, path)"),
+    "environment_light" => (owner = "VisualRadiometryToolkitIO", reader = "VisualGeometryToolkitIO.load(EnvironmentLight, path)"),
+    "radial_profile" => (owner = "VisualRadiometryToolkitIO", reader = "VisualGeometryToolkitIO.load(BinnedRadialProfile, path)"),
+    "panorama" => (owner = "PanoramaStitching", reader = "PanoramaStitching's reader"),
+)
+function _moved_kind_message(kind::AbstractString)
+    o = _MOVED_KINDS[kind]
+    return "the $(kind) kind (vgio/$(kind)) is $(o.owner)'s, not VisualGeometryToolkitIO's (it moved in VisualGeometryToolkitIO 0.11, " *
+           "its schema name unchanged): load $(o.owner) and read the file with $(o.reader)"
+end
+# The kind of a moved kind's schema string (any version of it), or `nothing`.
+_moved_kind(s) = (v = _split_schema(s); v !== nothing && haskey(_MOVED_KINDS, v.kind) ? v.kind : nothing)
+_refuse_moved(path, kind::AbstractString, s) = throw(ArgumentError("$(path) is a $(s) file: $(_moved_kind_message(kind))"))
+# The key a moved kind's owner answers `validate_record` under (the kind, not the owner `vgio`, which is this package's).
+_moved_key(kind::AbstractString) = Val(Symbol("vgio/", kind))
+# Whether the owner of a moved kind is loaded and checks its files; the check itself.
+_has_moved_validator(kind::AbstractString) = hasmethod(validate_record, Tuple{typeof(_moved_key(kind)), String, String})
+_validate_moved(path, kind::AbstractString, s) = (Base.invokelatest(validate_record, _moved_key(kind), String(path), String(s)); nothing)
+
 # A kind renamed or folded into another → the kind its records now belong to:
 # a record of the former kind reads through its version steps into the current
 # one (and is never written). The non-central grid camera's records were the
@@ -554,6 +641,8 @@ const _RENAMED_KIND = Dict(
 _current_kind(k::AbstractString) = haskey(_RENAMED_KIND, k) ? _current_kind(_RENAMED_KIND[k]) : String(k)
 
 function _refuse_schema(path, kind::AbstractString, s)
+    mk = _moved_kind(s)
+    mk === nothing || _refuse_moved(path, mk, s)
     if s isa AbstractString && haskey(_RETIRED_KINDS, s)
         throw(
             ArgumentError(
@@ -657,8 +746,10 @@ _reads_through_migration(s, kind::AbstractString) = _is_earlier_version(s, kind)
 # An old file's record through its version steps, parsed again from its JSON
 # text, so the reader meets what it meets in a current file. Silent: an old
 # published file is a legitimate input; `@debug` names the version.
-function _migrated_on_load(d, path, kind, s)
-    refuse(why) = throw(ArgumentError("$(path): a $(s) file, read through its migration to $(_schema(kind)): $(why)"))
+_migrated_on_load(d, path, kind, s) = _migrated_on_load(d, path, _schema(kind), Base.Fix2(_is_current_major, kind), s)
+# (`current` the schema the steps end at, `is_current` whether a schema string is that one's major: an owner's kind too)
+function _migrated_on_load(d, path, current::AbstractString, is_current, s)
+    refuse(why) = throw(ArgumentError("$(path): a $(s) file, read through its migration to $(current): $(why)"))
     t = try
         migrate_record(d)
     catch e
@@ -670,7 +761,7 @@ function _migrated_on_load(d, path, kind, s)
         rethrow()
     end
     reached = get(t, "schema", nothing)
-    _is_current_major(reached, kind) || refuse("its version steps end at $(repr(reached))")
+    is_current(reached) || refuse("its version steps end at $(repr(reached))")
     @debug "$(path): a $(s) file, read through its migration to $(reached)"
     return _parse_vgio_text(JSON.json(t; allownan = true), path)   # (compact: parsed, never written)
 end
@@ -792,14 +883,11 @@ function _spec(kind::AbstractString)
     kind == "observations" && return _OBSERVATIONS_SPEC
     kind == "capture_settings" && return _CAPTURE_SETTINGS_SPEC
     kind == "calibration" && return _CALIBRATION_SPEC
-    kind == "vignetting" && return _VIGNETTING_SPEC
-    kind == "environment_light" && return _ENVIRONMENT_LIGHT_SPEC
     kind == "blur" && return _BLUR_SPEC
-    kind == "panorama" && return _PANORAMA_SPEC
     kind == "detection" && return _DETECTION_SPEC
     kind == "sensor_characterisation" && return _SENSOR_CHARACTERISATION_SPEC
-    kind == "radial_profile" && return _RADIAL_PROFILE_SPEC
     kind == "raster" && return _RASTER_SPEC
+    _schema_version(kind)   # a kind that moved to its owner, or no kind: refused by name
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
@@ -825,6 +913,12 @@ step reads is refused by name, a retired kind with its successor. Semantic
 checks that
 need more than the one file — that observations resolve in their targets —
 are the exporters'.
+
+A kind that moved to its owner (`vignetting`, `environment_light` and
+`radial_profile`: VisualRadiometryToolkitIO's; `panorama`: PanoramaStitching's)
+has no table here. Its file is checked by its owner's
+[`validate_record`](@ref) method when that package is loaded, and is otherwise
+an `ArgumentError` naming the kind and its owner.
 """
 function validate(path::AbstractString)
     file = isdir(path) ? joinpath(path, UNITS_SIDECAR) : path
@@ -839,6 +933,12 @@ function validate(path::AbstractString)
             _read_store(file, kind)
             return kind
         end
+    end
+    mk = _moved_kind(s)
+    if mk !== nothing
+        _has_moved_validator(mk) || _refuse_moved(file, mk, s)
+        _validate_moved(file, mk, s)
+        return mk
     end
     s isa AbstractString && haskey(_RETIRED_KINDS, s) && _refuse_schema(file, something(v, (; kind = "")).kind, s)
     throw(ArgumentError("$(file): not a vgio file (schema $(repr(s)))"))

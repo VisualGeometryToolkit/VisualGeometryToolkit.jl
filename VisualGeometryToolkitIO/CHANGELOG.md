@@ -1,5 +1,55 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased
+
+Breaking: the radiometric kinds and the panorama kind move to their owners, and a package's own kind gets the
+validator's table as a public hook. Radiometry builds on geometry, never the reverse: the Visual Radiometry Toolkit
+depends on this package, and the types these kinds hold left VisualGeometryToolkitCore for VisualRadiometryToolkitCore
+(Core 0.12). No schema name and no file changes: every file written before the move reads with its owner.
+
+### Removed (each by name, with its replacement)
+
+- **`vgio/vignetting`, `vgio/environment_light`, `vgio/radial_profile`** are VisualRadiometryToolkitIO's: their tables,
+  their `load`/`save` methods, the bodies' `JSON.lower`/`JSON.lift` on `VgioStyle`, the v1 → v2.0 version steps of the
+  vignetting and the environment light, their JSON Schemas (`docs/src/schemas/vgio/{vignetting,environment_light,radial_profile}`),
+  fixtures and tests. The calls are the same once VisualRadiometryToolkitIO is loaded — `load(AbstractVignetting, path)`,
+  `load(EnvironmentLight, path)`, `load(BinnedRadialProfile, path)`, `save(path, value)` — since it adds them as
+  methods of this package's two verbs (declared extension points).
+- **`vgio/panorama`** is PanoramaStitching's: `save_panorama` and `load_panorama` are retired (each an `ArgumentError`
+  naming PanoramaStitching; no longer public), with the kind's table, its v1 → v2.0 step, its JSON Schema and tests.
+- A file of a moved kind handed to this package — `validate(path)`, `vgio_migrate(path)`, a reader of another kind —
+  is refused BY NAME with its owner ("the vignetting kind (vgio/vignetting) is VisualRadiometryToolkitIO's …"), and so
+  is the kind's name (`json_schema("vignetting")`, `schema_versions("panorama")`). With the owner loaded, `validate`,
+  `load_manifest` and `vgio_migrate` run the owner's methods: `validate_record(::Val{Symbol("vgio/<kind>")}, path,
+  schema)` (the owner of a moved kind is keyed by the kind, its schema name being `vgio`'s) and the file form of
+  `migrate_schema`. A manifest binds a moved kind's file by its hash when the owner is not loaded, as any other
+  owner's.
+- `schema_versions()` and the published schemas no longer list the four kinds.
+
+### Added (public, not exported): a kind of another package, with its table
+
+- **`KindSpec(schema, required, optional; package, check, rule, schema_keywords)`**: an owner's kind — its schema
+  string `"<owner>/<kind>/v<major>.<minor>"` and the table of its body under this package's envelope.
+  **`write_kind(path, kind, body; style, provenance)`** checks the very bytes it writes against the table;
+  **`read_kind(path, kind)`** checks a file before a field is used, reads an earlier version through the owner's
+  version steps and tolerates the keys of a higher minor. **`json_schema(kind; id_base)`** is its JSON Schema and
+  **`schema_versions(kind)`** the versions read.
+- The table's combinators: **`object_spec`**, **`token_spec`**, **`integer_spec`**, **`real_spec`**, **`array_spec`**,
+  **`named_spec`**, **`checked_spec`**, **`if_key_spec`**, **`tagged_spec`** (a body told by its `type`, one that holds
+  itself included), and **`body_spec(T)`**, the table of a body this package writes (`BoundedCamera`, `Trajectory`,
+  `FitResult`, a `PixelFrame` position).
+- **`migrate_file(T, kind, src, dst; what, length_unit)`**: the file form of an owner's version step through its
+  `load` and `save`. **`migrate_body(T, body)`**: an IO 0.9 bounded camera or trajectory body, embedded in an owner's
+  record, as its 0.10 body.
+- **`fit_record_json`**, **`fit_record_from_json`**: a fit's termination record (private until now, the panorama's).
+- **`pixel_frame(style)`** and **`pixel_frame_offset(F, G)`**: a style's pixel frame and the translation between two
+  pixel frames (the private helper the vignetting body and the detection reader shared, named for what it is).
+
+### Changed
+
+- `src/radiometry_schema.jl` is `src/blur_schema.jl`: `vgio/blur` (a `GaussianBlur` is VisualGeometryToolkitCore's)
+  stays, unchanged.
+
 ## 0.10.6
 
 A patch: on VisualGeometryToolkitCore 0.11 (`[compat]` `"0.11"`). IO does not read Core's LM verdict, so no reader,

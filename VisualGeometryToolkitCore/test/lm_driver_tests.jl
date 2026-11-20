@@ -796,6 +796,12 @@ end
     apart = zeros(1 + N + N * N, W)
     VgtkCore._launch_rows!(normal_row!, apart, W, r, J)
     @test got === reduce_normal_equations(apart, Val(N)) && partials == apart
+    # a launch's workgroup size changes which thread runs a row, not a bit of it; neither form allocates
+    grouped = zeros(1 + N + N * N, W)
+    VgtkCore._launch_rows!(normal_row!, grouped, W, r, J; workgroupsize = 2)
+    @test grouped == apart
+    launch_allocations(; kw...) = (VgtkCore._launch_rows!(normal_row!, grouped, W, r, J; kw...); @allocated VgtkCore._launch_rows!(normal_row!, grouped, W, r, J; kw...))
+    Threads.nthreads() == 1 && @test launch_allocations() == 0 && launch_allocations(; workgroupsize = 2) == 0
     @test reduce_cost(cost_row!, r; partials) === reduce_cost(apart) && got[1] ≈ reduce_cost(apart)
     @test got[1] ≈ 0.5 * sum(x -> sum(abs2, x), r) && got[2] ≈ sum(i -> J[i]' * r[i], 1:n)
 end

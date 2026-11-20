@@ -365,6 +365,7 @@ public radial_part      # a lens's radially symmetric part (shared with VisualGe
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
+public parameter_offsets   # a model's chart coordinates on a ParameterManifold (a downstream model's local_coordinates)
 public ParameterManifold, LensManifold    # a parametric model's Manifold, inside its parameter_bounds (minimal_manifold(lens or camera)); restrict it to the free coefficients
 public parameter_box                      # a ParameterManifold's solver search box (`box` keyword), within parameter_bounds
 public coordinate_scale                   # a ParameterManifold's coordinate scales (`scale` keyword)
@@ -1125,6 +1126,7 @@ include("quality/gpu_tier.jl")        # gpu_tier, gpu_problem, require_gpu: the 
 
 # The precompile workload: the camera models' native code, cached in the package image
 using PrecompileTools: @setup_workload, @compile_workload
+public MOVED_NAMES   # the names that moved to another package, refused here by name (the duplication check reads it)
 include("retired.jl")   # the names that moved to VisualRadiometryToolkitCore (0.12.0), each refused by name
 include("precompile.jl")
 

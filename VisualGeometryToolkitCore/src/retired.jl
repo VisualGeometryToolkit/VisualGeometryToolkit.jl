@@ -18,12 +18,24 @@ _moved_to_radiometry(name::Symbol) = throw(ArgumentError(
     "VisualGeometryToolkitCore.$name is retired (0.12.0): it moved to VisualRadiometryToolkitCore, " *
     "under the same name — `using VisualRadiometryToolkitCore: $name`"))
 
-for name in (:AbstractVignetting, :TensorProductVignetting, :RadialVignetting, :LogVignetting, :log_spline, :VIGNETTING_TAGS,
+"""
+    MOVED_NAMES
+
+The names this package retired by moving them to another package: each is a
+refusal here (an `ArgumentError` naming its replacement), not a definition. The
+duplication check reads it (`check_duplication`'s name ownership): a module
+does not own a name it lists in its `MOVED_NAMES`, so the package that took
+the name over is not reported for defining it. Any stack package may define
+its own.
+"""
+const MOVED_NAMES = (:AbstractVignetting, :TensorProductVignetting, :RadialVignetting, :LogVignetting, :log_spline, :VIGNETTING_TAGS,
              :RADIAL_CHARTS, :BinnedRadialProfile, :projective_chart, :projective_knots, :radial_chart, :radial_coordinate,
              :field_radius, :with_center, :center_gradient, :pole_regular_basis, :coefficient_jacobian, :active_coefficients,
              :control_points, :with_control_points, :n_control_points, :knot_vectors, :spline_degree, :EnvironmentLight,
              :SphericalHarmonicMap, :radiance, :exit_direction, :radiance_map, :coefficients, :with_coefficients,
              :max_degree, :sh_basis, :sh_count, :sh_index)
+
+for name in MOVED_NAMES
     @eval begin
         @doc $("Retired (VisualGeometryToolkitCore 0.12.0): `VisualRadiometryToolkitCore.$name`.")
         $name(args...; kwargs...) = _moved_to_radiometry($(QuoteNode(name)))

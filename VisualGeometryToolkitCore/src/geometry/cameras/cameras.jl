@@ -1127,6 +1127,7 @@ export zhang_intrinsics                # Zhang IAC regression from plane homogra
 # -----------------------------------------------------------------------------
 export AbstractLensModel
 export ParameterManifold, LensManifold    # a parametric model's Manifold (inside its parameter_bounds); its name for a lens
+export parameter_offsets                  # a model's chart coordinates on a ParameterManifold (public, not exported, at the top level)
 export parameter_box                      # its solver search box (public, not exported, at the top level)
 export coordinate_scale                   # its coordinate scales (public, not exported, at the top level)
 export Pinhole                         # Ideal perspective (no distortion)

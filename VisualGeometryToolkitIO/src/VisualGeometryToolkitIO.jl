@@ -95,9 +95,7 @@ using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
 using VisualGeometryToolkitCore: canonical_json   # RFC 8785 (JCS): the ONE canonical JSON, Core's; IO re-exports it (content identities hash it)
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
-using VisualGeometryToolkitCore: AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting, knot_vectors,
-    spline_degree, control_points, field_radius, log_spline, with_control_points, VIGNETTING_TAGS, RADIAL_CHARTS, radial_chart,
-    EnvironmentLight, SphericalHarmonicMap, coefficients, max_degree, GaussianBlur, with_unit, ImageFrame   # the radiometric kinds (radiometry_schema.jl)
+using VisualGeometryToolkitCore: GaussianBlur, with_unit, ImageFrame   # the blur kind (blur_schema.jl)
 using Statistics: cov
 using Printf: @sprintf
 using Base.ScopedValues: ScopedValue, with
@@ -130,7 +128,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
-using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   # sensor_characterisation/v2.0, radial_profile/v1.0
+using VisualGeometryToolkitCore: SensorCharacterisation   # sensor_characterisation/v2.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -158,11 +156,10 @@ using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   #
 #   load(TargetObservations, path)               vgio/observations/v3.0 (IO 0.9's target_points2d/3d and target_detections
 #                                                through their steps; a Schöps dataset.bin with `target`)
 #   load(CaptureSettings, path)                  vgio/capture_settings/v2.0 (Attributed with its identities' sources)
-#   load(AbstractVignetting | EnvironmentLight | Dict{Symbol, GaussianBlur}, path)   vignetting, environment_light, blur v2.0
-#   load_panorama(path) / save_panorama(path, camera, rotations, vignetting, gains)
-#                                                vgio/panorama/v2.0  a panorama's results (a NamedTuple: no VGC type)
+#   load(Dict{Symbol, GaussianBlur}, path)       vgio/blur/v2.0      named Gaussian blurs
+#   (vgio/vignetting, vgio/environment_light and vgio/radial_profile are VisualRadiometryToolkitIO's from IO 0.11, which
+#   adds their `load`/`save` methods to these two verbs; vgio/panorama is PanoramaStitching's: validate.jl, `_MOVED_KINDS`)
 #   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
-#   load(BinnedRadialProfile, path)              vgio/radial_profile/v1.0  a measured radial profile (a flat field by field angle)
 #   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v2.0  one sensor's components per ISO, a dark's maps as hashed artifacts
 #   load_raster(path) / save_raster(path, values; frame, nan)
 #                                                vgio/raster/v2.0    a Float32 or UInt8 raster: a JSON header + its TIFF payload
@@ -180,6 +177,9 @@ using VisualGeometryToolkitCore: SensorCharacterisation, BinnedRadialProfile   #
 #                                                building blocks for a package's own kind
 #   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, with_caller
 #                                                a package's own kind in the vgio envelope, and its version steps
+#   KindSpec, write_kind / read_kind, json_schema(kind), migrate_file, the `*_spec` combinators
+#                                                a package's own kind WITH its table: checked on write and on read, its
+#                                                JSON Schema generated (kind_spec.jl)
 #
 # PIXEL DATA CARRIES ITS FRAME IN ITS TYPE (`TargetObservations{F}`): the producer
 # attaches it, `save` writes it as the file's declaration without converting a
@@ -209,15 +209,14 @@ include("camera_schema.jl")
 include("rig_schema.jl")
 include("captures_schema.jl")  # trajectory, target_poses, target_homographies, observations: VGC's captures
 include("capture_settings_schema.jl")  # capture_settings: the camera's settings per frame, the device identities
-include("radiometry_schema.jl")  # vignetting, environment_light, blur: a radiometric camera's fields, light and blurs
-include("panorama_schema.jl")    # vgio/panorama/v2.0: a panorama's results, composed of the camera, trajectory and vignetting bodies
+include("blur_schema.jl")        # vgio/blur/v2.0: named Gaussian blurs (a sensor's, a print's)
 include("detection_schema.jl")   # vgio/detection/v1.0: detections per image through the one frame codec (core_json.jl)
-include("radial_profile_schema.jl")  # vgio/radial_profile/v1.0: a measured radial profile, binned (Core's BinnedRadialProfile)
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
 include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its TIFF payload (the one bulk-array binding; after the manifest: its path rule)
 include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v2.0: one sensor's components per ISO, a dark's maps as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
+include("kind_spec.jl")     # a kind of another package: its table, its two file boundaries, its JSON Schema (the public hook)
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -228,6 +227,7 @@ include("jsonl.jl")
 
 include("migrate.jl")     # the version steps, vgio_migrate, vgio_migrate_tree + the bin/vgio_migrate.jl command
 include("migrate_v010.jl")   # the IO 0.10 steps: every kind's previous version → its 0.10 major
+include("retired.jl")        # the entry points of the kinds that moved to their owners (IO 0.11), each refused by name
 
 # Layer 2 — unit contract (the COLMAP adapter's world-unit declaration)
 export UnitContract, MM_PX
@@ -270,7 +270,6 @@ public ColmapModel                    # a COLMAP model directory's contents + it
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
-public save_panorama, load_panorama     # vgio/panorama/v2.0: a panorama's camera, rotations, vignetting and gains
 public save_raster, load_raster       # vgio/raster/v2.0: a raster, its JSON header and its TIFF payload
 public write_tiff, read_tiff          # the stack's one TIFF codec (libtiff): a grey UInt8 or Float32 image
 public validate                       # check any vgio file against its kind's table
@@ -278,6 +277,12 @@ public json_schema                    # a kind's JSON Schema (draft 2020-12), ge
 public migrate_schema, validate_record, CONTRACT_GENERICS   # the per-schema migration and the record check a schema owner extends (its declared extension points)
 public schema_versions, with_caller   # the versions each kind reads (from its steps); the calling package a file's generator names
 public migrate_envelope               # a pre-0.10 record's envelope as the 0.10 one: an owner's version step
+# A kind of another package with its table (kind_spec.jl): the kind, its two file boundaries, the table's combinators,
+# the tables and the 0.9 → 0.10 steps of the bodies this package writes, the file form of an owner's version step.
+public KindSpec, write_kind, read_kind, migrate_file, migrate_body
+public object_spec, token_spec, integer_spec, real_spec, array_spec, named_spec, checked_spec, if_key_spec, tagged_spec, body_spec
+public fit_record_json, fit_record_from_json   # a fit's termination record, the one a kind that stores a fit embeds
+public pixel_frame, pixel_frame_offset   # a style's pixel frame; the translation between two pixel frames
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
 public same_value                     # two typed records the same, a length within the codec's ulps (a migration's check)
 public write_staged                   # files written through a staging directory beside them, renamed into place once verified

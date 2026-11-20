@@ -425,30 +425,6 @@ function _manifest_v2_to_v3(old::AbstractDict)
 end
 migrate_schema(::Val{Symbol("vgio/calibration/v2")}, t::AbstractDict) = _manifest_v2_to_v3(t)
 
-# vgio/vignetting/v1 → v2.0: the envelope (v1's `pixel_frame`, always colmap);
-# a radial profile states its chart: absent, the linear chart v1 read it in
-# (IO 0.8's body); present — IO 0.9 wrote a non-linear profile's `chart` inside
-# v1 without a version bump (the review's I1) — as it stands. A log field's
-# spline is a body too.
-_vignetting_body_v010(b::AbstractDict) =
-    b["type"] == "log" ? merge(b, Dict{String, Any}("spline" => _vignetting_body_v010(b["spline"]))) :
-    (b["type"] == "radial" && !haskey(b, "chart")) ? merge(b, Dict{String, Any}("chart" => "linear")) : b
-function _vignetting_v1_to_v2(old::AbstractDict)
-    t = migrate_envelope(old, "vgio/vignetting/v2.0")
-    t["vignetting"] = _vignetting_body_v010(t["vignetting"])
-    return t
-end
-migrate_schema(::Val{Symbol("vgio/vignetting/v1")}, t::AbstractDict) = _vignetting_v1_to_v2(t)
-
-# vgio/environment_light/v1 → v2.0: the envelope (its coefficients' radiance
-# "relative", as v1 left them in the caller's units); `l_max` → `max_degree`, Core's name.
-function _environment_light_v1_to_v2(old::AbstractDict)
-    t = migrate_envelope(old, "vgio/environment_light/v2.0")
-    t["map"] = _renamed_key(t["map"], "l_max", "max_degree")
-    return t
-end
-migrate_schema(::Val{Symbol("vgio/environment_light/v1")}, t::AbstractDict) = _environment_light_v1_to_v2(t)
-
 # vgio/units/v2 → v3.0: the sidecar IS the envelope; v2's `world` (a length unit
 # or "unknown") its `units.length`, its `density` (absent: dpi, as v2 read it)
 # its `units.density`.

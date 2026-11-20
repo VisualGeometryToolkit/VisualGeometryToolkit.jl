@@ -80,11 +80,9 @@ envelope is new for all of them).
 | `vgio/detection/v1.0` | detections per image: `Dict` of image name → a vector of detections (`AbstractDetection`: `Attributed{Uncertain{<:FeatureFrame}}`, `PointFrame` to `AffineFrame`, plain or uncertain) | `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)` | `save(path, detections)` |
 | `vgio/capture_settings/v2.0` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`), the EXIF lens claim a stated lens overrode, and optionally the `sensor` (the camera's name) | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens, sensor])))` |
 | `vgio/sensor_characterisation/v2.0` (v1.0 for a record without a `Darks`) | `SensorCharacterisation`: ONE sensor, keyed by `device.body`, and per ISO (`entries`, each ISO once) its three slots, each ONE component body told by its `type` with its `source` (measured, estimated, specified) and its standard error where stated: `black` a `ChannelBlack` (`"channel"`, per-channel values), a `Dark` (`"dark"`: its channel black, exposure band, frames, and per-photosite offset and variance as raster payload bodies beside the record, TIFFs of the raster profile bound by their SHA-256) or a `Darks` (`"darks"`, v2: the shared channel black and one dark body per exposure band, in increasing band, each with its own rasters `….band<k>.dark_offset.tiff`; the bands disjoint). The writer writes v1.0, IO 0.10.1's bytes, for a record without a `Darks`; a v1.0 file reads through its step (the schema renamed, the body unchanged); `noise` a `ReadNoise` (`"read_noise"`), `PoissonGaussian` (`"poisson_gaussian"`) or `RelativeNoise` (`"relative"`); `defects` a `DefectList` (`sites` `[x, y, onset]`, 1-based, x the column and y the row of the visible raw, onset in seconds). An absent slot is absent and loads as its absent type (`FileBlack`, `NoNoise`, `NoDefects`) | `load(SensorCharacterisation, path)` | `save(path, characterisation)` (writes the rasters too) |
-| `vgio/vignetting/v2.0` | an `AbstractVignetting`: `TensorProductVignetting` (its knots stated), `RadialVignetting` (its `chart` always stated) or `LogVignetting`, positions in any registered pixel frame (`units.pixel`); rebuilt bit for bit | `load(AbstractVignetting, path)` | `save(path, v)` |
-| `vgio/radial_profile/v1.0` | a `BinnedRadialProfile`: a measured profile binned by its chart's coordinate (a flat field by field angle), its chart's centre and radius in `units.pixel`, its edges in `units.angle` | `load(BinnedRadialProfile, path)` | `save(path, p)` |
-| `vgio/environment_light/v2.0` | an `EnvironmentLight` of a `SphericalHarmonicMap`: centre and radius in `units.length` (a plain light refused), coefficients per channel in `units.radiance`, the degree `max_degree` and the basis convention stated (`real_orthonormal_no_condon_shortley`) | `load(EnvironmentLight, path)` | `save(path, light)` |
+| `vgio/vignetting/v2.0`, `vgio/radial_profile/v1.0`, `vgio/environment_light/v2.0` (VisualRadiometryToolkitIO's from IO 0.11, the schema names unchanged) | VisualRadiometryToolkitCore's `AbstractVignetting`, `BinnedRadialProfile` and `EnvironmentLight`: the kinds moved with the types they hold | with VisualRadiometryToolkitIO loaded, the same call: `load(AbstractVignetting \| BinnedRadialProfile \| EnvironmentLight, path)` (its methods of this package's `load`) | with VisualRadiometryToolkitIO loaded, `save(path, value)` |
+| `vgio/panorama/v2.0` (PanoramaStitching's from IO 0.11, the schema name unchanged) | a panorama's results: its camera, rotations, vignetting, gains and fit | PanoramaStitching's reader | PanoramaStitching's writer |
 | `vgio/blur/v2.0` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and its PLANE: `pixel_frame` (or `"frame": "image:<id>"`) on a sensor, in px²; `"frame": "target:<id>"` (TargetPlaneFrame{id}) on a print, in `units.length`² | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
-| `vgio/panorama/v2.0` (a panorama's results: PanoramaStitching's) | the NamedTuple `(; camera, rotations, vignetting, gains, fit)` — no VGC type of its own: a `BoundedCamera` (the camera store's body), a `Trajectory{CameraFrame, WorldFrame}` of zero translations (the trajectory body: the camera only rotates; other frames and a translation that is not zero refused), an `AbstractVignetting` (the vignetting body; or `nothing`, a panorama with no Core vignetting), the frames' exposure gains (`K × C`, row k frame index k of the rotations' `1:K`, written per frame index `{"frame_index", "gain"}`; or `nothing`) and the bundle's termination record `fit` (`{"retcode", "stop_rule", "iterations", "rms", "n"}`, read back as a `FitResult{Nothing, Nothing}`; or `nothing`) | `load_panorama(path)` | `save_panorama(path, camera, rotations, vignetting, gains[, fit])` |
 | `vgio/raster/v2.0` (a Float32 or UInt8 raster: a JSON header and its TIFF payload, bound by SHA-256; v1 through its step) | the NamedTuple `(; values, frame, nan)`: a `Matrix{Float32}` or `Matrix{UInt8}` (rows, columns; row 1 on top) read bit for bit, NaN included; its frame a chart rectangle `(chart = :page \| :texture, area)` (the design chart, `area` a `Rect2` in metres) or a `PixelFrame`; what a NaN means (`:unobserved`, or `:none`) | `load_raster(path)` (the payload's SHA-256 checked before it is decoded) | `save_raster(path, values; frame, nan)` |
 | `vgio/calibration/v3.0` (`calibration.json`, the manifest) | the record files of one calibration result bound by SHA-256, of any owner (`<owner>/<kind>/v<major>[.<minor>]`): each with its `schema`, `role` (`"authority"` or `"derived"`) and `derived_from`; `result_kind` `"metric"`, `"projective"` or `"image"`, an optional `CameraModelSpec` `model`, closed `metrics`, `provenance` | `load_manifest(dir)`: every file hash-checked, VGIo's kinds validated, another owner's when it has a [`validate_record`](@ref VisualGeometryToolkitIO.validate_record) method | `save_manifest(dir, files; result_kind, model, metrics, provenance)` |
 | `vgio/units/v3.0` (`vgio_units.json`, beside a COLMAP model) | the world unit of a COLMAP model directory (`UnitContract`, or `UnknownScale`) | `load(ColmapModel, dir)` reads it | `save(dir, m::ColmapModel)` writes it |
@@ -514,9 +512,8 @@ frames.
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
 | `Ellipse`, `Circle`, `Rect2` | `Ellipse`, `Circle`, `Rect2` | `[cx, cy, a, b, θ]`, `[cx, cy, r]`, `[x, y, w, h]`, in the value's own numbers |
 | a region: `Rect2`, `Ellipse`, `Circle`, `PolygonRegion`, `RegionIntersection` (nested), `WholePlane` | the region type, or a `Union` of them | THE region body, `{"rect": […]}` \| `{"ellipse": […]}` \| `{"circle": […]}` \| `{"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}` \| `{"intersection": [<region>, <region>]}` \| `{"whole_plane": {}}`, in pixels of `units.pixel`; a polygon is Core's star polygon (the valid domain of a lens that is not radially symmetric, at least 3 vertices, star-shaped about its centre: refused otherwise on read) and is not a leaf, so never a lens coverage; an intersection is BINARY, Core's `RegionIntersection`: exactly two parts, in order, so every document reads back as one exact type (more parts nest: `[a, {"intersection": [b, c]}]`; a list of another length is refused); a leaf field asks for it by the tag `(; region = true)` (an intersection and the whole plane lower to it by the two-argument form) |
-| `TensorProductVignetting`, `RadialVignetting`, `LogVignetting` | `AbstractVignetting` | the `vgio/vignetting` body, `{"type": …, …}`, positions in `units.pixel` |
-| `BinnedRadialProfile` | `BinnedRadialProfile` | the `vgio/radial_profile` body, its chart's centre in `units.pixel` |
-| `EnvironmentLight` of a `SphericalHarmonicMap` | `EnvironmentLight` | `{"center": [x, y, z], "radius": r, "map": {…}}`, lengths in `units.length` (the `vgio/environment_light` body without its envelope) |
+| VisualRadiometryToolkitCore's vignetting fields, binned radial profile and environment light | (VisualRadiometryToolkitIO's methods on this style) | the `vgio/vignetting`, `vgio/radial_profile` and `vgio/environment_light` bodies, as up to IO 0.10 |
+| a fit's termination (`FitResult`) | [`fit_record_from_json`](@ref VisualGeometryToolkitIO.fit_record_from_json) | `{"retcode", "stop_rule", "iterations", "rms", "n"}`, by [`fit_record_json`](@ref VisualGeometryToolkitIO.fit_record_json) |
 | `GaussianBlur` | `GaussianBlur` | `{"pixel_frame": "colmap" \| "frame": "image:<id>" \| "target:<id>", "covariance": …}` in the storage it holds: px² on a sensor, `units.length`² on a print (read back as m² quantities); the plane is the blur's `CovMat` frame, read back with it |
 
 A target's calibration is written and read as part of its target's body, not
@@ -580,6 +577,70 @@ its values on. The owner validates its fields, and may register that check for
 the manifest with [`validate_record`](@ref VisualGeometryToolkitIO.validate_record).
 A run report that may hold a non-finite statistic is written and read with
 `allownan = true`.
+
+## A kind of another package, with its table
+
+An owner that wants what the native kinds have — the file checked against a
+table on write and on read, a refusal that names the key, a published JSON
+Schema — states its kind as a
+[`KindSpec`](@ref VisualGeometryToolkitIO.KindSpec): the schema string and the
+table of the body, built from the combinators the native tables use
+([`object_spec`](@ref VisualGeometryToolkitIO.object_spec),
+[`token_spec`](@ref VisualGeometryToolkitIO.token_spec),
+[`integer_spec`](@ref VisualGeometryToolkitIO.integer_spec),
+[`real_spec`](@ref VisualGeometryToolkitIO.real_spec),
+[`array_spec`](@ref VisualGeometryToolkitIO.array_spec),
+[`named_spec`](@ref VisualGeometryToolkitIO.named_spec),
+[`checked_spec`](@ref VisualGeometryToolkitIO.checked_spec),
+[`if_key_spec`](@ref VisualGeometryToolkitIO.if_key_spec),
+[`tagged_spec`](@ref VisualGeometryToolkitIO.tagged_spec)) and, for a body this
+package writes, [`body_spec`](@ref VisualGeometryToolkitIO.body_spec) (a
+bounded camera, a trajectory, a fit's termination record). The envelope is not
+the owner's to state.
+
+```julia
+import VisualGeometryToolkitIO as VgtkIO
+using VisualGeometryToolkitCore: BoundedCamera
+
+const SWEEP = VgtkIO.KindSpec(
+    "toy/sweep/v2.0",
+    [:camera => VgtkIO.body_spec(BoundedCamera),
+     :gains => VgtkIO.array_spec(VgtkIO.array_spec(VgtkIO.real_spec(); length = 3))];
+    package = "Toy",
+    check = r -> isempty(r[:gains]) ? "gains: at least one frame" : nothing,
+    rule = "at least one frame of gains", schema_keywords = [Dict("properties" => Dict("gains" => Dict("minItems" => 1)))],
+)
+
+style = VgtkIO.VgioStyle()
+VgtkIO.write_kind(path, SWEEP, (camera = VgtkIO.camera_json(camera, VgtkIO.pixel_frame(style)), gains = gains); style)
+record = VgtkIO.read_kind(path, SWEEP)          # checked; an earlier version through the owner's version steps
+VgtkIO.json_schema(SWEEP; id_base = "https://example.org/schemas/")
+```
+
+[`write_kind`](@ref VisualGeometryToolkitIO.write_kind) checks the very bytes
+it writes and [`read_kind`](@ref VisualGeometryToolkitIO.read_kind) checks a
+file before a field is used, runs the owner's version steps on a file of an
+earlier version and tolerates the keys a higher minor version added.
+`schema_versions(kind)` lists the versions read. An owner whose files are one
+value read by its `load` and written by its `save` (methods of this package's
+two verbs: both are declared extension points) gets the file form of a version
+step, which `vgio_migrate` runs, from
+[`migrate_file`](@ref VisualGeometryToolkitIO.migrate_file); a step of a record
+that embeds a camera or a trajectory body of IO 0.9 carries it over with
+[`migrate_body`](@ref VisualGeometryToolkitIO.migrate_body). A value with pixel
+positions of its own moves them between its frame and the file's with
+[`pixel_frame`](@ref VisualGeometryToolkitIO.pixel_frame) and
+[`pixel_frame_offset`](@ref VisualGeometryToolkitIO.pixel_frame_offset), and a
+kind that stores a fit embeds
+[`fit_record_json`](@ref VisualGeometryToolkitIO.fit_record_json) /
+[`fit_record_from_json`](@ref VisualGeometryToolkitIO.fit_record_from_json).
+
+VisualRadiometryToolkitIO's kinds (the vignetting, the environment light, the
+radial profile) and PanoramaStitching's panorama are written this way. They
+were this package's up to IO 0.10 and keep their `vgio/…` schema names, so a
+file written before the move reads with its owner; here a file of one is
+refused by name with that owner, unless the owner is loaded and answers for it
+(`validate`, `load_manifest` and `vgio_migrate` then run the owner's methods).
 
 `pose_json` / `pose_from_json`, `camera_json` / `camera_from_json` and
 `target_json` / `target_from_json` are the same bodies for a length unit or a

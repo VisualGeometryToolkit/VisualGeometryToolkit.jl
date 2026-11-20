@@ -20,6 +20,14 @@ board and device Jacobian.
   names from it; nothing else changes.
 
 ### Added
+- **`primal_value`, `strip_pixels`, `strip_point`, `attach_point`, `attach_length`** (public; the underscore helpers
+  renamed): the plain number under every Dual layer, a pixel-sized argument as a plain number, and a point's and a
+  length's unit moves, which a downstream carrier of pixels and lengths is built from. **`center`, `has_units`,
+  `with_unit`** are contract generics.
+- **`parameter_offsets(ch::ParameterManifold, x)`** (public; `_parameter_offsets` renamed): a model's chart coordinates
+  on a parameter manifold, what a downstream model's `local_coordinates` method is.
+- **`MOVED_NAMES`** (public): the names retired by a move to another package; `check_duplication`'s name ownership
+  skips a module's `MOVED_NAMES`, so the new owner is not reported for defining them.
 - **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
   same surface and ray. A `MappedSurface` of a `HeightField` (alone or over the planar affine factors) with one layer of
   ForwardDiff Duals anywhere takes the implicit-function step at `x₀` — one evaluation of the chart map on the Dual
@@ -40,9 +48,6 @@ board and device Jacobian.
   solutions within 2e-6, 0.46 s → 0.19 s). With `diagonal` the stopping rule is measured in the Jacobi-scaled norm,
   `‖C sₖ‖ ≤ rtol ‖C (Aᵀb + DᵀWh)‖`. A start `x0` is kept exactly in every direction neither `A` nor `D` holds (the
   iteration solves for the correction to it).
-- **`local_coordinates(ch::ParameterManifold, x)`** takes any model with the parameter protocol (`parameter_vector`,
-  `with_parameters`), not a closed list of Core's types: another package's model is on its `ParameterManifold` without
-  a method of its own.
 - **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations

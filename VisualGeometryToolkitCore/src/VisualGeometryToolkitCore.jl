@@ -856,6 +856,9 @@ public conventions_dir, convention_files
 # The git hooks every stack repository runs (githooks/, quality/sync_manifest.jl):
 # re-resolve the untracked Manifest when git moves a Project.toml.
 public sync_manifest, install_githooks, githooks_dir
+# The CI of a stack repository (quality/stack_ci.jl): one implementation, called by every workspace's CI.
+public stack_ci, workspace_packages, workspace_settings, affected_packages, registration_violations,
+    workspace_agent_doc_violations, source_downstream, codecov_config, docs_inventory, docs_local, docs_linkcheck_ignore
 
 # =============================================================================
 # INCLUDE ORDER - Dependency-aware loading
@@ -1122,6 +1125,7 @@ include("quality/stack_contracts.jl")
 include("quality/agent_docs.jl")
 include("quality/conventions.jl")
 include("quality/sync_manifest.jl")   # sync_manifest, install_githooks: the git hooks' Julia side (dependency-free; the hooks include it by path)
+include("quality/stack_ci.jl")        # stack_ci and its parts: the CI every stack workspace calls (loadable by path: standard libraries only)
 include("quality/gpu_tier.jl")        # gpu_tier, gpu_problem, require_gpu: the one GPU test-tier decision (hoisted from RadiometricCamera)
 
 # The precompile workload: the camera models' native code, cached in the package image

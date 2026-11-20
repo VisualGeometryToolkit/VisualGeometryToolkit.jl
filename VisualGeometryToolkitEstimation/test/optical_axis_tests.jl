@@ -226,6 +226,29 @@ end
     end
 end
 
+# The axis chart's rotation is Rotations' `rotation_between(a, ẑ)`, bit for bit, on both of its branches (the regular
+# one and the axis opposite ẑ, about a perpendicular vector), and under duals.
+@testitem "the axis chart's rotation: Rotations' rotation_between(a, ẑ) bit for bit" begin
+    using Test
+    using StaticArrays: SVector, SMatrix
+    using LinearAlgebra: normalize
+    import Rotations, ForwardDiff
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    z = SVector(0.0, 0.0, 1.0)
+    ref(a) = SMatrix{3, 3}(Rotations.rotation_between(a, z))
+    for a in (z, -z, SVector(1.0, 0.0, 0.0), SVector(0.0, -1.0, 0.0), normalize(SVector(0.3, -0.2, 0.9)),
+              normalize(SVector(-0.7, 0.1, -0.4)), normalize(SVector(1.0e-9, 2.0e-9, -1.0)), normalize(SVector(0.2, 0.2, 0.1)))
+        @test VE._axis_rotation(a) == ref(a)
+        @test VE._axis_rotation(a) * a ≈ z atol = 1.0e-12
+    end
+    for u in (SVector(0.0, 0.0, -1.0), SVector(0.5, -0.5, 0.5), SVector(-2.0, 1.0, 1.0), SVector(0.1, 0.3, -0.2), SVector(1.0, 1.0, 1.0))
+        @test VE._perpendicular(u) == Rotations.perpendicular_vector(u)
+    end
+    a0 = normalize(SVector(0.3, -0.2, 0.9))
+    J = ForwardDiff.jacobian(a -> vec(VE._axis_rotation(a)), a0)
+    @test J == ForwardDiff.jacobian(a -> vec(ref(a)), a0)
+end
+
 # The optical axis of a gauge-K source and the exact resample that turns onto it, on a CUDA device: the reduction
 # kernel of the axis fit (each sample's residual and its Jacobian rows by duals of the chart vector) compiles for the
 # device and gives the host's result. (Until 0.12.1 the public calls were tested on the CPU backend only, and the

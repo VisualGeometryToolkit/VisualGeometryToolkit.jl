@@ -50,8 +50,29 @@ function _held_unless(e::EuclideanManifold{N}, free, names::NTuple{N, Symbol}) w
     mask = SVector{N, Bool}(map(n -> n in free, names))
     return all(mask) ? e : restrict(e, mask)
 end
-# The minimal rotation taking the unit axis `a` onto ẑ (Rotations' `rotation_between`, Dual-safe).
-_axis_rotation(a) = SMatrix{3, 3}(Rotations.rotation_between(a, SVector(0.0, 0.0, 1.0)))
+# The minimal rotation taking the unit axis `a` onto ẑ: Rotations' `rotation_between(a, ẑ)` operation for operation (the
+# quaternion `(‖a‖ + a·ẑ, a × ẑ)`, normalized by its constructor; about a vector perpendicular to `a` when `a` is `−ẑ`),
+# written out so that it compiles for a device — the regression's kernel retracts the axis in every row, and
+# `rotation_between` builds its perpendicular vector by a comprehension no GPU compiler takes. Dual-safe.
+@inline function _axis_rotation(a::StaticVector{3})
+    z = SVector(0.0, 0.0, 1.0)
+    normprod = sqrt(dot(a, a) * dot(z, z))
+    w = normprod + dot(a, z)
+    v = abs(w) < 100 * eps(typeof(normprod)) ? _perpendicular(a) : cross(a, z)
+    return SMatrix{3, 3}(Rotations.QuatRotation(w, v[1], v[2], v[3]))
+end
+# A vector perpendicular to `u` (Rotations' `perpendicular_vector`: minus the second-largest entry at the largest one's
+# place, the largest at the second-largest's, zero at the third), by branches on the entries' magnitudes.
+@inline function _perpendicular(u::StaticVector{3})
+    a1, a2, a3 = abs(u[1]), abs(u[2]), abs(u[3])
+    i1 = a1 >= a2 ? (a1 >= a3 ? 1 : 3) : (a2 >= a3 ? 2 : 3)                       # the largest entry (the first of equals)
+    i2 = i1 == 1 ? (a2 >= a3 ? 2 : 3) : i1 == 2 ? (a1 >= a3 ? 1 : 3) : (a1 >= a2 ? 1 : 2)   # the second largest
+    p1 = @inbounds -u[i2]
+    p2 = @inbounds u[i1]
+    o = zero(p1)
+    return SVector(ifelse(i1 == 1, p1, ifelse(i2 == 1, p2, o)), ifelse(i1 == 2, p1, ifelse(i2 == 2, p2, o)),
+                   ifelse(i1 == 3, p1, ifelse(i2 == 3, p2, o)))
+end
 # The fit at the chart's retracted parts: the focal rescale `s` and aspect `a`, the principal point's move `δ`
 # (normalized), the rotation `R` from the source's frame to the fitted one (`nothing`: the source's own), the lens.
 # Dual-safe.

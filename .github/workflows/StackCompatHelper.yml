@@ -1,0 +1,43 @@
+# One CompatHelper stream for a whole stack workspace: every package and its
+# test and docs environments. Defined once; a stack repository calls it from a
+# scheduled workflow and hands it the key CompatHelper's pull requests are
+# pushed with (so they trigger CI):
+#
+#   jobs:
+#     CompatHelper:
+#       uses: VisualGeometryToolkit/VisualGeometryToolkit.jl/.github/workflows/StackCompatHelper.yml@<ref>
+#       secrets: { DOCUMENTER_KEY: '${{ secrets.DOCUMENTER_KEY }}' }
+name: Stack CompatHelper
+on:
+  workflow_call:
+    secrets:
+      DOCUMENTER_KEY:
+        required: false
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  CompatHelper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '1' }
+      - name: Install CompatHelper
+        run: julia -e 'using Pkg; Pkg.add("CompatHelper")'
+      - name: Run CompatHelper
+        run: |
+          julia -e '
+            using CompatHelper
+            # every Project.toml with a [compat] section, found at run time (the root, each package and every member:
+            # test, docs, benchmarks, examples, validation, ci, a portal): a member left out keeps the old bound, and the
+            # workspace then no longer resolves, so a fixed list drifts the day a member is added
+            subdirs = String[]
+            for (root, dirs, files) in walkdir(".")
+                filter!(d -> !startswith(d, "."), dirs)
+                "Project.toml" in files && occursin(r"^\[compat\]"m, read(joinpath(root, "Project.toml"), String)) &&
+                    push!(subdirs, root == "." ? "" : relpath(root, "."))
+            end
+            CompatHelper.main(; subdirs)'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}

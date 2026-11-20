@@ -1,0 +1,102 @@
+# Dead-link check (lychee) for a stack repository, defined once: the caller
+# names the files to check and its own exclusions; the settings and the
+# exclusions every stack repository shares are here (lychee reads ONE
+# configuration file, written by this job).
+#
+#   jobs:
+#     lychee:
+#       uses: VisualGeometryToolkit/VisualGeometryToolkit.jl/.github/workflows/StackLinks.yml@<ref>
+#       with:
+#         paths: README.md CITATION.cff '*/README.md' '*/docs/src/**/*.md'
+#         exclude: |
+#           ^https://example\.org/not-yet-published/
+#
+# To run it by hand, take the configuration this job prints and
+#   lychee --config <that file> --no-progress <paths>
+name: Stack Links
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: The files and globs lychee checks, as its command-line arguments
+        type: string
+        required: true
+      exclude:
+        description: The caller's own exclusions, one regular expression per line (no single quotes)
+        type: string
+        default: ''
+      timeout-minutes:
+        type: number
+        default: 15
+permissions:
+  contents: read
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write the lychee configuration (the stack's settings and exclusions, then the caller's)
+        shell: bash
+        env:
+          EXCLUDE: ${{ inputs.exclude }}
+        run: |
+          config="$RUNNER_TEMP/lychee.toml"
+          cat > "$config" <<'TOML'
+          # Retries and timeouts: patient with slow hosts, polite to all of them.
+          max_retries = 3
+          retry_wait_time = 5
+          timeout = 30
+          max_concurrency = 16
+
+          # 429 is rate limiting, never a dead link. 403 is NOT accepted: no checked file
+          # links to a publisher site (IEEE, ACM, Springer, Elsevier, Wiley), which answer
+          # 403 to anonymous clients such as CI runners. If such links appear, exclude
+          # those hosts by name rather than accepting 403 for every host.
+          accept = ["200..=299", "429"]
+
+          # Skip links to localhost and private networks.
+          exclude_all_private = true
+
+          # Mail addresses are not checked.
+          include_mail = false
+
+          # Fragments (#anchors) are not checked (lychee's default): Documenter
+          # generates heading anchors at build time, so the Markdown sources cannot
+          # resolve them.
+
+          # doi.org rate-limits bursts; one request at a time, spaced out.
+          [hosts."doi.org"]
+          concurrency = 1
+          request_interval = "1s"
+          TOML
+          sed -i 's/^          //' "$config"
+          {
+            echo 'exclude = ['
+            # Documenter cross references are Markdown links, not URLs: `[x](@ref)`, `[x](@ref Target)`,
+            # `[x](@id ...)`, `[x](@extref ...)`, `[x](@cite ...)`, `[x](@citet ...)`, `[x](@citep ...)`.
+            echo "  '^@(ref|id|extref|cite[tp]?)\b',"
+            echo "  '(^|/)@(ref|id|extref|cite[tp]?)(%20|\b)',"
+            echo "  '^mailto:',"
+            echo "  '^https?://(localhost|127\.0\.0\.1)',"
+            # Codecov badges and app pages 404 for anonymous clients or time out.
+            echo "  '^https://(app\.)?codecov\.io/',"
+            while IFS= read -r line; do
+              line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+              [ -z "$line" ] && continue
+              case "$line" in *"'"*) echo "StackLinks: an exclusion holds a single quote: $line" >&2; exit 1 ;; esac
+              printf "  '%s',\n" "$line"
+            done <<< "$EXCLUDE"
+            echo ']'
+          } > "$RUNNER_TEMP/exclude.toml"
+          # top-level keys precede the [hosts] table
+          awk -v ex="$RUNNER_TEMP/exclude.toml" '/^# doi.org rate-limits/ { while ((getline l < ex) > 0) print l; print "" } { print }' "$config" > "$config.new"
+          mv "$config.new" "$config"
+          cat "$config"
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          lycheeVersion: v0.24.2   # the configuration above uses this release's keys
+          fail: true
+          args: --config ${{ runner.temp }}/lychee.toml --no-progress ${{ inputs.paths }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # GitHub's API rate limit

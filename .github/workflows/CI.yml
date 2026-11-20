@@ -1,5 +1,7 @@
 # PRs and pushes to main: the affected packages and their dependents, Linux,
 # Julia 1.13 (DESIGN D14; the whole stack requires 1.13). GPU items record a skip on hosted runners.
+# The jobs are the stack's (StackCI.yml: plan, one test job per package, lint),
+# the same every stack repository calls.
 name: CI
 on:
   push:
@@ -14,64 +16,8 @@ permissions:
   contents: read
   id-token: write   # Codecov upload by OIDC, no token secret
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      packages: ${{ steps.affected.outputs.packages }}
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1.13' }
-      - id: affected
-        run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD
-          else
-            julia --startup-file=no -e 'using TOML; p = filter(!=("ci"), TOML.parsefile("Project.toml")["workspace"]["projects"]); s = "[" * join(("\"$x\"" for x in p), ",") * "]"; println(s); open(io -> println(io, "packages=", s), ENV["GITHUB_OUTPUT"], "a")'
-          fi
-  test:
-    needs: plan
-    if: needs.plan.outputs.packages != '[]'
-    name: ${{ matrix.package }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        package: ${{ fromJSON(needs.plan.outputs.packages) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1.13' }
-      - uses: julia-actions/cache@v2
-      - name: Instantiate (resolves the workspace; downloads this package's test env only)
-        run: julia --project=${{ matrix.package }}/test -e 'using Pkg; Pkg.instantiate()'
-      - name: Test
-        run: julia --project=${{ matrix.package }} -e 'using Pkg; Pkg.test(; coverage = true)'
-      - id: covdirs   # src/ and ext/ where present (not every package has ext/)
-        run: |
-          d=${{ matrix.package }}/src
-          [ -d ${{ matrix.package }}/ext ] && d="$d,${{ matrix.package }}/ext"
-          echo "dirs=$d" >> "$GITHUB_OUTPUT"
-      - uses: julia-actions/julia-processcoverage@v1
-        with:
-          directories: ${{ steps.covdirs.outputs.dirs }}
-      - uses: codecov/codecov-action@v5
-        with:
-          files: lcov.info
-          flags: ${{ matrix.package }}
-          use_oidc: true
-          fail_ci_if_error: false
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1.13' }
-      - uses: julia-actions/cache@v2
-      - run: julia --project=ci -e 'using Pkg; Pkg.instantiate()'
-      - name: Registration rules (versions, compat, names, licenses, allow-list, no tracked Manifest)
-        run: julia --project=ci ci/registration_lint.jl --subsequent
-      - name: Agent docs policy (public patterns)
-        run: julia --project=ci ci/agent_docs.jl
+  ci:
+    uses: ./.github/workflows/StackCI.yml
+    with:
+      # every stack package has a first registration in General merged or filed
+      registration-lint-args: '--subsequent'

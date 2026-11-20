@@ -1,5 +1,5 @@
 # One CompatHelper stream for the whole workspace: every package and its test
-# and docs environments.
+# and docs environments (StackCompatHelper.yml, the same every stack repository calls).
 name: CompatHelper
 on:
   schedule:
@@ -10,26 +10,6 @@ permissions:
   pull-requests: write
 jobs:
   CompatHelper:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1' }
-      - name: Install CompatHelper
-        run: julia -e 'using Pkg; Pkg.add("CompatHelper")'
-      - name: Run CompatHelper
-        run: |
-          julia -e '
-            using CompatHelper
-            # every Project.toml with a [compat] section, found at run time (the root, each package and every member:
-            # test, docs, benchmarks, examples, validation, ci): a member left out keeps the old bound, and the
-            # workspace then no longer resolves, so a fixed list drifts the day a member is added
-            subdirs = String[]
-            for (root, dirs, files) in walkdir(".")
-                filter!(d -> !startswith(d, "."), dirs)
-                "Project.toml" in files && occursin(r"^\[compat\]"m, read(joinpath(root, "Project.toml"), String)) &&
-                    push!(subdirs, root == "." ? "" : relpath(root, "."))
-            end
-            CompatHelper.main(; subdirs)'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}
+    uses: ./.github/workflows/StackCompatHelper.yml
+    secrets:
+      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}

@@ -32,6 +32,14 @@ board and device Jacobian.
   Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.
 
 ### Changed
+- **`cgls` is Krylov.jl's CGLS** on the stacked operator `[A; √W D]` (new dependency Krylov 0.10); the package's own
+  stacked conjugate-gradient iteration is deleted. On CUDA the products are cuSPARSE's CSR product under its
+  reproducible algorithm (`CUSPARSE_SPMV_CSR_ALG2`), made from the `CSRMatrix`'s arrays in the CUDA extension. Same
+  signature and result fields. Without `diagonal` the iterates are the old ones to rounding (a 443,339 × 80,640 texture
+  page with 22.0 M nonzeros on a B200, three penalty weights, rtol 1e-6: 245 / 195 / 76 iterations as before, the
+  solutions within 2e-6, 0.46 s → 0.19 s). With `diagonal` the stopping rule is measured in the Jacobi-scaled norm,
+  `‖C sₖ‖ ≤ rtol ‖C (Aᵀb + DᵀWh)‖`. A start `x0` is kept exactly in every direction neither `A` nor `D` holds (the
+  iteration solves for the correction to it).
 - **`local_coordinates(ch::ParameterManifold, x)`** takes any model with the parameter protocol (`parameter_vector`,
   `with_parameters`), not a closed list of Core's types: another package's model is on its `ParameterManifold` without
   a method of its own.

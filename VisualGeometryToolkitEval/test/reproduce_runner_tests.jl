@@ -1255,9 +1255,10 @@ end
             @test changes(Dict("a" => dirty), Dict("a" => dirty)) == ["a: uncommitted when recorded"]
         end
         @test isempty(changes(Dict("uncommitted_name" => "ab12"), Dict("uncommitted_name" => "ab12")))
-        # the registered stack packages are the published rows of the stack's allow-list
+        # the registered stack packages are the published rows of the stack's allow-list, and PanoramaStitching, which
+        # states its own row (it depends on the Visual Radiometry Toolkit, which the table never names)
         allow = TOML.parsefile(joinpath(pkgdir(VisualGeometryToolkitEval), "..", "VisualGeometryToolkitCore", "configs", "stack_dependencies.toml"))
-        @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == Set(k for k in keys(allow) if isuppercase(first(k)))
+        @test Set(VisualGeometryToolkitEval._STACK_PACKAGES) == union(Set(k for k in keys(allow) if isuppercase(first(k))), Set(["PanoramaStitching"]))
     end
 
     @testset "code identity on Slurm: a stage in flight under other code stops the launch, nothing submitted twice" begin

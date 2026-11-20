@@ -1,5 +1,11 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.9.3
+
+A patch on VisualGeometryToolkitCore 0.12.0 and VisualGeometryToolkitIO 0.11.0 (`[compat]` `"0.12"`, `"0.11"`): the radiometric types
+and kinds moved to the Visual Radiometry Toolkit. No code of this package changes (a test follows the stack's dependency
+table, where PanoramaStitching now states its own row).
+
 ## 0.9.2
 
 A patch: on VisualGeometryToolkitCore 0.11 and VisualGeometryToolkitEstimation 0.12 (`[compat]` `"0.11"`, `"0.12"`).

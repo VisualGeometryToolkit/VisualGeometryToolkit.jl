@@ -1,5 +1,10 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.9
+
+A patch on VisualGeometryToolkitCore 0.12.0 (`[compat]` VisualGeometryToolkitCore `"0.12"`), whose radiometric types moved to
+VisualRadiometryToolkitCore. No code of this package changes.
+
 ## 0.9.8
 
 A patch, additive: the Förstner F-test's critical values computed once per configuration.

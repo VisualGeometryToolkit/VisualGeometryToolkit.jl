@@ -1,5 +1,9 @@
 # PoseLib changelog
 
+## 0.3.2
+
+A patch on VisualGeometryToolkitCore 0.12.0 (`[compat]` VisualGeometryToolkitCore `"0.12"`). No code of this package changes.
+
 ## 0.3.1
 
 A patch: on VisualGeometryToolkitCore 0.11 (`[compat]` `"0.11"`). PoseLib's refiners report PoseLib's own

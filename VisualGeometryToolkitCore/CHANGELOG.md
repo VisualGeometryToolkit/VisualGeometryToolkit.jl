@@ -1,6 +1,6 @@
 # VisualGeometryToolkitCore changelog
 
-## Unreleased
+## 0.12.0
 
 **Breaking: the radiometric types moved to VisualRadiometryToolkitCore.** Radiometry lifts geometry: the Visual
 Radiometry Toolkit depends on this package, never the reverse. Also performance work for RadiometricCamera's warped

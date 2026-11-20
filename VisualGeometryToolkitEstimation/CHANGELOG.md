@@ -1,6 +1,6 @@
 # VisualGeometryToolkitEstimation changelog
 
-## Unreleased
+## 0.12.1
 
 ### Fixed
 - **`optical_axis` and the exact resample of `fit_camera(SplineLens, …)` run on a CUDA device.** The regression kernel

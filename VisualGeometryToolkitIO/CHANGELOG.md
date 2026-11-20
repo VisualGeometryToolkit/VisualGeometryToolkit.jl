@@ -1,6 +1,6 @@
 # VisualGeometryToolkitIO changelog
 
-## Unreleased
+## 0.11.0
 
 Breaking: the radiometric kinds and the panorama kind move to their owners, and a package's own kind gets the
 validator's table as a public hook. Radiometry builds on geometry, never the reverse: the Visual Radiometry Toolkit

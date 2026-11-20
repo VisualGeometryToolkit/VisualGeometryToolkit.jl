@@ -72,6 +72,67 @@ end
     @test with_parameters(s32, Float32.(z)) isa MappedSurface
 end
 
+@testitem "intersection_at: the hit's partials at a known hit, no root" begin
+    using Test, StaticArrays, Random
+    using Rotations: RotMatrix, RotXYZ
+    using ForwardDiff
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: intersection, intersection_at, with_parameters, grid_nodes, convert_eltype, surface
+
+    rng = Xoshiro(11)
+    nodes = grid_nodes(5; lo = -0.6, hi = 0.6)
+    z = 0.01 .* randn(rng, 25)
+    X = EuclideanMap(RotMatrix{3}(RotXYZ(0.1, -0.2, 0.05)), SVector(0.02, -0.01, 2.0))
+    rect = Rect2(-0.5, -0.5, 1.0, 1.0)
+    rays = [(SVector(0.3randn(rng), 0.3randn(rng), 0.0), SVector(0.2randn(rng), 0.2randn(rng), 1.0)) for _ in 1:300]
+    partials_of(v) = reduce(hcat, [collect(ForwardDiff.partials(c)) for c in v])
+    allocs(f, args...) = (f(args...); @allocated f(args...))
+    for C in (HeightField(nodes, z), HeightField(nodes, z) ∘ (Aspect(0.01) ∘ Skew(-0.003)))
+        s = MappedSurface(X, C, nothing, rect)
+        H = C isa HeightField ? C : C.t1
+        hits = [(o, d, intersection(s, o, d)...) for (o, d) in rays]
+        @test count(h -> isfinite(h[3]), hits) > 100
+        # plain parts: the supplied hit and its ray parameter; a miss stays a miss
+        for (o, d, t, x) in hits
+            ta, xa = intersection_at(s, o, d, x)
+            @test isfinite(t) ? (abs(ta - t) <= 64eps() && xa == x) : (isnan(ta) && all(isnan, xa))
+        end
+        # Dual heights (25 partials), a Dual ray, both: intersection's value and partials to rounding
+        zd = SVector{25}(ntuple(i -> ForwardDiff.Dual{:h}(H.h[i], ntuple(j -> Float64(i == j), 25)), 25))
+        dual_field(m) = m isa HeightField ? with_parameters(m, zd) : m
+        sd = MappedSurface(VisualGeometryToolkitCore.Cameras._map_members(dual_field, s.map), s.frame)
+        worst_value = 0.0; worst_partial = 0.0; scale = 0.0
+        for (o, d, t, x) in hits
+            od = SVector{3}(ntuple(i -> ForwardDiff.Dual{:r}(o[i], ntuple(j -> Float64(i == j), 3)), 3))
+            for (surf, org) in ((sd, o), (s, od))
+                tr, xr = intersection(surf, org, d)
+                ta, xa = intersection_at(surf, org, d, x)
+                if !isfinite(t)
+                    @test isnan(ForwardDiff.value(ta)) && all(isnan ∘ ForwardDiff.value, xa)
+                    continue
+                end
+                worst_value = max(worst_value, abs(ForwardDiff.value(ta) - ForwardDiff.value(tr)), maximum(abs, ForwardDiff.value.(xa) - ForwardDiff.value.(xr)))
+                worst_partial = max(worst_partial, maximum(abs, partials_of(xa) - partials_of(xr)), maximum(abs, collect(ForwardDiff.partials(ta)) - collect(ForwardDiff.partials(tr))))
+                scale = max(scale, maximum(abs, partials_of(xr)))
+            end
+        end
+        @test worst_value <= 64eps() && worst_partial <= 1.0e-12 * max(scale, 1.0)
+        o, d, _, x = first(h for h in hits if isfinite(h[3]))
+        @test (@inferred intersection_at(sd, o, d, x))[1] isa ForwardDiff.Dual && allocs(intersection_at, sd, o, d, x) == 0
+        # a miss handed over as intersection returns it
+        nan = SVector(NaN, NaN, NaN)
+        @test all(isnan ∘ ForwardDiff.value, intersection_at(sd, o, d, nan)[2]) && isnan(intersection_at(s, o, d, nan)[1])
+        # Float32
+        s32 = convert_eltype(Float32, s); o32, d32 = SVector{3, Float32}(o), SVector{3, Float32}(d)
+        t32, x32 = intersection(s32, o32, d32)
+        @test intersection_at(s32, o32, d32, x32) isa Tuple{Float32, SVector{3, Float32}}
+    end
+    # a surface without a method for the known hit: intersection itself
+    q = Quad(SVector(0.0, 0.0, 2.0), one(SMatrix{3, 3, Float64}), Rect2(-0.5, -0.5, 1.0, 1.0))
+    o, d = SVector(0.1, 0.05, 0.0), SVector(0.02, -0.03, 1.0)
+    @test isequal(intersection_at(q, o, d, intersection(q, o, d)[2]), intersection(q, o, d))
+end
+
 @testitem "bilinear_weights: the texel block and fractions bilinear_sample reads" begin
     using Test, StaticArrays, Random
     using VisualGeometryToolkitCore: bilinear_sample, bilinear_weights

@@ -152,7 +152,7 @@ public ray_plane_intersection
 # isbits and allocation-free. The verbs are generic words, so they stay public
 # (qualified access), as `model` does.
 export Quad, MappedSurface   # MappedSurface: the surface of a chart map (geometry/cameras/mapped_surface.jl)
-public intersection, chart, bounds, surface, surface_point
+public intersection, intersection_at, chart, bounds, surface, surface_point
 
 # -----------------------------------------------------------------------------
 # 2. TRANSFORMS - Maps for transforming geometry

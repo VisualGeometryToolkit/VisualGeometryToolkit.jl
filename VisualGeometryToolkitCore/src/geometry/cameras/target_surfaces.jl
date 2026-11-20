@@ -227,7 +227,6 @@ _plain_fast(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTran
 _hit_numbers(::Type{ComposedTransformation{X, ComposedTransformation{ComposedTransformation{S, _PlainCalibration{C}}, I₂}}}, ::Type{O}, ::Type{Dr}) where {X, S, C, I₂, O, Dr} =
     promote_type(_numbers_type(X), _numbers_type(S), _numbers_type(C), _numbers_type(I₂), eltype(O), eltype(Dr))
 
-const _HEIGHT_NEWTON_ITERATIONS = 4
 const _HEIGHT_NEWTON_MAX_ITER = 20
 
 @inline function intersection(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}) where {C, M <: _HeightOnlyMap{C}}
@@ -249,6 +248,11 @@ end
 @inline function _height_implicit(::Type{D}, s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}) where {D}
     sV, oV, dV = map(x -> _layer_values(D, x), (s, o, d))
     _, _, pV, ok = _height_root(sV, sV.map.t2.t1.t1, _field_and_affine(sV.map.t2.t1.t2.c)..., oV, dV)
+    return _height_implicit_at(D, s, sV, o, d, pV, ok)
+end
+# (the step itself, at the values' design point `pV` of the values' surface `sV`: `_height_implicit`'s after its root,
+# `intersection_at`'s at a supplied hit)
+@inline function _height_implicit_at(::Type{D}, s::MappedSurface, sV::MappedSurface, o::StaticVector{3}, d::StaticVector{3}, pV::StaticVector{2}, ok::Bool) where {D}
     pV = ifelse(ok, pV, zero(pV))
     b1, b2 = s2_tangent_basis(d)
     u1, u2 = oftype(d, b1), oftype(d, b2)
@@ -262,6 +266,27 @@ end
     t = _fma_dot(x - o, d) / _fma_dot(d, d)
     return _masked(ok, t, x)
 end
+# The design point of a point `x` of the surface: y = J c + β of the affine factors, p = S₂(c) (closed form: the chart
+# is an affine of the field's coordinates).
+@inline _height_design_point(s::MappedSurface, S::SimilarityMap{3}, J, β, x::StaticVector{3}) =
+    _map_value(_placement_plane(S), J \ (_map_value(s.map.t2.t2, _plane_coordinates(s.frame, x)) - β))
+
+# `intersection_at` (primitives/surfaces.jl) of a height field over an affine chart: the implicit step at the supplied hit.
+@inline function intersection_at(s::MappedSurface{M}, o::StaticVector{3}, d::StaticVector{3}, x₀::StaticVector{3, <:AbstractFloat}) where {C, M <: _HeightOnlyMap{C}}
+    _height_over_affine(C) || return intersection(s, o, d)
+    D = _hit_numbers(M, typeof(o), typeof(d))
+    if D <: AbstractFloat
+        x = SVector{3, D}(x₀)
+        t = _fma_dot(x - o, d) / _fma_dot(d, d)
+        return _masked(all(isfinite, x) & (t >= 0), t, x)
+    end
+    D <: ForwardDiff.Dual{<:Any, <:AbstractFloat} || return intersection(s, o, d)
+    sV = _layer_values(D, s)
+    xV = SVector{3, ForwardDiff.valtype(D)}(x₀)
+    found = all(isfinite, xV)
+    pV = _height_design_point(sV, sV.map.t2.t1.t1, Base.tail(_field_and_affine(sV.map.t2.t1.t2.c))..., ifelse(found, xV, zero(xV)))
+    return _height_implicit_at(D, s, sV, o, d, pV, found & _in_rect(sV.frame.rect, pV))
+end
 # A surface with every Dual layer of its members and frame stripped (`_primal`).
 @inline _primal_surface(s::MappedSurface) = MappedSurface(_map_members(m -> _member_numbers(_primal, m), s.map), _map_numbers(_primal, s.frame))
 
@@ -273,7 +298,6 @@ end
 @inline function _height_root(s::MappedSurface, S::SimilarityMap{3}, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
     q = s.frame
     n = normal(q)
-    S₂ = _placement_plane(S)
     S₂⁻¹ = s.map.t2.t2                             # the chart map's own inverse placement
     field = _PlainCalibration(H)
     den = _fma_dot(d, n)                           # g′ without the surface's slope
@@ -288,18 +312,15 @@ end
         return t * den - s0 - Z[3], den - _fma_dot(gz, cd)
     end
     t, x = _plane_hit(q, o, d)                     # the seed
-    for _ in 1:_HEIGHT_NEWTON_ITERATIONS
-        g, gp = terms(t, x)
-        t -= g / gp
-        x = o + t * d
-    end
-    # the continuation: stop at a rounding-level update, which is not applied
+    # Newton from the seed, stopped at a rounding-level update, which is not applied. The test runs from the first
+    # iteration: a gently warped board's root takes two updates and three evaluations of the field (the four
+    # unconditional iterations this loop began with until 0.11.2 took at least five).
     nd = norm(d)
     L = hypot(q.rect.widths[1], q.rect.widths[2])
     ε = eps(typeof(t))
     converged = false
     last = oftype(abs(t), Inf)
-    for _ in (_HEIGHT_NEWTON_ITERATIONS + 1):_HEIGHT_NEWTON_MAX_ITER
+    for _ in 1:_HEIGHT_NEWTON_MAX_ITER
         g, gp = terms(t, x)
         Δ = g / gp
         scale = L + abs(t) * nd
@@ -312,7 +333,6 @@ end
         x = o + t * d
     end
     converged |= last <= sqrt(ε)
-    # the design point: y = J c + β of the affine factors, p = S₂(c)
-    p = _map_value(S₂, J \ (_map_value(S₂⁻¹, _plane_coordinates(q, x)) - β))
+    p = _height_design_point(s, S, J, β, x)
     return t, x, p, converged & (t >= 0) & _in_rect(q.rect, p)
 end

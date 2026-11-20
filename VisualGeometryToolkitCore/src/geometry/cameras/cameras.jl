@@ -123,7 +123,7 @@ import ..VisualGeometryToolkitCore: toml_value   # extended on lenses (lens_char
 using ..VisualGeometryToolkitCore: pointwise!, OnBackend   # a lens over a batch of points (lens_rays.jl)
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
-import ..VisualGeometryToolkitCore: surface, intersection, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
+import ..VisualGeometryToolkitCore: surface, intersection, intersection_at, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: static_lm, StaticLmStops, _LM_AREA_UNITS, _STATIC_LM_MAX_ITER   # the one device LM and its stop settings (robust/lm_core.jl)
 using ..VisualGeometryToolkitCore: _fma_dot, _fma_mul, _fma_tmul   # explicit fused products (base/fused_products.jl): the spline LM and the MappedSurface root
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)

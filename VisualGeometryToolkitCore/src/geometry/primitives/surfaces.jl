@@ -51,6 +51,28 @@ function theorem).
 function intersection end
 
 """
+    intersection_at(s, o, d, x₀) -> (t, x)
+
+[`intersection`](@ref)`(s, o, d)` for a caller that already holds the hit point `x₀` in plain numbers — the point
+`intersection` returns for the same surface and ray with every `ForwardDiff.Dual` layer stripped (a hit kept from an
+earlier pass: a renderer's record, a residual's evaluation). Where the surface has a method for it, no root is solved:
+
+- a [`MappedSurface`](@ref) of a [`HeightField`](@ref) alone or over the planar affine factors, with ONE layer of
+  Duals anywhere (the field's heights, the placement, the pose, the ray): the implicit-function step at `x₀`, one
+  evaluation of the chart map on the Dual parts, where `intersection` first runs its Newton on the values and then
+  takes the same step. The hit's value is the surface's point at `x₀`'s design point; its partials are
+  `intersection`'s to rounding;
+- the same surface with plain parts: `(t, x₀)`, `t` the ray parameter of `x₀`;
+- every other surface and nested Duals: `intersection(s, o, d)`, `x₀` unused.
+
+`x₀` is trusted: a point that is not the ray's hit gives the partials of nothing. A miss is a non-finite `x₀` (as
+`intersection` returns it) or, in the Dual step, a design point off the rectangle: `t` and every coordinate of `x`
+are `NaN`.
+"""
+function intersection_at end
+@inline intersection_at(s, o::StaticVector{3}, d::StaticVector{3}, x₀::StaticVector{3}) = intersection(s, o, d)
+
+"""
     chart(s, x) -> SVector{2}
 
 The chart coordinates `(u, v)` of the point `x` of the surface `s` — the

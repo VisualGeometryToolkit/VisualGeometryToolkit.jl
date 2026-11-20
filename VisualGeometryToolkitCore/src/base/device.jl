@@ -300,16 +300,17 @@ device_zeros(::Type{T}, dev, dims::Tuple{Vararg{Integer}}) where {T} = device_ze
 end
 
 """
-    _launch_rows!([exec::OnBackend,] row!, out, n, args...) -> out
+    _launch_rows!(row!, out, n, args...) -> out
+    _launch_rows_on!(exec::OnBackend, row!, out, n, args...) -> out
 
 Run `row!(out, i, args...)` for `i in 1:n` as one `_row_kernel!` launch over
 `ndrange = n` on the backend that owns `out` (every backend, the CPU's
 included), followed by a synchronize. The kernel takes the job as one tuple,
-`(row!, out, args...)`. `n = 0` launches nothing. `exec`: the launch's backend
-and workgroup size ([`OnBackend`](@ref); by default `out`'s backend and its own
+`(row!, out, args...)`. `n = 0` launches nothing. `exec` (`_launch_rows_on!`): the launch's backend
+and workgroup size ([`OnBackend`](@ref); `_launch_rows!` takes `out`'s backend and its own
 choice of group — on the CPU backend KernelAbstractions' 1024 rows a group,
 which leaves a launch of few heavy rows to few threads: a caller with such
 rows hands over `OnBackend(backend; workgroupsize)` with a small group).
 """
-_launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N} = _launch_rows!(OnBackend(get_backend(out)), row!, out, n, args...)
-# (the `exec` method: geometry/transforms/pointwise.jl, after `OnBackend`)
+_launch_rows!(row!::F, out, n::Integer, args::Vararg{Any, N}) where {F, N} = _launch_rows_on!(OnBackend(get_backend(out)), row!, out, n, args...)
+# (`_launch_rows_on!`: geometry/transforms/pointwise.jl, after `OnBackend`)

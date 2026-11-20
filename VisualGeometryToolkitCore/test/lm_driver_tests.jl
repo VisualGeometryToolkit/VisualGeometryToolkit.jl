@@ -798,7 +798,7 @@ end
     @test got === reduce_normal_equations(apart, Val(N)) && partials == apart
     # a launch's workgroup size changes which thread runs a row, not a bit of it
     grouped = zeros(1 + N + N * N, W)
-    VgtkCore._launch_rows!(VgtkCore.OnBackend(VgtkCore.KA.CPU(); workgroupsize = 2), normal_row!, grouped, W, r, J)
+    VgtkCore._launch_rows_on!(VgtkCore.OnBackend(VgtkCore.KA.CPU(); workgroupsize = 2), normal_row!, grouped, W, r, J)
     @test grouped == apart
     @test reduce_cost(cost_row!, r; partials) === reduce_cost(apart) && got[1] ≈ reduce_cost(apart)
     @test got[1] ≈ 0.5 * sum(x -> sum(abs2, x), r) && got[2] ≈ sum(i -> J[i]' * r[i], 1:n)

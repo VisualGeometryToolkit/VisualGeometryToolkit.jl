@@ -749,7 +749,10 @@ end
         for _ in 1:9                                   # interleaved, the best of each: a busy machine slows both alike
             tD = min(tD, timed(s)); tP = min(tP, timed(s0))
         end
-        @test tD < 3.0 * tP
+        # (the bound was 3 while the plain hit ran four unconditional Newton iterations; with its early stop the plain hit is
+        # 2.6× faster and the ratio measured 2.2–3.0 — 0.90 against 2.00 µs a ray on 20 000 rays, 2026-11-20 — the generic
+        # LM's would be above 10)
+        @test tD < 4.5 * tP
     end
 
     # on a device: the Dual heights' hit (Float64) and a Dual ray's (a pose's partials; Float64 and Float32) compile there and

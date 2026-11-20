@@ -24,9 +24,9 @@ board and device Jacobian.
   same surface and ray. A `MappedSurface` of a `HeightField` (alone or over the planar affine factors) with one layer of
   ForwardDiff Duals anywhere takes the implicit-function step at `x₀` — one evaluation of the chart map on the Dual
   parts, no root; plain parts return `(t, x₀)`; every other surface and nested Duals fall back to `intersection`.
-- **`_launch_rows!(exec::OnBackend, row!, out, n, args...)`**: the row launch on a given backend and workgroup size. On the CPU backend
+- **`_launch_rows_on!(exec::OnBackend, row!, out, n, args...)`**: the row launch on a given backend and workgroup size. On the CPU backend
   KernelAbstractions' default groups 1024 rows a task; a launch of few heavy rows takes a small group
-  (`_launch_rows!(OnBackend(backend; workgroupsize), row!, …)`).
+  (`_launch_rows_on!(OnBackend(backend; workgroupsize), row!, …)`).
 - **`_matvec!(y, A, x)`**: a matrix (or its adjoint) times a vector on the arrays' backend; the CUDA extension multiplies
   a one-column matrix (gemm). CUBLAS's gemv of a matrix with one long and one short side is ~100× slower (B200, Float64:
   Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.

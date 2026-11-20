@@ -751,8 +751,13 @@ converged; whether the tolerance is too loose is another story"). A tolerance
 met on the last iteration outranks the cap, so `MaxIters` means no tolerance
 fired.
 """
-nlls_termination(result::NLLSsolver.NLLSResult, postcondition) = nlls_termination(result.termination, postcondition)
-function nlls_termination(bits::Integer, postcondition)
+# (`postcondition::P`, `_holds(p::P)`: a type parameter makes Julia specialize on the callable. These methods only pass it
+# on, and Julia does not specialize on a function-typed argument that a method does not call itself: `_lm_run!`'s lazy
+# postcondition was then boxed — one 256-byte allocation per solve wherever the call was not inlined (seen on the
+# cluster's Emerald Rapids and EPYC nodes under Julia 1.13.3 and 1.13.4, not on a desktop; found with Profile.Allocs,
+# 2026-11-20).)
+nlls_termination(result::NLLSsolver.NLLSResult, postcondition::P) where {P} = nlls_termination(result.termination, postcondition)
+function nlls_termination(bits::Integer, postcondition::P) where {P}
     bits & (1 << 11) != 0 && bits & (1 << 6) == 0 && return (ReturnCode.InitialFailure, NonFinite)
     code = nlls_stop_code(bits)
     code == _LM_FAILED && return (ReturnCode.Failure, NonFinite)
@@ -772,7 +777,7 @@ function nlls_termination(bits::Integer, postcondition)
     return (_holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, rule)
 end
 _holds(p::Bool) = p
-_holds(p) = p()::Bool
+_holds(p::P) where {P} = p()::Bool
 
 # The decoder's two codes beyond the stop codes 1, 2, 4 and −1: a failed solve
 # and the time cap.

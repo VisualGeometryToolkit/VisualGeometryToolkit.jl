@@ -18,8 +18,6 @@ board and device Jacobian.
 - Each name is refused here by name with its replacement (`src/retired.jl`): an `ArgumentError` naming
   `VisualRadiometryToolkitCore.<name>`, no alias, not exported. Migration: add VisualRadiometryToolkitCore and import the
   names from it; nothing else changes.
-- `radius` is no longer declared public here (it was for an `EnvironmentLight`'s sphere): it is GeometryBasics' function,
-  `GeometryBasics.radius`, with this package's methods on it (a `Circle3D`'s) as before.
 - PanoramaStitching's row left the stack dependency table (`configs/stack_dependencies.toml`): a downstream package
   states its own row (`stack_dependency_violations(…; extra)`, the quality gate's `stack_extra`).
 

@@ -361,6 +361,7 @@ public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support,
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), the density N(0, Σ) by its covariance (cameras/blur.jl)
 public convolve                     # two Gaussian blurs in sequence (through a linear map of its plane: `propagate`)
+public radius   # GeometryBasics' `radius`, Core's methods on it included (a Circle3D's)
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups

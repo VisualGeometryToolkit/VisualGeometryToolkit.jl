@@ -69,6 +69,7 @@ using Random: Random
 using SHA: sha256   # stable_seed's fixed hash, sha256_hex (base/utils.jl)
 using SparseArrays: sparse, SparseMatrixCSC   # a lattice's difference rows (numerics/bspline_energy.jl); penalized least squares (numerics/penalized_least_squares.jl)
 import ForwardDiff   # the transfer form's mixed derivative ∂G_x/∂θ (geometry/forms.jl)
+import Krylov       # the penalized least squares' CGLS (numerics/penalized_least_squares.jl)
 import NLLSsolver   # the stack's Levenberg–Marquardt: the chart LM's driver, the variable and robustifier protocols (robust/lm_core.jl)
 
 

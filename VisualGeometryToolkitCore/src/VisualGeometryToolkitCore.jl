@@ -1124,6 +1124,7 @@ include("quality/gpu_tier.jl")        # gpu_tier, gpu_problem, require_gpu: the 
 
 # The precompile workload: the camera models' native code, cached in the package image
 using PrecompileTools: @setup_workload, @compile_workload
+public MOVED_NAMES   # the names that moved to another package, refused here by name (the duplication check reads it)
 include("retired.jl")   # the names that moved to VisualRadiometryToolkitCore (0.12.0), each refused by name
 include("precompile.jl")
 

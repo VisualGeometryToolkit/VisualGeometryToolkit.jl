@@ -20,6 +20,12 @@ board and device Jacobian.
   names from it; nothing else changes.
 
 ### Added
+- **`primal_value`, `strip_pixels`, `strip_point`, `attach_point`, `attach_length`** (public; the underscore helpers
+  renamed): the plain number under every Dual layer, a pixel-sized argument as a plain number, and a point's and a
+  length's unit moves, which a downstream carrier of pixels and lengths is built from. **`center`, `has_units`,
+  `with_unit`** are contract generics.
+- **`MOVED_NAMES`** (public): the names retired by a move to another package; `check_duplication`'s name ownership
+  skips a module's `MOVED_NAMES`, so the new owner is not reported for defining them.
 - **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
   same surface and ray. A `MappedSurface` of a `HeightField` (alone or over the planar affine factors) with one layer of
   ForwardDiff Duals anywhere takes the implicit-function step at `x₀` — one evaluation of the chart map on the Dual

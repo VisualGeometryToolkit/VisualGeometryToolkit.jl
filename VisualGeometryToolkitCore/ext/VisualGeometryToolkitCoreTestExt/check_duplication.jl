@@ -363,6 +363,9 @@ function _defined_elsewhere(v, S)
     return parentmodule(t) !== S
 end
 
+# A module's `MOVED_NAMES` (the names it refuses by name since they moved to another package), if it states any.
+_moved_names(S::Module) = isdefined(S, :MOVED_NAMES) ? getfield(S, :MOVED_NAMES) : ()
+
 # The names a module tree owns, each `name => the (sub)module that owns it`.
 function _owned_names(M::Module)
     out = Dict{Symbol, Module}()
@@ -370,6 +373,7 @@ function _owned_names(M::Module)
         s = string(n)
         (startswith(s, '#') || n in _INFRASTRUCTURE_NAMES || n === nameof(S)) && continue
         isdefined(S, n) || continue
+        (n === :MOVED_NAMES || n in _moved_names(S)) && continue   # a retired name is a refusal, not a definition: its new owner's
         Base.binding_module(S, n) === S || continue          # imported or re-exported: its owner's
         v = getfield(S, n)
         _defined_elsewhere(v, S) && continue                  # an alias of another module's function or type

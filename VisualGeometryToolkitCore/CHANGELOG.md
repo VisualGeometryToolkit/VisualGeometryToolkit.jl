@@ -20,6 +20,15 @@ board and device Jacobian.
   names from it; nothing else changes.
 
 ### Added
+- **`stack_ci`** and its parts (public; `src/quality/stack_ci.jl`): the CI of a stack repository, one implementation
+  for every workspace, where each repository kept a copy of the scripts in its `ci/`. `stack_ci(args; root)` is the
+  command line (`packages`, `affected`, `registration-lint`, `agent-docs`, `downstream`, `codecov`);
+  `workspace_packages`, `workspace_settings` (a repository's own parameters, its root `WORKSPACE.toml`: tooling
+  members, neutral directories, a placeholder version, its allow-list rows, manual merges), `affected_packages`,
+  `registration_violations`, `workspace_agent_doc_violations`, `source_downstream`, `codecov_config` (a workspace's
+  generated `codecov.yml`; the registration rules report one that differs) and `docs_inventory`, `docs_local`,
+  `docs_linkcheck_ignore` (a sibling package's Documenter inventory). The file loads by path with the standard
+  libraries only, so a planning job needs no compiled package.
 - **`primal_value`, `strip_pixels`, `strip_point`, `attach_point`, `attach_length`** (public; the underscore helpers
   renamed): the plain number under every Dual layer, a pixel-sized argument as a plain number, and a point's and a
   length's unit moves, which a downstream carrier of pixels and lengths is built from. **`center`, `has_units`,

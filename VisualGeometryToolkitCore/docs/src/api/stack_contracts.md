@@ -33,6 +33,20 @@ Pages = ["quality/naming.jl", "quality/test_helpers.jl", "quality/agent_docs.jl"
 SCALE_INTERFACE_TAGS
 ```
 
+## Workspace CI
+
+The CI of a stack repository, one implementation for every workspace: the
+packages a change affects, the registration rules, the agent-docs policy over
+a checkout, a downstream project pointed at a workspace, the generated
+`codecov.yml` and a sibling package's docs inventory. `stack_ci` is their
+command line; a workspace's own parameters are its `WORKSPACE.toml`
+(`workspace_settings`).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Pages = ["quality/stack_ci.jl"]
+```
+
 ## Index
 
 ```@index

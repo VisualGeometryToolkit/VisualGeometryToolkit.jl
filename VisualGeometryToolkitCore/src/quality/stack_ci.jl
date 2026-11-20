@@ -24,15 +24,20 @@
 # root, and what differs between repositories is data: the package list (the
 # root Project.toml's `[workspace]`) and a few parameters (WORKSPACE.toml).
 #
-# LOADABLE BY PATH (standard libraries only at load time: Pkg, TOML): a CI
-# planning job includes this file without loading VisualGeometryToolkitCore,
-# which would compile it first. `stack_ci`'s `affected`, `packages`,
-# `downstream` and `codecov` commands need nothing else; `registration-lint`
-# and `agent-docs` call `stack_dependency_violations` and
-# `agent_doc_violations`, which exist where this file is the package's.
+# LOADABLE BY PATH (the TOML standard library only; Pkg, a standard library,
+# is loaded when the registration rules run): a CI planning job includes this
+# file without loading VisualGeometryToolkitCore, which would compile it first.
+# `stack_ci`'s `affected`, `packages`, `downstream` and `codecov` commands need
+# nothing else; `registration-lint` and `agent-docs` call
+# `stack_dependency_violations` and `agent_doc_violations`, which exist where
+# this file is the package's.
 # =============================================================================
 
-import Pkg, TOML
+import TOML
+
+# Pkg as the registration rules load it: by identity, so the file also loads where the active project does not name
+# Pkg. The rules then run in the world that holds it (`registration_violations` → `_registration_violations`).
+_registration_pkg() = Base.require(Base.PkgId(Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
 
 const _WORKSPACE_KEYS = ("tooling", "neutral", "placeholder_version", "stack_rows", "manual_merge")
 const _INITIAL_VERSION = v"0.1.0"
@@ -182,7 +187,7 @@ function _dl_distance(a::AbstractString, b::AbstractString)
     return d[m + 1, n + 1]
 end
 
-function _general_registry()
+function _general_registry(Pkg::Module)
     for r in Pkg.Registry.reachable_registries()
         r.name == "General" && return r
     end
@@ -194,6 +199,7 @@ struct _RegistrationLint
     root::String
     packages::Vector{String}
     series::Dict{String, String}
+    pkg::Module                      # Pkg
     stdlibs::Set{String}
     placeholder_version::Union{Nothing, VersionNumber}
     stack_rows::Union{Nothing, String}
@@ -218,7 +224,7 @@ function _check_compat!(lint::_RegistrationLint, pkg, label, proj; skip = ())
         (occursin('*', c) || occursin(">=", c) || occursin('≥', c)) &&
             _lint_error!(lint, pkg, "$label: compat $n = \"$c\" is unbounded")
         try
-            Pkg.Versions.semver_spec(c)
+            lint.pkg.Versions.semver_spec(c)
         catch e
             _lint_error!(lint, pkg, "$label: compat $n = \"$c\" does not parse ($(sprint(showerror, e)))")
         end
@@ -374,7 +380,10 @@ Workspace:
 The General checks need the General registry in the depot; without it they are
 skipped with a warning.
 """
-function registration_violations(root::AbstractString; initial::Bool = true)
+registration_violations(root::AbstractString; initial::Bool = true) =
+    Base.invokelatest(_registration_violations, _registration_pkg(), root, initial)::@NamedTuple{errors::Vector{String}, warnings::Vector{String}}
+
+function _registration_violations(Pkg::Module, root::AbstractString, initial::Bool)
     settings = workspace_settings(root)
     packages = workspace_packages(root)
     root_project = TOML.parsefile(joinpath(root, "Project.toml"))
@@ -384,7 +393,7 @@ function registration_violations(root::AbstractString; initial::Bool = true)
         isfile(f) && (series[p] = _series(VersionNumber(TOML.parsefile(f)["version"])))
     end
     stdlibs = Set{String}(string(u) for u in keys(Pkg.Types.stdlibs()))
-    lint = _RegistrationLint(String(root), packages, series, stdlibs, settings.placeholder_version, settings.stack_rows,
+    lint = _RegistrationLint(String(root), packages, series, Pkg, stdlibs, settings.placeholder_version, settings.stack_rows,
         settings.manual_merge, String[], String[])
     (haskey(root_project, "name") || haskey(root_project, "uuid")) &&
         _lint_error!(lint, "<root>", "the workspace root must not be a package")
@@ -396,7 +405,7 @@ function registration_violations(root::AbstractString; initial::Bool = true)
     for d in packages
         isdir(joinpath(root, d)) || _lint_error!(lint, d, "listed in [workspace] but missing")
     end
-    general = _general_registry()
+    general = _general_registry(Pkg)
     for pkg in packages
         _check_package!(lint, pkg, general, initial)
     end

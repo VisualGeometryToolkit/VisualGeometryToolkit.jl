@@ -49,6 +49,8 @@
             @test near(y, Cam._apply(c, q))
             @test near(J, Cam._point_jacobian(c, q))
             @test isequal(Cam._calibration_value(c, q), y)
+            # a height field's fused sweep (one logarithm per node) is its two functions bit for bit
+            c isa HeightField && @test isequal(y, Cam._apply(c, q)) && isequal(J, Cam._point_jacobian(c, q))
             push!(kinds, nameof(typeof(c)))
         end
     end

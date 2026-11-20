@@ -106,6 +106,32 @@ end
 @inline _calibration_value_jacobian(c::_PlanarFactor, q) = (J = transform_deriv(c, q); (_with_offset(c, _fma_mul(J, q)), J))
 @inline _calibration_value(c::_PlanarFactor, q) = _with_offset(c, _fma_mul(transform_deriv(c, q), q))
 @inline _calibration_value_jacobian(c, q) = (_apply(c, q), _point_jacobian(c, q))
+# A height field's value and Jacobian in ONE sweep of its nodes: the thin-plate basis' `ln r²` once per node, for the height
+# (`tps_evaluate`: ½ r² ln r²) and for its gradient (`tps_gradient`: (ln r² + 1)(𝐩 − 𝐩ᵢ)). A ray's hit of a warped board
+# evaluates both at every Newton iteration (`_height_root`), and the two separate sweeps took the logarithm twice: half of the
+# root's time. The sums are the two functions' term for term and in their order, so the numbers are theirs bit for bit
+# (plain floats in the field's own type; anything else — Duals, mixed floats — takes the two functions).
+@inline function _calibration_value_jacobian(c::HeightField{K, T, <:ThinPlateSplineSystem{K, T}}, q::StaticVector{2, T}) where {K, T <: AbstractFloat}
+    nodes = c.system.nodes; w = c.w; a = c.a
+    s = a[1] + a[2] * q[1] + a[3] * q[2]
+    g1 = zero(T); g2 = zero(T)
+    @inbounds for i in 1:K
+        n = nodes[i]
+        d1 = q[1] - n[1]; d2 = q[2] - n[2]
+        r2 = d1 * d1 + d2 * d2
+        if r2 > 0
+            l = log(r2)
+            s += w[i] * (r2 * l / 2)
+            f = w[i] * (l + 1)
+            g1 += f * d1; g2 += f * d2
+        else                                              # on a node: the two functions' zero terms
+            s += w[i] * zero(T)
+            g1 += zero(T) * d1; g2 += zero(T) * d2
+        end
+    end
+    o, z = one(T), zero(T)
+    return SVector(q[1], q[2], s), SMatrix{3, 2}(o, z, a[2] + g1, z, o, a[3] + g2)
+end
 @inline _calibration_value(c, q) = _apply(c, q)
 @inline _with_offset(E::EuclideanMap{2}, v) = v + translation(E)
 @inline _with_offset(c, v) = v

@@ -94,15 +94,6 @@
         @test !isdefined(VgtkCore.Cameras, :PinholeCamera)
         @test isdefined(VgtkCore, :PosedCamera) && isdefined(VgtkCore, :PosedPinholeCamera)
     end
-
-    @testset "the radiometric names moved to VisualRadiometryToolkitCore: refused by name, not exported" begin
-        for name in (:AbstractVignetting, :TensorProductVignetting, :RadialVignetting, :LogVignetting, :VIGNETTING_TAGS,
-                     :BinnedRadialProfile, :EnvironmentLight, :SphericalHarmonicMap, :coefficient_jacobian, :radiance, :sh_basis)
-            @test isdefined(VgtkCore, name) && !Base.isexported(VgtkCore, name) && !Base.ispublic(VgtkCore, name)
-            err = try getfield(VgtkCore, name)(1, 2; a = 3); nothing catch e; e end
-            @test err isa ArgumentError && occursin("VisualRadiometryToolkitCore", err.msg) && occursin(string(name), err.msg)
-        end
-    end
 end
 
 @testitem "cameras under ForwardDiff" begin

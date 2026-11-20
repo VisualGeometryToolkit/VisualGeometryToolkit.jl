@@ -109,7 +109,7 @@ The manifold `ch` on the subspace of its coordinates spanned by the columns of
 `Z` (`tangent_size(ch)` rows, any number of columns): its coordinates `y`
 move the parent's as `v = Z y`. A fit whose parameters are `vec(P) = vec(P₀) +
 Z y` — a vignetting's control points on a regular subspace (a radial profile's
-`pole_regular_basis`, VisualRadiometryToolkitCore's), a target's deformation basis — is the
+[`pole_regular_basis`](@ref)), a target's deformation basis — is the
 parameter manifold of `P₀` restricted to `Z`. `Z` is stored as a plain
 `Matrix{Float64}` (a control-point basis has hundreds to thousands of entries)
 with the Cholesky factor of `ZᵀZ`; its columns must be linearly independent

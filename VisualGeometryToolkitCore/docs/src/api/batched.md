@@ -83,13 +83,72 @@ Private = false
 Pages = ["numerics/penalized_least_squares.jl"]
 ```
 
-## Vignetting and lighting
+## Vignetting
 
-A camera's vignetting fields, the measured radial profile and the scene's
-light moved to VisualRadiometryToolkitCore in 0.12.0 (radiometry lifts
-geometry: that package depends on this one), under the same names. The
-B-spline basis they evaluate ([`bspline_basis`](@ref), [`clamped_knots`](@ref))
-and the support protocol of their control points stay here.
+A camera's relative illumination V on the sensor as a B-spline in V on
+clamped knots ([`clamped_knots`](@ref), [`bspline_basis`](@ref)), linear in
+its control points: a tensor-product surface over a sensor box
+([`TensorProductVignetting`](@ref)) or a profile in the radius about a centre
+([`RadialVignetting`](@ref)). A model is callable, `v(u)`, and isbits, so a
+batch of sensor points goes through [`pointwise!`](@ref) on a device;
+[`coefficient_jacobian`](@ref) is its row of a least squares in the control
+points, [`active_coefficients`](@ref) that row's nonzeros, and
+[`pole_regular_basis`](@ref) the radial profiles smooth at their centre. The
+estimators that fit them are their owners': a radiometric calibration's,
+a panorama's self-calibration. [`VIGNETTING_TAGS`](@ref) is the fields' tag
+registry (`"tensor_product"`, `"radial"`, `"log"`), the `type` a file or a
+configuration names them by.
+
+A radial profile reads its normalized radius on a chart of the distance from
+its centre ([`RADIAL_CHARTS`](@ref), [`radial_chart`](@ref)): linear,
+`ρ = d / radius`, constant beyond the radius; or projective (`chart =
+:projective`, [`projective_chart`](@ref)), `ρ = d / (radius + d)`, ½ at the
+radius and never beyond the knots ([`projective_knots`](@ref): uniform in the
+distance up to the radius and `degree − 1` spans past it at the same pixel
+spacing, then the span to 1), so a profile whose centre
+moves still covers every pixel. [`with_center`](@ref) moves the centre and
+[`center_gradient`](@ref) is `∂V/∂c`, for a fit with the centre as a parameter.
+Ported from RadiometricCamera (the chart bit for bit; the knots past the radius are Core 0.10.11's).
+
+```julia
+v = RadialVignetting(12, SVector(2128.0, 1424.0), 1700.0)   # control points, centre and radius (camera pixels); V ≡ 1
+w = RadialVignetting(15, SVector(2128.0, 1424.0), 2560.0; chart = :projective)   # ρ = ½ at the farthest corner
+v = with_control_points(v, pole_regular_basis(v) * y)        # a profile with V′(0) = 0
+v(SVector(2500.0, 1300.0))                                   # V at a sensor point
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/vignetting.jl"]
+```
+
+## Lighting
+
+The scene's light as a radiometric camera model sees it: an
+[`EnvironmentLight`](@ref), radiance from every direction given by a
+directional map on a sphere of finite radius about a centre, looked up where a
+ray from the shaded point leaves the sphere ([`exit_direction`](@ref); the
+distant light is its limit as the radius grows). The map is a
+[`SphericalHarmonicMap`](@ref): real spherical harmonics per channel
+([`sh_basis`](@ref), orthonormal, no Condon–Shortley phase, index
+[`sh_index`](@ref)`(l, m) = l² + l + m + 1`), so the radiance is linear in the
+coefficients and [`coefficient_jacobian`](@ref) is its row. Everything is
+isbits and allocation-free, for a kernel; the centre and radius are lengths
+(`ustrip(m, light)` for the kernel's plain form). Hoisted from
+RadiometricCamera, bit for bit.
+
+```julia
+light = EnvironmentLight(SphericalHarmonicMap(a, 2), SVector(0.0, 0.0, 0.0), 1.5)   # 3 × 9 coefficients, centre, radius
+radiance(light, x, ω)                                    # per channel, arriving at x from direction ω
+coefficients(light) * coefficient_jacobian(light, x, ω)  # the same, as a row of a least squares
+```
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/cameras/lighting.jl"]
+```
 
 ## Blur
 

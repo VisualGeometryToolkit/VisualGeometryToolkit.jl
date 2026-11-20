@@ -2,22 +2,7 @@
 
 ## Unreleased
 
-**Breaking: the radiometric types moved to VisualRadiometryToolkitCore.** Radiometry lifts geometry: the Visual
-Radiometry Toolkit depends on this package, never the reverse. Also performance work for RadiometricCamera's warped
-board and device Jacobian.
-
-### Removed (moved to VisualRadiometryToolkitCore, same names and behaviour)
-- **The vignetting fields**: `AbstractVignetting`, `TensorProductVignetting`, `RadialVignetting`, `LogVignetting`,
-  `log_spline`, `VIGNETTING_TAGS`, and their verbs `coefficient_jacobian`, `active_coefficients`, `control_points`,
-  `with_control_points`, `n_control_points`, `knot_vectors`, `spline_degree`, `field_radius`, `radial_coordinate`,
-  `radial_chart`, `RADIAL_CHARTS`, `projective_chart`, `projective_knots`, `with_center`, `center_gradient`,
-  `pole_regular_basis`.
-- **The measured radial profile**: `BinnedRadialProfile`.
-- **The scene's light**: `EnvironmentLight`, `SphericalHarmonicMap`, `radiance`, `exit_direction`, `radiance_map`,
-  `coefficients`, `with_coefficients`, `max_degree`, `sh_basis`, `sh_count`, `sh_index`.
-- Each name is refused here by name with its replacement (`src/retired.jl`): an `ArgumentError` naming
-  `VisualRadiometryToolkitCore.<name>`, no alias, not exported. Migration: add VisualRadiometryToolkitCore and import the
-  names from it; nothing else changes.
+Performance work for RadiometricCamera's warped board and device Jacobian (no API removed).
 
 ### Added
 - **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
@@ -32,9 +17,6 @@ board and device Jacobian.
   Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.
 
 ### Changed
-- **`local_coordinates(ch::ParameterManifold, x)`** takes any model with the parameter protocol (`parameter_vector`,
-  `with_parameters`), not a closed list of Core's types: another package's model is on its `ParameterManifold` without
-  a method of its own.
 - **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations

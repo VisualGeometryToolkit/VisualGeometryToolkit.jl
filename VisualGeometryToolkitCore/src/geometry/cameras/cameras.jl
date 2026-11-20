@@ -46,6 +46,7 @@ public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens 
 
 # Import general Julia packages directly (not through parent)
 using StaticArrays: StaticArrays, SVector, SMatrix, MMatrix, StaticVector, StaticMatrix
+using ForwardDiff: ForwardDiff   # a radial profile's centre gradient, a two-partial Dual (vignetting.jl)
 using LinearAlgebra: LinearAlgebra, normalize, cross, norm, det, svd, dot, diag
 using Statistics: Statistics   # cov of an Uncertain point (targets.jl, captures.jl)
 using LogExpFunctions: logit, logistic   # DoubleSphere's α chart (lens_chart.jl)
@@ -82,6 +83,7 @@ using SparseArrays: sparse                              # the lattice operations
 using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
 using ..VisualGeometryToolkitCore: shape_matrix, boundary_point   # an ellipse's quadratic form and boundary: region containment (image_circle.jl)
 using ..VisualGeometryToolkitCore: rect_corners   # the one corner order of a rect (primitives/rectangles.jl): farthest_radius's corners
+using ..VisualGeometryToolkitCore: bspline_basis, clamped_knots   # the Cox–de Boor basis on clamped knots: the vignetting fields (vignetting.jl)
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)
 using ..VisualGeometryToolkitCore: Circle, Ellipse, Circle3D, _ellipse_or_nothing, boundary_points
 using ..VisualGeometryToolkitCore: _Unchecked   # the unchecked inner constructor's sentinel (CameraCalibrationMat, base/types.jl)
@@ -212,6 +214,8 @@ include("spline_lens.jl")     # SplineLens: the central grid camera as a CameraM
 include("noncentral_spline_model.jl")  # NoncentralSplineModel: the non-central grid on ChartSpline (the SplineLens's directions plus a point spline)
 include("support.jl")         # supports on the sensor: which parameters a camera can see (the spline models' lattice)
 include("lattice_operations.jl") # extend_lattice, subdivide_lattice: exact operations on a SplineLens lattice (host-side)
+include("vignetting.jl")      # TensorProductVignetting, RadialVignetting: a camera's vignetting (uses the support protocol, bspline_basis)
+include("lighting.jl")        # EnvironmentLight, SphericalHarmonicMap, sh_basis: the scene's light (extends vignetting.jl's coefficient_jacobian)
 include("blur.jl")            # GaussianBlur: one blur of an imaging model, the density N(0, Σ) by its covariance (extends Statistics' cov/var/std, Core's propagate)
 include("imaging_chain.jl")   # framed stages between image frames + imaging_chain mint (0.10)
 
@@ -1231,7 +1235,15 @@ export pixel_centres                      # the centres of a sub-lattice of pixe
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
+export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting fields (vignetting.jl)
+export VIGNETTING_TAGS                    # the fields' tag registry (public, not exported, at the top level)
+export log_spline                         # a LogVignetting's spline of log V (public, not exported, at the top level)
+export EnvironmentLight, SphericalHarmonicMap   # the scene's light: SH radiance on a sphere about a centre (lighting.jl)
 export AbstractBlur, GaussianBlur, convolve   # one blur of an imaging model by its covariance (blur.jl; `convolve` public, not exported, at the top level)
+export radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # (public, not exported, at the top level)
+export coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
+       field_radius, radial_coordinate, pole_regular_basis   # (public, not exported, at the top level)
+export RADIAL_CHARTS, BinnedRadialProfile, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart and centre (public, not exported, at the top level)
 export radial_part                         # a lens's radially symmetric part
 export SplineLens, NoncentralSplineModel, spline_lattice        # the central grid camera as a lens of a CameraModel; the non-central grid; a lattice from a camera, unsampled
 export Ray3                              # a non-central pixel's observation line

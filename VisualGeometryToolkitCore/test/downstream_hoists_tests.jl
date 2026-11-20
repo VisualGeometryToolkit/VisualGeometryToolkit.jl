@@ -347,59 +347,11 @@ end
     @test !intersects(c1, Rect2(1.0, -0.5, 1.0, 1.0))                            # tangent: no overlap
 end
 
-@testitem "downstream_hoists: the parameter protocol of vignettings, light and blur; restrict(ch, Z)" begin
+@testitem "downstream_hoists: the parameter protocol of a blur" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: TensorProductVignetting, RadialVignetting, LogVignetting, EnvironmentLight,
-        SphericalHarmonicMap, GaussianBlur, parameter_vector, parameter_names, parameter_bounds, with_parameters,
-        ParameterManifold, retract, recenter, retract_jacobian, local_coordinates, restrict, tangent_size,
-        control_points, coefficients, pole_regular_basis, Rect2, cov
+    using VisualGeometryToolkitCore: GaussianBlur, parameter_vector, parameter_names, parameter_bounds, with_parameters,
+        ParameterManifold, retract, recenter, retract_jacobian, local_coordinates, restrict, tangent_size, cov
     using StaticArrays: SVector
-    using LinearAlgebra: Diagonal, qr
-    v = TensorProductVignetting((5, 4), Rect2(0.0, 0.0, 100.0, 80.0))
-    θ = parameter_vector(v)
-    @test length(θ) == 20 && θ == vec(control_points(v)) && parameter_names(v)[[1, 20]] == (:c1, :c20)
-    θ2 = θ .+ (1:20) ./ 100
-    @test parameter_vector(with_parameters(v, θ2)) == θ2
-    @test_throws ArgumentError with_parameters(v, θ[1:3])
-    ch = ParameterManifold(v)
-    @test tangent_size(ch) == 20 && parameter_vector(retract(ch, θ2 - θ)) == θ2
-    @test local_coordinates(ch, with_parameters(v, θ2)) ≈ θ2 - θ
-    lv = LogVignetting(v)
-    @test parameter_vector(with_parameters(lv, θ2)) == θ2
-    # a radial profile on its pole-regular subspace: vec(P) = vec(P₀) + Z y
-    rv = RadialVignetting(6, SVector(50.0, 40.0), 60.0)
-    Z = pole_regular_basis(rv)
-    rch = restrict(ParameterManifold(rv), Z)
-    y = SVector{size(Z, 2)}(range(0.1, 0.5; length = size(Z, 2)))
-    @test tangent_size(rch) == size(Z, 2)
-    @test parameter_vector(retract(rch, y)) ≈ parameter_vector(rv) + Z * y
-    @test retract_jacobian(rch) ≈ Z
-    @test local_coordinates(rch, retract(rch, y)) ≈ y
-    @test parameter_vector(VgtkCore.model(recenter(rch, y))) ≈ parameter_vector(rv) + Z * y
-    @test_throws ArgumentError restrict(ParameterManifold(rv), zeros(3, 2))
-    @test_throws ArgumentError restrict(ParameterManifold(rv), hcat(Z[:, 1], Z[:, 1]))  # dependent columns
-    # the cached factorization gives the normal-equation values, on a large basis too
-    v_off = parameter_vector(rv) .+ (1:length(parameter_vector(rv))) ./ 50
-    vfull = local_coordinates(ParameterManifold(rv), with_parameters(rv, v_off))
-    @test local_coordinates(rch, with_parameters(rv, v_off)) ≈ (Z' * Z) \ (Z' * vfull)
-    big = TensorProductVignetting((12, 12), Rect2(0.0, 0.0, 100.0, 80.0))
-    Zb = Matrix(qr(reshape(sin.(1:144 * 30), 144, 30)).Q)[:, 1:30] .+ 0.01 .* reshape(cos.(1:144 * 30), 144, 30)
-    tch = restrict(ParameterManifold(big), Zb)
-    @test tch.basis isa Matrix{Float64} && tangent_size(tch) == 30
-    yb = collect(range(-0.2, 0.3; length = 30))
-    @test parameter_vector(retract(tch, yb)) ≈ parameter_vector(big) + Zb * yb
-    @test local_coordinates(tch, retract(tch, yb)) ≈ yb
-    θb = parameter_vector(big) .+ cos.(1:144)
-    vb = local_coordinates(ParameterManifold(big), with_parameters(big, θb))
-    @test local_coordinates(tch, with_parameters(big, θb)) ≈ (Zb' * Zb) \ (Zb' * vb)
-    @test local_coordinates(recenter(tch, yb), retract(tch, yb)) ≈ zeros(30) atol = 1e-12
-    # the light: its SH coefficients, column-major, centre and radius fixed
-    L = EnvironmentLight(SphericalHarmonicMap(1.0, 1; channels = 2), SVector(0.0, 0.0, 0.0), 5.0)
-    a = parameter_vector(L)
-    @test length(a) == 8 && parameter_names(L)[1:3] == (:a1_1, :a2_1, :a1_2)
-    L2 = with_parameters(L, a .+ 1)
-    @test vec(coefficients(L2)) == a .+ 1 && L2.radius == 5.0
-    @test local_coordinates(ParameterManifold(L), L2) ≈ ones(8)
     # the blur: the free entries of its storage, variances bounded below by 0 (a log chart)
     b = GaussianBlur(0.7, 1.2)
     @test parameter_names(b) == (:variance_x, :variance_y) && parameter_vector(b) ≈ [0.49, 1.44]
@@ -412,6 +364,18 @@ end
     @test cov(with_parameters(full, [1.0, 0.1, 2.0])) == VgtkCore.CovMat(VgtkCore.SMatrix{2, 2}(1.0, 0.1, 0.1, 2.0))
     @test_throws ArgumentError with_parameters(full, [1.0, 3.0, 1.0])            # not PSD: the constructor's refusal
     @test_throws ArgumentError parameter_vector(GaussianBlur(0.02 * VgtkCore.mm))  # a print's blur: strip first
+    # restrict(ch, Z): the parameter manifold on the subspace spanned by Z's columns (coordinates y, v = Z y)
+    fch = ParameterManifold(full)
+    @test local_coordinates(fch, retract(fch, SVector(0.1, -0.05, 0.2))) ≈ [0.1, -0.05, 0.2]
+    Z = [1.0 0.0; 0.0 0.0; 0.0 1.0]
+    rch = restrict(fch, Z)
+    y = SVector(0.1, -0.2)
+    @test tangent_size(rch) == 2 && retract_jacobian(rch) ≈ Z
+    @test parameter_vector(retract(rch, y)) ≈ parameter_vector(retract(fch, Z * y))
+    @test local_coordinates(rch, retract(rch, y)) ≈ y
+    @test local_coordinates(recenter(rch, y), retract(rch, y)) ≈ zeros(2) atol = 1e-12
+    @test_throws ArgumentError restrict(fch, zeros(2, 2))
+    @test_throws ArgumentError restrict(fch, hcat(Z[:, 1], Z[:, 1]))             # dependent columns
 end
 
 @testitem "downstream_hoists: Eliminable" begin

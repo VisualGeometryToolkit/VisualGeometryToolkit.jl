@@ -358,17 +358,8 @@ export pixel_centres     # the centres of a sub-lattice of pixels that lie in a 
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
-export AbstractVignetting, TensorProductVignetting, RadialVignetting, LogVignetting   # a camera's vignetting: B-spline fields on the sensor, in V or in log V (cameras/vignetting.jl)
-public log_spline   # a LogVignetting's spline of log V
-public VIGNETTING_TAGS   # the fields' TagRegistry: the `type` of IO's vignetting body
-export EnvironmentLight, SphericalHarmonicMap   # the scene's light: radiance from every direction on a sphere about a centre, in real SH (cameras/lighting.jl)
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), the density N(0, Σ) by its covariance (cameras/blur.jl)
 public convolve                     # two Gaussian blurs in sequence (through a linear map of its plane: `propagate`)
-public radiance, exit_direction, radiance_map, coefficients, with_coefficients, max_degree, sh_basis, sh_count, sh_index   # its evaluation, accessors and the SH basis
-public radius   # GeometryBasics' `radius`, Core's methods on it included (an EnvironmentLight's sphere)
-public coefficient_jacobian, active_coefficients, control_points, with_control_points, n_control_points, knot_vectors, spline_degree,
-       field_radius, radial_coordinate, pole_regular_basis   # their basis, accessors and a radial profile's regular subspace
-public RADIAL_CHARTS, BinnedRadialProfile, projective_chart, projective_knots, radial_chart, with_center, center_gradient   # a radial profile's chart of its normalized radius, its centre moved and differentiated
 public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
@@ -1132,6 +1123,7 @@ include("quality/gpu_tier.jl")        # gpu_tier, gpu_problem, require_gpu: the 
 
 # The precompile workload: the camera models' native code, cached in the package image
 using PrecompileTools: @setup_workload, @compile_workload
+include("retired.jl")   # the names that moved to VisualRadiometryToolkitCore (0.12.0), each refused by name
 include("precompile.jl")
 
 # The FeatureFrame interface's absent verbs (a PointFrame has no scale or shape): a pointed MethodError hint.

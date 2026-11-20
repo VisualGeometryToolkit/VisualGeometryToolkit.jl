@@ -355,7 +355,7 @@ end
     if CUDA.functional()
         Jd, fd, Jwd = CUDA.CuArray(J), CUDA.CuArray(f), CUDA.CuArray(Jw)
         g = VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jd', fd)
-        @test g isa CUDA.CuVector && Array(g) ≈ J' * f rtol = 1.0e-13
+        @test g isa CUDA.CuVector && isapprox(Array(g), J' * f; rtol = 1.0e-13)
         @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), transpose(Jd), fd)) ≈ J' * f rtol = 1.0e-13
         @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jwd, fd)) ≈ Jw * f rtol = 1.0e-13
         @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 4000), Jd, CUDA.CuArray(f[1:7]))) ≈ J * f[1:7] rtol = 1.0e-13

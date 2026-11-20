@@ -55,7 +55,7 @@ function intersection end
 
 [`intersection`](@ref)`(s, o, d)` for a caller that already holds the hit point `x₀` in plain numbers — the point
 `intersection` returns for the same surface and ray with every `ForwardDiff.Dual` layer stripped (a hit kept from an
-earlier pass: a renderer's record, a residual's evaluation). Where the surface has a method for it, no root is solved:
+earlier evaluation: a renderer's record, a residual's). Where the surface has a method for it, no root is solved:
 
 - a [`MappedSurface`](@ref) of a [`HeightField`](@ref) alone or over the planar affine factors, with ONE layer of
   Duals anywhere (the field's heights, the placement, the pose, the ray): the implicit-function step at `x₀`, one

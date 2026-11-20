@@ -635,7 +635,7 @@ const _LM_LINEAR_FAILURES = Union{
 # whose ρ′ vanishes there, or a square that overflows, can leave the gradient finite: then the postcondition below
 # judges the stop). So bit 10 counts NEVER as non-finite — "only alongside a genuine non-finite bit" would decide
 # nothing that bit does not already. What it does mean, a stop forced one iteration later, is read by
-# `nlls_termination`: the postcondition decides every stop that carries it (an exact fit passes; a residual and
+# `nlls_termination`: the postcondition decides every stop that carries it (an exact fit succeeds; a residual and
 # Jacobian that truly disagree do not). (Core 0.10.11 read bit 10 without a step stop as a failure too.)
 const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
 
@@ -763,7 +763,7 @@ function nlls_termination(bits::Integer, postcondition)
     # is the postcondition's; a callback's is Terminated
     # … except beside a cost disagreement (bit 10, Core 0.11.1): NLLSsolver stops on the iteration after it whatever that
     # iteration shows, so the tolerance's bit there is incidental, and the postcondition decides (an exact fit, the
-    # rounding disagreement's own case, passes it; a residual and Jacobian that truly disagree do not)
+    # rounding disagreement's own case, succeeds; a residual and Jacobian that truly disagree do not)
     agreed = bits & (1 << 10) == 0
     code == 1 && return (agreed || _holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, CostDecrease)
     code == 2 && return (agreed || _holds(postcondition) ? ReturnCode.Success : ReturnCode.Stalled, IncrementSize)

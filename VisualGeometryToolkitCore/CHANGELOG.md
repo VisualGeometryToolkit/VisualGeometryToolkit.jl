@@ -2,20 +2,39 @@
 
 ## Unreleased
 
-Performance work for RadiometricCamera's warped board and device Jacobian (no API removed).
+**Breaking: the radiometric types moved to VisualRadiometryToolkitCore.** Radiometry lifts geometry: the Visual
+Radiometry Toolkit depends on this package, never the reverse. Also performance work for RadiometricCamera's warped
+board and device Jacobian.
+
+### Removed (moved to VisualRadiometryToolkitCore, same names and behaviour)
+- **The vignetting fields**: `AbstractVignetting`, `TensorProductVignetting`, `RadialVignetting`, `LogVignetting`,
+  `log_spline`, `VIGNETTING_TAGS`, and their verbs `coefficient_jacobian`, `active_coefficients`, `control_points`,
+  `with_control_points`, `n_control_points`, `knot_vectors`, `spline_degree`, `field_radius`, `radial_coordinate`,
+  `radial_chart`, `RADIAL_CHARTS`, `projective_chart`, `projective_knots`, `with_center`, `center_gradient`,
+  `pole_regular_basis`.
+- **The measured radial profile**: `BinnedRadialProfile`.
+- **The scene's light**: `EnvironmentLight`, `SphericalHarmonicMap`, `radiance`, `exit_direction`, `radiance_map`,
+  `coefficients`, `with_coefficients`, `max_degree`, `sh_basis`, `sh_count`, `sh_index`.
+- Each name is refused here by name with its replacement (`src/retired.jl`): an `ArgumentError` naming
+  `VisualRadiometryToolkitCore.<name>`, no alias, not exported. Migration: add VisualRadiometryToolkitCore and import the
+  names from it; nothing else changes.
 
 ### Added
 - **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
   same surface and ray. A `MappedSurface` of a `HeightField` (alone or over the planar affine factors) with one layer of
   ForwardDiff Duals anywhere takes the implicit-function step at `x₀` — one evaluation of the chart map on the Dual
   parts, no root; plain parts return `(t, x₀)`; every other surface and nested Duals fall back to `intersection`.
-- **`_launch_rows!(…; workgroupsize)`**: the row launch's workgroup size (`OnBackend`'s). On the CPU backend
-  KernelAbstractions' default groups 1024 rows a task; a launch of few heavy rows passes a small group.
+- **`_launch_rows!(exec::OnBackend, row!, out, n, args...)`**: the row launch on a given backend and workgroup size. On the CPU backend
+  KernelAbstractions' default groups 1024 rows a task; a launch of few heavy rows takes a small group
+  (`_launch_rows!(OnBackend(backend; workgroupsize), row!, …)`).
 - **`_matvec!(y, A, x)`**: a matrix (or its adjoint) times a vector on the arrays' backend; the CUDA extension multiplies
   a one-column matrix (gemm). CUBLAS's gemv of a matrix with one long and one short side is ~100× slower (B200, Float64:
   Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.
 
 ### Changed
+- **`local_coordinates(ch::ParameterManifold, x)`** takes any model with the parameter protocol (`parameter_vector`,
+  `with_parameters`), not a closed list of Core's types: another package's model is on its `ParameterManifold` without
+  a method of its own.
 - **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations
@@ -40,7 +59,7 @@ CaliBlobs 0.8.0 gate).
   is a stop: NLLSsolver stops one iteration after it, whatever that iteration shows, so a stop that carries it is no
   tolerance stop, and the stationarity postcondition decides it (as 0.10.11 decided every stop): a step-size stop with
   it is `(Success or Stalled, IncrementSize)`, a cost-decrease stop `(…, CostDecrease)`, bit 10 alone `(…, NoRule)`.
-  An exact fit passes (`Success`); a residual and Jacobian that truly disagree do not (`Stalled`). The last two read
+  An exact fit succeeds (`Success`); a residual and Jacobian that truly disagree do not (`Stalled`). The last two read
   `(Failure, NonFinite)` in 0.11.0 and 0.10.11 alike; they are fixed with it, and bit 10 with an iteration or time cap
   is now `MaxIters` / `MaxTime` (was `Failure`). A genuine NaN wall is unchanged (`(Stalled, NonFinite)`, the existing
   "a NaN wall at the production cost tolerance" test).

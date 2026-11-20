@@ -312,9 +312,10 @@ end
         return t * den - s0 - Z[3], den - _fma_dot(gz, cd)
     end
     t, x = _plane_hit(q, o, d)                     # the seed
-    # Newton from the seed, stopped at a rounding-level update, which is not applied. The test runs from the first
-    # iteration: a gently warped board's root takes two updates and three evaluations of the field (the four
-    # unconditional iterations this loop began with until 0.11.2 took at least five).
+    # Newton from the seed until an update is at rounding level; that update is applied (Newton's error after it is its
+    # square: the hit is resolved to the field's own rounding) and no evaluation follows it. The test runs from the first
+    # iteration: a gently warped board's root takes three evaluations of the field (the four unconditional iterations
+    # this loop began with, and the test's own evaluation after them, took at least five).
     nd = norm(d)
     L = hypot(q.rect.widths[1], q.rect.widths[2])
     ε = eps(typeof(t))
@@ -324,13 +325,13 @@ end
         g, gp = terms(t, x)
         Δ = g / gp
         scale = L + abs(t) * nd
-        if abs(Δ) * nd <= 64 * ε * scale
-            converged = true
-            break
-        end
         last = abs(Δ) * nd / scale
         t -= Δ
         x = o + t * d
+        if last <= 64 * ε
+            converged = true
+            break
+        end
     end
     converged |= last <= sqrt(ε)
     p = _height_design_point(s, S, J, β, x)

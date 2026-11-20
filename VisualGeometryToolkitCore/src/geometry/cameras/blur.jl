@@ -169,8 +169,9 @@ _blur_storage(::LinearAlgebra.Diagonal, θ) = LinearAlgebra.Diagonal(StaticArray
 _blur_storage(::StaticArrays.SMatrix{2, 2}, θ) = StaticArrays.SMatrix{2, 2}(θ[1], θ[2], θ[2], θ[3])
 _plain_blur(b::GaussianBlur, f) = has_units(b) ?
     throw(ArgumentError("$(nameof(f)): the blur's covariance holds quantities; strip it first, `ustrip(u, b)`")) : b
-# The imaging models with the parameter protocol (vignetting.jl, lighting.jl, here) on their ParameterManifold.
-local_coordinates(ch::ParameterManifold, x::Union{AbstractVignetting, EnvironmentLight, GaussianBlur}) = _parameter_offsets(ch, x)
+# A model with the parameter protocol on its ParameterManifold: the blur here, and any model another package gives the
+# protocol (`parameter_vector`, `with_parameters`; a radiometric camera's vignetting and light, VisualRadiometryToolkitCore's).
+local_coordinates(ch::ParameterManifold, x) = _parameter_offsets(ch, x)
 
 # Units: a print's blur is in m² (quantities), its plain form in a unit `u` in u² — the whole value's `ustrip(u, b)`.
 has_units(b::GaussianBlur) = has_units(b.covariance)

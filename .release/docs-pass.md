@@ -1,5 +1,6 @@
-docs-pass: a74e2d51
+docs-pass: e2419a00
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io eac44cb (read, not edited: no card names a moved type, a moved kind or a version, and the install lines carry none; the IO card says "target measurements", which the naming rule spells "target observations"; no card or link names the Visual Radiometry Toolkit, the moved types' new owner)
+(the pass reviewed a74e2d51; from there to the release commit named above the packages changed only by: `radius` declared public again in Core, a test of Eval, the version numbers, the dependents' compat and the CHANGELOG headings — no page, docstring or example)
 
 # Core 0.12.0, IO 0.11.0, Estimation 0.12.1 docs review — branch vrtk/retire-radiometric
 

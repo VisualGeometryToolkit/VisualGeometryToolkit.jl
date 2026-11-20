@@ -141,10 +141,10 @@ end
     # the version rule of a first registration, and its placeholder
     root = make_workspace(; settings = rows, beta_version = "0.0.1")
     @test any(==("ERROR  BetaWidgets: version 0.0.1; the first registration is 0.1.0"), errors_of(root))
-    @test !any(occursin("first registration"), errors_of(root; initial = false))
+    @test !any(contains("first registration"), errors_of(root; initial = false))
     root = make_workspace(; settings = rows * "placeholder_version = \"0.0.1\"\n", beta_version = "0.0.1")
     found = registration_violations(root)
-    @test !any(occursin("first registration is"), structural(found.errors))
+    @test !any(contains("first registration is"), structural(found.errors))
     @test any(startswith("WARN   BetaWidgets: version 0.0.1 is the placeholder"), found.warnings)
 
     # compat: present, bounded, a sibling's series
@@ -152,13 +152,13 @@ end
     project = joinpath(root, "BetaWidgets", "Project.toml")
     text = read(project, String)
     write(project, replace(text, "AlphaWidgets = \"0.1\"" => "AlphaWidgets = \"0.2\""))
-    @test any(occursin("stack compat AlphaWidgets = \"0.2\", expected AlphaWidgets's series \"0.1\""), errors_of(root))
+    @test any(contains("stack compat AlphaWidgets = \"0.2\", expected AlphaWidgets's series \"0.1\""), errors_of(root))
     write(project, replace(text, "AlphaWidgets = \"0.1\"" => "AlphaWidgets = \"0.1.3\""))
     @test isempty(structural(errors_of(root)))                     # a floor inside the series
     write(project, replace(text, "AlphaWidgets = \"0.1\"\n" => ""))
-    @test any(occursin("[deps] AlphaWidgets has no [compat] entry"), errors_of(root))
+    @test any(contains("[deps] AlphaWidgets has no [compat] entry"), errors_of(root))
     write(project, replace(text, "julia = \"1.13\"" => "julia = \">= 1.13\""))
-    @test any(occursin("compat julia = \">= 1.13\" is unbounded"), errors_of(root))
+    @test any(contains("compat julia = \">= 1.13\" is unbounded"), errors_of(root))
     write(project, text * "\n[extras]\nTest = \"8dfed614-e22c-5e08-85e1-65c5234f0b40\"\n")
     @test any(==("ERROR  BetaWidgets: registered Project.toml has [extras]"), errors_of(root))
     write(project, text)
@@ -169,9 +169,9 @@ end
     root = make_workspace(; settings = rows)
     test_project = joinpath(root, "AlphaWidgets", "test", "Project.toml")
     write(test_project, replace(read(test_project, String), "{path = \"..\"}" => "{path = \"../..\"}"))
-    @test any(occursin("test/Project.toml: [sources] AlphaWidgets = {path = \"..\"} missing"), errors_of(root))
+    @test any(contains("test/Project.toml: [sources] AlphaWidgets = {path = \"..\"} missing"), errors_of(root))
     root = make_workspace()                                        # no rows: the packages are not in the allow-list
-    @test any(occursin("stack allow-list"), errors_of(root))
+    @test any(contains("stack allow-list"), errors_of(root))
 
     # the workspace: no tracked Manifest, a generated codecov.yml
     root = make_workspace(; settings = rows)

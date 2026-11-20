@@ -1,5 +1,6 @@
 # One TagBot per package subdirectory: tags <Package>-v<version>; the ssh key
-# lets the tag push trigger Docs.yml.
+# lets the tag push trigger Docs.yml (StackTagBot.yml, the same every stack
+# repository calls).
 name: TagBot
 on:
   issue_comment:
@@ -23,15 +24,8 @@ permissions:
   statuses: read
 jobs:
   TagBot:
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [VisualGeometryToolkitCore, VisualGeometryToolkitIO, VisualGeometryToolkitFeatures, VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, PoseLib]
-    steps:
-      - uses: JuliaRegistries/TagBot@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ssh: ${{ secrets.DOCUMENTER_KEY }}
-          subdir: ${{ matrix.package }}
+    uses: ./.github/workflows/StackTagBot.yml
+    with:
+      packages: '["VisualGeometryToolkitCore","VisualGeometryToolkitIO","VisualGeometryToolkitFeatures","VisualGeometryToolkitEstimation","VisualGeometryToolkitEval","PoseLib"]'
+    secrets:
+      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}

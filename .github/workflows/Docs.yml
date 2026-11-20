@@ -3,7 +3,9 @@
 # affected packages without deploying; a push to main deploys the dev docs of
 # the packages it affects (workflow_dispatch: all six); a
 # <Package>-v* tag (TagBot) deploys that package's release docs. The portal
-# (visualgeometrytoolkit.github.io) is rebuilt by a repository_dispatch.
+# (visualgeometrytoolkit.github.io) is rebuilt by a repository_dispatch. The
+# plan and the per-package builds are the stack's (StackDocs.yml, the same
+# every stack repository calls).
 name: Docs
 on:
   push:
@@ -19,6 +21,7 @@ on:
       - 'PoseLib/**'
       - 'assets/logo.svg'
       - '.github/workflows/Docs.yml'
+      - '.github/workflows/StackDocs.yml'
   pull_request:
   workflow_dispatch:
 concurrency:
@@ -29,60 +32,10 @@ permissions:
   pull-requests: read
   statuses: write
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      packages: ${{ steps.p.outputs.packages }}
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1.13' }
-      - id: p
-        shell: bash
-        run: |
-          all='["VisualGeometryToolkitCore","VisualGeometryToolkitIO","VisualGeometryToolkitFeatures","VisualGeometryToolkitEstimation","VisualGeometryToolkitEval","PoseLib"]'
-          case "${{ github.ref }}" in
-            refs/tags/*)
-              # Only <Package>-v<version> release tags (TagBot) deploy docs;
-              # other tags (e.g. PoseLib-binaries-v2.0.6) build nothing.
-              tag="${{ github.ref_name }}"; pkg="${tag%-v*}"
-              if [[ "$tag" =~ ^[A-Za-z]+-v[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$all" | grep -q "\"$pkg\""; then
-                echo "packages=[\"$pkg\"]" >> "$GITHUB_OUTPUT"
-              else echo "packages=[]" >> "$GITHUB_OUTPUT"; fi ;;
-            *) case "${{ github.event_name }}" in
-                 # the changed packages and their dependents (a root file: all six)
-                 pull_request) julia --startup-file=no ci/affected.jl "origin/${{ github.base_ref }}" HEAD ;;
-                 push) julia --startup-file=no ci/affected.jl "${{ github.event.before }}" HEAD ;;
-                 *) echo "packages=$all" >> "$GITHUB_OUTPUT" ;;
-               esac ;;
-          esac
   docs:
-    needs: plan
-    if: needs.plan.outputs.packages != '[]'
-    name: docs / ${{ matrix.package }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      # The deploys share one gh-pages branch: run the matrix one package at a
-      # time (a job-level concurrency group keeps only one pending job and
-      # cancels the rest of the matrix).
-      max-parallel: 1
-      matrix:
-        package: ${{ fromJSON(needs.plan.outputs.packages) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
-        with: { version: '1.13' }
-      - uses: julia-actions/cache@v2
-      # The toolkit logo in every package site's sidebar (Documenter picks up
-      # docs/src/assets/logo.svg); copied at build time, not committed.
-      - run: mkdir -p ${{ matrix.package }}/docs/src/assets && cp assets/logo.svg ${{ matrix.package }}/docs/src/assets/logo.svg
-      - run: julia --project=${{ matrix.package }}/docs -e 'using Pkg; Pkg.instantiate()'
-      - run: julia --project=${{ matrix.package }}/docs --startup-file=no ${{ matrix.package }}/docs/make.jl
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+    uses: ./.github/workflows/StackDocs.yml
+    secrets:
+      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
   portal:
     needs: docs
     if: github.event_name != 'pull_request' && vars.PORTAL_DISPATCH == 'true'   # GO-LIVE: set PORTAL_DISPATCH

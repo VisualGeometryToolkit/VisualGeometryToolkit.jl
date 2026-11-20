@@ -1,0 +1,114 @@
+# Per-package Documenter sites of a stack workspace into the calling
+# repository's gh-pages branch, gh-pages/<Package>/{dev,stable,v…}; defined
+# once and called by every stack repository.
+#
+#   plan   a <Package>-v<version> tag (TagBot): that package's release docs;
+#          a pull request or a push (with `affected-only`): the packages the
+#          change affects, with their dependents; anything else: every package
+#   docs   one job per planned package, one at a time (they share gh-pages):
+#          docs/make.jl, which deploys off a pull request
+#
+# The caller's later jobs (a portal dispatch, a site build) `needs:` the job
+# that calls this workflow. The Julia side of the plan is
+# VisualGeometryToolkitCore's `stack_ci`, as in StackCI.yml.
+#
+#   jobs:
+#     docs:
+#       uses: VisualGeometryToolkit/VisualGeometryToolkit.jl/.github/workflows/StackDocs.yml@<ref>
+#       with: { tooling-project: '.', logo: site/icons/logo.svg, affected-only: false }
+#       secrets: { DOCUMENTER_KEY: '${{ secrets.DOCUMENTER_KEY }}' }
+name: Stack Docs
+on:
+  workflow_call:
+    inputs:
+      tooling-project:
+        description: A project of the workspace that depends on VisualGeometryToolkitCore (--project=<this>)
+        type: string
+        default: ci
+      logo:
+        description: The logo copied into every package site's sidebar (docs/src/assets/logo.svg) at build time
+        type: string
+        default: assets/logo.svg
+      affected-only:
+        description: A pull request or a push builds only the packages it affects (false builds every package)
+        type: boolean
+        default: true
+      timeout-minutes:
+        type: number
+        default: 360
+      julia-version:
+        type: string
+        default: '1.13'
+    secrets:
+      DOCUMENTER_KEY:
+        required: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      packages: ${{ steps.p.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ inputs.julia-version }}' }
+      - uses: julia-actions/cache@v2
+      - name: Fetch the tooling project (no precompilation; stack_ci.jl is read by path)
+        run: julia --startup-file=no --project=${{ inputs.tooling-project }} -e 'using Pkg; Pkg.instantiate()'
+        env:
+          JULIA_PKG_PRECOMPILE_AUTO: 0
+      - id: p
+        shell: bash
+        run: |
+          stack_ci() { julia --startup-file=no --project=${{ inputs.tooling-project }} -e 'include(joinpath(dirname(Base.find_package("VisualGeometryToolkitCore")), "quality", "stack_ci.jl")); exit(stack_ci(ARGS))' "$@"; }
+          event="${{ github.event_name }}"
+          [ "${{ inputs.affected-only }}" = true ] || event=all
+          case "${{ github.ref }}" in
+            refs/tags/*)
+              # Only <Package>-v<version> release tags (TagBot) deploy docs;
+              # other tags (e.g. PoseLib-binaries-v2.0.6) build nothing.
+              all=$(GITHUB_OUTPUT= stack_ci packages)
+              tag="${{ github.ref_name }}"; pkg="${tag%-v*}"
+              if [[ "$tag" =~ ^[A-Za-z]+-v[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$all" | grep -q "\"$pkg\""; then
+                echo "packages=[\"$pkg\"]" >> "$GITHUB_OUTPUT"
+              else echo "packages=[]" >> "$GITHUB_OUTPUT"; fi ;;
+            *) case "$event" in
+                 # the changed packages and their dependents (a root file: every package)
+                 pull_request) stack_ci affected "origin/${{ github.base_ref }}" HEAD ;;
+                 push) stack_ci affected "${{ github.event.before }}" HEAD ;;
+                 *) stack_ci packages ;;
+               esac ;;
+          esac
+  docs:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
+    name: docs / ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: write   # deploydocs pushes gh-pages
+      pull-requests: read
+      statuses: write
+    strategy:
+      fail-fast: false
+      # The deploys share one gh-pages branch: run the matrix one package at a
+      # time (a job-level concurrency group keeps only one pending job and
+      # cancels the rest of the matrix).
+      max-parallel: 1
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ inputs.julia-version }}' }
+      - uses: julia-actions/cache@v2
+      # The toolkit logo in every package site's sidebar (Documenter picks up
+      # docs/src/assets/logo.svg); copied at build time, not committed.
+      - run: mkdir -p ${{ matrix.package }}/docs/src/assets && cp ${{ inputs.logo }} ${{ matrix.package }}/docs/src/assets/logo.svg
+      - run: julia --project=${{ matrix.package }}/docs -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=${{ matrix.package }}/docs --startup-file=no ${{ matrix.package }}/docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}

@@ -1,0 +1,35 @@
+# One TagBot per package subdirectory of a stack workspace: tags
+# <Package>-v<version>; the ssh key lets the tag push trigger the caller's docs
+# workflow. Defined once; a stack repository calls it from a workflow triggered
+# by issue_comment and workflow_dispatch, which grants TagBot's permissions:
+#
+#   jobs:
+#     TagBot:
+#       uses: VisualGeometryToolkit/VisualGeometryToolkit.jl/.github/workflows/StackTagBot.yml@<ref>
+#       with: { packages: '["PackageA","PackageB"]' }
+#       secrets: { DOCUMENTER_KEY: '${{ secrets.DOCUMENTER_KEY }}' }
+name: Stack TagBot
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: The registered package directories, a JSON list
+        type: string
+        required: true
+    secrets:
+      DOCUMENTER_KEY:
+        required: false
+jobs:
+  TagBot:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(inputs.packages) }}
+    steps:
+      - uses: JuliaRegistries/TagBot@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh: ${{ secrets.DOCUMENTER_KEY }}
+          subdir: ${{ matrix.package }}

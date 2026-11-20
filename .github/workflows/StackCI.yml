@@ -1,0 +1,109 @@
+# The CI of a stack workspace, defined once and called by every stack
+# repository (the VisualGeometryToolkit monorepo's CI.yml, a toolkit built on it):
+#
+#   plan   the packages a change affects, with their dependents (a pull request),
+#          or every package of the workspace (anything else)
+#   test   one job per planned package: Pkg.test with coverage, uploaded to
+#          Codecov under the package's flag (OIDC; the caller grants id-token: write)
+#   lint   the registration rules and the agent-docs policy
+#
+# The Julia side is VisualGeometryToolkitCore's `stack_ci`, from the package
+# the workspace resolves: the caller's `tooling-project` is a project of its
+# workspace that depends on VisualGeometryToolkitCore. What differs between
+# repositories is data: the root Project.toml's [workspace] and WORKSPACE.toml.
+#
+#   jobs:
+#     ci:
+#       uses: VisualGeometryToolkit/VisualGeometryToolkit.jl/.github/workflows/StackCI.yml@<ref>
+#       with: { tooling-project: '.' }
+name: Stack CI
+on:
+  workflow_call:
+    inputs:
+      tooling-project:
+        description: A project of the workspace that depends on VisualGeometryToolkitCore (--project=<this>)
+        type: string
+        default: ci
+      registration-lint-args:
+        description: Arguments of the registration lint ('--subsequent' drops the first-registration rules)
+        type: string
+        default: ''
+      julia-version:
+        type: string
+        default: '1.13'
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.affected.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ inputs.julia-version }}' }
+      - uses: julia-actions/cache@v2
+      - name: Fetch the tooling project (no precompilation; stack_ci.jl is read by path)
+        run: julia --startup-file=no --project=${{ inputs.tooling-project }} -e 'using Pkg; Pkg.instantiate()'
+        env:
+          JULIA_PKG_PRECOMPILE_AUTO: 0
+      - id: affected
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            set -- affected "origin/${{ github.base_ref }}" HEAD
+          else
+            set -- packages
+          fi
+          julia --startup-file=no --project=${{ inputs.tooling-project }} -e 'include(joinpath(dirname(Base.find_package("VisualGeometryToolkitCore")), "quality", "stack_ci.jl")); exit(stack_ci(ARGS))' "$@"
+  test:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write   # Codecov upload by OIDC, no token secret
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ inputs.julia-version }}' }
+      - uses: julia-actions/cache@v2
+      - name: Instantiate (resolves the workspace; downloads this package's test env only)
+        run: julia --project=${{ matrix.package }}/test -e 'using Pkg; Pkg.instantiate()'
+      - name: Test
+        run: julia --project=${{ matrix.package }} -e 'using Pkg; Pkg.test(; coverage = true)'
+      - id: covdirs   # src/ and ext/ where present (not every package has ext/)
+        run: |
+          d=${{ matrix.package }}/src
+          [ -d ${{ matrix.package }}/ext ] && d="$d,${{ matrix.package }}/ext"
+          echo "dirs=$d" >> "$GITHUB_OUTPUT"
+      - uses: julia-actions/julia-processcoverage@v1
+        with:
+          directories: ${{ steps.covdirs.outputs.dirs }}
+      - uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          flags: ${{ matrix.package }}
+          use_oidc: true
+          fail_ci_if_error: false
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with: { version: '${{ inputs.julia-version }}' }
+      - uses: julia-actions/cache@v2
+      - run: julia --project=${{ inputs.tooling-project }} -e 'using Pkg; Pkg.instantiate()'
+      - name: Registration rules (versions, compat, names, licenses, allow-list, no tracked Manifest, codecov.yml)
+        run: |
+          julia --project=${{ inputs.tooling-project }} -e 'using VisualGeometryToolkitCore: stack_ci; exit(stack_ci(ARGS))' registration-lint ${{ inputs.registration-lint-args }}
+      - name: Agent docs policy (public patterns)
+        run: |
+          julia --project=${{ inputs.tooling-project }} -e 'using VisualGeometryToolkitCore: stack_ci; exit(stack_ci(ARGS))' agent-docs

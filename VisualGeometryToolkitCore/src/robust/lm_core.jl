@@ -1034,10 +1034,15 @@ is_stationary(ews::ManifoldLmWorkspace, lm, x, stops::LmStops) =
 function _residual_cosine!(g, w, J, f)
     fn = norm(f)
     iszero(fn) && return zero(fn)
-    LinearAlgebra.mul!(g, J', f)
+    _matvec!(g, J', f)
     sum!(abs2, w', J)
     return _column_cosine(g, w, fn)
 end
+# y = A x on the arrays' backend (`A` a matrix or its adjoint). One function, so that an accelerator extension can replace
+# the product: CUBLAS's gemv of a matrix with one long and one short side is ~100× slower than its gemm of the same sizes
+# (Jᵀf of a 230,400 × 73 Float64 J on a B200, 2026-11-20: 13.9 ms against 0.08 ms; the 73 × 230,400 matrix times a vector
+# 14.9 ms against 0.10 ms), so the CUDA extension multiplies a one-column matrix. A device Jacobian's Jᵀr goes through here.
+_matvec!(y, A, x) = LinearAlgebra.mul!(y, A, x)
 # THE cosine of the stall postcondition from `g = Jᵀf`, the squared column norms `w` and ‖f‖ = `fn`.
 function _column_cosine(g, w, fn)
     iszero(fn) && return zero(fn)

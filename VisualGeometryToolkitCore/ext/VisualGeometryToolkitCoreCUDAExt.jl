@@ -8,6 +8,7 @@ module VisualGeometryToolkitCoreCUDAExt
 
 using CUDA: CUDA, CUDABackend
 import KernelAbstractions as KA
+import LinearAlgebra
 import VisualGeometryToolkitCore
 
 # CUDA's memory queries live in the package that defines the backend: `CUDA` (5.x) or `CUDACore` (6.x); the old
@@ -54,5 +55,10 @@ function VgtkCore._resident_threads(backend::CUDABackend, obj::KA.Kernel, args, 
     sms = CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
     return CUDA.active_blocks(k.fun, threads) * threads * sms
 end
+
+# `_matvec!` on CUDA arrays: y = A x as a one-column matrix product (gemm), not CUBLAS's gemv.
+const _CuMatrixOrAdjoint = Union{CUDA.AnyCuMatrix, LinearAlgebra.Adjoint{<:Any, <:CUDA.AnyCuMatrix}, LinearAlgebra.Transpose{<:Any, <:CUDA.AnyCuMatrix}}
+VgtkCore._matvec!(y::CUDA.AnyCuVector, A::_CuMatrixOrAdjoint, x::CUDA.AnyCuVector) =
+    (LinearAlgebra.mul!(reshape(y, :, 1), A, reshape(x, :, 1)); y)
 
 end # module

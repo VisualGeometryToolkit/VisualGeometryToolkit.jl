@@ -344,3 +344,20 @@ end
         @test isequal(Array(a), Array(b))
     end
 end
+
+@testitem "_matvec!: a matrix (or its adjoint) times a vector on the arrays' backend (CUDA availability-gated)" begin
+    using LinearAlgebra, Random
+    import VisualGeometryToolkitCore as VgtkCore
+    rng = Xoshiro(3)
+    J = randn(rng, 4000, 7); f = randn(rng, 4000); Jw = permutedims(J)
+    @test VgtkCore._matvec!(zeros(7), J', f) == J' * f && VgtkCore._matvec!(zeros(7), Jw, f) == Jw * f
+    using CUDA: CUDA
+    if CUDA.functional()
+        Jd, fd, Jwd = CUDA.CuArray(J), CUDA.CuArray(f), CUDA.CuArray(Jw)
+        g = VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jd', fd)
+        @test g isa CUDA.CuVector && Array(g) ≈ J' * f rtol = 1.0e-13
+        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), transpose(Jd), fd)) ≈ J' * f rtol = 1.0e-13
+        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jwd, fd)) ≈ Jw * f rtol = 1.0e-13
+        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 4000), Jd, CUDA.CuArray(f[1:7]))) ≈ J * f[1:7] rtol = 1.0e-13
+    end
+end

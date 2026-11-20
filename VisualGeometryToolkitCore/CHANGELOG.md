@@ -1,5 +1,26 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased
+
+Performance work for RadiometricCamera's warped board and device Jacobian (no API removed).
+
+### Added
+- **`intersection_at(s, o, d, x₀)`** (public): [`intersection`] for a caller that already holds the plain hit `x₀` of the
+  same surface and ray. A `MappedSurface` of a `HeightField` (alone or over the planar affine factors) with one layer of
+  ForwardDiff Duals anywhere takes the implicit-function step at `x₀` — one evaluation of the chart map on the Dual
+  parts, no root; plain parts return `(t, x₀)`; every other surface and nested Duals fall back to `intersection`.
+- **`_launch_rows!(…; workgroupsize)`**: the row launch's workgroup size (`OnBackend`'s). On the CPU backend
+  KernelAbstractions' default groups 1024 rows a task; a launch of few heavy rows passes a small group.
+- **`_matvec!(y, A, x)`**: a matrix (or its adjoint) times a vector on the arrays' backend; the CUDA extension multiplies
+  a one-column matrix (gemm). CUBLAS's gemv of a matrix with one long and one short side is ~100× slower (B200, Float64:
+  Jᵀf of a 230,400 × 73 J 13.9 ms against 0.08 ms). The stall postcondition's Jᵀf goes through it.
+
+### Changed
+- **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
+  numbers bit for bit.
+- **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations
+  first: at least five evaluations of the field where a gently warped board takes three). A hit moves in its last bits.
+
 ## 0.11.1
 
 A patch: a rounding-level cost disagreement at an exact fit is no NaN wall (a 0.11.0 regression, found by the

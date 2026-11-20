@@ -50,6 +50,10 @@ t, x = VisualGeometryToolkitCore.intersection(s, o, d)
 uv = VisualGeometryToolkitCore.chart(s, x)       # the design coordinates of the hit
 ```
 
+A caller that keeps a ray's hit and later needs its derivatives (a renderer's record, then a Jacobian in the surface's
+parameters) calls [`intersection_at`](@ref)`(s, o, d, x₀)` with the plain hit `x₀`: a height field's surface takes the
+implicit-function step there and solves no root again.
+
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Private = false

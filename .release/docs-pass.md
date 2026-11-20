@@ -1,5 +1,60 @@
-docs-pass: 885fbb4f
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 6674c98 (not re-read: no local clone on dgx01; the patch changes no name, signature or example, which is all the landing text lists)
+docs-pass: a74e2d51
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io eac44cb (read, not edited: no card names a moved type, a moved kind or a version, and the install lines carry none; the IO card says "target measurements", which the naming rule spells "target observations"; no card or link names the Visual Radiometry Toolkit, the moved types' new owner)
+
+# Core 0.12.0, IO 0.11.0, Estimation 0.12.1 docs review — branch vrtk/retire-radiometric
+
+To be released: Core 0.12.0 and IO 0.11.0 (breaking: the radiometric types and kinds moved to
+VisualRadiometryToolkitCore / VisualRadiometryToolkitIO, the panorama kind to PanoramaStitching), Estimation 0.12.1.
+Baseline: the last review, 885fbb4f. The review covers the tree a74e2d51; after it only this record changes
+(`.release/` is outside the gate). The versions in the Project.toml files are still the baseline's (the bump follows),
+so the CHANGELOG sections are "Unreleased".
+
+## 1. Public API since 885fbb4f
+
+- Core, removed (each a refusal by name, `src/retired.jl`, `MOVED_NAMES`): the vignetting fields and their verbs, the
+  binned radial profile, the radial charts, the environment light and its spherical-harmonic map and verbs; `radius`
+  is no longer declared public (GeometryBasics' function). Added: `primal_value`, `strip_pixels`, `strip_point`,
+  `attach_point`, `attach_length`, `parameter_offsets`, `MOVED_NAMES`, `intersection_at`, `stack_ci` and its ten parts.
+  Changed: `cgls` and `normal_cg` on Krylov.jl (a preconditioned solve stops in the scaled norm), a `CSRMatrix` on CUDA
+  multiplied by cuSPARSE.
+- IO, removed: the `vgio/vignetting`, `vgio/environment_light`, `vgio/radial_profile` and `vgio/panorama` kinds
+  (`save_panorama`, `load_panorama` refused by name, no longer public). Added: `KindSpec`, `write_kind`, `read_kind`,
+  the nine `*_spec` combinators and `body_spec`, `migrate_file`, `migrate_body`, `fit_record_json`,
+  `fit_record_from_json`, `pixel_frame`, `pixel_frame_offset`, `length_unit`, `matrix_rows`, `rows_matrix`,
+  `renamed_key`, `MOVED_NAMES`.
+- Estimation: no name added or removed (`optical_axis` and the exact resample of `fit_camera(SplineLens, …)` on a
+  CUDA device).
+
+## 2. Docstrings and pages brought up to date
+
+- Already true at aa1b3050 (the migration's own commits; read and kept): Core's `docs/src/api/batched.md` (the
+  vignetting and lighting sections replaced by one paragraph naming VisualRadiometryToolkitCore; the solvers on
+  Krylov.jl), `api/primitives.md` (`intersection_at`), `api/stack_contracts.md` (`retired.jl`, the workspace CI);
+  IO's `guide/kinds.md` (the moved kinds' rows with their owners, "A kind of another package, with its table"),
+  `api/native.md` (`kind_spec.jl`, `retired.jl`, `blur_schema.jl`), the four published JSON Schemas deleted.
+- Changed in this pass (a74e2d51): IO's `docs/src/index.md` (the landing text said "a camera's radiometry": it is a
+  camera's blur; a bullet for the hook of a kind another package owns and the moved kinds' owners), `guide/kinds.md`
+  (the envelope's `radiance` unit names its reader), IO's CLAUDE.md ("Kinds of another package"), Core's CLAUDE.md
+  (`src/retired.jl` and `src/quality/stack_ci.jl` in Key Files), Core's CHANGELOG (`radius` no longer public, the
+  dependency table without PanoramaStitching's row, `nlls_termination`'s specialization). IO's and Estimation's
+  "Unreleased" sections were complete against the diff.
+- No `@ref` to a moved name is left in any docs page, docstring or convention (searched by every name of Core's and
+  IO's `MOVED_NAMES`); the remaining mentions of a moved type are the refusals, their tests, the CHANGELOGs and the
+  sentences that name the new owner. READMEs (the root's and the six packages') name no moved type and no version.
+- Not changed: the root README (its downstream table has no row for the Visual Radiometry Toolkit; a row needs the
+  repository's public address, the owner's to give).
+
+## 3. Gates (Slurm, Julia 1.13.4, fresh clones at a74e2d51; logs under logs/migration/results/)
+
+- Strict docs builds (`checkdocs = :public`, doctests, link check, no `warnonly`): Core (job 5986,
+  dp-core-docs-a74e), IO (5987, dp-io-docs-a74e), Estimation (5988, dp-est-docs-a74e): PASS. Core's build prints
+  Documenter's size warnings (not errors): `api/lenses.html` 193.0 KiB and `api/cameras.html` 191.2 KiB of the hard
+  200 KiB (`api/stack_contracts.html`, with the workspace CI, 178.4 KiB), the search index 1.62 MiB over the 1.56 MiB warning threshold.
+- The `docs`, `README`, `readme helpers`, `agent docs` and `stack_ci` agent-docs items (`"docs|readme|README|agent"`):
+  Core 74/74 (5990), IO 25/25 (5991), Estimation 23/23 (5992): PASS.
+- Not run: Julia 1.12 (the gate script runs 1.13.4 only); the Features, Eval and PoseLib builds (no docs or code of
+  theirs changed; their compat lines change later); /simplify and /code-review as separate steps (the pass changed
+  prose only).
 
 # VisualGeometryToolkitCore 0.11.1 docs review — branch patch-core0111
 

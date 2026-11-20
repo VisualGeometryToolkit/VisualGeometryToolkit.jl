@@ -57,6 +57,15 @@ board and device Jacobian.
   solutions within 2e-6, 0.46 s → 0.19 s). With `diagonal` the stopping rule is measured in the Jacobi-scaled norm,
   `‖C sₖ‖ ≤ rtol ‖C (Aᵀb + DᵀWh)‖`. A start `x0` is kept exactly in every direction neither `A` nor `D` holds (the
   iteration solves for the correction to it).
+- **`normal_cg` is Krylov.jl's CG** on the applied normal operator (under the symmetric Jacobi scaling `C N C` when a
+  `diagonal` is given); the package's own conjugate-gradient loop is deleted with it. Same signature and result fields.
+  With a `diagonal` the stopping rule is measured in the scaled norm, `‖C (g − N xₖ)‖ ≤ rtol ‖C g‖` (it was the
+  unscaled `‖g − N xₖ‖ ≤ rtol ‖g‖`): the iteration count of a preconditioned solve changes, its solution within the
+  tolerance. A start `x0` is taken by solving for the correction to it.
+- **A `CSRMatrix` on CUDA is multiplied by cuSPARSE** (its CSR product under `CUSPARSE_SPMV_CSR_ALG2`, the same bits on
+  every run), and an operator Core uploads there stores cuSPARSE's Int32 indices (`C.rowptr`, `C.colval`); the row
+  kernel remains the product on the CPU backend. `PenalizedOperator`'s data and penalty operators may differ in their
+  index type.
 - **A height field's value and Jacobian in one sweep of its nodes** (one logarithm per node instead of two): the same
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations

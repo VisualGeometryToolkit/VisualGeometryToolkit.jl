@@ -61,16 +61,22 @@ const _CuMatrixOrAdjoint = Union{CUDA.AnyCuMatrix, LinearAlgebra.Adjoint{<:Any, 
 VgtkCore._matvec!(y::CUDA.AnyCuVector, A::_CuMatrixOrAdjoint, x::CUDA.AnyCuVector) =
     (LinearAlgebra.mul!(reshape(y, :, 1), A, reshape(x, :, 1)); y)
 
-# A stored sparse operator in a solve (`_solve_operator`, the penalized least squares' CGLS): cuSPARSE's CSR matrix of the
-# `CSRMatrix`'s arrays (the values shared, the indices as cuSPARSE's Int32), multiplied by its reproducible algorithm
-# (CUSPARSE_SPMV_CSR_ALG2: the same bits on every run; the default algorithm's are not).
+# A stored sparse operator on CUDA is cuSPARSE's CSR matrix of the `CSRMatrix`'s arrays, multiplied by its reproducible
+# algorithm (CUSPARSE_SPMV_CSR_ALG2: the same bits on every run; the default algorithm's are not). An operator uploaded
+# by Core holds cuSPARSE's Int32 indices (`_csr_index_type`), so `mul!` wraps its arrays as they are; one built from
+# other integers (a caller's own device arrays) is converted once per solve (`_solve_operator`) and multiplied by Core's
+# row kernel outside one.
 struct _CuCSROperator{M <: CUDA.CUSPARSE.CuSparseMatrixCSR}
     matrix::M
 end
 Base.size(C::_CuCSROperator, d...) = size(C.matrix, d...)
-VgtkCore._solve_operator(C::VgtkCore.CSRMatrix{<:CUDA.CuVector}) =
-    _CuCSROperator(CUDA.CUSPARSE.CuSparseMatrixCSR{Float64, Int32}(Int32.(C.rowptr), Int32.(C.colval), C.nzval, (C.m, C.n)))
+_cusparse(C::VgtkCore.CSRMatrix{<:CUDA.CuVector{Int32}}) = CUDA.CUSPARSE.CuSparseMatrixCSR{Float64, Int32}(C.rowptr, C.colval, C.nzval, (C.m, C.n))
+_cusparse(C::VgtkCore.CSRMatrix{<:CUDA.CuVector}) = CUDA.CUSPARSE.CuSparseMatrixCSR{Float64, Int32}(Int32.(C.rowptr), Int32.(C.colval), C.nzval, (C.m, C.n))
+VgtkCore._csr_index_type(::CUDABackend) = Int32
+VgtkCore._solve_operator(C::VgtkCore.CSRMatrix{<:CUDA.CuVector}) = _CuCSROperator(_cusparse(C))
 LinearAlgebra.mul!(y::CUDA.CuVector{Float64}, C::_CuCSROperator, x::CUDA.CuVector{Float64}) =
-    CUDA.CUSPARSE.mv!('N', 1.0, C.matrix, x, 0.0, y, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
+    size(C, 1) == 0 ? y : CUDA.CUSPARSE.mv!('N', 1.0, C.matrix, x, 0.0, y, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
+LinearAlgebra.mul!(y::CUDA.CuVector{Float64}, C::VgtkCore.CSRMatrix{<:CUDA.CuVector{Int32}}, x::CUDA.CuVector{Float64}) =
+    LinearAlgebra.mul!(y, _CuCSROperator(_cusparse(C)), x)
 
 end # module

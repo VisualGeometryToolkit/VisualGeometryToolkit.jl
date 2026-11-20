@@ -21,7 +21,7 @@
 #   any KernelAbstractions backend): Krylov.jl's CGLS on the stacked operator
 #   [A; √W D], its products the operators' own — `CSRMatrix`, the device form of a
 #   sparse operator, or on CUDA a cuSPARSE CSR matrix (the CUDA extension);
-#   `normal_cg`, conjugate gradients on a normal operator AᵀA + DᵀWD that is only
+#   `normal_cg`, Krylov.jl's CG on a normal operator AᵀA + DᵀWD that is only
 #   applied (rows never stored); either Jacobi-preconditioned. A dense or
 #   CHOLMOD-sized problem solves its normal equations directly.
 # THE WEIGHT'S CHOICE. VisualGeometryToolkitEstimation's `gcv_curve`/`gcv_select`
@@ -83,10 +83,11 @@ end
 
 A sparse operator in compressed sparse rows on a KernelAbstractions `device`
 ([`default_device`](@ref)`()` when none is supplied: an accelerator when one is functional,
-else `KA.CPU()`): `mul!(y, C,
-x)` is one work item per row (each row's sum in its stored order: deterministic on every
-backend, no atomics). `Adapt.adapt(backend, C)` moves it. The operator a device solve
-([`cgls`](@ref)) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
+else `KA.CPU()`). `mul!(y, C, x)` sums each row in its stored order, no atomics, the same
+bits on every run: on CUDA the product is cuSPARSE's CSR product of these arrays (its
+reproducible algorithm; the CUDA extension), elsewhere one work item per row.
+`Adapt.adapt(backend, C)` moves it. The operator a device solve ([`cgls`](@ref),
+[`normal_cg`](@ref)) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
 ([`PenalizedOperator`](@ref) holds both).
 """
 struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
@@ -98,8 +99,11 @@ struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
 end
 CSRMatrix(A::SparseMatrixCSC; device = default_device()) = _transposed_csr(SparseMatrixCSC{Float64, Int}(transpose(A)); device)   # its columns are A's rows
 # The CSR form of `transpose(A)`: A's own compressed columns, copied to `device` (no transpose).
-_transposed_csr(A::SparseMatrixCSC; device) =
-    CSRMatrix(size(A, 2), size(A, 1), ka_upload(Int, device, A.colptr), ka_upload(Int, device, A.rowval), ka_upload(Float64, device, A.nzval))
+_transposed_csr(A::SparseMatrixCSC; device) = (I = _csr_index_type(device);
+    CSRMatrix(size(A, 2), size(A, 1), ka_upload(I, device, A.colptr), ka_upload(I, device, A.rowval), ka_upload(Float64, device, A.nzval)))
+# The integers an uploaded operator's indices are stored in on `device`: an accelerator extension states its sparse library's
+# (CUDA: cuSPARSE's Int32, so the operator's arrays ARE a cuSPARSE matrix's and its product is the library's).
+_csr_index_type(device) = Int
 Base.size(C::CSRMatrix) = (C.m, C.n)
 Base.size(C::CSRMatrix, d::Integer) = d == 1 ? C.m : d == 2 ? C.n : 1
 Adapt.adapt_structure(to, C::CSRMatrix) = CSRMatrix(C.m, C.n, Adapt.adapt(to, C.rowptr), Adapt.adapt(to, C.colval), Adapt.adapt(to, C.nzval))
@@ -128,11 +132,11 @@ KernelAbstractions `device`, built once for every solve on them ([`cgls`](@ref))
 operators ([`difference_rows`](@ref), [`bending_rows`](@ref) as a sparse matrix), its rows'
 weights `w` the solve's.
 """
-struct PenalizedOperator{C <: CSRMatrix, B}
-    A::C
-    At::C
-    D::C
-    Dt::C
+struct PenalizedOperator{CA <: CSRMatrix, CD <: CSRMatrix, B}
+    A::CA
+    At::CA
+    D::CD
+    Dt::CD
     device::B
 end
 function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrixCSC{Float64, Int}(undef, 0, size(A, 2)); device = default_device())
@@ -205,11 +209,11 @@ _solve_operator(C::CSRMatrix) = C
 # S = [A; √W D] C of a penalized least squares and its adjoint, each a row product of a stored operator (`A`, `D`, and
 # their transposes `At`, `Dt` as operators of their own); `C` the Jacobi column scaling (`nothing`: none). The operator
 # Krylov.jl's solvers take: `size`, `eltype`, `adjoint` and `mul!`.
-struct _StackedOperator{O, U <: AbstractVector{Float64}, C <: Union{Nothing, AbstractVector{Float64}}, V <: AbstractVector{Float64}}
-    A::O
-    At::O
-    D::O
-    Dt::O
+struct _StackedOperator{OA, OD, U <: AbstractVector{Float64}, C <: Union{Nothing, AbstractVector{Float64}}, V <: AbstractVector{Float64}}
+    A::OA
+    At::OA
+    D::OD
+    Dt::OD
     sw::U      # √w per penalty row
     c::C       # the unknowns' scaling
     t::V       # an n-vector of scratch
@@ -251,46 +255,63 @@ end
         -> (; x, iterations, converged, relres)
 
 The solution of the normal equations `N x = g` of a penalized least squares, `N = AᵀA +
-DᵀWD` and `g = Aᵀb + DᵀWh` ([`cgls`](@ref)'s problem), by conjugate gradients on `N`
-APPLIED: `N` a function `N(y, x)` writing `y = N x` into `y`, or an operator with `mul!(y,
-N, x)` (a matrix, a [`CSRMatrix`](@ref)). The problem whose rows are never stored — a
-panorama's pixels accumulated into a lattice stencil and a Schur block — solves here; one
-whose rows are stored solves with `cgls`, which applies the rows and so loses no digits to
-forming `N`.
+DᵀWD` and `g = Aᵀb + DᵀWh` ([`cgls`](@ref)'s problem), by conjugate gradients (Krylov.jl's
+`cg`) on `N` APPLIED: `N` a function `N(y, x)` writing `y = N x` into `y`, or an operator
+with `mul!(y, N, x)` (a matrix, a [`CSRMatrix`](@ref)). The problem whose rows are never
+stored — a panorama's pixels accumulated into a lattice stencil and a Schur block — solves
+here; one whose rows are stored solves with `cgls`, which applies the rows and so loses no
+digits to forming `N`.
 
-`diagonal`, `N`'s diagonal (positive), preconditions the iteration (Jacobi), `nothing`
-none; `x0` is a warm start (`nothing`: 0). The vectors live on `g`'s KernelAbstractions
-backend (`diagonal` and `x0` moved there; `x` returned on it), and `N` applies there.
-The stopping rule is relative to the right-hand side, `‖g − N xₖ‖ ≤ rtol · ‖g‖`,
-so a warm start at the solution takes 0 iterations. `converged` when it is met within
-`max_iter` iterations; `relres` is `‖g − N xₖ‖ / ‖g‖`.
+`diagonal`, `N`'s diagonal (positive), preconditions the iteration (Jacobi: the symmetric
+scaling `C N C`, `C = diagonal^-½`), `nothing` none; `x0` is a start (`nothing`: 0; the
+iteration solves for the correction to it). The vectors live on `g`'s KernelAbstractions
+backend (`diagonal` and `x0` moved there; `x` returned on it), and `N` applies there. The
+stopping rule is relative to the right-hand side, `‖C (g − N xₖ)‖ ≤ rtol · ‖C g‖` (`C` the
+Jacobi scaling, 1 without one), so a start at the solution takes 0 iterations. `converged`
+when it is met within `max_iter` iterations; `relres` is the left side over the right
+side's norm.
 """
 function normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVector} = nothing,
         x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
     dev = get_backend(g)
     n = length(g)
     gd = on_device(Float64, dev, g)
+    dinv = _jacobi_inverse(diagonal, dev, n)
+    S = _ScaledNormal(N isa CSRMatrix ? _solve_operator(N) : N, dinv === nothing ? nothing : sqrt.(dinv), similar(gd), n)
+    scaled(v) = S.c === nothing ? v : S.c .* v
+    sref = norm(scaled(gd))                                        # the reference: ‖C g‖
+    goal = Float64(rtol) * sref
     x = x0 === nothing ? device_zeros(Float64, dev, n) : copy(on_device(Float64, dev, x0))
-    sys = _AppliedNormal(N, similar(gd))
-    s = copy(gd)
-    x0 === nothing || (_apply_normal!(sys.Np, N, x); s .-= sys.Np)
-    return _normal_cg!(sys, x, s, _jacobi_inverse(diagonal, dev, n), norm(gd), rtol, max_iter)
+    rhs = copy(gd)                                                 # the correction's right-hand side: C (g − N x0)
+    x0 === nothing || (_apply_normal!(S.t, S.N, x); rhs .-= S.t)
+    S.c === nothing || (rhs .*= S.c)
+    result(s, iterations) = (; x, iterations, converged = s <= goal, relres = sref > 0 ? s / sref : 0.0)
+    (max_iter >= 1 && norm(rhs) > goal) || return result(norm(rhs), 0)
+    z, stats = Krylov.cg(S, rhs; atol = goal, rtol = 0.0, itmax = Int(max_iter), history = true)
+    x .+= scaled(z)
+    return result(Float64(last(stats.residuals)), Int(stats.niter))
 end
 
-# -----------------------------------------------------------------------------
-# normal_cg's (preconditioned) conjugate-gradient iteration on the applied normal
-# operator: the curvature pᵀN p of a search direction (keeping its image N p) and
-# the residual after a move of α along it.
-# -----------------------------------------------------------------------------
-
-struct _AppliedNormal{F, V <: AbstractVector{Float64}}
+# C N C of an applied normal operator `N` (a function `N(y, x)`, or an operator with `mul!`) under the Jacobi scaling `C`
+# (`nothing`: none): the symmetric operator Krylov.jl's `cg` takes (`size`, `eltype`, `mul!`).
+struct _ScaledNormal{F, C <: Union{Nothing, AbstractVector{Float64}}, V <: AbstractVector{Float64}}
     N::F
-    Np::V      # N p
+    c::C
+    t::V       # an n-vector of scratch
+    n::Int
 end
+Base.size(S::_ScaledNormal) = (S.n, S.n)
+Base.size(S::_ScaledNormal, d::Integer) = d <= 2 ? S.n : 1
+Base.eltype(::_ScaledNormal) = Float64
 _apply_normal!(y, N::Function, x) = (N(y, x); y)
 _apply_normal!(y, N, x) = LinearAlgebra.mul!(y, N, x)
-_curvature!(sys::_AppliedNormal, p) = dot(p, _apply_normal!(sys.Np, sys.N, p))
-_descend!(s, sys::_AppliedNormal, α) = (s .-= α .* sys.Np; s)
+function LinearAlgebra.mul!(y::AbstractVector, S::_ScaledNormal, z::AbstractVector)
+    S.c === nothing && return _apply_normal!(y, S.N, z)
+    S.t .= S.c .* z
+    _apply_normal!(y, S.N, S.t)
+    y .*= S.c
+    return y
+end
 
 function _jacobi_inverse(diagonal, dev, n)
     diagonal === nothing && return nothing
@@ -298,25 +319,4 @@ function _jacobi_inverse(diagonal, dev, n)
     d = on_device(Float64, dev, diagonal)
     all(>(0), d) || throw(ArgumentError("the Jacobi diagonal must be positive (the normal matrix's diagonal)"))
     return 1 ./ d
-end
-
-function _normal_cg!(sys, x, s, dinv, sref, rtol, max_iter)
-    z = dinv === nothing ? s : dinv .* s       # the preconditioned residual (s itself without one)
-    p = copy(z)
-    γ = dot(s, z); σ = dot(s, s)
-    goal = (rtol * sref)^2
-    it = 0
-    while it < max_iter && σ > goal
-        qq = _curvature!(sys, p)
-        qq > 0 || break
-        α = γ / qq
-        x .+= α .* p
-        _descend!(s, sys, α)
-        dinv === nothing || (z .= dinv .* s)
-        γn = dot(s, z); σ = dot(s, s)
-        p .= z .+ (γn / γ) .* p
-        γ = γn
-        it += 1
-    end
-    return (; x, iterations = it, converged = σ <= goal, relres = sref > 0 ? sqrt(σ) / sref : 0.0)
 end

@@ -18,6 +18,10 @@ board and device Jacobian.
 - Each name is refused here by name with its replacement (`src/retired.jl`): an `ArgumentError` naming
   `VisualRadiometryToolkitCore.<name>`, no alias, not exported. Migration: add VisualRadiometryToolkitCore and import the
   names from it; nothing else changes.
+- `radius` is no longer declared public here (it was for an `EnvironmentLight`'s sphere): it is GeometryBasics' function,
+  `GeometryBasics.radius`, with this package's methods on it (a `Circle3D`'s) as before.
+- PanoramaStitching's row left the stack dependency table (`configs/stack_dependencies.toml`): a downstream package
+  states its own row (`stack_dependency_violations(…; extra)`, the quality gate's `stack_extra`).
 
 ### Added
 - **`stack_ci`** and its parts (public; `src/quality/stack_ci.jl`): the CI of a stack repository, one implementation
@@ -70,6 +74,8 @@ board and device Jacobian.
   numbers bit for bit.
 - **The height field's Newton tests convergence from its first iteration** (it ran four unconditional iterations
   first: at least five evaluations of the field where a gently warped board takes three). A hit moves in its last bits.
+- **`nlls_termination` specializes on its postcondition**: an LM solve allocated the lazy postcondition's closure
+  (256 bytes per solve) wherever the call was not inlined. Same decisions.
 
 ## 0.11.1
 

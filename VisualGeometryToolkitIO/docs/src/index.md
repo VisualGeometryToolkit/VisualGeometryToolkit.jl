@@ -4,7 +4,7 @@
 
 VisualGeometryToolkitIO saves and loads the geometry of a calibration or
 reconstruction: cameras, poses, rigs, targets, trajectories, detections and
-target observations, and a camera's radiometry and sensor characterisation. Each `vgio/<kind>` file is the JSON serialization of one
+target observations, and a camera's blur and sensor characterisation. Each `vgio/<kind>` file is the JSON serialization of one
 [VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/)
 type. `load` returns a value of that type, `save` takes one, and the round
 trip is exact. There are no record structs of the package's own between the
@@ -23,7 +23,13 @@ file and the value.
   can recompute ([JSON Schemas](guide/json-schemas.md),
   [Content Identity](guide/content-identity.md));
 - write-only exporters to TUM, EuRoC, BOP, OpenSim TRC, and the flat
-  correspondence arrays that external calibrators take.
+  correspondence arrays that external calibrators take;
+- a public hook for a kind that another package owns (`KindSpec`,
+  `write_kind`, `read_kind`): the same envelope, table check and version
+  steps as a native kind
+  ([A kind of another package](guide/kinds.md)). The vignetting,
+  environment-light and radial-profile kinds are VisualRadiometryToolkitIO's
+  and the panorama kind is PanoramaStitching's (from 0.11.0).
 
 Three principles shape the files:
 

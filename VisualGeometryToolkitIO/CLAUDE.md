@@ -54,6 +54,24 @@ uploaded again, so a published file keeps loading forever.
 - A schema owner (BlobBoards' boards) adds its own steps and calls
   `migrate_record` in its reader.
 
+## Kinds of another package
+
+A kind whose type another package owns is NOT written here. Its owner states
+it with the public hook in `src/kind_spec.jl` — a `KindSpec` (its schema
+string and its body's table, built from the `*_spec` combinators and
+`body_spec(T)`), `write_kind` and `read_kind` (the two file boundaries), its
+version steps as methods of `migrate_schema` — and adds its `load`/`save`
+methods to this package's two verbs.
+
+Moved in IO 0.11.0, each keeping its schema name: `vgio/vignetting`,
+`vgio/environment_light` and `vgio/radial_profile` are
+VisualRadiometryToolkitIO's (their types are VisualRadiometryToolkitCore's);
+`vgio/panorama` is PanoramaStitching's. A file or name of one is refused here
+by name with its owner (`_MOVED_KINDS` in `src/validate.jl`; `save_panorama`
+and `load_panorama` in `src/retired.jl`, listed in `MOVED_NAMES`). Do not add
+a table, a reader or a schema for them back, and do not make this package
+depend on their owners.
+
 ## Git Commit Conventions
 
 - **NEVER** add "Co-Authored-By: Claude" or similar AI attribution to commit messages

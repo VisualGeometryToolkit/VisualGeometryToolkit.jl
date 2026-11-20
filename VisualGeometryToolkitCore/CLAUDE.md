@@ -478,6 +478,8 @@ include("blob_types.jl")
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for points/lines/conics |
 | `src/geometry/primitives/primitives.jl` | Primitives submodule entry |
 | `src/geometry/cameras/cameras.jl` | Cameras submodule entry (`AbstractCamera`) |
+| `src/retired.jl` | `MOVED_NAMES`: the radiometric names (vignetting fields, binned radial profile, environment light) that moved to VisualRadiometryToolkitCore in 0.12.0, each refused by name; never define one here again |
+| `src/quality/stack_ci.jl` | `stack_ci` and its parts: the CI every stack workspace calls (packages, affected, registration rules, agent-docs policy, downstream, codecov); loads by path with the standard libraries only |
 | `ext/VisualGeometryToolkitCoreTestExt/check_naming.jl` | `check_naming` (a Test extension; stubs and `NamingViolation` in `src/quality/naming.jl`): the stack's naming rules and the one list of banned words and retired names |
 
 ## Benchmarking

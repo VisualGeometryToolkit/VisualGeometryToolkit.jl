@@ -46,7 +46,8 @@ the optional free-form `provenance`:
   chart its record's owner defines (a height field's page-fraction nodes,
   `node`). `pixel` is the pixel frame
   of every pixel coordinate, `density` the unit of a print density, `radiance`
-  that of a light's coefficients (`relative`: known up to scale); `time` (`s`)
+  that of a light's coefficients (`relative`: known up to scale; read by
+  VisualRadiometryToolkitIO's environment light); `time` (`s`)
   and `angle` (`rad`) are fixed tokens, as the rotation encoding is.
 - **`conventions`** is the ONE conventions object: Hamilton w-x-y-z
   quaternions (w ≥ 0), what a transform does to a point, matrices as lists of

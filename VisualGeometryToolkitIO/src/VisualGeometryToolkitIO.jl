@@ -285,6 +285,7 @@ public renamed_key               # a record with one key renamed: a version step
 public MOVED_NAMES               # the names retired by a move to another package (the duplication check reads it)
 public object_spec, token_spec, integer_spec, real_spec, array_spec, named_spec, checked_spec, if_key_spec, tagged_spec, body_spec
 public fit_record_json, fit_record_from_json   # a fit's termination record, the one a kind that stores a fit embeds
+public length_unit                    # a style's length unit (its record's `units.length`)
 public pixel_frame, pixel_frame_offset   # a style's pixel frame; the translation between two pixel frames
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs
 public same_value                     # two typed records the same, a length within the codec's ulps (a migration's check)

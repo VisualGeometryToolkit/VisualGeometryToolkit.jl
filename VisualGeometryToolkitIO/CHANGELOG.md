@@ -27,6 +27,7 @@ depends on this package, and the types these kinds hold left VisualGeometryToolk
 - `schema_versions()` and the published schemas no longer list the four kinds.
 
 ### Added (public, not exported): a kind of another package, with its table
+- **`length_unit(style)`** (public): a style's length unit, beside `pixel_frame(style)`.
 - **`matrix_rows`, `rows_matrix`, `renamed_key`** (public): a matrix as a record holds it and back, and a record with
   one key renamed — the moves an owner of a kind makes in its bodies and version steps. **`MOVED_NAMES`** (public): the
   names retired by a move to another package (`save_panorama`, `load_panorama`), read by the stack's duplication check.

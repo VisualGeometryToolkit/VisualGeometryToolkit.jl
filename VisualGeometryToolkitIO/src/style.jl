@@ -119,6 +119,15 @@ method of a value that holds pixel positions in a frame of its own (VGC's
 values hold COLMAP pixels) moves them by [`pixel_frame_offset`](@ref).
 """
 pixel_frame(s::VgioStyle) = _pixel_frame(s)
+
+"""
+    length_unit(style::VgioStyle) -> Units
+
+The length unit a style's record declares (its `units.length`): what a reader
+of a record hands to the bodies that take their unit as a keyword
+([`camera_from_json`](@ref)`(…; length_unit)`).
+"""
+length_unit(s::VgioStyle{<:Units}) = s.length_unit
 """
     pixel_frame_offset(F, G) -> SVector{2, Float64}
 

@@ -226,6 +226,34 @@ end
     end
 end
 
+# The optical axis of a gauge-K source and the exact resample that turns onto it, on a CUDA device: the reduction
+# kernel of the axis fit (each sample's residual and its Jacobian rows by duals of the chart vector) compiles for the
+# device and gives the host's result. (Until 0.12.1 the public calls were tested on the CPU backend only, and the
+# kernel's normal-equations row did not compile for CUDA with the axis fit's chart.)
+@testitem "optical_axis and fit_camera(SplineLens) of a gauge-K source on a CUDA device: the host's result" setup = [OffAxisSpline] begin
+    using Test
+    using CUDA: CUDA
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, estimate, imaged_region, SplineLens, rotation, iterations,
+        calibration_matrix
+    using VisualGeometryToolkitEstimation: optical_axis, fit_camera
+    if CUDA.functional()
+        cpu = VC.KA.CPU(); gpu = VC.default_device()
+        region = imaged_region(OFF_BOUNDED)
+        rc = optical_axis(OFF_BOUNDED; device = cpu)
+        rg = optical_axis(OFF_BOUNDED; device = gpu)
+        @test VC.converged(rc) && VC.converged(rg)
+        # the two devices draw the gauge-K source's samples themselves (its rays back-projected there), so the fits
+        # agree to the samples' rounding, not bit for bit
+        @test maximum(abs, calibration_matrix(estimate(rg)) - calibration_matrix(estimate(rc))) < 1.0e-6
+        fc = fit_camera(SplineLens, OFF_BOUNDED, region; tolerance = 1.0e-2, device = cpu)
+        fg = fit_camera(SplineLens, OFF_BOUNDED, region; tolerance = 1.0e-2, device = gpu)   # its optical axis first, on the device
+        @test VC.converged(fc) && VC.converged(fg)
+        @test maximum(abs, calibration_matrix(estimate(fg)) - calibration_matrix(estimate(fc))) < 1.0e-6
+    else
+        @test_skip "no functional CUDA device: the device path of optical_axis is not exercised"
+    end
+end
+
 # The caller's `device` reaches a SplineLens source's ray sampling — the expensive step: with the default device's
 # resolution made to throw, every camera verb given `device` still runs (until 0.11.0 `optical_axis` took none, and
 # the samples of a gauge-K source were drawn on the default device whatever the caller gave).

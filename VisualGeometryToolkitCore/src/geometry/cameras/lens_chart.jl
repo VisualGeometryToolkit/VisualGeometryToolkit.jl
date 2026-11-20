@@ -522,20 +522,20 @@ end
 # overshot). Returns the value and the sign (0 in the one case it cannot
 # fold: a value reflected past an OPEN end, held just inside it).
 @inline function _fold_closed(t, a, b, k)
-    one_t = one(_primal(t))
-    (k[1] | k[2]) && a <= _primal(t) <= b && return (t, one_t)      # inside: the value itself, bit for bit
+    one_t = one(primal_value(t))
+    (k[1] | k[2]) && a <= primal_value(t) <= b && return (t, one_t)      # inside: the value itself, bit for bit
     if k[1] & k[2]
         L = b - a
-        n = floor(_primal((t - a) / (2L)))
+        n = floor(primal_value((t - a) / (2L)))
         u = (t - a) - 2L * n
-        return _primal(u) <= L ? (a + u, one_t) : (a + (2L - u), -one_t)
-    elseif k[1] && _primal(t) < a
+        return primal_value(u) <= L ? (a + u, one_t) : (a + (2L - u), -one_t)
+    elseif k[1] && primal_value(t) < a
         r = 2a - t
-        isfinite(b) && _primal(r) >= b && return (zero(t) + (b - oftype(_primal(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
+        isfinite(b) && primal_value(r) >= b && return (zero(t) + (b - oftype(primal_value(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
         return (r, -one_t)
-    elseif k[2] && _primal(t) > b
+    elseif k[2] && primal_value(t) > b
         r = 2b - t
-        isfinite(a) && _primal(r) <= a && return (zero(t) + (a + oftype(_primal(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
+        isfinite(a) && primal_value(r) <= a && return (zero(t) + (a + oftype(primal_value(t), _UNIT_MARGIN) * (b - a)), zero(one_t))
         return (r, -one_t)
     end
     return (t, one_t)

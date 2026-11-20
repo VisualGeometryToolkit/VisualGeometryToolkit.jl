@@ -475,7 +475,7 @@ end
     if !(1 <= gx <= gw - 2 && 1 <= gy <= gh - 2)
         o = GeometryBasics.origin(cs.area)
         sx, sy = _lattice_scales(Float64, cs.area, gsz)
-        ε = max(eps(float(typeof(_primal(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
+        ε = max(eps(float(typeof(primal_value(x[1])))), eps(eltype(eltype(cs.controls))))   # a dual point: its primal's precision
         τx = _EDGE_ULPS * ε * sx * (abs(x[1]) + abs(o[1]))
         τy = _EDGE_ULPS * ε * sy * (abs(x[2]) + abs(o[2]))
         (1 - τx <= gx <= gw - 2 + τx && 1 - τy <= gy <= gh - 2 + τy) || return false
@@ -810,7 +810,7 @@ area's centre; NaN unless it converges onto a point whose window is present.
 @inline function project(l::SplineLens, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
     t = _outer_value(D, X)
     x = project(l, t)
-    all(v -> isfinite(_primal(v)), x) || return SVector{2, D}(_lift_dual(D, x[1]), _lift_dual(D, x[2]))   # not imaged: NaN, no partials
+    all(v -> isfinite(primal_value(v)), x) || return SVector{2, D}(_lift_dual(D, x[1]), _lift_dual(D, x[2]))   # not imaged: NaN, no partials
     if l.forward !== nothing
         y = l.forward(_FORWARD_CHART(X))
         return SVector{2, D}(y[1], y[2])

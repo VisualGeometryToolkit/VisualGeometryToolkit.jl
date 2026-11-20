@@ -382,7 +382,7 @@ public cubic_bspline_weights   # a uniform cubic B-spline span's four weights at
 public with_present, with_directions, with_points, central_model   # a spline model with one part replaced; a non-central model's central part
 public axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis
 public extend_lattice, subdivide_lattice, folded_pixels   # a SplineLens lattice extended on its own spacing (extrapolated nodes marked); subdivided exactly by integers; where its backward map folds
-public primal_float      # the float type under every ForwardDiff Dual layer (base/duals.jl)
+public primal_float, primal_value   # the float type, and the plain number, under every ForwardDiff Dual layer (base/duals.jl)
 export SplineLens, NoncentralSplineModel   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl); the non-central grid on its directions (cameras/noncentral_spline_model.jl)
 public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it
 export ChartSpline   # a uniform cubic B-spline on a 2-D chart (a SplineLens's backward and forward maps)
@@ -466,6 +466,7 @@ public base_quantity  # the one conversion a constructor applies to a quantity i
 export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
+public strip_pixels, strip_point, attach_point, attach_length   # a pixel-sized argument as a plain number; a point's and a length's unit moves (what a carrier's ustrip / with_unit are built from)
 public has_units, with_unit, strip_metres   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers, strip_metres the boundary's strip
 export Size2
 export Gray, N0f8, N0f16  # Image types
@@ -938,7 +939,7 @@ const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs
 include("base/artifacts.jl")    # install_artifact, huggingface_token: the one artifact install (uses config_toml.jl's TOML)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
-include("base/duals.jl")    # ForwardDiff value helpers: _primal (every layer), _outer_value / _with_value (one layer)
+include("base/duals.jl")    # ForwardDiff value helpers: primal_value (every layer), _outer_value / _with_value (one layer)
 include("base/fused_products.jl")   # _fma_dot, _fma_mul, _fma_tmul: product-sums as explicit fma chains (one rounding order in every compiled copy)
 include("base/svd_workspace.jl")  # SvdWorkspace + svd_nullvec! (used by solvers + RVG)
 include("base/propagate.jl")     # propagate(J, Σ) = J * Σ * J' with specializations

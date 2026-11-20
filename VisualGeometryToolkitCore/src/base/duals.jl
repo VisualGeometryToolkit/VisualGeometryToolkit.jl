@@ -4,7 +4,7 @@
 #
 # Two ways to read a Dual's value, for two kinds of solver:
 #
-#   _primal(x)               every layer stripped: the plain number under all
+#   primal_value(x)               every layer stripped: the plain number under all
 #                            the Duals (a texel chosen on it, a lens inverse
 #                            solved on it, then ONE Newton step on the Duals)
 #   _outer_value(D, x)       only D's outermost layer stripped (an implicit
@@ -17,8 +17,15 @@
 # Allocation-free and branch-free in the types, so they run on the device.
 # =============================================================================
 
-@inline _primal(x::Real) = x
-@inline _primal(x::ForwardDiff.Dual) = _primal(ForwardDiff.value(x))
+"""
+    primal_value(x) -> Real
+
+The plain number under every ForwardDiff `Dual` layer of `x` (`x` itself when
+it is no `Dual`): what a branch, a support region or a tolerance reads of a
+value that may carry derivatives. Its type is [`primal_float`](@ref)`(typeof(x))`.
+"""
+@inline primal_value(x::Real) = x
+@inline primal_value(x::ForwardDiff.Dual) = primal_value(ForwardDiff.value(x))
 
 @inline _is_dual_type(::Type{T}) where {T} = T !== Union{} && T <: ForwardDiff.Dual
 """

@@ -109,7 +109,7 @@ end
 # the LM's precision-aware stops.
 @inline function _board_box(q::Quad)
     r = q.rect
-    o, wr = map(_primal, SVector{2}(r.origin)), map(_primal, SVector{2}(r.widths))
+    o, wr = map(primal_value, SVector{2}(r.origin)), map(primal_value, SVector{2}(r.widths))
     lb = SVector{2, Float64}(o)
     ub = SVector{2, Float64}(o + wr)
     w = max.(SVector{2, Float64}(wr), floatmin(Float64))
@@ -150,18 +150,18 @@ end
     _mapped_intersection(s, o, d, zero(SVector{2, Float64}), false)
 @inline function _mapped_intersection(s::MappedSurface, o::StaticVector{3}, d::StaticVector{3}, seed::StaticVector{2}, use_seed::Bool)
     t0, x0 = _plane_hit(s.frame, o, d)
-    p0 = map(_primal, _plane_coordinates(s.frame, x0))
+    p0 = map(primal_value, _plane_coordinates(s.frame, x0))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     seed_ok = all(isfinite, p0)
     x₀ = ifelse(use_seed, oftype(p0, seed), ifelse(seed_ok, p0, oftype(p0, (lb + ub) / 2)))
     p, ok, X = _board_root(_hit_residual, (s, o, d), x₀, lb, ub, sc, tol2, L)
     x = _root_point(X, s, p)
     t = _fma_dot(x - o, d) / _fma_dot(d, d)
-    return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(_primal, p)), t, x)
+    return _masked(seed_ok & ok & (t >= 0) & _in_rect(s.frame.rect, map(primal_value, p)), t, x)
 end
 
 @inline function chart(s::MappedSurface, x::StaticVector{3})
-    p0 = map(_primal, _plane_coordinates(s.frame, x))
+    p0 = map(primal_value, _plane_coordinates(s.frame, x))
     lb, ub, sc, tol2, L = _board_box(s.frame)
     p, ok, _ = _board_root(_chart_residual, (s, x), p0, lb, ub, sc, tol2, L)
     nan = oftype(p[1], NaN)

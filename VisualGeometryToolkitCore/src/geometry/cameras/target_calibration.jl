@@ -79,7 +79,7 @@ regularizer(::Rigid) = SVector{0, Float64}()
 # back in the form of the point it came from.
 @inline _plain_point(p::StaticVector{N, <:Quantity}) where {N} = SVector{N}(map(q -> strip_or_bare(m, q), Tuple(p)))
 @inline _plain_point(p::StaticVector) = SVector(Tuple(p))
-@inline _restore_point(x::StaticVector, ::StaticVector{N, <:Quantity}) where {N} = SVector(map(v -> _attach_length(v, m), Tuple(x)))
+@inline _restore_point(x::StaticVector, ::StaticVector{N, <:Quantity}) where {N} = SVector(map(v -> attach_length(v, m), Tuple(x)))
 @inline _restore_point(x::StaticVector, ::StaticVector) = x
 
 # Lengths read at a constructor: all plain or all lengths (stored as plain
@@ -456,7 +456,7 @@ them moves a piston between the affine and the bending parts).
 """
 is_pure_bending(system::ThinPlateSplineSystem{K}, v::AbstractVector) where {K} =
     (length(v) == K || throw(DimensionMismatch("is_pure_bending: $K nodes, $(length(v)) values")); tps_pure_bending(system, v) == v)
-_node_lengths(system, physical) = physical ? [map(x -> _attach_length(x, m), p) for p in system.nodes] : collect(system.nodes)
+_node_lengths(system, physical) = physical ? [map(x -> attach_length(x, m), p) for p in system.nodes] : collect(system.nodes)
 # 2 × 2K: (nᵀ, 0) over (0, nᵀ) — the two splines' nodal weights
 _two_rows(a::SVector{K}, b::SVector{K}) where {K} = SMatrix{2, K}(ntuple(k -> isodd(k) ? a[(k + 1) ÷ 2] : b[k ÷ 2], Val(2K)))
 
@@ -764,7 +764,7 @@ function _move_unit(c::Union{ThinPlateSpline, HeightField}, u::Units, to_physica
     return _refit(c, [map(f, p) for p in c.system.nodes], map(v -> map(f, v), _values(c)))
 end
 FlexUnits.ustrip(u::Units, c::Union{ThinPlateSpline, HeightField}) = _move_unit(c, u, false, x -> _from_metres(x, u))
-with_unit(c::Union{ThinPlateSpline, HeightField}, u::Units) = _move_unit(c, u, true, x -> _attach_length(x, u))
+with_unit(c::Union{ThinPlateSpline, HeightField}, u::Units) = _move_unit(c, u, true, x -> attach_length(x, u))
 Base.:(==)(a::HeightField, b::HeightField) = a.system.nodes == b.system.nodes && a.h == b.h && a.physical == b.physical
 Base.hash(c::HeightField, h::UInt) = hash(c.physical, hash(c.h, hash(c.system.nodes, hash(:HeightField, h))))
 Base.show(io::IO, c::HeightField{K}) where {K} =

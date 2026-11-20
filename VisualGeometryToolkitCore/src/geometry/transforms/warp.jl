@@ -523,7 +523,7 @@ end
 # and differentiates in the position. Two lookups with two contracts, not one
 # with a flag.
 
-# A texel is chosen on the value under every Dual layer (`_primal`, base/duals.jl); the weights carry the partials.
+# A texel is chosen on the value under every Dual layer (`primal_value`, base/duals.jl); the weights carry the partials.
 
 # The documented minimum, checked once per lookup before any texel is read (a
 # 1-wide or 1-high image has no second texel to blend with: the clamped index
@@ -562,7 +562,7 @@ texels itself (a footprint's rows, a scatter) instead of reading values.
 """
 @inline function bilinear_weights(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
     W, H, x, y = _texel_chart(uv, dims)
-    xv = _primal(x); yv = _primal(y)
+    xv = primal_value(x); yv = primal_value(y)
     Tv = typeof(xv)
     isfinite(xv) || (x = zero(x); xv = zero(Tv))        # a non-finite position reads the corner texel
     isfinite(yv) || (y = zero(y); yv = zero(Tv))
@@ -589,7 +589,7 @@ off the grid).
 """
 @inline function is_inside_texel_centres(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
     W, H, x, y = _texel_chart(uv, dims)
-    xv = _primal(x); yv = _primal(y)
+    xv = primal_value(x); yv = primal_value(y)
     return _clamp_to_centres(xv, W) == xv && _clamp_to_centres(yv, H) == yv     # NaN ≠ NaN: a non-finite one is outside
 end
 

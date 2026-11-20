@@ -32,11 +32,11 @@
 # derivatives (implicit function theorem): no Dual ever runs through an
 # iteration, and a Float result is the solver's own.
 
-# `_primal` (every Dual layer stripped), `_is_dual_type` and `_primal_float`
+# `primal_value` (every Dual layer stripped), `_is_dual_type` and `_primal_float`
 # are the package's (base/duals.jl).
 
 # A lens, or any part of one, with its coefficients stripped to primal values.
-@inline _primal(x) = _is_dual_type(_coeff_type(x)) ? _with_own_parameters(x, map(_primal, _coefficients_of(x))) : x
+@inline primal_value(x) = _is_dual_type(_coeff_type(x)) ? _with_own_parameters(x, map(primal_value, _coefficients_of(x))) : x
 
 # A NaN of the same type, unless `ok`.
 @inline _nan_unless(ok::Bool, v::StaticVector) = ok ? v : v * eltype(v)(NaN)
@@ -118,7 +118,7 @@ end
 # atan(r, z)/r, sin(r)/r and cos(r) as the even functions of r they are: the
 # quotient outside a √eps neighbourhood of the axis, a three-term series —
 # exact to rounding in value AND first derivative — inside it.
-@inline _series_radius2(x) = sqrt(eps(float(typeof(_primal(x)))))
+@inline _series_radius2(x) = sqrt(eps(float(typeof(primal_value(x)))))
 
 @inline function _atan_ratio(r2, z)
     # the test never divides: z can be 0 (a ray at 90°) or negative (past it)
@@ -294,7 +294,7 @@ end
 # Dual factor's branch is its primal's) and stored in T.
 function _radial_branch_ends(::Type{B}, ::Type{T}, k::Tuple, d::Tuple) where {B, T}
     S = float(primal_float(T))
-    kp, dp = map(x -> S(_primal(x)), k), map(x -> S(_primal(x)), d)
+    kp, dp = map(x -> S(primal_value(x)), k), map(x -> S(primal_value(x)), d)
     fold = _fold_point(_fold_coeffs(B, kp, dp, S), Inf)
     return _stored_end(T, fold), _stored_end(T, min(fold, _fold_point(_ucoeffs(B, dp, S), Inf)))
 end
@@ -384,7 +384,7 @@ end
 @inline function _distort_in_frame(l::Lens, x::StaticVector{2})
     r = radial(l)
     r === nothing && return _distort(l.distortion, x)
-    ok = _on_radial_branch(_primal(r), _primal(x[1] * x[1] + x[2] * x[2]))
+    ok = _on_radial_branch(primal_value(r), primal_value(x[1] * x[1] + x[2] * x[2]))
     return _nan_unless(ok, _distort(l.distortion, x))
 end
 # A composition has no `radial(lens)` (its radial factor need not lead, and `radial`
@@ -396,7 +396,7 @@ end
 # tilt fold maps to a finite point whose `backproject` is the imaged branch's
 # preimage (a different ray), or NaN (see `project`).
 @inline function _distort_in_frame(l::Lens{<:AbstractProjection, <:ComposedTransformation}, x::StaticVector{2})
-    ok = _radial_ok(_primal(l.distortion), SVector(_primal(x[1]), _primal(x[2])))
+    ok = _radial_ok(primal_value(l.distortion), SVector(primal_value(x[1]), primal_value(x[2])))
     return _nan_unless(ok, _distort(l.distortion, x))
 end
 
@@ -506,10 +506,10 @@ end
 # Jacobian, puts the derivative on the root (the implicit function theorem).
 # NaN unless the solve converged.
 @inline function _undistort_2d(solve::F, lens, xd::StaticVector{2}) where {F}
-    lp = _primal(lens)
+    lp = primal_value(lens)
     T = promote_type(eltype(xd), _coeff_type(lens))
     S = float(primal_float(T))
-    x0 = SVector{2, S}(_primal(xd[1]), _primal(xd[2]))
+    x0 = SVector{2, S}(primal_value(xd[1]), primal_value(xd[2]))
     x, ok = solve(lp, x0)
     if _is_dual_type(T)
         J = _distort_jacobian(lp.distortion, x)
@@ -531,7 +531,7 @@ end
 
 @inline function _undistort(r::Radial{Even}, l::Lens, xd::StaticVector{2})
     t = xd[1] * xd[1] + xd[2] * xd[2]
-    rp, tp = _primal(r), _primal(t)
+    rp, tp = primal_value(r), primal_value(t)
     T = promote_type(eltype(xd), _coeff_type(l))
     S = float(primal_float(T))
     g = one(S)
@@ -1199,10 +1199,10 @@ exactly, so a point past a second fold is NaN too: the same branch
     # the axis of a Full lift: perspective to first order (no linear term), so the
     # ray and its first derivatives are the perspective lift's — and no square
     # root of zero is differentiated
-    r isa Radial{Full} && iszero(_primal(s)) && return normalize(Vec3(xd[1], xd[2], one(xd[1])))
+    r isa Radial{Full} && iszero(primal_value(s)) && return normalize(Vec3(xd[1], xd[2], one(xd[1])))
     u = first(_basis(r, one(s), s))
     N = _num(r, u)
-    on_branch = _primal(u) <= _primal(r.u_fold)
+    on_branch = primal_value(u) <= primal_value(r.u_fold)
     return _nan_unless(on_branch, Vec3(normalize(SVector(xd[1] * N, xd[2] * N, _den(r, u)))))
 end
 
@@ -1247,24 +1247,24 @@ Newton converges too slowly and the answer is NaN).
     p = SVector{2, F}(xd[1], xd[2])
     resid(m) = project(l, _frame_backproject(EquidistantFrame, m)) - p
     ρ = sqrt(p[1] * p[1] + p[2] * p[2])
-    m = _primal(ρ) > 0 ? p * (atan(ρ) / ρ) : p
+    m = primal_value(ρ) > 0 ? p * (atan(ρ) / ρ) : p
     J = SMatrix{2, 2}(one(m[1]), zero(m[1]), zero(m[1]), one(m[1]))
-    cap = oftype(_primal(ρ), _DEFAULT_INVERSE_MAX_DELTA)
+    cap = oftype(primal_value(ρ), _DEFAULT_INVERSE_MAX_DELTA)
     for _ in 1:_DEFAULT_INVERSE_TRIPS
         r = resid(m)
         J = ForwardDiff.jacobian(resid, m)
         dt = J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]
         dt = abs(dt) > eps(typeof(dt)) ? dt : (dt >= 0 ? eps(typeof(dt)) : -eps(typeof(dt)))
         Δ = SVector(J[2, 2] * r[1] - J[1, 2] * r[2], -J[2, 1] * r[1] + J[1, 1] * r[2]) / dt
-        n = sqrt(_primal(Δ[1] * Δ[1] + Δ[2] * Δ[2]))
+        n = sqrt(primal_value(Δ[1] * Δ[1] + Δ[2] * Δ[2]))
         m = n > cap ? m - Δ * (cap / n) : m - Δ
     end
-    S = typeof(_primal(p[1]))
-    θ2 = _primal(m[1] * m[1] + m[2] * m[2])
-    fm = map(_primal, project(l, _frame_backproject(EquidistantFrame, m)))
+    S = typeof(primal_value(p[1]))
+    θ2 = primal_value(m[1] * m[1] + m[2] * m[2])
+    fm = map(primal_value, project(l, _frame_backproject(EquidistantFrame, m)))
     J = ForwardDiff.jacobian(resid, m)           # orientation AT the returned iterate, not the last step's start
-    ok = isfinite(θ2) && _residual_ok(fm, SVector{2, S}(_primal(p[1]), _primal(p[2]))) &&
-        _primal(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]) > 0 && θ2 < S(π)^2
+    ok = isfinite(θ2) && _residual_ok(fm, SVector{2, S}(primal_value(p[1]), primal_value(p[2]))) &&
+        primal_value(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]) > 0 && θ2 < S(π)^2
     return _nan_unless(ok, Vec3(_frame_backproject(EquidistantFrame, m)))
 end
 
@@ -1292,10 +1292,10 @@ end
 # already carries the exact derivatives.
 @inline function _lift_ratio(r::Radial, x, y, z)
     r2 = x * x + y * y
-    rp = _primal(r)
+    rp = primal_value(r)
     T = promote_type(typeof(r2), typeof(z), _coeff_type(r))
     S = float(primal_float(T))
-    r2p, zp = S(_primal(r2)), S(_primal(z))
+    r2p, zp = S(primal_value(r2)), S(primal_value(z))
     if iszero(r2p)
         m, ok = (zp > 0 ? inv(zp) : S(NaN)), zp > 0
     else

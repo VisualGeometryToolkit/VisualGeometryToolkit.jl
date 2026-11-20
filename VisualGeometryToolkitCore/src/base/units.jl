@@ -320,7 +320,7 @@ strip_metres(x::AbstractVector) = throw(DimensionError(x, m))
 # or a ratio. What can still be refused is a LENGTH (or any other dimension)
 # where a pixel count is meant: every public function that takes a pixel-sized
 # value (a resolution, an image size, a pixel focal length or principal point)
-# sends it through `_check_pixels` or `_strip_pixels`, which accept a plain
+# sends it through `_check_pixels` or `strip_pixels`, which accept a plain
 # number or a dimensionless quantity and raise FlexUnits' `DimensionError`
 # otherwise.
 
@@ -330,6 +330,13 @@ function _check_pixels(q::Quantity)
     dimension(q) == dimension(px) || throw(DimensionError(q, px))
     return q
 end
-# `x` as a plain number of pixels.
-_strip_pixels(x::Real) = x
-_strip_pixels(q::Quantity) = float(ustrip(px, _check_pixels(q)))
+"""
+    strip_pixels(x) -> Real
+
+`x` as a plain number of pixels: a plain number as it is, a `px` quantity
+stripped (a float); a quantity of another dimension (a length) is a
+`DimensionError`. What a constructor applies to a pixel-sized argument
+(a centre, a radius on the sensor).
+"""
+strip_pixels(x::Real) = x
+strip_pixels(q::Quantity) = float(ustrip(px, _check_pixels(q)))

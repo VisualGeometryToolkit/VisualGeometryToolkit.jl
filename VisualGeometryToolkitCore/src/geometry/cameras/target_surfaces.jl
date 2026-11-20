@@ -174,7 +174,7 @@ function _design_rect(t::PlanarTarget, physical::Bool)
     bd === nothing || return _grown_rect(Rect(bd))
     is_resolved(t) || throw(ArgumentError("surface: the target $(repr(reference(t))) is unresolved and has no board to bound its chart"))
     isempty(t.nominal) && throw(ArgumentError("surface: the target has no design points and no board to bound its chart"))
-    plain(p) = physical ? _ustrip_point(m, p) : p     # no copy of the points
+    plain(p) = physical ? strip_point(m, p) : p     # no copy of the points
     lo = mapreduce(plain, (p, q) -> min.(p, q), t.nominal)
     hi = mapreduce(plain, (p, q) -> max.(p, q), t.nominal)
     return _grown_rect(lo, hi)
@@ -238,7 +238,7 @@ const _HEIGHT_NEWTON_MAX_ITER = 20
     D = _hit_numbers(M, typeof(o), typeof(d))
     D <: ForwardDiff.Dual{<:Any, <:AbstractFloat} && return _height_implicit(D, s, o, d)
     sP = _primal_surface(s)
-    _, _, p, ok = _height_root(sP, sP.map.t2.t1.t1, _field_and_affine(sP.map.t2.t1.t2.c)..., map(_primal, o), map(_primal, d))
+    _, _, p, ok = _height_root(sP, sP.map.t2.t1.t1, _field_and_affine(sP.map.t2.t1.t2.c)..., map(primal_value, o), map(primal_value, d))
     return _mapped_intersection(s, o, d, p, ok)
 end
 # The implicit-function step at the 1-D Newton's hit `pV` of the values: ONE evaluation of the chart map with D's partials at
@@ -287,8 +287,8 @@ end
     pV = _height_design_point(sV, sV.map.t2.t1.t1, Base.tail(_field_and_affine(sV.map.t2.t1.t2.c))..., ifelse(found, xV, zero(xV)))
     return _height_implicit_at(D, s, sV, o, d, pV, found & _in_rect(sV.frame.rect, pV))
 end
-# A surface with every Dual layer of its members and frame stripped (`_primal`).
-@inline _primal_surface(s::MappedSurface) = MappedSurface(_map_members(m -> _member_numbers(_primal, m), s.map), _map_numbers(_primal, s.frame))
+# A surface with every Dual layer of its members and frame stripped (`primal_value`).
+@inline _primal_surface(s::MappedSurface) = MappedSurface(_map_members(m -> _member_numbers(primal_value, m), s.map), _map_numbers(primal_value, s.frame))
 
 @inline function _height_fast(s::MappedSurface, S::SimilarityMap{3}, H::HeightField, J, β, o::StaticVector{3}, d::StaticVector{3})
     t, x, _, ok = _height_root(s, S, H, J, β, o, d)

@@ -119,8 +119,8 @@ end
 @inline function _continued_window(gx, gy, gw::Integer, gh::Integer)
     x = gx + 2
     y = gy + 2
-    ix = clamp(unsafe_trunc(Int, floor(_primal(x))), 3, gw - 1)   # a dual coordinate: its primal's cell
-    iy = clamp(unsafe_trunc(Int, floor(_primal(y))), 3, gh - 1)
+    ix = clamp(unsafe_trunc(Int, floor(primal_value(x))), 3, gw - 1)   # a dual coordinate: its primal's cell
+    iy = clamp(unsafe_trunc(Int, floor(primal_value(y))), 3, gh - 1)
     return ix, iy, cubic_bspline_weights(_span_coordinate(x, ix)), cubic_bspline_weights(_span_coordinate(y, iy))
 end
 

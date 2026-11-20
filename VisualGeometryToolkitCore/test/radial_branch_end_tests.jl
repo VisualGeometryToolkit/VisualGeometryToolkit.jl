@@ -78,14 +78,14 @@
         d = Radial((ForwardDiff.Dual(-0.3, 1.0), ForwardDiff.Dual(0.04, 0.0)))
         @test ForwardDiff.value(d.u_end) === r.u_end
         @test ForwardDiff.value(d.u_fold) === r.u_fold
-        @test C._primal(d) === r
+        @test C.primal_value(d) === r
         # widening casts the ends (no new sweep); the primal of a Float64
         # differentiation of a Float32 lens is that lens at Float64
         l32 = VisualGeometryToolkitCore._precision(Float32, KannalaBrandt(-0.3))
         l64 = VisualGeometryToolkitCore._precision(Float64, l32)
         @test l64.distortion.u_end === Float64(l32.distortion.u_end)
         θd = ForwardDiff.Dual.(Float64.(parameter_vector(l32)), 1.0)
-        @test C._primal(C._with_own_parameters(l32, θd)) === l64
+        @test C.primal_value(C._with_own_parameters(l32, θd)) === l64
         # narrowing recomputes from the rounded coefficients
         @test VisualGeometryToolkitCore._precision(Float32, KannalaBrandt(-0.3)).distortion.u_end ===
             C._fold_point(C._fold_coeffs(Radial((-0.3f0,))), Inf)

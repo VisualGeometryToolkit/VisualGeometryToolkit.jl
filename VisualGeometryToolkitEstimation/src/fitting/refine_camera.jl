@@ -96,7 +96,7 @@ end
 # A ray's view angle about ẑ and its azimuth's unit vector (zero on the axis, where the radius is 0). Dual-safe.
 @inline function _angle_azimuth(x)
     ρ = VgtkCore.Cameras._radius(x)
-    az = iszero(VgtkCore._primal(ρ)) ? zero(SVector{2, typeof(ρ)}) : SVector(x[1], x[2]) / ρ
+    az = iszero(VgtkCore.primal_value(ρ)) ? zero(SVector{2, typeof(ρ)}) : SVector(x[1], x[2]) / ρ
     return atan(ρ, x[3]), az
 end
 # A sample's ray in the fitted frame as (view angle, azimuth): turned by R, or the source's own (its angle as sampled).

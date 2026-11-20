@@ -149,9 +149,9 @@ CameraCalibrationMat(f::Quantity, pp::AbstractVector{<:Quantity}) = CameraCalibr
 
 function CameraCalibrationMat(f::Tuple{T, T}, pp::AbstractVector{<:Quantity}) where {T <: Quantity}
     # Strip units and store as Float64 (pixels are dimensionless: a length is a DimensionError)
-    pp_val = _strip_pixels.(pp)
+    pp_val = strip_pixels.(pp)
     return CameraCalibrationMat{Float64}(
-        Float64(_strip_pixels(f[1])), Float64(_strip_pixels(f[2])), 0.0,
+        Float64(strip_pixels(f[1])), Float64(strip_pixels(f[2])), 0.0,
         Float64(pp_val[1]), Float64(pp_val[2]), _Unchecked()
     )
 end

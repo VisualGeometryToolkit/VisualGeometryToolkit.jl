@@ -150,7 +150,7 @@ function DiagonalNormalization(size; center = nothing)
     c = center === nothing ? SVector(w / 2, h / 2) : SVector{2, Float64}(center[1], center[2])
     return DiagonalNormalization(w, h, c)
 end
-_pixel_extent(x) = Float64(_strip_pixels(x))   # a plain number or px; a length is a DimensionError
+_pixel_extent(x) = Float64(strip_pixels(x))   # a plain number or px; a length is a DimensionError
 
 """
     AffineMap(s::HartleyNormalization, points, mask = nothing, weights = nothing) -> AffineMap

@@ -176,7 +176,7 @@ inverses' brackets) reads them too.
 The ends follow from the coefficients in the precision they were built in. A
 WIDENING rebuild — `convert_eltype` to a wider type, the Duals of a parameter
 Jacobian and their primal — casts them instead of sweeping again, so a Float32
-factor seen at Float64 keeps its own branch (and `_primal` of a Float64
+factor seen at Float64 keeps its own branch (and `primal_value` of a Float64
 differentiation of a Float32 lens is `_precision(Float64, lens)`); such a factor
 can differ from one constructed at Float64 from the same coefficients by the
 narrow precision's rounding of the end. A narrowing conversion recomputes them.
@@ -467,7 +467,7 @@ function _rebuild_expr(X, T, coef, o = Ref(0), src = nothing)
     num() = coef(o[] += 1, S)
     args = [F <: Tuple ? Expr(:tuple, (num() for _ in 1:fieldcount(F))...) : num() for F in fieldtypes(X)[1:_param_fields(X)]]
     (src !== nothing && X <: Radial) &&
-        push!(args, :($S(_primal($src.u_fold))), :($S(_primal($src.u_end))), :(Val(:carried)))
+        push!(args, :($S(primal_value($src.u_fold))), :($S(primal_value($src.u_end))), :(Val(:carried)))
     return :($Y($(args...))), Y
 end
 _number_type_of(C) = (T = C <: Tuple ? promote_type(fieldtypes(C)...) : eltype(C); T === Union{} ? Float64 : float(T))

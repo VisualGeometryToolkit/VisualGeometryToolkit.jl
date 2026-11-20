@@ -113,7 +113,7 @@ import ..VisualGeometryToolkitCore: Manifold, SubsetManifold, retract, recenter,
     local_coordinates, minimal_manifold, restrict, tangent_size   # the lens manifold (lens_chart.jl) extends the contract
 using ..VisualGeometryToolkitCore: SphereManifold   # RadialCamera's minimal manifold (calibration.jl)
 using ..VisualGeometryToolkitCore: _lift            # a restriction's coordinates lifted (lens_chart.jl's boxed recenter)
-import ..VisualGeometryToolkitCore: _primal         # every Dual layer stripped (base/duals.jl); lens_rays.jl adds the lens method
+import ..VisualGeometryToolkitCore: primal_value         # every Dual layer stripped (base/duals.jl); lens_rays.jl adds the lens method
 using ..VisualGeometryToolkitCore: _is_dual_type, primal_float   # (base/duals.jl)
 import ..VisualGeometryToolkitCore: constraint_dim, _observation_dim, ambient_coordinates   # … and its place in the covariance machinery
 import ..VisualGeometryToolkitCore: _precision, _has_division  # image_warp chain hooks: lens precision, a lens consumes a ray
@@ -124,7 +124,7 @@ import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (share
 import ..VisualGeometryToolkitCore: surface, intersection, intersection_at, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: static_lm, StaticLmStops, _LM_AREA_UNITS, _STATIC_LM_MAX_ITER   # the one device LM and its stop settings (robust/lm_core.jl)
 using ..VisualGeometryToolkitCore: _fma_dot, _fma_mul, _fma_tmul   # explicit fused products (base/fused_products.jl): the spline LM and the MappedSurface root
-using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, _primal, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
+using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, primal_value, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
 using ..VisualGeometryToolkitCore: _check_length   # a length, or a DimensionError (euclidean_map.jl)
 using ..VisualGeometryToolkitCore: Attributed, correspondences, Correspondences, withattrs  # composition primitives (depth-attributed points, correspondence sets)
@@ -138,15 +138,15 @@ using Base: ImmutableDict
 
 # Import types and macros defined in core and geometry
 using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, base_quantity, strip_or_bare, px, mm, μm, m
-using ..VisualGeometryToolkitCore: _check_pixels, _strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
+using ..VisualGeometryToolkitCore: _check_pixels, strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
 using ..VisualGeometryToolkitCore: SimilarityMap   # similarity_scale of a similarity (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
 using ..VisualGeometryToolkitCore: RotationMap, WorldFrame, CameraFrame, _mapped_origin   # an oriented camera's pose (transforms/rotation_map.jl)
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
-using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, _ustrip_point, _attach_point, _stored_point,
+using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, strip_point, attach_point, _stored_point,
     _check_one_form, strip_metres, _translation_metres,   # the one strip/attach of maps and points, the one-form rule (euclidean_map.jl)
-    _attach_length, _metre_factor, _scale_length_form   # one length's attach (its strip is `strip_or_bare`), a unit's metre factor (a calibration's lengths)
+    attach_length, _metre_factor, _scale_length_form   # one length's attach (its strip is `strip_or_bare`), a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, _pure_bending_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, map_frames, Frame
@@ -1073,7 +1073,7 @@ chosen metric unit, e.g. mm) and `LogicalIntrinsics` (unitless pixels;
 # A physical camera takes a depth that is a length and returns the point in
 # metres: the plain call in metres, its result read back in metres.
 unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quantity) =
-    _attach_point(m, unproject(ustrip(m, camera), u, strip_metres(depth)))
+    attach_point(m, unproject(ustrip(m, camera), u, strip_metres(depth)))
 
 # ============================================================================
 # Camera Accessor Functions

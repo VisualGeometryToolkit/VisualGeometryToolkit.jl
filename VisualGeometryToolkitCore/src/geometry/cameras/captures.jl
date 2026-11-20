@@ -617,8 +617,8 @@ function has_units(x::TargetObservations)
     end
     return false
 end
-FlexUnits.ustrip(u::Units, x::TargetObservations{F}) where {F <: Frame{3}} = _map_detections(p -> _ustrip_point(u, p), F, x)
-with_unit(x::TargetObservations{F}, u::Units) where {F <: Frame{3}} = _map_detections(p -> _attach_point(u, p), F, x)
+FlexUnits.ustrip(u::Units, x::TargetObservations{F}) where {F <: Frame{3}} = _map_detections(p -> strip_point(u, p), F, x)
+with_unit(x::TargetObservations{F}, u::Units) where {F <: Frame{3}} = _map_detections(p -> attach_point(u, p), F, x)
 
 # --- the Dict surface, frame index → value (the methods: end of file) --------------
 

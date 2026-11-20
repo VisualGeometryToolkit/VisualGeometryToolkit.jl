@@ -213,7 +213,7 @@ end
     # the subspace, so its derivative is the projection's everywhere (`p − primal(p)`
     # carries the plane's partials with a zero value, so `v − it` keeps v's value exactly)
     _within_rtol(_primal_values(plane), _primal_values(v)) &&
-        return T <: AbstractFloat ? v : SVector{N, T}(ntuple(i -> v[i] - (plane[i] - _primal(plane[i])), Val(N)))
+        return T <: AbstractFloat ? v : SVector{N, T}(ntuple(i -> v[i] - (plane[i] - primal_value(plane[i])), Val(N)))
     return SVector{N, T}(ntuple(i -> v[i] - plane[i], Val(N)))
 end
 
@@ -236,7 +236,7 @@ end
 # bending: far above the rounding of a projection, far below any real plane.
 const _PLANE_PART_RTOL = 1.0e-12
 @inline _within_rtol(plane, v) = sqrt(sum(abs2, plane)) <= _PLANE_PART_RTOL * sqrt(sum(abs2, v))
-@inline _primal_values(v::StaticVector) = map(_primal, v)
+@inline _primal_values(v::StaticVector) = map(primal_value, v)
 
 
 """

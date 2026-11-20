@@ -113,8 +113,8 @@ end
 points(t::PointTarget) = t.points
 Base.:(==)(a::PointTarget, b::PointTarget) = a.points == b.points
 has_units(t::PointTarget) = any(has_units, points(t))
-FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([_ustrip_point(u, p) for p in points(t)])
-with_unit(t::PointTarget, u::Units) = PointTarget([_attach_point(u, p) for p in points(t)])
+FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([strip_point(u, p) for p in points(t)])
+with_unit(t::PointTarget, u::Units) = PointTarget([attach_point(u, p) for p in points(t)])
 
 # ------------------------------------------------------------------------------
 # The placement — a calibration's dimensionless chart in the target's frame
@@ -457,7 +457,7 @@ FlexUnits.ustrip(u::Units, g::AprilGrid{<:Quantity}) = AprilGrid(;
     g.tag_rows, g.tag_cols, tag_size = strip_or_bare(u, g.tag_size), tag_spacing = strip_or_bare(u, g.tag_spacing), g.apriltag_family, g.first_id
 )
 with_unit(g::AprilGrid{<:Real}, u::Units) = AprilGrid(;
-    g.tag_rows, g.tag_cols, tag_size = _attach_length(g.tag_size, u), tag_spacing = _attach_length(g.tag_spacing, u), g.apriltag_family, g.first_id
+    g.tag_rows, g.tag_cols, tag_size = attach_length(g.tag_size, u), tag_spacing = attach_length(g.tag_spacing, u), g.apriltag_family, g.first_id
 )
 
 # The target of a layout's points, recording the layout (`layout(t)`).
@@ -560,7 +560,7 @@ already in the form asked for is an `ArgumentError`.
 FlexUnits.ustrip(u::Units, p::SchoepsPattern{<:Quantity}) =
     SchoepsPattern(; p.squares_x, p.squares_y, square_length = strip_or_bare(u, p.square_length), p.apriltags, p.star_segments, p.apriltag_family)
 with_unit(p::SchoepsPattern{<:Real}, u::Units) =
-    SchoepsPattern(; p.squares_x, p.squares_y, square_length = _attach_length(p.square_length, u), p.apriltags, p.star_segments, p.apriltag_family)
+    SchoepsPattern(; p.squares_x, p.squares_y, square_length = attach_length(p.square_length, u), p.apriltags, p.star_segments, p.apriltag_family)
 
 # A canvas, its texture and a layout move their unit once: stripping plain numbers or
 # attaching a unit twice is refused (target_calibration.jl's refusals, by type name).
@@ -729,13 +729,13 @@ _lengths_part(t::PlanarTarget) = t.placement === nothing ? geom(t.calibration) :
 # (a placed calibration is plain chart numbers; the placement carries the lengths).
 _calibration_unit_move(t::PlanarTarget, f) = t.placement === nothing ? f(t.calibration) : t.calibration
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = _unit_moved(
-    t, _move_board(ustrip, u, t.layout, true), p -> _ustrip_point(u, p),
+    t, _move_board(ustrip, u, t.layout, true), p -> strip_point(u, p),
     _calibration_unit_move(t, c -> _ustrip_calibration(u, c)),
     _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_placement(t.placement, x -> _from_metres(x, u))
 )
 _unit_attached(u, x) = with_unit(x, u)   # `with_unit` in `ustrip`'s argument order, for `_move_board`
 with_unit(t::PlanarTarget, u::Units) = _unit_moved(
-    t, _move_board(_unit_attached, u, t.layout, false), p -> _attach_point(u, p),
+    t, _move_board(_unit_attached, u, t.layout, false), p -> attach_point(u, p),
     _calibration_unit_move(t, c -> _attach_calibration(u, c)),
     _move_board(_unit_attached, u, t.board, false), _move_board(_unit_attached, u, t.canvas, false),
     _move_placement(t.placement, x -> _to_metres(x, u))

@@ -319,7 +319,7 @@ project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_di
 @inline function project(m::NoncentralSplineModel, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
     Xv = _outer_value(D, X)
     u = project(m, Xv)
-    all(v -> isfinite(_primal(v)), u) || return SVector{2, D}(_lift_dual(D, u[1]), _lift_dual(D, u[2]))   # not imaged: NaN, no partials
+    all(v -> isfinite(primal_value(v)), u) || return SVector{2, D}(_lift_dual(D, u[1]), _lift_dual(D, u[2]))   # not imaged: NaN, no partials
     p = normalized_point(m.intrinsics, u)
     d, _ = _spline_direction_and_jacobian(m.directions.controls, m.directions.area, p)
     t1, t2 = direction_tangents(d)

@@ -166,6 +166,9 @@ const CONTRACT_GENERICS = (
     # geometry and camera accessors other packages implement for their own types
     centroid, region, shape_matrix, feature_frame, geom, correspondences, focal_length, propagate,
     intrinsics, lens, model, extent, bounds_trait, is_posed, Pools.pair_scene, division_coeffs,
+    # a field's centre and a length carrier's units, which a downstream type that holds pixels or lengths answers
+    # (a vignetting profile's centre, an environment light's centre and radius: VisualRadiometryToolkitCore)
+    center, has_units, with_unit,
     free_names,   # a lens family's free coefficients: a calibrator's own lens target (CaliBlobs' LensTarget) answers it
     # the support protocol a node model implements (geometry/cameras/support.jl)
     support_trait, nodes, support, node_position,

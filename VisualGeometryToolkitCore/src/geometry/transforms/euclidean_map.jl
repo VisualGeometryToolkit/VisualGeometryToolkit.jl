@@ -157,7 +157,7 @@ end
     ) where {N}
     # The verdict is about values: every ForwardDiff Dual layer is stripped (the
     # Duals themselves flow on through the constructor, which returns `nothing` here).
-    Rm = SMatrix{N, N, Float64}(map(_primal, SMatrix{N, N}(R)))
+    Rm = SMatrix{N, N, Float64}(map(primal_value, SMatrix{N, N}(R)))
     dev_orth = norm(Rm * Rm' - SMatrix{N, N, Float64}(LinearAlgebra.I))
     detR = det(Rm)
     (dev_orth <= atol && detR > 0) && return nothing
@@ -638,11 +638,17 @@ const CameraExtrinsics{T, R <: Rotation{3, T}, V <: StaticVector{3}} =
 # columns (4–6) carry the length unit: they move with it, once, here.
 #
 # Every length crosses between the forms through one pair, `strip_or_bare` and
-# `_attach_length` (FlexUnits' `ustrip` and `base_quantity`), so the conversion is
+# `attach_length` (FlexUnits' `ustrip` and `base_quantity`), so the conversion is
 # stated once for maps, points and every carrier built on them.
 
-# One plain number in `u`, as a length in metres.
-@inline _attach_length(x::Real, u::Units) = _check_length(base_quantity(Quantity(x, u)))
+"""
+    attach_length(x::Real, u::Units) -> Quantity
+
+One plain number in the length unit `u`, as a length in metres (the stored base
+form); a unit that is no length is a `DimensionError`. Its inverse is
+[`strip_or_bare`](@ref)`(u, q)`.
+"""
+@inline attach_length(x::Real, u::Units) = _check_length(base_quantity(Quantity(x, u)))
 
 has_units(::EuclideanMap{N, T, R, V}) where {N, T, R, V} = eltype(V) <: Quantity
 has_units(u::Attributed) = has_units(getfield(u, :value))
@@ -669,7 +675,7 @@ end
 # rotation as a `RotMatrix`).
 function _attach_unit(E::EuclideanMap{N, T, R, V, Src, Dst}, u::Units) where {N, T, R, V, Src, Dst}
     has_units(E) && throw(ArgumentError("with_unit: the map's translation already has units"))
-    t = map(x -> _attach_length(x, u), E.t)
+    t = map(x -> attach_length(x, u), E.t)
     return EuclideanMap{N, T, R, typeof(t), Src, Dst}(E.R, t)
 end
 
@@ -913,14 +919,27 @@ _translation_metres(E::EuclideanMap) = has_units(E) ? strip_metres(translation(E
 # one whose d×d covariance is in m² (a precision in 1/m²); its plain form in a
 # unit `u` scales the covariance by `ustrip(u, 1 m)²`, the inverse divides it.
 
-_ustrip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> strip_or_bare(u, q), p)
-_ustrip_point(u::Units, p::Uncertain) =
-    Uncertain(_ustrip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), *))
-_ustrip_point(::Units, p) = throw(ArgumentError("ustrip: the point $(p) is plain numbers already; `with_unit` attaches a unit"))
-_attach_point(u::Units, p::StaticVector{N, <:Real}) where {N} = map(x -> _attach_length(x, u), p)
-_attach_point(u::Units, p::Uncertain) =
-    Uncertain(_attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), /))
-_attach_point(::Units, p) = throw(ArgumentError("with_unit: the point $(p) already has units"))
+"""
+    strip_point(u::Units, p) -> p′
+    attach_point(u::Units, p) -> p′
+
+A point's lengths as plain numbers in the unit `u`, and the inverse: a static
+vector of lengths (an `Uncertain` one with its covariance in the unit's
+square). A point that is plain already (already has units) is an
+`ArgumentError`. The moves a carrier of points makes in its own
+`ustrip(u, x)` and [`with_unit`](@ref)`(x, u)`.
+"""
+function strip_point end
+function attach_point end
+@doc (@doc strip_point) attach_point
+strip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> strip_or_bare(u, q), p)
+strip_point(u::Units, p::Uncertain) =
+    Uncertain(strip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), *))
+strip_point(::Units, p) = throw(ArgumentError("ustrip: the point $(p) is plain numbers already; `with_unit` attaches a unit"))
+attach_point(u::Units, p::StaticVector{N, <:Real}) where {N} = map(x -> attach_length(x, u), p)
+attach_point(u::Units, p::Uncertain) =
+    Uncertain(attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), /))
+attach_point(::Units, p) = throw(ArgumentError("with_unit: the point $(p) already has units"))
 
 # every entry of a point is a length
 _scale_point_form(M::Union{CovMat{N}, PrecMat{N}}, f, op) where {N} = _scale_length_form(M, ntuple(_ -> true, Val(N)), f, op)

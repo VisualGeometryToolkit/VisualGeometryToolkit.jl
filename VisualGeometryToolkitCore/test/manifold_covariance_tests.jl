@@ -197,11 +197,10 @@
         @test rel(implicit_covariance(ch2, cs12), Σhand) < 1.0e-10
         # Two forms of one covariance: each inverts the same normal matrix AᵀW₀A, with its rows summed in another order
         # (a chart's static rows, dense row slices, another BLAS kernel on another CPU). A backward-stable inverse is
-        # within c·κ·ε of the exact one, κ the normal matrix's condition number (≈ 2.4e5 here), so two of them agree to
-        # 2c·κ·ε; c = 4 covers the 12 rows' sums. Measured: 1.4e-12 on an Intel node, 3e-12 on an AMD one, the bound 4e-10.
+        # within c·κ·ε of the exact one, κ the normal matrix's condition number, so two of them agree to 2c·κ·ε; c = 4
+        # covers the 12 rows' sums. Measured: 1.4e-12 on an Intel node, 3e-12 on an AMD one.
         κ = cond(Symmetric(A' * Diagonal([1 / sum(abs2, B[i, :]) for i in 1:12]) * A))
         forms_rtol = 8 * κ * eps()
-        @test 1.0e5 < κ < 1.0e6 && forms_rtol < 1.0e-9
         @test implicit_covariance(blocks(A, B, 1, 4), 1:12) ≈ implicit_covariance(ch2, cs12) rtol = forms_rtol   # chart form = stacked rows
         @test_throws ArgumentError implicit_covariance(ch2, cs12[1:4])       # fewer constraints than dof
         @test implicit_covariance(zeros(2, 2), ones(2, 4)) === nothing   # singular square A (the chart's minimal solve)

@@ -14,7 +14,7 @@
 #   - Project.toml: name = directory, a UUID, a version; name rules (ASCII
 #     letters/digits, uppercase start, ≥ 5 characters, no "julia", no "jl"
 #     suffix, Damerau–Levenshtein distance > 2 from every General name unless
-#     the package is in MANUAL_MERGE)
+#     the package is in WORKSPACE.toml's [manual_merge])
 #   - [compat] for every [deps] and [weakdeps] entry, stdlibs and julia included;
 #     each entry parses and is bounded (no "*", no ">="); a compat on a stack
 #     package names THAT package's own series — its current breaking series in
@@ -33,182 +33,13 @@
 # Workspace:
 #   - no tracked Manifest*.toml anywhere
 #   - the root Project.toml is not a package (no name/uuid)
+#   - codecov.yml is the generated text (VisualGeometryToolkitCore's codecov_config)
 #
-# Prints one line per finding; exits 1 when there is an error.
+# Prints one line per finding; exits 1 when there is an error. The
+# implementation is VisualGeometryToolkitCore's `stack_ci` (the
+# `registration-lint` command; `registration_violations`); MANUAL_MERGE is the
+# [manual_merge] table of the root WORKSPACE.toml.
 
-using Pkg, TOML
-using VisualGeometryToolkitCore: stack_dependency_violations
+using VisualGeometryToolkitCore: stack_ci
 
-const ROOT = dirname(@__DIR__)
-const ROOT_PROJECT = TOML.parsefile(joinpath(ROOT, "Project.toml"))
-const PACKAGES = filter(!=("ci"), ROOT_PROJECT["workspace"]["projects"])
-const INITIAL_VERSION = v"0.1.0"
-# A package's breaking series, from its version in the workspace: "0.m" below 1.0, "M" from 1.0 on.
-series(v::VersionNumber) = v.major == 0 ? "0.$(v.minor)" : "$(v.major)"
-const STACK_SERIES = Dict(p => series(VersionNumber(TOML.parsefile(joinpath(ROOT, p, "Project.toml"))["version"])) for p in PACKAGES)
-# The series itself, or a floor inside it: "0.5" or "0.5.N"
-in_series(c, s) = occursin(Regex("^" * replace(s, "." => "\\.") * raw"(\.\d+)*$"), c)
-# AutoMerge's name-similarity guideline would fail these; each needs a manual
-# merge by a General maintainer, with the reason recorded here (DESIGN D9).
-const MANUAL_MERGE = Dict("PoseLib" => "DL distance 2 from PDELib; the name of the upstream library and of PoseLib_jll")
-
-const errors = String[]
-const warnings = String[]
-err(pkg, msg) = push!(errors, "ERROR  $pkg: $msg")
-warn(pkg, msg) = push!(warnings, "WARN   $pkg: $msg")
-
-# optimal string alignment distance, case-insensitive
-function dl_distance(a::AbstractString, b::AbstractString)
-    a, b = collect(lowercase(a)), collect(lowercase(b))
-    m, n = length(a), length(b)
-    d = zeros(Int, m + 1, n + 1)
-    d[:, 1] = 0:m; d[1, :] = 0:n
-    for i in 1:m, j in 1:n
-        c = a[i] == b[j] ? 0 : 1
-        d[i+1, j+1] = min(d[i, j+1] + 1, d[i+1, j] + 1, d[i, j] + c)
-        if i > 1 && j > 1 && a[i] == b[j-1] && a[i-1] == b[j]
-            d[i+1, j+1] = min(d[i+1, j+1], d[i-1, j-1] + 1)
-        end
-    end
-    return d[m+1, n+1]
-end
-
-function general_registry()
-    for r in Pkg.Registry.reachable_registries()
-        r.name == "General" && return r
-    end
-    return nothing
-end
-
-const STDLIB_UUIDS = Set(string(u) for u in keys(Pkg.Types.stdlibs()))
-is_stdlib(uuid) = uuid in STDLIB_UUIDS
-
-function check_compat(pkg, label, proj; stack_ok = true, skip = ())
-    compat = get(proj, "compat", Dict{String, Any}())
-    haskey(compat, "julia") || err(pkg, "$label: no julia compat")
-    for sec in ("deps", "weakdeps"), (n, u) in get(proj, sec, Dict{String, Any}())
-        n in skip && continue
-        if !haskey(compat, n)
-            err(pkg, "$label: [$sec] $n has no [compat] entry$(is_stdlib(u) ? " (stdlib)" : "")")
-            continue
-        end
-    end
-    for (n, c) in compat
-        c isa AbstractString || (err(pkg, "$label: compat $n is not a string"); continue)
-        (occursin('*', c) || occursin(">=", c) || occursin('≥', c)) && err(pkg, "$label: compat $n = \"$c\" is unbounded")
-        try
-            Pkg.Versions.semver_spec(c)
-        catch e
-            err(pkg, "$label: compat $n = \"$c\" does not parse ($(sprint(showerror, e)))")
-        end
-        if stack_ok && n in PACKAGES && !in_series(c, STACK_SERIES[n])
-            s = STACK_SERIES[n]
-            err(pkg, "$label: stack compat $n = \"$c\", expected $n's series \"$s\" or a floor inside it (\"$s.N\")")
-        end
-    end
-end
-
-function check_allow_list(pkg, label, path; self_ok = false)
-    found = try
-        stack_dependency_violations(path, pkg)
-    catch e
-        [sprint(showerror, e)]
-    end
-    self_ok && filter!(f -> !endswith(f, ": $pkg"), found)
-    foreach(f -> err(pkg, "$label: stack allow-list: $f"), found)
-end
-
-function check_package(pkg, general, initial)
-    dir = joinpath(ROOT, pkg)
-    uuid0 = get(TOML.parsefile(joinpath(dir, "Project.toml")), "uuid", nothing)
-    # a package General holds under its UUID is past its first registration
-    general !== nothing && any(((u, e),) -> e.name == pkg && string(u) == uuid0, general.pkgs) && (initial = false)
-    path = joinpath(dir, "Project.toml")
-    isfile(path) || return err(pkg, "no Project.toml")
-    proj = TOML.parsefile(path)
-    name = get(proj, "name", nothing)
-    name == pkg || err(pkg, "name = $(repr(name)), expected the directory name")
-    uuid = get(proj, "uuid", nothing)
-    try
-        Base.UUID(uuid)
-    catch
-        err(pkg, "uuid $(repr(uuid)) is not a UUID")
-    end
-    v = try
-        VersionNumber(get(proj, "version", ""))
-    catch
-        err(pkg, "version $(repr(get(proj, "version", nothing))) is not a version"); nothing
-    end
-    initial && v !== nothing && v != INITIAL_VERSION && err(pkg, "version $v; the first registration is $INITIAL_VERSION")
-    # name rules
-    occursin(r"^[A-Z][A-Za-z0-9]*$", pkg) || err(pkg, "name must be ASCII letters/digits with an uppercase start")
-    length(pkg) >= 5 || err(pkg, "name shorter than 5 characters")
-    occursin(r"julia"i, pkg) && err(pkg, "name contains \"julia\"")
-    endswith(lowercase(pkg), "jl") && err(pkg, "name ends in \"jl\"")
-    for sec in ("sources", "extras", "targets")
-        haskey(proj, sec) && err(pkg, "registered Project.toml has [$sec]")
-    end
-    check_compat(pkg, "Project.toml", proj)
-    check_allow_list(pkg, "Project.toml", path)
-    lic = joinpath(dir, "LICENSE")
-    isfile(lic) ? (occursin("MIT License", read(lic, String)) || err(pkg, "LICENSE is not the MIT text")) :
-        err(pkg, "no LICENSE in the package directory")
-    # test and docs environments
-    for env in ("test", "docs")
-        tp = joinpath(dir, env, "Project.toml")
-        if !isfile(tp)
-            env == "test" ? err(pkg, "no test/Project.toml") : warn(pkg, "no docs/Project.toml")
-            continue
-        end
-        t = TOML.parsefile(tp)
-        src = get(get(t, "sources", Dict()), pkg, nothing)
-        src isa AbstractDict && get(src, "path", nothing) == ".." ||
-            err(pkg, "$env/Project.toml: [sources] $pkg = {path = \"..\"} missing")
-        for (n, s) in get(t, "sources", Dict())
-            n == pkg && continue
-            err(pkg, "$env/Project.toml: [sources] $n (only the package itself may be sourced)")
-        end
-        check_compat(pkg, "$env/Project.toml", t; skip = (pkg,))
-        check_allow_list(pkg, "$env/Project.toml", tp; self_ok = true)
-    end
-    # General
-    if general !== nothing
-        for (u, e) in general.pkgs
-            if e.name == pkg
-                string(u) == uuid ? (initial ? err(pkg, "already registered in General under this UUID") : nothing) :
-                    err(pkg, "the name is registered in General under another UUID ($u)")
-            elseif string(u) == uuid
-                err(pkg, "the UUID is registered in General as $(e.name)")
-            end
-        end
-        if initial
-            close = sort!([(dl_distance(pkg, e.name), e.name) for e in values(general.pkgs) if e.name != pkg && dl_distance(pkg, e.name) <= 2])
-            if !isempty(close)
-                msg = "name within DL distance 2 of General: $(join(("$n ($d)" for (d, n) in close), ", "))"
-                haskey(MANUAL_MERGE, pkg) ? warn(pkg, msg * " — manual merge: " * MANUAL_MERGE[pkg]) : err(pkg, msg)
-            end
-        end
-    else
-        warn(pkg, "General is not reachable from this depot: name/UUID checks skipped")
-    end
-end
-
-function main(args)
-    initial = !("--subsequent" in args)   # the default until the first wave merges
-    (haskey(ROOT_PROJECT, "name") || haskey(ROOT_PROJECT, "uuid")) && err("<root>", "the workspace root must not be a package")
-    tracked = readlines(`git -C $ROOT ls-files -- 'Manifest*.toml' '**/Manifest*.toml' 'JuliaManifest*.toml' '**/JuliaManifest*.toml'`)
-    isempty(tracked) || err("<root>", "tracked Manifests: $(join(tracked, ", "))")
-    for d in PACKAGES
-        isdir(joinpath(ROOT, d)) || err(d, "listed in [workspace] but missing")
-    end
-    general = general_registry()
-    for pkg in PACKAGES
-        check_package(pkg, general, initial)
-    end
-    foreach(println, warnings)
-    foreach(println, errors)
-    println(stderr, "registration_lint: $(length(PACKAGES)) packages, $(length(errors)) error(s), $(length(warnings)) warning(s)")
-    exit(isempty(errors) ? 0 : 1)
-end
-
-main(ARGS)
+exit(stack_ci(["registration-lint"; ARGS]; root = dirname(@__DIR__)))

@@ -1,0 +1,8 @@
+# This workspace's parameters of the stack's CI (VisualGeometryToolkitCore's
+# `workspace_settings`; `stack_ci` and the scripts in ci/ read them). Every key
+# is optional; the package list itself is the root Project.toml's [workspace].
+
+# AutoMerge's name-similarity guideline would fail these; each needs a manual
+# merge by a General maintainer, with the reason recorded here (DESIGN D9).
+[manual_merge]
+PoseLib = "DL distance 2 from PDELib; the name of the upstream library and of PoseLib_jll"

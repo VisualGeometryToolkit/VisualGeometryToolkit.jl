@@ -415,7 +415,8 @@ function _vgio_migrate(path::AbstractString; out::AbstractString, dry_run::Bool,
     if !_has_migration(s) && tree !== nothing && _has_record_migration(s)
         return _migrate_toml(path, tree, out, dry_run, s, before_rename)
     end
-    (!_has_migration(s) && _moved_kind(s) !== nothing) && _refuse_moved(path, something(_moved_kind(s)), s)   # its owner is not loaded
+    mk = _moved_kind(s)   # a kind that moved to its owner, and that owner not loaded: refused by name
+    (mk !== nothing && !_has_migration(s) && !_has_moved_validator(mk)) && _refuse_moved(path, mk, s)
     _has_migration(s) || throw(ArgumentError(_is_current(s) ?
         "$(path): a $(s) file is a version this VisualGeometryToolkitIO writes: nothing to migrate" :
         "$(path): no migration for a $(s) file (no method of VisualGeometryToolkitIO.migrate_schema for it)"))

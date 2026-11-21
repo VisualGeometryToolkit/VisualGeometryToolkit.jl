@@ -1,4 +1,4 @@
-docs-pass: 1e932b96
+docs-pass: ab9070e0
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
 
 # Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
@@ -146,7 +146,7 @@ gate). Code changes in VisualGeometryToolkitCore only; one new test in VisualGeo
   `quality`, `naming` and `agent docs` items: in the release gate at the head carrying this record.
 - No local Julia (kaimon down): every check ran on Slurm.
 
-- Eval 0.10.1 at 1e932b96: the digest cache. `digest_cache_dir` added (public, docstring, in the top module's
+- Eval 0.10.1 at ab9070e0: the digest cache. `digest_cache_dir` added (public, docstring, in the top module's
   `@autodocs`); the docstrings of `file_sha256` (its cache across processes, the 64 MiB and 3 s thresholds, the
   opt-out), `tree_sha256`, `missing_inputs` and `verify_inputs`' record (`files`) say what the code does; the
   reproduce guide's input and digest-cache items, the site template's `[env]` example and the CHANGELOG. No other

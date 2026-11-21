@@ -76,14 +76,22 @@ _d3(line) =
 _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (".sh", ".sbatch") && startswith(l, "#SBATCH")))
 
 """
-    MACHINE_PATH_DIRS, MACHINE_PATH_EXTS
+    MACHINE_PATH_DIRS
 
 Where D1 also looks for a machine path, beyond the code (`dirs`): a project's
-tests, examples, configs, docs and tracked provenance, in their code, config
-and text files — every comment and paragraph included, since a path in a
-config's comment or a README is the next run's machine path.
+tests, examples, configs, docs and tracked provenance, in their
+[`MACHINE_PATH_EXTS`](@ref) files — every comment and paragraph included, since
+a path in a config's comment or a README is the next run's machine path.
 """
 const MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
+
+"""
+    MACHINE_PATH_EXTS
+
+The files of [`MACHINE_PATH_DIRS`](@ref) D1 reads: code, launchers, configs and
+text (`.jl`, `.sh`, `.sbatch`, `.toml`, `.md`, `.json`, `.yml`, `.yaml`,
+`.txt`, `.tex`).
+"""
 const MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
 
 """

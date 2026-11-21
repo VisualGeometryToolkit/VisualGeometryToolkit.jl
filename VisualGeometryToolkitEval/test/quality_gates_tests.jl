@@ -87,7 +87,8 @@
             for mod in _QG_MODS, n in names(mod; all = true)
                 isdefined(mod, n) || continue
                 f = getfield(mod, n)
-                (f isa Function && parentmodule(f) === mod && !startswith(string(n), "#")) || continue
+                # a module's own `__init__` is Julia's load hook, every module's, not a shadow
+                (f isa Function && parentmodule(f) === mod && !startswith(string(n), "#") && n !== :__init__) || continue
                 isdefined(VisualGeometryToolkitCore, n) && getfield(VisualGeometryToolkitCore, n) isa Function &&
                     push!(shadows, "$(nameof(mod)).$n")
             end

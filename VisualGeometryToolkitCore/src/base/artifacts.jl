@@ -1,42 +1,223 @@
 # =============================================================================
-# artifacts.jl — the one install of a published Julia artifact: by name from an
-# Artifacts.toml, lazily, verified against its pinned sha256 and git-tree-sha1,
-# into the shared depot, a private Hugging Face dataset with the user's token.
-# Hoisted 2026-11-12 from VisualGeometryToolkitEval's experiments/data.jl (its
-# `install_artifact`, which Experiments re-exports) so a package without an
-# Eval dependency (BlobBoards' descriptor networks and example data) installs
+# artifacts.jl — the ARTIFACT STORE and the one install of a published Julia
+# artifact: by name from an Artifacts.toml, lazily, verified against its pinned
+# sha256 and git-tree-sha1, a private Hugging Face dataset with the user's
+# token. Hoisted 2026-11-12 from VisualGeometryToolkitEval's experiments/data.jl
+# (its `install_artifact`, which Experiments re-exports) so a package without
+# an Eval dependency (BlobBoards' descriptor networks and example data) installs
 # through the same code.
+#
+# The store (0.13.0) is where the trees live: a directory of `<git-tree-sha1>/`
+# trees in Pkg's layout, on large shared storage, never the Julia depot of a
+# cluster (a home quota, or a node-local cache the cluster evicts). Resolution:
+#
+#   VGTK_ARTIFACT_STORE (env) → the site profile VGTK_SITE names
+#   (VisualGeometryToolkitEval's site profiles, `[storage] artifact_store`) →
+#   the preference `artifact_store` of this package (Preferences.jl,
+#   LocalPreferences.toml) → the depot, refused on the cluster
+#
+# An install runs inside Pkg's `with_artifacts_directory(store)` (under one
+# process-wide lock: Pkg's override is a global), so Pkg's own download keeps
+# its sha256 check, its tree-hash check and its atomic move into place; a
+# Pidfile lock per tree serialises the processes that install the same tree
+# into a shared store (one download, the others wait and read it).
 # =============================================================================
 using Pkg.Artifacts: ensure_artifact_installed, download_artifact
+using Pkg.GitTools: tree_hash
 using Downloads: Downloads
-using Artifacts: artifact_exists, artifact_path
+using Artifacts: Artifacts, artifact_exists, artifact_path, with_artifacts_directory
+using FileWatching.Pidfile: mkpidlock
+using Preferences: load_preference
 using Base: SHA1
 
 # A record not yet published or uploaded binds its placeholder, an UPPER_CASE token, where the Zenodo id
 # or the Hugging Face revision goes (DataArtifacts).
 _published(url) = !occursin(r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/", url)
 
-"""
-    install_artifact(name, toml) -> String
+# ---- the store ---------------------------------------------------------------------
 
-Install artifact `name` of `toml` (download, verify sha256 and git-tree-sha1,
-unpack into the depot) unless present, and return its tree. A Hugging Face
-tarball is downloaded with the user's Hugging Face token when there is one
-([`huggingface_token`](@ref)), so a private dataset installs for whoever has
-access to it. A placeholder URL (an UPPER_CASE token in place of the Zenodo id or
-the Hugging Face revision: the record is not published or uploaded) and a failed
-download (an unpublished Zenodo draft, a private dataset without a token) are
-refused with the way out.
 """
-function install_artifact(name::AbstractString, toml::AbstractString)
+    ArtifactStore(path, source)
+
+Where artifact trees are installed and read: `path`, the directory holding the
+`<git-tree-sha1>/` trees (Pkg's layout), and `source`, the rung that named it —
+`:env` (`VGTK_ARTIFACT_STORE`), `:site` (the site profile `VGTK_SITE` names),
+`:preference` (this package's preference `artifact_store`) or `:depot` (the
+first depot's `artifacts/`, Pkg's default). [`artifact_store`](@ref) resolves it.
+"""
+struct ArtifactStore
+    path::String
+    source::Symbol
+end
+
+# The site rung's resolver: `site -> Union{Nothing, String}`, the `[storage] artifact_store` of the site profile
+# `site` names. VisualGeometryToolkitEval (the owner of the site profiles) sets it when it loads.
+const _SITE_STORE = Ref{Union{Nothing, Function}}(nothing)
+
+"""
+    set_site_artifact_store!(f) -> f
+
+Register the site rung of [`artifact_store`](@ref): `f(site)` returns the
+artifact store of the site profile `site` (the value of `VGTK_SITE`), or
+`nothing` when that profile names none. VisualGeometryToolkitEval, which owns
+the site profiles, registers its reader when it loads; without it a `VGTK_SITE`
+that names a profile FILE (a path ending in `.toml`) is still read here (its
+`[storage] artifact_store`), and a site NAME is an error that says so.
+"""
+set_site_artifact_store!(f::Function) = (_SITE_STORE[] = f; f)
+
+# The `[storage] artifact_store` of a site profile file, read without its owner (VisualGeometryToolkitEval).
+function _site_file_store(path::AbstractString)
+    isfile(path) || error("VGTK_SITE = $path: no such site profile file")
+    s = get(get(TOML.parsefile(path), "storage", Dict{String, Any}()), "artifact_store", "")
+    return isempty(s) ? nothing : String(s)
+end
+
+function _site_store(site::AbstractString)
+    f = _SITE_STORE[]
+    f === nothing || return f(site)
+    endswith(site, ".toml") && return _site_file_store(site)
+    error("VGTK_SITE = $(repr(site)) names a site profile, which VisualGeometryToolkitEval reads: load it " *
+          "(`using VisualGeometryToolkitEval`), name the profile by its path, or set VGTK_ARTIFACT_STORE")
+end
+
+# The depot is refused on the cluster: a job there sets NODE_CACHE (its node-local, evicted cache, where the job
+# environment puts JULIA_DEPOT_PATH), and the home's quota is no place for data either.
+_depot_refused() = !isempty(get(ENV, "NODE_CACHE", ""))
+
+"""
+    artifact_store() -> ArtifactStore
+
+The artifact store of this process, the first rung that names one:
+
+1. `ENV["VGTK_ARTIFACT_STORE"]`;
+2. the site profile `ENV["VGTK_SITE"]` names, its `[storage] artifact_store`
+   (VisualGeometryToolkitEval's site profiles; [`set_site_artifact_store!`](@ref));
+3. this package's preference `artifact_store` (`Preferences.set_preferences!(
+   VisualGeometryToolkitCore, "artifact_store" => dir)`, LocalPreferences.toml);
+4. the depot (`<first depot>/artifacts`, Pkg's own) — refused on the cluster
+   (a job there sets `NODE_CACHE`: the depot is node-local and evicted), where
+   one of the rungs above must name the store.
+
+Every rung but the depot names a directory on storage that outlives a job and
+is shared by its machines; its trees are content-addressed by their
+git-tree-sha1, so every project and package shares one copy of a tree.
+"""
+function artifact_store()
+    e = strip(get(ENV, "VGTK_ARTIFACT_STORE", ""))
+    isempty(e) || return ArtifactStore(abspath(e), :env)
+    site = strip(get(ENV, "VGTK_SITE", ""))
+    if !isempty(site)
+        s = _site_store(site)
+        s === nothing || return ArtifactStore(abspath(s), :site)
+    end
+    p = load_preference(@__MODULE__, "artifact_store", "")
+    isempty(p) || return ArtifactStore(abspath(p), :preference)
+    _depot_refused() && error(
+        "no artifact store on the cluster, and its depot is refused (node-local, evicted; NODE_CACHE is set): " *
+        "set VGTK_ARTIFACT_STORE, or VGTK_SITE to a site profile with [storage] artifact_store " *
+        "(VisualGeometryToolkitEval's `vcai`), or the preference `artifact_store` of VisualGeometryToolkitCore")
+    return ArtifactStore(joinpath(first(DEPOT_PATH), "artifacts"), :depot)
+end
+
+# Pkg's directory override is a process-wide global that its `with_artifacts_directory` resets to `nothing` on
+# exit: every reader and writer of a store holds this lock, and a nested call into the same store does not reset it.
+const _STORE_LOCK = ReentrantLock()
+
+"""
+    with_artifact_store(f, store = artifact_store())
+
+Run `f()` with Pkg's artifact functions (`artifact_exists`, `artifact_path`,
+`ensure_artifact_installed`, `create_artifact`, …) reading and writing `store`
+(an [`ArtifactStore`](@ref) or a directory): Pkg's `with_artifacts_directory`,
+under one process-wide lock (Pkg's override is a global), nesting into the
+same store allowed. The depot store runs `f` without an override. The one
+wrapper of Pkg's override in the stack: DataArtifacts' packer stages through it.
+"""
+function with_artifact_store(f::Function, store::ArtifactStore = artifact_store())
+    lock(_STORE_LOCK) do
+        store.source === :depot && Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing && return f()
+        Artifacts.ARTIFACTS_DIR_OVERRIDE[] == store.path && return f()
+        Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing ||
+            error("with_artifact_store: already inside the store $(Artifacts.ARTIFACTS_DIR_OVERRIDE[]); not nesting $(store.path)")
+        mkpath(store.path)
+        return with_artifacts_directory(f, store.path)
+    end
+end
+with_artifact_store(f::Function, dir::AbstractString) = with_artifact_store(f, ArtifactStore(abspath(dir), :env))
+
+# The Pidfile lock of one tree's install in a store, beside Pkg's own `<hash>.pid` (which its download takes: a
+# second lock on that file from this process would wait on itself). Stale after a minute without its holder.
+_install_lock(f, store::ArtifactStore, key::AbstractString) =
+    (mkpath(store.path); mkpidlock(f, joinpath(store.path, "$key.install.pid"); stale_age = 60))
+
+# The store remembers which name installed which tree (`names/<name>/<tree hash>`, an empty file each, so
+# concurrent installs never write one file): a name with two trees is one name for two different data
+# (`store_name_clashes`). The depot keeps no such record (Pkg's gc deletes what it does not know there).
+function _record_name(store::ArtifactStore, name::AbstractString, hash::SHA1)
+    store.source === :depot && return nothing
+    d = joinpath(store.path, "names", name)
+    mkpath(d)
+    touch(joinpath(d, bytes2hex(hash.bytes)))
+    return nothing
+end
+
+"""
+    store_name_clashes(store = artifact_store()) -> Dict{String, Vector{String}}
+
+The artifact names the store installed under more than one tree: name => its
+git-tree-sha1s. One name means one tree stack-wide (a tier re-cut under its old
+name is two data under one name); empty when every name has one tree.
+"""
+function store_name_clashes(store::ArtifactStore = artifact_store())
+    root = joinpath(store.path, "names")
+    out = Dict{String, Vector{String}}()
+    isdir(root) || return out
+    for name in readdir(root)
+        hs = sort!(readdir(joinpath(root, name)))
+        length(hs) > 1 && (out[name] = hs)
+    end
+    return out
+end
+
+# ---- the install ---------------------------------------------------------------------
+
+"""
+    install_artifact(name, toml; store = artifact_store()) -> String
+
+Install artifact `name` of `toml` into the artifact store ([`artifact_store`](@ref):
+download, verify sha256 and git-tree-sha1, unpack, move into place atomically)
+unless present there, and return its tree. Processes installing the same tree
+into a shared store take turns (a Pidfile lock per tree: one downloads, the
+others then read it). A Hugging Face tarball is downloaded with the user's
+Hugging Face token when there is one ([`huggingface_token`](@ref)), so a
+private dataset installs for whoever has access to it. A placeholder URL (an
+UPPER_CASE token in place of the Zenodo id or the Hugging Face revision: the
+record is not published or uploaded) and a failed download (an unpublished
+Zenodo draft, a private dataset without a token) are refused with the way out.
+A tree in the depot but not in the store is not read: move it with
+[`migrate_artifacts!`](@ref).
+"""
+function install_artifact(name::AbstractString, toml::AbstractString; store::ArtifactStore = artifact_store())
     meta = TOML.parsefile(toml)
     haskey(meta, name) || error("unknown artifact '$name' (see $toml)")
     hash = SHA1(meta[name]["git-tree-sha1"])
-    artifact_exists(hash) && return artifact_path(hash)
-    url = meta[name]["download"][1]["url"]
-    _published(url) || error(
-        "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
-        "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
+    return with_artifact_store(store) do
+        if !artifact_exists(hash)
+            url = meta[name]["download"][1]["url"]
+            _published(url) || error(
+                "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
+                "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
+            _install_lock(store, bytes2hex(hash.bytes)) do
+                artifact_exists(hash) || _download!(name, toml, meta, hash, url)
+            end
+        end
+        _record_name(store, name, hash)
+        artifact_path(hash)
+    end
+end
+
+function _download!(name, toml, meta, hash, url)
     hf = startswith(url, "https://huggingface.co/")
     token = hf ? huggingface_token() : nothing
     try
@@ -56,7 +237,105 @@ function install_artifact(name::AbstractString, toml::AbstractString)
         error("downloading artifact '$name' ($toml) failed. $why Otherwise bind a data root (VGTK_DATA_ROOT or " *
               "data/exp_raw). Underlying error: $(sprint(showerror, err))")
     end
-    return artifact_path(hash)
+    return nothing
+end
+
+"""
+    store_file(url, sha256, file; depot_dir, store = artifact_store()) -> String
+
+A single file that is not an artifact tree (a model's weights a release
+publishes as a file, LoMa's ONNX graphs) in the artifact store: downloaded once
+to `<store>/files/<sha256>/<file>`, checked against its `sha256` (a mismatch
+is an error and leaves no file) and moved into place atomically, under the
+same per-file Pidfile lock as a tree. With the depot store its home is
+`depot_dir` (the caller's scratch space), `<depot_dir>/<file>`.
+"""
+function store_file(url::AbstractString, digest::AbstractString, file::AbstractString;
+                    depot_dir::AbstractString, store::ArtifactStore = artifact_store())
+    dir = store.source === :depot ? String(depot_dir) : joinpath(store.path, "files", digest)
+    path = joinpath(dir, file)
+    isfile(path) && return path
+    mkpath(dir)
+    lockdir = store.source === :depot ? ArtifactStore(dir, :depot) : store
+    _install_lock(lockdir, "file-" * digest) do
+        isfile(path) && return path
+        @info "Downloading $file into the artifact store ($(store.source)): $dir"
+        download_verified(url, digest, path)
+    end
+    return path
+end
+
+"""
+    download_verified(url, sha256, path) -> String
+
+`url` downloaded to `path`, checked against its `sha256` (hex): a mismatch is
+an error and leaves no file at `path`. The bytes land in a temporary file in
+`path`'s directory and are moved into place, so no partial file is ever at
+`path`. The stack's one verified download of a single file ([`store_file`](@ref)'s;
+VisualGeometryToolkitFeatures' ONNX Runtime packages).
+"""
+function download_verified(url::AbstractString, digest::AbstractString, path::AbstractString)
+    tmp = tempname(dirname(path))   # a String: Downloads.download's return is typed loosely
+    try
+        Downloads.download(url, tmp)
+        got = open(sha256_hex, tmp)
+        got == digest || error("$url: sha256 $got, expected $digest")
+        mv(tmp, path; force = true)   # the same directory: atomic
+    finally
+        rm(tmp; force = true)
+    end
+    return String(path)
+end
+
+# ---- migration: depot → store ----------------------------------------------------------
+
+"""
+    migrate_artifacts!(toml; store = artifact_store(), names = keys of toml, remove = false)
+        -> Vector{Pair{String, Symbol}}
+
+Move the artifacts of `toml` that the depot holds into the store, so a machine
+that installed them before the store existed does not download them again:
+each tree is copied into a temporary directory in the store, its git-tree-sha1
+recomputed and checked, and moved into place atomically under the tree's
+install lock; with `remove = true` the depot's copy is deleted once the store
+holds the tree. Returns `name => status` per name: `:migrated`, `:present`
+(the store had it), `:absent` (the depot does not hold it either) or
+`:mismatch` (the depot's tree does not hash to its git-tree-sha1: left alone,
+never copied). The store must not be the depot.
+"""
+function migrate_artifacts!(toml::AbstractString; store::ArtifactStore = artifact_store(),
+                            names = collect(keys(TOML.parsefile(toml))), remove::Bool = false)
+    store.source === :depot && throw(ArgumentError("migrate_artifacts!: the store is the depot; set VGTK_ARTIFACT_STORE or VGTK_SITE"))
+    meta = TOML.parsefile(toml)
+    out = Pair{String, Symbol}[]
+    for name in names
+        haskey(meta, name) || error("unknown artifact '$name' (see $toml)")
+        hex = meta[name]["git-tree-sha1"]
+        dst = joinpath(store.path, hex)
+        src = [joinpath(d, "artifacts", hex) for d in DEPOT_PATH if isdir(joinpath(d, "artifacts", hex))]
+        status = if isdir(dst)
+            :present
+        elseif isempty(src)
+            :absent
+        else
+            _install_lock(store, hex) do
+                isdir(dst) && return :present
+                tmp = mktempdir(store.path)
+                try
+                    cp(first(src), joinpath(tmp, "tree"); follow_symlinks = false)
+                    bytes2hex(tree_hash(joinpath(tmp, "tree"))) == hex || return :mismatch
+                    mv(joinpath(tmp, "tree"), dst)
+                    :migrated
+                finally
+                    rm(tmp; recursive = true, force = true)
+                end
+            end
+        end
+        status in (:migrated, :present) && _record_name(store, name, SHA1(hex))
+        remove && status in (:migrated, :present) && foreach(p -> rm(p; recursive = true, force = true), src)
+        push!(out, String(name) => status)
+    end
+    return out
 end
 
 """

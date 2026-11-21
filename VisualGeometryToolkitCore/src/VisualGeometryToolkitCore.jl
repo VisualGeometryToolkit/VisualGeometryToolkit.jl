@@ -911,6 +911,8 @@ public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_field
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
 public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
+public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
+    store_name_clashes, migrate_artifacts!   # the artifact store: its resolution, the one wrapper of Pkg's override, a single file, depot → store
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, lu_solve!, tree_sum!,
     bilinear_sample_clamped, bilinear_sample, bilinear_weights, is_inside_texel_centres
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
@@ -940,7 +942,7 @@ include("base/canonical.jl")   # canonical_json: the canonical JSON every conten
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 # THE defaults of record of this package (configs/default.toml): the strategies' tables and the LM's stop settings ([lm])
 const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs", "default.toml")))
-include("base/artifacts.jl")    # install_artifact, huggingface_token: the one artifact install (uses config_toml.jl's TOML)
+include("base/artifacts.jl")    # the artifact store and install_artifact, the one artifact install (uses config_toml.jl's TOML, utils.jl's sha256_hex)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
 include("base/duals.jl")    # ForwardDiff value helpers: primal_value (every layer), _outer_value / _with_value (one layer)

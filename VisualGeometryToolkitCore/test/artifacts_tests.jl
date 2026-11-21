@@ -161,11 +161,16 @@ end
     ready = joinpath(dir, "held")
     # another process holds the tree's install lock for 3 s (FileWatching's Pidfile, as install_artifact takes it)
     code = "using FileWatching.Pidfile: mkpidlock; mkpidlock($(repr(lockfile))) do; touch($(repr(ready))); sleep(3); end"
-    p = run(`$(Base.julia_cmd()) --startup-file=no -e $code`; wait = false)
+    # a bare julia (no test flags, no inherited project or load path: the standard libraries only)
+    julia = joinpath(Sys.BINDIR, Base.julia_exename())
+    errlog = joinpath(dir, "holder.err")
+    env = filter(kv -> !(first(kv) in ("JULIA_PROJECT", "JULIA_LOAD_PATH")), ENV)
+    p = run(pipeline(setenv(`$julia --startup-file=no -e $code`, env); stdout = devnull, stderr = errlog); wait = false)
     t0 = time()
-    while !isfile(ready) && time() - t0 < 60
+    while !isfile(ready) && process_running(p) && time() - t0 < 120
         sleep(0.05)
     end
+    isfile(ready) || @error "the lock holder did not start" log = read(errlog, String)
     @test isfile(ready)
     withenv(NO_STORE..., "VGTK_ARTIFACT_STORE" => store) do
         t = @elapsed tree = VgtkCore.install_artifact("tier_a", toml)

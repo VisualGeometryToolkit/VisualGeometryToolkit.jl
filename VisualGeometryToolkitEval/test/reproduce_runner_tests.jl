@@ -1,5 +1,5 @@
 # The runner (src/reproduce/runner.jl, src/reproduce/run_results_branch.jl): a project's stage graph of record on a
-# site. The site profiles shipped (dgx01, desktop, the template) load; the graph is validated and ordered; --only
+# site. The site profiles shipped (desktop, vcai, the template) load; the graph is validated and ordered; --only
 # selects a subset with its prerequisites (or alone); array stages take their items from the config's cases or a
 # list, sized and timed from it; the inputs are checked first and reported as data; the dry run prints the job
 # graph for a Slurm and a local site; the local backend runs a project's sbatch launchers under bash, records a
@@ -11,7 +11,25 @@
 # the paper's results branch from a manifest.
 
 @testsetup module RunnerFixture
-    export runner_project, fake_bin
+    export runner_project, fake_bin, SLURM_SITE
+    # A Slurm machine of the tests' own (one node, partition `gpu`), named by its file: the stand-in sbatch and squeue
+    # of `fake_bin` run its stages.
+    const SLURM_SITE = let d = mktempdir()
+        write(joinpath(d, "slurm_node.toml"), """
+            [site]
+            name = "slurm_node"
+            backend = "slurm"
+            description = "one Slurm node, partition gpu"
+            [slurm]
+            partition = "gpu"
+            gres = "gpu:1"
+            cpus_per_task = 2
+            mem_per_cpu = "8480M"
+            precompile_time = "0:30:00"
+            gpu_limit = 0
+            """)
+        joinpath(d, "slurm_node.toml")
+    end
     # A paper project in a git repository: a stage graph of record, two experiment configs, launchers that record
     # what they ran (into the results root) and a data root holding one of the two inputs.
     function runner_project()
@@ -132,7 +150,7 @@
 
     # A directory of stand-ins for sbatch, squeue and sacct: sbatch records its argv and prints the next job id;
     # squeue prints the lines of $FAKE_SQUEUE (`<id>[_<task>]|<state>|<reason>`) of the job given by -j; sacct fails
-    # as it does on a cluster that keeps no accounting (dgx01).
+    # as it does on a cluster that keeps no accounting.
     function fake_bin()
         bin = mktempdir()
         write(joinpath(bin, "sbatch"), raw"""#!/bin/bash
@@ -168,14 +186,17 @@ end
     env0 = filter(p -> !(first(p) in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "CASES", "SETS")) && !startswith(first(p), "SLURM_"), Dict(ENV))
 
     @testset "the shipped sites and the template" begin
-        @test shipped_sites() == ["desktop", "dgx01", "vcai"]
-        dgx = load_site("dgx01")
-        @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M" && dgx.precompile_time == "0:30:00"
+        @test shipped_sites() == ["desktop", "vcai"]
+        node = load_site(SLURM_SITE)
+        @test node.backend === :slurm && node.partition == "gpu" && node.gres == "gpu:1" && node.cpus_per_task == 2 && node.mem_per_cpu == "8480M" && node.precompile_time == "0:30:00"
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
+        # the workstation's storage: every project's data and results and the artifact store under one tree of its home
+        @test isabspath(desk.data_root) && endswith(desk.data_root, "/data/vgtk/data/{project}")
+        @test endswith(desk.results_root, "/data/vgtk/results/{project}") && endswith(desk.artifact_store, "/data/vgtk/artifacts")
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
         @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == "" && tpl.precompile_time == "0:20:00"
-        @test_throws r"unknown site \"nowhere\".*desktop, dgx01" load_site("nowhere")
+        @test_throws r"unknown site \"nowhere\".*desktop, vcai" load_site("nowhere")
         d = mktempdir()
         write(joinpath(d, "mine.toml"), "[site]\nbackend = \"local\"\n[local]\ncuda_visible_devices = \"1\"\n")
         @test load_site(joinpath(d, "mine.toml")).name == "mine"                  # by path, named by the file
@@ -194,7 +215,7 @@ end
         @test site_root(vcai, "data_root", "paper") == "/cluster/projects/vgtk/data/paper"
         @test site_root(vcai, "results_root", "paper") == "/cluster/projects/vgtk/results/paper"
         @test site_root(vcai, "artifact_store", "paper") == "/cluster/projects/vgtk/artifacts"
-        @test site_root(load_site("desktop"), "data_root", "paper") == ""                 # a site may state none
+        @test site_root(load_site(SLURM_SITE), "data_root", "paper") == ""                # a site may state none
         @test_throws ArgumentError site_root(vcai, "depot", "paper")
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))
         @test site_root(tpl, "data_root", "p") == "/data/p" && tpl.artifact_store == "/data/artifacts"
@@ -269,7 +290,7 @@ end
         @test stage_items(g, texture; env = env0) == ["small", "large"]
         @test stage_items(g, texture; env = merge(env0, Dict("SETS" => "large"))) == ["large"]
         @test stage_items(g, g.stages[1]; env = env0) == [""]
-        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
+        p = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue)
         @test p.stages[3].minutes == cld(7200 + 600, 60)                         # the largest case's max_time + margin
         @test any(==("--time=130"), p.stages[3].command)
     end
@@ -373,7 +394,7 @@ end
         write(f.graph, replace(text, "[sites.desktop]\n" => "[sites.desktop]\ntiers = { boards = \"$alt\" }\n"))
         g = load_stage_graph(f.graph)
         @test isempty(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "desktop"))
-        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "dgx01")) == ["boards/a4.toml"]   # another site's
+        @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, env = env0, site = "slurm_node")) == ["boards/a4.toml"]   # another site's
         empty_root = mktempdir()
         @test paths(missing_inputs(g, ["chrome_prepare"]; data_root = f.data, site = "desktop",
                                    env = merge(env0, Dict("VGTK_DATA_ROOT_BOARDS" => empty_root)))) == ["boards/a4.toml"]
@@ -409,7 +430,7 @@ end
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\ncpus_per_task = 6\nmem_per_cpu = \"4G\"\ngres = \"gpu:4\"\n";
                                count = 1) |> t -> replace(t, "name = \"pdf\"\n" => "name = \"pdf\"\ngres = \"gpu:1\"\n"))
         g = load_stage_graph(f.graph)
-        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue)
+        plan = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue)
         cmd(n) = plan.stages[findfirst(st -> st.spec.name == n, plan.stages)].command
         @test occursin("--partition=gpu --gres=gpu:4 --cpus-per-task=6 --mem-per-cpu=4G", join(cmd("setup"), " "))
         @test occursin("--gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M", join(cmd("pdf"), " "))      # gres: a GPU stage
@@ -483,19 +504,19 @@ end
         @test tex.name == "texture" && tex.after == ["chrome"] && tex.after_items == Dict("chrome" => ["mid"])
         @test select_stages(g; only = ["texture"]) == ["setup", "chrome_prepare", "chrome", "texture"]
         # the dry run: the task of `mid` (the cases sorted: alpha, mid, zeta → task 1)
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
         @test code == 0 && occursin("SETS=small,large sbatch --parsable --dependency=afterok:\$chrome_1 ", out) && occursin("after    chrome:mid", out)
         # submitted: texture's job runs after chrome's task 1 alone
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
         git!(f.repo, "add", "-A"); git!(f.repo, "commit", "-q", "-m", "item edge")
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0
         l = readlines(sb)
         @test length(l) == 4 && startswith(l[3], "103 ") && startswith(l[4], "104 --parsable --dependency=afterok:103_1 ")
         # the key folds the upstream stage's key, as a whole-stage edge does: one key names every item's run
         root = mktempdir()                                       # one results root: the stages' environment names it
-        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["texture"],
+        k(gr) = plan_reproduction(gr, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["texture"],
                                   results_root = root).stages[end].key
         @test k(item_edge("[\"chrome:mid\"]")) == k(item_edge("[\"chrome\"]"))
         # a whole-stage entry beside an item: the whole stage
@@ -504,7 +525,7 @@ end
         @test_throws r"names an item of chrome_prepare, which is not an array" item_edge("[\"chrome_prepare:x\"]")
         @test_throws r"is not \"<stage>\" or \"<stage>:<item>\"" item_edge("[\"chrome:\"]")
         item_edge("[\"chrome:omega\"]")
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture", "--dry-run", "--results-root=$(f.results)"]; env = env0)
         @test code == 2 && occursin("runs after item omega of chrome, which this launch does not run (its items: alpha, mid, zeta)", out)
         # a local site runs the stages in order, as before
         item_edge("[\"chrome:mid\"]")
@@ -519,7 +540,7 @@ end
                                      "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))     # setup compiles
         g = load_stage_graph(f.graph)
         @test g.stages[1].precompile && g.stages[1].julia_flags == ["--depwarn=error"] && !g.stages[3].precompile
-        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
+        p = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["chrome_prepare"])
         ph = only(p.stages[1].phases)
         pre = join(ph.command, " ")
         @test ph.name == "precompile" && !ph.spec.is_array && !Reproduce._stage_gpu(ph.spec)
@@ -530,7 +551,7 @@ end
         @test isempty(plan_reproduction(g, load_site("desktop"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].phases)
         # the runner's precompile phase is environment state (the depot's compile cache), not a result: it keys nothing —
         # with or without it, the same key (a declared phase is keyed: the phases testset)
-        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
+        k(gr) = plan_reproduction(gr, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["setup"]).stages[1].key
         kon = k(g)
         write(f.graph, text)
         @test k(load_stage_graph(f.graph)) == kon
@@ -538,14 +559,14 @@ end
                                      "gpu = true\njulia_flags = [\"--depwarn=error\"]\n"; count = 1))
         @test k(load_stage_graph(f.graph)) == kon
         # the dry run shows it, and the GPU job after it
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=setup", "--dry-run", "--results-root=$(f.results)"]; env = env0)
         @test code == 0 && occursin("phase    precompile: sbatch --parsable --partition=gpu --cpus-per-task=2", out)
         @test occursin("sbatch --parsable --dependency=afterok:\$setup_precompile --partition=gpu --gres=gpu:1", out)
         # submitted: the compile first (through the marker wrapper), the GPU job after it (afterok), its id recorded
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
         run(pipeline(`git -C $(f.repo) -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam precompile`; stdout = devnull))
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=setup", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0 && occursin(r"setup\s+101  \(phase precompile, CPU\)", out)
         l = readlines(sb)
         @test length(l) == 2 && startswith(l[1], "101 ") && !occursin("--gres", l[1])
@@ -560,7 +581,7 @@ end
         write(joinpath(f.proj, "logs", "paper_setup_precompile_101.log"), "Precompiling\nERROR: LoadError: no CUDA extension\n")
         mkpath(joinpath(r["markers"], "precompile"))
         write(joinpath(r["markers"], "precompile", "task-0.toml"), "state = \"failed\"\njob_id = \"101\"\nexit_status = 1\n")
-        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01", "--results-root=$(f.results)"]; env)
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--results-root=$(f.results)"]; env)
         @test code == 0 && occursin(r"setup\s+102\s+failed \(its precompile phase, job 101, failed", out) &&
               occursin("ERROR: LoadError: no CUDA extension", out)
         # precompile is true or false
@@ -605,14 +626,14 @@ end
         @test [ph["name"] for ph in regen.phases] == ["drivers", "numbers"]
         # Slurm: regen's drivers (GPU) then its numbers (CPU, the stage's job); grid's precompile, then decode (CPU array),
         # then detect (GPU array, task k after decode's task k)
-        p = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["regen", "grid"], deps = false)
+        p = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["regen", "grid"], deps = false)
         r, gr = p.stages
         @test [ph.name for ph in r.phases] == ["drivers"] && !Reproduce._stage_gpu(r.spec) && r.env["VGTK_PHASE"] == "numbers"
         @test any(==("--gres=gpu:1"), only(r.phases).command) && !any(a -> startswith(a, "--gres"), r.command)
         @test any(==("--cpus-per-task=4"), r.command)
         @test [ph.name for ph in gr.phases] == ["precompile", "decode"] && gr.phases[2].spec.is_array && gr.spec.is_array
         @test !any(a -> startswith(a, "--gres"), gr.phases[2].command) && any(==("--gres=gpu:1"), gr.command)
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=regen,grid", "--no-deps", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=regen,grid", "--no-deps", "--dry-run", "--results-root=$(f.results)"]; env = env0)
         @test code == 0 && occursin("phase    drivers: sbatch --parsable --partition=gpu --gres=gpu:1", out)
         @test occursin("sbatch --parsable --dependency=afterok:\$regen_drivers --partition=gpu --cpus-per-task=4", out)
         @test occursin("phase    decode: sbatch --parsable --dependency=afterok:\$grid_precompile --partition=gpu --cpus-per-task=2", out)
@@ -620,7 +641,7 @@ end
         # submitted through the stand-ins: the dependencies as planned; each phase's markers its own
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=regen,grid", "--no-deps", "--results-root=$(f.results)",
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=regen,grid", "--no-deps", "--results-root=$(f.results)",
                               "--data-root=$(f.data)"]; env)
         @test code == 0
         l = readlines(sb)
@@ -638,7 +659,7 @@ end
         @test readlines(joinpath(f.results, "ran.txt"))[end] == "phased task=1 phase=decode gpu=unset what=decode"
         @test stage_markers(joinpath(m["stages"]["grid"]["markers"], "decode"))[1]["state"] == "completed"
         # keyed: a phase's environment is part of the stage's key
-        k(gr) = plan_reproduction(gr, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["regen"], deps = false,
+        k(gr) = plan_reproduction(gr, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["regen"], deps = false,
                                   results_root = f.results).stages[end].key
         k0 = k(g)
         text = read(f.graph, String)
@@ -712,7 +733,7 @@ end
         # a distributed stage: ntasks and nodes; resources validated
         text = read(f.graph, String)
         write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\nntasks = 4\nnodes = 2\n"; count = 1))
-        plan = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"])
+        plan = plan_reproduction(load_stage_graph(f.graph), load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["setup"])
         @test occursin("--mem-per-cpu=8480M --ntasks=4 --nodes=2", join(plan.stages[1].command, " "))
         for (k, v) in (("gres", "\"gpu 4\""), ("mem_per_cpu", "\"lots\""), ("mem_per_cpu", "8"), ("ntasks", "-1"))
             write(f.graph, replace(text, "name = \"setup\"\n" => "name = \"setup\"\n$k = $v\n"; count = 1))
@@ -726,9 +747,9 @@ end
 
     @testset "the dry run: the job graph on a Slurm site and on a local one" begin
         f = runner_project()
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--dry-run", "--data-root=$(f.data)", "--results-root=$(f.results)"]; env = env0)
         @test code == 0
-        @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out)
+        @test occursin("reproduce paper on slurm_node (slurm): 6 stage(s)", out)
         @test occursin("[1] setup\n", out) && occursin("[3] chrome  array of 3: alpha mid zeta", out)
         # each stage's own launcher, the site's options, the dependencies on this launch's stages
         @test occursin("submit   sbatch --parsable --partition=gpu --gres=gpu:1 --cpus-per-task=2 --mem-per-cpu=8480M slurm/setup.sbatch", out)
@@ -819,13 +840,13 @@ end
         code, out = run_main(["--graph=$(f.graph)", "--site=desktop", "--only=grid"]; env = merge(env0, Dict("VARIANT" => "b")))
         @test code == 0 && !occursin(r"grid\s+reused", out) && readlines(joinpath(f.results, "ran.txt"))[end] == "grid task=2 variant=b sets=s2,s1,s3"
         # the dry run names the loop
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--dry-run", "--results-root=$(f.results)"]; env = env0)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=grid", "--dry-run", "--results-root=$(f.results)"]; env = env0)
         @test occursin("[2] grid  array of 3: s2 s1 s3", out) && occursin("each     VARIANT over variants: a b (every task)", out)
         @test occursin("--array=0-2", out)
         # on Slurm the marker wrapper loops: run here as the job of task 1, it runs both values and writes the marker
         bin = fake_bin(); sb = joinpath(mktempdir(), "sbatch.log")
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => sb, "FAKE_SQUEUE" => "/dev/null"))
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0
         wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
         n = length(readlines(joinpath(f.results, "ran.txt")))
@@ -841,7 +862,7 @@ end
             """)
         git!(f.repo, "commit", "-qam", "slow")
         write(sb, "")
-        code, out = run_main(["--graph=$(f.graph)", "--site=dgx01", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
+        code, out = run_main(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=grid", "--no-deps", "--results-root=$(f.results)", "--data-root=$(f.data)"]; env)
         @test code == 0
         wrapper = only(filter(endswith("marker_wrapper.sbatch"), split(read(sb, String))))
         n = length(readlines(joinpath(f.results, "ran.txt")))
@@ -954,8 +975,8 @@ end
                                "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
         launch(args) = run_main(args; env, queue_states = nothing, job_states = nothing)    # the stand-ins on PATH
         status(args...; job_states = nothing) =
-            run_main(["status", "--graph=$(f.graph)", "--site=dgx01", args...]; env, queue_states = nothing, job_states)
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+            run_main(["status", "--graph=$(f.graph)", "--site=$(SLURM_SITE)", args...]; env, queue_states = nothing, job_states)
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture"])
         code == 0 || @info out
         @test code == 0
         m1 = only(run_manifests(joinpath(f.results, "_reproduce")))
@@ -990,7 +1011,7 @@ end
         # the next launch: setup and the prepare completed (their markers), chrome's tasks 1 and 2 still queued and
         # texture pending → not resubmitted; the pdf stage is new and waits on the in-flight texture job
         write(queue, "103_1|RUNNING|None\n103_2|PENDING|Priority\n104_0|PENDING|Dependency\n104_1|PENDING|Dependency\n")
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=pdf"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=pdf"])
         @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"chrome_prepare\s+reused", out) && occursin(r"chrome\s+103  \(in flight", out)
         lines = readlines(log)
         @test length(lines) == 5 && startswith(lines[5], "105 --parsable --dependency=afterok:104 ")
@@ -1031,18 +1052,18 @@ end
         # be satisfied, is not depended on but submitted after it; the finished stages are reused from their markers
         # alone (sacct fails)
         write(queue, "104_0|PENDING|DependencyNeverSatisfied\n104_1|PENDING|DependencyNeverSatisfied\n")
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture"])
         @test code == 0 && occursin(r"setup\s+reused", out) && occursin(r"chrome_prepare\s+reused", out)
         lines = readlines(log)
         @test length(lines) == 7 && startswith(lines[6], "106 --parsable --partition=gpu") && occursin("--array=0-2", lines[6])   # its prerequisites done
         @test startswith(lines[7], "107 --parsable --dependency=afterok:106 ")
         # a texture job genuinely pending behind an in-flight chrome is depended on, not resubmitted
         write(queue, "106_0|RUNNING|None\n106_1|RUNNING|None\n106_2|RUNNING|None\n107_0|PENDING|Dependency\n107_1|PENDING|Dependency\n")
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture"])
         @test code == 0 && occursin(r"chrome\s+106  \(in flight", out) && occursin(r"texture\s+107  \(in flight", out) && length(readlines(log)) == 7
         # but not behind a stage this launch submits again
         write(queue, "107_0|PENDING|Dependency\n107_1|PENDING|Dependency\n")
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=texture"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=texture"])
         lines = readlines(log)
         @test code == 0 && length(lines) == 9 && startswith(lines[9], "109 --parsable --dependency=afterok:108 ")
     end
@@ -1052,8 +1073,8 @@ end
         write(joinpath(f.proj, "slurm", "chrome.sbatch"), "#!/bin/bash\n#SBATCH --job-name=paper-chrome\n#SBATCH --output=logs/x_chrome_%A_%a.log\nset -eu\n")
         g = load_stage_graph(f.graph)
         stamp = "20261111_000000_000"                       # one launch's (the results stage's command names its manifest)
-        plain = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, stamp)
-        marked = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, stamp, job_name_prefix = "leg-gate-")
+        plain = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, stamp)
+        marked = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, stamp, job_name_prefix = "leg-gate-")
         @test [st.key for st in plain.stages] == [st.key for st in marked.stages]
         name(p, s) = only(filter(startswith("--job-name="), p.stages[findfirst(st -> st.spec.name == s, p.stages)].command))
         @test name(marked, "setup") == "--job-name=leg-gate-paper-setup"                  # no name anywhere: <project>-<stage>
@@ -1083,7 +1104,7 @@ end
         # the job's wrapper: written to a temporary file in the marker directory, then renamed into place (a stand-in
         # mv records its arguments); a TERM (scancel, the time limit) reaches the stage and is recorded as failed
         g = load_stage_graph(f.graph)
-        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
+        plan = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
         dir = stage_markers_dir(plan.manifest, "setup")
         w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
         bin = mktempdir(); mvlog = joinpath(bin, "mv.log")
@@ -1119,7 +1140,7 @@ end
         env = merge(env0, parent, Dict("PATH" => spy * ":" * bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
                                        "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
         launch(args; env = env) = run_main(args; env, queue_states = nothing, job_states = nothing)
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=chrome_prepare"])
         @test code == 0
         m1 = only(run_manifests(joinpath(f.results, "_reproduce")))
         # sbatch sees none of the launching job's SLURM_* (SLURM_CONF, the cluster's configuration, kept)
@@ -1129,7 +1150,7 @@ end
         @test occursin(" --job-name=paper-setup ", lines[1])
         @test count("--job-name=", lines[2]) == 1 && occursin(" --job-name=paper-prepare-chrome ", lines[2])
         @test TOML.parsefile(m1)["stages"]["setup"]["key"] ==
-              plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env, queue_states = noqueue, only = ["setup"],
+              plan_reproduction(load_stage_graph(f.graph), load_site(SLURM_SITE); env, queue_states = noqueue, only = ["setup"],
                                 stamp = "x").stages[1].key                                         # the run key is the planned command's
 
         # a task preempted and requeued under the same job id: its first attempt's TERM left a "failed" marker, and the
@@ -1142,7 +1163,7 @@ end
         @test stage_run_state(r, Dict("101" => Dict(0 => "RUNNING"))).tasks == Dict(0 => "RUNNING")
         @test stage_run_state(r, Dict("101" => Dict(0 => "COMPLETING"))).state == "failed"        # finishing: its marker
         write(queue, "101|PENDING|BeginTime\n102|PENDING|Dependency\n")
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"])
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=chrome_prepare"])
         @test code == 0 && occursin(r"setup\s+101  \(in flight", out) && length(readlines(log)) == 2
 
         # squeue failing for any other reason than an unknown job aborts the launch: nothing is submitted
@@ -1153,15 +1174,15 @@ end
         chmod(joinpath(down, "squeue"), 0o755)
         envdown = merge(env, Dict("PATH" => down * ":" * env["PATH"]))
         @test_throws r"squeue -j 101 failed.*Socket timed out" slurm_queue_states(["101"]; env = envdown)
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=chrome_prepare"]; env = envdown)
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=chrome_prepare"]; env = envdown)
         @test code == 4 && occursin("Socket timed out", out) && length(readlines(log)) == 2
-        code, out = run_main(["status", "--graph=$(f.graph)", "--site=dgx01"]; env = envdown, queue_states = nothing)
+        code, out = run_main(["status", "--graph=$(f.graph)", "--site=$(SLURM_SITE)"]; env = envdown, queue_states = nothing)
         @test code == 4 && occursin("squeue -j", out)
 
         # the wrapper: the attempt is recorded (SLURM_RESTART_COUNT); the launcher's copy is run through its
         # interpreter, so a copy that cannot be executed (a noexec results root) still runs
         g = load_stage_graph(f.graph)
-        plan = plan_reproduction(g, load_site("dgx01"); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
+        plan = plan_reproduction(g, load_site(SLURM_SITE); env = env0, queue_states = noqueue, only = ["setup"], results_root = f.results)
         dir = stage_markers_dir(plan.manifest, "setup")
         w = Reproduce._marker_wrapper(plan, plan.stages[1], dir)
         snap = joinpath(dir, "setup.sbatch")
@@ -1322,7 +1343,7 @@ end
         env = merge(env0, Dict("PATH" => bin * ":" * ENV["PATH"], "FAKE_SBATCH_LOG" => log, "FAKE_SQUEUE" => queue,
                                "VGTK_DATA_ROOT" => f.data, "VGTK_RESULTS_ROOT" => f.results))
         launch(args) = run_main(args; env, queue_states = nothing, job_states = nothing)    # the stand-ins on PATH
-        args = ["--graph=$(f.graph)", "--site=dgx01", "--only=setup"]
+        args = ["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=setup"]
         code, out = launch(args)
         @test code == 0 && length(readlines(log)) == 1                                      # setup: job 101
         # job 101 still runs; the same code: depended on, not submitted again
@@ -1337,7 +1358,7 @@ end
         code, out = launch(args)
         @test code == 4 && occursin("job 101 of an earlier launch is still in flight, under other code (scripts: ", out)
         @test length(readlines(log)) == 1 && length(run_manifests(joinpath(f.results, "_reproduce"))) == nman
-        code, out = launch(["--graph=$(f.graph)", "--site=dgx01", "--only=setup", "--dry-run"])          # the dry run says so too
+        code, out = launch(["--graph=$(f.graph)", "--site=$(SLURM_SITE)", "--only=setup", "--dry-run"])          # the dry run says so too
         @test code == 4 && occursin("still in flight, under other code", out)
         # once the job has left the queue it reruns under the new code (its marker never written: unknown)
         write(queue, "")
@@ -1370,12 +1391,12 @@ end
         canonical = pkgdir(VisualGeometryToolkitCore, "src", "base", "canonical.jl")
         boot = "foreach(include, ARGS[1:3]); exit(reproduce_main(ARGS[4:end]))"
         cmd = `$(Base.julia_cmd()) --startup-file=no -e $boot $canonical $(joinpath(src, "cli.jl")) $(joinpath(src, "reproduce", "runner.jl"))
-               --graph=$(f.graph) --site=dgx01 --dry-run --results-root=$(f.results)`
+               --graph=$(f.graph) --site=$(SLURM_SITE) --dry-run --results-root=$(f.results)`
         bare = ("JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => "")
         out = read(setenv(cmd, merge(env0, Dict(bare))), String)        # the environment the package plan below sees
-        @test occursin("reproduce paper on dgx01 (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
+        @test occursin("reproduce paper on slurm_node (slurm): 6 stage(s)", out) && occursin("slurm/chrome.sbatch", out)
         # one implementation: the bare process keys every stage as the package does
-        p = plan_reproduction(load_stage_graph(f.graph), load_site("dgx01"); env = env0, queue_states = noqueue, results_root = f.results)
+        p = plan_reproduction(load_stage_graph(f.graph), load_site(SLURM_SITE); env = env0, queue_states = noqueue, results_root = f.results)
         # (the results-branch stage's command names its launch's manifest, so its key is per launch)
         @test all(st -> occursin("key      $(st.key)", out), filter(st -> !st.spec.results_branch, p.stages))
         # a bootstrap from before 0.8.0 (no canonical.jl): told to regenerate itself

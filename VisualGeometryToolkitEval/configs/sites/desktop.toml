@@ -1,6 +1,12 @@
 # desktop: the owner's workstation (pop-os). One RTX 4090, no Slurm: every stage runs here in order. A GPU stage sees
 # device 0 only (CUDA_VISIBLE_DEVICES=0, never another device). The launchers' default thread count is kept, so the
-# runs are keyed as on dgx01. Keys: _template.toml.
+# runs are keyed as on a Slurm site. Keys: _template.toml.
+#
+# Storage: one tree under the home's data directory, /home/jbpritts/data/vgtk, beside the data already there
+# (~/data/datasets, ~/data/models, …, which stay where they are): every project's inputs under data/<project>, its
+# results under results/<project>, and the artifact store, shared by every project and package, under artifacts/. A
+# project's own [sites.desktop] roots (its checkout's data/exp_raw, data/exp_pro) are read before these, and a data
+# or results root here is used only once it exists.
 [site]
 name = "desktop"
 backend = "local"
@@ -8,3 +14,8 @@ description = "pop-os: one RTX 4090, no scheduler"
 
 [local]
 cuda_visible_devices = "0"
+
+[storage]
+data_root = "/home/jbpritts/data/vgtk/data/{project}"
+results_root = "/home/jbpritts/data/vgtk/results/{project}"
+artifact_store = "/home/jbpritts/data/vgtk/artifacts"

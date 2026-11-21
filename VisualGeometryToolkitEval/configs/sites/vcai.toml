@@ -13,7 +13,7 @@ setup = "source /cluster/projects/vgtk/env-node.sh"
 gres = "gpu:1"
 cpus_per_task = 2
 extra = ["--exclude=athena"]
-precompile_time = "0:30:00"    # as dgx01's: a GPU stage's CPU precompile into a cold node cache, ≈ 6–15 min, × 2
+precompile_time = "0:30:00"    # a GPU stage's CPU precompile into a cold node cache, ≈ 6–15 min, × 2
 
 [storage]
 data_root = "/cluster/projects/vgtk/data/{project}"

@@ -4,9 +4,9 @@
 # partition, CPUs, GPUs), with every missing input reported as data before anything runs, a run manifest per launch,
 # finished stages reused by their run keys, and the paper's results branch at the end.
 #
-#   reproduce_main(["--graph=<project graph>.toml", "--site=dgx01", "--dry-run"])     the job graph, nothing submitted
+#   reproduce_main(["--graph=<project graph>.toml", "--site=vcai", "--dry-run"])      the job graph, nothing submitted
 #   reproduce_main(["--graph=…", "--site=desktop", "--only=detector_bias"])          a subset (its prerequisites too)
-#   reproduce_main(["status", "--graph=…", "--site=dgx01"])                          the last launch's jobs
+#   reproduce_main(["status", "--graph=…", "--site=vcai"])                           the last launch's jobs
 #
 # DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML, SHA and Dates; `cli_option` and `_write_atomic` come from the
 # includer, src/cli.jl):

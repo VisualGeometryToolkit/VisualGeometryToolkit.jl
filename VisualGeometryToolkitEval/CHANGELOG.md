@@ -1,8 +1,15 @@
 # VisualGeometryToolkitEval changelog
 
-## 0.10.2
+## 0.11.0
 
-On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader returns the site's `refuse_depot` too).
+**Breaking: a top-level `[render]` in a `Product` record is an error** (it keyed nothing: a product that read it was
+reused after an edit of it; below), and **the `dgx01` site profile is retired** (a project that launched there names a
+profile file of its own, `--site=path/to/mine.toml`). On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the
+site reader returns the site's `refuse_depot` too).
+
+### Removed
+- **`configs/sites/dgx01.toml`**: the shipped profiles are `desktop` and `vcai`. The runner's tests run their Slurm
+  stand-in on a profile of their own; the docs' examples and the runner bootstrap's usage line name `vcai`.
 
 ### Added
 - **`Reproduce.asset_stages(product, cfg, assets; paper)`**: a driver's `:verify` and `:deploy` check stages over the
@@ -11,6 +18,10 @@ On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader retu
   its current key: the pair the paper projects copied. **`Experiments.produced_dir(product)`**: a product's
   directory once it is produced under its key, an error naming it otherwise. `paper_figures_dir` is now defined in
   Reproduce (its deploy stages read it); PaperProjects exports the same function, unchanged.
+- **The `desktop` profile's `[storage]`**: every project's data under `/home/jbpritts/data/vgtk/data/{project}`, its
+  results under `/home/jbpritts/data/vgtk/results/{project}` and the artifact store at
+  `/home/jbpritts/data/vgtk/artifacts`, one tree beside the workstation's existing `data/` directories (none moved). A
+  project's own `[sites.desktop]` roots are still read first, and a data or results root is used once it exists.
 - **`[storage] refuse_depot`** in a site profile (`Site.refuse_depot`: `true`, `false`, or `nothing` when unstated):
   whether a process there may fall back to the Julia depot as its artifact store. The shipped `vcai` sets it (and the
   template); VisualGeometryToolkitCore's `artifact_store` reads it through this package's site reader (`NODE_CACHE`,
@@ -28,7 +39,7 @@ On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader retu
   finds the same profile (a shipped one, or one in the project's sites directory), else as the profile's file (it gave
   the name, which found no profile, or another one, there). A driver reads the graph's `[sites.<site>]` tables (its
   tiers) by the profile's name either way.
-- **`Product` refuses a record holding a top-level `render`** (a section `RUN_KEY_EXCLUDED` drops from a run key):
+- **Breaking: `Product` refuses a record holding a top-level `render`** (a section `RUN_KEY_EXCLUDED` drops from a run key):
   it keyed nothing, so a product that reads it was reused after an edit of it. A product that reads it keys it under
   its own name, the table moved (`r = copy(cfg); r["render_files"] = pop!(r, "render")`); one that does not leaves it
   out of its record (`delete!(copy(cfg), "render")`, the same key as before). Every other product's key is unchanged.

@@ -232,7 +232,7 @@ the site profiles and their schema live here.
 # from the repository root; a bare julia: the runner needs only the stdlibs
 julia --startup-file=no -e 'include(ARGS[1]); include(ARGS[2]); exit(reproduce_main(ARGS[3:end]))' \
     <Eval>/src/cli.jl <Eval>/src/reproduce/runner.jl \
-    --graph=<project>/configs/reproduce.toml --site=dgx01 [--only=a,b] [--no-deps] [--dry-run]
+    --graph=<project>/configs/reproduce.toml --site=vcai [--only=a,b] [--no-deps] [--dry-run]
 ```
 
 The graph (`[project]`, `[sites.<site>]`, one `[[stage]]` per stage,
@@ -245,9 +245,9 @@ workdir = "../.."                      # where the jobs are submitted from, rela
 julia_project = "cvpr2027"
 code = ["src", "cvpr2027/src", "cvpr2027/scripts"]   # the project's code: its trees identify a run (below)
 
-[sites.dgx01]                          # where this project's data and results are on that machine
-data_root = "/raid/data/me/paper-data"
-results_root = "/raid/data/me/paper-results"
+[sites.vcai]                           # where this project's data and results are on that machine
+data_root = "/cluster/projects/me/paper-data"
+results_root = "/cluster/projects/me/paper-results"
 
 [[stage]]
 name = "setup"                         # the environment: instantiated inside the scheduler
@@ -304,10 +304,10 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   A config never names a machine path; the machine's paths are its site's:
 
   ```toml
-  [sites.dgx01]
-  data_root = "/raid/data/me/paper-data"
-  results_root = "/raid/data/me/paper-results"
-  tiers = { blobcalib_202609 = "/raid/data/me/datasets/202609_BlobCalib" }
+  [sites.vcai]
+  data_root = "/cluster/projects/me/paper-data"
+  results_root = "/cluster/projects/me/paper-results"
+  tiers = { blobcalib_202609 = "/cluster/projects/me/datasets/202609_BlobCalib" }
   ```
 
   The runner gives its jobs the same roots (`<data_env>_<TIER>`,
@@ -573,13 +573,14 @@ instantiates the environment inside the scheduler.
 
 ### Adding your machine
 
-The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
-partition `gpu`, 2 CPUs per task unless a stage declares its own
-`cpus_per_task`, 8480M per CPU, one GPU per GPU task), `configs/sites/desktop.toml`
-(one RTX 4090, no scheduler, device 0) and `configs/sites/vcai.toml` (the
-vcai-eaic-mds Slurm cluster: every job sources the project space's job
-environment; its `[storage]` puts every project's data and results and the
-artifact store in the NFS project space). For another machine:
+The shipped sites are `configs/sites/desktop.toml` (the owner's workstation:
+one RTX 4090, no scheduler, device 0; its `[storage]` puts every project's data
+and results and the artifact store under one tree of the home, `data/vgtk/`)
+and `configs/sites/vcai.toml` (the vcai-eaic-mds Slurm cluster: every job
+sources the project space's job environment; its `[storage]` puts every
+project's data and results and the artifact store in the NFS project space).
+The earlier `dgx01` profile is retired: a project that launched there names a
+profile file of its own. For another machine:
 
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`
    `backend` (`slurm` or `local`) and a `setup` shell snippet (module loads,

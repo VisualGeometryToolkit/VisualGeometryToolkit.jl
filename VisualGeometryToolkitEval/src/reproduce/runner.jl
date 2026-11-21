@@ -819,7 +819,8 @@ precedence is the one a driver's `data_root()` and `results_root()` follow (Expe
 `data/exp_raw` and `data/exp_pro` after the variables: one ladder, owned by the runner.
 """
 function resolve_roots(g::StageGraph, site::Site; data_root = nothing, results_root = nothing, env = ENV)
-    sites() = (; table = get(g.site_roots, site.name, nothing), site, project = g.name, g.workdir)
+    # every rung's relative root is relative to the workdir, joined once here (the table's too: no workdir in `sites`)
+    sites() = (; table = get(g.site_roots, site.name, nothing), site, project = g.name, workdir = "")
     pick(arg, var, key) = _relative_to(something(_root_ladder(key; arg, env, var, sites), ""), g.workdir)
     return (pick(data_root, g.data_env, "data_root"), pick(results_root, g.results_env, "results_root"))
 end

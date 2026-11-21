@@ -147,7 +147,8 @@ end
     @test cfg["experiment"]["problem"] == "E"
     @test_throws ErrorException config_of_record("absent"; root)
     withenv("VGTK_RESULTS_ROOT" => joinpath(root, "results")) do
-        dir = product_dir(Product(joinpath("d", "m", "E", "fig2"), "budget", cfg; output = "budget.json", code = nothing))
+        # a cell's step reads its config but its [render]: keyed by the config's run key, the table left out
+        dir = product_dir(Product(joinpath("d", "m", "E", "fig2"), "budget", delete!(copy(cfg), "render"); output = "budget.json", code = nothing))
         @test dir == joinpath(root, "results", "d", "m", "E", "fig2", "budget", run_key(cfg))
         @test startswith(dir, joinpath(root, "results"))
     end

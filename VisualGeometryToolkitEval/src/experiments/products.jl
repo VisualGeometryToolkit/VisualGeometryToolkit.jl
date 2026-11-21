@@ -76,8 +76,9 @@ function Product(experiment::AbstractString, name::AbstractString, record::Abstr
     for k in RUN_KEY_EXCLUDED
         haskey(rec, k) && throw(ArgumentError(
             "Product $experiment/$name: its record holds a top-level `$k`, which a run key excludes (RUN_KEY_EXCLUDED), " *
-            "so it would not key the product. A product that reads it keys it under its own name " *
-            "(`merge(record, Dict(\"$(k)_files\" => record[\"$k\"]))`); one that does not leaves it out of its record."))
+            "so it would not key the product. A product that reads it keys it under its own name (`$(k)_files`, the " *
+            "table moved: `r = copy(record); r[\"$(k)_files\"] = pop!(r, \"$k\")`); one that does not leaves it out of " *
+            "its record (`delete!(copy(record), \"$k\")`)."))
     end
     return Product(String(experiment), String(name), rec, run_key(rec; files, upstream = up, parts, code), String(output),
                    Pair{String, Product}[k => v for (k, v) in ups if v isa Product])

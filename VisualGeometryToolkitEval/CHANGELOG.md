@@ -30,9 +30,10 @@ On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader retu
   tiers) by the profile's name either way.
 - **`Product` refuses a record holding a top-level `render`** (a section `RUN_KEY_EXCLUDED` drops from a run key):
   it keyed nothing, so a product that reads it was reused after an edit of it. A product that reads it keys it under
-  its own name (`"render_files" => cfg["render"]`); one that does not leaves it out of its record. Every other
-  product's key is unchanged. A driver that passes a whole config holding `[render]` to `Product` must drop the table
-  from it (or key it under its own name).
+  its own name, the table moved (`r = copy(cfg); r["render_files"] = pop!(r, "render")`); one that does not leaves it
+  out of its record (`delete!(copy(cfg), "render")`, the same key as before). Every other product's key is unchanged.
+  **A driver must change** where it gives `Product` a whole config that holds `[render]`, or a record that holds the
+  table both at the top and under another name.
 - The data policy's scanned folders and the paper-project template's folders derive from one declared layout
   (`Experiments._PROJECT_LAYOUT`): the same folders as before (D1 reads `test`, `examples`, `configs`, `docs`,
   `provenance`, and the Markdown files of the root and `data/`; the code rules `src` and `scripts`), and

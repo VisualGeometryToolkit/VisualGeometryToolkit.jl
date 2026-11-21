@@ -196,7 +196,8 @@ end
 # The directory of ONNX Runtime's CUDA build (Artifacts.toml's `onnxruntime_cuda`), built from conda-forge's files into
 # the artifact store on first use (Core's `install_built_artifact`: the store `artifact_store()` resolves, never a
 # cluster's depot), as (; dir); or why there is none. ONNXRunTime loads the build by path (the probe sets its library),
-# so the tree may live anywhere. The CUDA 12 runtime and cuDNN it loads are CUDA_Runtime_jll's and CUDNN_jll's own
+# so the tree may live anywhere (a depot's own, installed before the store, is read when the store cannot be had).
+# The CUDA 12 runtime and cuDNN it loads are CUDA_Runtime_jll's and CUDNN_jll's own
 # lazy artifacts (`_jll_cuda12_artifact`), which Pkg installs into the depot from those JLLs' Artifacts.toml: JLL
 # artifacts, like every other package's, are Pkg's to place.
 function _onnxruntime_cuda_artifact()
@@ -209,7 +210,13 @@ function _onnxruntime_cuda_artifact()
     return try
         (; dir = install_built_artifact(build!, "onnxruntime_cuda", hash))
     catch err
-        "ONNX Runtime's CUDA build did not install: $(sprint(showerror, err))"
+        # a depot that already holds the tree (installed there before 0.9.11) is read, never written: the CUDA path
+        # does not fall to the CPU for want of a store, and the store gets the tree on the first run that names one
+        depot = joinpath(first(DEPOT_PATH), "artifacts", bytes2hex(hash.bytes))
+        isdir(depot) || return "ONNX Runtime's CUDA build did not install: $(sprint(showerror, err))"
+        @warn "ONNX Runtime's CUDA build read from the depot, $depot: it did not install into the artifact store " *
+              "($(sprint(showerror, err))); name one (VGTK_ARTIFACT_STORE) to move it there"
+        (; dir = depot)
     end
 end
 

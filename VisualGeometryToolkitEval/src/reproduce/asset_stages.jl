@@ -42,7 +42,7 @@ end
 
 The verify and deploy check stages (Experiments' `Stage`, for `run_stages`) of
 a driver whose renders `assets` (file names) are files of the keyed product
-`product()` — a function, so the product is built when its stage runs:
+`product()` — a function (any callable), so the product is built when its stage runs:
 
 - `:verify`, each render against the paper's copy in
   [`paper_figures_dir`](@ref)`(paper)` ([`verify_assets`](@ref): bytes, and a
@@ -60,7 +60,7 @@ const STAGES = [Stage(:figure, …; items = () -> [figure_product()], …),
                 asset_stages(figure_product, CFG, ASSETS)...]
 ```
 """
-asset_stages(product::Function, cfg::AbstractDict, assets; paper::AbstractString = joinpath("paper", "main.tex")) = [
+asset_stages(product, cfg::AbstractDict, assets; paper::AbstractString = joinpath("paper", "main.tex")) = [
     Stage(:verify, "each render against the paper's copy (bytes, coordinates)";
           check = () -> (verify_assets(produced_dir(product()), paper_figures_dir(paper), assets); nothing)),
     Stage(:deploy, "into the paper's figures where nothing changes (or signed off)";

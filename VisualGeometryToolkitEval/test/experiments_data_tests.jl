@@ -128,9 +128,12 @@
             @test E.data_root() == launch() == tabled
             # the site's tiers found by its name, VGTK_SITE its file
             @test E.data_root(; tier = "tier_t") == joinpath(sites, "t")
-            # the profile refuses the depot: no store named, none falls back to it (NODE_CACHE unset)
-            err = try VgtkCore.artifact_store(); nothing catch e; e end
-            @test err isa ErrorException && occursin("refuse_depot", err.msg)
+            # the profile refuses the depot: no store named, none falls back to it (NODE_CACHE unset; Core's preference
+            # names a store: not this case)
+            if isempty(VgtkCore.load_preference(VgtkCore, "artifact_store", ""))
+                err = try VgtkCore.artifact_store(); nothing catch e; e end
+                @test err isa ErrorException && occursin("refuse_depot", err.msg)
+            end
             E.set_project_root!("")
         end
     end

@@ -24,7 +24,7 @@
 # Pidfile lock per tree serialises the processes that install the same tree
 # into a shared store (one download, the others wait and read it).
 # =============================================================================
-using Pkg.Artifacts: ensure_artifact_installed, download_artifact, create_artifact, remove_artifact
+using Pkg.Artifacts: ensure_artifact_installed, download_artifact
 using Pkg.GitTools: tree_hash
 using Downloads: Downloads
 using Artifacts: Artifacts, artifact_exists, artifact_path, with_artifacts_directory
@@ -253,20 +253,16 @@ function install_artifact(name::AbstractString, toml::AbstractString; store::Art
     meta = TOML.parsefile(toml)
     haskey(meta, name) || error("unknown artifact '$name' (see $toml)")
     hash = SHA1(meta[name]["git-tree-sha1"])
-    return _install_tree(store, name, hash) do
-        url = meta[name]["download"][1]["url"]
-        is_published_url(url) || error(
-            "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
-            "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
-        _download!(name, toml, meta, hash, url)
-    end
-end
-
-# The one install of a tree into a store: inside its block, unless present, `fill!()` under the tree's Pidfile lock
-# (another process may have installed it meanwhile: checked again under the lock); then its name recorded, its path.
-function _install_tree(fill!::Function, store::ArtifactStore, name::AbstractString, hash::SHA1)
     return with_artifact_store(store) do
-        artifact_exists(hash) || _install_lock(() -> (artifact_exists(hash) || fill!(); nothing), store.path, bytes2hex(hash.bytes))
+        if !artifact_exists(hash)
+            url = meta[name]["download"][1]["url"]
+            is_published_url(url) || error(
+                "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
+                "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
+            _install_lock(store.path, bytes2hex(hash.bytes)) do
+                artifact_exists(hash) || _download!(name, toml, meta, hash, url)
+            end
+        end
         _record_name(store, name, hash)
         artifact_path(hash)
     end
@@ -302,20 +298,37 @@ A tree Pkg cannot download and unpack itself (ONNX Runtime's CUDA build,
 merged from conda packages: VisualGeometryToolkitFeatures) installed into the
 artifact store under its pinned git-tree-sha1 `hash` (a `Base.SHA1`) unless
 present there, and its tree returned: `build!(dir)` fills a new directory
-(Pkg's `create_artifact`, inside [`with_artifact_store`](@ref)), whose tree
-hash must be `hash` (another tree is removed, and is an error). Processes
+in the store's directory, whose tree hash must be `hash` (another tree is
+removed, and is an error; a tree already in the store is never touched), and
+then moved into place; the build runs outside Pkg's directory override. Processes
 building the same tree into a shared store take turns under the tree's
 Pidfile lock, as [`install_artifact`](@ref)'s do (one builds, the others then
 read it), and the store records the tree under `name`
 ([`store_name_clashes`](@ref)).
 """
 function install_built_artifact(build!::Function, name::AbstractString, hash::SHA1; store::ArtifactStore = artifact_store())
-    return _install_tree(store, name, hash) do
-        got = create_artifact(build!)
-        got == hash && return nothing
-        remove_artifact(got)
-        error("artifact '$name': the built tree is $(bytes2hex(got.bytes)), not the pinned $(bytes2hex(hash.bytes))")
+    hex = bytes2hex(hash.bytes)
+    tree = joinpath(store.path, hex)            # Pkg's layout, the depot's `artifacts/` too
+    if !isdir(tree)
+        mkpath(store.path)
+        _install_lock(store.path, hex) do
+            isdir(tree) && return nothing
+            # built in the store's own directory (one file system: the move is atomic), outside Pkg's override (a
+            # build of minutes holds no process-wide lock), and moved into place only once it hashes to `hash`: an
+            # existing tree is never touched
+            tmp = mktempdir(store.path; prefix = ".build-")
+            try
+                build!(tmp)
+                got = bytes2hex(tree_hash(tmp))
+                got == hex || error("artifact '$name': the built tree is $got, not the pinned $hex")
+                mv(tmp, tree)
+            finally
+                rm(tmp; recursive = true, force = true)
+            end
+        end
     end
+    _record_name(store, name, hash)
+    return tree
 end
 
 """

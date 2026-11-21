@@ -8,7 +8,8 @@ A patch on VisualGeometryToolkitCore 0.13.1 (`[compat]` VisualGeometryToolkitCor
   `VGTK_ARTIFACT_STORE`, the site profile's, the preference's), as the LoMa weights do, never a cluster's depot: the
   same conda-forge files and the same pinned tree, built once per store, under the store's per-tree lock, so the jobs
   of one machine that probe CUDA together build it once. A machine whose depot holds the tree moves it with Core's
-  `migrate_artifacts` (or builds it again into the store). The CUDA 12 runtime and cuDNN it loads stay CUDA_Runtime_jll's
+  `migrate_artifacts` (or builds it again into the store); where no store can be had (the depot refused, none named),
+  a depot's own tree is still read, with a warning, so the CUDA path does not fall to the CPU for want of a store. The CUDA 12 runtime and cuDNN it loads stay CUDA_Runtime_jll's
   and CUDNN_jll's own lazy artifacts, which Pkg installs into the depot like every JLL's.
 
 ## 0.9.10

@@ -195,6 +195,7 @@ end
 # placeholder here: nothing is downloaded), and a process with no store where the depot is refused names why.
 @testitem "ONNX Runtime's CUDA build: installed into and read from the artifact store" begin
     using Artifacts: artifact_hash
+    import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitFeatures as VgtkFeatures
     hash = artifact_hash("onnxruntime_cuda", VgtkFeatures._ARTIFACTS_TOML)
     if hash !== nothing                                   # x86-64 Linux
@@ -204,9 +205,15 @@ end
             @test VgtkFeatures._onnxruntime_cuda_artifact() == (; dir = tree)
             @test isfile(joinpath(store, "names", "onnxruntime_cuda", bytes2hex(hash.bytes)))
         end
-        why = withenv(VgtkFeatures._onnxruntime_cuda_artifact, "VGTK_ARTIFACT_STORE" => nothing, "VGTK_SITE" => nothing,
-                      "NODE_CACHE" => mktempdir())
-        @test why isa String && occursin("did not install", why) && occursin("depot is refused", why)
+        # no store, the depot refused: the depot's tree when it has one (read, never written), else why there is none
+        # (Core's preference names a store: not this case)
+        if isempty(VgtkCore.load_preference(VgtkCore, "artifact_store", ""))
+            got = withenv(VgtkFeatures._onnxruntime_cuda_artifact, "VGTK_ARTIFACT_STORE" => nothing, "VGTK_SITE" => nothing,
+                          "NODE_CACHE" => mktempdir())
+            depot = joinpath(first(DEPOT_PATH), "artifacts", bytes2hex(hash.bytes))
+            @test isdir(depot) ? got == (; dir = depot) :
+                  got isa String && occursin("did not install", got) && occursin("depot is refused", got)
+        end
     end
 end
 

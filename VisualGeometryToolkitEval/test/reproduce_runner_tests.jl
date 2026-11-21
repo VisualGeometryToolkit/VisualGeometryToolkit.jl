@@ -211,6 +211,16 @@ end
         e = Dict{String, String}()
         @test resolve_roots(g, vcai; env = e) == ("/cluster/projects/vgtk/data/paper", "/cluster/projects/vgtk/results/paper")
         @test resolve_roots(g, vcai; env = Dict("VGTK_DATA_ROOT" => "/x"), results_root = "/r") == ("/x", "/r")
+        # a relative root under a relative workdir (a graph named by a relative path) is joined to it once
+        rel = mktempdir(); mkpath(joinpath(rel, "proj", "configs"))
+        write(joinpath(rel, "proj", "configs", "reproduce.toml"),
+              "[project]\nname = \"p\"\nworkdir = \"..\"\n[sites.desktop]\ndata_root = \"data/x\"\n[[stage]]\nname = \"s\"\ncommand = [\"true\"]\n")
+        cd(rel) do
+            gr = load_stage_graph(joinpath("proj", "configs", "reproduce.toml"))
+            @test !isabspath(gr.workdir)
+            @test resolve_roots(gr, load_site("desktop"); env = Dict{String, String}(), results_root = "out") ==
+                  (normpath(joinpath(gr.workdir, "data", "x")), normpath(joinpath(gr.workdir, "out")))
+        end
         # the jobs get the site's store (a package without VisualGeometryToolkitEval installs into it too)
         plan = plan_reproduction(g, vcai; env = merge(env0, Dict("VGTK_DATA_ROOT" => mktempdir(), "VGTK_RESULTS_ROOT" => mktempdir())),
                                  queue_states = noqueue)

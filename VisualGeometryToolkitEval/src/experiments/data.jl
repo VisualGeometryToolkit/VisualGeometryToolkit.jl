@@ -136,12 +136,20 @@ function _site_profile(spec::AbstractString, g)
     dirs = g === nothing || isempty(g.sites_dir) ? String[] : [g.sites_dir]
     path = _reproduce()._site_path(String(spec); dirs)    # the runner's lookup: `nothing` for an unknown name
     path === nothing && return nothing
-    t = mtime(path)                                       # read once per change of the file (every root lookup reads it)
-    c = get(_SITE_CACHE, path, nothing)
-    (c === nothing || c[1] != t) && (c = _SITE_CACHE[path] = (t, _reproduce().load_site(path)))
-    return c[2]
+    return _cached_read(_reproduce().load_site, _SITE_CACHE, path)   # once per change of the file
 end
 const _SITE_CACHE = Dict{String, Tuple{Float64, Any}}()
+
+# `read(path)` once per change of the file (its mtime), kept in `cache`; the caches are shared by a driver's threads.
+const _CACHE_LOCK = ReentrantLock()
+function _cached_read(read::Function, cache::AbstractDict, path::AbstractString)
+    t = mtime(path)
+    @lock _CACHE_LOCK begin
+        c = get(cache, path, nothing)
+        (c === nothing || c[1] != t) && (c = cache[path] = (t, read(path)))
+        return c[2]
+    end
+end
 
 # The site VGTK_SITE names: its name (the profile's; VGTK_SITE as given for a site the stage graph alone knows,
 # `[sites.<site>]`), its profile or `nothing`, and the bound project's graph `graph()`, read only with VGTK_SITE set;
@@ -165,10 +173,7 @@ function _project_graph()
     root = project_root()
     path = isempty(root) ? "" : joinpath(root, "configs", "reproduce.toml")
     isfile(path) || return nothing
-    t = mtime(path)
-    c = get(_GRAPH_CACHE, path, nothing)
-    (c === nothing || c[1] != t) && (c = _GRAPH_CACHE[path] = (t, _reproduce().load_stage_graph(path)))
-    return c[2]
+    return _cached_read(_reproduce().load_stage_graph, _GRAPH_CACHE, path)
 end
 
 """
@@ -269,7 +274,7 @@ function results_root()
     local_root = joinpath(project_root(), "data", "exp_pro")
     # a site's root is used once it exists (as the data root's), or when the project creates its results root
     r = _driver_root("results_root", "VGTK_RESULTS_ROOT", islink(local_root) || isdir(local_root) ? local_root : nothing;
-                     ready = p -> _BINDING.create_results || isdir(p))
+                     ready = p -> !isempty(p) && (_BINDING.create_results || isdir(p)))
     root, bound = r === nothing ? (local_root, false) : (r, true)
     if _BINDING.create_results
         mkpath(root)

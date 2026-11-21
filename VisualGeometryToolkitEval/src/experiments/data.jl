@@ -413,7 +413,7 @@ function _tier_root(tier::AbstractString; write::Bool)
     results_mount = catalog_results_mount(catalog)
     if results_mount !== nothing && results_mount(tier) !== nothing   # a run of record published as a tier: no data ladder
         r, _ = tier_data_root(tier, ""; env = ENV, tiers = site_tiers, workdir, prefix, results_mount,
-                              results_root = results_root(), write)
+                              results_root, write)          # the results root read only when the env and site rungs miss
         return r
     end
     bound = _bound_data_root()

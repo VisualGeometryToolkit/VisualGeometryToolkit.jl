@@ -97,6 +97,14 @@ end
         @test E.input_path(cfg, "he") == joinpath(pdir, "poses.json")          # the product input falls back to its tier
         E.set_project_root!("")
     end
+    # the tier bound by its variable: read there, with no results root to resolve
+    elsewhere = mktempdir()
+    withenv("VGTK_DATA_ROOT" => data, "VGTK_RESULTS_ROOT" => nothing, "VGTK_SITE" => nothing,
+            "VGTK_DATA_ROOT_BMVC2026_RESULTS" => elsewhere) do
+        E.set_project_root!(proj)
+        @test E.data_root(; tier = "bmvc2026_results") == elsewhere
+        E.set_project_root!("")
+    end
     # the runner's launch check: the same roots (the results root, the site's results root of the producer)
     write(joinpath(proj, "configs", "c.toml"), sprint(TOML.print, cfg))
     write(joinpath(proj, "configs", "reproduce.toml"),
@@ -147,13 +155,19 @@ end
         project = "bmvc2026"
         product = "hand_eye"
         key = "k"
+        [inputs.via_data]
+        project = "bmvc2026"
+        product = "calibration/hand_eye"
+        key = "3f9a0c1d2e4b5a67"
+        tier = "derived"
         [inputs.pools]
         tier = "derived"
         path = "pools/x.jld2"
         """)
     v = P.paper_project_violations(root; checks = (:storage, :catalog), stack_artifacts = [joinpath(other, "Artifacts.toml")])
     a2 = [x.message for x in v if x.rule == "A2"]
-    @test length(a2) == 1 && occursin("[inputs.bad]", only(a2)) && occursin("<experiment>/<name>", only(a2))
+    @test length(a2) == 2 && any(m -> occursin("[inputs.bad]", m) && occursin("<experiment>/<name>", m), a2)
+    @test any(m -> occursin("[inputs.via_data]", m) && occursin("results-mount tier", m), a2)   # its tier is no results mount
     a1 = [x.message for x in v if x.rule == "A1"]
     @test any(m -> occursin("ghost", m) && occursin("no_such_stage", m) && occursin("is no stage of accv2026", m), a1)
     @test !any(m -> occursin("pools_of_record", m), a1)

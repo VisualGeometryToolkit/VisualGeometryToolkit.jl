@@ -573,8 +573,9 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
             if is_product_input(t)                     # another project's product: well-formed, any tier it names catalogued
                 bad = try product_input_path(t); nothing catch err; sprint(showerror, err) end
                 bad === nothing || (add!(:storage, "A2", rel, 0, "[inputs.$id]: $bad"); continue)
-                isempty(tier) || tier in names || add!(:storage, "A2", rel, 0,
-                    "[inputs.$id] reads $(t["project"])'s product through tier $(repr(tier)), which $catalog does not list")
+                isempty(tier) || (cat !== nothing && haskey(cat.artifacts, tier) && get(cat.artifacts[tier], "mount", "") == "results") ||
+                    add!(:storage, "A2", rel, 0, "[inputs.$id] reads $(t["project"])'s product through tier $(repr(tier)), which " *
+                                                 "$catalog does not list as a results-mount tier (mount = \"results\")")
                 continue
             end
             isempty(tier) && (add!(:storage, "A2", rel, 0, "[inputs.$id] names no tier: an input is a catalogued tier's file ($catalog)"); continue)

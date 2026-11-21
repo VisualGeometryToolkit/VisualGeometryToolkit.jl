@@ -571,7 +571,7 @@ In order:
 3. a tier the project's catalog mounts under its RESULTS (`mount = "results"`: a run of record published as a tier,
    which DataArtifacts' `fetch_artifacts!` links into the results root) — `results_mount(tier)` returns its
    `mount_dir` (`""` the top), `nothing` for another tier ([`catalog_results_mount`](@ref)) — `<results_root>/<mount>`
-   (`source = "results"`);
+   (`source = "results"`; `results_root` a path, or a function read only here);
 4. when `data_root` is an artifact view that publishes the tier — `view_mount(tier)` returns where the view mounts it
    (`""` its top), `nothing` for a tier it does not publish — `<data_root>/<mount>` (`source = "view"`). The mount
    applies only there: never to a data root set by `VGTK_DATA_ROOT`, an author's own `data/exp_raw` or a fallback;
@@ -583,7 +583,7 @@ producer never installs one; it binds the tier's root (the environment or the si
 """
 function tier_data_root(tier::AbstractString, data_root::AbstractString; env = ENV, tiers = nothing,
                         workdir::AbstractString = "", prefix::AbstractString = "VGTK_DATA_ROOT",
-                        view_mount = nothing, results_mount = nothing, results_root::AbstractString = "", write::Bool = false)
+                        view_mount = nothing, results_mount = nothing, results_root = "", write::Bool = false)
     var = tier_variable(tier; prefix)
     v = String(get(env, var, ""))
     isempty(v) || return (v, "env")
@@ -595,8 +595,9 @@ function tier_data_root(tier::AbstractString, data_root::AbstractString; env = E
     if r !== nothing
         write && throw(ArgumentError("tier $tier is a run of record published under the results (mount = \"results\"); " *
                                      "bind $var or a site tier ([sites.<site>.tiers]) to produce it"))
-        isempty(results_root) && return ("", "results")
-        return (isempty(r) ? String(results_root) : joinpath(results_root, String(r)), "results")
+        rr = String(results_root isa Function ? results_root() : results_root)   # a function: read only for this rung
+        isempty(rr) && return ("", "results")
+        return (isempty(r) ? rr : joinpath(rr, String(r)), "results")
     end
     m = view_mount === nothing || isempty(tier) ? nothing : view_mount(tier)
     if m !== nothing

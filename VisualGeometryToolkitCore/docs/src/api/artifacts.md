@@ -1,5 +1,9 @@
 # The Artifact Store
 
+```@meta
+CurrentModule = VisualGeometryToolkitCore
+```
+
 Published artifact trees — a paper project's DataArtifacts tiers, a package's
 model weights — are installed into the **artifact store**, a directory of
 `<git-tree-sha1>/` trees in Pkg's layout on storage that every job of a

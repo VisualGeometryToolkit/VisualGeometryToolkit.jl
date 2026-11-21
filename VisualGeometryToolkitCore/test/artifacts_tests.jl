@@ -4,11 +4,10 @@
 # the per-tree lock across processes, a single file in the store, the depot → store migration, and the Hugging Face
 # token read from the environment first, then from the file `hf auth login` writes.
 
-@testsnippet StoreFixture begin
-    using Test, TOML
+@testsetup module StoreFixture
     import VisualGeometryToolkitCore as VgtkCore
     using Pkg.Artifacts: create_artifact, archive_artifact, bind_artifact!
-    using Base: SHA1
+    export NO_STORE, published_tree
     # The store variables unset: every rung below is the test's own; no Pkg server (the trees are file:// tarballs,
     # which Pkg would otherwise first ask the server for).
     const NO_STORE = ("VGTK_ARTIFACT_STORE" => nothing, "VGTK_SITE" => nothing, "NODE_CACHE" => nothing,
@@ -29,6 +28,10 @@
 end
 
 @testitem "install_artifact: the one artifact install (refusals, the Hugging Face token)" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     toml = joinpath(dir, "Artifacts.toml")
     write(toml, """
@@ -56,6 +59,10 @@ end
 end
 
 @testitem "artifact_store: env → site profile → preference → depot, the depot refused on the cluster" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     site_file = joinpath(dir, "mysite.toml")
     write(site_file, "[site]\nbackend = \"local\"\n[storage]\nartifact_store = \"$(joinpath(dir, "site-store"))\"\n")
@@ -107,6 +114,10 @@ end
 end
 
 @testitem "install_artifact: into the store, hash-verified, atomic, one name one tree" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     store = joinpath(dir, "store")
     h, toml = published_tree(dir, "tier_a", ["run1/a.json" => "{}", "b.txt" => "b"])
@@ -138,6 +149,10 @@ end
 end
 
 @testitem "install_artifact: one process installs a tree, another waits for its lock" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     store = joinpath(dir, "store")
     h, toml = published_tree(dir, "tier_a", ["a" => "a"])
@@ -161,6 +176,10 @@ end
 end
 
 @testitem "with_artifact_store: Pkg's override for the block, nested into the same store, restored" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     import Artifacts
     dir = mktempdir()
     VgtkCore.with_artifact_store(joinpath(dir, "a")) do
@@ -175,6 +194,10 @@ end
 end
 
 @testitem "store_file: a single file in the store, verified, atomic" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     src = joinpath(dir, "w.onnx"); write(src, "weights")
     digest = open(VgtkCore.sha256_hex, src)
@@ -194,6 +217,10 @@ end
 end
 
 @testitem "migrate_artifacts: the depot's trees into the store, hash-checked" setup = [StoreFixture] begin
+    using Test, TOML
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact, bind_artifact!
+    using Base: SHA1
     dir = mktempdir()
     depot = joinpath(dir, "depot")
     store = VgtkCore.ArtifactStore(joinpath(dir, "store"), :env)

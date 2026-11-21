@@ -1,5 +1,18 @@
-docs-pass: fd19dcdb
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages or the artifact store)
+docs-pass: c118f57f
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs or the artifact store)
+
+# Eval 0.11.0 docs review (owner decisions after the 0.10.2 preparation) — branch eval-011-sites, merged at c118f57f
+
+- Version 0.11.0 (breaking: a top-level `[render]` in a Product record is an error; the `dgx01` site profile is
+  retired). Added: `Experiments.project_results_root`, the top-level `catalog_results_mount`, `is_product_input`,
+  `product_input_path`, `product_input`; `missing_inputs` takes `results_root` and `site_profile`; `tier_data_root`
+  takes `results_mount` and `results_root`. Every new name has its docstring (the suite's `docs` item).
+- Pages: `paper-projects.md` (a produced entry naming another project's producer; the section "Another project's run
+  of record": the product-input form, its roots, the results-mount tier), `reproduce.md` (the shipped sites, the
+  examples on `vcai`); the `input_path`, `missing_inputs`, `tier_data_root` docstrings; the runner bootstrap's usage
+  line. The `desktop` profile documents its storage.
+- Builds: Eval's docs strict green at c118f57f. Simplify and code review on the diff, their findings applied
+  (8a37cac2, 82d33c57).
 
 # Core 0.13.1, Features 0.9.11, Eval 0.10.2 docs review — branch followup-store-site (merged to main at fd19dcdb)
 

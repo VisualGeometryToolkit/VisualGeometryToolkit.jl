@@ -33,8 +33,8 @@ end
     # The tilted detection's bits depend on the CPU's floating-point evaluation (its vector instruction set): two
     # machines' outputs are known, and a run reproduces ONE of them in both the features and their covariances (the
     # first was recorded at 654a136f on the machine the factoring was made on; the second is the cluster's AMD node's
-    # and the hosted CI runners', the same before and after the factoring). The untilted detection and the pyramid's
-    # levels below are the same bits on every machine.
+    # and the hosted CI runners', the same at Features 0.9.8 and 0.9.9). The untilted detection and the pyramid's levels
+    # below pass with one pin on all of these machines.
     feature_pins = ("19bee0b8eed210064cb55e46f1a7f2d0a9c3039deca0cecd590cf0c228978f02",
                     "0893189cf2f9021937394a7926014bf6cd3da9e257de0f38dc038d35f5e3aec6")
     covariance_pins = ("72cd90e0d3fde944580677448c4e1b6ed9bbe1e798124cb787f0bf15768463eb",

@@ -176,7 +176,7 @@ into place, under a Pidfile lock per tree, so jobs that start together download
 a tree once. A cluster's Julia depot (node-local and evicted, or a home with a
 quota) is refused; the shipped `vcai` site names the cluster's store. A machine
 whose depot already holds the trees moves them once with
-`VisualGeometryToolkitCore.migrate_artifacts!(toml)` (each tree's hash
+`VisualGeometryToolkitCore.migrate_artifacts(toml)` (each tree's hash
 checked; `remove = true` frees the depot).
 
 ## The template

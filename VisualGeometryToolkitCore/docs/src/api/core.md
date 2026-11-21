@@ -57,14 +57,14 @@ under one lock), so Pkg's sha256 and git-tree-sha1 checks and its atomic move
 into place hold; a Pidfile lock per tree makes the jobs that start together
 download a tree once. A model published as a single file goes in with
 [`store_file`](@ref) (verified by [`download_verified`](@ref)). A machine whose
-depot already holds trees moves them with [`migrate_artifacts!`](@ref), and
+depot already holds trees moves them with [`migrate_artifacts`](@ref), and
 [`store_name_clashes`](@ref) lists a name the store holds under two trees.
 
 ```julia
 import VisualGeometryToolkitCore as VgtkCore
 VgtkCore.artifact_store()                       # ArtifactStore(path, source)
 tree = VgtkCore.install_artifact("tier_a", "Artifacts.toml")
-VgtkCore.migrate_artifacts!("Artifacts.toml")   # the depot's copies into the store, hash-checked
+VgtkCore.migrate_artifacts("Artifacts.toml")   # the depot's copies into the store, hash-checked
 ```
 
 ```@autodocs

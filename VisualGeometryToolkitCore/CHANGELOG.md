@@ -27,7 +27,7 @@ cluster's Julia depot.**
 - **`store_file(url, sha256, file; depot_dir)`** and **`download_verified(url, sha256, path)`**: a single file (a
   model's weights published as a file) in the store, `<store>/files/<sha256>/<file>`, verified and moved into place
   atomically; the one verified single-file download of the stack.
-- **`migrate_artifacts!(toml; store, names, remove)`**: the depot's trees of an Artifacts.toml copied into the store,
+- **`migrate_artifacts(toml; store, names, remove)`**: the depot's trees of an Artifacts.toml copied into the store,
   their git-tree-sha1 recomputed and checked, moved into place atomically (`:migrated`, `:present`, `:absent`,
   `:mismatch` per name), the depot's copy removed with `remove = true`.
 - **`store_name_clashes(store)`**: the names the store installed under more than one tree (the store records
@@ -37,7 +37,7 @@ cluster's Julia depot.**
 - **`install_artifact(name, toml; store = artifact_store())`** installs into the store (was: the depot), through
   `with_artifact_store`, keeping Pkg's sha256 and git-tree-sha1 checks and its atomic move into place, under a
   Pidfile lock per tree (`<hash>.install.pid`), so processes installing one tree into a shared store take turns. A
-  tree in the depot is not read once a store is set: `migrate_artifacts!` moves it.
+  tree in the depot is not read once a store is set: `migrate_artifacts` moves it.
 - New dependencies: FileWatching (the Pidfile lock), Preferences (the preference rung).
 
 ## 0.12.0

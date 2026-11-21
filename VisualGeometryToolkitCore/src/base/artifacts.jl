@@ -196,7 +196,7 @@ UPPER_CASE token in place of the Zenodo id or the Hugging Face revision: the
 record is not published or uploaded) and a failed download (an unpublished
 Zenodo draft, a private dataset without a token) are refused with the way out.
 A tree in the depot but not in the store is not read: move it with
-[`migrate_artifacts!`](@ref).
+[`migrate_artifacts`](@ref).
 """
 function install_artifact(name::AbstractString, toml::AbstractString; store::ArtifactStore = artifact_store())
     meta = TOML.parsefile(toml)
@@ -290,7 +290,7 @@ end
 # ---- migration: depot → store ----------------------------------------------------------
 
 """
-    migrate_artifacts!(toml; store = artifact_store(), names = keys of toml, remove = false)
+    migrate_artifacts(toml; store = artifact_store(), names = keys of toml, remove = false)
         -> Vector{Pair{String, Symbol}}
 
 Move the artifacts of `toml` that the depot holds into the store, so a machine
@@ -303,9 +303,9 @@ holds the tree. Returns `name => status` per name: `:migrated`, `:present`
 `:mismatch` (the depot's tree does not hash to its git-tree-sha1: left alone,
 never copied). The store must not be the depot.
 """
-function migrate_artifacts!(toml::AbstractString; store::ArtifactStore = artifact_store(),
+function migrate_artifacts(toml::AbstractString; store::ArtifactStore = artifact_store(),
                             names = collect(keys(TOML.parsefile(toml))), remove::Bool = false)
-    store.source === :depot && throw(ArgumentError("migrate_artifacts!: the store is the depot; set VGTK_ARTIFACT_STORE or VGTK_SITE"))
+    store.source === :depot && throw(ArgumentError("migrate_artifacts: the store is the depot; set VGTK_ARTIFACT_STORE or VGTK_SITE"))
     meta = TOML.parsefile(toml)
     out = Pair{String, Symbol}[]
     for name in names

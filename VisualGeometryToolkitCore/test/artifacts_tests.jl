@@ -194,7 +194,7 @@ end
     @test q == joinpath(dir, "scratch", "y.onnx") && read(q, String) == "other"
 end
 
-@testitem "migrate_artifacts!: the depot's trees into the store, hash-checked" setup = [StoreFixture] begin
+@testitem "migrate_artifacts: the depot's trees into the store, hash-checked" setup = [StoreFixture] begin
     dir = mktempdir()
     depot = joinpath(dir, "depot")
     store = VgtkCore.ArtifactStore(joinpath(dir, "store"), :env)
@@ -209,15 +209,15 @@ end
         bind_artifact!(toml, "t3", SHA1("4"^40); lazy = true, download_info = [("https://zenodo.org/records/1/files/t3.tar.gz", "0"^64)])
         # a depot tree that no longer hashes to its name is left alone
         f = joinpath(depot, "artifacts", bytes2hex(h2.bytes), "b"); chmod(f, 0o644); write(f, "changed")
-        r = Dict(VgtkCore.migrate_artifacts!(toml; store))
+        r = Dict(VgtkCore.migrate_artifacts(toml; store))
         @test r == Dict("t1" => :migrated, "t2" => :mismatch, "t3" => :absent)
         @test read(joinpath(store.path, bytes2hex(h1.bytes), "a"), String) == "a" && !isdir(joinpath(store.path, bytes2hex(h2.bytes)))
-        @test Dict(VgtkCore.migrate_artifacts!(toml; store, names = ["t1"], remove = true)) == Dict("t1" => :present)
+        @test Dict(VgtkCore.migrate_artifacts(toml; store, names = ["t1"], remove = true)) == Dict("t1" => :present)
         @test !isdir(joinpath(depot, "artifacts", bytes2hex(h1.bytes)))     # removed from the depot once stored
         withenv(NO_STORE..., "VGTK_ARTIFACT_STORE" => store.path) do       # and installed from the store, no download
             @test VgtkCore.install_artifact("t1", toml) == joinpath(store.path, bytes2hex(h1.bytes))
         end
-        @test_throws ArgumentError VgtkCore.migrate_artifacts!(toml; store = VgtkCore.ArtifactStore(depot, :depot))
+        @test_throws ArgumentError VgtkCore.migrate_artifacts(toml; store = VgtkCore.ArtifactStore(depot, :depot))
     finally
         popfirst!(DEPOT_PATH)
     end

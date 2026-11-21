@@ -574,7 +574,7 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
             t = ispath(p) ? realpath(p) : readlink(p)
             startswith(t, top) || add!(:storage, "A4", relpath(p, root), 0,
                                        "links to $t, outside the artifact store $(store.path) ($(store.source)): rerun scripts/fetch_data.jl " *
-                                       "(VisualGeometryToolkitCore.migrate_artifacts! moves a depot's trees)")
+                                       "(VisualGeometryToolkitCore.migrate_artifacts moves a depot's trees)")
         end
     end
     return nothing

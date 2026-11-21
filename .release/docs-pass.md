@@ -1,4 +1,4 @@
-docs-pass: 4a72c8a8
+docs-pass: 1aa082b4
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
 
 # Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
@@ -10,9 +10,15 @@ landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched
   `bending_rows`), `dilog`. Added: `ArtifactStore`, `artifact_store`, `with_artifact_store`, `set_site_artifact_store!`,
   `store_file`, `download_verified`, `store_name_clashes`, `migrate_artifacts`. Changed: `install_artifact` (a `store`
   keyword; installs into the store).
-- Eval, added: `site_root`, `active_site`, `site_profile`, `project_name`, `MACHINE_PATH_DIRS`, `MACHINE_PATH_EXTS`,
+- Eval, added: `site_root`, `active_site`, `site_profile`, `project_name`,
   the `Site` storage fields, the checks L5, L6, D5, `:storage` A2–A4, `:release` R1–R3. Features, IO, Estimation,
   PoseLib: no name added or removed.
+
+- The review (simplify, code review; 1aa082b4) added Core's `is_published_url` (docstring, in the artifact store
+  page's `@autodocs`) and made Eval's `MACHINE_PATH_DIRS`/`MACHINE_PATH_EXTS` and `data_policy_violations`'
+  `machine_dirs`/`machine_exts` keywords private again (no caller); the docstrings of `with_artifact_store`,
+  `migrate_artifacts`, `data_policy_violations` and `results_root`, the paper-projects page's roots table and D1 row,
+  and both CHANGELOGs say what the reviewed code does.
 
 ## 2. Docstrings and pages
 

@@ -16,7 +16,7 @@ first rung that names one:
 | `VGTK_ARTIFACT_STORE` | the environment (a reproduction's jobs get it from their site) |
 | the site profile `VGTK_SITE` names | its `[storage] artifact_store` (VisualGeometryToolkitEval's site profiles, registered with [`set_site_artifact_store!`](@ref)) |
 | the preference `artifact_store` | `Preferences.set_preferences!(VisualGeometryToolkitCore, "artifact_store" => dir)` |
-| the depot | Pkg's default; **refused** where the site profile sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai`), and, with no profile to read, where `NODE_CACHE` is set (that cluster's job environment) |
+| the depot | Pkg's default; **refused** where the site profile sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai`); where no profile states it, where `NODE_CACHE` is set (that cluster's job environment) |
 
 [`install_artifact`](@ref) installs by name from an Artifacts.toml into the
 store, inside [`with_artifact_store`](@ref) (Pkg's `with_artifacts_directory`

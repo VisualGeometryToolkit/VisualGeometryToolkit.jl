@@ -168,7 +168,7 @@ that binds:
 |---|---|
 | `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the stage graph's `[sites.<site>] data_root`, then the site's `data_root` (each once it exists) → the project's fallback → the artifact view |
 | `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the stage graph's `[sites.<site>] results_root`, then the site's `results_root` (each once it exists, or with `create_results = true`) |
-| the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused where the site sets `refuse_depot = true`, and where `NODE_CACHE` is set with no profile to read) |
+| the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused where the site sets `refuse_depot = true`; where no profile states it, refused where `NODE_CACHE` is set) |
 
 The two roots follow one ladder, the runner's: a launch ([`resolve_roots`](@ref))
 takes `--data-root` / `--results-root` first and has no `data/exp_raw` rung (it

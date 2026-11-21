@@ -102,6 +102,13 @@ end
             write(joinpath(dir, "lenient.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = false\n")
             VgtkCore._SITE_STORE[] = nothing
             withenv(() -> (@test VgtkCore.artifact_store().source === :depot), "VGTK_SITE" => joinpath(dir, "lenient.toml"))
+            # … a profile that states it decides, NODE_CACHE or not; one that does not leaves it to NODE_CACHE
+            withenv(() -> (@test VgtkCore.artifact_store().source === :depot),
+                    "VGTK_SITE" => joinpath(dir, "lenient.toml"), "NODE_CACHE" => joinpath(dir, "node"))
+            write(joinpath(dir, "silent.toml"), "[site]\nbackend = \"local\"\n")
+            err = withenv(() -> (try VgtkCore.artifact_store(); nothing catch e; e end),
+                          "VGTK_SITE" => joinpath(dir, "silent.toml"), "NODE_CACHE" => joinpath(dir, "node"))
+            @test err isa ErrorException && occursin("NODE_CACHE is set", err.msg)
             write(joinpath(dir, "bad.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = \"yes\"\n")
             err = withenv(() -> (try VgtkCore.artifact_store(); nothing catch e; e end), "VGTK_SITE" => joinpath(dir, "bad.toml"))
             @test err isa ErrorException && occursin("is not true or false", err.msg)

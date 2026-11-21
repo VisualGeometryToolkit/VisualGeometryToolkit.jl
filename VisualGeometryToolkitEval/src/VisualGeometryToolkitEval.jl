@@ -64,7 +64,7 @@ public engine_fixtures   # the engine's shared test fixtures (the Test extension
 function _site_artifact_store(site)
     g = try Experiments._project_graph() catch; nothing end
     s = Experiments._site_profile(site, g)
-    return s === nothing ? nothing : (; s.artifact_store, s.refuse_depot)
+    return s === nothing ? nothing : (; s.artifact_store, s.refuse_depot)   # refuse_depot `nothing`: the profile does not say
 end
 __init__() = (set_site_artifact_store!(_site_artifact_store); nothing)
 

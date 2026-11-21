@@ -119,10 +119,7 @@ graph's `[project] sites_dir`), read by the runner's `load_site`; `nothing`
 when `VGTK_SITE` is unset or empty, or names no profile (a site a project's
 stage graph alone knows, `[sites.<site>]`).
 """
-function active_site()
-    spec = strip(get(ENV, "VGTK_SITE", ""))
-    return isempty(spec) ? nothing : site_profile(spec)
-end
+active_site() = _active_site()[2]
 
 """
     site_profile(spec) -> Union{Nothing, Site}
@@ -138,7 +135,24 @@ site_profile(spec::AbstractString) = _site_profile(spec, _project_graph())
 function _site_profile(spec::AbstractString, g)
     dirs = g === nothing || isempty(g.sites_dir) ? String[] : [g.sites_dir]
     path = _reproduce()._site_path(String(spec); dirs)    # the runner's lookup: `nothing` for an unknown name
-    return path === nothing ? nothing : _reproduce().load_site(path)
+    path === nothing && return nothing
+    t = mtime(path)                                       # read once per change of the file (every root lookup reads it)
+    c = get(_SITE_CACHE, path, nothing)
+    (c === nothing || c[1] != t) && (c = _SITE_CACHE[path] = (t, _reproduce().load_site(path)))
+    return c[2]
+end
+const _SITE_CACHE = Dict{String, Tuple{Float64, Any}}()
+
+# The site VGTK_SITE names: its name (the profile's; VGTK_SITE as given for a site the stage graph alone knows,
+# `[sites.<site>]`), its profile or `nothing`, and the bound project's graph `graph()`, read only with VGTK_SITE set;
+# ("", nothing, nothing) without it. A job of the runner's gets the profile's name, or its file for a profile loaded by
+# path.
+function _active_site(graph::Function = _project_graph)
+    spec = String(strip(get(ENV, "VGTK_SITE", "")))
+    isempty(spec) && return ("", nothing, nothing)
+    g = graph()
+    s = _site_profile(spec, g)
+    return (s === nothing ? spec : s.name, s, g)
 end
 
 # The runner (Reproduce), included after this module: resolved at the call.
@@ -167,16 +181,6 @@ directory.
 project_name() = _project_name(_project_graph())
 _project_name(g) = g === nothing ? basename(rstrip(project_root(), '/')) : g.name
 
-# The site VGTK_SITE names for the bound project's graph `g`: its name (the profile's; VGTK_SITE as given for a site
-# the stage graph alone knows, `[sites.<site>]`) and its profile, or `nothing`; ("", nothing) without VGTK_SITE. A job
-# of the runner's gets the profile's name, or its file for a profile loaded by path.
-function _active_site_name(g)
-    spec = String(strip(get(ENV, "VGTK_SITE", "")))
-    isempty(spec) && return ("", nothing)
-    s = _site_profile(spec, g)
-    return (s === nothing ? spec : s.name, s)
-end
-
 # A driver's root `key` ("data_root" or "results_root") through THE ladder of a project's roots, the runner's
 # (`Reproduce._root_ladder`, shared with a launch's `resolve_roots`): `var` in ENV → `bound` (the project's own
 # data/exp_raw or data/exp_pro) → the stage graph's `[sites.<site>]` root → the site profile's, each of the last two
@@ -184,10 +188,9 @@ end
 # only with VGTK_SITE set.
 function _driver_root(key::AbstractString, var::AbstractString, bound; ready::Function)
     function sites()
-        isempty(strip(get(ENV, "VGTK_SITE", ""))) && return (; table = nothing, site = nothing, project = "", workdir = "")
-        g = _project_graph()
-        name, s = _active_site_name(g)
-        table = g === nothing || isempty(name) ? nothing : get(g.site_roots, name, nothing)
+        name, s, g = _active_site()
+        isempty(name) && return _reproduce()._NO_SITES
+        table = g === nothing ? nothing : get(g.site_roots, name, nothing)
         return (; table, site = s, project = _project_name(g), workdir = g === nothing ? "" : g.workdir)
     end
     return _reproduce()._root_ladder(key; env = ENV, var, bound, sites, ready)
@@ -415,10 +418,8 @@ end
 # (`Reproduce.load_stage_graph`, included after this module: resolved at the call); `(nothing, "", "VGTK_DATA_ROOT")`
 # without one.
 function _site_tiers()
-    isempty(strip(get(ENV, "VGTK_SITE", ""))) && return (nothing, "", "VGTK_DATA_ROOT")
-    g = _project_graph()
-    g === nothing && return (nothing, "", "VGTK_DATA_ROOT")
-    site, _ = _active_site_name(g)                      # by the site's name, VGTK_SITE a name or a profile's file
+    site, _, g = _active_site()                         # by the site's name, VGTK_SITE a name or a profile's file
+    (isempty(site) || g === nothing) && return (nothing, "", "VGTK_DATA_ROOT")
     return (get(get(g.site_roots, site, Dict{String,Any}()), "tiers", nothing), g.workdir, g.data_env)
 end
 

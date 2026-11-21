@@ -69,9 +69,9 @@ const _SITE_STORE = Ref{Union{Nothing, Function}}(nothing)
 Register the site rung of [`artifact_store`](@ref): `f(site)` returns the
 storage of the site profile `site` names (the value of `VGTK_SITE`) as
 `(; artifact_store, refuse_depot)` — its `[storage] artifact_store` (`""` when
-it names none) and whether it refuses the depot (`[storage] refuse_depot`) —
-or `nothing` when no profile has that name; a path string is read as the
-artifact store alone. VisualGeometryToolkitEval, which owns the site profiles,
+it names none) and whether it refuses the depot (`[storage] refuse_depot`,
+`nothing` when the profile does not say) — or `nothing` when no profile has
+that name; a path string is read as the artifact store alone. VisualGeometryToolkitEval, which owns the site profiles,
 registers its reader when it loads; without it a `VGTK_SITE` that names a
 profile FILE (a path ending in `.toml`) is still read here (its `[storage]`),
 and a site NAME gives no rung: the runner gives its jobs
@@ -80,8 +80,9 @@ VisualGeometryToolkitEval (BlobBoards) installs into the site's store there too.
 """
 set_site_artifact_store!(f::Function) = (_SITE_STORE[] = f; f)
 
-# The storage of a site: its artifact store ("" for none) and whether it refuses the depot.
-const _SiteStorage = @NamedTuple{artifact_store::String, refuse_depot::Bool}
+# The storage of a site: its artifact store ("" for none) and whether it refuses the depot (`nothing`: the profile does
+# not say, and NODE_CACHE decides).
+const _SiteStorage = @NamedTuple{artifact_store::String, refuse_depot::Union{Nothing, Bool}}
 
 # The `[storage]` of a site profile file, read without its owner (VisualGeometryToolkitEval).
 function _site_file_storage(path::AbstractString)
@@ -90,8 +91,8 @@ function _site_file_storage(path::AbstractString)
     s = get(st, "artifact_store", "")
     s isa AbstractString || error("site profile $path: [storage] artifact_store = $(repr(s)) is not a path")
     isempty(s) || isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path")
-    r = get(st, "refuse_depot", false)
-    r isa Bool || error("site profile $path: [storage] refuse_depot = $(repr(r)) is not true or false")
+    r = get(st, "refuse_depot", nothing)
+    r === nothing || r isa Bool || error("site profile $path: [storage] refuse_depot = $(repr(r)) is not true or false")
     return _SiteStorage((String(s), r))
 end
 
@@ -102,16 +103,17 @@ function _site_storage(site::AbstractString)
     f === nothing && return endswith(site, ".toml") ? _site_file_storage(site) : nothing
     v = f(site)
     v === nothing && return nothing
-    v isa AbstractString && return _SiteStorage((String(v), false))       # a reader of the artifact store alone
-    return _SiteStorage((String(v.artifact_store), Bool(v.refuse_depot)))
+    v isa AbstractString && return _SiteStorage((String(v), nothing))     # a reader of the artifact store alone (Eval 0.10.1)
+    return _SiteStorage((String(v.artifact_store), v.refuse_depot))
 end
 
-# Why the depot is refused here, or `nothing`: the site profile says so (`[storage] refuse_depot`), or, the one
-# heuristic for a process that has no profile to read (a site named by name without its reader, or no VGTK_SITE),
-# NODE_CACHE is set — the vcai cluster's job environment puts the depot (JULIA_DEPOT_PATH) in that node-local, evicted
-# cache. Either way the depot is no place for data: node-local and evicted, or a home with a quota.
+# Why the depot is refused here, or `nothing`: the site profile decides where it states `[storage] refuse_depot`;
+# where it does not, or there is no profile to read (a site named by name without its reader, or no VGTK_SITE), the one
+# heuristic: NODE_CACHE is set — the vcai cluster's job environment puts the depot (JULIA_DEPOT_PATH) in that
+# node-local, evicted cache, no place for data.
 function _depot_refusal(site::AbstractString, st)
-    st !== nothing && st.refuse_depot && return "the site profile $site sets [storage] refuse_depot"
+    r = st === nothing ? nothing : st.refuse_depot
+    r === nothing || return r ? "the site profile $site sets [storage] refuse_depot" : nothing
     isempty(get(ENV, "NODE_CACHE", "")) || return "NODE_CACHE is set: the depot is a cluster node's evicted cache"
     return nothing
 end
@@ -128,10 +130,11 @@ The artifact store of this process, the first rung that names one:
    VisualGeometryToolkitCore, "artifact_store" => dir)`, LocalPreferences.toml);
 4. the depot (`<first depot>/artifacts`, Pkg's own) — refused where the
    site profile sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's
-   `vcai`: its depot is node-local and evicted) and, with no profile to read
-   (no `VGTK_SITE`, or a site name and VisualGeometryToolkitEval not loaded),
-   where `NODE_CACHE` is set (that cluster's job environment): one of the
-   rungs above must name the store there.
+   `vcai`: its depot is node-local and evicted), allowed where it sets `false`,
+   and, where no profile says (no `VGTK_SITE`, a site name and
+   VisualGeometryToolkitEval not loaded, or a profile without the key),
+   refused where `NODE_CACHE` is set (that cluster's job environment): one of
+   the rungs above must name the store there.
 
 Every rung but the depot names a directory on storage that outlives a job and
 is shared by its machines; its trees are content-addressed by their
@@ -250,16 +253,20 @@ function install_artifact(name::AbstractString, toml::AbstractString; store::Art
     meta = TOML.parsefile(toml)
     haskey(meta, name) || error("unknown artifact '$name' (see $toml)")
     hash = SHA1(meta[name]["git-tree-sha1"])
+    return _install_tree(store, name, hash) do
+        url = meta[name]["download"][1]["url"]
+        is_published_url(url) || error(
+            "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
+            "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
+        _download!(name, toml, meta, hash, url)
+    end
+end
+
+# The one install of a tree into a store: inside its block, unless present, `fill!()` under the tree's Pidfile lock
+# (another process may have installed it meanwhile: checked again under the lock); then its name recorded, its path.
+function _install_tree(fill!::Function, store::ArtifactStore, name::AbstractString, hash::SHA1)
     return with_artifact_store(store) do
-        if !artifact_exists(hash)
-            url = meta[name]["download"][1]["url"]
-            is_published_url(url) || error(
-                "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
-                "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
-            _install_lock(store.path, bytes2hex(hash.bytes)) do
-                artifact_exists(hash) || _download!(name, toml, meta, hash, url)
-            end
-        end
+        artifact_exists(hash) || _install_lock(() -> (artifact_exists(hash) || fill!(); nothing), store.path, bytes2hex(hash.bytes))
         _record_name(store, name, hash)
         artifact_path(hash)
     end
@@ -303,18 +310,11 @@ read it), and the store records the tree under `name`
 ([`store_name_clashes`](@ref)).
 """
 function install_built_artifact(build!::Function, name::AbstractString, hash::SHA1; store::ArtifactStore = artifact_store())
-    return with_artifact_store(store) do
-        if !artifact_exists(hash)
-            _install_lock(store.path, bytes2hex(hash.bytes)) do
-                artifact_exists(hash) && return nothing
-                got = create_artifact(build!)
-                got == hash && return nothing
-                remove_artifact(got)
-                error("artifact '$name': the built tree is $(bytes2hex(got.bytes)), not the pinned $(bytes2hex(hash.bytes))")
-            end
-        end
-        _record_name(store, name, hash)
-        artifact_path(hash)
+    return _install_tree(store, name, hash) do
+        got = create_artifact(build!)
+        got == hash && return nothing
+        remove_artifact(got)
+        error("artifact '$name': the built tree is $(bytes2hex(got.bytes)), not the pinned $(bytes2hex(hash.bytes))")
     end
 end
 

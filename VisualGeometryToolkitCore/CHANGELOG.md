@@ -4,9 +4,10 @@
 
 ### Changed
 - **The depot's refusal is a site setting.** `artifact_store()` refuses the depot where the site profile `VGTK_SITE`
-  names sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai` does); `NODE_CACHE` (the vcai job
-  environment's node-local depot) remains the fallback for a process that has no profile to read: no `VGTK_SITE`, or a
-  site name without VisualGeometryToolkitEval's reader. A profile file named by its path is read here for both keys.
+  names sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai` does) and allows it where the profile
+  sets `false`; `NODE_CACHE` (the vcai job environment's node-local depot) remains the fallback where no profile states
+  it: no `VGTK_SITE`, a site name without VisualGeometryToolkitEval's reader, or a profile without the key. A profile
+  file named by its path is read here for both keys.
   The registered site reader (`set_site_artifact_store!`) now returns `(; artifact_store, refuse_depot)`; a reader that
   returns the store's path alone (VisualGeometryToolkitEval 0.10.1) still works.
 

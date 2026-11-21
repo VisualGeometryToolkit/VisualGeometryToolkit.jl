@@ -11,10 +11,12 @@ On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader retu
   its current key: the pair the paper projects copied. **`Experiments.produced_dir(product)`**: a product's
   directory once it is produced under its key, an error naming it otherwise. `paper_figures_dir` is now defined in
   Reproduce (its deploy stages read it); PaperProjects exports the same function, unchanged.
-- **`[storage] refuse_depot`** in a site profile (`Site.refuse_depot`): whether a process there may fall back to the
-  Julia depot as its artifact store. The shipped `vcai` sets it; VisualGeometryToolkitCore's `artifact_store` reads it
-  through this package's site reader (`NODE_CACHE`, which it keyed on alone, is its fallback for a process with no
-  profile to read).
+- **`[storage] refuse_depot`** in a site profile (`Site.refuse_depot`: `true`, `false`, or `nothing` when unstated):
+  whether a process there may fall back to the Julia depot as its artifact store. The shipped `vcai` sets it (and the
+  template); VisualGeometryToolkitCore's `artifact_store` reads it through this package's site reader (`NODE_CACHE`,
+  which it keyed on alone, decides only where no profile states it).
+- Site profiles are read once per change of the file (cached by path and mtime, as the stage graph is), not on every
+  root lookup.
 
 ### Changed
 - **One ladder of a project's roots.** A launch's `resolve_roots` and a driver's `data_root()` / `results_root()`

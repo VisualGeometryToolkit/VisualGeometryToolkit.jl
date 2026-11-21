@@ -27,9 +27,8 @@ using TOML: TOML
 using Pkg: Pkg
 using LibGit2: LibGit2
 using DrWatson: initialize_project
-using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations, project_root
-using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
-using ..Reproduce: paper_figures_dir   # the paper's figures directory: Reproduce's (its deploy stages'), exported here too
+using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations
+using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry, paper_figures_dir   # paper_figures_dir: Reproduce's (its deploy stages'), exported here too
 using ..DataArtifacts: load_catalog, catalog_violations, artifact_parts, _PROJECT_CATALOG
 import ..DataArtifacts: _is_produced, _produced_cover   # the produced kind: a derived input that names its producer
 import ..Reproduce: load_stage_graph, _stage_index, _stage_configs, _config_inputs   # a producer's stage, its configs and their inputs

@@ -219,7 +219,7 @@ end
                                                                  "VGTK_ARTIFACT_STORE" => "/mine")), queue_states = noqueue)
         @test plan.base_env["VGTK_ARTIFACT_STORE"] == "/mine"                                  # the caller's own wins
         # whether the depot may be a process's artifact store: the site's setting (VisualGeometryToolkitCore reads it)
-        @test vcai.refuse_depot && !load_site("desktop").refuse_depot && !tpl.refuse_depot
+        @test vcai.refuse_depot === true && load_site("desktop").refuse_depot === nothing && tpl.refuse_depot === true
         write(joinpath(d, "refuse.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = \"yes\"\n")
         @test_throws r"\[storage\] refuse_depot = \"yes\" is not true or false" load_site(joinpath(d, "refuse.toml"))
         # VGTK_SITE re-finds the launch's site in a job: by name where the name finds this profile, else by its file

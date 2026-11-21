@@ -50,8 +50,9 @@ every stage, the environment `env` every stage gets, and the machine's storage (
 `results_root`, where a project's inputs and results live on it (`{project}` in either is the project's name:
 [`site_root`](@ref)), `artifact_store`, the directory of the artifact store every project and package there
 installs into (VisualGeometryToolkitCore's `artifact_store`), and `refuse_depot`, whether a process there may fall back
-to the Julia depot as its store (`false`, the default; `true` where the depot is node-local and evicted, or in a
-home with a quota). The site profiles are the ONLY place a machine path is written: a project's configs name none.
+to the Julia depot as its store (`true` where the depot is node-local and evicted, or in a home with a quota; `false`
+where it may; `nothing` when the profile does not say, and VisualGeometryToolkitCore's `NODE_CACHE` heuristic
+decides). The site profiles are the ONLY place a machine path is written: a project's configs name none.
 """
 struct Site
     name::String
@@ -72,7 +73,7 @@ struct Site
     data_root::String
     results_root::String
     artifact_store::String
-    refuse_depot::Bool
+    refuse_depot::Union{Nothing, Bool}
 end
 
 """
@@ -125,12 +126,6 @@ function _site_path(spec::AbstractString; dirs::AbstractVector{<:AbstractString}
     return k === nothing ? nothing : joinpath([dirs; SITES_DIR][k], spec * ".toml")
 end
 
-# The VGTK_SITE that re-finds `site` from inside a job of graph `g`'s launch: its name, or its file.
-function _site_spec(g::StageGraph, site::Site)
-    found = try _site_path(site.name; dirs = isempty(g.sites_dir) ? String[] : [g.sites_dir]) catch; nothing end
-    return found == site.path ? site.name : site.path
-end
-
 """
     load_site(spec; dirs = String[]) -> Site
 
@@ -151,8 +146,8 @@ function load_site(spec::AbstractString; dirs::AbstractVector{<:AbstractString} 
     cpus = backend == "slurm" ? get(sl, "cpus_per_task", 0) : get(lo, "cpus_per_task", 0)
     prefix = _check_job_name_prefix(get(sl, "job_name_prefix", ""), "site profile $path: [slurm] job_name_prefix")
     st = get(d, "storage", Dict{String, Any}())
-    refuse = get(st, "refuse_depot", false)
-    refuse isa Bool || throw(ArgumentError("site profile $path: [storage] refuse_depot = $(repr(refuse)) is not true or false"))
+    refuse = get(st, "refuse_depot", nothing)
+    refuse === nothing || refuse isa Bool || throw(ArgumentError("site profile $path: [storage] refuse_depot = $(repr(refuse)) is not true or false"))
     for (k, v) in st
         k == "refuse_depot" && continue
         v isa AbstractString && isabspath(v) ||
@@ -790,18 +785,17 @@ end
 #   5. the site profile's `[storage]` root for the project ([`site_root`](@ref)).
 # `sites()` gives rungs 4 and 5 their inputs, `(; table, site, project, workdir)` (each `nothing` / "" for none), read
 # only when rungs 1–3 name nothing (a driver with VGTK_DATA_ROOT set reads no graph or profile). A rung 4 or 5 root is
-# taken where `ready(root)` (a driver's: the tree exists), a launch's always; a relative root of rungs 1–3 is relative
-# to `workdir` when one is given. `nothing` when no rung names one.
+# taken where `ready(root)` (a driver's: the tree exists), a launch's always. A root of rungs 1–3 is returned as given.
+# `nothing` when no rung names one.
+const _NO_SITES = (; table = nothing, site = nothing, project = "", workdir = "")
 function _root_ladder(key::AbstractString; arg = nothing, env = ENV, var::AbstractString, bound = nothing,
-                      sites::Function = () -> (; table = nothing, site = nothing, project = "", workdir = ""),
-                      workdir::AbstractString = "", ready::Function = Returns(true))
-    rel(v, dir) = isempty(v) || isabspath(v) || isempty(dir) ? String(v) : normpath(joinpath(dir, v))
-    arg === nothing || return rel(arg, workdir)
-    haskey(env, var) && return rel(env[var], workdir)
-    bound === nothing || return rel(bound, workdir)
+                      sites::Function = () -> _NO_SITES, ready::Function = Returns(true))
+    arg === nothing || return String(arg)
+    haskey(env, var) && return String(env[var])
+    bound === nothing || return String(bound)
     x = sites()
     if x.table !== nothing && haskey(x.table, key)
-        v = rel(x.table[key], x.workdir)
+        v = _relative_to(String(x.table[key]), x.workdir)
         ready(v) && return v
     end
     if x.site !== nothing
@@ -811,20 +805,30 @@ function _root_ladder(key::AbstractString; arg = nothing, env = ENV, var::Abstra
     return nothing
 end
 
+# A relative root relative to `dir` (none: as it is).
+_relative_to(v::AbstractString, dir::AbstractString) = isempty(v) || isabspath(v) || isempty(dir) ? String(v) : normpath(joinpath(dir, v))
+
 """
     resolve_roots(g, site; data_root = nothing, results_root = nothing, env = ENV) -> (data, results)
 
 The data and results roots of a launch: the argument, else the graph's variables in `env` (`data_env`,
 `results_env`), else the graph's `[sites.<site>]` roots (a relative one relative to the workdir; a project's own
 table, kept until the projects carry no machine paths), else the site profile's `[storage]` roots for the graph's
-project ([`site_root`](@ref)); `""` when none gives one. The precedence is the one a driver's
-`data_root()` and `results_root()` follow (Experiments), which add the project's own `data/exp_raw` and
-`data/exp_pro` after the variables: one ladder, owned by the runner.
+project ([`site_root`](@ref)); `""` when none gives one; a relative root is relative to the graph's workdir. The
+precedence is the one a driver's `data_root()` and `results_root()` follow (Experiments), which add the project's own
+`data/exp_raw` and `data/exp_pro` after the variables: one ladder, owned by the runner.
 """
 function resolve_roots(g::StageGraph, site::Site; data_root = nothing, results_root = nothing, env = ENV)
     sites() = (; table = get(g.site_roots, site.name, nothing), site, project = g.name, g.workdir)
-    pick(arg, var, key) = something(_root_ladder(key; arg, env, var, sites, g.workdir), "")
+    pick(arg, var, key) = _relative_to(something(_root_ladder(key; arg, env, var, sites), ""), g.workdir)
     return (pick(data_root, g.data_env, "data_root"), pick(results_root, g.results_env, "results_root"))
+end
+
+# The VGTK_SITE that re-finds `site` from inside a job of graph `g`'s launch: its name where the name finds this
+# profile, else its file.
+function _site_spec(g::StageGraph, site::Site)
+    found = try _site_path(site.name; dirs = isempty(g.sites_dir) ? String[] : [g.sites_dir]) catch; nothing end
+    return found == site.path ? site.name : site.path
 end
 
 _julia(site::Site, env) = get(site.env, "JULIA", get(env, "JULIA", "julia"))

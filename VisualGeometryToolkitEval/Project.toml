@@ -4,7 +4,6 @@ version = "0.10.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
-Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 Bootstrap = "e28b5b4c-05e8-5b66-bc03-6f0c0a0a06e0"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
@@ -41,7 +40,6 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 VisualGeometryToolkitEvalTestExt = "Test"   # engine_fixtures: the engine's shared test fixtures
 
 [compat]
-Artifacts = "1"
 Bootstrap = "2.4"
 DataFrames = "1.8.3"
 Distributions = "0.25.134"

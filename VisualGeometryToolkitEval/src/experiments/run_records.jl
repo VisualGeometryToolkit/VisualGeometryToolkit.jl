@@ -318,6 +318,15 @@ output.
 function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = nothing)
     out, bad = Dict{String,String}(), String[]
     for (id, t) in get(cfg, "inputs", Dict{String,Any}())
+        if is_product_input(t)                         # another project's product: where that project's results are
+            tier = String(get(t, "tier", ""))
+            x = root !== nothing ?        # the given root alone is the product's results root
+                product_input(String(id), t; env = Dict{String, String}(), tier_root = root, allow_scratch = scratch_run()) :
+                product_input(String(id), t; env = ENV, site_results = project_results_root, allow_scratch = scratch_run(),
+                              tier_root = isempty(tier) ? "" : data_root(; tier))
+            x.state === :present ? (out[String(id)] = x.path) : push!(bad, "input $id ($(t["project"])): $(x.problem)")
+            continue
+        end
         (t isa AbstractDict && haskey(t, "path")) || continue
         tier = String(get(t, "tier", ""))
         r = root === nothing ? data_root(; tier) : root
@@ -338,16 +347,39 @@ end
 
 The absolute path of the config's input `[inputs.<id>]`: its `path` under its
 tier's root ([`data_root`](@ref)`(; tier)`: `VGTK_DATA_ROOT_<TIER>`, the stage
-graph's `[sites.<site>.tiers]`, the data root), or under `root` when given;
-checked to be there and, with a `sha256`, to have that content (streamed,
-cached). The one reader a driver opens an input with; an `ArgumentError` for
-an id the config does not declare, a missing input or another content.
+graph's `[sites.<site>.tiers]`, the results root for a tier the catalog mounts
+there (`mount = "results"`: a run of record published as a tier), the data
+root), or under `root` when given; checked to be there and, with a `sha256`, to
+have that content (streamed, cached). The one reader a driver opens an input
+with; an `ArgumentError` for an id the config does not declare, a missing input
+or another content.
+
+An input may instead name ANOTHER project's keyed product — its run of record,
+read where it lives, never copied:
+
+```toml
+[inputs.hand_eye]
+project = "bmvc2026"                    # the producing project (its stage graph's [project] name)
+product = "calibration/hand_eye"        # the Product's <experiment>/<name>
+key = "3f9a0c1d2e4b5a67"                # its run key of record (the product's directory)
+file = "hand_eye_bb.json"               # optional: a file in the product's directory (default: the directory)
+sha256 = "…"                            # its content (a directory's: tree_sha256)
+tier = "bmvc2026_results"               # optional: a results-mount tier of this project's catalog publishing them
+```
+
+It is read under the first root that holds `<product>/<key>[/<file>]`:
+`VGTK_RESULTS_ROOT_<PROJECT>`, then [`project_results_root`](@ref) (the active
+site profile's `results_root` for that project), then the `tier`'s root (the
+fresh-machine form: the producer's results published as a tier, fetched by
+DataArtifacts); its record's `run_key` must be `key`
+(VisualGeometryToolkitEval's `product_input`, the runner's check too). With
+`root`, that root alone is the product's results root.
 """
 function input_path(cfg::AbstractDict, id::AbstractString; root::Union{Nothing,AbstractString} = nothing)
     ins = get(cfg, "inputs", Dict{String,Any}())
     t = get(ins, id, nothing)
-    (t isa AbstractDict && haskey(t, "path")) ||
-        throw(ArgumentError("input_path: the config declares no [inputs.$id] with a path (it declares: $(join(sort!(String.(collect(keys(ins)))), ", ")))"))
+    (t isa AbstractDict && (haskey(t, "path") || is_product_input(t))) ||
+        throw(ArgumentError("input_path: the config declares no [inputs.$id] with a path or a product (it declares: $(join(sort!(String.(collect(keys(ins)))), ", ")))"))
     return verify_inputs(Dict{String,Any}("inputs" => Dict{String,Any}(String(id) => t)); root)[String(id)]
 end
 

@@ -287,6 +287,24 @@ function results_root()
 end
 
 """
+    project_results_root(project) -> Union{Nothing, String}
+
+Where ANOTHER project's results live on this machine: `ENV["VGTK_RESULTS_ROOT_<PROJECT>"]` (the project's name
+upper-cased, every other character `_`), else the active site profile's `results_root` for that project
+([`active_site`](@ref), its `{project}` the project's name: the runner's `site_root(site, "results_root", project)`);
+`nothing` when neither names one. What a config's product input (`[inputs.<id>] project = …`) is read under
+([`input_path`](@ref)).
+"""
+function project_results_root(project::AbstractString)
+    v = String(get(ENV, tier_variable(project; prefix = "VGTK_RESULTS_ROOT"), ""))
+    isempty(v) || return v
+    s = active_site()
+    s === nothing && return nothing
+    r = _reproduce().site_root(s, "results_root", String(project))
+    return isempty(r) ? nothing : r
+end
+
+"""
     is_primary_copy() -> Bool
 
 Whether the data root is a writable primary copy (bound by ENV, the project's
@@ -400,8 +418,13 @@ function _tier_root(tier::AbstractString; write::Bool)
     # a reader's view is in place before its tiers are looked up (the gate reads its marker); a producer's never made
     main = bound !== nothing ? bound : av === nothing ? "" : write ? _view_dir(av) : artifact_view!(av, String[])
     # the runner's view gate (src/code_identity.jl): a tier the project's catalog lists mounts at its `mount_dir`
-    view_mount = from_view ? catalog_view_mount(main, joinpath(project_root(), "configs", "data_artifacts.toml")) : nothing
-    r, source = tier_data_root(tier, main; env = ENV, tiers = site_tiers, workdir, prefix, view_mount, write)
+    catalog = joinpath(project_root(), "configs", "data_artifacts.toml")
+    view_mount = from_view ? catalog_view_mount(main, catalog) : nothing
+    results_mount = catalog_results_mount(catalog)
+    # a results-mount tier's root is under the results root, resolved only for it (a project without results reads data)
+    results = results_mount !== nothing && results_mount(tier) !== nothing ? results_root() : ""
+    r, source = tier_data_root(tier, main; env = ENV, tiers = site_tiers, workdir, prefix, view_mount, results_mount,
+                               results_root = results, write)
     if write
         isempty(r) && error("no data root to produce tier $tier into: set VGTK_DATA_ROOT, $(tier_variable(tier; prefix)) or a site tier")
         # a producer never writes into an artifact view, whatever named its root (the view's own directory, a
@@ -412,7 +435,7 @@ function _tier_root(tier::AbstractString; write::Bool)
         end
         return r
     end
-    source in ("env", "site") && return r
+    source in ("env", "site", "results") && return r
     # installed (an entry the view's Artifacts.toml binds; a split entry's parts are fetched by `fetch_artifacts!`), then its mount
     source == "view" && (av !== nothing && _view_has(av, tier) && data_root(; tiers = String[tier]); return r)
     return data_root()

@@ -559,7 +559,7 @@ const PROVENANCE_FILE = "_provenance.toml"
 
 """
     tier_data_root(tier, data_root; env = ENV, tiers = nothing, workdir = "", prefix = "VGTK_DATA_ROOT",
-                   view_mount = nothing, write = false) -> (root, source)
+                   view_mount = nothing, results_mount = nothing, results_root = "", write = false) -> (root, source)
 
 THE root of an input tier: the one resolver of every tier lookup, read and write — the runner's `missing_inputs`,
 and `Experiments.data_root(; tier)`, `input_path`, `verify_inputs`, `promote_run` and `tier_path`.
@@ -568,10 +568,14 @@ In order:
 1. the environment's [`tier_variable`](@ref)`(tier)` (`source = "env"`);
 2. the machine's table `tiers` (a stage graph's `[sites.<site>.tiers]`: `tier = "<root>"`, a relative root relative
    to `workdir`; `source = "site"`);
-3. when `data_root` is an artifact view that publishes the tier — `view_mount(tier)` returns where the view mounts it
+3. a tier the project's catalog mounts under its RESULTS (`mount = "results"`: a run of record published as a tier,
+   which DataArtifacts' `fetch_artifacts!` links into the results root) — `results_mount(tier)` returns its
+   `mount_dir` (`""` the top), `nothing` for another tier ([`catalog_results_mount`](@ref)) — `<results_root>/<mount>`
+   (`source = "results"`);
+4. when `data_root` is an artifact view that publishes the tier — `view_mount(tier)` returns where the view mounts it
    (`""` its top), `nothing` for a tier it does not publish — `<data_root>/<mount>` (`source = "view"`). The mount
    applies only there: never to a data root set by `VGTK_DATA_ROOT`, an author's own `data/exp_raw` or a fallback;
-4. the one `data_root` (`source = "data root"`).
+5. the one `data_root` (`source = "data root"`).
 
 An `[inputs.<id>]` path is relative to its tier's root, so a config names no machine path whichever disk a tier
 lives on. With `write = true` (a producer's root) a view tier is refused: an artifact view is read-only, and a
@@ -579,13 +583,20 @@ producer never installs one; it binds the tier's root (the environment or the si
 """
 function tier_data_root(tier::AbstractString, data_root::AbstractString; env = ENV, tiers = nothing,
                         workdir::AbstractString = "", prefix::AbstractString = "VGTK_DATA_ROOT",
-                        view_mount = nothing, write::Bool = false)
+                        view_mount = nothing, results_mount = nothing, results_root::AbstractString = "", write::Bool = false)
     var = tier_variable(tier; prefix)
     v = String(get(env, var, ""))
     isempty(v) || return (v, "env")
     if tiers !== nothing && !isempty(tier) && haskey(tiers, tier)
         t = String(tiers[tier])
         return (isabspath(t) || isempty(workdir) ? t : normpath(joinpath(workdir, t)), "site")
+    end
+    r = results_mount === nothing || isempty(tier) ? nothing : results_mount(tier)
+    if r !== nothing
+        write && throw(ArgumentError("tier $tier is a run of record published under the results (mount = \"results\"); " *
+                                     "bind $var or a site tier ([sites.<site>.tiers]) to produce it"))
+        isempty(results_root) && return ("", "results")
+        return (isempty(r) ? String(results_root) : joinpath(results_root, String(r)), "results")
     end
     m = view_mount === nothing || isempty(tier) ? nothing : view_mount(tier)
     if m !== nothing
@@ -610,6 +621,89 @@ function catalog_view_mount(data_root::AbstractString, catalog::AbstractString)
     entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
     # a produced entry (`kind = "produced"`) is never in the view
     return t -> haskey(entries, t) && get(entries[t], "kind", "") != "produced" ? _entry_mount_dir(entries[t]) : nothing
+end
+
+"""
+    catalog_results_mount(catalog) -> Union{Nothing, Function}
+
+The `results_mount` of [`tier_data_root`](@ref): each tier the project's data catalog `catalog`
+(`configs/data_artifacts.toml`) lists with `mount = "results"` (a run of record published as a tier) mounts at its
+entry's `mount_dir` under the results root (`""` without one); `nothing` for any other tier, and without a catalog.
+"""
+function catalog_results_mount(catalog::AbstractString)
+    isfile(catalog) || return nothing
+    entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
+    return t -> haskey(entries, t) && get(entries[t], "mount", "") == "results" ? _entry_mount_dir(entries[t]) : nothing
+end
+
+# ---- another project's product as an input ---------------------------------------------------------------------
+
+# The keys of a product input (`[inputs.<id>] project = …`): another project's keyed product, read where it lives.
+const PRODUCT_INPUT_KEYS = ("project", "product", "key", "file", "sha256", "sha256_exclude", "tier")
+
+"Whether the `[inputs.<id>]` table `t` names another project's product (`project = …`) rather than a tier's file."
+is_product_input(t) = t isa AbstractDict && haskey(t, "project")
+
+"""
+    product_input_path(t) -> String
+
+Where a product input lives under its project's results root: `<product>/<key>[/<file>]` (the producing project's
+`Product` directory, `<experiment>/<name>/<run key>`, and a file in it), checked for its keys: `project` (the
+producing project's name), `product` (`<experiment>/<name>`, relative segments), `key` (the run key of record) and
+optionally `file`, `sha256`, `sha256_exclude` and `tier` (a results-mount tier of the consuming project's catalog that
+publishes the producer's results: the fresh-machine form). Anything else, or a `path`, is an `ArgumentError`.
+"""
+function product_input_path(t::AbstractDict)
+    for k in keys(t)
+        k in PRODUCT_INPUT_KEYS || throw(ArgumentError("a product input (project = …) takes $(join(PRODUCT_INPUT_KEYS, ", ")), not `$k`"))
+    end
+    seg(v) = v isa AbstractString && !isempty(v) && !isabspath(v) && !occursin('\\', v) &&
+             all(x -> !isempty(x) && !(x in (".", "..")), split(v, '/'))
+    for k in ("project", "product", "key")
+        seg(get(t, k, "")) || throw(ArgumentError("a product input names its `$k` (relative path segments): $(repr(get(t, k, nothing)))"))
+    end
+    occursin('/', t["product"]) || throw(ArgumentError("a product input's product is `<experiment>/<name>`, not $(repr(t["product"]))"))
+    f = get(t, "file", "")
+    (f == "" || seg(f)) || throw(ArgumentError("a product input's file is a relative path inside the product: $(repr(f))"))
+    return joinpath(String(t["product"]), String(t["key"]), String(f))
+end
+
+"""
+    product_input(id, t; env = ENV, site_results = project -> nothing, tier_root = "", allow_scratch = false)
+        -> (; state, path, problem, root, source)
+
+The one check of a product input `[inputs.<id>]` (`project`, `product`, `key`, … : [`product_input_path`](@ref)), the
+runner's `missing_inputs` and Experiments' `input_path` alike. Its candidate roots, in order: the environment's
+`VGTK_RESULTS_ROOT_<PROJECT>` ([`tier_variable`](@ref) with that prefix), `site_results(project)` (the active site
+profile's `results_root` for that project; `nothing` without one), and `tier_root` (the consuming project's
+results-mount tier that publishes the producer's results, when the input names one). The first that holds the product
+is checked by [`inspect_input`](@ref) (its `sha256`, never a scratch run's output) and its record's `run_key` must be
+`key`; `state = :missing` when none holds it, naming every candidate.
+"""
+function product_input(id::AbstractString, t::AbstractDict; env = ENV, site_results::Function = _ -> nothing,
+                       tier_root::AbstractString = "", allow_scratch::Bool = false)
+    rel = product_input_path(t)
+    var = tier_variable(String(t["project"]); prefix = "VGTK_RESULTS_ROOT")
+    cands = Tuple{String, String}[]
+    v = String(get(env, var, ""))
+    isempty(v) || push!(cands, (v, var))
+    s = site_results(String(t["project"]))
+    s === nothing || isempty(s) || push!(cands, (String(s), "the site's results root of $(t["project"])"))
+    isempty(tier_root) || push!(cands, (String(tier_root), "tier $(get(t, "tier", ""))"))
+    for (root, source) in cands
+        ispath(joinpath(root, rel)) || continue
+        x = inspect_input(id, merge(Dict{String, Any}(String(k) => w for (k, w) in t if k in ("sha256", "sha256_exclude", "tier")),
+                                    Dict{String, Any}("path" => rel)), root; allow_scratch)
+        x.state === :present || return (; x..., root, source)
+        rec = joinpath(root, String(t["product"]), String(t["key"]), PROVENANCE_FILE)
+        got = isfile(rec) ? string(get(TOML.parsefile(rec), "run_key", "")) : ""
+        got == t["key"] || return (; state = :refused, path = x.path, root, source,
+                                   problem = "the product's record names run key $(repr(got)), not $(t["key"])")
+        return (; x..., root, source)
+    end
+    where_ = isempty(cands) ? "no root names $(t["project"])'s results (set $var, a site profile with [storage] results_root, or a results-mount tier)" :
+             "not under " * join(("$r ($src)" for (r, src) in cands), ", ")
+    return (; state = :missing, path = "", problem = "$(t["project"]):$rel is $where_", root = "", source = "")
 end
 
 # A data-catalog entry's `mount_dir` (`""` without one): the one reader, the runner's and DataArtifacts'.

@@ -40,7 +40,8 @@ export Stats, Tuning, Evaluation, Experiments, Render, Pools, Datasets, DataArti
 export cli_option, start_output_flush!
 
 public ARTIFACT_FORMATS, DEFAULTS_PATH
-public code_trees, code_tree_changes, refuse_uncommitted_code, file_sha256, tier_variable, tier_data_root, catalog_view_mount, inspect_input, scratch_record, tree_sha256, digest_cache_dir   # the code identity of a run, a file's hash, a tier's root (src/code_identity.jl)
+public code_trees, code_tree_changes, refuse_uncommitted_code, file_sha256, tier_variable, tier_data_root, catalog_view_mount, catalog_results_mount, inspect_input, scratch_record, tree_sha256, digest_cache_dir   # the code identity of a run, a file's hash, a tier's root (src/code_identity.jl)
+public is_product_input, product_input_path, product_input   # another project's product as an input (src/code_identity.jl)
 
 """
     engine_fixtures() -> Module

@@ -36,6 +36,7 @@ using ..Experiments: is_artifact_view
 import ..Experiments: _PROJECT_LAYOUT   # experiments/data_policy.jl: the one project layout (the template's folders)
 import ..Experiments: _is_under   # experiments/data.jl: a path under a root, both resolved (A4's links into the store)
 import .._git_line                # src/code_identity.jl: one git query, `nothing` outside a work tree (L6)
+import ..is_product_input, ..product_input_path   # src/code_identity.jl: another project's product as an input (A1, A2)
 using VisualGeometryToolkitCore: artifact_store, store_name_clashes, is_published_url   # the artifact store: its links' target, its name record; R3's placeholder URL
 
 export PaperProjectViolation, PAPER_PROJECT_CHECKS, paper_project_violations,

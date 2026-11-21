@@ -59,7 +59,7 @@ using ..Tuning: resolve_tuning!
 import .._content_key   # src/code_identity.jl: run_key's content key (run_records.jl)
 import .._git_line      # src/code_identity.jl: one git query, `nothing` outside a work tree (data_policy.jl's tracked files)
 import ..cli_option   # src/cli.jl: stages.jl reads `--stage=` through it
-import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
+import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..catalog_results_mount, ..is_product_input, ..product_input, ..inspect_input, ..scratch_record, ..scratch_run, ..ARTIFACT_VIEW_MARKER, ..PROVENANCE_FILE   # src/code_identity.jl: the code identity a record keeps (provenance.jl), an input's hash (stages.jl, run_records.jl) and root (data.jl)
 
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        contract_violations,
@@ -71,7 +71,7 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
        write_oracle_floor, oracle_floor_done,
        # the data/results binding (experiments/data.jl)
-       set_project_root!, project_root, project_name, active_site, site_profile, data_root, results_root, is_primary_copy,
+       set_project_root!, project_root, project_name, active_site, site_profile, data_root, results_root, project_results_root, is_primary_copy,
        assert_primary_copy, assert_not_input, ArtifactView, install_artifact, link_tree!,
        artifact_view!, is_artifact_view,
        # the provenance record (experiments/provenance.jl)

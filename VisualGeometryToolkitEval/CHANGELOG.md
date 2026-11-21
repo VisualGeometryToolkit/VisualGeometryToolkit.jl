@@ -12,6 +12,19 @@ site reader returns the site's `refuse_depot` too).
   stand-in on a profile of their own; the docs' examples and the runner bootstrap's usage line name `vcai`.
 
 ### Added
+- **Another project's run of record as an input.** A config's `[inputs.<id>]` may name another project's keyed
+  product, `project = "<name>"`, `product = "<experiment>/<name>"`, `key = "<run key>"`, optional `file`, `sha256`
+  and `tier`, instead of a tier's `path`. `input_path` reads it under the first root that holds
+  `<product>/<key>[/<file>]`: `VGTK_RESULTS_ROOT_<PROJECT>`, the active site profile's results root for that project
+  (**`Experiments.project_results_root(project)`**), then the named tier's root; the product's record must name the
+  run key, the `sha256` is verified, a scratch output refused. One check for the drivers and the runner's launch
+  (**`product_input`**, **`product_input_path`**, **`is_product_input`**; `missing_inputs` takes `results_root` and
+  `site_profile`); `A2` accepts it. Nothing is copied.
+- **Results-mount tiers as inputs**: a tier the catalog lists with `mount = "results"` (a run of record published as a
+  tier, linked into the results root by `fetch_artifacts!`) is read under `<results root>/<mount_dir>` by
+  `data_root(; tier)`, `input_path` and the runner (`tier_data_root`'s results rung, **`catalog_results_mount`**).
+- **A produced entry may name another project's producer**, `producer = "<project>:<stage>"`: `A1` checks the stage in
+  that project's graph, the project found among `stack_artifacts`.
 - **`Reproduce.asset_stages(product, cfg, assets; paper)`**: a driver's `:verify` and `:deploy` check stages over the
   renders of a keyed product (`verify_assets` and `deploy_assets` against `paper_figures_dir(paper)`, the deploy under
   the config's `[deploy] replace_submitted`, **`deploy_signoff(cfg)`**), each refusing a product not produced under

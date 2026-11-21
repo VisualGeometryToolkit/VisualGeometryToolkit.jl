@@ -57,7 +57,8 @@
 #                        reads them from the bindings.
 #   kind = "produced"    a DERIVED input of record that is never published: its
 #                        `producer` (the name of a stage of the project's graph,
-#                        configs/reproduce.toml) regenerates it from published
+#                        configs/reproduce.toml, or `<project>:<stage>`, a stage
+#                        of another stack project's graph) regenerates it from published
 #                        tiers, and `covers` lists the config inputs it is, by
 #                        their `[inputs.<id>] path` (an input whose path is one of
 #                        them, or under one, is this entry's) and `tier` (the
@@ -910,7 +911,7 @@ function _produced_violations(n, a, bound)
         k in PRODUCED_KEYS || push!(v, "$n: a produced entry takes $(join(PRODUCED_KEYS, ", ")), not `$k`")
     end
     (haskey(a, "producer") && !(a["producer"] isa AbstractString && !isempty(a["producer"]))) &&
-        push!(v, "$n: producer must name a stage of the project's graph")
+        push!(v, "$n: producer must name a stage of the project's graph (or `<project>:<stage>`, another project's)")
     c = get(a, "covers", nothing)
     (c === nothing || (c isa AbstractVector && !isempty(c) &&
                        all(p -> p isa AbstractString && !isempty(p) && !isabspath(p) && !any(in((".", "..")), splitpath(p)), c))) ||

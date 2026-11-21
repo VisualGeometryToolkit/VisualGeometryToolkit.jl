@@ -289,6 +289,60 @@ whose inputs are each a published
 tier of the catalog or covered by another produced entry, with no cycle; `A2`
 accepts an input a produced entry covers.
 
+A produced entry may name **another project's** producer, `producer =
+"<project>:<stage>"` (`"accv2026:pt_e_pools"`): `A1` then requires that stage
+in that project's graph, the project found among the `stack_artifacts` of the
+check (another project's `Artifacts.toml`, with its `configs/reproduce.toml`
+beside it); that project's own check covers its inputs.
+
+### Another project's run of record
+
+A config reads another project's keyed product — its run of record, where it
+lives, never copied — by naming the product rather than a tier's file:
+
+```toml
+[inputs.hand_eye]
+project = "bmvc2026"                  # the producing project (its stage graph's [project] name)
+product = "calibration/hand_eye"      # the Product's <experiment>/<name> (its directory under that project's results)
+key = "3f9a0c1d2e4b5a67"              # the run key of record (the product's directory)
+file = "hand_eye_bb.json"             # optional: a file in the product's directory (default: the whole directory)
+sha256 = "…"                          # its content (a directory's tree_sha256)
+tier = "bmvc2026_results"             # optional: a results-mount tier of THIS project's catalog that publishes them
+```
+
+[`input_path`](@ref)`(cfg, "hand_eye")` reads it under the first root that
+holds `<product>/<key>[/<file>]`: `VGTK_RESULTS_ROOT_<PROJECT>`
+(`VGTK_RESULTS_ROOT_BMVC2026`), then [`project_results_root`](@ref) (the
+active site profile's `results_root` for that project, `{project}` its name),
+then the `tier`'s root. The product's record (`_provenance.toml`) must name
+`key` as its run key, a `sha256` is verified, and a scratch run's output is
+refused. The runner's launch check ([`missing_inputs`](@ref)) makes the same
+check (`product_input`), with the site's results root and the launch's
+environment. `A2` accepts such an input when it is well formed and any `tier`
+it names is catalogued.
+
+On a fresh machine the producer's results come as a **results-mount tier**: an
+entry of this project's catalog with `mount = "results"` (a `tree` of the
+producer's results, published like any tier), which
+[`fetch_artifacts!`](@ref) links into the results root at its `mount_dir`. An
+input of that tier (`tier = "…"`, `path = "…"`) is read under
+`<results root>/<mount_dir>` ([`data_root`](@ref)`(; tier)`, through
+[`tier_data_root`](@ref VisualGeometryToolkitEval.tier_data_root)'s results
+rung), and a product input naming the tier falls back to it. The tree keeps the
+producer's layout, so `<product>/<key>/<file>` is the same path under it:
+
+```toml
+[artifacts.bmvc2026_results]
+kind = "tree"
+mount = "results"
+mount_dir = "bmvc2026"                # under this project's results root
+dir = "."
+record = "bb"
+required = true
+what = "BlobBoards bmvc2026's run of record: the hand-eye calibrations and the baseline poses"
+provenance = "bmvc2026's results of record at <commit>"
+```
+
 An entry too large to upload as one file can set `split_by = "scene"` (kinds
 `pool_sources` and `pools`). It is then bound as one artifact per scene,
 `<name>_<scene>`, plus `<name>_meta` for the files that no scene owns. The

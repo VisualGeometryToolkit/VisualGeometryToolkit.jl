@@ -599,9 +599,10 @@ end
 # Inputs
 # ---------------------------------------------------------------------------
 
-# The `[inputs.<id>]` tables with a `path` of the config at `path`: `(id, table, tier)` each, `tier` "" when unnamed.
+# The `[inputs.<id>]` tables with a `path`, or naming another project's product (`project`), of the config at `path`:
+# `(id, table, tier)` each, `tier` "" when unnamed.
 _config_inputs(path) = [(String(id), t, String(get(t, "tier", ""))) for (id, t) in get(TOML.parsefile(path), "inputs", Dict{String, Any}())
-                        if t isa AbstractDict && haskey(t, "path")]
+                        if t isa AbstractDict && (haskey(t, "path") || is_product_input(t))]
 
 # The configs of record stage `s` reads, relative to the workdir, each with who reads it: its own config (one per array
 # item) and those its `inputs_from` lists. A missing `inputs_from` source is reported to `missing!(path, what, user)`.
@@ -625,7 +626,8 @@ function _stage_configs(g::StageGraph, s::StageSpec; env = ENV, missing! = (_...
 end
 
 """
-    missing_inputs(g, stages; data_root, env = ENV, site = "", unpublished = nothing) -> Vector{NamedTuple}
+    missing_inputs(g, stages; data_root, env = ENV, site = "", unpublished = nothing, results_root = "",
+                   site_profile = nothing) -> Vector{NamedTuple}
 
 Every input of the selected `stages` that is not there, as data, before anything runs: one row
 `(; path, tier, used_by)` per missing path (`used_by` every stage and config that reads it). A stage's inputs are its
@@ -651,21 +653,40 @@ read once per process, and a launch that checks the same input from several conf
 hash is kept across processes in the digest cache while its size, times and inode are unchanged
 ([`digest_cache_dir`](@ref VisualGeometryToolkitEval.digest_cache_dir); `VGTK_DIGEST_CACHE=off` hashes in full), so
 the launch's check warms it for every job.
+
+A tier the project's catalog mounts under its results (`mount = "results"`, a run of record published as a tier) is
+read under `results_root` ([`catalog_results_mount`](@ref VisualGeometryToolkitEval.catalog_results_mount)). An input
+naming ANOTHER project's product (`project`, `product`, `key`, …: Experiments' `input_path`) is checked by
+`product_input` under `env`'s `VGTK_RESULTS_ROOT_<PROJECT>`, then the `site_profile`'s results root for that project
+([`site_root`](@ref)), then its `tier`'s root; a missing one is a row `<project>:<product>/<key>[/<file>]`.
 """
 function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV,
-                        site::AbstractString = "", unpublished = nothing)
+                        site::AbstractString = "", unpublished = nothing, results_root::AbstractString = "",
+                        site_profile = nothing)
     rows = Dict{String, Tuple{String, Vector{String}}}()
     tiers = get(get(g.site_roots, site, Dict{String, Any}()), "tiers", nothing)
-    view_mount = isempty(data_root) ? nothing :
-                 catalog_view_mount(data_root, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml"))
+    catalog = joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml")
+    view_mount = isempty(data_root) ? nothing : catalog_view_mount(data_root, catalog)
+    results_mount = catalog_results_mount(catalog)
+    site_results(p) = site_profile === nothing ? nothing : site_root(site_profile, "results_root", p)
+    root_of(tier) = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount,
+                                   results_mount, results_root)
     wrong = String[]
     add!(path, tier, user) = (r = get!(rows, path, (tier, String[])); user in r[2] || push!(r[2], user))
     function check!(cfg, user)
         p = joinpath(g.workdir, cfg)
         isfile(p) || (add!(cfg, "config of record", user); return)
         for (id, t, tier) in _config_inputs(p)
-            root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
-            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
+            if is_product_input(t)                       # another project's product, where that project's results are
+                r = product_input(id, t; env, site_results, tier_root = isempty(tier) ? "" : first(root_of(tier)),
+                                  allow_scratch = scratch_run(env))
+                r.state === :missing && add!("$(t["project"]):$(product_input_path(t))", "product of $(t["project"])", user)
+                r.state === :refused && push!(wrong, "input $id of $cfg ($(t["project"]):$(product_input_path(t)), used by $user): $(r.problem)")
+                continue
+            end
+            root, from = root_of(tier)
+            name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" :
+                   from == "results" ? "the results root" : "the artifact view"
             r = inspect_input(id, t, root; root_source = from, root_name = name,        # the one check (src/code_identity.jl)
                               allow_scratch = scratch_run(env))
             if tier == UNPUBLISHED_TIER && unpublished !== nothing
@@ -1996,7 +2017,7 @@ function reproduce_main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = 
         cache = get(_site_env(g, site), "VGTK_DIGEST_CACHE", get(env, "VGTK_DIGEST_CACHE", nothing))
         miss = withenv("VGTK_DIGEST_CACHE" => cache) do
             missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name,
-                           unpublished = unpub)
+                           unpublished = unpub, results_root = plan.results_root, site_profile = site)
         end
         if "--dry-run" in args
             print_plan(io, plan; missing = miss, unpublished = unpub)

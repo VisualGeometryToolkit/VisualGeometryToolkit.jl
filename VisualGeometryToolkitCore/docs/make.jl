@@ -163,6 +163,7 @@ makedocs(;
             "Core Types" => "api/types.md",
             "Termination Record" => "api/termination.md",
             "Core" => "api/core.md",
+            "Artifact Store" => "api/artifacts.md",
             "Synthetic Data" => "api/synthetic.md",
         ],
         "References" => "references.md",

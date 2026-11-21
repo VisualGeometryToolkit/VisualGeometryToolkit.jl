@@ -64,6 +64,8 @@
                 "VGTK_SITE" => joinpath(sites, "lab.toml")) do
             E.set_project_root!(dir)
             @test E.project_name() == basename(dir)                                   # no stage graph: the directory's name
+            @test_throws ErrorException E.data_root()                                 # the site's root not made yet: no rung
+            mkpath(joinpath(sites, "data", basename(dir))); mkpath(joinpath(sites, "data", "paper"))
             @test E.data_root() == joinpath(sites, "data", basename(dir))
             @test E.results_root() == joinpath(sites, "results", basename(dir))
             @test E.is_primary_copy()

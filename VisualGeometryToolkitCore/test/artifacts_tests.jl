@@ -87,8 +87,7 @@ end
                     @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(dir, "site-store"), :site)
                 end
                 withenv("VGTK_SITE" => "mysite") do
-                    err = try VgtkCore.artifact_store(); nothing catch e; e end
-                    @test err isa ErrorException && occursin("VisualGeometryToolkitEval", err.msg)
+                    @test VgtkCore.artifact_store().source === :preference      # a name, and no reader: no rung
                     VgtkCore.set_site_artifact_store!(site -> site == "mysite" ? joinpath(dir, "named-store") : nothing)
                     @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(dir, "named-store"), :site)
                 end

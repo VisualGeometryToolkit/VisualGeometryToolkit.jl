@@ -567,7 +567,7 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
     end
     # A4: the artifact view's links resolve into the store
     if has_view
-        top = rstrip(realpath(store.path), '/') * "/"
+        top = rstrip(isdir(store.path) ? realpath(store.path) : store.path, '/') * "/"
         for (r, _, fs) in walkdir(view), f in sort(fs)
             p = joinpath(r, f)
             islink(p) || continue

@@ -175,7 +175,7 @@ function _bound_data_root()
         (islink(link) || isdir(link)) && return link
     end
     site = _site_storage("data_root")
-    site === nothing || return site
+    site === nothing || !isdir(site) || return site      # a site's root not made yet: the artifact view, as before
     fb = _BINDING.data_fallback
     if fb !== nothing
         r = try fb() catch; nothing end
@@ -189,7 +189,7 @@ end
 
 The project's input tree (read-only): `ENV["VGTK_DATA_ROOT"]` → the project's
 `data/exp_raw` (DrWatson `datadir("exp_raw")`; a link, a directory, or the
-artifact view) → the site profile's `data_root` ([`active_site`](@ref), its
+artifact view) → the site profile's `data_root` once it exists ([`active_site`](@ref), its
 `{project}` the [`project_name`](@ref)) → the project's fallback rung → its [`ArtifactView`](@ref),
 installing `tiers` (default: the view's `default`). Configs state input paths
 RELATIVE to it; nothing under it is written except by a declared producer
@@ -227,18 +227,21 @@ end
 The project's results tree: `ENV["VGTK_RESULTS_ROOT"]` → the project's
 `data/exp_pro` (DrWatson `datadir("exp_pro")`; a link or a directory) → the
 site profile's `results_root` ([`active_site`](@ref)); without any of them
-`data/exp_pro`, created when the project binds `create_results = true`, an error
-otherwise.
+`data/exp_pro`. The root is created when the project binds
+`create_results = true`; otherwise a missing `data/exp_pro` is an error.
 """
 function results_root()
-    haskey(ENV, "VGTK_RESULTS_ROOT") && return String(ENV["VGTK_RESULTS_ROOT"])
-    root = joinpath(project_root(), "data", "exp_pro")
-    (islink(root) || isdir(root)) && return root
-    site = _site_storage("results_root")
-    site === nothing || return site
-    _BINDING.create_results && return mkpath(root)
-    error("no results root: set VGTK_RESULTS_ROOT, VGTK_SITE to a site profile with [storage] results_root, " *
-          "or create the data/exp_pro symlink under $(project_root())")
+    local_root = joinpath(project_root(), "data", "exp_pro")
+    site = haskey(ENV, "VGTK_RESULTS_ROOT") || islink(local_root) || isdir(local_root) ? nothing : _site_storage("results_root")
+    root = haskey(ENV, "VGTK_RESULTS_ROOT") ? String(ENV["VGTK_RESULTS_ROOT"]) : something(site, local_root)
+    if _BINDING.create_results
+        mkpath(root)
+    elseif !haskey(ENV, "VGTK_RESULTS_ROOT") && site === nothing
+        islink(root) || isdir(root) || error(
+            "no results root: set VGTK_RESULTS_ROOT, VGTK_SITE to a site profile with [storage] results_root, " *
+            "or create the data/exp_pro symlink under $(project_root())")
+    end
+    return root
 end
 
 """

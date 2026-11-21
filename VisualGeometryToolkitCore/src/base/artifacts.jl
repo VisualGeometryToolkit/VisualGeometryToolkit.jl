@@ -62,7 +62,9 @@ artifact store of the site profile `site` (the value of `VGTK_SITE`), or
 `nothing` when that profile names none. VisualGeometryToolkitEval, which owns
 the site profiles, registers its reader when it loads; without it a `VGTK_SITE`
 that names a profile FILE (a path ending in `.toml`) is still read here (its
-`[storage] artifact_store`), and a site NAME is an error that says so.
+`[storage] artifact_store`), and a site NAME gives no rung: the runner gives
+its jobs `VGTK_ARTIFACT_STORE` from the profile, so a package without
+VisualGeometryToolkitEval (BlobBoards) installs into the site's store there too.
 """
 set_site_artifact_store!(f::Function) = (_SITE_STORE[] = f; f)
 
@@ -77,8 +79,7 @@ function _site_store(site::AbstractString)
     f = _SITE_STORE[]
     f === nothing || return f(site)
     endswith(site, ".toml") && return _site_file_store(site)
-    error("VGTK_SITE = $(repr(site)) names a site profile, which VisualGeometryToolkitEval reads: load it " *
-          "(`using VisualGeometryToolkitEval`), name the profile by its path, or set VGTK_ARTIFACT_STORE")
+    return nothing     # a site name, and its reader (VisualGeometryToolkitEval) not loaded: no rung
 end
 
 # The depot is refused on the cluster: a job there sets NODE_CACHE (its node-local, evicted cache, where the job
@@ -116,12 +117,15 @@ function artifact_store()
     _depot_refused() && error(
         "no artifact store on the cluster, and its depot is refused (node-local, evicted; NODE_CACHE is set): " *
         "set VGTK_ARTIFACT_STORE, or VGTK_SITE to a site profile with [storage] artifact_store " *
-        "(VisualGeometryToolkitEval's `vcai`), or the preference `artifact_store` of VisualGeometryToolkitCore")
+        "(VisualGeometryToolkitEval's `vcai`, read once VisualGeometryToolkitEval is loaded), or the preference " *
+        "`artifact_store` of VisualGeometryToolkitCore; a depot's trees move with `migrate_artifacts`")
     return ArtifactStore(joinpath(first(DEPOT_PATH), "artifacts"), :depot)
 end
 
 # Pkg's directory override is a process-wide global that its `with_artifacts_directory` resets to `nothing` on
 # exit: every reader and writer of a store holds this lock, and a nested call into the same store does not reset it.
+# While a block runs, the override is also what any OTHER task's Pkg artifact lookup sees (a lazy `artifact"…"`
+# of another package reads the store then): Pkg offers no task-local form, so the blocks are kept to the install.
 const _STORE_LOCK = ReentrantLock()
 
 """
@@ -135,6 +139,8 @@ same store allowed. The depot store runs `f` without an override. The one
 wrapper of Pkg's override in the stack: DataArtifacts' packer stages through it.
 """
 function with_artifact_store(f::Function, store::ArtifactStore = artifact_store())
+    # already inside this store (a task the block spawned, as the packer's): no second lock, which the block's task holds
+    Artifacts.ARTIFACTS_DIR_OVERRIDE[] == store.path && return f()
     lock(_STORE_LOCK) do
         store.source === :depot && Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing && return f()
         Artifacts.ARTIFACTS_DIR_OVERRIDE[] == store.path && return f()
@@ -332,7 +338,10 @@ function migrate_artifacts(toml::AbstractString; store::ArtifactStore = artifact
             end
         end
         status in (:migrated, :present) && _record_name(store, name, SHA1(hex))
-        remove && status in (:migrated, :present) && foreach(p -> rm(p; recursive = true, force = true), src)
+        # never the store's own tree (a store that is a depot's artifacts directory)
+        keep = isdir(dst) ? realpath(dst) : ""
+        remove && status in (:migrated, :present) &&
+            foreach(p -> realpath(p) == keep || rm(p; recursive = true, force = true), src)
         push!(out, String(name) => status)
     end
     return out

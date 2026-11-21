@@ -163,7 +163,7 @@ that binds:
 
 | Root | Order |
 |---|---|
-| `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the site's `data_root` → the project's fallback → the artifact view |
+| `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the site's `data_root` (once it exists) → the project's fallback → the artifact view |
 | `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the site's `results_root` |
 | the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused on the cluster) |
 

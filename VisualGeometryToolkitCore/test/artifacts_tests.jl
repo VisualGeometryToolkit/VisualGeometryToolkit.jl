@@ -92,7 +92,7 @@ end
                     VgtkCore.set_site_artifact_store!(site -> site == "mysite" ? joinpath(dir, "named-store") : nothing)
                     @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(dir, "named-store"), :site)
                 end
-                # a profile that names no store passes to the next rung
+                # a profile that names no store leaves it to the next rung
                 withenv(() -> (@test VgtkCore.artifact_store().source === :preference), "VGTK_SITE" => "other")
                 # the environment over everything
                 withenv("VGTK_SITE" => "mysite", "VGTK_ARTIFACT_STORE" => joinpath(dir, "env-store")) do

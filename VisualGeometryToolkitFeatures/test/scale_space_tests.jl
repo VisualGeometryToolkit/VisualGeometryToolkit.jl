@@ -37,7 +37,7 @@ end
     #   pair 2  the cluster's node nereus and GitHub's hosted runners (the same bits at Features 0.9.8 and 0.9.9).
     # A machine that matches neither pair is a third family, or a change of the detector: the failure below prints its
     # two hashes — check on a machine of pair 1 or 2 that the detector is unchanged there, then add the pair with its
-    # machine. The untilted detection and the pyramid's levels below pass with one pin on all of these machines.
+    # machine. The untilted detection and the pyramid's levels below have one pin, the same bits on all of these machines.
     feature_pins = ("19bee0b8eed210064cb55e46f1a7f2d0a9c3039deca0cecd590cf0c228978f02",
                     "0893189cf2f9021937394a7926014bf6cd3da9e257de0f38dc038d35f5e3aec6")
     covariance_pins = ("72cd90e0d3fde944580677448c4e1b6ed9bbe1e798124cb787f0bf15768463eb",

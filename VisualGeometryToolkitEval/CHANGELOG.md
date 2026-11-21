@@ -9,9 +9,11 @@
   of its files). An entry is a small file per real path holding the file's size, mtime, ctime and inode and its hash:
   an unchanged file costs a `stat` (a directory a `stat` walk: under 10 ms for the accv2026 pool trees, 22–109 files
   of up to 3.3 TB), a changed one is rehashed and its entry rewritten (to a temporary file, then renamed: concurrent
-  processes are safe), so in a tree only the changed files are read again. A pin the hash does not match is refused
-  as before. **`digest_cache_dir()`**: `VGTK_DIGEST_CACHE`, else `$XDG_CACHE_HOME/vgtk/input-digests`, else
-  `~/.cache/vgtk/input-digests`, per user and never in the data tree; a site sets it in its profile's `[env]`, which
+  processes are safe), so in a tree only the changed files are read again; a file changed in the last 3 s is not kept
+  (a same-size rewrite within a coarse file system's time tick keeps its stat). A pin the hash does not match is
+  refused as before. **`digest_cache_dir()`**: `VGTK_DIGEST_CACHE`, else `$XDG_CACHE_HOME/vgtk/input-digests`, else
+  `~/.cache/vgtk/input-digests` (an absolute path), per user (created 0700; an entry another user owns is ignored)
+  and never in the data tree; a site sets it in its profile's `[env]`, which
   the launch's input check uses too, so the launch warms the cache its jobs read. On by default;
   **`VGTK_DIGEST_CACHE=off`** hashes every input in full (a release gate's or a run of record's full verification).
 

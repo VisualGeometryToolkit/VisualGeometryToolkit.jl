@@ -11,7 +11,10 @@
     using VisualGeometryToolkitEval: VisualGeometryToolkitEval, digest_cache_dir, tree_sha256, file_sha256, inspect_input
     const E = VisualGeometryToolkitEval
 
-    E._DIGEST_CACHE_MIN_BYTES[] = 0                       # every file kept: the fixtures are small
+    # every file kept, however small and new (the fixtures are both); restored at the end, for the worker's other items
+    saved = (E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[])
+    E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[] = 0, 0.0
+    try
     cold() = lock(() -> empty!(E._FILE_SHA256), E._FILE_SHA256_LOCK)   # a fresh process's view: no process cache
     entries(dir) = isdir(dir) ? sort(filter(endswith(".toml"), readdir(dir; join = true))) : String[]
     entry(dir, f) = only(filter(e -> TOML.parsefile(e)["path"] == realpath(f), entries(dir)))
@@ -32,6 +35,7 @@
         @test digest_cache_dir(Dict("XDG_CACHE_HOME" => "/x")) == "/x/vgtk/input-digests"
         @test digest_cache_dir(Dict{String, String}()) == joinpath(homedir(), ".cache", "vgtk", "input-digests")
         @test all(v -> digest_cache_dir(Dict("VGTK_DIGEST_CACHE" => v)) === nothing, ("off", "OFF", "0", "false", "no"))
+        @test_throws r"an absolute path" digest_cache_dir(Dict("VGTK_DIGEST_CACHE" => "rel/dir"))
     end
 
     @testset "a file: miss, then hit without reading; any change misses" begin
@@ -45,14 +49,20 @@
             @test file_sha256(f) == fake                                                  # a hit: the data unread
             l = joinpath(mktempdir(), "link"); symlink(f, l); cold()
             @test file_sha256(l) == fake                                                  # by its real path
-            ref = tempname(); run(`touch -r $f $ref`)                                     # ref keeps f's times
             for change in (() -> write(f, "pool OF RECORD\n"),                            # same size
-                           () -> write(f, "another size\n"),
-                           () -> (write(f, "pool of RECORD\n"); run(`touch -r $ref $f`)))  # the mtime set back
+                           () -> write(f, "another size\n"))
                 forge!(e, fake); change(); cold()
                 @test file_sha256(f) == sha(f) != fake
             end
-            @test mtime(f) == mtime(ref)
+            # a same-size rewrite whose mtime is set back: only its ctime moved
+            ref = tempname(); run(`touch -r $f $ref`)                                     # ref keeps f's times
+            forge!(e, fake); write(f, "ANOTHER SIZE\n"); run(`touch -r $ref $f`); cold()
+            @test mtime(f) == mtime(ref) && filesize(f) == 13 && file_sha256(f) == sha(f) != fake
+            # a file changed just now is not kept: its entry stays as it was
+            E._DIGEST_CACHE_MIN_AGE[] = 60.0
+            forge!(e, fake); write(f, "changed now\n"); cold()
+            @test file_sha256(f) == sha(f) && TOML.parsefile(e)["sha256"] == fake
+            E._DIGEST_CACHE_MIN_AGE[] = 0.0
         end
     end
 
@@ -87,20 +97,22 @@
     @testset "a small file is never kept" begin
         cache, t = mktempdir(), tree()
         E._DIGEST_CACHE_MIN_BYTES[] = 5
-        withenv(() -> (cold(); tree_sha256(t)), "VGTK_DIGEST_CACHE" => cache)
-        E._DIGEST_CACHE_MIN_BYTES[] = 0
+        try withenv(() -> (cold(); tree_sha256(t)), "VGTK_DIGEST_CACHE" => cache) finally E._DIGEST_CACHE_MIN_BYTES[] = 0 end
         @test isempty(entries(cache))
     end
 
     @testset "a cache that cannot be written is no cache" begin
         cache, t = mktempdir(), tree()
         chmod(cache, 0o555)
-        if !(try touch(joinpath(cache, "probe")); true catch; false end)       # root writes anyway: nothing to show
-            withenv("VGTK_DIGEST_CACHE" => joinpath(cache, "digests")) do
-                cold(); @test file_sha256(joinpath(t, "a.bin")) == sha(joinpath(t, "a.bin"))
+        try
+            if !(try touch(joinpath(cache, "probe")); true catch; false end)   # root writes anyway: nothing to show
+                withenv("VGTK_DIGEST_CACHE" => joinpath(cache, "digests")) do
+                    cold(); @test file_sha256(joinpath(t, "a.bin")) == sha(joinpath(t, "a.bin"))
+                end
             end
+        finally
+            chmod(cache, 0o755)
         end
-        chmod(cache, 0o755)
     end
 
     @testset "concurrent processes on a cold cache agree and leave whole entries" begin
@@ -109,7 +121,7 @@
         cold(); want = withenv(() -> tree_sha256(t), "VGTK_DIGEST_CACHE" => "off")
         src = pkgdir(VisualGeometryToolkitEval, "src")
         canonical = pkgdir(VisualGeometryToolkitCore, "src", "base", "canonical.jl")
-        code = "foreach(include, ARGS[1:2]); _DIGEST_CACHE_MIN_BYTES[] = 0; print(tree_sha256(ARGS[3]))"
+        code = "foreach(include, ARGS[1:2]); _DIGEST_CACHE_MIN_BYTES[] = 0; _DIGEST_CACHE_MIN_AGE[] = 0.0; print(tree_sha256(ARGS[3]))"
         env = merge(Dict(ENV), Dict("JULIA_LOAD_PATH" => "@stdlib", "JULIA_PROJECT" => "", "VGTK_DIGEST_CACHE" => cache))
         cmds = [setenv(`$(Base.julia_cmd()) --startup-file=no -e $code $canonical $(joinpath(src, "cli.jl")) $t`, env) for _ in 1:4]
         @test all(==(want), fetch.([Threads.@spawn read(c, String) for c in cmds]))
@@ -117,5 +129,8 @@
         foreach(rm, entries(cache))
         @test all(==(want), withenv(() -> (cold(); fetch.([Threads.@spawn tree_sha256(t) for _ in 1:8])), "VGTK_DIGEST_CACHE" => cache))
         @test length(readdir(cache)) == 32
+    end
+    finally
+        E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[] = saved
     end
 end

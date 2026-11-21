@@ -317,14 +317,17 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   size, mtime, ctime and inode. An unchanged file costs a `stat`, so a
   directory input costs a `stat` walk; a changed file is rehashed and its
   entry rewritten (to a temporary file, then renamed: concurrent jobs are
-  safe), and in a tree only the changed files are read again. A pin that the
-  digest does not match is refused as before. The default is on: the
+  safe), and in a tree only the changed files are read again. A file changed
+  in the last 3 s is not kept (a same-size rewrite within a coarse file
+  system's time tick keeps its stat). A pin that the digest does not match is
+  refused as before. The default is on: the
   launch's input check warms the cache for every job.
   `VGTK_DIGEST_CACHE=off` hashes every input in full, for a release gate or
   a run of record that wants the full verification. A site sets the
   directory in its profile's `[env]`, which the launch's check and every
-  stage use. The cache is per user: whoever can write it can make a changed
-  input pass, so it is never shared.
+  stage use (an absolute path). The cache is per user: whoever can write it
+  can make a changed input pass, so it is created private (0700), an entry
+  another user owns is ignored, and it is never shared.
 - **Producers.** A step that produces input data is produced under the
   results root and promoted, `promote_run(product_dir(product), tier)`, to
   `<tier root>/<tier>/<name>`, so its consumers' `[inputs.<id>] path =

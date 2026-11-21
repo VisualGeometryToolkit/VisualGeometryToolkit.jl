@@ -35,9 +35,11 @@ _stat_key(st) = (Int64(st.size), Float64(st.mtime), Float64(st.ctime), UInt64(st
 const _FILE_SHA256 = Dict{Tuple{String, Tuple{Int64, Float64, Float64, UInt64}}, String}()
 const _FILE_SHA256_LOCK = ReentrantLock()
 
-# The smallest file the digest cache keeps: a smaller one is hashed faster than its entry is read (a Ref: the tests
-# lower it).
+# The smallest file the digest cache keeps: a smaller one is hashed faster than its entry is read; and the age (seconds
+# since its last change) a file must have to be kept: a file changed within its file system's time resolution (1–2 s
+# on some) could change again with the same size and stat, so its hash stays in the process (Refs: the tests set them).
 const _DIGEST_CACHE_MIN_BYTES = Ref{Int64}(64 << 20)
+const _DIGEST_CACHE_MIN_AGE = Ref{Float64}(3.0)
 
 """
     file_sha256(path) -> String
@@ -48,9 +50,10 @@ unchanged file costs a `stat`; and, for a file of 64 MiB or more, across process
 ([`digest_cache_dir`](@ref)), so the many jobs of a launch read a large input once. A cache entry is a small file per
 path, written to a temporary file and renamed (processes that hash the same file at once each read a whole entry, and
 agree); an entry whose `stat` differs is rehashed and rewritten, and a cache that cannot be read or written is no
-cache. A file rewritten in place within the file system's time resolution with the same size and inode keeps its
-hash; a check of record that must exclude that sets `VGTK_DIGEST_CACHE=off` (the process cache still holds within
-one process, so it runs in a fresh one). An `ArgumentError` for a directory or a missing path.
+cache. A file changed within the last 3 s is not kept (on a file system whose times have a resolution of seconds,
+a same-size rewrite in the same tick would keep its stat); within one process, a file rewritten in place within that
+resolution with the same size and inode keeps its hash. A check of record that must exclude even that sets
+`VGTK_DIGEST_CACHE=off` and runs in a fresh process. An `ArgumentError` for a directory or a missing path.
 """
 function file_sha256(path::AbstractString)
     isfile(path) || throw(ArgumentError("file_sha256: $path is $(isdir(path) ? "a directory" : "not there"), not a file"))
@@ -69,14 +72,16 @@ function _kept_sha256(real::String, key)
     dir === nothing && return bytes2hex(open(sha256, real))
     entry, stat_line = joinpath(dir, bytes2hex(sha256(real))[1:32] * ".toml"), join(key, " ")
     kept = try
-        d = TOML.parsefile(entry)
-        d["path"] == real && d["stat"] == stat_line ? String(d["sha256"]) : nothing
+        d = stat(entry).uid == Libc.getuid() ? TOML.parsefile(entry) : nothing      # only this user's entries
+        d !== nothing && d["path"] == real && d["stat"] == stat_line ? String(d["sha256"]) : nothing
     catch
         nothing
     end
     kept === nothing || return kept
     h = bytes2hex(open(sha256, real))
+    time() - max(key[2], key[3]) < _DIGEST_CACHE_MIN_AGE[] && return h       # changed just now: not kept
     try
+        mkpath(dir; mode = 0o700)                                               # per user: the trust boundary
         _write_atomic(io -> TOML.print(io, Dict("path" => real, "stat" => stat_line, "sha256" => h)), entry)
     catch e
         @debug "file_sha256: the digest cache $dir is not writable; $real is hashed in every process" exception = e
@@ -88,16 +93,17 @@ end
     digest_cache_dir(env = ENV) -> Union{String, Nothing}
 
 The directory of the digest cache, where [`file_sha256`](@ref) keeps a large file's hash across processes:
-`VGTK_DIGEST_CACHE` in `env` (a path; `off`, `0`, `false` or `no` for none: every process hashes every input in
-full), else `\$XDG_CACHE_HOME/vgtk/input-digests`, else `~/.cache/vgtk/input-digests`. A site sets it in its
+`VGTK_DIGEST_CACHE` in `env` (an absolute path; `off`, `0`, `false` or `no` for none: every process hashes every
+input in full), else `\$XDG_CACHE_HOME/vgtk/input-digests`, else `~/.cache/vgtk/input-digests`. A site sets it in its
 profile's `[env]` (`VGTK_DIGEST_CACHE = "…"`), which the runner's input check and every stage get. The cache is per
-user: whoever can write it can make a changed input pass, so it is never shared with other users, and never inside
-a data tree (data may be read-only). A home on network storage serves every node.
+user: whoever can write it can make a changed input pass, so it is created private (0700), an entry another user owns
+is ignored, and it is never inside a data tree (data may be read-only). A home on network storage serves every node.
 """
 function digest_cache_dir(env = ENV)
     v = strip(get(env, "VGTK_DIGEST_CACHE", ""))
     lowercase(v) in ("off", "0", "false", "no") && return nothing
-    isempty(v) || return abspath(expanduser(v))
+    isempty(v) || (isabspath(expanduser(v)) ? (return normpath(expanduser(v))) :
+                   throw(ArgumentError("VGTK_DIGEST_CACHE = $(repr(v)): an absolute path, or off")))
     xdg = strip(get(env, "XDG_CACHE_HOME", ""))
     return joinpath(isempty(xdg) ? joinpath(homedir(), ".cache") : xdg, "vgtk", "input-digests")
 end

@@ -1,5 +1,11 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.11.1
+
+A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the
+spherical spline and the dilogarithm and added the artifact store. No code of this package changes; the fixtures a
+writer reproduces byte for byte name their generator 0.11.1 (the fifteen files' envelope `generator.version`).
+
 ## 0.11.0
 
 Breaking: the radiometric kinds and the panorama kind move to their owners, and a package's own kind gets the

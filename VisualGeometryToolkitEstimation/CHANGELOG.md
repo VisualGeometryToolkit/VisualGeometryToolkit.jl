@@ -1,5 +1,10 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.12.2
+
+A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the
+spherical spline and the dilogarithm and added the artifact store. No code of this package changes.
+
 ## 0.12.1
 
 ### Fixed

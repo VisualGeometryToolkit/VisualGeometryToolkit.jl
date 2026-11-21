@@ -1,5 +1,44 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.10.0
+
+**Breaking: the paper-project check enforces the storage design** (a project's suite that was clean may now report
+the new rules until the project adopts it), on VisualGeometryToolkitCore 0.13.0 (`[compat]` `"0.13"`) and its artifact
+store.
+
+### Added
+- **Site profiles carry the machine's storage** (`configs/sites/<site>.toml`, `[storage]`): `data_root` and
+  `results_root` (`{project}` is the project's name) and `artifact_store`, absolute paths, the ONLY place a machine
+  path is written. `Site` gains the fields `data_root`, `results_root`, `artifact_store`; **`site_root(site, key,
+  project)`** reads one. A relative path, an unknown key or a `{project}` in the shared store is refused.
+- **The `vcai` site** (`configs/sites/vcai.toml`): the vcai-eaic-mds Slurm cluster, every job sourcing
+  `/cluster/projects/vgtk/env-node.sh`, the node athena excluded; data, results and the artifact store in the NFS
+  project space (`/cluster/projects/vgtk/{data,results}/{project}`, `/cluster/projects/vgtk/artifacts`).
+- **`active_site()`, `site_profile(spec)`, `project_name()`** (Experiments): the profile `VGTK_SITE` names (a shipped
+  name, a path, or the project's own `sites_dir`; `nothing` for a name no profile has) and the project's name.
+- **The artifact store's site rung**: this package registers its profile reader with Core's
+  `set_site_artifact_store!` when it loads, so `VGTK_SITE` selects the store.
+- **Paper-project rules**: `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!`; `L6` git tracks
+  data under `data/` (anything but `data/README.md`); `D1` also scans tests, examples, configs, docs and tracked
+  provenance (every line of `MACHINE_PATH_EXTS` files under `MACHINE_PATH_DIRS`; `/cluster`, `/srv`, `/media`,
+  `/gpfs`, `/lustre`, `/work` added to the machine roots); `D5` an artifact or download API outside DataArtifacts;
+  the check **`:storage`** (default): `A2` a config's `[inputs.<id>]` names no catalogued tier, `A3` an artifact name
+  bound to another tree in another project's Artifacts.toml (`stack_artifacts`) or in the store's name record, `A4`
+  a link of the artifact view outside the artifact store; the opt-in check **`:release`**: `R1` an unpublished
+  record, `R2` a Hugging Face record not `public = true`, `R3` a placeholder or local download URL.
+- **The template's `scripts/fetch_data.jl`** (DataArtifacts' `fetch_data!`), and its `data/README.md` and
+  `README.md` naming the site profiles and the store.
+
+### Changed
+- **`data_root()`**: `VGTK_DATA_ROOT` → `data/exp_raw` → **the site profile's `data_root`** → the project's fallback
+  → the artifact view. **`results_root()`**: `VGTK_RESULTS_ROOT` → `data/exp_pro` → **the site profile's
+  `results_root`** → `data/exp_pro` created (`create_results`), else an error.
+- **The runner**: a launch's roots fall back to the site profile's `[storage]` after the graph's `[sites.<site>]`
+  (kept until the projects carry no machine paths), and its jobs get `VGTK_ARTIFACT_STORE` from the profile's
+  `artifact_store` unless the caller sets it.
+- **DataArtifacts**: `fetch_artifacts!` installs into the artifact store (Core's `install_artifact`); the packer
+  stages through Core's `with_artifact_store`; `fetch_data!` prints the store.
+
 ## 0.9.3
 
 A patch on VisualGeometryToolkitCore 0.12.0 and VisualGeometryToolkitIO 0.11.0 (`[compat]` `"0.12"`, `"0.11"`): the radiometric types

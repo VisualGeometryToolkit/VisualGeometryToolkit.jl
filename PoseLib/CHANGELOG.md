@@ -1,5 +1,10 @@
 # PoseLib changelog
 
+## 0.3.3
+
+A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the
+spherical spline and the dilogarithm and added the artifact store. No code of this package changes.
+
 ## 0.3.2
 
 A patch on VisualGeometryToolkitCore 0.12.0 (`[compat]` VisualGeometryToolkitCore `"0.12"`). No code of this package changes.

@@ -1,5 +1,19 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.10
+
+A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`).
+
+- **The LoMa ONNX weights live in the artifact store** (Core's `store_file`: `<store>/files/<sha256>/<file>`, the
+  store `VGTK_ARTIFACT_STORE`, the site profile's, the preference's), never a cluster's depot; with the depot store
+  they stay in this package's scratch space, as before. Same files, same sha256 check.
+- The verified download of the ONNX Runtime CUDA packages is Core's `download_verified` (this package's copy is
+  removed); the Downloads dependency is dropped.
+- Tests: the tilted detection's scale-space hash pins are kept per CPU family, a (features, covariances) pair each
+  with the machines that reproduce it (pair 1 the machine of the factoring, the cluster's poseidon and hephaestus;
+  pair 2 the cluster's nereus and GitHub's hosted runners); a machine that matches neither prints its two hashes.
+  The detector is unchanged.
+
 ## 0.9.9
 
 A patch on VisualGeometryToolkitCore 0.12.0 (`[compat]` VisualGeometryToolkitCore `"0.12"`), whose radiometric types moved to

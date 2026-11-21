@@ -276,10 +276,12 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) must
   have that content: another one is refused, naming the input, the expected
   and the actual hash (exit 2, the dry run too); without it the input is only
-  checked to be there. Hashing streams the file and is cached by path, size
-  and modification time
+  checked to be there. Hashing streams the file and is cached by path, size,
+  times and inode
   ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)), so a large
-  input is read once per process. A driver checks its config's inputs the same
+  input is read once per process; and a large file's hash is kept across
+  processes in the digest cache, so the many jobs of a launch read it once:
+  see *The digest cache* below. A driver checks its config's inputs the same
   way with
   [`verify_inputs`](@ref VisualGeometryToolkitEval.Experiments.verify_inputs).
 - **Tier roots.** An input's `path` is relative to its *tier's* root, which
@@ -307,6 +309,22 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256): the SHA-256 of
   its sorted `(relative path, file sha256)` lines, with `sha256_exclude`
   globs left out; it is streamed and cached per file.
+- **The digest cache.** The hash of every file of 64 MiB or more is kept
+  across processes, in a small file per path under
+  [`digest_cache_dir`](@ref VisualGeometryToolkitEval.digest_cache_dir)
+  (`VGTK_DIGEST_CACHE`, else `$XDG_CACHE_HOME/vgtk/input-digests`, else
+  `~/.cache/vgtk/input-digests`; never in the data tree), with the file's
+  size, mtime, ctime and inode. An unchanged file costs a `stat`, so a
+  directory input costs a `stat` walk; a changed file is rehashed and its
+  entry rewritten (to a temporary file, then renamed: concurrent jobs are
+  safe), and in a tree only the changed files are read again. A pin that the
+  digest does not match is refused as before. The default is on: the
+  launch's input check warms the cache for every job.
+  `VGTK_DIGEST_CACHE=off` hashes every input in full, for a release gate or
+  a run of record that wants the full verification. A site sets the
+  directory in its profile's `[env]`, which the launch's check and every
+  stage use. The cache is per user: whoever can write it can make a changed
+  input pass, so it is never shared.
 - **Producers.** A step that produces input data is produced under the
   results root and promoted, `promote_run(product_dir(product), tier)`, to
   `<tier root>/<tier>/<name>`, so its consumers' `[inputs.<id>] path =

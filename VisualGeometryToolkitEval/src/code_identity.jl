@@ -7,8 +7,10 @@
 #   code_tree_changes(recorded, current) -> Vector{String}        what changed between two such records ("" = none):
 #                                                                 a stored result is reused only when it is empty
 #   file_sha256(path) -> String                                   a file's content hash, streamed and cached by
-#                                                                 (path, size, mtime): the inputs' `sha256` check
-#                                                                 and the files a run key folds in
+#                                                                 (path, size, mtime, ctime, inode): in the process,
+#                                                                 and for a large file across processes in the
+#                                                                 digest cache (digest_cache_dir): the inputs'
+#                                                                 `sha256` check and the files a run key folds in
 #
 # A result's run key names its CONFIGURATION only (DrWatson's savename / produce_or_load, the runner's stage key); the
 # code it ran is recorded beside it (DrWatson's `tag!`: gitcommit, and gitpatch when dirty) together with these trees.
@@ -24,28 +26,80 @@ using TOML: TOML
 using SHA: sha256
 import Pkg   # a registered install's tree hash, from the active environment (`Pkg.dependencies`)
 
-# (realpath, size, mtime) → sha256: a file is hashed once per process while it is unchanged.
-const _FILE_SHA256 = Dict{Tuple{String, Int64, Float64}, String}()
+# What a file's content hash is kept by, from its `stat`: size, mtime, ctime and inode. ctime moves on every write and
+# on a `touch` that sets the mtime back, and no user sets it, so a rewrite that restores size and mtime still misses.
+# No device number: an NFS mount's is the client's, and the digest cache serves every node.
+_stat_key(st) = (Int64(st.size), Float64(st.mtime), Float64(st.ctime), UInt64(st.inode))
+
+# (realpath, stat key) → sha256: a file is hashed once per process while it is unchanged.
+const _FILE_SHA256 = Dict{Tuple{String, Tuple{Int64, Float64, Float64, UInt64}}, String}()
 const _FILE_SHA256_LOCK = ReentrantLock()
+
+# The smallest file the digest cache keeps: a smaller one is hashed faster than its entry is read (a Ref: the tests
+# lower it).
+const _DIGEST_CACHE_MIN_BYTES = Ref{Int64}(64 << 20)
 
 """
     file_sha256(path) -> String
 
 The SHA-256 (64 hex digits) of the file at `path`, read in blocks (a file of any size costs its read, never its size
-in memory) and cached in this process by its real path, size and modification time: a second call on an unchanged
-file costs a `stat`. A file rewritten in place within the file system's mtime resolution with the same size keeps its
-cached hash; a check of record that must exclude that runs in a fresh process. An `ArgumentError` for a directory or a
-missing path.
+in memory) and kept by its real path and `stat` (size, mtime, ctime, inode): in this process, so a second call on an
+unchanged file costs a `stat`; and, for a file of 64 MiB or more, across processes in the digest cache
+([`digest_cache_dir`](@ref)), so the many jobs of a launch read a large input once. A cache entry is a small file per
+path, written to a temporary file and renamed (processes that hash the same file at once each read a whole entry, and
+agree); an entry whose `stat` differs is rehashed and rewritten, and a cache that cannot be read or written is no
+cache. A file rewritten in place within the file system's time resolution with the same size and inode keeps its
+hash; a check of record that must exclude that sets `VGTK_DIGEST_CACHE=off` (the process cache still holds within
+one process, so it runs in a fresh one). An `ArgumentError` for a directory or a missing path.
 """
 function file_sha256(path::AbstractString)
     isfile(path) || throw(ArgumentError("file_sha256: $path is $(isdir(path) ? "a directory" : "not there"), not a file"))
     st = stat(path)
-    k = (realpath(path), Int64(st.size), Float64(st.mtime))
+    k = (realpath(path), _stat_key(st))
     hit = lock(() -> get(_FILE_SHA256, k, nothing), _FILE_SHA256_LOCK)
     hit === nothing || return hit
-    h = bytes2hex(open(sha256, path))
+    h = _kept_sha256(k...)
     lock(() -> (_FILE_SHA256[k] = h), _FILE_SHA256_LOCK)
     return h
+end
+
+# The digest cache's tier of `file_sha256`: the entry of `real` when its stat is `key`, else the file hashed and kept.
+function _kept_sha256(real::String, key)
+    dir = first(key) < _DIGEST_CACHE_MIN_BYTES[] ? nothing : digest_cache_dir()
+    dir === nothing && return bytes2hex(open(sha256, real))
+    entry, stat_line = joinpath(dir, bytes2hex(sha256(real))[1:32] * ".toml"), join(key, " ")
+    kept = try
+        d = TOML.parsefile(entry)
+        d["path"] == real && d["stat"] == stat_line ? String(d["sha256"]) : nothing
+    catch
+        nothing
+    end
+    kept === nothing || return kept
+    h = bytes2hex(open(sha256, real))
+    try
+        _write_atomic(io -> TOML.print(io, Dict("path" => real, "stat" => stat_line, "sha256" => h)), entry)
+    catch e
+        @debug "file_sha256: the digest cache $dir is not writable; $real is hashed in every process" exception = e
+    end
+    return h
+end
+
+"""
+    digest_cache_dir(env = ENV) -> Union{String, Nothing}
+
+The directory of the digest cache, where [`file_sha256`](@ref) keeps a large file's hash across processes:
+`VGTK_DIGEST_CACHE` in `env` (a path; `off`, `0`, `false` or `no` for none: every process hashes every input in
+full), else `\$XDG_CACHE_HOME/vgtk/input-digests`, else `~/.cache/vgtk/input-digests`. A site sets it in its
+profile's `[env]` (`VGTK_DIGEST_CACHE = "…"`), which the runner's input check and every stage get. The cache is per
+user: whoever can write it can make a changed input pass, so it is never shared with other users, and never inside
+a data tree (data may be read-only). A home on network storage serves every node.
+"""
+function digest_cache_dir(env = ENV)
+    v = strip(get(env, "VGTK_DIGEST_CACHE", ""))
+    lowercase(v) in ("off", "0", "false", "no") && return nothing
+    isempty(v) || return abspath(expanduser(v))
+    xdg = strip(get(env, "XDG_CACHE_HOME", ""))
+    return joinpath(isempty(xdg) ? joinpath(homedir(), ".cache") : xdg, "vgtk", "input-digests")
 end
 
 """
@@ -243,10 +297,7 @@ function code_trees(workdir::AbstractString; code = nothing, julia_project::Abst
 end
 
 # A path's stat as the state of `code_trees` sees it: what an edit, a replacement or a removal moves.
-function _stat_state(p::AbstractString)
-    st = stat(p)
-    return (String(p), Int64(st.size), Float64(st.mtime), Float64(st.ctime), UInt64(st.inode))
-end
+_stat_state(p::AbstractString) = (String(p), _stat_key(stat(p))...)
 
 # The git directory and common directory of the repository holding `dir` (a worktree's `.git` is a file naming its
 # own git directory, whose `commondir` names the shared one), and the repository's top; nothing outside one.
@@ -460,8 +511,9 @@ THE content digest of a directory, for an input that is one: the SHA-256 of the 
 sha256>\n`, one per regular file under `dir` (links followed to their files, not into linked directories), sorted
 by relative path (`/`-separated); a path holding a tab or a newline is refused. A relative path matching a glob
 of `exclude` (`*` within a segment, `**` across, `**/` any directories including none, `?`) is left out, so a declared scratch file (a log, an index the reader rebuilds) does not move it. Empty
-directories do not count. Each file's hash is [`file_sha256`](@ref)'s: streamed, and cached by path, size and
-mtime, so a second digest of an unchanged tree costs a `stat` per file.
+directories do not count. Each file's hash is [`file_sha256`](@ref)'s: streamed, and cached by path and `stat`, in
+the process and (a large file) in the digest cache, so a second digest of an unchanged tree costs a `stat` per file,
+and a changed file is the only one read again.
 """
 function tree_sha256(dir::AbstractString; exclude = String[])
     isdir(dir) || throw(ArgumentError("tree_sha256: $dir is not a directory"))

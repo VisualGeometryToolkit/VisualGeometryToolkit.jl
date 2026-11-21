@@ -18,6 +18,10 @@
 using ReTestItems
 using VisualGeometryToolkitEval
 
+# The inputs' digest cache of the suite's processes (its workers and the launches they make inherit it): a temporary
+# directory, never the user's (src/code_identity.jl, `digest_cache_dir`).
+ENV["VGTK_DIGEST_CACHE"] = mktempdir()
+
 runtests(
     VisualGeometryToolkitEval;
     nworkers = parse(Int, get(ENV, "RETESTITEMS_NWORKERS", string(clamp(Sys.CPU_THREADS ÷ 2, 1, 8)))),

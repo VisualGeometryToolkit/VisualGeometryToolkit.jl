@@ -212,7 +212,7 @@ What a run depends on beyond its config is folded in by name, so a project
 keys it here instead of in a private hash:
 
 - `files`: `name => path`, each file's content hash (`file_sha256`: streamed,
-  cached by path, size and mtime) — a calibration file, a board definition;
+  cached by path and stat) — a calibration file, a board definition;
 - `upstream`: `name => key`, the run keys of the runs it reads (a pose run's
   key in the key of the evaluation that reads its poses), or `name => run
   directory`, read for its recorded `run_key` (a scratch run's is refused);

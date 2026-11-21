@@ -1,5 +1,24 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.10.1
+
+### Added
+- **The digest cache**: `file_sha256` keeps the hash of a file of 64 MiB or more across processes, so the many jobs of
+  a launch hash a large input of record once rather than once each (an input's `sha256` check, `inspect_input`: the
+  runner's `missing_inputs`, a driver's `verify_inputs` and `require_input`; a directory's `tree_sha256` through each
+  of its files). An entry is a small file per real path holding the file's size, mtime, ctime and inode and its hash:
+  an unchanged file costs a `stat` (a directory a `stat` walk: under 10 ms for the accv2026 pool trees, 22–109 files
+  of up to 3.3 TB), a changed one is rehashed and its entry rewritten (to a temporary file, then renamed: concurrent
+  processes are safe), so in a tree only the changed files are read again. A pin the hash does not match is refused
+  as before. **`digest_cache_dir()`**: `VGTK_DIGEST_CACHE`, else `$XDG_CACHE_HOME/vgtk/input-digests`, else
+  `~/.cache/vgtk/input-digests`, per user and never in the data tree; a site sets it in its profile's `[env]`, which
+  the launch's input check uses too, so the launch warms the cache its jobs read. On by default;
+  **`VGTK_DIGEST_CACHE=off`** hashes every input in full (a release gate's or a run of record's full verification).
+
+### Changed
+- `file_sha256`'s process cache is kept by the file's size, mtime, ctime and inode (it was size and mtime): a
+  same-size rewrite that sets the mtime back is hashed anew.
+
 ## 0.10.0
 
 **Breaking: the paper-project check enforces the storage design** (a project's suite that was clean may now report

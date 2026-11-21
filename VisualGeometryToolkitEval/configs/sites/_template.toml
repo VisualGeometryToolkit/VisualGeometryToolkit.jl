@@ -50,3 +50,5 @@ artifact_store = "/data/artifacts"      # the artifact store (VisualGeometryTool
 [env]                       # variables every stage gets, e.g.
 # JULIA = "/opt/julia-1.12/bin/julia"     # the julia binary (default: julia on PATH)
 # JULIA_DEPOT_PATH = "/scratch/me/depot"
+# VGTK_DIGEST_CACHE = "/scratch/me/input-digests"   # the inputs' digest cache (default ~/.cache/vgtk/input-digests;
+#                                                   # "off": every input hashed in full). Per user, never shared.

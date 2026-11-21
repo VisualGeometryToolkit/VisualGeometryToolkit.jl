@@ -639,8 +639,11 @@ An input with a `sha256` (64 hex digits: a file's [`file_sha256`](@ref VisualGeo
 directory's [`tree_sha256`](@ref VisualGeometryToolkitEval.tree_sha256)) is verified: an input that is there with another content is
 REFUSED, an `ArgumentError` naming each such input (its id, config, path, the expected and the actual hash), so
 nothing runs on data other than the data of record. An input without one is not checked. The hash is streamed and
-cached by path, size and modification time ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is
-read once per process, and a launch that checks the same input from several configs reads it once.
+cached by path, size, times and inode ([`file_sha256`](@ref VisualGeometryToolkitEval.file_sha256)): a file is
+read once per process, and a launch that checks the same input from several configs reads it once; a large file's
+hash is kept across processes in the digest cache while its size, times and inode are unchanged
+([`digest_cache_dir`](@ref VisualGeometryToolkitEval.digest_cache_dir); `VGTK_DIGEST_CACHE=off` hashes in full), so
+the launch's check warms it for every job.
 """
 function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV,
                         site::AbstractString = "", unpublished = nothing)
@@ -860,6 +863,10 @@ end
 _phase_log(g::StageGraph, spec::StageSpec) = "logs/$(g.name)_$(spec.name)_" * (spec.is_array ? "%A_%a" : "%j") * ".log"
 _phase_log(g::StageGraph, p::PlannedPhase) = _phase_log(g, p.spec)
 
+# The environment every stage of `site` gets: the graph's `[sites.<site>] env`, then the site profile's `[env]`.
+_site_env(g::StageGraph, site::Site) =
+    merge(Dict{String, String}(k => string(v) for (k, v) in get(get(g.site_roots, site.name, Dict()), "env", Dict())), site.env)
+
 # The environment a stage's (or a phase's) jobs get beyond the caller's: the roots, the site's and its own variables,
 # the selection, and on a local site the Slurm variables its launcher reads and its device.
 function _stage_env(g::StageGraph, site::Site, s::StageSpec, items, roots_env, site_env)
@@ -904,7 +911,7 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
     roots_env = Dict{String, String}()
     isempty(data) || (roots_env[g.data_env] = data)
     isempty(results) || (roots_env[g.results_env] = results)
-    site_env = merge(Dict{String, String}(k => string(v) for (k, v) in get(get(g.site_roots, site.name, Dict()), "env", Dict())), site.env)
+    site_env = _site_env(g, site)
     stages = PlannedStage[]
     # A stage's key folds in the key of each stage it runs after: this launch's key when that stage is in the launch,
     # else (`deps = false`) the key of its last completed run, whose output it reads. So a stage reruns once the
@@ -1933,8 +1940,12 @@ function reproduce_main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = 
                                  data_root = _cli_value(args, "data-root"), results_root = _cli_value(args, "results-root"),
                                  job_name_prefix = _cli_value(args, "job-name-prefix"), env, queue_states)
         unpub = NamedTuple[]
-        miss = missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name,
-                              unpublished = unpub)
+        # the input check hashes into the digest cache the stages read: the site's, when its [env] names one
+        cache = get(_site_env(g, site), "VGTK_DIGEST_CACHE", get(env, "VGTK_DIGEST_CACHE", nothing))
+        miss = withenv("VGTK_DIGEST_CACHE" => cache) do
+            missing_inputs(g, [st.spec.name for st in plan.stages]; data_root = plan.data_root, env, site = site.name,
+                           unpublished = unpub)
+        end
         if "--dry-run" in args
             print_plan(io, plan; missing = miss, unpublished = unpub)
             println(io, "\ndry run: nothing submitted or run")

@@ -2,8 +2,6 @@
 
 # VisualGeometryToolkit.jl
 
-by [James Pritts](https://prittjam.github.io/)
-
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23548372.svg)](https://doi.org/10.5281/zenodo.23548372)
 
 Composable Julia packages for robust multiple-view geometry: geometric types,

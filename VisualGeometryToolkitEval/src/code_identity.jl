@@ -96,8 +96,9 @@ The directory of the digest cache, where [`file_sha256`](@ref) keeps a large fil
 `VGTK_DIGEST_CACHE` in `env` (an absolute path; `off`, `0`, `false` or `no` for none: every process hashes every
 input in full), else `\$XDG_CACHE_HOME/vgtk/input-digests`, else `~/.cache/vgtk/input-digests`. A site sets it in its
 profile's `[env]` (`VGTK_DIGEST_CACHE = "…"`), which the runner's input check and every stage get. The cache is per
-user: whoever can write it can make a changed input pass, so it is created private (0700), an entry another user owns
-is ignored, and it is never inside a data tree (data may be read-only). A home on network storage serves every node.
+user: whoever can write it can make a changed input match its pin, so it is created private (0700), an entry another
+user owns is ignored, and it is never inside a data tree (data may be read-only). A home on network storage serves
+every node.
 """
 function digest_cache_dir(env = ENV)
     v = strip(get(env, "VGTK_DIGEST_CACHE", ""))

@@ -326,8 +326,8 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   a run of record that wants the full verification. A site sets the
   directory in its profile's `[env]`, which the launch's check and every
   stage use (an absolute path). The cache is per user: whoever can write it
-  can make a changed input pass, so it is created private (0700), an entry
-  another user owns is ignored, and it is never shared.
+  can make a changed input match its pin, so it is created private (0700),
+  an entry another user owns is ignored, and it is never shared.
 - **Producers.** A step that produces input data is produced under the
   results root and promoted, `promote_run(product_dir(product), tier)`, to
   `<tier root>/<tier>/<name>`, so its consumers' `[inputs.<id>] path =

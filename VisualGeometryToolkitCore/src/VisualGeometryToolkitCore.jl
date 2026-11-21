@@ -26,8 +26,7 @@ BlobBoards build on it.
 - The robust-loss family (`AbstractLossShape`, `deploy`), the block-coordinate-descent/LO interface
   shared with VisualGeometryToolkitEstimation, and `FitResult`, the one fit return type.
 - Numerics: the B-spline kernels, the thin-plate spline (`ThinPlateSplineSystem`,
-  `tps_coefficients`, `tps_evaluate`, `tps_gradient`) and the spherical spline
-  (`SphericalSplineSystem`), public, not exported.
+  `tps_coefficients`, `tps_evaluate`, `tps_gradient`), public, not exported.
 - Units: FlexUnits as shipped, plus the registered `px`, `pd`, `dpi` and `pt` (`mm`, `px`, `dpi`, `Size2`).
 - The sensor image: `RawMosaic` (a decoded Bayer RAW, an `AbstractMatrix` of its photosites that knows
   its colour phase and frame), its channel-first photosite view (a method of ImageCore's `channelview`), and `LinearRaw`, its exact
@@ -231,7 +230,6 @@ public evaluate_bspline_4d, bspline_4d_partial, contract_basis_4d_weighted
 # host-side solver object and the isbits, allocation-free evaluator and gradient.
 public ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients, tps_pure_bending
 public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
-public SphericalSplineSystem, spherical_spline_kernel, spherical_spline_coefficients, spherical_spline_evaluate   # the spherical spline (Wahba)
 
 # Coordinate conversions
 export to_homogeneous, to_affine, to_euclidean, affine_part
@@ -913,7 +911,7 @@ public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_field
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
 public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
-public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, dilog, lu_solve!, tree_sum!,
+public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, lu_solve!, tree_sum!,
     bilinear_sample_clamped, bilinear_sample, bilinear_weights, is_inside_texel_centres
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages

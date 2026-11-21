@@ -207,11 +207,11 @@ end
     end
 end
 
-@testitem "bending_rows of a thin-plate and a spherical spline system: the second operator kind, its null space without rows" begin
-    using LinearAlgebra: norm, normalize, rank
+@testitem "bending_rows of a thin-plate spline system: the second operator kind, its null space without rows" begin
+    using LinearAlgebra: norm, rank
     using Random: Xoshiro, randn
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: ThinPlateSplineSystem, SphericalSplineSystem, grid_nodes, bending_rows, bending_factor,
+    using VisualGeometryToolkitCore: ThinPlateSplineSystem, grid_nodes, bending_rows, bending_factor,
         bending_energy, mean_positive_eigenvalue
     rng = Xoshiro(21)
     tps = ThinPlateSplineSystem(grid_nodes(5))
@@ -224,11 +224,4 @@ end
     @test L' * L ≈ bending_factor(tps)' * bending_factor(tps) rtol = 1.0e-9
     # m̄ reads the rows as any operator (RadiometricCamera's focus charts divide by it)
     @test mean_positive_eigenvalue(L) ≈ sum(abs2, bending_factor(tps)) / (K - 3) rtol = 1.0e-9
-    # the spherical system: its constant values (1) have no row
-    dirs = [normalize(SVector(randn(rng), randn(rng), 2 + abs(randn(rng)))) for _ in 1:20]
-    sys = SphericalSplineSystem(dirs)
-    Ls = bending_rows(sys)
-    @test size(Ls) == (19, 20)
-    w = randn(rng, 20)
-    @test sum(abs2, Ls * w) ≈ bending_energy(sys, w) rtol = 1.0e-9
 end

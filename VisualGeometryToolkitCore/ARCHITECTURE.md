@@ -155,11 +155,11 @@ of an estimate: a minimal solve, or the whitened least squares on n ≥ minimal
 include("geometry/transforms/warp.jl")           # image_warp adapter + KernelAbstractions warp kernels
 include("geometry/transforms/pointwise.jl")      # pointwise!: one broadcast driver, every backend
 include("numerics/bspline.jl")                   # the scalar Cox–de Boor basis, B-spline surfaces (grid camera models)
-include("numerics/special.jl")                   # device-safe lgamma/digamma/trigamma, normal CDF, dilogarithm
+include("numerics/special.jl")                   # device-safe lgamma/digamma/trigamma, normal CDF
 include("numerics/quadrature.jl")                # Gauss–Hermite (probabilists') and Hammersley points
 include("numerics/small_lu.jl")                  # in-register partial-pivot LU for fixed-size systems
 include("numerics/ka_reduce.jl")                 # KernelAbstractions workgroup tree reduction
-include("numerics/thin_plate_spline.jl")         # thin-plate and spherical splines: host-side solvers, isbits evaluators
+include("numerics/thin_plate_spline.jl")         # the thin-plate spline: host-side solver, isbits evaluators
 include("base/raster.jl")                        # array plotting without Makie (masks, debug frames)
 include("geometry/primitives/bbox.jl")           # shape → SpatialIndexing.Rect (needs frames + dilate)
 include("geometry/spatial_queries.jl")           # SpatialQueries submodule: allocation-free R-tree queries

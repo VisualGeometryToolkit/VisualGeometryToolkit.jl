@@ -138,13 +138,6 @@ f = tps_evaluate(tps.nodes, w, a, SVector(0.1, -0.2))
 ∇f = tps_gradient(tps.nodes, w, a, SVector(0.1, -0.2))
 ```
 
-Its analogue on the unit sphere, [`SphericalSplineSystem`](@ref) (Wahba's
-`m = 2` kernel [`spherical_spline_kernel`](@ref), a constant in place of the
-affine part; also hoisted from RadiometricCamera), has the same shape:
-[`spherical_spline_coefficients`](@ref), the isbits evaluator
-[`spherical_spline_evaluate`](@ref), and the shared `nodal_weights`,
-`bending_energy` and `bending_factor`.
-
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
 Private = false
@@ -156,8 +149,8 @@ Pages = ["numerics/thin_plate_spline.jl"]
 Device-safe scalar functions — pure arithmetic, generic over `Real`, so they
 compile in a KernelAbstractions kernel at any float width and ForwardDiff
 `Dual`s flow through: log Γ and the digamma/trigamma series of the Student-t
-adaptation kernels, the normal CDF [`normcdf_as`](@ref) (Abramowitz & Stegun
-7.1.26) and the dilogarithm [`dilog`](@ref).
+adaptation kernels and the normal CDF [`normcdf_as`](@ref) (Abramowitz & Stegun
+7.1.26).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

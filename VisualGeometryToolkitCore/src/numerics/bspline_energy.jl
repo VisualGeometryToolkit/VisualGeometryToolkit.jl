@@ -57,16 +57,15 @@ bending_gram(Bx, By) =
 """
     bending_rows(G) -> Matrix{Float64}
     bending_rows(tps::ThinPlateSplineSystem) -> Matrix{Float64}
-    bending_rows(sys::SphericalSplineSystem) -> Matrix{Float64}
 
 The bending energy's rows, the stack's second penalty operator kind beside
 [`difference_rows`](@ref): a factor `L` of a positive semidefinite bending form —
-a B-spline lattice's Gram matrix ([`bending_gram`](@ref)), or a thin-plate or
-spherical spline system's `Q` ([`bending_energy`](@ref)) — with `‖L c‖² = cᵀ G c`
+a B-spline lattice's Gram matrix ([`bending_gram`](@ref)), or a thin-plate
+spline system's `Q` ([`bending_energy`](@ref)) — with `‖L c‖² = cᵀ G c`
 to rounding, so `√λ · L (c − c₀)` are a regularizer's residual rows (the chart LM's
 row protocol) and `L` a penalty operator for [`mean_positive_eigenvalue`](@ref) and
 [`cgls`](@ref). `L = Λ₊^½ Vᵀ` from `G = V Λ Vᵀ`, one row per positive eigenvalue (the
-null space — a system's affine or constant values — and its rounding residue have
+null space — a system's affine values — and its rounding residue have
 no row; [`bending_factor`](@ref) is the same factor with a row for every node, the
 fixed shape a target calibration kind stores); only `LᵀL` is defined.
 """

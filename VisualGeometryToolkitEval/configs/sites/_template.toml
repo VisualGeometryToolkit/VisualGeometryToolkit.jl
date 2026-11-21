@@ -1,10 +1,11 @@
 # A site profile: one machine a paper project's reproduction runs on (VisualGeometryToolkitEval Reproduce,
 # `reproduce_main --site=<name | path>`). Copy this file to `<your machine>.toml`, keep the keys that apply and delete
 # the rest; name it by path (`--site=path/to/mine.toml`) or put it in a project's own sites directory (the stage
-# graph's `[project] sites_dir`). Every key below is optional except [site] backend. A site holds no project's paths:
-# where a project's data and results live on this machine goes in that project's stage graph, `[sites.<name>]`
-# data_root and results_root (or in the environment: VGTK_DATA_ROOT, VGTK_RESULTS_ROOT, or --data-root,
-# --results-root).
+# graph's `[project] sites_dir`). Every key below is optional except [site] backend. The site profiles are the ONLY
+# place a machine path is written (a project's configs, code, tests and docs name none; paper_project_violations
+# checks it): where every project's data and results live on this machine and the artifact store go in [storage]
+# below. The environment still wins over them for one run (VGTK_DATA_ROOT, VGTK_RESULTS_ROOT, VGTK_ARTIFACT_STORE,
+# or --data-root, --results-root). A process names its site by VGTK_SITE (the runner sets it for every job).
 
 [site]
 name = "mymachine"          # default: the file's name without .toml; a project's [sites.<name>] roots are found by it
@@ -37,6 +38,14 @@ cuda_visible_devices = "0"  # CUDA_VISIBLE_DEVICES of a GPU stage (CPU stages ge
                             # "0" or "0,1"; one device runs the items one after another
 cpus_per_task = 0           # SLURM_CPUS_PER_TASK the launchers read (their thread count); 0: the launcher's default,
                             # which keeps the run keys of a Slurm site's launch
+
+[storage]                   # the machine's storage: absolute paths, on storage that outlives a job
+data_root = "/data/{project}"           # a project's input tree (data_root()): `{project}` is its name (the stage
+                                        # graph's [project] name, else the project directory's name)
+results_root = "/results/{project}"     # a project's results tree (results_root())
+artifact_store = "/data/artifacts"      # the artifact store (VisualGeometryToolkitCore.artifact_store): the trees of
+                                        # every DataArtifacts tier and model's weights, content-addressed, shared by
+                                        # every project and package; never the Julia depot of a cluster
 
 [env]                       # variables every stage gets, e.g.
 # JULIA = "/opt/julia-1.12/bin/julia"     # the julia binary (default: julia on PATH)

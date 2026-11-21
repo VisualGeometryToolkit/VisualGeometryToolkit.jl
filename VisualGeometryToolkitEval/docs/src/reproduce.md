@@ -544,21 +544,28 @@ instantiates the environment inside the scheduler.
 
 The shipped sites are `configs/sites/dgx01.toml` (a Slurm node: 8 × B200,
 partition `gpu`, 2 CPUs per task unless a stage declares its own
-`cpus_per_task`, 8480M per CPU, one GPU per GPU task) and `configs/sites/desktop.toml`
-(one RTX 4090, no scheduler, device 0). For another machine:
+`cpus_per_task`, 8480M per CPU, one GPU per GPU task), `configs/sites/desktop.toml`
+(one RTX 4090, no scheduler, device 0) and `configs/sites/vcai.toml` (the
+vcai-eaic-mds Slurm cluster: every job sources the project space's job
+environment; its `[storage]` puts every project's data and results and the
+artifact store in the NFS project space). For another machine:
 
 1. Copy `configs/sites/_template.toml`, where every key is explained: `[site]`
    `backend` (`slurm` or `local`) and a `setup` shell snippet (module loads,
    an activated environment); `[slurm]` `partition`, `gres` (a GPU stage's),
    `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options,
    `job_name_prefix`; `[local]`
-   `cuda_visible_devices`, `cpus_per_task`; `[env]` variables every stage gets
-   (`JULIA`, `JULIA_DEPOT_PATH`, …).
+   `cuda_visible_devices`, `cpus_per_task`; `[storage]` `data_root`,
+   `results_root` (`{project}` the project's name) and `artifact_store`; `[env]`
+   variables every stage gets (`JULIA`, `JULIA_DEPOT_PATH`, …).
 2. Keep it with the project (the graph's `[project] sites_dir`) or anywhere,
    and give `--site=<name>` or `--site=path/to/mine.toml`.
-3. Say where the project's data and results live on it: the graph's
-   `[sites.<name>] data_root` / `results_root`, or `VGTK_DATA_ROOT` /
-   `VGTK_RESULTS_ROOT`, or `--data-root` / `--results-root`.
+3. Say where the projects' data and results live on it: the profile's
+   `[storage]` (the one place for a machine's paths; a project's own graph
+   `[sites.<name>] data_root` / `results_root` is still read before it, until
+   the projects carry no machine paths), or `VGTK_DATA_ROOT` /
+   `VGTK_RESULTS_ROOT`, or `--data-root` / `--results-root`. The jobs get
+   `VGTK_ARTIFACT_STORE` from the profile's `artifact_store`.
 4. Check it with `--dry-run`: the commands, the roots and the missing inputs,
    with nothing run.
 

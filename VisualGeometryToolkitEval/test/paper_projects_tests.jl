@@ -7,6 +7,10 @@
     using VisualGeometryToolkitEval.PaperProjects
     using VisualGeometryToolkitEval.PaperProjects: _populate!
     using VisualGeometryToolkitEval.Experiments: DataPolicyAllow
+    import VisualGeometryToolkitCore as VgtkCore
+    # the item's artifact store: a throwaway one (never the depot, which a cluster job refuses)
+    store_saved = get(ENV, "VGTK_ARTIFACT_STORE", nothing)
+    ENV["VGTK_ARTIFACT_STORE"] = mktempdir()
 
     # The template's files plus the assets its example stage would write. Not
     # a git repository: L3 reads the project's .gitignore.
@@ -52,6 +56,18 @@
         @test rules(v) == ["L3"] && length(v) == 2
         root = good(); edit(s -> replace(s, "paper_project_violations(projectdir()" => "isempty(("), root, "test/runtests.jl")
         @test "L4" in rules(check(root))
+        # L5: the new-machine step is there and is DataArtifacts' fetch_data!
+        root = good(); rm(joinpath(root, "scripts", "fetch_data.jl"))
+        @test rules(check(root)) == ["L5"]
+        root = good(); edit(s -> replace(s, "fetch_data!(project_catalog())" => "nothing"), root, "scripts/fetch_data.jl")
+        @test rules(check(root)) == ["L5"]
+        # L6: nothing tracked under data/ but its README
+        root = good()
+        add(root, "data/exp_raw/frames/a.png", "png")
+        git(args...) = run(pipeline(`git -C $root -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+        git("init", "-q"); git("add", "."); git("add", "-f", "data/exp_raw/frames/a.png"); git("commit", "-q", "-m", "x")
+        v = filter(x -> x.rule == "L6", check(root))
+        @test [x.file for x in v] == [joinpath("data", "exp_raw", "frames", "a.png")]
     end
 
     @testset "data policy" begin
@@ -64,6 +80,20 @@
         v2 = check(root; allow = [DataPolicyAllow("D1", "src/paths.jl", "/mnt/data"),
                                   DataPolicyAllow("D3", "src/paths.jl", "nothing")])
         @test sort(rules(v2)) == ["D4", "STALE"]
+        # D1 beyond the code: tests, examples, configs, docs, provenance (comments and text included)
+        root = good()
+        add(root, "configs/site.toml", "# the data live in /cluster/projects/x/data\nroot = \"rel\"\n")
+        add(root, "test/paths.jl", "dir = \"/raid/me/data\"\n")
+        add(root, "docs/notes.md", "Run it on /home/someone/data.\n")
+        add(root, "examples/demo.jl", "x = 1   # https://example.org/home/page is a URL, not a path\n")
+        v = check(root)
+        @test rules(v) == ["D1"] && sort([x.file for x in v]) == ["configs/site.toml", "docs/notes.md", "test/paths.jl"]
+        # D5: an artifact or download API of the project's own
+        root = good()
+        add(root, "src/fetch.jl", "using Downloads\nf = Downloads.download(url)\nt = install_artifact(\"a\", toml)\n")
+        add(root, "scripts/get.jl", "using Pkg.Artifacts: ensure_artifact_installed\n")
+        v = check(root)
+        @test rules(v) == ["D5"] && length(v) == 3
     end
 
     @testset "asset index" begin
@@ -102,7 +132,7 @@
                              ("scenes = [\"brandenburg\", \"buckingham\", \"colosseum\"]", "names"),
                              ("ws = [0.1, 0.2, 0.5, 1.0]", "table"), ("frames = 1:200", "range"),
                              ("for t in 0.1:0.1:2.0", "range"), ("pool = joinpath(data_root(), \"pools/heb.jld2\")", "path"),
-                             ("x = \"/srv/data/raw\"", "path"))
+                             ("x = \"/data/raw\"", "path"))
             root = good()
             add(root, "scripts/const.jl", stage("cfg = TOML.parsefile(projectdir(\"configs\", \"example.toml\"))\n$line"))
             v = check(root)
@@ -192,6 +222,76 @@
         @test rules(check(root)) == ["A1"]
     end
 
+    @testset "storage: inputs catalogued, one name one tree, the view's links into the store" begin
+        catalogued(root) = edit(s -> s * """
+            [artifacts.pools]
+            kind = "tree"
+            dir = "pools"
+            mount = "data"
+            record = "data"
+            required = true
+            what = "the pools"
+            provenance = "scripts/example_stage.jl"
+            """, root, "configs/data_artifacts.toml")
+        bind(root, h) = write(joinpath(root, "Artifacts.toml"), """
+            [pools]
+            git-tree-sha1 = "$h"
+            lazy = true
+            [[pools.download]]
+            sha256 = "$(repeat("b", 64))"
+            url = "https://zenodo.org/records/ZENODO_RECORD_DATA/files/pools.tar.gz?download=1"
+            """)
+        # A2: a config input names a catalogued tier
+        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        add(root, "configs/run.toml", "[inputs.p]\ntier = \"pools\"\npath = \"heb.jld2\"\n")
+        @test isempty(check(root))
+        add(root, "configs/run.toml", "[inputs.p]\ntier = \"other\"\npath = \"x\"\n[inputs.q]\npath = \"y\"\n")
+        v = check(root)
+        @test rules(v) == ["A2"] && length(v) == 2 && all(x -> x.file == "configs/run.toml", v)
+        # A3: the same name, another tree, in another project's bindings or in the store's name record
+        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        other = mktempdir(); bind(other, repeat("c", 40))
+        v = check(root; stack_artifacts = [joinpath(other, "Artifacts.toml")])
+        @test rules(v) == ["A3"] && occursin(repeat("c", 40), only(v).message)
+        bind(other, repeat("a", 40))
+        @test isempty(check(root; stack_artifacts = [joinpath(other, "Artifacts.toml")]))
+        store = ENV["VGTK_ARTIFACT_STORE"]
+        foreach(h -> (mkpath(joinpath(store, "names", "pools")); touch(joinpath(store, "names", "pools", h))), (repeat("a", 40), repeat("d", 40)))
+        @test rules(check(root)) == ["A3"]
+        rm(joinpath(store, "names"); recursive = true)
+        # A4: the artifact view's links resolve into the store
+        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        view = joinpath(root, "data", "exp_raw")
+        write(joinpath(view, ".artifact_view"), "view\n")
+        tree = joinpath(store, repeat("a", 40)); mkpath(tree); write(joinpath(tree, "heb.jld2"), "x")
+        symlink(joinpath(tree, "heb.jld2"), joinpath(view, "heb.jld2"))
+        @test isempty(check(root))
+        depot = mktempdir(); write(joinpath(depot, "old.jld2"), "y")
+        symlink(joinpath(depot, "old.jld2"), joinpath(view, "old.jld2"))
+        v = check(root)
+        @test rules(v) == ["A4"] && only(v).file == joinpath("data", "exp_raw", "old.jld2")
+        # … and the cluster without a store is reported, not thrown
+        withenv("VGTK_ARTIFACT_STORE" => nothing, "VGTK_SITE" => nothing, "NODE_CACHE" => mktempdir()) do
+            @test any(x -> x.rule == "A4" && occursin("refused", x.message), check(root))
+        end
+    end
+
+    @testset "release (opt-in): public hosts only" begin
+        root = good()
+        @test rules(check(root; checks = (:release,))) == ["R1"]      # the template's stub record is not published yet
+        edit(s -> replace(s, r"\[records\.[^\n]*\]" => m -> m * "\nhost = \"huggingface\"\nrepo = \"lab/data\"") , root, "configs/data_artifacts.toml")
+        write(joinpath(root, "Artifacts.toml"), """
+            [pools]
+            git-tree-sha1 = "$(repeat("a", 40))"
+            lazy = true
+            [[pools.download]]
+            sha256 = "$(repeat("b", 64))"
+            url = "file:///tmp/pools.tar.gz"
+            """)
+        v = check(root; checks = (:release,))
+        @test rules(v) == ["R1", "R2", "R3"]
+    end
+
     @testset "selection and display" begin
         root = good(); rm(joinpath(root, "README.md"))
         add(root, "src/paths.jl", "const RAW = \"/mnt/data/x\"\n")
@@ -200,6 +300,7 @@
         v = only(check(root; checks = (:data_policy,)))
         @test sprint(show, v) == "src/paths.jl:1: [data_policy/D1] const RAW = \"/mnt/data/x\""
     end
+    store_saved === nothing ? delete!(ENV, "VGTK_ARTIFACT_STORE") : (ENV["VGTK_ARTIFACT_STORE"] = store_saved)
 end
 
 @testitem "paper_projects: paper_figures_dir" begin

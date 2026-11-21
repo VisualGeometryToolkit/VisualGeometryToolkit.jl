@@ -6,10 +6,12 @@
 @testitem "data_artifacts" begin
     import VisualGeometryToolkitEval as VgtkEval
     using Test, TOML
-    using Artifacts: with_artifacts_directory
     using VisualGeometryToolkitEval
     const E = VgtkEval.Experiments
     const D = VgtkEval.DataArtifacts
+    # every install of the item into a throwaway artifact store (never the depot, which a cluster job refuses)
+    store_saved = get(ENV, "VGTK_ARTIFACT_STORE", nothing)
+    ENV["VGTK_ARTIFACT_STORE"] = mktempdir()
 
     @testset "split_scenes" begin
         @test length(D.split_scenes("heb:validation")) == 5 && length(D.split_scenes("heb:test")) == 5
@@ -244,7 +246,7 @@
                 cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
                 withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing,
                         "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
-                    with_artifacts_directory(mktempdir()) do      # never the depot
+                    withenv("VGTK_ARTIFACT_STORE" => mktempdir()) do      # a fresh store, never the depot
                         E.set_project_root!(fresh)
                         fcat = D.load_catalog(joinpath(fresh, "configs", "data_artifacts.toml"))
                         r = D.fetch_artifacts!(fcat)
@@ -277,7 +279,7 @@
                 end
                 # an unpublished record is refused with the way out
                 withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => nothing) do
-                    with_artifacts_directory(mktempdir()) do
+                    withenv("VGTK_ARTIFACT_STORE" => mktempdir()) do
                         E.set_project_root!(mktempdir())
                         err = try D.fetch_artifacts!(cat, ["t_extra"]); nothing catch e; e end
                         @test err isa ErrorException && occursin("not published", err.msg)
@@ -361,7 +363,7 @@
             cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
             cp(joinpath(proj, "configs", "heb_pools.toml"), joinpath(fresh, "configs", "heb_pools.toml"))
             withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
-                with_artifacts_directory(mktempdir()) do
+                withenv("VGTK_ARTIFACT_STORE" => mktempdir()) do
                     E.set_project_root!(fresh)
                     fcat = D.load_catalog(joinpath(fresh, "configs", "data_artifacts.toml"))
                     r = D.fetch_artifacts!(fcat)
@@ -449,7 +451,7 @@
             cp(catalog, joinpath(fresh, "configs", "data_artifacts.toml"))
             cp(joinpath(proj, "configs", "heb_pools.toml"), joinpath(fresh, "configs", "heb_pools.toml"))
             withenv("VGTK_DATA_ROOT" => nothing, "VGE_TEST_ARTIFACTS_TOML" => joinpath(stage, "local.toml")) do
-                with_artifacts_directory(mktempdir()) do
+                withenv("VGTK_ARTIFACT_STORE" => mktempdir()) do
                     E.set_project_root!(fresh)
                     fcat = D.load_catalog(joinpath(fresh, "configs", "data_artifacts.toml"))
                     @test D.artifact_parts(fcat, "t_pools") == parts          # a consumer: from the bindings
@@ -466,6 +468,7 @@
             E.set_project_root!("")
         end
     end
+    store_saved === nothing ? delete!(ENV, "VGTK_ARTIFACT_STORE") : (ENV["VGTK_ARTIFACT_STORE"] = store_saved)
 end
 
 @testitem "data_artifacts: project_catalog" begin

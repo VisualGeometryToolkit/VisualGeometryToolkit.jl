@@ -13,9 +13,14 @@
 #                 L3 git does not ignore data/exp_raw and data/exp_pro (the
 #                    per-machine bindings of the input and results trees)
 #                 L4 test/runtests.jl does not call paper_project_violations
-#   :data_policy  D1–D4 and STALE (Experiments `data_policy_violations`):
-#                 machine paths, writes into the input tree, unkeyed output
-#                 directories, `artifact"…"` in code
+#                 L5 scripts/fetch_data.jl is missing or does not call fetch_data!
+#                    (DataArtifacts: the one way the inputs reach a machine)
+#                 L6 git tracks data under data/ (anything but data/README.md)
+#   :data_policy  D1–D5 and STALE (Experiments `data_policy_violations`):
+#                 machine paths (code, tests, examples, configs, docs,
+#                 provenance), writes into the input tree, unkeyed output
+#                 directories, `artifact"…"` in code, an artifact or download
+#                 API outside DataArtifacts
 #   :reproduce    the REPRODUCE.md asset index against what the paper reads
 #                 (Reproduce `reproduce_index_violations`; rule = its kind)
 #   :configs      C1 a producing script reads no config of record
@@ -30,6 +35,17 @@
 #   :catalog      A1 the DataArtifacts catalog disagrees with Artifacts.toml
 #                    (DataArtifacts `catalog_violations`), checked once either
 #                    file binds an artifact
+#   :storage      A2 a config's input (`[inputs.<id>]`) names no tier the
+#                    catalog lists: every input is catalogued
+#                 A3 an artifact name bound to another tree elsewhere in the
+#                    stack (another project's Artifacts.toml, `stack_artifacts`,
+#                    or the artifact store's name record): one name, one tree
+#                 A4 a link of the artifact view (data/exp_raw) resolves outside
+#                    the artifact store (a tree in the depot, a moved store)
+#   :release      (opt-in, before a release) R1 a record not yet published (no
+#                    Zenodo id, no Hugging Face revision), R2 a Hugging Face
+#                    record not stated `public = true`, R3 a binding whose URL
+#                    is a placeholder or a local file
 #   :contract     (opt-in) the codification contract of every stage file
 #                 (Experiments `contract_violations`; rule = its code)
 #
@@ -51,7 +67,7 @@
 
 One breach of the paper-project conventions: the `check` it belongs to
 (`:layout`, `:data_policy`, `:reproduce`, `:configs`, `:provenance`,
-`:catalog`, `:contract`, `:allow`), the `rule` (`"L1"`, `"D2"`,
+`:catalog`, `:storage`, `:release`, `:contract`, `:allow`), the `rule` (`"L1"`, `"D2"`,
 `"missing_asset"`, `"C2"`, …; see [`paper_project_violations`](@ref)), the
 project-relative `file` and `line` (0 when not line-specific) and a
 human-readable `message`.
@@ -67,8 +83,8 @@ end
 Base.show(io::IO, v::PaperProjectViolation) =
     print(io, v.file, v.line > 0 ? ":$(v.line)" : "", ": [", v.check, "/", v.rule, "] ", v.message)
 
-"The checks [`paper_project_violations`](@ref) runs by default (`:contract` is opt-in)."
-const PAPER_PROJECT_CHECKS = (:layout, :data_policy, :reproduce, :configs, :provenance, :catalog)
+"The checks [`paper_project_violations`](@ref) runs by default (`:contract` and `:release` are opt-in)."
+const PAPER_PROJECT_CHECKS = (:layout, :data_policy, :reproduce, :configs, :provenance, :catalog, :storage)
 
 # ---- source scanning ---------------------------------------------------------------
 
@@ -247,7 +263,7 @@ _names_config(code, names) = any(m -> something(m.captures[1]) in names, eachmat
                              checks = PAPER_PROJECT_CHECKS, scripts = "scripts",
                              configs = "configs", catalog = "configs/data_artifacts.toml",
                              catalog_kinds = String[], data_policy = (;), reproduce = (;),
-                             allow = DataPolicyAllow[]) -> Vector{PaperProjectViolation}
+                             stack_artifacts = String[], allow = DataPolicyAllow[]) -> Vector{PaperProjectViolation}
 
 Every breach of the paper-project conventions in project `dir`, empty when
 compliant — the one call a paper project's suite asserts empty. `papers` (the
@@ -259,10 +275,14 @@ The checks (`checks` selects; [`PAPER_PROJECT_CHECKS`](@ref) by default,
 
 - `:layout` — `L1` a required path is missing; `L2` Project.toml lacks
   DrWatson or VisualGeometryToolkitEval; `L3` git does not ignore `data/exp_raw` and
-  `data/exp_pro`; `L4` test/runtests.jl does not call this check.
-- `:data_policy` — Experiments `data_policy_violations` (`D1` machine paths,
-  `D2` writes into the input tree, `D3` unkeyed outputs, `D4` `artifact"…"`
-  in code); `data_policy` forwards its keywords (`dirs`, `exts`).
+  `data/exp_pro`; `L4` test/runtests.jl does not call this check; `L5`
+  `scripts/fetch_data.jl` is missing or does not call DataArtifacts'
+  `fetch_data!`; `L6` git tracks data under `data/` (anything but `data/README.md`).
+- `:data_policy` — Experiments `data_policy_violations` (`D1` machine paths in
+  code, tests, examples, configs, docs and provenance, `D2` writes into the
+  input tree, `D3` unkeyed outputs, `D4` `artifact"…"` in code, `D5` an
+  artifact or download API outside DataArtifacts); `data_policy` forwards its
+  keywords (`dirs`, `exts`, `machine_dirs`, `machine_exts`).
 - `:reproduce` — Reproduce `reproduce_index_violations` (rule = its kind);
   `reproduce` forwards its keywords (`search_dirs` for a paper built outside
   its own directory, `check_literals`, `ignore_macros`, …).
@@ -274,6 +294,17 @@ The checks (`checks` selects; [`PAPER_PROJECT_CHECKS`](@ref) by default,
   output by a run key; `S1` a generator of the index has no stage runner.
 - `:catalog` — `A1` DataArtifacts `catalog_violations`, once the catalog or
   Artifacts.toml binds an artifact (`catalog_kinds` are the project's own kinds).
+- `:storage` — `A2` a config's `[inputs.<id>]` names no `tier` the catalog
+  lists (every input is catalogued); `A3` a name of the project's
+  Artifacts.toml bound to another tree in one of `stack_artifacts` (other
+  projects' Artifacts.toml files) or in the artifact store's name record
+  (VisualGeometryToolkitCore's `store_name_clashes`): one name, one tree
+  stack-wide; `A4` a link of the artifact view `data/exp_raw` that resolves
+  outside the artifact store (VisualGeometryToolkitCore's `artifact_store`).
+- `:release` (opt-in: before a release) — `R1` a catalog record not yet
+  published (a Zenodo record without `id`, a Hugging Face record without
+  `revision`), `R2` a Hugging Face record that does not state `public = true`,
+  `R3` an Artifacts.toml binding whose URL is a placeholder or a local file.
 - `:contract` — Experiments `contract_violations` of every stage file.
 
 A producing script is a `.jl` under `scripts/` that runs stages, declares an
@@ -292,6 +323,7 @@ function paper_project_violations(dir::AbstractString;
         scripts::AbstractString = "scripts", configs::AbstractString = "configs",
         catalog::AbstractString = _PROJECT_CATALOG,
         catalog_kinds = String[], data_policy = (;), reproduce = (;),
+        stack_artifacts::AbstractVector{<:AbstractString} = String[],
         allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     root = String(abspath(dir))
     out = PaperProjectViolation[]
@@ -320,6 +352,8 @@ function paper_project_violations(dir::AbstractString;
         _scripts!(add!, root, scripts, configs, generators, checks)
 
     :catalog in checks && _catalog!(add!, root, catalog, catalog_kinds)
+    :storage in checks && _storage!(add!, root, configs, catalog, stack_artifacts)
+    :release in checks && _release!(add!, root, catalog)
 
     return _apply_allow(out, own_allow)
 end
@@ -366,7 +400,27 @@ function _layout!(add!, root::String, scripts::AbstractString, configs::Abstract
         any(f -> occursin("paper_project_violations(", _code(read(f, String))), reached) ||
             add!(:layout, "L4", "test/runtests.jl", 0, "the suite does not call paper_project_violations")
     end
+    fd = joinpath(scripts, "fetch_data.jl")
+    if !isfile(joinpath(root, fd))
+        add!(:layout, "L5", fd, 0, "missing — the new-machine step that installs the published inputs (DataArtifacts fetch_data!)")
+    elseif !occursin("fetch_data!(", _code(read(joinpath(root, fd), String)))
+        add!(:layout, "L5", fd, 0, "does not call DataArtifacts' fetch_data! (the one way the inputs reach a machine)")
+    end
+    for f in _git_tracked(root, "data")
+        f == joinpath("data", "README.md") && continue
+        add!(:layout, "L6", f, 0, "tracked data under data/: inputs are published DataArtifacts tiers (in the artifact store), results are never tracked")
+    end
     return nothing
+end
+
+# The files git tracks under `rel` (relative to `root`); none outside a git work tree.
+function _git_tracked(root::String, rel::String)
+    out = try
+        read(pipeline(`git -C $root ls-files -z -- $rel`; stderr = devnull), String)
+    catch
+        ""
+    end
+    return sort!(filter(!isempty, split(out, '\0')))
 end
 
 # Whether git ignores `rel` (a path under `root`, existing or not). Outside a
@@ -450,6 +504,105 @@ function _scripts!(add!, root::String, scripts::AbstractString, configs::Abstrac
             for v in contract_violations(path)
                 add!(:contract, first(split(v, ':')), rel, 0, v)
             end
+        end
+    end
+    return nothing
+end
+
+# ---- :storage / :release ---------------------------------------------------------------
+
+# The catalog's entry names and their parts (every name a config's tier may name), or `nothing` without a catalog.
+function _catalogued(root, catalog)
+    path = joinpath(root, catalog)
+    isfile(path) || return nothing
+    cat = load_catalog(path)
+    names = Set{String}(keys(cat.artifacts))
+    for n in keys(cat.artifacts)
+        union!(names, try artifact_parts(cat, n) catch; String[] end)
+    end
+    return names
+end
+
+function _storage!(add!, root::String, configs::AbstractString, catalog::AbstractString, stack_artifacts)
+    # A2: every config input is catalogued
+    names = something(_catalogued(root, catalog), Set{String}())
+    cdir = joinpath(root, configs)
+    for f in (isdir(cdir) ? sort(readdir(cdir)) : String[])
+        endswith(f, ".toml") || continue
+        rel = joinpath(configs, f)
+        rel == catalog && continue
+        d = try TOML.parsefile(joinpath(cdir, f)) catch; continue end
+        ins = get(d, "inputs", nothing)
+        ins isa AbstractDict || continue
+        for (id, t) in sort(collect(ins); by = first)
+            t isa AbstractDict || continue
+            tier = get(t, "tier", "")
+            isempty(tier) && (add!(:storage, "A2", rel, 0, "[inputs.$id] names no tier: an input is a catalogued tier's file ($catalog)"); continue)
+            tier in names || add!(:storage, "A2", rel, 0, "[inputs.$id] reads tier $(repr(tier)), which $catalog does not list")
+        end
+    end
+    # A3: one name, one tree, stack-wide
+    arts = joinpath(root, "Artifacts.toml")
+    own = isfile(arts) ? TOML.parsefile(arts) : Dict{String, Any}()
+    for other in stack_artifacts
+        isfile(other) || (add!(:storage, "A3", "Artifacts.toml", 0, "stack_artifacts: no file $other"); continue)
+        theirs = TOML.parsefile(other)
+        for (n, b) in sort(collect(own); by = first)
+            haskey(theirs, n) || continue
+            h, g = get(b, "git-tree-sha1", ""), get(theirs[n], "git-tree-sha1", "")
+            h == g || add!(:storage, "A3", "Artifacts.toml", 0, "$n is the tree $h here and $g in $other: one name, one tree")
+        end
+    end
+    view = joinpath(root, "data", "exp_raw")
+    has_view = isdir(view) && is_artifact_view(view)
+    (isempty(own) && !has_view) && return nothing                      # nothing published, nothing installed
+    store = try artifact_store() catch err; err end
+    if store isa Exception
+        add!(:storage, "A4", "data/exp_raw", 0, sprint(showerror, store))
+        return nothing
+    end
+    for (n, hs) in store_name_clashes(store)
+        haskey(own, n) && add!(:storage, "A3", "Artifacts.toml", 0,
+                               "the artifact store ($(store.path)) holds $(length(hs)) trees under the name $n ($(join(hs, ", "))): one name, one tree")
+    end
+    # A4: the artifact view's links resolve into the store
+    if has_view
+        top = rstrip(realpath(store.path), '/') * "/"
+        for (r, _, fs) in walkdir(view), f in sort(fs)
+            p = joinpath(r, f)
+            islink(p) || continue
+            t = ispath(p) ? realpath(p) : readlink(p)
+            startswith(t, top) || add!(:storage, "A4", relpath(p, root), 0,
+                                       "links to $t, outside the artifact store $(store.path) ($(store.source)): rerun scripts/fetch_data.jl " *
+                                       "(VisualGeometryToolkitCore.migrate_artifacts! moves a depot's trees)")
+        end
+    end
+    return nothing
+end
+
+const _PLACEHOLDER_URL = r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/"
+
+function _release!(add!, root::String, catalog::AbstractString)
+    path = joinpath(root, catalog)
+    if isfile(path)
+        cat = load_catalog(path)
+        for (g, r) in sort(collect(cat.records); by = first)
+            host = get(r, "host", "zenodo")
+            if host == "zenodo"
+                haskey(r, "id") || add!(:release, "R1", catalog, 0, "record $g: no Zenodo id (not published)")
+            elseif host == "huggingface"
+                haskey(r, "revision") || add!(:release, "R1", catalog, 0, "record $g: no Hugging Face revision (not uploaded)")
+                get(r, "public", false) === true ||
+                    add!(:release, "R2", catalog, 0, "record $g: a Hugging Face dataset must be public before a release (`public = true` once it is)")
+            end
+        end
+    end
+    arts = joinpath(root, "Artifacts.toml")
+    for (n, b) in sort(collect(isfile(arts) ? TOML.parsefile(arts) : Dict{String, Any}()); by = first)
+        for d in get(b, "download", [])
+            u = get(d, "url", "")
+            (occursin(_PLACEHOLDER_URL, u) || startswith(u, "file:")) &&
+                add!(:release, "R3", "Artifacts.toml", 0, "$n downloads from $(repr(u)): not a public host")
         end
     end
     return nothing

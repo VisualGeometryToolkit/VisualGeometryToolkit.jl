@@ -10,9 +10,14 @@
 # DrWatson's `datadir` puts them — `data/exp_raw` (inputs, read-only) and
 # `data/exp_pro` (results). Per machine those two are bound by
 #
-#   data_root():    ENV VGTK_DATA_ROOT    → <project>/data/exp_raw → the project's
-#                   fallback rung (e.g. a package preference) → its artifact view
-#   results_root(): ENV VGTK_RESULTS_ROOT → <project>/data/exp_pro
+#   data_root():    ENV VGTK_DATA_ROOT    → <project>/data/exp_raw → the site
+#                   profile's data_root (VGTK_SITE) → the project's fallback rung
+#                   (e.g. a package preference) → its artifact view
+#   results_root(): ENV VGTK_RESULTS_ROOT → <project>/data/exp_pro → the site
+#                   profile's results_root (VGTK_SITE)
+#
+# The site profiles (VisualGeometryToolkitEval's configs/sites/, `[storage]`) are
+# the only place a machine's paths are written; a project names none.
 #
 # The artifact view is a DIRECTORY of per-file links into installed Julia
 # artifacts (Pkg.Artifacts, sha256- and tree-hash-pinned), marked by
@@ -97,8 +102,70 @@ project_root() = isempty(_BINDING.root) ? projectdir() : _BINDING.root
 "Whether `dir` is an artifact view (a directory carrying the `.artifact_view` marker)."
 is_artifact_view(dir::AbstractString) = isfile(joinpath(dir, ARTIFACT_VIEW_MARKER))
 
+# ---- the site profile ------------------------------------------------------------
+
+"""
+    active_site() -> Union{Nothing, Site}
+
+The site profile `ENV["VGTK_SITE"]` names (a shipped site's name, a profile
+file's path, or a name in the bound project's own sites directory, the stage
+graph's `[project] sites_dir`), read by the runner's `load_site`; `nothing`
+when `VGTK_SITE` is unset or empty, or names no profile (a site a project's
+stage graph alone knows, `[sites.<site>]`).
+"""
+function active_site()
+    spec = strip(get(ENV, "VGTK_SITE", ""))
+    return isempty(spec) ? nothing : site_profile(spec)
+end
+
+"""
+    site_profile(spec) -> Union{Nothing, Site}
+
+The site profile `spec` names, as [`active_site`](@ref) reads `VGTK_SITE`: the
+runner's `load_site` over the bound project's own sites directory and the
+shipped profiles; `nothing` for a name no profile has (a malformed profile is
+an error). VisualGeometryToolkitCore's `artifact_store` reads its
+`[storage] artifact_store` through it (registered when this package loads).
+"""
+function site_profile(spec::AbstractString)
+    R = parentmodule(@__MODULE__).Reproduce              # included after this module: resolved at the call
+    g = _project_graph()
+    dirs = g === nothing || isempty(g.sites_dir) ? String[] : [g.sites_dir]
+    endswith(spec, ".toml") || isfile(spec) ||
+        any(d -> isfile(joinpath(d, spec * ".toml")), [dirs; R.SITES_DIR]) || return nothing
+    return R.load_site(String(spec); dirs)
+end
+
+# The bound project's stage graph (configs/reproduce.toml), or `nothing`.
+function _project_graph()
+    root = project_root()
+    path = isempty(root) ? "" : joinpath(root, "configs", "reproduce.toml")
+    return isfile(path) ? parentmodule(@__MODULE__).Reproduce.load_stage_graph(path) : nothing
+end
+
+"""
+    project_name() -> String
+
+The bound project's name, the `{project}` of a site profile's roots: its stage
+graph's `[project] name` (`configs/reproduce.toml`), else the name of its
+directory.
+"""
+function project_name()
+    g = _project_graph()
+    return g === nothing ? basename(rstrip(project_root(), '/')) : g.name
+end
+
+# The active site profile's `[storage]` root `key` for the bound project, or `nothing`.
+function _site_storage(key::AbstractString)
+    s = active_site()
+    s === nothing && return nothing
+    v = parentmodule(@__MODULE__).Reproduce.site_root(s, key, project_name())
+    return isempty(v) ? nothing : v
+end
+
 # The rungs that need no download: ENV, the project's data/exp_raw (a link, a
-# directory or an artifact view), the project's fallback. `nothing` when none binds.
+# directory or an artifact view), the site profile's data root, the project's
+# fallback. `nothing` when none binds.
 function _bound_data_root()
     haskey(ENV, "VGTK_DATA_ROOT") && return String(ENV["VGTK_DATA_ROOT"])
     link = joinpath(project_root(), "data", "exp_raw")
@@ -107,6 +174,8 @@ function _bound_data_root()
     else
         (islink(link) || isdir(link)) && return link
     end
+    site = _site_storage("data_root")
+    site === nothing || return site
     fb = _BINDING.data_fallback
     if fb !== nothing
         r = try fb() catch; nothing end
@@ -120,7 +189,8 @@ end
 
 The project's input tree (read-only): `ENV["VGTK_DATA_ROOT"]` → the project's
 `data/exp_raw` (DrWatson `datadir("exp_raw")`; a link, a directory, or the
-artifact view) → the project's fallback rung → its [`ArtifactView`](@ref),
+artifact view) → the site profile's `data_root` ([`active_site`](@ref), its
+`{project}` the [`project_name`](@ref)) → the project's fallback rung → its [`ArtifactView`](@ref),
 installing `tiers` (default: the view's `default`). Configs state input paths
 RELATIVE to it; nothing under it is written except by a declared producer
 ([`assert_not_input`](@ref)).
@@ -155,19 +225,20 @@ end
     results_root() -> String
 
 The project's results tree: `ENV["VGTK_RESULTS_ROOT"]` → the project's
-`data/exp_pro` (DrWatson `datadir("exp_pro")`), created when the project binds
-`create_results = true`, an error otherwise.
+`data/exp_pro` (DrWatson `datadir("exp_pro")`; a link or a directory) → the
+site profile's `results_root` ([`active_site`](@ref)); without any of them
+`data/exp_pro`, created when the project binds `create_results = true`, an error
+otherwise.
 """
 function results_root()
-    root = haskey(ENV, "VGTK_RESULTS_ROOT") ? String(ENV["VGTK_RESULTS_ROOT"]) :
-           joinpath(project_root(), "data", "exp_pro")
-    if _BINDING.create_results
-        mkpath(root)
-    elseif !haskey(ENV, "VGTK_RESULTS_ROOT")
-        islink(root) || isdir(root) || error(
-            "no results root: set VGTK_RESULTS_ROOT or create the data/exp_pro symlink under $(project_root())")
-    end
-    return root
+    haskey(ENV, "VGTK_RESULTS_ROOT") && return String(ENV["VGTK_RESULTS_ROOT"])
+    root = joinpath(project_root(), "data", "exp_pro")
+    (islink(root) || isdir(root)) && return root
+    site = _site_storage("results_root")
+    site === nothing || return site
+    _BINDING.create_results && return mkpath(root)
+    error("no results root: set VGTK_RESULTS_ROOT, VGTK_SITE to a site profile with [storage] results_root, " *
+          "or create the data/exp_pro symlink under $(project_root())")
 end
 
 """

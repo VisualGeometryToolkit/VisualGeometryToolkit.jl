@@ -70,7 +70,7 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
        write_run_records, oracle_floors_path, oracle_floor_source, oracle_floors_note,
        write_oracle_floor, oracle_floor_done,
        # the data/results binding (experiments/data.jl)
-       set_project_root!, project_root, data_root, results_root, is_primary_copy,
+       set_project_root!, project_root, project_name, active_site, site_profile, data_root, results_root, is_primary_copy,
        assert_primary_copy, assert_not_input, ArtifactView, install_artifact, link_tree!,
        artifact_view!, is_artifact_view,
        # the provenance record (experiments/provenance.jl)
@@ -107,6 +107,7 @@ function progress(msg::AbstractString)
 end
 
 public cancelled, progress
+public MACHINE_PATH_DIRS, MACHINE_PATH_EXTS   # where the data policy's D1 looks beyond the code (experiments/data_policy.jl)
 
 # The stage runner — Stage, run_stages, require_input.
 include("experiments/stages.jl")

@@ -34,7 +34,8 @@ conventions: DrWatson's `initialize_project` with
 - `REPRODUCE.md` with the asset-index table, `configs/example.toml`,
   `scripts/example_stage.jl` (stage runner, config of record, run key,
   provenance; it renders a figure, its caption and a macro file under `plots/` and
-  deploys them into the paper), `src/<name>.jl`
+  deploys them into the paper), `scripts/fetch_data.jl` (the published inputs
+  into the artifact store and the artifact view: DataArtifacts `fetch_data!`), `src/<name>.jl`
   (the prelude), `test/runtests.jl` (calls [`paper_project_violations`](@ref));
 - the papers (the first reads the example's assets), `Artifacts.toml` and the
   data catalog stub `configs/data_artifacts.toml`, `data/README.md`.
@@ -111,6 +112,7 @@ function _populate!(path::AbstractString; name::AbstractString,
                        "configs/example.toml.tmpl" => "configs/example.toml",
                        "configs/data_artifacts.toml.tmpl" => "configs/data_artifacts.toml",
                        "scripts/example_stage.jl.tmpl" => "scripts/example_stage.jl",
+                       "scripts/fetch_data.jl.tmpl" => "scripts/fetch_data.jl",
                        "src/NAME.jl.tmpl" => "src/$name.jl",
                        "test/runtests.jl.tmpl" => "test/runtests.jl",
                        "data/README.md.tmpl" => "data/README.md")

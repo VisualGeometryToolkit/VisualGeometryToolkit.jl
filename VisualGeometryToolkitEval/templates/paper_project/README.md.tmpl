@@ -9,6 +9,7 @@ config of record under `configs/`, and whose suite enforces the conventions.
 
 ```
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. scripts/fetch_data.jl               # the published inputs (artifact store → data/exp_raw)
 julia --project=. scripts/example_stage.jl --plan     # the stage plan
 julia --project=. scripts/example_stage.jl            # run what is pending
 julia --project=. test/runtests.jl                    # the conventions + the project's tests

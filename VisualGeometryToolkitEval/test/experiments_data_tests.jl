@@ -10,6 +10,11 @@
     import Pkg, StableRNGs   # a registered install (code_trees of a depot package)
     using VisualGeometryToolkitEval
     const E = VgtkEval.Experiments
+    # every artifact of the item is made and installed in a throwaway artifact store (never the depot, which a
+    # cluster job refuses)
+    store_saved = get(ENV, "VGTK_ARTIFACT_STORE", nothing)
+    ENV["VGTK_ARTIFACT_STORE"] = mktempdir()
+    ca(f) = VgtkCore.with_artifact_store(() -> create_artifact(f))
 
     @testset "root ladder" begin
         dir = mktempdir()
@@ -44,11 +49,48 @@
         end
     end
 
+    @testset "the site profile's storage: a rung of data_root and results_root, the artifact store's site rung" begin
+        dir = mktempdir(); sites = mktempdir()
+        mkpath(joinpath(dir, "configs"))
+        write(joinpath(sites, "lab.toml"), """
+            [site]
+            backend = "local"
+            [storage]
+            data_root = "$(joinpath(sites, "data", "{project}"))"
+            results_root = "$(joinpath(sites, "results", "{project}"))"
+            artifact_store = "$(joinpath(sites, "store"))"
+            """)
+        withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing, "VGTK_ARTIFACT_STORE" => nothing,
+                "VGTK_SITE" => joinpath(sites, "lab.toml")) do
+            E.set_project_root!(dir)
+            @test E.project_name() == basename(dir)                                   # no stage graph: the directory's name
+            @test E.data_root() == joinpath(sites, "data", basename(dir))
+            @test E.results_root() == joinpath(sites, "results", basename(dir))
+            @test E.is_primary_copy()
+            @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(sites, "store"), :site)
+            write(joinpath(dir, "configs", "reproduce.toml"), "[project]\nname = \"paper\"\n[[stage]]\nname = \"s\"\ncommand = [\"true\"]\n")
+            @test E.project_name() == "paper" && E.data_root() == joinpath(sites, "data", "paper")
+            # the project's own binding first: its data/exp_raw and data/exp_pro
+            mkpath(joinpath(dir, "data", "exp_raw")); mkpath(joinpath(dir, "data", "exp_pro"))
+            @test E.data_root() == joinpath(dir, "data", "exp_raw") && E.results_root() == joinpath(dir, "data", "exp_pro")
+            # a shipped site by name (Core reads it through this package's reader)
+            withenv("VGTK_SITE" => "vcai") do
+                @test E.active_site().name == "vcai"
+                @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore("/cluster/projects/vgtk/artifacts", :site)
+            end
+            # a site no profile has (one a project's stage graph alone knows): no storage rung
+            withenv("VGTK_SITE" => "m", "NODE_CACHE" => nothing) do
+                @test E.active_site() === nothing && VgtkCore.artifact_store().source !== :site
+            end
+            E.set_project_root!("")
+        end
+    end
+
     @testset "artifact view" begin
         dir = mktempdir()
         toml = joinpath(dir, "Artifacts.toml")
-        h1 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "a.json"), "{}")))
-        h2 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "b.json"), "[]")))
+        h1 = ca(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "a.json"), "{}")))
+        h2 = ca(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "b.json"), "[]")))
         bind_artifact!(toml, "tier_a", h1; lazy = true,
                        download_info = [("https://zenodo.org/records/1/files/tier_a.tar.gz", "0"^64)])
         bind_artifact!(toml, "tier_b", h2; lazy = true,
@@ -68,11 +110,11 @@
             # being one the project's catalog lists (the runner's gate, `catalog_view_mount`)
             mkpath(joinpath(dir, "configs"))
             write(joinpath(dir, "configs", "data_artifacts.toml"), "[artifacts.tier_e]\nmount_dir = \"sub\"\n[artifacts.tier_f]\nmount_dir = \"sub\"\n")
-            h5 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
+            h5 = ca(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
             bind_artifact!(toml, "tier_e", h5; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
             @test !ispath(joinpath(root, "sub", "run1", "e.json"))
             @test E.data_root(; tier = "tier_e") == joinpath(root, "sub") && isfile(joinpath(root, "sub", "run1", "e.json"))   # where the view mounts it
-            h6 = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "f.json"), "2")))
+            h6 = ca(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "f.json"), "2")))
             bind_artifact!(toml, "tier_f", h6; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_f.tar.gz", "0"^64)])
             cf = Dict{String,Any}("inputs" => Dict{String,Any}("f" => Dict{String,Any}("tier" => "tier_f", "path" => "run1/f.json")))
             @test E.input_path(cf, "f") == joinpath(root, "sub", "run1", "f.json")
@@ -105,7 +147,7 @@
 
     @testset "one tier resolver, read and write: the view's mount only under the view; producers never install" begin
         dir = mktempdir(); toml = joinpath(dir, "Artifacts.toml")
-        h = create_artifact(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
+        h = ca(d -> (mkpath(joinpath(d, "run1")); write(joinpath(d, "run1", "e.json"), "1")))
         bind_artifact!(toml, "tier_e", h; lazy = true, download_info = [("https://zenodo.org/records/1/files/tier_e.tar.gz", "0"^64)])
         bind_artifact!(toml, "tier_n", Base.SHA1("3"^40); lazy = true,              # never installed: a placeholder URL
                        download_info = [("https://zenodo.org/records/ZENODO_RECORD_X/files/n.tar.gz", "0"^64)])
@@ -604,4 +646,5 @@
         @test any(x -> x.rule == "STALE" && x.file == "src/ok.jl", v2)
         @test !any(x -> x.rule == "D3" && x.file == "src/bad.jl" && x.line == 5, v2)
     end
+    store_saved === nothing ? delete!(ENV, "VGTK_ARTIFACT_STORE") : (ENV["VGTK_ARTIFACT_STORE"] = store_saved)
 end

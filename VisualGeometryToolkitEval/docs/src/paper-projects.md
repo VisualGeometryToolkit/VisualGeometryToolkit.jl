@@ -79,13 +79,22 @@ from the data layer of `Experiments`, never from a literal machine path.
   produces its products again.
 - **Data policy.** Inputs under `data_root()` are immutable, and the writers
   refuse them (`assert_not_input`). Results under `results_root()` are
-  add-only. Code holds no machine path and no `artifact"…"` string macro
-  (`data_policy_violations`, rules D1 to D4).
-- **Published data as Julia artifacts.** Input data are published on Zenodo
-  as lazy, hash-pinned artifacts (`Artifacts.toml`). They are catalogued in
-  `configs/data_artifacts.toml` (see [The data catalog](@ref)) and read
-  through the artifact view that `data_root()` falls back to. A fresh machine
-  therefore runs the drivers unchanged.
+  add-only. No code, test, example, config, doc or tracked provenance holds a
+  machine path, and no code an `artifact"…"` string macro or an artifact or
+  download API of its own (`data_policy_violations`, rules D1 to D5).
+- **Machine paths live in the site profiles.** Where a machine keeps every
+  project's inputs and results, and its artifact store, is written once, in
+  VisualGeometryToolkitEval's site profiles (`configs/sites/<site>.toml`,
+  `[storage]`: see [Machines and storage](@ref)), selected by `VGTK_SITE`. A
+  project names none.
+- **Published data as Julia artifacts, in the artifact store.** Input data are
+  published on Zenodo (or Hugging Face) as lazy, hash-pinned artifacts
+  (`Artifacts.toml`). They are catalogued in `configs/data_artifacts.toml` (see
+  [The data catalog](@ref)); every config input names its catalogued tier.
+  `scripts/fetch_data.jl` (DataArtifacts' `fetch_data!`) installs them into
+  the artifact store, never the Julia depot of a cluster, and links them into
+  the artifact view that `data_root()` falls back to. A fresh machine therefore
+  runs the drivers unchanged. Nothing under `data/` is tracked.
 - **REPRODUCE.md.** Every figure, table and macro file that the paper reads is
   a row of the asset index. A row is either `generated` by a driver that
   declares it (`# reproduce: writes <path>` and `# reproduce: reads <config>`)
@@ -111,12 +120,14 @@ a message:
 
 | check | rules |
 |---|---|
-| `:layout` | `L1` a required path is missing · `L2` Project.toml lacks DrWatson or VisualGeometryToolkitEval · `L3` git does not ignore `data/exp_raw` and `data/exp_pro` · `L4` the suite does not call this check |
-| `:data_policy` | `D1` a machine path · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code (the `data_policy` keyword forwards keywords) |
+| `:layout` | `L1` a required path is missing · `L2` Project.toml lacks DrWatson or VisualGeometryToolkitEval · `L3` git does not ignore `data/exp_raw` and `data/exp_pro` · `L4` the suite does not call this check · `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!` · `L6` git tracks data under `data/` (anything but `data/README.md`) |
+| `:data_policy` | `D1` a machine path (code and launchers; tests, examples, configs, docs and provenance, comments included) · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code · `D5` an artifact or download API outside DataArtifacts (the `data_policy` keyword forwards keywords) |
 | `:reproduce` | every kind of `reproduce_index_violations` (the `reproduce` keyword forwards keywords) |
 | `:configs` | `C1` a producing script reads no config of record · `C2` it holds a data constant · `C3` it names a config that does not exist |
 | `:provenance` | `P1` no provenance through the shared writer (in the script, what it includes, or what it launches) · `P2` no run key · `S1` an index generator without `run_stages` |
 | `:catalog` | `A1` the findings of `catalog_violations`, once the catalog or Artifacts.toml binds an artifact |
+| `:storage` | `A2` a config's `[inputs.<id>]` names no tier the catalog lists · `A3` an artifact name bound to another tree in another project's Artifacts.toml (the `stack_artifacts` keyword) or in the artifact store's name record · `A4` a link of the artifact view `data/exp_raw` that resolves outside the artifact store |
+| `:release` | opt-in, before a release: `R1` a record not yet published (no Zenodo `id`, no Hugging Face `revision`) · `R2` a Hugging Face record not stated `public = true` · `R3` a binding whose URL is a placeholder or a local file |
 | `:contract` | opt-in: the `contract_violations` of every stage file |
 
 A *producing* script is a `.jl` file under `scripts/` that runs stages,
@@ -131,6 +142,42 @@ A project's deferred violations go in the `allow` keyword as
 `DataPolicyAllow(rule, file, match)` values, each with its fix in a comment
 beside it. An entry that matches nothing is reported as stale, so the list
 only shrinks.
+
+## Machines and storage
+
+A machine is a **site profile** of VisualGeometryToolkitEval
+(`configs/sites/<site>.toml`; [`load_site`](@ref)), selected by `VGTK_SITE`
+(the runner sets it for every job). Its `[storage]` table is the only place a
+machine path is written:
+
+```toml
+[storage]
+data_root      = "/cluster/projects/vgtk/data/{project}"      # a project's inputs; {project} its name
+results_root   = "/cluster/projects/vgtk/results/{project}"   # a project's results
+artifact_store = "/cluster/projects/vgtk/artifacts"           # every artifact tree, shared
+```
+
+`{project}` is the project's name ([`project_name`](@ref): its stage graph's
+`[project] name`, else its directory's name). The roots resolve, the first
+that binds:
+
+| Root | Order |
+|---|---|
+| `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the site's `data_root` → the project's fallback → the artifact view |
+| `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the site's `results_root` |
+| the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused on the cluster) |
+
+The **artifact store** (VisualGeometryToolkitCore's `artifact_store`) holds
+the trees of every published tier and every model's weights, content-addressed
+by their git-tree-sha1, so every project and package on a machine shares one
+copy. VisualGeometryToolkitCore's `install_artifact` installs into it: Pkg's
+`with_artifacts_directory`, its sha256 and tree-hash checks and its atomic move
+into place, under a Pidfile lock per tree, so jobs that start together download
+a tree once. A cluster's Julia depot (node-local and evicted, or a home with a
+quota) is refused; the shipped `vcai` site names the cluster's store. A machine
+whose depot already holds the trees moves them once with
+`VisualGeometryToolkitCore.migrate_artifacts!(toml)` (each tree's hash
+checked; `remove = true` frees the depot).
 
 ## The template
 

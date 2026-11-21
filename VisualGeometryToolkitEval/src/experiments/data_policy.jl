@@ -4,9 +4,12 @@
 #
 #   @test isempty(data_policy_violations(projectdir(); allow = DATA_POLICY_ALLOW))
 #
-#   D1  no machine paths in code or launchers (/raid, /home, /mnt, …): every
-#       path derives from DrWatson's projectdir/datadir, data_root(),
-#       results_root() or an environment variable.
+#   D1  no machine paths (/raid, /home, /mnt, /cluster, …) in code, launchers,
+#       tests, examples, configs, docs or tracked provenance: every path derives
+#       from DrWatson's projectdir/datadir, data_root(), results_root() or an
+#       environment variable, and a machine's own paths live in
+#       VisualGeometryToolkitEval's site profiles (configs/sites/, VGTK_SITE)
+#       and nowhere else.
 #   D2  no writes into an input root: data_root() (and a project's flat data
 #       roots) are read-only; outputs go under results_root(). The static scan
 #       flags a write call or an output directory spelled under the data root;
@@ -19,6 +22,14 @@
 #       data_root() (the artifact view, DataArtifacts `fetch_artifacts!`),
 #       never through Pkg's string macro, which ties code to one binding and
 #       bypasses the author's primary copy.
+#   D5  no artifact or download API outside DataArtifacts: published inputs and
+#       model weights are installed by VisualGeometryToolkitCore's artifact
+#       store (DataArtifacts `fetch_data!`/`fetch_artifacts!`, packed by
+#       `pack_artifacts`), never by a project's own `install_artifact`,
+#       `ensure_artifact_installed`, `download_artifact`, `create_artifact`,
+#       `bind_artifact!`, `with_artifacts_directory`, `Downloads.download`,
+#       `HTTP.get`, `LazyArtifacts` or the store's own primitives: one path,
+#       hash-verified, into the store, never the depot.
 #
 # The scan is textual and conservative (full-line comments are skipped; a
 # launcher's `#SBATCH` lines are not comments). A project's known, deferred
@@ -29,7 +40,7 @@
 """
     DataPolicyAllow(rule, file, match)
 
-One allowlisted (deferred) violation: rule `"D1"`…`"D4"`, `file`
+One allowlisted (deferred) violation: rule `"D1"`…`"D5"`, `file`
 relative to the scanned project root, and a substring `match` of the
 offending line. Each entry should name what fixes it, in a comment beside it.
 """
@@ -39,9 +50,10 @@ struct DataPolicyAllow
     match::String
 end
 
-const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net)/"
+const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net|cluster|srv|media|gpfs|lustre|work)/"
 const _D2_WRITE = r"\b(mkpath|mkdir|write|open|jldsave|wsave|tagsave|safesave|save|cp|mv|symlink|touch)\(\s*joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\")"
 const _D4 = r"(?<![\w\"])(artifact\"|@artifact_str\b)"
+const _D5 = r"\b(install_artifact|ensure_artifact_installed|download_artifact|create_artifact|bind_artifact!|archive_artifact|with_artifacts_directory|with_artifact_store|store_file|download_verified|migrate_artifacts!)\(|\bDownloads\.download\(|\bHTTP\.(get|request)\(|\bLazyArtifacts\b|\bPkg\.Artifacts\b"
 const _D2_OUTDIR = r"joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\"\s*\))\s*,\s*\"results\""
 # `stamp`, `stamps` or `stamped` as a whole identifier token (`_`-separated,
 # CamelCase split, an uppercase run ending where a capitalized word begins):
@@ -64,23 +76,40 @@ _d3(line) =
 _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (".sh", ".sbatch") && startswith(l, "#SBATCH")))
 
 """
-    data_policy_violations(root; dirs = ["src", "scripts"],
-                           exts = [".jl", ".sh", ".sbatch"], allow = DataPolicyAllow[])
+    MACHINE_PATH_DIRS, MACHINE_PATH_EXTS
+
+Where D1 also looks for a machine path, beyond the code (`dirs`): a project's
+tests, examples, configs, docs and tracked provenance, in their code, config
+and text files — every comment and paragraph included, since a path in a
+config's comment or a README is the next run's machine path.
+"""
+const MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
+const MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
+
+"""
+    data_policy_violations(root; dirs = ["src", "scripts"], exts = [".jl", ".sh", ".sbatch"],
+                           machine_dirs = MACHINE_PATH_DIRS, machine_exts = MACHINE_PATH_EXTS,
+                           allow = DataPolicyAllow[])
         -> Vector{NamedTuple{(:rule, :file, :line, :text)}}
 
-The data-policy findings (rules D1–D4, see the file header) in the `dirs` of
-project `root`, minus the `allow`ed ones, plus a `STALE` finding for every
-allow entry that matched nothing. Empty ⇔ compliant.
+The data-policy findings (rules D1–D5, see the file header) in the `dirs` of
+project `root` (code: every rule, comments skipped), and D1 also in its
+`machine_dirs` (every line of their `machine_exts` files: [`MACHINE_PATH_DIRS`](@ref)),
+minus the `allow`ed ones, plus a `STALE` finding for every allow entry that
+matched nothing. Empty ⇔ compliant.
 """
 function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
                                 exts = [".jl", ".sh", ".sbatch"],
+                                machine_dirs = MACHINE_PATH_DIRS, machine_exts = MACHINE_PATH_EXTS,
                                 allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     found = NamedTuple{(:rule, :file, :line, :text),Tuple{String,String,Int,String}}[]
-    for d in dirs, (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
+    scanned = Set{String}()
+    for d in filter(d -> isdir(joinpath(root, d)), dirs), (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
         ext = splitext(f)[2]
         ext in exts || continue
         path = joinpath(r, f)
         rel = relpath(path, root)
+        push!(scanned, rel)
         for (i, line) in enumerate(eachline(path))
             _policy_comment(line, ext) && continue
             hit(rule) = push!(found, (rule = rule, file = rel, line = i, text = strip(line)))
@@ -88,6 +117,16 @@ function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
             (occursin(_D2_WRITE, line) || occursin(_D2_OUTDIR, line)) && hit("D2")
             _d3(line) && hit("D3")
             occursin(_D4, line) && hit("D4")
+            occursin(_D5, line) && hit("D5")
+        end
+    end
+    for d in filter(d -> isdir(joinpath(root, d)), machine_dirs), (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
+        splitext(f)[2] in machine_exts || continue
+        path = joinpath(r, f)
+        rel = relpath(path, root)
+        rel in scanned && continue
+        for (i, line) in enumerate(eachline(path))
+            occursin(_D1, line) && push!(found, (rule = "D1", file = rel, line = i, text = strip(line)))
         end
     end
     used = falses(length(allow))

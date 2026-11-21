@@ -18,7 +18,7 @@ this module exports the submodules and the CLI.
 module VisualGeometryToolkitEval
 
 include("config_defaults.jl")   # the default mechanism: configs/default.toml → `_config_default`
-using VisualGeometryToolkitCore: canonical_json   # the content key's encoding (code_identity.jl, through cli.jl)
+using VisualGeometryToolkitCore: canonical_json, set_site_artifact_store!   # the content key's encoding (code_identity.jl, through cli.jl); the artifact store's site rung
 include("cli.jl")               # cli_option, start_output_flush!; code_trees, code_tree_changes (code_identity.jl)
 include("artifact_format.jl")   # the format stamp of every persisted artifact kind
 
@@ -56,5 +56,13 @@ engine-integration tests build their fixtures from it.
 function engine_fixtures end
 
 public engine_fixtures   # the engine's shared test fixtures (the Test extension)
+
+# The site rung of VisualGeometryToolkitCore's artifact store: the `[storage] artifact_store` of the site profile
+# VGTK_SITE names (this package owns the site profiles, configs/sites/).
+function _site_artifact_store(site)
+    s = Experiments.site_profile(site)
+    return s === nothing || isempty(s.artifact_store) ? nothing : s.artifact_store
+end
+__init__() = (set_site_artifact_store!(_site_artifact_store); nothing)
 
 end # module VisualGeometryToolkitEval

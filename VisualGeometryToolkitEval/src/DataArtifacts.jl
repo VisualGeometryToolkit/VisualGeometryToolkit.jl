@@ -84,7 +84,7 @@ using TOML: TOML
 using VisualGeometryToolkitCore: sha256_hex
 using Base: SHA1
 using Pkg.Artifacts: bind_artifact!, create_artifact, archive_artifact, remove_artifact
-using Artifacts: with_artifacts_directory
+using VisualGeometryToolkitCore: with_artifact_store, artifact_store   # the store's one wrapper of Pkg's override
 using ..Experiments: data_root, results_root, project_root, load_run_config, install_artifact,
     link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER, ArtifactView
 import .._entry_mount_dir   # src/code_identity.jl: a catalog entry's mount_dir, the runner's reader too
@@ -465,7 +465,7 @@ end
     fetch_artifacts!(cat, names = required_artifacts(cat)) -> Vector{NamedTuple}
 
 Install `names` (VisualGeometryToolkitCore's `install_artifact`: download, verify,
-unpack into the depot; a placeholder URL is refused with the way out) and link
+unpack into the artifact store, `artifact_store()`; a placeholder URL is refused with the way out) and link
 each tree into its mount root, at the entry's [`mount_dir`](@ref): `data` artifacts into the project's
 `data/exp_raw` as an artifact view — skipped when a data root is already bound
 (VGTK_DATA_ROOT, or an author's own data/exp_raw) — and `results` artifacts
@@ -512,7 +512,7 @@ command line `argv` read as
 then [`fetch_artifacts!`](@ref) of them (a split entry all its parts, a chunked
 file reassembled), one line per artifact to `io` (its new links and where, or
 that its root is already bound), the two roots (`data_root()`,
-`results_root()`), and the line `FETCH_DATA_DONE`. Returns `fetch_artifacts!`'s
+`results_root()`) and the artifact store, and the line `FETCH_DATA_DONE`. Returns `fetch_artifacts!`'s
 rows (`nothing` for `--list`). A script is the one call
 `fetch_data!(project_catalog())` after `@quickactivate`.
 """
@@ -534,7 +534,8 @@ function fetch_data!(cat::DataCatalog = project_catalog(); argv::AbstractVector{
         println(io, rpad(r.name, 32), " ", r.dst === nothing ? "not linked: its $(r.mount) root is bound" :
                                                "$(r.linked) new link(s) under $(r.dst)")
     end
-    for (what, root) in (("data_root()   ", data_root), ("results_root()", results_root))
+    for (what, root) in (("data_root()   ", data_root), ("results_root()", results_root),
+                         ("artifact store", () -> (s = artifact_store(); "$(s.path) ($(s.source))")))
         println(io, what, " = ", try root() catch err; sprint(showerror, err) end)
     end
     println(io, "FETCH_DATA_DONE")
@@ -725,8 +726,8 @@ function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(k
                         local_toml::AbstractString = "", kinds::AbstractDict = Dict{String,Function}())
     isempty(stage) && throw(ArgumentError("pack_artifacts: `stage` (a scratch directory with room for the tarballs) is required"))
     # one scratch artifacts directory for every concurrent pack (the override is
-    # process-global: set once, around all of them)
-    built = with_artifacts_directory(joinpath(stage, "artifacts")) do
+    # process-global: set once, around all of them, through Core's one wrapper)
+    built = with_artifact_store(joinpath(stage, "artifacts")) do
         fetch.([Threads.@spawn _pack(cat, n, stage, kinds) for n in _bound_names(cat, names)])
     end
     header = _comment_header(cat.artifacts_toml)

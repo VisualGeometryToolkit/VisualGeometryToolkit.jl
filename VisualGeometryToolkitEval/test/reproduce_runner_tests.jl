@@ -168,7 +168,7 @@ end
     env0 = filter(p -> !(first(p) in ("VGTK_DATA_ROOT", "VGTK_RESULTS_ROOT", "CASES", "SETS")) && !startswith(first(p), "SLURM_"), Dict(ENV))
 
     @testset "the shipped sites and the template" begin
-        @test shipped_sites() == ["desktop", "dgx01"]
+        @test shipped_sites() == ["desktop", "dgx01", "vcai"]
         dgx = load_site("dgx01")
         @test dgx.backend === :slurm && dgx.partition == "gpu" && dgx.gres == "gpu:1" && dgx.cpus_per_task == 2 && dgx.mem_per_cpu == "8480M" && dgx.precompile_time == "0:30:00"
         desk = load_site("desktop")
@@ -186,6 +186,38 @@ end
         @test_throws r"unknown key slurm.queue" load_site(joinpath(d, "bad.toml"))
         write(joinpath(d, "bad.toml"), "[site]\nbackend = \"slurm\"\n[slurm]\njob_name_prefix = \"a b\"\n")
         @test_throws r"job_name_prefix = \"a b\": letters, digits" load_site(joinpath(d, "bad.toml"))
+    end
+
+    @testset "a site's storage: the machine's roots and artifact store, the only machine paths" begin
+        vcai = load_site("vcai")
+        @test vcai.backend === :slurm && vcai.setup == "source /cluster/projects/vgtk/env-node.sh" && "--exclude=athena" in vcai.extra
+        @test site_root(vcai, "data_root", "paper") == "/cluster/projects/vgtk/data/paper"
+        @test site_root(vcai, "results_root", "paper") == "/cluster/projects/vgtk/results/paper"
+        @test site_root(vcai, "artifact_store", "paper") == "/cluster/projects/vgtk/artifacts"
+        @test site_root(load_site("desktop"), "data_root", "paper") == ""                 # a site may state none
+        @test_throws ArgumentError site_root(vcai, "depot", "paper")
+        tpl = load_site(joinpath(SITES_DIR, "_template.toml"))
+        @test site_root(tpl, "data_root", "p") == "/data/p" && tpl.artifact_store == "/data/artifacts"
+        d = mktempdir()
+        write(joinpath(d, "rel.toml"), "[site]\nbackend = \"local\"\n[storage]\ndata_root = \"data\"\n")
+        @test_throws r"\[storage\] data_root = \"data\" is not an absolute path" load_site(joinpath(d, "rel.toml"))
+        write(joinpath(d, "proj.toml"), "[site]\nbackend = \"local\"\n[storage]\nartifact_store = \"/s/{project}\"\n")
+        @test_throws r"artifact_store is shared" load_site(joinpath(d, "proj.toml"))
+        write(joinpath(d, "key.toml"), "[site]\nbackend = \"local\"\n[storage]\ndepot = \"/d\"\n")
+        @test_throws r"unknown key storage.depot" load_site(joinpath(d, "key.toml"))
+        # a launch's roots: the argument, the environment, the project's own [sites.<site>] table, then the profile
+        f = runner_project()
+        g = load_stage_graph(f.graph)
+        e = Dict{String, String}()
+        @test resolve_roots(g, vcai; env = e) == ("/cluster/projects/vgtk/data/paper", "/cluster/projects/vgtk/results/paper")
+        @test resolve_roots(g, vcai; env = Dict("VGTK_DATA_ROOT" => "/x"), results_root = "/r") == ("/x", "/r")
+        # the jobs get the site's store (a package without VisualGeometryToolkitEval installs into it too)
+        plan = plan_reproduction(g, vcai; env = merge(env0, Dict("VGTK_DATA_ROOT" => mktempdir(), "VGTK_RESULTS_ROOT" => mktempdir())),
+                                 queue_states = noqueue)
+        @test plan.base_env["VGTK_ARTIFACT_STORE"] == "/cluster/projects/vgtk/artifacts" && plan.base_env["VGTK_SITE"] == "vcai"
+        plan = plan_reproduction(g, vcai; env = merge(env0, Dict("VGTK_DATA_ROOT" => mktempdir(), "VGTK_RESULTS_ROOT" => mktempdir(),
+                                                                 "VGTK_ARTIFACT_STORE" => "/mine")), queue_states = noqueue)
+        @test plan.base_env["VGTK_ARTIFACT_STORE"] == "/mine"                                  # the caller's own wins
     end
 
     @testset "the graph: validated, in dependency order; --only with and without prerequisites" begin

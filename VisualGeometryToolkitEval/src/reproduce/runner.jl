@@ -35,6 +35,7 @@ const _SITE_KEYS = Dict(
     "site"  => ("name", "backend", "description", "setup"),
     "slurm" => ("partition", "gres", "cpus_per_task", "mem_per_cpu", "gpu_limit", "extra", "job_name_prefix", "precompile_time"),
     "local" => ("cuda_visible_devices", "cpus_per_task"),
+    "storage" => ("data_root", "results_root", "artifact_store"),
     "env"   => nothing)                                    # any variable
 
 """
@@ -45,7 +46,11 @@ arrays chained by `--dependency=afterok`; `:local`, every stage in order in this
 options every job gets (`partition`, a GPU stage's `gres`, `cpus_per_task`, `mem_per_cpu`, `gpu_limit` GPU array
 tasks at a time, `extra` options, and `job_name_prefix`, put before every job's name: the launch's label for the
 scheduler, never part of a run key), the local `cuda_visible_devices` and `cpus_per_task`, a shell `setup` run before
-every stage, and the environment `env` every stage gets.
+every stage, the environment `env` every stage gets, and the machine's storage (`[storage]`): `data_root` and
+`results_root`, where a project's inputs and results live on it (`{project}` in either is the project's name:
+[`site_root`](@ref)), and `artifact_store`, the directory of the artifact store every project and package there
+installs into (VisualGeometryToolkitCore's `artifact_store`). The site profiles are the ONLY place a machine path is
+written: a project's configs name none.
 """
 struct Site
     name::String
@@ -63,6 +68,23 @@ struct Site
     precompile_time::String
     cuda_visible_devices::String
     env::Dict{String, String}
+    data_root::String
+    results_root::String
+    artifact_store::String
+end
+
+"""
+    site_root(site, key, project) -> String
+
+The site profile's `[storage]` root `key` (`"data_root"`, `"results_root"` or `"artifact_store"`) for the project
+named `project`: its `{project}` replaced by the name (the artifact store is shared: it names no project); `""` when
+the profile states none.
+"""
+function site_root(site::Site, key::AbstractString, project::AbstractString)
+    v = key == "data_root" ? site.data_root : key == "results_root" ? site.results_root :
+        key == "artifact_store" ? site.artifact_store :
+        throw(ArgumentError("site_root: unknown key $(repr(key)) (known: data_root, results_root, artifact_store)"))
+    return replace(v, "{project}" => project)
 end
 
 function _check_tables(d::AbstractDict, schema::AbstractDict, what::AbstractString)
@@ -115,10 +137,18 @@ function load_site(spec::AbstractString; dirs::AbstractVector{<:AbstractString} 
     sl, lo = get(d, "slurm", Dict{String, Any}()), get(d, "local", Dict{String, Any}())
     cpus = backend == "slurm" ? get(sl, "cpus_per_task", 0) : get(lo, "cpus_per_task", 0)
     prefix = _check_job_name_prefix(get(sl, "job_name_prefix", ""), "site profile $path: [slurm] job_name_prefix")
+    st = get(d, "storage", Dict{String, Any}())
+    for (k, v) in st
+        v isa AbstractString && isabspath(v) ||
+            throw(ArgumentError("site profile $path: [storage] $k = $(repr(v)) is not an absolute path"))
+        k == "artifact_store" && occursin("{project}", v) &&
+            throw(ArgumentError("site profile $path: [storage] artifact_store is shared by every project; it names no {project}"))
+    end
     return Site(get(s, "name", first(splitext(basename(path)))), path, Symbol(backend), get(s, "description", ""), get(s, "setup", ""),
                 get(sl, "partition", ""), get(sl, "gres", ""), cpus, get(sl, "mem_per_cpu", ""), get(sl, "gpu_limit", 0),
                 String.(get(sl, "extra", String[])), prefix, string(get(sl, "precompile_time", "")), string(get(lo, "cuda_visible_devices", "")),
-                Dict{String, String}(k => string(v) for (k, v) in get(d, "env", Dict{String, Any}())))
+                Dict{String, String}(k => string(v) for (k, v) in get(d, "env", Dict{String, Any}())),
+                String(get(st, "data_root", "")), String(get(st, "results_root", "")), String(get(st, "artifact_store", "")))
 end
 
 # ---------------------------------------------------------------------------
@@ -720,13 +750,14 @@ end
     resolve_roots(g, site; data_root = nothing, results_root = nothing, env = ENV) -> (data, results)
 
 The data and results roots of a launch: the argument, else the graph's variables in `env` (`data_env`,
-`results_env`), else the graph's `[sites.<site>]` roots (a relative one relative to the workdir); `""` when none
-gives one.
+`results_env`), else the graph's `[sites.<site>]` roots (a relative one relative to the workdir; a project's own
+table, kept until the projects carry no machine paths), else the site profile's `[storage]` roots for the graph's
+project ([`site_root`](@ref)); `""` when none gives one.
 """
 function resolve_roots(g::StageGraph, site::Site; data_root = nothing, results_root = nothing, env = ENV)
     t = get(g.site_roots, site.name, Dict{String, Any}())
     function pick(arg, var, key)
-        v = String(something(arg, get(env, var, nothing), get(t, key, nothing), ""))
+        v = String(something(arg, get(env, var, nothing), get(t, key, nothing), site_root(site, key, g.name)))
         return isempty(v) || isabspath(v) ? v : normpath(joinpath(g.workdir, v))
     end
     return (pick(data_root, g.data_env, "data_root"), pick(results_root, g.results_env, "results_root"))
@@ -919,6 +950,9 @@ function plan_reproduction(g::StageGraph, site::Site; only::AbstractVector{<:Abs
                                                                   catalog_view_mount(data, joinpath(g.workdir, g.julia_project, "configs", "data_artifacts.toml")))))
     end
     base["VGTK_SITE"] = site.name
+    # the jobs install artifacts into the site's store, a package without VisualGeometryToolkitEval (BlobBoards) too
+    store = site_root(site, "artifact_store", g.name)
+    isempty(store) || haskey(base, "VGTK_ARTIFACT_STORE") || (base["VGTK_ARTIFACT_STORE"] = store)
     plan = ReproducePlan(g, site, commit, dirty, data, results, stamp, manifest, stages, base,
                          code.trees, code.dirty, code.project_paths)
     _mark_reuse!(plan, records, ids -> _queue_states(queue_states, ids, env))

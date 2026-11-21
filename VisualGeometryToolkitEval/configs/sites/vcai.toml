@@ -1,0 +1,21 @@
+# vcai: the vcai-eaic-mds Slurm cluster (the owner's group nodes poseidon and nereus, B200 and RTX Pro 6000 GPUs, and
+# guest nodes; a guest job runs at most 24 h). Every stage is an sbatch job that sources the project space's job
+# environment (Julia 1.13.4, the depot in the job's node-local $NODE_CACHE). The depot is node-local and evicted, and
+# the home has a quota: inputs, results and the artifact store live in the NFS project space /cluster/projects/vgtk.
+# The node athena is excluded (a corrupted registry download in its node cache, 2026-11). Keys: _template.toml.
+[site]
+name = "vcai"
+backend = "slurm"
+description = "vcai-eaic-mds: Slurm, B200 / RTX Pro 6000 nodes, NFS project space /cluster/projects/vgtk"
+setup = "source /cluster/projects/vgtk/env-node.sh"
+
+[slurm]
+gres = "gpu:1"
+cpus_per_task = 2
+extra = ["--exclude=athena"]
+precompile_time = "0:30:00"    # as dgx01's: a GPU stage's CPU precompile into a cold node cache, ≈ 6–15 min, × 2
+
+[storage]
+data_root = "/cluster/projects/vgtk/data/{project}"
+results_root = "/cluster/projects/vgtk/results/{project}"
+artifact_store = "/cluster/projects/vgtk/artifacts"

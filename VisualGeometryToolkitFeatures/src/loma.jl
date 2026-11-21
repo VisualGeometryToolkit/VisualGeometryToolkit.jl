@@ -23,18 +23,19 @@
 # CUDA libraries are onnx_runtime.jl's.
 # =============================================================================
 
-using Downloads: Downloads
 using Scratch: @get_scratch!
-using VisualGeometryToolkitCore: sha256_hex   # the stack's one hex digest: a model file's
+using VisualGeometryToolkitCore: store_file, download_verified   # the artifact store's single files; the one verified download
 
 # =============================================================================
 # Models: the ONNX files of the `loma` release, pinned by sha256
 # =============================================================================
 #
 # Release assets are bare .onnx files, not tarballs, so they cannot be Pkg
-# artifacts. They are cached in this package's scratch space (removed by
-# Pkg.gc() with the package) and checked against GitHub's published digest
-# once, after the download; a cached file is trusted from then on.
+# artifacts. They live in the artifact store (VisualGeometryToolkitCore's
+# `store_file`: `<store>/files/<sha256>/<file>`, never a cluster's depot; with
+# the depot store, this package's scratch space, removed by Pkg.gc() with the
+# package) and are checked against GitHub's published digest once, after the
+# download; a stored file is trusted from then on.
 #
 # Every bf16 variant keeps Float32 inputs and outputs (bf16 inside only). The
 # descriptor dimension is each graph's declared `descriptions` / `desc0` width,
@@ -68,26 +69,10 @@ function _loma_model(table, kind, variant, bf16)
     throw(ArgumentError("no LoMa $kind $(repr(variant))$(bf16 ? " in bf16" : ""); known: $known"))
 end
 
-# The cached path of a release file, downloaded and verified on first use.
-function _loma_model_path(file, digest)
-    path = joinpath(@get_scratch!("loma_models"), file)
-    isfile(path) && return path
-    @info "Downloading LoMa model $file (cached in this package's scratch space)"
-    return _download_verified("$_LOMA_RELEASE/$file", digest, path)
-end
-
-# `url` downloaded to `path` and checked against its sha256 `digest`; a mismatch is an error and leaves no file at `path`.
-function _download_verified(url, digest, path)
-    tmp = tempname(dirname(path))   # a String: Downloads.download's return is typed loosely, which left `rm`/`mv` below
-    Downloads.download(url, tmp)    # open to FilePathsBase's methods under JET once Makie is loaded (2 reports)
-    got = open(sha256_hex, tmp)
-    if got != digest
-        rm(tmp; force = true)
-        error("$url: sha256 $got, expected $digest")
-    end
-    mv(tmp, path; force = true)   # same directory: atomic, so no partial file is ever left
-    return path
-end
+# The path of a release file, downloaded and verified on first use into the artifact store (Core's `store_file`:
+# model weights live in the store, never a cluster's depot); with the depot store, this package's scratch space.
+_loma_model_path(file, digest) =
+    store_file("$_LOMA_RELEASE/$file", digest, file; depot_dir = @get_scratch!("loma_models"))
 
 # The session of a release file on the resolved provider, and its provenance: the file, its digest, the provider and
 # the threads. The bf16 check comes after the provider is resolved (an :auto that fell back to the CPU is refused) and

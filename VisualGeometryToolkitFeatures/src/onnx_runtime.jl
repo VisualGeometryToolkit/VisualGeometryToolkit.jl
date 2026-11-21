@@ -216,7 +216,7 @@ function _install_conda_files!(dir, files = _ORT_CUDA_FILES, channel = _ORT_CUDA
     z7 = p7zip()   # bound outside the commands: a name read only inside a backtick literal is invisible to static analysis
     mktempdir() do tmp
         for (name, digest) in files
-            conda = _download_verified("$channel/$name.conda", digest, joinpath(tmp, "$name.conda"))
+            conda = download_verified("$channel/$name.conda", digest, joinpath(tmp, "$name.conda"))
             run(pipeline(`$z7 x -y -o$tmp $conda pkg-$name.tar.zst`; stdout = devnull))
             pkg = joinpath(tmp, name)
             open(io -> Tar.extract(io, pkg), `$z7 x -so $(joinpath(tmp, "pkg-$name.tar.zst"))`)

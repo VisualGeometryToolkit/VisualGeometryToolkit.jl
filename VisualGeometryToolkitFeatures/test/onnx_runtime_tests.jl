@@ -157,6 +157,7 @@ end
     using Base.BinaryPlatforms: Platform
     using Artifacts: artifact_hash, load_artifacts_toml
     using VisualGeometryToolkitCore: sha256_hex
+    import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitFeatures as VgtkFeatures
     toml = VgtkFeatures._ARTIFACTS_TOML
     entry = only(load_artifacts_toml(toml)["onnxruntime_cuda"])
@@ -171,10 +172,10 @@ end
     mktempdir() do dir
         src = joinpath(dir, "src.bin"); write(src, "not the pinned bytes")
         dst = joinpath(dir, "dst.bin")
-        @test_throws r"sha256 .* expected 0{64}" VgtkFeatures._download_verified("file://$src", "0"^64, dst)
+        @test_throws r"sha256 .* expected 0{64}" VgtkCore.download_verified("file://$src", "0"^64, dst)
         @test !ispath(dst)
         digest = open(sha256_hex, src)
-        @test VgtkFeatures._download_verified("file://$src", digest, dst) == dst && read(dst, String) == "not the pinned bytes"
+        @test VgtkCore.download_verified("file://$src", digest, dst) == dst && read(dst, String) == "not the pinned bytes"
     end
     # packages merge directory by directory; two holding one file is an error
     mktempdir() do dir

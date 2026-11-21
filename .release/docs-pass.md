@@ -30,6 +30,14 @@ landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched
   site template, the paper-project template's `data/README.md`, `README.md` and `scripts/fetch_data.jl`.
 - CHANGELOGs of the six packages.
 
+## 3a. Gates of the review fixes (1aa082b4; Slurm vcai, Julia 1.13.4, fresh clones from GitHub, `--depwarn=error`, logs under /cluster/projects/vgtk/logs/store/results/*-1aa0*)
+
+- Strict docs builds: Core, Eval, Features, Estimation, IO, PoseLib: PASS.
+- Suites: Core 418961 pass (core-1aa0, a B200 slice), Eval 3169 pass, Features 3939 pass (an RTX Pro 6000), Estimation
+  8995 pass, IO 72521 pass, PoseLib 405 pass; registration_lint, agent_docs and affected (lint-1aa0): PASS.
+- The leg's prep at f5d9671f (release_leg.sh, LEG_PHASES=prep): manifests up to date, floors equal, upstream
+  duplication gate and check_naming clean for all six.
+
 ## 3. Gates (Slurm vcai, Julia 1.13.4, fresh clones from GitHub, `--depwarn=error`, a B200 slice or an RTX Pro 6000
 per job, VGTK_ARTIFACT_STORE the project space's store; logs under /cluster/projects/vgtk/logs/store/results/)
 

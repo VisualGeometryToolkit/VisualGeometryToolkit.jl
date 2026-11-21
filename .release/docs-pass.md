@@ -1,4 +1,4 @@
-docs-pass: 659a6891
+docs-pass: 9ab42cd1
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
 
 # Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
@@ -25,6 +25,10 @@ landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched
   docstrings, the paper-projects page's catalog section with an example and its A1/A2 rows) and D1's wider scope
   (the data-policy header, `data_policy_violations`' docstring, the page's D1 row, the CHANGELOG). No public name
   added or removed. Simplify and code review on the diff, their findings applied.
+
+- IO 0.11.2 at 9ab42cd1: `nested_roundtrip` and `edited_copy` added (public, docstrings with an example each, in the native
+  API page's `@autodocs` through `kind_test_helpers.jl`), the CHANGELOG; IO's own tests use them. No other page names a
+  test helper.
 
 ## 2. Docstrings and pages
 

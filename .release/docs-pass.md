@@ -1,5 +1,23 @@
-docs-pass: ab9070e0
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
+docs-pass: fd19dcdb
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages or the artifact store)
+
+# Core 0.13.1, Features 0.9.11, Eval 0.10.2 docs review — branch followup-store-site (merged to main at fd19dcdb)
+
+- Public API against the registered trees (Core 0.13.0, Features 0.9.10, Eval 0.10.1). Core, added:
+  `install_built_artifact`; changed: the reader `set_site_artifact_store!` registers returns `(; artifact_store,
+  refuse_depot)` (a path string still accepted). Eval, added: `Reproduce.asset_stages`, `Reproduce.deploy_signoff`,
+  `Experiments.produced_dir`, the `Site.refuse_depot` field; moved: `paper_figures_dir` is defined in Reproduce and
+  exported by PaperProjects as before (one function). Features: no name added or removed.
+- Docstrings: every new name has one, with its signature as in the code (the `docs` items of the three suites:
+  `undocumented_public`, `signature_mismatches`, `detached_docstrings`); `artifact_store`, `set_site_artifact_store!`,
+  `Site`, `data_root`, `results_root`, `resolve_roots` and `Product` say what the code now does.
+- Pages: Core `docs/src/api/artifacts.md` (the depot rung's refusal, the built tree); Eval `paper-projects.md` (the
+  `[storage]` example with `refuse_depot`, the roots table and the one ladder, a job's `VGTK_SITE`, the `[render]`
+  refusal in a Product's record) and `reproduce.md` (the site template's keys, `asset_stages`); Features
+  `guide/matching.md` and `developer.md` (the CUDA build in the artifact store). The site template documents
+  `refuse_depot`. READMEs name none of the changed names.
+- Builds: the three docs builds strict (no `warnonly`, `checkdocs = :public`, doctests, linkcheck) green at fd19dcdb.
+- Simplify and code review (high) on the diff, their confirmed findings applied (commits d7f20206, b35529d1).
 
 # Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
 

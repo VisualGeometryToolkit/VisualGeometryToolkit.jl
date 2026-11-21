@@ -618,7 +618,7 @@ so the runner and the drivers resolve a view tier to the same directory.
 """
 function catalog_view_mount(data_root::AbstractString, catalog::AbstractString)
     (isfile(joinpath(data_root, ARTIFACT_VIEW_MARKER)) && isfile(catalog)) || return nothing
-    entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
+    entries = _catalog_entries(catalog)
     # a produced entry (`kind = "produced"`) is never in the view
     return t -> haskey(entries, t) && get(entries[t], "kind", "") != "produced" ? _entry_mount_dir(entries[t]) : nothing
 end
@@ -632,9 +632,26 @@ entry's `mount_dir` under the results root (`""` without one); `nothing` for any
 """
 function catalog_results_mount(catalog::AbstractString)
     isfile(catalog) || return nothing
-    entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
+    entries = _catalog_entries(catalog)
     return t -> haskey(entries, t) && get(entries[t], "mount", "") == "results" ? _entry_mount_dir(entries[t]) : nothing
 end
+
+# A data catalog's `[artifacts]` entries, parsed once per change of the file (every tier lookup reads them).
+const _CATALOG_CACHE = Dict{String, Tuple{Float64, Dict{String, Any}}}()
+const _CATALOG_LOCK = ReentrantLock()
+function _catalog_entries(catalog::AbstractString)
+    t = mtime(catalog)
+    @lock _CATALOG_LOCK begin
+        c = get(_CATALOG_CACHE, catalog, nothing)
+        (c === nothing || c[1] != t) &&
+            (c = _CATALOG_CACHE[catalog] = (t, Dict{String, Any}(get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}()))))
+        return c[2]
+    end
+end
+
+# A relative path of non-empty segments, none `.` or `..` (a product's experiment, a product input's names).
+_segments_ok(p::AbstractString) = !isempty(p) && !isabspath(p) && !occursin('\\', p) &&
+    all(seg -> !isempty(seg) && !(seg in (".", "..")), split(p, '/'))
 
 # ---- another project's product as an input ---------------------------------------------------------------------
 
@@ -657,8 +674,7 @@ function product_input_path(t::AbstractDict)
     for k in keys(t)
         k in PRODUCT_INPUT_KEYS || throw(ArgumentError("a product input (project = …) takes $(join(PRODUCT_INPUT_KEYS, ", ")), not `$k`"))
     end
-    seg(v) = v isa AbstractString && !isempty(v) && !isabspath(v) && !occursin('\\', v) &&
-             all(x -> !isempty(x) && !(x in (".", "..")), split(v, '/'))
+    seg(v) = v isa AbstractString && _segments_ok(v)
     for k in ("project", "product", "key")
         seg(get(t, k, "")) || throw(ArgumentError("a product input names its `$k` (relative path segments): $(repr(get(t, k, nothing)))"))
     end
@@ -669,41 +685,43 @@ function product_input_path(t::AbstractDict)
 end
 
 """
-    product_input(id, t; env = ENV, site_results = project -> nothing, tier_root = "", allow_scratch = false)
-        -> (; state, path, problem, root, source)
+    product_input(id, t; env = ENV, prefix = "VGTK_RESULTS_ROOT", site_results = project -> nothing,
+                  tier_root = () -> "", allow_scratch = false) -> (; state, path, problem, root, source, rel)
 
 The one check of a product input `[inputs.<id>]` (`project`, `product`, `key`, … : [`product_input_path`](@ref)), the
 runner's `missing_inputs` and Experiments' `input_path` alike. Its candidate roots, in order: the environment's
-`VGTK_RESULTS_ROOT_<PROJECT>` ([`tier_variable`](@ref) with that prefix), `site_results(project)` (the active site
-profile's `results_root` for that project; `nothing` without one), and `tier_root` (the consuming project's
-results-mount tier that publishes the producer's results, when the input names one). The first that holds the product
-is checked by [`inspect_input`](@ref) (its `sha256`, never a scratch run's output) and its record's `run_key` must be
-`key`; `state = :missing` when none holds it, naming every candidate.
+`<prefix>_<PROJECT>` ([`tier_variable`](@ref); `VGTK_RESULTS_ROOT_BMVC2026`), `site_results(project)` (the active site
+profile's `results_root` for that project; `nothing` without one), and `tier_root()` (the consuming project's
+results-mount tier that publishes the producer's results, when the input names one; resolved only when the others do
+not hold it). The first that holds the product is checked by [`inspect_input`](@ref) (its `sha256`, never a scratch
+run's output) and its record's `run_key` must be `key`; `state = :missing` when none holds it, naming every
+candidate. `rel` is [`product_input_path`](@ref)`(t)`.
 """
-function product_input(id::AbstractString, t::AbstractDict; env = ENV, site_results::Function = _ -> nothing,
-                       tier_root::AbstractString = "", allow_scratch::Bool = false)
+function product_input(id::AbstractString, t::AbstractDict; env = ENV, prefix::AbstractString = "VGTK_RESULTS_ROOT",
+                       site_results::Function = _ -> nothing, tier_root::Function = () -> "", allow_scratch::Bool = false)
     rel = product_input_path(t)
-    var = tier_variable(String(t["project"]); prefix = "VGTK_RESULTS_ROOT")
-    cands = Tuple{String, String}[]
-    v = String(get(env, var, ""))
-    isempty(v) || push!(cands, (v, var))
-    s = site_results(String(t["project"]))
-    s === nothing || isempty(s) || push!(cands, (String(s), "the site's results root of $(t["project"])"))
-    isempty(tier_root) || push!(cands, (String(tier_root), "tier $(get(t, "tier", ""))"))
-    for (root, source) in cands
+    var = tier_variable(String(t["project"]); prefix)
+    tried = Tuple{String, String}[]
+    candidates = (() -> (String(get(env, var, "")), var),
+                  () -> (something(site_results(String(t["project"])), ""), "the site's results root of $(t["project"])"),
+                  () -> (String(tier_root()), "tier $(get(t, "tier", ""))"))
+    for c in candidates                                         # each root read only when the ones before miss
+        root, source = c()
+        isempty(root) && continue
+        push!(tried, (root, source))
         ispath(joinpath(root, rel)) || continue
         x = inspect_input(id, merge(Dict{String, Any}(String(k) => w for (k, w) in t if k in ("sha256", "sha256_exclude", "tier")),
                                     Dict{String, Any}("path" => rel)), root; allow_scratch)
-        x.state === :present || return (; x..., root, source)
+        x.state === :present || return (; x..., root, source, rel)
         rec = joinpath(root, String(t["product"]), String(t["key"]), PROVENANCE_FILE)
         got = isfile(rec) ? string(get(TOML.parsefile(rec), "run_key", "")) : ""
-        got == t["key"] || return (; state = :refused, path = x.path, root, source,
+        got == t["key"] || return (; state = :refused, path = x.path, root, source, rel,
                                    problem = "the product's record names run key $(repr(got)), not $(t["key"])")
-        return (; x..., root, source)
+        return (; x..., root, source, rel)
     end
-    where_ = isempty(cands) ? "no root names $(t["project"])'s results (set $var, a site profile with [storage] results_root, or a results-mount tier)" :
-             "not under " * join(("$r ($src)" for (r, src) in cands), ", ")
-    return (; state = :missing, path = "", problem = "$(t["project"]):$rel is $where_", root = "", source = "")
+    where_ = isempty(tried) ? "no root names $(t["project"])'s results (set $var, a site profile with [storage] results_root, or a results-mount tier)" :
+             "not under " * join(("$r ($src)" for (r, src) in tried), ", ")
+    return (; state = :missing, path = "", problem = "$(t["project"]):$rel is $where_", root = "", source = "", rel)
 end
 
 # A data-catalog entry's `mount_dir` (`""` without one): the one reader, the runner's and DataArtifacts'.

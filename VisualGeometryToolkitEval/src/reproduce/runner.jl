@@ -657,7 +657,7 @@ the launch's check warms it for every job.
 A tier the project's catalog mounts under its results (`mount = "results"`, a run of record published as a tier) is
 read under `results_root` ([`catalog_results_mount`](@ref VisualGeometryToolkitEval.catalog_results_mount)). An input
 naming ANOTHER project's product (`project`, `product`, `key`, …: Experiments' `input_path`) is checked by
-`product_input` under `env`'s `VGTK_RESULTS_ROOT_<PROJECT>`, then the `site_profile`'s results root for that project
+`product_input` under `env`'s `<results_env>_<PROJECT>` (`VGTK_RESULTS_ROOT_<PROJECT>` by default), then the `site_profile`'s results root for that project
 ([`site_root`](@ref)), then its `tier`'s root; a missing one is a row `<project>:<product>/<key>[/<file>]`.
 """
 function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString}; data_root::AbstractString, env = ENV,
@@ -678,10 +678,10 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
         isfile(p) || (add!(cfg, "config of record", user); return)
         for (id, t, tier) in _config_inputs(p)
             if is_product_input(t)                       # another project's product, where that project's results are
-                r = product_input(id, t; env, site_results, tier_root = isempty(tier) ? "" : first(root_of(tier)),
-                                  allow_scratch = scratch_run(env))
-                r.state === :missing && add!("$(t["project"]):$(product_input_path(t))", "product of $(t["project"])", user)
-                r.state === :refused && push!(wrong, "input $id of $cfg ($(t["project"]):$(product_input_path(t)), used by $user): $(r.problem)")
+                r = product_input(id, t; env, prefix = g.results_env, site_results,
+                                  tier_root = () -> isempty(tier) ? "" : first(root_of(tier)), allow_scratch = scratch_run(env))
+                r.state === :missing && add!("$(t["project"]):$(r.rel)", "product of $(t["project"])", user)
+                r.state === :refused && push!(wrong, "input $id of $cfg ($(t["project"]):$(r.rel), used by $user): $(r.problem)")
                 continue
             end
             root, from = root_of(tier)

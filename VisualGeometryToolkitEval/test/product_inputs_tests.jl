@@ -27,10 +27,13 @@
     @test x.state === :present && x.path == joinpath(pdir, "hand_eye_bb.json") && x.source == "VGTK_RESULTS_ROOT_BMVC2026"
     x = VgtkEval.product_input("he", t; site_results = p -> p == "bmvc2026" ? theirs : nothing)
     @test x.state === :present && occursin("site", x.source)
-    x = VgtkEval.product_input("he", t; env = Dict("VGTK_RESULTS_ROOT_BMVC2026" => mktempdir()), tier_root = theirs)
+    x = VgtkEval.product_input("he", t; env = Dict("VGTK_RESULTS_ROOT_BMVC2026" => mktempdir()), tier_root = () -> theirs)
     @test x.state === :present && x.root == theirs                     # the first root that holds it
     x = VgtkEval.product_input("he", t)
-    @test x.state === :missing && occursin("no root names bmvc2026's results", x.problem)
+    @test x.state === :missing && occursin("no root names bmvc2026's results", x.problem) && x.rel == VgtkEval.product_input_path(t)
+    # a tier root is resolved only when the roots before it do not hold the product
+    @test VgtkEval.product_input("he", t; env, tier_root = () -> error("not read")).state === :present
+    @test VgtkEval.product_input("he", t; env = Dict("R_BMVC2026" => theirs), prefix = "R").state === :present   # a graph's results_env
     @test VgtkEval.product_input("he", merge(t, Dict("sha256" => "0"^64)); env).state === :refused
     write(joinpath(pdir, "_provenance.toml"), "run_key = \"other\"\n")
     x = VgtkEval.product_input("he", t; env)
@@ -43,7 +46,7 @@
     withenv("VGTK_RESULTS_ROOT_BMVC2026" => theirs, "VGTK_SITE" => nothing) do
         E.set_project_root!(proj)
         @test E.input_path(cfg, "he") == joinpath(pdir, "hand_eye_bb.json")
-        @test E.project_results_root("bmvc2026") == theirs
+        @test E.project_results_root("bmvc2026") === nothing                 # the site's rung alone: none here
     end
     site = joinpath(mktempdir(), "lab.toml")
     write(site, "[site]\nbackend = \"local\"\n[storage]\nresults_root = \"$(dirname(theirs))/{project}\"\n")

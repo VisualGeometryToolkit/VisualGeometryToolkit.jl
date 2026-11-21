@@ -321,9 +321,9 @@ function verify_inputs(cfg::AbstractDict; root::Union{Nothing,AbstractString} = 
         if is_product_input(t)                         # another project's product: where that project's results are
             tier = String(get(t, "tier", ""))
             x = root !== nothing ?        # the given root alone is the product's results root
-                product_input(String(id), t; env = Dict{String, String}(), tier_root = root, allow_scratch = scratch_run()) :
+                product_input(String(id), t; env = Dict{String, String}(), tier_root = () -> root, allow_scratch = scratch_run()) :
                 product_input(String(id), t; env = ENV, site_results = project_results_root, allow_scratch = scratch_run(),
-                              tier_root = isempty(tier) ? "" : data_root(; tier))
+                              tier_root = () -> isempty(tier) ? "" : data_root(; tier))
             x.state === :present ? (out[String(id)] = x.path) : push!(bad, "input $id ($(t["project"])): $(x.problem)")
             continue
         end

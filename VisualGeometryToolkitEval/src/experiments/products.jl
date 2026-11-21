@@ -110,9 +110,6 @@ function _output_sha256(dir::AbstractString)
     return bytes2hex(sha256(join(sort!(rows), "\n")))
 end
 
-_segments_ok(p::AbstractString) = !isempty(p) && !isabspath(p) && !occursin('\\', p) &&
-    all(seg -> !isempty(seg) && !(seg in (".", "..")), split(p, '/'))
-
 Base.show(io::IO, s::Product) = print(io, "Product(", s.experiment, "/", s.name, "/", s.key, ": ", s.output, ")")
 
 """

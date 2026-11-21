@@ -529,16 +529,17 @@ function _input_cover(cat, names, t, tier)
     return _produced_cover(cat, string(t["path"]), tier)
 end
 
-# The stage graph of the stack project named `name` among `stack_artifacts` (each another project's Artifacts.toml,
-# its graph at configs/reproduce.toml beside it), or `nothing`.
-function _stack_graph(stack_artifacts, name)
+# The stage graphs of the stack projects of `stack_artifacts` (each another project's Artifacts.toml, its graph at
+# configs/reproduce.toml beside it), by project name; a project without a readable graph is left out.
+function _stack_graphs(stack_artifacts)
+    out = Dict{String, Any}()
     for a in stack_artifacts
         gp = joinpath(dirname(abspath(a)), "configs", "reproduce.toml")
         isfile(gp) || continue
         g = try load_stage_graph(gp) catch; continue end
-        g.name == name && return g
+        out[g.name] = g
     end
-    return nothing
+    return out
 end
 
 # The project's catalog, or `nothing` without one.
@@ -572,7 +573,7 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
             if is_product_input(t)                     # another project's product: well-formed, any tier it names catalogued
                 bad = try product_input_path(t); nothing catch err; sprint(showerror, err) end
                 bad === nothing || (add!(:storage, "A2", rel, 0, "[inputs.$id]: $bad"); continue)
-                _input_cover(cat, names, t, tier) === nothing && add!(:storage, "A2", rel, 0,
+                isempty(tier) || tier in names || add!(:storage, "A2", rel, 0,
                     "[inputs.$id] reads $(t["project"])'s product through tier $(repr(tier)), which $catalog does not list")
                 continue
             end
@@ -677,15 +678,16 @@ function _producer_violations(root::String, configs::AbstractString, cat; stack_
     # stack's other projects (`stack_artifacts`: their Artifacts.toml, the graph beside it in configs/reproduce.toml);
     # its own inputs are that project's check
     v = String[]
-    for n in produced
+    others = occursin.(':', [string(get(cat.artifacts[n], "producer", "")) for n in produced])
+    graphs = any(others) ? _stack_graphs(stack_artifacts) : Dict{String, Any}()
+    for n in produced[others]
         stage = get(cat.artifacts[n], "producer", "")
-        occursin(':', stage) || continue
         proj, st = split(stage, ':'; limit = 2)
-        g = _stack_graph(stack_artifacts, proj)
+        g = get(graphs, proj, nothing)
         g === nothing ? push!(v, "$n: producer $(repr(stage)): no project $(repr(proj)) among stack_artifacts (its Artifacts.toml, with configs/reproduce.toml beside it)") :
             _stage_index(g, st) === nothing && push!(v, "$n: producer $(repr(stage)): $(repr(st)) is no stage of $proj's graph ($(g.path))")
     end
-    produced = filter(n -> !occursin(':', get(cat.artifacts[n], "producer", "")), produced)
+    produced = produced[.!others]
     isempty(produced) && return v
     grel = joinpath(configs, "reproduce.toml")
     gpath = joinpath(root, grel)

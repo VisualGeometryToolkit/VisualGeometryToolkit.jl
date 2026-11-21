@@ -1,7 +1,7 @@
-# Another project's run of record as an input (src/code_identity.jl `product_input`, Experiments' `input_path`, the
+# product_inputs: another project's run of record as an input (src/code_identity.jl `product_input`, Experiments' `input_path`, the
 # runner's `missing_inputs`, PaperProjects' A1/A2) and a results-mount tier read under the results root.
 
-@testitem "product inputs: another project's keyed product, read where it lives" setup = [GitFixture] begin
+@testitem "product_inputs"  setup = [GitFixture] begin
     using Test, TOML
     import VisualGeometryToolkitEval as VgtkEval
     const E = VgtkEval.Experiments

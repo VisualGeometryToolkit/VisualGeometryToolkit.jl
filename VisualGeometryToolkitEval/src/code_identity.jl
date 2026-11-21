@@ -549,7 +549,8 @@ so the runner and the drivers resolve a view tier to the same directory.
 function catalog_view_mount(data_root::AbstractString, catalog::AbstractString)
     (isfile(joinpath(data_root, ARTIFACT_VIEW_MARKER)) && isfile(catalog)) || return nothing
     entries = get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}())
-    return t -> haskey(entries, t) ? _entry_mount_dir(entries[t]) : nothing
+    # a produced entry (`kind = "produced"`) is never in the view
+    return t -> haskey(entries, t) && get(entries[t], "kind", "") != "produced" ? _entry_mount_dir(entries[t]) : nothing
 end
 
 # A data-catalog entry's `mount_dir` (`""` without one): the one reader, the runner's and DataArtifacts'.

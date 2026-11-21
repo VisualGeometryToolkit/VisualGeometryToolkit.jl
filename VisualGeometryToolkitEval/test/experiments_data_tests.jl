@@ -658,6 +658,48 @@
         v4 = E.data_policy_violations(root)
         @test [(x.rule, x.line) for x in v4 if startswith(x.file, "configs")] == [("D1", 1)] &&
               only(x for x in v4 if startswith(x.file, "configs")).file == joinpath("configs", "run.toml")
+        # … and in the Markdown of the root and of data/ (what a reader copies); not in data/'s other files
+        mkpath(joinpath(root, "data"))
+        write(joinpath(root, "README.md"), "Run it.\n\nThe data are in /raid/data/x.\n")
+        write(joinpath(root, "data", "README.md"), "# data\n/mnt/x\n")
+        write(joinpath(root, "data", "notes.txt"), "/mnt/x\n")
+        v5 = E.data_policy_violations(root)
+        @test sort([(x.file, x.line) for x in v5 if x.rule == "D1" && !startswith(x.file, "src") && !startswith(x.file, "scripts") &&
+                                                    !startswith(x.file, "configs")]) ==
+              sort([(joinpath("data", "README.md"), 2), ("README.md", 3)])
+        # D1: the other text files of a code directory too, home-relative paths and host names (not a site selection's)
+        r6 = mktempdir(); mkpath(joinpath(r6, "scripts")); mkpath(joinpath(r6, "src"))
+        write(joinpath(r6, "scripts", "README.md"), "run from ~/src/demo\n")
+        write(joinpath(r6, "scripts", "tool.py"), "ROOT = '\$HOME/data'\n")
+        write(joinpath(r6, "scripts", "run.sh"), """
+            cd \${HOME}/x
+            make -C \$(HOME)/y
+            ssh dgx01 true
+            julia run.jl --site=dgx01
+            julia run.jl --site dgx01 --site="dgx02"
+            export VGTK_SITE=dgx01
+            cd "\$HOME"/src
+            """)
+        write(joinpath(r6, "src", "ok.jl"), "p = expanduser(joinpath(\"a\", \"b\")); q = \"a~/b\"; s = \"a dgx-a100 node\"\n")
+        write(joinpath(r6, "src", "home.jl"), "const POOL = joinpath(homedir(), \"pools\")\n")
+        v6 = E.data_policy_violations(r6)
+        @test sort([(x.file, x.line) for x in v6]) ==
+              sort([(joinpath("scripts", "README.md"), 1), (joinpath("scripts", "tool.py"), 1), (joinpath("scripts", "run.sh"), 1),
+                    (joinpath("scripts", "run.sh"), 2), (joinpath("scripts", "run.sh"), 3), (joinpath("scripts", "run.sh"), 7),
+                    (joinpath("src", "home.jl"), 1)]) && all(x -> x.rule == "D1", v6)
+        # in a git work tree the files git does not ignore: an ignored build tree is never read, a new file is
+        if Sys.which("git") !== nothing
+            mkpath(joinpath(r6, "docs", "build")); write(joinpath(r6, "docs", "build", "page.md"), "/raid/x/\n")
+            write(joinpath(r6, ".gitignore"), "docs/build/\nnotes.md\n")
+            write(joinpath(r6, "docs", "index.md"), "/raid/y/\n")
+            write(joinpath(r6, "notes.md"), "/raid/z/\n")
+            g(args...) = run(pipeline(`git -C $r6 $args`; stdout = devnull, stderr = devnull))
+            g("init", "-q"); g("add", "docs/index.md")
+            write(joinpath(r6, "scripts", "new.sh"), "cd /raid/w/\n")                # not added: still read
+            v7 = E.data_policy_violations(r6)
+            @test any(x -> x.file == joinpath("docs", "index.md"), v7) && any(x -> x.file == joinpath("scripts", "new.sh"), v7)
+            @test !any(x -> startswith(x.file, joinpath("docs", "build")) || x.file == "notes.md", v7)
+        end
     end
     store_saved === nothing ? delete!(ENV, "VGTK_ARTIFACT_STORE") : (ENV["VGTK_ARTIFACT_STORE"] = store_saved)
 end

@@ -335,7 +335,9 @@ function _resolved_path(p::AbstractString)
     return foldl(joinpath, rest; init = ispath(p) ? realpath(p) : p)
 end
 
-_is_under(p, root) = (c = _resolved_path(p); r = _resolved_path(root); c == r || startswith(c, rstrip(r, '/') * "/"))
+# Whether path `p` is `root` or lies under it, as text (neither is resolved; DataArtifacts' produced entries' `covers`).
+_path_within(p, root) = p == root || startswith(p, rstrip(root, '/') * "/")
+_is_under(p, root) = _path_within(_resolved_path(p), _resolved_path(root))
 
 # Whether the artifact view's Artifacts.toml publishes `name` (a tier that is no artifact is only looked up). The
 # parsed file is cached by path and mtime.

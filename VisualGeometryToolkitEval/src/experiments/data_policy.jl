@@ -4,8 +4,10 @@
 #
 #   @test isempty(data_policy_violations(projectdir(); allow = DATA_POLICY_ALLOW))
 #
-#   D1  no machine paths (/raid, /home, /mnt, /cluster, …) in code, launchers,
-#       tests, examples, configs, docs or tracked provenance: every path derives
+#   D1  no machine paths (/raid, /home, /mnt, /cluster, ~/…, $HOME/…, a host
+#       name such as dgx01 outside a --site= argument, …) in code, launchers,
+#       tests, examples, configs, docs, tracked provenance or the Markdown of
+#       the root and data/ (README.md, REPRODUCE.md): every path derives
 #       from DrWatson's projectdir/datadir, data_root(), results_root() or an
 #       environment variable, and a machine's own paths live in
 #       VisualGeometryToolkitEval's site profiles (configs/sites/, VGTK_SITE)
@@ -50,7 +52,10 @@ struct DataPolicyAllow
     match::String
 end
 
-const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net|cluster|srv|gpfs|lustre)/"
+# D1: a machine root (`/raid/…`, `/cluster/…`), a home-relative path (`~/src/…`, `$HOME/…`, `"$HOME"/…`, `${HOME}/…`,
+# `$(HOME)/…`, `homedir()`, `ENV["HOME"]`), or a host name (`dgx01`) other than the value of a site selection
+# (`--site=dgx01`, `--site dgx01`, `VGTK_SITE=dgx01`, `site = "dgx01"`, quoted or not).
+const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net|cluster|srv|gpfs|lustre)/|(?<![\w.$}/~])~/[\w.]|\$\{?HOME\}?\"?/|\$\(HOME\)/|\bhomedir\(\)|ENV\[\"HOME\"\]|(?<!--site=)(?<!--site=\")(?<!--site=')(?<!--site )(?<!SITE=)(?<!SITE=\")(?<!site = \")(?<!site=\")(?<![\w.\-/])dgx[0-9]+\b"
 const _D2_WRITE = r"\b(mkpath|mkdir|write|open|jldsave|wsave|tagsave|safesave|save|cp|mv|symlink|touch)\(\s*joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\")"
 const _D4 = r"(?<![\w\"])(artifact\"|@artifact_str\b)"
 const _D5 = r"\b(install_artifact|ensure_artifact_installed|download_artifact|create_artifact|bind_artifact!|archive_artifact|with_artifacts_directory|with_artifact_store|store_file|download_verified|migrate_artifacts)\(|\bDownloads\.download\(|\bHTTP\.(get|request)\(|\bLazyArtifacts\b|\bPkg\.Artifacts\b"
@@ -80,7 +85,33 @@ _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (
 # path in a config's comment or a README is the next run's machine path. A site profile (a TOML file with a `[site]`
 # table, the one place a machine's paths belong: a project's own `sites_dir`) is not read.
 const _MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
-const _MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
+const _MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".py", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
+# … and the Markdown files directly in the project root and in data/ (README.md, REPRODUCE.md, data/README.md):
+# the instructions a reader copies (with `git`, the ones git does not ignore).
+function _root_markdown(root, git::Bool)
+    md = String[]
+    for d in (String(root), joinpath(root, "data"))
+        isdir(d) || continue
+        append!(md, filter(isfile, [joinpath(d, f) for f in sort(readdir(d)) if endswith(f, ".md")]))
+    end
+    (git && !isempty(md)) || return md
+    keep = Set(normpath.(_git_listing(root, relpath.(md, root))))
+    return filter(p -> normpath(p) in keep, md)
+end
+
+# The files of directory `d` of `root` the scan reads: with `git` (the project's files are git's: `_git_listing` lists
+# some) the ones git does not ignore, tracked or new (an ignored build or output tree, docs/build, is never walked);
+# without (no work tree, or an enclosing repository that ignores the whole project) every file under it, so the scan
+# never goes quiet for want of git.
+_policy_files(root, d, git::Bool) = git ? filter(isfile, _git_listing(root, [d])) :
+    [joinpath(r, f) for (r, _, fs) in walkdir(joinpath(root, d)) for f in sort(fs)]
+
+# The files git does not ignore within the pathspecs `spec` of `root` (tracked, or new and not ignored), sorted; none
+# outside a work tree.
+function _git_listing(root, spec)
+    out = _git_line(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", spec...])
+    return out === nothing ? String[] : sort!([joinpath(root, f) for f in unique(split(out, '\0'; keepempty = false))])
+end
 
 _is_site_profile(path) = endswith(path, ".toml") && haskey(try TOML.parsefile(path) catch; Dict{String, Any}() end, "site")
 
@@ -90,10 +121,13 @@ _is_site_profile(path) = endswith(path, ".toml") && haskey(try TOML.parsefile(pa
         -> Vector{NamedTuple{(:rule, :file, :line, :text)}}
 
 The data-policy findings (rules D1–D5, see the file header) in the `dirs` of
-project `root` (code: every rule, comments skipped), and D1 also in its tests,
+project `root` (code, the `exts` files: every rule, comments skipped; their
+other text files: D1), and D1 also in its tests,
 examples, configs, docs and provenance (every line of their code, config and
-text files; a site profile, which holds a machine's paths by design, excepted),
-minus the `allow`ed ones, plus a `STALE` finding for every allow entry that
+text files; a site profile, which holds a machine's paths by design, excepted)
+and in every Markdown file of the root and of `data/` (README.md, REPRODUCE.md,
+data/README.md, …). In a git work tree the files git ignores are not read.
+The result is minus the `allow`ed ones, plus a `STALE` finding for every allow entry that
 matched nothing. Empty ⇔ compliant.
 """
 function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
@@ -101,13 +135,14 @@ function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
                                 allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     found = NamedTuple{(:rule, :file, :line, :text),Tuple{String,String,Int,String}}[]
     seen = Set{String}()
-    for d in filter(d -> isdir(joinpath(root, d)), unique([dirs; _MACHINE_PATH_DIRS])),
-            (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
-        ext = splitext(f)[2]
-        path = joinpath(r, f)
+    git = !isempty(_git_listing(root, ["."]))
+    walked = ((d, path) for d in filter(d -> isdir(joinpath(root, d)), unique([dirs; _MACHINE_PATH_DIRS]))
+              for path in _policy_files(root, d, git))
+    for (d, path) in Iterators.flatten((walked, (("", p) for p in _root_markdown(root, git))))
+        ext = splitext(path)[2]
         rel = relpath(path, root)
         code = d in dirs && ext in exts
-        (code || (d in _MACHINE_PATH_DIRS && ext in _MACHINE_PATH_EXTS)) && !(rel in seen) || continue
+        (code || ext in _MACHINE_PATH_EXTS) && !(rel in seen) || continue
         push!(seen, rel)                                   # a code dir nested in a machine dir is read once
         code || !_is_site_profile(path) || continue
         for (i, line) in enumerate(eachline(path))

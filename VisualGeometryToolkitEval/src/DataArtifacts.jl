@@ -55,6 +55,18 @@
 #                        artifact view, byte for byte. The rule, not a list:
 #                        the author's file sizes derive the parts; a consumer
 #                        reads them from the bindings.
+#   kind = "produced"    a DERIVED input of record that is never published: its
+#                        `producer` (the name of a stage of the project's graph,
+#                        configs/reproduce.toml) regenerates it from published
+#                        tiers, and `covers` lists the config inputs it is, by
+#                        their `[inputs.<id>] path` (an input whose path is one of
+#                        them, or under one, is this entry's) and `tier` (the
+#                        inputs' own tier: a path is relative to its tier's
+#                        root). No record, mount or binding: it
+#                        is never packed, bound or fetched (`fetch_data!` names
+#                        its producer), and a config keeps its inputs as they are
+#                        (a run key hashes them). Keys: kind, producer, covers,
+#                        tier, what, provenance.
 #   published_name = "…" (optional) the name the record's host publishes the
 #                        entry's tarball(s) under, when it differs from the
 #                        binding name `<name>`: a name published before the
@@ -87,6 +99,7 @@ using Pkg.Artifacts: bind_artifact!, create_artifact, archive_artifact, remove_a
 using VisualGeometryToolkitCore: with_artifact_store, artifact_store   # the store's one wrapper of Pkg's override
 using ..Experiments: data_root, results_root, project_root, load_run_config, install_artifact,
     link_tree!, is_artifact_view, ARTIFACT_VIEW_MARKER, ArtifactView
+import ..Experiments: _path_within   # experiments/data.jl: a path at or under another, as text (`covers`)
 import .._entry_mount_dir   # src/code_identity.jl: a catalog entry's mount_dir, the runner's reader too
 using ..Tuning: registered_split
 using ..Datasets: PtRawTrees, pt_scene_files
@@ -101,6 +114,9 @@ const HOSTS = ("zenodo", "huggingface")
 const KINDS = ("pool_sources", "pools", "stored", "tree")
 const MOUNTS = ("data", "results")
 const ENTRY_KEYS = ("kind", "mount", "record", "required", "what", "provenance")   # every entry's; `published_name` is optional
+const PRODUCED = "produced"                                                      # a derived input, regenerated, never bound
+const PRODUCED_KEYS = ("kind", "producer", "covers", "tier", "what", "provenance")   # a produced entry's, every one
+_is_produced(a) = get(a, "kind", "") == PRODUCED
 const SPLIT_KINDS = ("pool_sources", "pools")
 const META_PART = "meta"
 const SUBPART = "_part"
@@ -164,7 +180,19 @@ the catalog's `artifacts_toml_env` variable names.
 project_catalog(root::AbstractString = project_root()) = load_catalog(joinpath(root, _PROJECT_CATALOG))
 
 "The names of the artifacts fetched by default (`required = true`), sorted."
-required_artifacts(cat::DataCatalog) = sort([n for (n, a) in cat.artifacts if get(a, "required", false)])
+required_artifacts(cat::DataCatalog) = sort([n for (n, a) in cat.artifacts if get(a, "required", false) && !_is_produced(a)])
+
+# The produced entry (`kind = "produced"`) that covers a config input of `path` and `tier`: the entry of that `tier`
+# whose `covers` holds the path or a directory above it (a path is relative to its tier's root). `nothing` when none does.
+function _produced_cover(cat::DataCatalog, path::AbstractString, tier::AbstractString)
+    p = normpath(path)
+    for (n, a) in sort(collect(cat.artifacts); by = first)
+        _is_produced(a) || continue
+        get(a, "tier", nothing) == tier || continue
+        any(c -> c isa AbstractString && _path_within(p, normpath(c)), get(a, "covers", [])) && return n
+    end
+    return nothing
+end
 
 """
     split_scenes(side) -> Vector{String}
@@ -362,6 +390,7 @@ consumer reads it from the bindings).
 """
 function artifact_parts(cat::DataCatalog, name::AbstractString)
     haskey(cat.artifacts, name) || error("unknown data artifact $name (catalog: $(cat.path))")
+    _is_produced(cat.artifacts[name]) && return String[]     # never bound: its producer regenerates it
     _is_split(cat.artifacts[name]) || return [String(name)]
     return first.(_parts_table(cat, name))
 end
@@ -512,7 +541,8 @@ command line `argv` read as
 then [`fetch_artifacts!`](@ref) of them (a split entry all its parts, a chunked
 file reassembled), one line per artifact to `io` (its new links and where, or
 that its root is already bound), the two roots (`data_root()`,
-`results_root()`) and the artifact store, and the line `FETCH_DATA_DONE`. Returns `fetch_artifacts!`'s
+`results_root()`) and the artifact store, and the line `FETCH_DATA_DONE`. A produced entry (`kind = "produced"`) is
+never fetched: `--list` and a request of it name its producing stage. Returns `fetch_artifacts!`'s
 rows (`nothing` for `--list`). A script is the one call
 `fetch_data!(project_catalog())` after `@quickactivate`.
 """
@@ -520,6 +550,10 @@ function fetch_data!(cat::DataCatalog = project_catalog(); argv::AbstractVector{
     if "--list" in argv
         meta = isfile(cat.artifacts_toml) ? TOML.parsefile(cat.artifacts_toml) : Dict{String, Any}()
         for (n, a) in sort(collect(cat.artifacts); by = first)
+            if _is_produced(a)
+                println(io, rpad(n, 32), " produced by stage ", get(a, "producer", "?"), ": ", get(a, "what", ""))
+                continue
+            end
             println(io, rpad(n, 32), get(a, "required", false) ? " required " : " optional ", rpad(a["mount"], 8), " ", a["what"])
             for p in artifact_parts(cat, n)
                 println(io, " "^32, "  ", haskey(meta, p) ? meta[p]["download"][1]["url"] : "$p (not bound)")
@@ -530,6 +564,11 @@ function fetch_data!(cat::DataCatalog = project_catalog(); argv::AbstractVector{
     only = filter(!isempty, split(cli_option(argv, "only", ""), ','))
     names = !isempty(only) ? String.(only) : "--all" in argv ? sort(collect(keys(cat.artifacts))) : required_artifacts(cat)
     rows = fetch_artifacts!(cat, names)
+    for n in names
+        a = get(cat.artifacts, n, nothing)
+        a !== nothing && _is_produced(a) &&
+            println(io, rpad(n, 32), " not fetched: produced by stage ", get(a, "producer", "?"), " (regenerate it from the published tiers)")
+    end
     for r in rows
         println(io, rpad(r.name, 32), " ", r.dst === nothing ? "not linked: its $(r.mount) root is bound" :
                                                "$(r.linked) new link(s) under $(r.dst)")
@@ -767,7 +806,12 @@ host ([`download_url`](@ref)) — the record's id or revision when it has one,
 else its placeholder; never a local path — under its [`published_name`](@ref):
 an entry's `published_name`, when present, is a file name (no `/`, not the
 binding's own name, no other entry's name or published name), and the URL's
-file is checked against it instead of the binding name.
+file is checked against it instead of the binding name. A produced entry
+(`kind = "produced"`) has exactly its keys (`producer`, `covers` — a non-empty
+list of relative input paths —, `tier`, `what`, `provenance`) and no
+binding; that its producer is a stage of the project's graph whose inputs are
+published or produced tiers is checked with the graph (PaperProjects'
+`paper_project_violations`, A1).
 """
 function catalog_violations(cat::DataCatalog; kinds = String[])
     v = String[]
@@ -798,6 +842,10 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
         end
     end
     for (n, a) in sort(collect(cat.artifacts); by = first)
+        if _is_produced(a)
+            append!(v, _produced_violations(n, a, bound))
+            continue
+        end
         for k in ENTRY_KEYS
             haskey(a, k) || push!(v, "$n: no `$k`")
         end
@@ -849,6 +897,26 @@ function catalog_violations(cat::DataCatalog; kinds = String[])
             end
         end
     end
+    return v
+end
+
+# A produced entry's own keys (its producer's place in the stage graph is checked with the graph: PaperProjects' A1).
+function _produced_violations(n, a, bound)
+    v = String[]
+    for k in PRODUCED_KEYS
+        haskey(a, k) || push!(v, "$n: no `$k`")
+    end
+    for k in keys(a)
+        k in PRODUCED_KEYS || push!(v, "$n: a produced entry takes $(join(PRODUCED_KEYS, ", ")), not `$k`")
+    end
+    (haskey(a, "producer") && !(a["producer"] isa AbstractString && !isempty(a["producer"]))) &&
+        push!(v, "$n: producer must name a stage of the project's graph")
+    c = get(a, "covers", nothing)
+    (c === nothing || (c isa AbstractVector && !isempty(c) &&
+                       all(p -> p isa AbstractString && !isempty(p) && !isabspath(p) && !any(in((".", "..")), splitpath(p)), c))) ||
+        push!(v, "$n: covers must be a non-empty list of relative input paths (no `.`, `..`)")
+    haskey(a, "tier") && !(a["tier"] isa AbstractString && !isempty(a["tier"])) && push!(v, "$n: tier must name the covered inputs' tier")
+    haskey(bound, n) && push!(v, "$n: a produced entry is never bound (its producer regenerates it)")
     return v
 end
 

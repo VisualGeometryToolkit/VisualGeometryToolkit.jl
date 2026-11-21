@@ -20,12 +20,22 @@ store.
   `set_site_artifact_store!` when it loads, so `VGTK_SITE` selects the store.
 - **Paper-project rules**: `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!`; `L6` git tracks
   data under `data/` (anything but `data/README.md`); `D1` also scans tests, examples, configs, docs and tracked
-  provenance (every line of their code, config and text files, a site profile excepted; `/cluster`, `/srv`, `/gpfs`,
-  `/lustre` added to the machine roots); `D5` an artifact or download API outside DataArtifacts;
+  provenance (every line of their code, config and text files, a site profile excepted) and every Markdown file of the
+  project root and of `data/` (README.md, REPRODUCE.md, data/README.md, …), and the other text files of `src/` and
+  `scripts/` (`.py` among them); it reads, in a git work tree, only the files git does not ignore; the machine roots
+  gain `/cluster`, `/srv`, `/gpfs`, `/lustre`, and D1 also finds a home-relative path (`~/…`, `$HOME/…`, `"$HOME"/…`,
+  `${HOME}/…`, `$(HOME)/…`, `homedir()`, `ENV["HOME"]`) and a host name (`dgx01`) other than a site selection's value
+  (`--site=`, `--site `, `VGTK_SITE=`, `site = "…"`); `D5` an artifact or download API outside DataArtifacts;
   the check **`:storage`** (default): `A2` a config's `[inputs.<id>]` names no catalogued tier, `A3` an artifact name
   bound to another tree in another project's Artifacts.toml (`stack_artifacts`) or in the store's name record, `A4`
   a link of the artifact view outside the artifact store; the opt-in check **`:release`**: `R1` an unpublished
   record, `R2` a Hugging Face record not `public = true`, `R3` a placeholder or local download URL.
+- **Produced catalog entries** (DataArtifacts, `kind = "produced"`): a derived input of record that is never
+  published, with its `producer` (a stage of `configs/reproduce.toml`), the config inputs it `covers` (by their
+  `[inputs.<id>] path`) of one `tier`, `what` and `provenance`. It has no record, mount or binding and is
+  never packed, bound or fetched (`fetch_data!` names its producer); configs and their run keys are unchanged. `A2`
+  accepts an input a produced entry covers; `A1` requires its producer to be a stage with a config of record whose inputs are published
+  tiers or covered by another produced entry, with no cycle.
 - **The template's `scripts/fetch_data.jl`** (DataArtifacts' `fetch_data!`), and its `data/README.md` and
   `README.md` naming the site profiles and the store.
 

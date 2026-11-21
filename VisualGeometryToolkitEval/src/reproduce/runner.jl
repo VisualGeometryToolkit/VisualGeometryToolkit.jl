@@ -482,8 +482,10 @@ function load_stage_graph(path::AbstractString)
                       _dependency_order(stages), rb)
 end
 
+_stage_index(g::StageGraph, name) = findfirst(s -> s.name == name, g.stages)
+
 function _stage(g::StageGraph, name)
-    i = findfirst(s -> s.name == name, g.stages)
+    i = _stage_index(g, name)
     i === nothing && throw(ArgumentError("unknown stage $(repr(name)); the graph has $(join((s.name for s in g.stages), ", "))"))
     return i
 end
@@ -590,6 +592,31 @@ end
 # Inputs
 # ---------------------------------------------------------------------------
 
+# The `[inputs.<id>]` tables with a `path` of the config at `path`: `(id, table, tier)` each, `tier` "" when unnamed.
+_config_inputs(path) = [(String(id), t, String(get(t, "tier", ""))) for (id, t) in get(TOML.parsefile(path), "inputs", Dict{String, Any}())
+                        if t isa AbstractDict && haskey(t, "path")]
+
+# The configs of record stage `s` reads, relative to the workdir, each with who reads it: its own config (one per array
+# item) and those its `inputs_from` lists. A missing `inputs_from` source is reported to `missing!(path, what, user)`.
+function _stage_configs(g::StageGraph, s::StageSpec; env = ENV, missing! = (_...) -> nothing)
+    out = Tuple{String, String}[]
+    if !isempty(s.config)
+        for item in stage_items(g, s; env = env)
+            cfg = _config_of(s, item)
+            push!(out, (cfg, "$(s.name) ($cfg)"))
+        end
+    end
+    for f in s.inputs_from
+        src = joinpath(g.workdir, f["config"])
+        isfile(src) || (missing!(f["config"], "config of record", s.name); continue)
+        for c in _dotted_all(TOML.parsefile(src), f["key"])
+            cfg = normpath(joinpath(get(f, "base", "."), c))
+            push!(out, (cfg, "$(s.name) ($cfg, via $(f["config"]))"))
+        end
+    end
+    return out
+end
+
 """
     missing_inputs(g, stages; data_root, env = ENV, site = "", unpublished = nothing) -> Vector{NamedTuple}
 
@@ -626,9 +653,7 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
     function check!(cfg, user)
         p = joinpath(g.workdir, cfg)
         isfile(p) || (add!(cfg, "config of record", user); return)
-        for (id, t) in get(TOML.parsefile(p), "inputs", Dict{String, Any}())
-            (t isa AbstractDict && haskey(t, "path")) || continue
-            tier = String(get(t, "tier", ""))
+        for (id, t, tier) in _config_inputs(p)
             root, from = tier_data_root(tier, data_root; env, tiers, workdir = g.workdir, prefix = g.data_env, view_mount)
             name = from == "env" ? tier_variable(tier; prefix = g.data_env) : from == "site" ? "[sites.$site.tiers]" : "the artifact view"
             r = inspect_input(id, t, root; root_source = from, root_name = name,        # the one check (src/code_identity.jl)
@@ -648,22 +673,8 @@ function missing_inputs(g::StageGraph, stages::AbstractVector{<:AbstractString};
             end
         end
     end
-    for n in stages
-        s = g.stages[_stage(g, n)]
-        if !isempty(s.config)
-            for item in stage_items(g, s; env = env)
-                cfg = _config_of(s, item)
-                check!(cfg, "$(s.name) ($cfg)")
-            end
-        end
-        for f in s.inputs_from
-            src = joinpath(g.workdir, f["config"])
-            isfile(src) || (add!(f["config"], "config of record", s.name); continue)
-            for c in _dotted_all(TOML.parsefile(src), f["key"])
-                cfg = normpath(joinpath(get(f, "base", "."), c))
-                check!(cfg, "$(s.name) ($cfg, via $(f["config"]))")
-            end
-        end
+    for n in stages, (cfg, user) in _stage_configs(g, g.stages[_stage(g, n)]; env, missing! = add!)
+        check!(cfg, user)
     end
     isempty(wrong) || throw(ArgumentError("refused: an input is not the data of record\n  " * join(unique!(wrong), "\n  ")))
     return [(; path, tier = r[1], used_by = r[2]) for (path, r) in sort(collect(rows); by = first)]

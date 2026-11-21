@@ -293,9 +293,13 @@ The checks (`checks` selects; [`PAPER_PROJECT_CHECKS`](@ref) by default,
   launches) writes no provenance through the shared writer; `P2` it keys no
   output by a run key; `S1` a generator of the index has no stage runner.
 - `:catalog` — `A1` DataArtifacts `catalog_violations`, once the catalog or
-  Artifacts.toml binds an artifact (`catalog_kinds` are the project's own kinds).
+  Artifacts.toml binds an artifact (`catalog_kinds` are the project's own
+  kinds); and a produced entry whose `producer` is no stage of
+  `configs/reproduce.toml`, or reads an input that is neither a published tier
+  nor covered by another produced entry (or a cycle of them).
 - `:storage` — `A2` a config's `[inputs.<id>]` names no `tier` the catalog
-  lists (every input is catalogued); `A3` a name of the project's
+  lists and no produced entry (`kind = "produced"`) covers its path (every
+  input is catalogued); `A3` a name of the project's
   Artifacts.toml bound to another tree in one of `stack_artifacts` (other
   projects' Artifacts.toml files) or in the artifact store's name record
   (VisualGeometryToolkitCore's `store_name_clashes`): one name, one tree
@@ -351,7 +355,7 @@ function paper_project_violations(dir::AbstractString;
     (:configs in checks || :provenance in checks || :contract in checks) &&
         _scripts!(add!, root, scripts, configs, generators, checks)
 
-    :catalog in checks && _catalog!(add!, root, catalog, catalog_kinds)
+    :catalog in checks && _catalog!(add!, root, configs, catalog, catalog_kinds)
     :storage in checks && _storage!(add!, root, configs, catalog, stack_artifacts)
     :release in checks && _release!(add!, root, catalog)
 
@@ -510,21 +514,31 @@ _entries(b) = b isa AbstractVector ? b : [b]
 # An entry's git-tree-sha1s, one per binding (sorted: a platform entry's are a set).
 _tree_hashes(b) = sort!([string(get(e, "git-tree-sha1", "")) for e in _entries(b)])
 
-# The catalog's entry names and their parts (every name a config's tier may name), or `nothing` without a catalog.
-function _catalogued(root, catalog)
-    path = joinpath(root, catalog)
-    isfile(path) || return nothing
-    cat = load_catalog(path)
-    names = Set{String}(keys(cat.artifacts))
-    for n in keys(cat.artifacts)
+# What accounts for a config input `t` of `tier`: `:published` (a tier the catalog lists, `names`), the produced entry
+# that covers its path, or `nothing`.
+function _input_cover(cat, names, t, tier)
+    tier in names && return :published
+    (cat === nothing || !haskey(t, "path")) && return nothing
+    return _produced_cover(cat, string(t["path"]), tier)
+end
+
+# The project's catalog, or `nothing` without one.
+_project_catalog(root, catalog) = (path = joinpath(root, catalog); isfile(path) ? load_catalog(path) : nothing)
+
+# The catalog's entry names and their parts (every name a config's tier may name).
+function _catalogued(cat)
+    entries = [n for (n, a) in cat.artifacts if !_is_produced(a)]
+    names = Set{String}(entries)
+    for n in entries
         union!(names, try artifact_parts(cat, n) catch; String[] end)
     end
     return names
 end
 
 function _storage!(add!, root::String, configs::AbstractString, catalog::AbstractString, stack_artifacts)
-    # A2: every config input is catalogued
-    names = something(_catalogued(root, catalog), Set{String}())
+    # A2: every config input is catalogued: a tier it names, or a produced entry that covers it
+    cat = _project_catalog(root, catalog)
+    names = cat === nothing ? Set{String}() : _catalogued(cat)
     cdir = joinpath(root, configs)
     for f in (isdir(cdir) ? sort(readdir(cdir)) : String[])
         endswith(f, ".toml") || continue
@@ -535,9 +549,10 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
         ins isa AbstractDict || continue
         for (id, t) in sort(collect(ins); by = first)
             t isa AbstractDict || continue
-            tier = get(t, "tier", "")
+            tier = string(get(t, "tier", ""))
             isempty(tier) && (add!(:storage, "A2", rel, 0, "[inputs.$id] names no tier: an input is a catalogued tier's file ($catalog)"); continue)
-            tier in names || add!(:storage, "A2", rel, 0, "[inputs.$id] reads tier $(repr(tier)), which $catalog does not list")
+            _input_cover(cat, names, t, tier) === nothing && add!(:storage, "A2", rel, 0, "[inputs.$id] reads tier $(repr(tier)), which $catalog does not list " *
+                                             "(nor does a produced entry cover its path)")
         end
     end
     # A3: one name, one tree, stack-wide
@@ -608,18 +623,73 @@ end
 
 # ---- :catalog --------------------------------------------------------------------------
 
-function _catalog!(add!, root::String, catalog::AbstractString, kinds)
-    catpath = joinpath(root, catalog)
+function _catalog!(add!, root::String, configs::AbstractString, catalog::AbstractString, kinds)
     arts = joinpath(root, "Artifacts.toml")
     bound = isfile(arts) ? TOML.parsefile(arts) : Dict{String,Any}()
-    if !isfile(catpath)
+    cat = _project_catalog(root, catalog)
+    if cat === nothing
         isempty(bound) || add!(:catalog, "A1", catalog, 0, "Artifacts.toml binds $(join(sort!(collect(keys(bound))), ", ")) but there is no catalog")
         return nothing
     end
-    cat = load_catalog(catpath)
     isempty(cat.artifacts) && isempty(bound) && return nothing   # nothing published yet
     for v in catalog_violations(cat; kinds)
         add!(:catalog, "A1", catalog, 0, v)
     end
+    for v in _producer_violations(root, configs, cat)
+        add!(:catalog, "A1", catalog, 0, v)
+    end
     return nothing
+end
+
+# A produced entry's producer: a stage of the project's graph (`<configs>/reproduce.toml`) whose configs of record (every
+# array item's: no environment selects a subset) have inputs that are each a published tier of the catalog or covered
+# by another produced entry, with no cycle through the produced entries. A stage that cannot be read is a finding.
+function _producer_violations(root::String, configs::AbstractString, cat)
+    produced = sort([n for (n, a) in cat.artifacts if _is_produced(a)])
+    isempty(produced) && return String[]
+    grel = joinpath(configs, "reproduce.toml")
+    gpath = joinpath(root, grel)
+    isfile(gpath) || return ["$n: produced by stage $(repr(get(cat.artifacts[n], "producer", ""))), but there is no stage graph ($grel)" for n in produced]
+    g = try load_stage_graph(gpath) catch err; return ["the stage graph: $(sprint(showerror, err))"] end
+    v = String[]
+    deps = Dict{String, Vector{String}}()           # produced entry → the produced entries its producer reads
+    published = _catalogued(cat)
+    for n in produced
+        stage = get(cat.artifacts[n], "producer", "")
+        k = _stage_index(g, stage)
+        if k === nothing
+            push!(v, "$n: producer $(repr(stage)) is no stage of $grel")
+            continue
+        end
+        spec = g.stages[k]
+        deps[n] = String[]
+        try
+            cfgs = _stage_configs(g, spec; env = Dict{String, String}(),
+                                  missing! = (p, _, _) -> push!(v, "$n: its producer's config $p does not exist"))
+            isempty(cfgs) && push!(v, "$n: producer $(repr(stage)) has no config of record (its inputs are read from one)")
+            for (cfg, _) in cfgs
+                p = joinpath(g.workdir, cfg)
+                isfile(p) || (push!(v, "$n: its producer's config $cfg does not exist"); continue)
+                for (id, t, tier) in sort(_config_inputs(p); by = first)
+                    c = _input_cover(cat, published, t, tier)
+                    c === :published && continue
+                    c === nothing ? push!(v, "$n: its producer reads [inputs.$id] of $cfg (tier $(repr(tier))), which is neither published nor produced") :
+                                    (c in deps[n] || push!(deps[n], c))
+                end
+            end
+        catch err
+            push!(v, "$n: its producer $(repr(stage)) cannot be read: $(sprint(showerror, err))")
+        end
+    end
+    # no cycle: a produced entry is never (transitively) an input of its own producer
+    state = Dict{String, Int}()                     # 1 on the path, 2 done
+    function visit(n, path)
+        get(state, n, 0) == 2 && return
+        get(state, n, 0) == 1 && (push!(v, "produced entries form a cycle: $(join([path; n], " → "))"); return)
+        state[n] = 1
+        foreach(m -> visit(m, [path; n]), get(deps, n, String[]))
+        state[n] = 2
+    end
+    foreach(n -> visit(n, String[]), produced)
+    return unique!(v)
 end

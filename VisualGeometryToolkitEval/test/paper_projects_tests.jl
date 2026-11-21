@@ -276,6 +276,87 @@
         end
     end
 
+    @testset "produced entries: a derived input of record, named by its producer, never bound" begin
+        import VisualGeometryToolkitEval.Experiments as E
+        import VisualGeometryToolkitEval.DataArtifacts as DA
+        using TOML: TOML
+        root = good()
+        edit(s -> s * """
+            [artifacts.pools]
+            kind = "tree"
+            dir = "pools"
+            mount = "data"
+            record = "data"
+            required = true
+            what = "the pools"
+            provenance = "scripts/example_stage.jl"
+            [artifacts.cells_of_record]
+            kind = "produced"
+            producer = "make_cells"
+            covers = ["demo/cells"]
+            tier = "derived"
+            what = "the scored cells"
+            provenance = "regenerated from the pools by the stage make_cells"
+            """, root, "configs/data_artifacts.toml")
+        write(joinpath(root, "Artifacts.toml"), """
+            [pools]
+            git-tree-sha1 = "$(repeat("a", 40))"
+            lazy = true
+            [[pools.download]]
+            sha256 = "$(repeat("b", 64))"
+            url = "https://zenodo.org/records/ZENODO_RECORD_DATA/files/pools.tar.gz?download=1"
+            """)
+        add(root, "configs/reproduce.toml", """
+            [project]
+            name = "demo"
+            workdir = ".."
+            [[stage]]
+            name = "make_cells"
+            command = ["julia", "scripts/example_stage.jl"]
+            config = "configs/make_cells.toml"
+            """)
+        add(root, "configs/make_cells.toml", "[inputs.p]\ntier = \"pools\"\npath = \"heb.jld2\"\n")
+        cell = "[inputs.c]\ntier = \"derived\"\npath = \"demo/cells/budget\"\n"
+        add(root, "configs/run.toml", cell)
+        storage(v) = sort!(unique([x.rule for x in v if x.rule in ("A1", "A2")]))
+        @test isempty(storage(check(root)))                        # covered by the produced entry, its producer sound
+        cat = DA.project_catalog(root)
+        @test DA.required_artifacts(cat) == ["pools"] && isempty(DA.artifact_parts(cat, "cells_of_record"))
+        @test isempty(DA.catalog_violations(cat))
+        io = IOBuffer(); DA.fetch_data!(cat; argv = ["--list"], io)
+        @test occursin(r"cells_of_record +produced by stage make_cells", String(take!(io)))
+        # the configs stay as they are, so their run keys do: the check reads the covered config, never rewrites it, and
+        # its key is the one computed with no catalog at all
+        @test read(joinpath(root, "configs", "run.toml"), String) == cell
+        k = E.run_key(TOML.parsefile(joinpath(root, "configs", "run.toml")))
+        root2 = good()
+        foreach(f -> cp(joinpath(root, f), joinpath(root2, f); force = true),
+                ("Artifacts.toml", "configs/data_artifacts.toml", "configs/reproduce.toml", "configs/make_cells.toml", "configs/run.toml"))
+        rm(joinpath(root, "configs", "data_artifacts.toml"))
+        @test E.run_key(TOML.parsefile(joinpath(root, "configs", "run.toml"))) == k
+        # an input outside `covers`, or of another tier, is not covered
+        @test isempty(storage(check(root2)))
+        add(root2, "configs/run.toml", "[inputs.c]\ntier = \"derived\"\npath = \"demo/cellsX\"\n")
+        @test storage(check(root2)) == ["A2"]
+        add(root2, "configs/run.toml", "[inputs.c]\ntier = \"other\"\npath = \"demo/cells/budget\"\n")
+        @test storage(check(root2)) == ["A2"]
+        add(root2, "configs/run.toml", cell)
+        # the producer: a stage of the graph, reading published or produced inputs only, no cycle
+        edit(s -> replace(s, "producer = \"make_cells\"" => "producer = \"nowhere\""), root2, "configs/data_artifacts.toml")
+        v = check(root2); @test storage(v) == ["A1"] && any(x -> occursin("no stage", x.message), v)
+        edit(s -> replace(s, "producer = \"nowhere\"" => "producer = \"make_cells\""), root2, "configs/data_artifacts.toml")
+        add(root2, "configs/make_cells.toml", "[inputs.p]\ntier = \"unpublished\"\npath = \"raw\"\n")
+        v = check(root2); @test "A1" in storage(v) && any(x -> occursin("neither published nor produced", x.message), v)
+        add(root2, "configs/make_cells.toml", "[inputs.p]\ntier = \"derived\"\npath = \"demo/cells/prior\"\n")
+        v = check(root2); @test storage(v) == ["A1"] && any(x -> occursin("cycle", x.message), v)
+        add(root2, "configs/make_cells.toml", "[inputs.p]\ntier = \"pools\"\npath = \"heb.jld2\"\n")
+        # its own keys only, and never bound
+        edit(s -> replace(s, "producer = \"make_cells\"" => "producer = \"make_cells\"\nrequired = true"), root2, "configs/data_artifacts.toml")
+        @test any(m -> occursin("not `required`", m), DA.catalog_violations(DA.project_catalog(root2)))
+        edit(s -> replace(s, "required = true\n" => "", "tier = \"derived\"\n" => ""), root2, "configs/data_artifacts.toml")
+        @test any(m -> occursin("no `tier`", m), DA.catalog_violations(DA.project_catalog(root2)))   # a path is its tier's
+    end
+
     @testset "release (opt-in): public hosts only" begin
         root = good()
         @test rules(check(root; checks = (:release,))) == ["R1"]      # the template's stub record is not published yet

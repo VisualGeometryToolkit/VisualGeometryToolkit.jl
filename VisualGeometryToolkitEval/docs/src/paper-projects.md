@@ -121,12 +121,12 @@ a message:
 | check | rules |
 |---|---|
 | `:layout` | `L1` a required path is missing · `L2` Project.toml lacks DrWatson or VisualGeometryToolkitEval · `L3` git does not ignore `data/exp_raw` and `data/exp_pro` · `L4` the suite does not call this check · `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!` · `L6` git tracks data under `data/` (anything but `data/README.md`) |
-| `:data_policy` | `D1` a machine path (code and launchers; tests, examples, configs, docs and provenance, comments included; a site profile, the one place a machine path belongs, excepted) · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code · `D5` an artifact or download API outside DataArtifacts (the `data_policy` keyword forwards keywords) |
+| `:data_policy` | `D1` a machine path — a machine root, a home-relative path (`~/…`, `$HOME/…`, `homedir()`) or a host name such as `dgx01` other than a site selection's value — (code, launchers and the other text files of `src/` and `scripts/`; tests, examples, configs, docs, provenance and the Markdown of the root and `data/`, comments included; in a git work tree the files git does not ignore; a site profile, the one place a machine path belongs, excepted) · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code · `D5` an artifact or download API outside DataArtifacts (the `data_policy` keyword forwards keywords) |
 | `:reproduce` | every kind of `reproduce_index_violations` (the `reproduce` keyword forwards keywords) |
 | `:configs` | `C1` a producing script reads no config of record · `C2` it holds a data constant · `C3` it names a config that does not exist |
 | `:provenance` | `P1` no provenance through the shared writer (in the script, what it includes, or what it launches) · `P2` no run key · `S1` an index generator without `run_stages` |
-| `:catalog` | `A1` the findings of `catalog_violations`, once the catalog or Artifacts.toml binds an artifact |
-| `:storage` | `A2` a config's `[inputs.<id>]` names no tier the catalog lists · `A3` an artifact name bound to another tree in another project's Artifacts.toml (the `stack_artifacts` keyword) or in the artifact store's name record · `A4` a link of the artifact view `data/exp_raw` that resolves outside the artifact store |
+| `:catalog` | `A1` the findings of `catalog_violations`, once the catalog or Artifacts.toml binds an artifact, and a produced entry whose producer is no stage of the graph or reads an input that is neither published nor produced (or a cycle of them) |
+| `:storage` | `A2` a config's `[inputs.<id>]` names no tier the catalog lists, and no produced entry covers its path · `A3` an artifact name bound to another tree in another project's Artifacts.toml (the `stack_artifacts` keyword) or in the artifact store's name record · `A4` a link of the artifact view `data/exp_raw` that resolves outside the artifact store |
 | `:release` | opt-in, before a release: `R1` a record not yet published (no Zenodo `id`, no Hugging Face `revision`) · `R2` a Hugging Face record not stated `public = true` · `R3` a binding whose URL is a placeholder or a local file |
 | `:contract` | opt-in: the `contract_violations` of every stage file |
 
@@ -255,6 +255,28 @@ them, `**/` for any run of whole directories (none included) and a trailing
 `filter = ["**/*.ARW", "!archive/**"]` with `dir = "."` selects every raw file
 outside `archive/`. [`pack_artifacts`](@ref) keeps the comment header of
 Artifacts.toml (its leading comment lines), which Pkg's writer drops.
+
+A **produced** entry is a derived input of record that is never published: a
+stage of the project's graph regenerates it from the published tiers.
+
+```toml
+[artifacts.pt_e_pools_of_record]
+kind = "produced"
+producer = "pt_e_pools"                      # a stage of configs/reproduce.toml
+covers = ["accv2026/data/PT-E-SIFT-4K_pf3"]  # the config inputs it is, by their [inputs.<id>] path
+tier = "derived"                             # the covered inputs' own tier (a path is relative to its tier's root)
+what = "the PT-E scoring pools"
+provenance = "regenerated from the published raw tiers by the stage pt_e_pools"
+```
+
+An input of that `tier` whose `path` is one of `covers`, or lies under one, is this entry's,
+so the configs keep their inputs (and their run keys) as they are. The entry
+has no `mount`, `record` or binding: it is never packed, bound or fetched, and
+`fetch_data!` names its producer instead. The check (`A1`) requires the
+producer to be a stage of the graph with a config of record (each array item's),
+whose inputs are each a published
+tier of the catalog or covered by another produced entry, with no cycle; `A2`
+accepts an input a produced entry covers.
 
 An entry too large to upload as one file can set `split_by = "scene"` (kinds
 `pool_sources` and `pools`). It is then bound as one artifact per scene,

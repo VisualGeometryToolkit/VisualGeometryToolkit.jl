@@ -30,6 +30,8 @@ using DrWatson: initialize_project
 using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations, project_root
 using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
 using ..DataArtifacts: load_catalog, catalog_violations, artifact_parts, _PROJECT_CATALOG
+import ..DataArtifacts: _is_produced, _produced_cover   # the produced kind: a derived input that names its producer
+import ..Reproduce: load_stage_graph, _stage_index, _stage_configs, _config_inputs   # a producer's stage, its configs and their inputs
 using ..Experiments: is_artifact_view
 import ..Experiments: _is_under   # experiments/data.jl: a path under a root, both resolved (A4's links into the store)
 import .._git_line                # src/code_identity.jl: one git query, `nothing` outside a work tree (L6)

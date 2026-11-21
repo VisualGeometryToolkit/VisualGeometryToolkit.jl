@@ -217,6 +217,7 @@ include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its
 include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v2.0: one sensor's components per ISO, a dark's maps as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("kind_spec.jl")     # a kind of another package: its table, its two file boundaries, its JSON Schema (the public hook)
+include("kind_test_helpers.jl")  # nested_roundtrip, edited_copy: the two helpers of a kind's tests (this package's and its owners')
 include("schoeps.jl")      # Schöps et al.'s camera_calibration files (intrinsics0.yaml, dataset.bin), read through `load`
 include("correspondences.jl")  # export/correspondences/v2: observations + targets → per-(frame, target) point arrays for external calibrators
 include("assemble.jl")
@@ -264,6 +265,7 @@ public load, save                     # the two-verb I/O surface (see the top of
 public VgioStyle                      # the serialization style every embedded VGC value is lowered and lifted on (style.jl)
 public Record, snap_integer, MATRIX_LAYOUT   # what a lift reads; a file number as a record writes it; the matrix layout a record declares
 public write_record, read_record      # the vgio file boundary for a record of another package's kind (validate.jl)
+public nested_roundtrip, edited_copy  # a kind's tests: its body nested in another record; a record edited to be refused (kind_test_helpers.jl)
 public with_provenance, metres        # a record body with the writer's provenance; a file length as plain metres (a kind of another package's)
 public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract

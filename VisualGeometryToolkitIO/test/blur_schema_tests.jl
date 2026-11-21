@@ -92,12 +92,13 @@ end
 end
 
 @testitem "blur: the body nests in another record (VgioStyle), an IO 0.9 blur body too" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
     using StaticArrays: @SMatrix, SDiagonal
     using VisualGeometryToolkitCore: with_unit, GaussianBlur, has_units, CovMat, relabel, TargetPlaneFrame
     using Statistics: cov
     using VisualGeometryToolkitIO: VgioStyle
     s = VgioStyle(; length_unit = mm)
-    roundtrip(T, x; kw...) = JSON.lift(s, T, JSON.parse(JSON.json((body = x,); style = s)).body; kw...)
+    roundtrip(T, x) = VgtkIO.nested_roundtrip(T, x; style = s)
     g = GaussianBlur(relabel(PixelFrame{:colmap}, CovMat(@SMatrix [0.5 0.1; 0.1 0.4])))
     @test cov(roundtrip(GaussianBlur, g)) == cov(g) && keys(JSON.lower(s, g)) == (:pixel_frame, :covariance) && JSON.lower(s, g).pixel_frame == "colmap"
     p = with_unit(GaussianBlur(relabel(TargetPlaneFrame{:board}, CovMat(SDiagonal(4.0e-10, 9.0e-10)))), m)      # a print's blur, m² (σ = 0.02, 0.03 mm)
@@ -123,9 +124,10 @@ end
 end
 
 @testitem "blur: the validator" setup = [VGIoFixtures] begin
+    import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: GaussianBlur, CovMat, relabel
     mktempdir() do dir
-        edited(src, f) = (t = JSON.parse(read(src, String); dicttype = Dict{String, Any}); f(t); q = joinpath(dir, "bad.json"); write(q, JSON.json(t)); q)
+        edited(src, f) = VgtkIO.edited_copy(f, src)
         b = joinpath(dir, "b.json")
         on(F, σ) = GaussianBlur(relabel(F, CovMat(VisualGeometryToolkitCore.ScaledIdentity{2}(σ^2))))
         save(b, Dict(:R => on(PixelFrame{:colmap}, 0.5), :G => on(PixelFrame{:colmap}, 0.5)))

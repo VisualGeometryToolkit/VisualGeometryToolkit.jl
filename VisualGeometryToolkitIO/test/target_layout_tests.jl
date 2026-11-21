@@ -76,8 +76,7 @@ end
     mktempdir() do dir
         p = joinpath(dir, "grid.json")
         save(p, PlanarTarget(april_grid()))
-        good = JSON.parse(read(p, String); dicttype = Dict{String, Any})
-        edited(f) = (t = deepcopy(good); f(t); q = joinpath(dir, "edited.json"); write(q, JSON.json(t, 2)); q)
+        edited(f) = VgtkIO.edited_copy(f, p)
         # exactly one of reference, nominal and layout
         both = edited(t -> t["target"]["nominal"] = Any[Any[0.0, 0.0]])
         @test occursin("exactly one of", thrown_message(() -> load(AbstractTarget, both)))

@@ -1,5 +1,14 @@
 # VisualGeometryToolkitIO changelog
 
+## 0.11.2
+
+### Added
+- **`nested_roundtrip(T, x; style)`** and **`edited_copy(f, src, dst)`** (public, `src/kind_test_helpers.jl`): the two
+  helpers of a kind's tests, this package's and its owners' (a kind of another package): a body read back as another
+  record that embeds it reads it, and a valid record file edited into one a reader is to refuse. This package's
+  tests use them, and so do its kinds' owners' (VisualRadiometryToolkitIO), so the stack holds one copy of each.
+- The fixtures a writer reproduces byte for byte name their generator 0.11.2.
+
 ## 0.11.1
 
 A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the

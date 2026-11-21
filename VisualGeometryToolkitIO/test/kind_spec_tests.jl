@@ -63,7 +63,7 @@
         @test occursin("envelope", refusal(() -> VgtkIO.write_kind(q, SWEEP, merge(body(), (units = 1,)); style)))
         @test !isfile(q)
         # the reader: a missing key, an unknown key at its own minor (tolerated at a higher minor), another schema
-        edited(f) = (t = JSON.parse(read(p, String); dicttype = Dict{String, Any}); f(t); write(q, JSON.json(t)); q)
+        edited(f) = VgtkIO.edited_copy(f, p, q)
         @test occursin("mode", refusal(() -> VgtkIO.read_kind(edited(t -> delete!(t, "mode")), SWEEP)))
         @test occursin("unknown key", refusal(() -> VgtkIO.read_kind(edited(t -> t["extra"] = 1), SWEEP)))
         @test VgtkIO.read_kind(edited(t -> (t["extra"] = 1; t["schema"] = "toy/sweep/v2.1")), SWEEP).extra == 1

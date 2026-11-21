@@ -1,4 +1,4 @@
-docs-pass: 1aa082b4
+docs-pass: 659a6891
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
 
 # Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
@@ -19,6 +19,12 @@ landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched
   `machine_dirs`/`machine_exts` keywords private again (no caller); the docstrings of `with_artifact_store`,
   `migrate_artifacts`, `data_policy_violations` and `results_root`, the paper-projects page's roots table and D1 row,
   and both CHANGELOGs say what the reviewed code does.
+
+- Eval at 659a6891 (owner decisions after the Core, IO, Estimation, PoseLib, Features submissions; Eval not yet
+  registered): DataArtifacts' produced entries (`kind = "produced"`: header, `fetch_data!` and `catalog_violations`
+  docstrings, the paper-projects page's catalog section with an example and its A1/A2 rows) and D1's wider scope
+  (the data-policy header, `data_policy_violations`' docstring, the page's D1 row, the CHANGELOG). No public name
+  added or removed. Simplify and code review on the diff, their findings applied.
 
 ## 2. Docstrings and pages
 

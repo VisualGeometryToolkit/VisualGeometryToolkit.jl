@@ -1,3 +1,39 @@
+docs-pass: 4a72c8a8
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io 9cb964e (searched, not edited: no page names the spherical spline, the dilogarithm or the artifact store)
+
+# Core 0.13.0, Eval 0.10.0, Features 0.9.10, IO 0.11.1, Estimation 0.12.2, PoseLib 0.3.3 docs review — branch core-store-cleanup
+
+## 1. Public API since the 0.12.0 cascade (862ebba7)
+
+- Core, removed: `SphericalSplineSystem`, `spherical_spline_kernel`, `spherical_spline_coefficients`,
+  `spherical_spline_evaluate` (and their methods of `nodal_weights`, `bending_energy`, `bending_factor`,
+  `bending_rows`), `dilog`. Added: `ArtifactStore`, `artifact_store`, `with_artifact_store`, `set_site_artifact_store!`,
+  `store_file`, `download_verified`, `store_name_clashes`, `migrate_artifacts`. Changed: `install_artifact` (a `store`
+  keyword; installs into the store).
+- Eval, added: `site_root`, `active_site`, `site_profile`, `project_name`, `MACHINE_PATH_DIRS`, `MACHINE_PATH_EXTS`,
+  the `Site` storage fields, the checks L5, L6, D5, `:storage` A2–A4, `:release` R1–R3. Features, IO, Estimation,
+  PoseLib: no name added or removed.
+
+## 2. Docstrings and pages
+
+- Core: the removed names' docstrings, the `docs/src/api/batched.md` paragraphs and ARCHITECTURE.md lines deleted (no
+  `@ref` to them is left); a new page `docs/src/api/artifacts.md` (the store: its resolution table, the install, the
+  single files, the migration); every new name has its docstring (`base/artifacts.jl`).
+- Eval: `docs/src/paper-projects.md` (the rules, the enforcing test's table with L5, L6, D1, D5, `:storage`,
+  `:release`, a section "Machines and storage"), `docs/src/reproduce.md` (the shipped `vcai` site, `[storage]`), the
+  site template, the paper-project template's `data/README.md`, `README.md` and `scripts/fetch_data.jl`.
+- CHANGELOGs of the six packages.
+
+## 3. Gates (Slurm vcai, Julia 1.13.4, fresh clones from GitHub, `--depwarn=error`, a B200 slice or an RTX Pro 6000
+per job, VGTK_ARTIFACT_STORE the project space's store; logs under /cluster/projects/vgtk/logs/store/results/)
+
+- Strict docs builds (`checkdocs = :public`, doctests, link check): Core (core-3a56; its docs tree is 4a72c8a8's),
+  Eval (eval-6e61), Features, Estimation, IO, PoseLib (e75ff855; their docs unchanged since): PASS.
+- Suites: Core 418954 pass (core-4a72), Eval 3165 pass (eval-6e61), Features 3939 pass (feat-6e61, the LoMa weights
+  installed into the store), Estimation (est-6e61), IO 72521 pass (io-6e61, on nereus), PoseLib 405 pass
+  (poselib-6e61); registration_lint, agent_docs and affected (lint-6e61): PASS. From 6e612e03 to 4a72c8a8 only a Core
+  test file changed.
+
 docs-pass: 392c11c2
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io eac44cb (read, not edited: no card names a moved type, a moved kind or a version, and the install lines carry none; the IO card says "target measurements", which the naming rule spells "target observations"; no card or link names the Visual Radiometry Toolkit, the moved types' new owner)
 (the pass reviewed a74e2d51; from there to the release commit named above the packages changed only by: `radius` declared public again in Core, a test of Eval, the version numbers, the dependents' compat, the CHANGELOG headings and the generator version of IO's test fixtures — no page, docstring or example)

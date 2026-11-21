@@ -1,5 +1,45 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.13.0
+
+**Breaking: the spherical spline and the dilogarithm are removed; artifacts install into the artifact store, never a
+cluster's Julia depot.**
+
+### Removed
+- **`SphericalSplineSystem`, `spherical_spline_kernel`, `spherical_spline_coefficients`, `spherical_spline_evaluate`**
+  and their methods of `nodal_weights`, `bending_energy`, `bending_factor` and `bending_rows`, and **`dilog`** (with its
+  Bernoulli series): their one user, RadiometricCamera's focus kinds on the chief directions, was deleted, and no
+  package or project of the stack calls them (VisualGeometryToolkit, VisualRadiometryToolkit, RadiometricCamera,
+  PanoramaStitching, BlobBoards, LocalOptimizationDoneRight, RANSACScoringDoneRight searched on their main
+  branches). The thin-plate spline (`ThinPlateSplineSystem`, `tps_*`) and `normcdf_as` stay. No replacement.
+
+### Added
+- **The artifact store** (public; `src/base/artifacts.jl`): where artifact trees (DataArtifacts tiers, model weights)
+  live, a directory of `<git-tree-sha1>/` trees in Pkg's layout on large shared storage. **`artifact_store()`**
+  resolves it, returning an **`ArtifactStore(path, source)`**: `VGTK_ARTIFACT_STORE` → the site profile `VGTK_SITE`
+  names (`[storage] artifact_store`; VisualGeometryToolkitEval owns the profiles and registers its reader with
+  **`set_site_artifact_store!`**; a profile file named by its path is read here) → this package's preference
+  `artifact_store` (Preferences.jl) → the depot, which is **refused on the cluster** (a job there sets `NODE_CACHE`:
+  the depot is node-local and evicted).
+- **`with_artifact_store(f, store)`**: Pkg's `with_artifacts_directory` under one process-wide lock (Pkg's override
+  is a global that its own wrapper resets on exit), nesting into the same store allowed: the stack's one wrapper of
+  the override (DataArtifacts' packer stages through it).
+- **`store_file(url, sha256, file; depot_dir)`** and **`download_verified(url, sha256, path)`**: a single file (a
+  model's weights published as a file) in the store, `<store>/files/<sha256>/<file>`, verified and moved into place
+  atomically; the one verified single-file download of the stack.
+- **`migrate_artifacts!(toml; store, names, remove)`**: the depot's trees of an Artifacts.toml copied into the store,
+  their git-tree-sha1 recomputed and checked, moved into place atomically (`:migrated`, `:present`, `:absent`,
+  `:mismatch` per name), the depot's copy removed with `remove = true`.
+- **`store_name_clashes(store)`**: the names the store installed under more than one tree (the store records
+  `names/<name>/<tree>` per install): one name, one tree stack-wide.
+
+### Changed
+- **`install_artifact(name, toml; store = artifact_store())`** installs into the store (was: the depot), through
+  `with_artifact_store`, keeping Pkg's sha256 and git-tree-sha1 checks and its atomic move into place, under a
+  Pidfile lock per tree (`<hash>.install.pid`), so processes installing one tree into a shared store take turns. A
+  tree in the depot is not read once a store is set: `migrate_artifacts!` moves it.
+- New dependencies: FileWatching (the Pidfile lock), Preferences (the preference rung).
+
 ## 0.12.0
 
 **Breaking: the radiometric types moved to VisualRadiometryToolkitCore.** Radiometry lifts geometry: the Visual

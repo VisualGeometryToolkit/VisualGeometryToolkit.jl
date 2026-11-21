@@ -1,7 +1,5 @@
 # Authors
 
-VisualGeometryToolkit is developed at Kiel University.
-
 - James Pritts (maintainer)
 - Hendrik Sauer
 

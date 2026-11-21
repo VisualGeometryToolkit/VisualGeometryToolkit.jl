@@ -9,3 +9,6 @@
   and Features' code does not change in 0.9.9 (its compat on Core only). Released with it by the owner's ruling.
   Follow-up, immediately after the cascade: the test states its property on one machine — the two factorings' outputs
   compared with each other, not with a hash pinned across machines — gated on both nodes, in the next Features patch.
+  **Done (the commit after the release):** the hosted CI runners fail the same two pins with the same two hashes, so
+  it is a CPU family's output, not one node's. The test accepts either machine's recorded pair, features and
+  covariances of the SAME machine, and still pins the untilted detection and the pyramid on every machine.

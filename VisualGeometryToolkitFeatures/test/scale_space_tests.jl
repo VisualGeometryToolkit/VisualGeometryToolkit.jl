@@ -30,14 +30,23 @@ end
     feat(fs) = bits_hash([Float32(getfield(f, k)) for f in fs for k in fieldnames(typeof(f))])
     g1 = asift_detect(img; device = KA.CPU(), raw = true)
     @test length(g1) == 87
-    @test feat(g1) == "19bee0b8eed210064cb55e46f1a7f2d0a9c3039deca0cecd590cf0c228978f02"
+    # The tilted detection's bits depend on the CPU's floating-point evaluation (its vector instruction set): two
+    # machines' outputs are known, and a run reproduces ONE of them in both the features and their covariances (the
+    # first was recorded at 654a136f on the machine the factoring was made on; the second is the cluster's AMD node's
+    # and the hosted CI runners', the same before and after the factoring). The untilted detection and the pyramid's
+    # levels below are the same bits on every machine.
+    feature_pins = ("19bee0b8eed210064cb55e46f1a7f2d0a9c3039deca0cecd590cf0c228978f02",
+                    "0893189cf2f9021937394a7926014bf6cd3da9e257de0f38dc038d35f5e3aec6")
+    covariance_pins = ("72cd90e0d3fde944580677448c4e1b6ed9bbe1e798124cb787f0bf15768463eb",
+                       "6bd868d734e131a50e048629e419f0565890961e1fe256202bf172d2439ff3b7")
+    machine = findfirst(==(feat(g1)), feature_pins)
+    @test machine !== nothing
     g2 = asift_detect(img; device = KA.CPU(), raw = true, tilts = :untilted, nms = :none)
     @test length(g2) == 70
     @test feat(g2) == "c96560f1da83c94cb89ecfda9ebedb81e1ec9a4b3dd4921b0ff1cfe793783da7"
     g3 = asift_detect(img; device = KA.CPU(), raw = true, uncertainty = FeatureCovariance())
     @test feat(g3.features) == feat(g1)
-    @test bits_hash([Float32(x) for c in g3.cov for x in Matrix(c)]) ==
-        "72cd90e0d3fde944580677448c4e1b6ed9bbe1e798124cb787f0bf15768463eb"
+    @test machine !== nothing && bits_hash([Float32(x) for c in g3.cov for x in Matrix(c)]) == covariance_pins[machine]
     plan = AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted)
     asift_detect!(plan, permutedims(img))
     @test bits_hash(reduce(vcat, [vec(Array(g)) for g in plan.space.levels])) ==

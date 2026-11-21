@@ -1,5 +1,16 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.9.11
+
+A patch on VisualGeometryToolkitCore 0.13.1 (`[compat]` VisualGeometryToolkitCore `"0.13.1"`).
+
+- **ONNX Runtime's CUDA build lives in the artifact store** (Core's `install_built_artifact`: the store
+  `VGTK_ARTIFACT_STORE`, the site profile's, the preference's), as the LoMa weights do, never a cluster's depot: the
+  same conda-forge files and the same pinned tree, built once per store, under the store's per-tree lock, so the jobs
+  of one machine that probe CUDA together build it once. A machine whose depot holds the tree moves it with Core's
+  `migrate_artifacts` (or builds it again into the store). The CUDA 12 runtime and cuDNN it loads stay CUDA_Runtime_jll's
+  and CUDNN_jll's own lazy artifacts, which Pkg installs into the depot like every JLL's.
+
 ## 0.9.10
 
 A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`).

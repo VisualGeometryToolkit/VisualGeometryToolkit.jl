@@ -1,5 +1,42 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.10.2
+
+On VisualGeometryToolkitCore 0.13.1 (`[compat]` `"0.13.1"`: the site reader returns the site's `refuse_depot` too).
+
+### Added
+- **`Reproduce.asset_stages(product, cfg, assets; paper)`**: a driver's `:verify` and `:deploy` check stages over the
+  renders of a keyed product (`verify_assets` and `deploy_assets` against `paper_figures_dir(paper)`, the deploy under
+  the config's `[deploy] replace_submitted`, **`deploy_signoff(cfg)`**), each refusing a product not produced under
+  its current key: the pair the paper projects copied. **`Experiments.produced_dir(product)`**: a product's
+  directory once it is produced under its key, an error naming it otherwise. `paper_figures_dir` is now defined in
+  Reproduce (its deploy stages read it); PaperProjects exports the same function, unchanged.
+- **`[storage] refuse_depot`** in a site profile (`Site.refuse_depot`): whether a process there may fall back to the
+  Julia depot as its artifact store. The shipped `vcai` sets it; VisualGeometryToolkitCore's `artifact_store` reads it
+  through this package's site reader (`NODE_CACHE`, which it keyed on alone, is its fallback for a process with no
+  profile to read).
+
+### Changed
+- **One ladder of a project's roots.** A launch's `resolve_roots` and a driver's `data_root()` / `results_root()`
+  follow one precedence, owned by the runner: the command line's root (a launch), the variable, the project's own
+  `data/exp_raw` / `data/exp_pro` (a driver), the stage graph's `[sites.<site>]` root, the site profile's root. A
+  driver now reads the graph's `[sites.<site>] data_root` / `results_root` too (once it exists), as the launch did; a
+  launch's roots are unchanged.
+- **A job re-finds a site loaded by path**: the runner gives its jobs `VGTK_SITE` as the site's name where that name
+  finds the same profile (a shipped one, or one in the project's sites directory), else as the profile's file (it gave
+  the name, which found no profile, or another one, there). A driver reads the graph's `[sites.<site>]` tables (its
+  tiers) by the profile's name either way.
+- **`Product` refuses a record holding a top-level `render`** (a section `RUN_KEY_EXCLUDED` drops from a run key):
+  it keyed nothing, so a product that reads it was reused after an edit of it. A product that reads it keys it under
+  its own name (`"render_files" => cfg["render"]`); one that does not leaves it out of its record. Every other
+  product's key is unchanged. A driver that passes a whole config holding `[render]` to `Product` must drop the table
+  from it (or key it under its own name).
+- The data policy's scanned folders and the paper-project template's folders derive from one declared layout
+  (`Experiments._PROJECT_LAYOUT`): the same folders as before (D1 reads `test`, `examples`, `configs`, `docs`,
+  `provenance`, and the Markdown files of the root and `data/`; the code rules `src` and `scripts`), and
+  `PAPER_PROJECT_TEMPLATE` the same folders (in another order). D5 also refuses VisualGeometryToolkitCore's
+  `install_built_artifact` in a project's code.
+
 ## 0.10.1
 
 ### Added

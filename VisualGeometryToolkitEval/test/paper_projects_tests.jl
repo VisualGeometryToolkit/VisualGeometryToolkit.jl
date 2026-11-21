@@ -414,3 +414,24 @@ end
         set_project_root!("")
     end
 end
+
+@testitem "paper_projects: one layout for the template and the data policy's scan" begin
+    # The template's folders and the folders D1 reads derive from one list (Experiments' _PROJECT_LAYOUT), so neither
+    # drifts from the other; the lists are the ones each held by hand before.
+    import VisualGeometryToolkitEval as VgtkEval
+    E, P = VgtkEval.Experiments, VgtkEval.PaperProjects
+    @test Set(P.PAPER_PROJECT_TEMPLATE) == Set(Any["configs", "scripts", "src", "test", "plots", "data" => ["exp_raw", "exp_pro", "sims"]])
+    @test E._layout_dirs(:code) == ["src", "scripts"]
+    @test E._MACHINE_PATH_DIRS == ["test", "examples", "configs", "docs", "provenance"]
+    @test E._layout_dirs(:markdown) == ["", "data"]
+    @test allunique(l.dir for l in E._PROJECT_LAYOUT) && all(l -> l.scan in (:code, :text, :markdown, :none), E._PROJECT_LAYOUT)
+    # every folder the template makes is read by the scan or declared unread
+    @test all(t -> (t isa Pair ? first(t) : t) in (l.dir for l in E._PROJECT_LAYOUT), P.PAPER_PROJECT_TEMPLATE)
+    # a machine path in a :text folder's file and in data/README.md is found; one under plots/ (renders) is not read
+    root = mktempdir()
+    for (f, text) in ("configs/a.toml" => "root = \"/raid/x\"\n", "data/README.md" => "see /raid/y\n", "plots/p.tex" => "/raid/z\n",
+                      "src/m.jl" => "x = 1\n")
+        mkpath(dirname(joinpath(root, f))); write(joinpath(root, f), text)
+    end
+    @test sort([v.file for v in E.data_policy_violations(root)]) == sort([joinpath("configs", "a.toml"), joinpath("data", "README.md")])
+end

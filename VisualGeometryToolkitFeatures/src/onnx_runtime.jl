@@ -18,7 +18,7 @@
 # conda-forge files below (the build and the shared libraries it links:
 # protobuf, abseil, re2), each pinned by sha256, unpacked with Julia's own 7z
 # and merged into one artifact, whose tree hash Artifacts.toml pins
-# (`onnxruntime_cuda`, lazy: installed by the first CUDA probe, never without a
+# (`onnxruntime_cuda`, lazy: installed into the artifact store by the first CUDA probe, never without a
 # device). Their RPATH is $ORIGIN, so the merged lib/ resolves itself;
 # libstdc++ is Julia's (they need GLIBCXX 3.4.31).
 #
@@ -55,7 +55,8 @@ import ONNXRunTime as ORT   # the sessions (here and loma.jl)
 using Libdl: Libdl
 using Artifacts: artifact_hash, load_artifacts_toml, unpack_platform
 using Base.BinaryPlatforms: HostPlatform, arch, os, libc, tags, triplet
-using Pkg.Artifacts: artifact_exists, artifact_path, create_artifact, ensure_artifact_installed, remove_artifact
+using Pkg.Artifacts: ensure_artifact_installed
+using VisualGeometryToolkitCore: install_built_artifact   # the store's one install of a built tree (base/artifacts.jl)
 using Tar: Tar
 using p7zip_jll: p7zip
 
@@ -192,22 +193,24 @@ function _probe_onnx_cuda(source::Function = _package_cuda_source)
     return OnnxCudaStatus(true, "", driver, src.cuda_runtime.version, src.cudnn.version)
 end
 
-# The directory of ONNX Runtime's CUDA build (Artifacts.toml's `onnxruntime_cuda`), installed from conda-forge's files on
-# first use, as (; dir); or why there is none.
+# The directory of ONNX Runtime's CUDA build (Artifacts.toml's `onnxruntime_cuda`), built from conda-forge's files into
+# the artifact store on first use (Core's `install_built_artifact`: the store `artifact_store()` resolves, never a
+# cluster's depot), as (; dir); or why there is none. ONNXRunTime loads the build by path (the probe sets its library),
+# so the tree may live anywhere. The CUDA 12 runtime and cuDNN it loads are CUDA_Runtime_jll's and CUDNN_jll's own
+# lazy artifacts (`_jll_cuda12_artifact`), which Pkg installs into the depot from those JLLs' Artifacts.toml: JLL
+# artifacts, like every other package's, are Pkg's to place.
 function _onnxruntime_cuda_artifact()
     hash = artifact_hash("onnxruntime_cuda", _ARTIFACTS_TOML)
     hash === nothing && return "this package has no ONNX Runtime CUDA build for $(triplet(HostPlatform()))"
-    artifact_exists(hash) && return (; dir = artifact_path(hash))
-    @info "Installing ONNX Runtime's CUDA build: conda-forge's $(first(first(_ORT_CUDA_FILES))) and the libraries it links " *
-          "($(length(_ORT_CUDA_FILES)) files, 0.34 GB; once per depot)"
-    got = try
-        create_artifact(_install_conda_files!)
+    build!(dir) = (@info "Installing ONNX Runtime's CUDA build into the artifact store: conda-forge's " *
+                         "$(first(first(_ORT_CUDA_FILES))) and the libraries it links ($(length(_ORT_CUDA_FILES)) files, " *
+                         "0.34 GB; once per store)";
+                   _install_conda_files!(dir))
+    return try
+        (; dir = install_built_artifact(build!, "onnxruntime_cuda", hash))
     catch err
-        return "ONNX Runtime's CUDA build did not install: $(sprint(showerror, err))"
+        "ONNX Runtime's CUDA build did not install: $(sprint(showerror, err))"
     end
-    got == hash && return (; dir = artifact_path(hash))
-    remove_artifact(got)
-    return "ONNX Runtime's CUDA build unpacked to the tree $got, not Artifacts.toml's $hash"
 end
 
 # conda-forge's files, each downloaded, checked against its sha256 and its package tarball (a .conda is a zip holding

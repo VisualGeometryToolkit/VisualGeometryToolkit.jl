@@ -218,6 +218,18 @@ end
         plan = plan_reproduction(g, vcai; env = merge(env0, Dict("VGTK_DATA_ROOT" => mktempdir(), "VGTK_RESULTS_ROOT" => mktempdir(),
                                                                  "VGTK_ARTIFACT_STORE" => "/mine")), queue_states = noqueue)
         @test plan.base_env["VGTK_ARTIFACT_STORE"] == "/mine"                                  # the caller's own wins
+        # whether the depot may be a process's artifact store: the site's setting (VisualGeometryToolkitCore reads it)
+        @test vcai.refuse_depot && !load_site("desktop").refuse_depot && !tpl.refuse_depot
+        write(joinpath(d, "refuse.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = \"yes\"\n")
+        @test_throws r"\[storage\] refuse_depot = \"yes\" is not true or false" load_site(joinpath(d, "refuse.toml"))
+        # VGTK_SITE re-finds the launch's site in a job: by name where the name finds this profile, else by its file
+        own = joinpath(d, "own.toml")
+        write(own, "[site]\nname = \"vcai\"\nbackend = \"local\"\n")         # a site loaded by path, named like a shipped one
+        envs = merge(env0, Dict("VGTK_DATA_ROOT" => mktempdir(), "VGTK_RESULTS_ROOT" => mktempdir()))
+        @test plan_reproduction(g, load_site(own); env = envs, queue_states = noqueue).base_env["VGTK_SITE"] == own
+        mine = joinpath(d, "mine.toml"); write(mine, "[site]\nbackend = \"local\"\n")
+        @test plan_reproduction(g, load_site(mine); env = envs, queue_states = noqueue).base_env["VGTK_SITE"] == mine
+        @test plan_reproduction(g, load_site(joinpath(SITES_DIR, "vcai.toml")); env = envs, queue_states = noqueue).base_env["VGTK_SITE"] == "vcai"
     end
 
     @testset "the graph: validated, in dependency order; --only with and without prerequisites" begin

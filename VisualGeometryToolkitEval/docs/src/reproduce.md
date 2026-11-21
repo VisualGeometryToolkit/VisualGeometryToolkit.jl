@@ -83,6 +83,16 @@ deploy_assets(outdir, paperdir, names;          # verifies first; a differing su
               replace_submitted = false)        # refused unless signed off
 ```
 
+A driver whose renders are the files of a keyed product gets the two as its
+last stages from [`asset_stages`](@ref), the paper's figures directory
+[`paper_figures_dir`](@ref) and the sign-off its config's
+`[deploy] replace_submitted` ([`deploy_signoff`](@ref)):
+
+```julia
+const STAGES = [Stage(:figure, "the panel"; items = () -> [figure_product()], product = identity, run = publish),
+                asset_stages(figure_product, CFG, ASSETS)...]   # :verify and :deploy
+```
+
 A `.tex` asset is compared by its numbers as well as its bytes
 ([`compare_fragments`](@ref): its pgfplots `coordinates` and its macros), so a
 reformatted fragment reports "same numbers". The numbers file is one more asset
@@ -577,7 +587,8 @@ artifact store in the NFS project space). For another machine:
    `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options,
    `job_name_prefix`; `[local]`
    `cuda_visible_devices`, `cpus_per_task`; `[storage]` `data_root`,
-   `results_root` (`{project}` the project's name) and `artifact_store`; `[env]`
+   `results_root` (`{project}` the project's name), `artifact_store` and
+   `refuse_depot` (whether the depot may serve as the artifact store); `[env]`
    variables every stage gets (`JULIA`, `JULIA_DEPOT_PATH`, …).
 2. Keep it with the project (the graph's `[project] sites_dir`) or anywhere,
    and give `--site=<name>` or `--site=path/to/mine.toml`.

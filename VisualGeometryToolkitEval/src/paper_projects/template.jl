@@ -9,13 +9,13 @@
     PAPER_PROJECT_TEMPLATE
 
 The folder template [`new_paper_project`](@ref) hands DrWatson's
-`initialize_project`: `configs/`, `scripts/`, `src/`, `test/`, `paper/figures/`
-(for the default paper), `data/{exp_raw,exp_pro,sims}` (the inputs, the
-results, the smoke runs — Experiments `data_root()`/`results_root()`) and
-`plots/`.
+`initialize_project`: `src/`, `scripts/`, `test/`, `configs/`,
+`data/{exp_raw,exp_pro,sims}` (the inputs, the results, the smoke runs —
+Experiments `data_root()`/`results_root()`) and `plots/`, the folders of the
+project layout the data policy reads by the same list (`data_policy_violations`),
+and `paper/figures/` (for the default paper).
 """
-const PAPER_PROJECT_TEMPLATE = ["configs", "scripts", "src", "test", "plots",
-                                "data" => ["exp_raw", "exp_pro", "sims"]]
+const PAPER_PROJECT_TEMPLATE = Any[isempty(l.sub) ? l.dir : l.dir => l.sub for l in _PROJECT_LAYOUT if l.template]   # Experiments' one layout
 
 const _PKG_ROOT = dirname(dirname(@__DIR__))
 const _TEMPLATE_DIR = joinpath(_PKG_ROOT, "templates", "paper_project")

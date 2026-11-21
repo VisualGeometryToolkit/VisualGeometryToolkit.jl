@@ -93,7 +93,9 @@ CUDA runtime CUDA.jl uses ([`onnx_cuda_status`](@ref) says what was found).
 ONNX Runtime itself is, on the CUDA path, conda-forge's build of release 1.31.1
 (Microsoft's GPU builds carry no code for sm_100, the B200), with device code
 for sm_70 to sm_120; the package installs it on the first CUDA probe from four
-conda-forge files pinned by sha256 (0.34 GB, once per depot).
+conda-forge files pinned by sha256 into the artifact store (VisualGeometryToolkitCore's
+`artifact_store`, never a cluster's depot: 0.34 GB, once per store). The CUDA 12
+runtime and cuDNN are the two JLLs' own artifacts, which Pkg places in the depot.
 ONNX Runtime's thread pool is `threads = Threads.nthreads()`, the process's
 allotment (in a Slurm job, start Julia with `--threads` set to the job's
 `SLURM_CPUS_PER_TASK`),

@@ -37,7 +37,9 @@ config fields and inputs the product reads), its `key` and its `output`, the fil
 ([`product_dir`](@ref)) that holds its result — the record [`produce`](@ref) saves, or the file a product that writes its own
 outputs writes last.
 
-The key is THE dependency tracking of a pipeline (`run_key(record; files, upstream, parts, code)`): the record; the products it reads
+The key is THE dependency tracking of a pipeline (`run_key(record; files, upstream, parts, code)`): the record (a top-level section
+that a run key excludes, [`RUN_KEY_EXCLUDED`](@ref)'s `render`, is refused in it: it would key nothing; a product that reads it
+keys it under another name); the products it reads
 (`upstream`: a `Product`, whose key AND its output's content hash, recorded when it was produced, are folded in — so an upstream
 produced again with another output re-keys this one, and [`produced`](@ref) checks it again; or a bare key, folded as it is:
 no output hash, so a bare key is not re-keyed when its product is produced again — give the `Product`);
@@ -69,6 +71,14 @@ function Product(experiment::AbstractString, name::AbstractString, record::Abstr
           [String(k) => v for (k, v) in (upstream isa Union{AbstractDict, NamedTuple} ? pairs(upstream) : upstream)]
     up = isempty(ups) ? nothing : Dict{String, String}(k => (v isa Product ? _upstream_token(v) : String(v)) for (k, v) in ups)
     rec = Dict{String, Any}(String(k) => v for (k, v) in record)
+    # a section a run key excludes would be dropped from the product's key unseen: a figure keyed by a record whose
+    # [render] it reads would be reused after an edit of it. Refused; a product that reads it keys it under its own name.
+    for k in RUN_KEY_EXCLUDED
+        haskey(rec, k) && throw(ArgumentError(
+            "Product $experiment/$name: its record holds a top-level `$k`, which a run key excludes (RUN_KEY_EXCLUDED), " *
+            "so it would not key the product. A product that reads it keys it under its own name " *
+            "(`merge(record, Dict(\"$(k)_files\" => record[\"$k\"]))`); one that does not leaves it out of its record."))
+    end
     return Product(String(experiment), String(name), rec, run_key(rec; files, upstream = up, parts, code), String(output),
                    Pair{String, Product}[k => v for (k, v) in ups if v isa Product])
 end
@@ -140,6 +150,16 @@ function produced(s::Product)
     @info "producing $(s.experiment)/$(s.name)/$(s.key) again: it was computed from uncommitted code" trees = join(sort!(uncommitted), ", ")
     return false
 end
+
+"""
+    produced_dir(s::Product) -> String
+
+The product's directory ([`product_dir`](@ref)) when it is [`produced`](@ref) under its current key; an error naming
+the product otherwise (its producing stage has not run since the key changed: a commit re-keys a product). What a
+check stage that reads a product's outputs (Reproduce's `asset_stages`) reads them from.
+"""
+produced_dir(s::Product) = produced(s) ? product_dir(s) :
+    error("$(s.experiment)/$(s.name)/$(s.key) is not produced: run its producing stage first (a commit re-keys a product)")
 
 """
     Produced(record = nothing; inputs = String[], kwargs...)

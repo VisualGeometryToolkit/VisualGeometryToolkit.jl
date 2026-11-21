@@ -29,28 +29,18 @@ using LibGit2: LibGit2
 using DrWatson: initialize_project
 using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violations, project_root
 using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
+using ..Reproduce: paper_figures_dir   # the paper's figures directory: Reproduce's (its deploy stages'), exported here too
 using ..DataArtifacts: load_catalog, catalog_violations, artifact_parts, _PROJECT_CATALOG
 import ..DataArtifacts: _is_produced, _produced_cover   # the produced kind: a derived input that names its producer
 import ..Reproduce: load_stage_graph, _stage_index, _stage_configs, _config_inputs   # a producer's stage, its configs and their inputs
 using ..Experiments: is_artifact_view
+import ..Experiments: _PROJECT_LAYOUT   # experiments/data_policy.jl: the one project layout (the template's folders)
 import ..Experiments: _is_under   # experiments/data.jl: a path under a root, both resolved (A4's links into the store)
 import .._git_line                # src/code_identity.jl: one git query, `nothing` outside a work tree (L6)
 using VisualGeometryToolkitCore: artifact_store, store_name_clashes, is_published_url   # the artifact store: its links' target, its name record; R3's placeholder URL
 
 export PaperProjectViolation, PAPER_PROJECT_CHECKS, paper_project_violations,
     PAPER_PROJECT_TEMPLATE, new_paper_project, paper_figures_dir
-
-"""
-    paper_figures_dir(paper = "paper/main.tex"; root = project_root()) -> String
-
-The directory the paper `paper` (its main .tex, relative to the project) reads
-its generated assets from: `figures/` beside it, under the project `root`
-(Experiments' `project_root()`, the bound project). Where a driver's
-deploy stage puts its renders (Reproduce's `deploy_assets`) and where the
-template's papers keep them; `root = ""` gives it relative to the project.
-"""
-paper_figures_dir(paper::AbstractString = joinpath("paper", "main.tex"); root::AbstractString = project_root()) =
-    joinpath(root, dirname(paper), "figures")
 
 include("paper_projects/violations.jl")
 include("paper_projects/template.jl")

@@ -158,3 +158,47 @@
         @test ARGS == saved
     end
 end
+
+# The verify / deploy stage pair of a driver over a keyed product (src/reproduce/asset_stages.jl): the paper projects
+# call it instead of copying it.
+@testitem "asset_stages: verify and deploy a keyed product's renders into the paper" setup = [GitFixture] begin
+    using Test
+    import VisualGeometryToolkitEval as VgtkEval
+    using VisualGeometryToolkitEval.Reproduce: asset_stages, deploy_signoff, paper_figures_dir, VERIFY_REPORT
+    const E = VgtkEval.Experiments
+    quietly(f) = redirect_stdout(f, devnull)
+    @test deploy_signoff(Dict{String, Any}()) === false
+    @test deploy_signoff(Dict("deploy" => Dict("replace_submitted" => true))) === true
+    @test deploy_signoff(Dict("deploy" => Dict("replace_submitted" => ["a.tex"]))) == ["a.tex"]
+    @test_throws r"replace_submitted = \"yes\"" deploy_signoff(Dict("deploy" => Dict("replace_submitted" => "yes")))
+    @test VgtkEval.PaperProjects.paper_figures_dir === paper_figures_dir          # one function, exported by both
+    repo = gitrepo()
+    mkpath(joinpath(repo, "src")); write(joinpath(repo, "src", "M.jl"), "module M end\n")
+    git!(repo, "add", "-A"); git!(repo, "commit", "-qm", "code")
+    E.set_project_root!(repo)
+    withenv("VGTK_RESULTS_ROOT" => mktempdir(), "VGTK_SCRATCH" => nothing) do
+        product() = E.Product("figures", "fig1", Dict("render_files" => Dict("panel" => "a.tex")); output = "a.tex")
+        cfg = Dict{String, Any}()
+        stages = asset_stages(product, cfg, ["a.tex"])
+        @test [st.name for st in stages] == [:verify, :deploy] && all(st -> st.items === nothing, stages)
+        @test_throws r"figures/fig1/[0-9a-f]+ is not produced" stages[1].run()
+        quietly(() -> E.produce(d -> (write(joinpath(d, "a.tex"), "\\addplot coordinates {(1,2)};\n"); nothing), product();
+                                driver = "scripts/x.jl", config_source = "configs/x.toml"))
+        figs = paper_figures_dir()
+        @test figs == joinpath(repo, "paper", "figures")
+        quietly(stages[1].run)                                                   # verify: the report beside the renders
+        @test isfile(joinpath(E.product_dir(product()), VERIFY_REPORT)) && !isfile(joinpath(figs, "a.tex"))
+        quietly(stages[2].run)                                                   # deploy: new in the paper
+        @test read(joinpath(figs, "a.tex"), String) == "\\addplot coordinates {(1,2)};\n"
+        write(joinpath(figs, "a.tex"), "\\addplot coordinates {(1,3)};\n")       # a submitted copy that differs
+        @test_throws r"differ from the submitted" quietly(stages[2].run)
+        cfg["deploy"] = Dict("replace_submitted" => ["a.tex"])                   # signed off in the config, read at the run
+        quietly(stages[2].run)
+        @test read(joinpath(figs, "a.tex"), String) == "\\addplot coordinates {(1,2)};\n"
+        # another paper's figures directory
+        other = asset_stages(product, cfg, ["a.tex"]; paper = joinpath("papers", "icra", "main.tex"))
+        quietly(other[2].run)
+        @test isfile(joinpath(repo, "papers", "icra", "figures", "a.tex"))
+    end
+    E.set_project_root!("")
+end

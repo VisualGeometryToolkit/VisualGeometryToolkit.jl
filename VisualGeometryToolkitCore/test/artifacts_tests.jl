@@ -58,7 +58,7 @@ end
     end
 end
 
-@testitem "artifact_store: env → site profile → preference → depot, the depot refused on the cluster" setup = [StoreFixture] begin
+@testitem "artifact_store: env → site profile → preference → depot, the depot refused by the site or on the cluster" setup = [StoreFixture] begin
     using Test, TOML
     import VisualGeometryToolkitCore as VgtkCore
     using Pkg.Artifacts: create_artifact, bind_artifact!
@@ -83,6 +83,28 @@ end
                 err = try VgtkCore.artifact_store(); nothing catch e; e end
                 @test err isa ErrorException && occursin("refused", err.msg) && occursin("VGTK_ARTIFACT_STORE", err.msg)
             end
+            # … refused where the site profile says so ([storage] refuse_depot), NODE_CACHE or not: a profile file
+            # read here, a name through the registered reader
+            refusing = joinpath(dir, "refusing.toml")
+            write(refusing, "[site]\nbackend = \"slurm\"\n[storage]\nrefuse_depot = true\n")
+            VgtkCore._SITE_STORE[] = nothing
+            withenv("VGTK_SITE" => refusing) do
+                err = try VgtkCore.artifact_store(); nothing catch e; e end
+                @test err isa ErrorException && occursin("refuse_depot", err.msg) && occursin("VGTK_ARTIFACT_STORE", err.msg)
+            end
+            VgtkCore.set_site_artifact_store!(site -> site == "cluster" ? (; artifact_store = "", refuse_depot = true) : nothing)
+            withenv("VGTK_SITE" => "cluster") do
+                err = try VgtkCore.artifact_store(); nothing catch e; e end
+                @test err isa ErrorException && occursin("refuse_depot", err.msg)
+            end
+            # a site that does not refuse it, and a name no profile has: the depot
+            withenv(() -> (@test VgtkCore.artifact_store().source === :depot), "VGTK_SITE" => "laptop")
+            write(joinpath(dir, "lenient.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = false\n")
+            VgtkCore._SITE_STORE[] = nothing
+            withenv(() -> (@test VgtkCore.artifact_store().source === :depot), "VGTK_SITE" => joinpath(dir, "lenient.toml"))
+            write(joinpath(dir, "bad.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = \"yes\"\n")
+            err = withenv(() -> (try VgtkCore.artifact_store(); nothing catch e; e end), "VGTK_SITE" => joinpath(dir, "bad.toml"))
+            @test err isa ErrorException && occursin("is not true or false", err.msg)
             # the preference over the depot (and on the cluster)
             pushfirst!(LOAD_PATH, prefenv)
             try
@@ -99,6 +121,12 @@ end
                     @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(dir, "named-store"), :site)
                 end
                 # a profile that names no store leaves it to the next rung
+                withenv(() -> (@test VgtkCore.artifact_store().source === :preference), "VGTK_SITE" => "other")
+                # a reader's (; artifact_store, refuse_depot): the store, or "" for the next rung
+                VgtkCore.set_site_artifact_store!(site -> (; artifact_store = site == "mysite" ? joinpath(dir, "nt-store") : "",
+                                                           refuse_depot = true))
+                withenv(() -> (@test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(dir, "nt-store"), :site)),
+                        "VGTK_SITE" => "mysite")
                 withenv(() -> (@test VgtkCore.artifact_store().source === :preference), "VGTK_SITE" => "other")
                 # the environment over everything
                 withenv("VGTK_SITE" => "mysite", "VGTK_ARTIFACT_STORE" => joinpath(dir, "env-store")) do
@@ -270,4 +298,29 @@ end
     finally
         popfirst!(DEPOT_PATH)
     end
+end
+
+@testitem "install_built_artifact: a tree built here, into the store, its hash checked" setup = [StoreFixture] begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    using Pkg.Artifacts: create_artifact
+    using Base: SHA1
+    dir = mktempdir()
+    build!(d) = (write(joinpath(d, "lib.so"), "built"); mkpath(joinpath(d, "share")); write(joinpath(d, "share", "x"), "y"))
+    # the tree's hash, as a pinned Artifacts.toml states it
+    hash = VgtkCore.with_artifact_store(() -> create_artifact(build!), joinpath(dir, "scratch"))
+    store = VgtkCore.ArtifactStore(joinpath(dir, "store"), :env)
+    calls = Ref(0)
+    counted!(d) = (calls[] += 1; build!(d))
+    tree = VgtkCore.install_built_artifact(counted!, "built_tree", hash; store)
+    @test tree == joinpath(store.path, bytes2hex(hash.bytes)) && read(joinpath(tree, "lib.so"), String) == "built"
+    @test isfile(joinpath(store.path, "names", "built_tree", bytes2hex(hash.bytes)))
+    # present: not built again
+    @test VgtkCore.install_built_artifact(counted!, "built_tree", hash; store) == tree && calls[] == 1
+    # a build that gives another tree is refused, and leaves nothing in the store
+    wrong = SHA1("1"^40)
+    err = try VgtkCore.install_built_artifact(d -> write(joinpath(d, "other"), "z"), "wrong_tree", wrong; store); nothing catch e; e end
+    @test err isa ErrorException && occursin("not the pinned $("1"^40)", err.msg)
+    @test sort([f for f in readdir(store.path) if isdir(joinpath(store.path, f))]) == sort([bytes2hex(hash.bytes), "names"])
+    @test !isdir(joinpath(store.path, "names", "wrong_tree"))
 end

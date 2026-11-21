@@ -92,6 +92,49 @@
         end
     end
 
+    @testset "one ladder: a driver's roots as the launch's, the site found again by its file, the depot refused by the site" begin
+        dir = mktempdir(); sites = mktempdir(); mkpath(joinpath(dir, "configs"))
+        lab = joinpath(sites, "lab.toml")
+        write(lab, """
+            [site]
+            name = "lab"
+            backend = "local"
+            [storage]
+            data_root = "$(joinpath(sites, "data", "{project}"))"
+            refuse_depot = true
+            """)
+        tabled = joinpath(sites, "tabled")
+        write(joinpath(dir, "configs", "reproduce.toml"), """
+            [project]
+            name = "paper"
+            workdir = ".."
+            [sites.lab]
+            data_root = "$tabled"
+            tiers = { tier_t = "$(joinpath(sites, "t"))" }
+            [[stage]]
+            name = "s"
+            command = ["true"]
+            """)
+        withenv("VGTK_DATA_ROOT" => nothing, "VGTK_RESULTS_ROOT" => nothing, "VGTK_ARTIFACT_STORE" => nothing,
+                "VGTK_DATA_ROOT_TIER_T" => nothing, "NODE_CACHE" => nothing, "VGTK_SITE" => lab) do   # a job's VGTK_SITE: the file
+            E.set_project_root!(dir)
+            R = VgtkEval.Reproduce
+            g = R.load_stage_graph(joinpath(dir, "configs", "reproduce.toml"))
+            launch() = first(R.resolve_roots(g, R.load_site(lab); env = Dict{String, String}()))
+            mkpath(joinpath(sites, "data", "paper"))
+            # the graph's [sites.lab] root before the profile's, for the launch and (once it exists) for the driver
+            @test launch() == tabled && E.data_root() == joinpath(sites, "data", "paper")
+            mkpath(tabled)
+            @test E.data_root() == launch() == tabled
+            # the site's tiers found by its name, VGTK_SITE its file
+            @test E.data_root(; tier = "tier_t") == joinpath(sites, "t")
+            # the profile refuses the depot: no store named, none falls back to it (NODE_CACHE unset)
+            err = try VgtkCore.artifact_store(); nothing catch e; e end
+            @test err isa ErrorException && occursin("refuse_depot", err.msg)
+            E.set_project_root!("")
+        end
+    end
+
     @testset "artifact view" begin
         dir = mktempdir()
         toml = joinpath(dir, "Artifacts.toml")

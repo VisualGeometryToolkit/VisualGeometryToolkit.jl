@@ -19,3 +19,4 @@ precompile_time = "0:30:00"    # as dgx01's: a GPU stage's CPU precompile into a
 data_root = "/cluster/projects/vgtk/data/{project}"
 results_root = "/cluster/projects/vgtk/results/{project}"
 artifact_store = "/cluster/projects/vgtk/artifacts"
+refuse_depot = true         # the depot is the job's node-local, evicted $NODE_CACHE: never an artifact store

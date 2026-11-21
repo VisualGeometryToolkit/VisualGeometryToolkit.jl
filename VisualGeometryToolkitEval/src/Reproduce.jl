@@ -26,7 +26,8 @@ reads), [`read_reproduce_index`](@ref) (what REPRODUCE.md declares) and
 that do not write their asset, static assets without provenance, and generated
 numbers re-typed in prose); and the regeneration's last stages:
 [`verify_assets`](@ref) and [`deploy_assets`](@ref) (a submitted asset is
-replaced only with sign-off), [`gather_numbers`](@ref) (the numbers file) and
+replaced only with sign-off; [`asset_stages`](@ref), the pair as a driver's
+stages over a keyed product), [`gather_numbers`](@ref) (the numbers file) and
 [`uncited_macros`](@ref) (numbers the paper defines but never cites); and the
 one writer of a driver's number macros: [`PaperNumbers`](@ref),
 [`add_number!`](@ref), [`add_table_row!`](@ref), [`write_numbers`](@ref),
@@ -50,11 +51,13 @@ import ..cli_option                             # src/cli.jl: runner.jl reads it
 import ..code_trees, ..code_tree_changes, ..refuse_uncommitted_code, ..file_sha256, ..tier_variable, ..tier_data_root, ..catalog_view_mount, ..inspect_input, .._content_key, .._git_line, ..scratch_run, .._write_atomic   # src/code_identity.jl, src/write_atomic.jl: the code identity of a launch, an input's hash, root and check (runner.jl)
 using DrWatson: gitdescribe                    # number_provenance.jl: the checkout's commit
 using ..Experiments: project_root, read_provenance   # number_provenance.jl: the project a driver runs from, a run's record
+using ..Experiments: Stage, produced_dir              # asset_stages.jl: a driver's check stages over a keyed product
 using ..Render: write_tsv                       # paper_assets.jl: the verification report
 
 include("reproduce/reproduce_index.jl")
 include("reproduce/number_macros.jl")
 include("reproduce/paper_assets.jl")
+include("reproduce/asset_stages.jl")          # the verify / deploy stage pair of a driver (Experiments' Stage and Product)
 include("reproduce/number_provenance.jl")
 include("reproduce/results_branches.jl")
 include("reproduce/runner.jl")
@@ -65,6 +68,7 @@ export PaperAsset, PaperAssetGraph, IndexEntry, ReproduceViolation,
     paper_asset_graph, read_reproduce_index, declared_outputs, declared_inputs, tex_macro_values,
     macro_literal_violations, reproduce_index_violations,
     fragment_coordinates, compare_fragments, verify_assets, assets_deployed, deploy_assets,
+    paper_figures_dir, deploy_signoff, asset_stages,
     gather_numbers, uncited_macros,
     PaperNumbers, add_number!, add_table_row!, add_macro!, write_numbers, tex_number, number_macro_name,
     checkout_commit, number_provenance, provenance_token, project_relative_path,

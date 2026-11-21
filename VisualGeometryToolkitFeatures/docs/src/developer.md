@@ -66,9 +66,9 @@ and image-loading dependencies stay out of the one workspace Manifest. It holds
 `CUDA_Runtime_jll` and `CUDNN_jll` (as the test environment does), whose CUDA 12
 builds ONNX Runtime's CUDA provider takes (`src/onnx_runtime.jl`). The CUDA
 build of ONNX Runtime is conda-forge's, the artifact `onnxruntime_cuda` of
-`Artifacts.toml` (a tree hash only: the package installs it from the
-conda-forge files `_ORT_CUDA_FILES` pins by sha256, since Pkg cannot unpack a
-`.conda`). To move it to a new release, take the `onnxruntime-cpp` `cuda12x`
+`Artifacts.toml` (a tree hash only: the package builds it into the artifact
+store, VisualGeometryToolkitCore's `install_built_artifact`, from the conda-forge
+files `_ORT_CUDA_FILES` pins by sha256, since Pkg cannot unpack a `.conda`). To move it to a new release, take the `onnxruntime-cpp` `cuda12x`
 build and the `libprotobuf`, `libabseil` and `libre2-11` builds its metadata
 requires, update their names and sha256s, and pin the tree hash the merged
 install gives.

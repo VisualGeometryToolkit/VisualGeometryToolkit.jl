@@ -14,7 +14,9 @@
 #   VGTK_ARTIFACT_STORE (env) → the site profile VGTK_SITE names
 #   (VisualGeometryToolkitEval's site profiles, `[storage] artifact_store`) →
 #   the preference `artifact_store` of this package (Preferences.jl,
-#   LocalPreferences.toml) → the depot, refused on the cluster
+#   LocalPreferences.toml) → the depot, refused where the site profile says so
+#   (`[storage] refuse_depot = true`) or, with no profile to read, where
+#   NODE_CACHE is set (a cluster job's node-local depot)
 #
 # An install runs inside Pkg's `with_artifacts_directory(store)` (under one
 # process-wide lock: Pkg's override is a global), so Pkg's own download keeps
@@ -22,7 +24,7 @@
 # Pidfile lock per tree serialises the processes that install the same tree
 # into a shared store (one download, the others wait and read it).
 # =============================================================================
-using Pkg.Artifacts: ensure_artifact_installed, download_artifact
+using Pkg.Artifacts: ensure_artifact_installed, download_artifact, create_artifact, remove_artifact
 using Pkg.GitTools: tree_hash
 using Downloads: Downloads
 using Artifacts: Artifacts, artifact_exists, artifact_path, with_artifacts_directory
@@ -57,44 +59,62 @@ struct ArtifactStore
     source::Symbol
 end
 
-# The site rung's resolver: `site -> Union{Nothing, String}`, the `[storage] artifact_store` of the site profile
-# `site` names. VisualGeometryToolkitEval (the owner of the site profiles) sets it when it loads.
+# The site rung's resolver: `site -> Union{Nothing, NamedTuple, String}`, the `[storage]` of the site profile `site`
+# names. VisualGeometryToolkitEval (the owner of the site profiles) sets it when it loads.
 const _SITE_STORE = Ref{Union{Nothing, Function}}(nothing)
 
 """
     set_site_artifact_store!(f) -> f
 
 Register the site rung of [`artifact_store`](@ref): `f(site)` returns the
-artifact store of the site profile `site` (the value of `VGTK_SITE`), or
-`nothing` when that profile names none. VisualGeometryToolkitEval, which owns
-the site profiles, registers its reader when it loads; without it a `VGTK_SITE`
-that names a profile FILE (a path ending in `.toml`) is still read here (its
-`[storage] artifact_store`), and a site NAME gives no rung: the runner gives
-its jobs `VGTK_ARTIFACT_STORE` from the profile, so a package without
+storage of the site profile `site` names (the value of `VGTK_SITE`) as
+`(; artifact_store, refuse_depot)` — its `[storage] artifact_store` (`""` when
+it names none) and whether it refuses the depot (`[storage] refuse_depot`) —
+or `nothing` when no profile has that name; a path string is read as the
+artifact store alone. VisualGeometryToolkitEval, which owns the site profiles,
+registers its reader when it loads; without it a `VGTK_SITE` that names a
+profile FILE (a path ending in `.toml`) is still read here (its `[storage]`),
+and a site NAME gives no rung: the runner gives its jobs
+`VGTK_ARTIFACT_STORE` from the profile, so a package without
 VisualGeometryToolkitEval (BlobBoards) installs into the site's store there too.
 """
 set_site_artifact_store!(f::Function) = (_SITE_STORE[] = f; f)
 
-# The `[storage] artifact_store` of a site profile file, read without its owner (VisualGeometryToolkitEval).
-function _site_file_store(path::AbstractString)
+# The storage of a site: its artifact store ("" for none) and whether it refuses the depot.
+const _SiteStorage = @NamedTuple{artifact_store::String, refuse_depot::Bool}
+
+# The `[storage]` of a site profile file, read without its owner (VisualGeometryToolkitEval).
+function _site_file_storage(path::AbstractString)
     isfile(path) || error("VGTK_SITE = $path: no such site profile file")
-    s = get(get(TOML.parsefile(path), "storage", Dict{String, Any}()), "artifact_store", "")
+    st = get(TOML.parsefile(path), "storage", Dict{String, Any}())
+    s = get(st, "artifact_store", "")
     s isa AbstractString || error("site profile $path: [storage] artifact_store = $(repr(s)) is not a path")
-    isempty(s) && return nothing
-    isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path")
-    return String(s)
+    isempty(s) || isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path")
+    r = get(st, "refuse_depot", false)
+    r isa Bool || error("site profile $path: [storage] refuse_depot = $(repr(r)) is not true or false")
+    return _SiteStorage((String(s), r))
 end
 
-function _site_store(site::AbstractString)
+# The storage of the site `VGTK_SITE` names, or `nothing` (no site, or a name and its reader not loaded).
+function _site_storage(site::AbstractString)
+    isempty(site) && return nothing
     f = _SITE_STORE[]
-    f === nothing || return f(site)
-    endswith(site, ".toml") && return _site_file_store(site)
-    return nothing     # a site name, and its reader (VisualGeometryToolkitEval) not loaded: no rung
+    f === nothing && return endswith(site, ".toml") ? _site_file_storage(site) : nothing
+    v = f(site)
+    v === nothing && return nothing
+    v isa AbstractString && return _SiteStorage((String(v), false))       # a reader of the artifact store alone
+    return _SiteStorage((String(v.artifact_store), Bool(v.refuse_depot)))
 end
 
-# The depot is refused on the cluster: a job there sets NODE_CACHE (its node-local, evicted cache, where the job
-# environment puts JULIA_DEPOT_PATH), and the home's quota is no place for data either.
-_depot_refused() = !isempty(get(ENV, "NODE_CACHE", ""))
+# Why the depot is refused here, or `nothing`: the site profile says so (`[storage] refuse_depot`), or, the one
+# heuristic for a process that has no profile to read (a site named by name without its reader, or no VGTK_SITE),
+# NODE_CACHE is set — the vcai cluster's job environment puts the depot (JULIA_DEPOT_PATH) in that node-local, evicted
+# cache. Either way the depot is no place for data: node-local and evicted, or a home with a quota.
+function _depot_refusal(site::AbstractString, st)
+    st !== nothing && st.refuse_depot && return "the site profile $site sets [storage] refuse_depot"
+    isempty(get(ENV, "NODE_CACHE", "")) || return "NODE_CACHE is set: the depot is a cluster node's evicted cache"
+    return nothing
+end
 
 """
     artifact_store() -> ArtifactStore
@@ -106,9 +126,12 @@ The artifact store of this process, the first rung that names one:
    (VisualGeometryToolkitEval's site profiles; [`set_site_artifact_store!`](@ref));
 3. this package's preference `artifact_store` (`Preferences.set_preferences!(
    VisualGeometryToolkitCore, "artifact_store" => dir)`, LocalPreferences.toml);
-4. the depot (`<first depot>/artifacts`, Pkg's own) — refused on the cluster
-   (a job there sets `NODE_CACHE`: the depot is node-local and evicted), where
-   one of the rungs above must name the store.
+4. the depot (`<first depot>/artifacts`, Pkg's own) — refused where the
+   site profile sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's
+   `vcai`: its depot is node-local and evicted) and, with no profile to read
+   (no `VGTK_SITE`, or a site name and VisualGeometryToolkitEval not loaded),
+   where `NODE_CACHE` is set (that cluster's job environment): one of the
+   rungs above must name the store there.
 
 Every rung but the depot names a directory on storage that outlives a job and
 is shared by its machines; its trees are content-addressed by their
@@ -117,18 +140,17 @@ git-tree-sha1, so every project and package shares one copy of a tree.
 function artifact_store()
     e = strip(get(ENV, "VGTK_ARTIFACT_STORE", ""))
     isempty(e) || return ArtifactStore(abspath(e), :env)
-    site = strip(get(ENV, "VGTK_SITE", ""))
-    if !isempty(site)
-        s = _site_store(site)
-        s === nothing || return ArtifactStore(abspath(s), :site)
-    end
+    site = String(strip(get(ENV, "VGTK_SITE", "")))
+    st = _site_storage(site)
+    st === nothing || isempty(st.artifact_store) || return ArtifactStore(abspath(st.artifact_store), :site)
     p = load_preference(@__MODULE__, "artifact_store", "")
     isempty(p) || return ArtifactStore(abspath(p), :preference)
-    _depot_refused() && error(
-        "no artifact store on the cluster, and its depot is refused (node-local, evicted; NODE_CACHE is set): " *
-        "set VGTK_ARTIFACT_STORE, or VGTK_SITE to a site profile with [storage] artifact_store " *
-        "(VisualGeometryToolkitEval's `vcai`, read once VisualGeometryToolkitEval is loaded), or the preference " *
-        "`artifact_store` of VisualGeometryToolkitCore; a depot's trees move with `migrate_artifacts`")
+    why = _depot_refusal(site, st)
+    why === nothing || error(
+        "no artifact store, and the depot is refused ($why): set VGTK_ARTIFACT_STORE, or VGTK_SITE to a site " *
+        "profile with [storage] artifact_store (a profile file by its path, or a name once VisualGeometryToolkitEval " *
+        "is loaded), or the preference `artifact_store` of VisualGeometryToolkitCore; a depot's trees move with " *
+        "`migrate_artifacts`")
     return ArtifactStore(joinpath(first(DEPOT_PATH), "artifacts"), :depot)
 end
 
@@ -264,6 +286,36 @@ function _download!(name, toml, meta, hash, url)
               "data/exp_raw). Underlying error: $(sprint(showerror, err))")
     end
     return nothing
+end
+
+"""
+    install_built_artifact(build!, name, hash; store = artifact_store()) -> String
+
+A tree Pkg cannot download and unpack itself (ONNX Runtime's CUDA build,
+merged from conda packages: VisualGeometryToolkitFeatures) installed into the
+artifact store under its pinned git-tree-sha1 `hash` (a `Base.SHA1`) unless
+present there, and its tree returned: `build!(dir)` fills a new directory
+(Pkg's `create_artifact`, inside [`with_artifact_store`](@ref)), whose tree
+hash must be `hash` (another tree is removed, and is an error). Processes
+building the same tree into a shared store take turns under the tree's
+Pidfile lock, as [`install_artifact`](@ref)'s do (one builds, the others then
+read it), and the store records the tree under `name`
+([`store_name_clashes`](@ref)).
+"""
+function install_built_artifact(build!::Function, name::AbstractString, hash::SHA1; store::ArtifactStore = artifact_store())
+    return with_artifact_store(store) do
+        if !artifact_exists(hash)
+            _install_lock(store.path, bytes2hex(hash.bytes)) do
+                artifact_exists(hash) && return nothing
+                got = create_artifact(build!)
+                got == hash && return nothing
+                remove_artifact(got)
+                error("artifact '$name': the built tree is $(bytes2hex(got.bytes)), not the pinned $(bytes2hex(hash.bytes))")
+            end
+        end
+        _record_name(store, name, hash)
+        artifact_path(hash)
+    end
 end
 
 """

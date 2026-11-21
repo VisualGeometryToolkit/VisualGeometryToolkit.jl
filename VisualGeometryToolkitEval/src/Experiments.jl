@@ -64,7 +64,7 @@ import ..code_trees, .._is_uncommitted_tree, ..refuse_uncommitted_code, ..file_s
 export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require_input,
        contract_violations,
        # the keyed product (experiments/products.jl): the one cache, DrWatson's produce_or_load
-       Product, product_dir, product_output, produced, produce, Produced, load_output,
+       Product, product_dir, product_output, produced, produced_dir, produce, Produced, load_output,
        # run records (experiments/run_records.jl): the configuration-of-record layer
        load_run_config, run_key, RUN_KEY_EXCLUDED, RUN_CONFIG_KEYS,
        promote_run, verify_inputs, input_path, tier_path, config_of_record,

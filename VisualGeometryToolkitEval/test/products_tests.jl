@@ -46,6 +46,15 @@
             # force produces again
             E.produce(d -> (n[] += 1; [pose(1.0)]), s; args..., force = true)
             @test n[] == 2
+            # produced_dir: the directory of a product produced under its key, an error naming one that is not
+            @test E.produced_dir(s) == E.product_dir(s)
+            @test_throws r"calibrate/never/[0-9a-f]+ is not produced: run its producing stage first" E.produced_dir(
+                E.Product("calibrate", "never", Dict("a" => 2); output = "x.json"))
+            # a top-level [render] would key nothing (a run key excludes it): refused, and keyed under its own name instead
+            @test_throws r"record holds a top-level `render`, which a run key excludes" E.Product(
+                "figures", "fig1", Dict("render" => Dict("panel" => "a.tex"), "n" => 1); output = "a.tex")
+            k1 = E.Product("figures", "fig1", Dict("render_files" => Dict("panel" => "a.tex"), "n" => 1); output = "a.tex").key
+            @test k1 != E.Product("figures", "fig1", Dict("render_files" => Dict("panel" => "b.tex"), "n" => 1); output = "a.tex").key
         end
         E.set_project_root!("")
     end

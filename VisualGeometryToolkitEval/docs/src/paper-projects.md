@@ -40,7 +40,9 @@ from the data layer of `Experiments`, never from a literal machine path.
   A justified constant, such as a published test vector, is marked
   `# paper-project: allow C2 <reason>`.
 - **Run keys from configs.** A result directory is named by `run_key(cfg)`,
-  the SHA-256 hash of the effective config without its `[render]` table. A
+  the SHA-256 hash of the effective config without its `[render]` table (a
+  `Product` record holding a top-level `render` is refused: a product that
+  reads it keys it under its own name). A
   changed config therefore gets a new directory and never overwrites an old
   one. A wall-clock stamp or a hand-bumped version suffix is never used.
   DrWatson's `savename` is the equivalent for flat configs; run configs are
@@ -155,6 +157,7 @@ machine path is written:
 data_root      = "/cluster/projects/vgtk/data/{project}"      # a project's inputs; {project} its name
 results_root   = "/cluster/projects/vgtk/results/{project}"   # a project's results
 artifact_store = "/cluster/projects/vgtk/artifacts"           # every artifact tree, shared
+refuse_depot   = true                                         # never fall back to the node-local depot
 ```
 
 `{project}` is the project's name ([`project_name`](@ref): its stage graph's
@@ -163,9 +166,16 @@ that binds:
 
 | Root | Order |
 |---|---|
-| `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the site's `data_root` (once it exists) → the project's fallback → the artifact view |
-| `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the site's `results_root` (once it exists, or with `create_results = true`) |
-| the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused on the cluster) |
+| `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the stage graph's `[sites.<site>] data_root`, then the site's `data_root` (each once it exists) → the project's fallback → the artifact view |
+| `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the stage graph's `[sites.<site>] results_root`, then the site's `results_root` (each once it exists, or with `create_results = true`) |
+| the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused where the site sets `refuse_depot = true`, and where `NODE_CACHE` is set with no profile to read) |
+
+The two roots follow one ladder, the runner's: a launch ([`resolve_roots`](@ref))
+takes `--data-root` / `--results-root` first and has no `data/exp_raw` rung (it
+names the machine's roots, which its jobs get as `VGTK_DATA_ROOT` /
+`VGTK_RESULTS_ROOT`), otherwise the same order. A job gets `VGTK_SITE` as the
+site's name, or as its profile's file when the site was loaded by path, so a
+driver inside it finds the same site.
 
 The **artifact store** (VisualGeometryToolkitCore's `artifact_store`) holds
 the trees of every published tier and every model's weights, content-addressed
@@ -174,7 +184,8 @@ copy. VisualGeometryToolkitCore's `install_artifact` installs into it: Pkg's
 `with_artifacts_directory`, its sha256 and tree-hash checks and its atomic move
 into place, under a Pidfile lock per tree, so jobs that start together download
 a tree once. A cluster's Julia depot (node-local and evicted, or a home with a
-quota) is refused; the shipped `vcai` site names the cluster's store. A machine
+quota) is refused by the site's `[storage] refuse_depot = true`; the shipped
+`vcai` site sets it and names the cluster's store. A machine
 whose depot already holds the trees moves them once with
 `VisualGeometryToolkitCore.migrate_artifacts(toml)` (each tree's hash
 checked; `remove = true` frees the depot).

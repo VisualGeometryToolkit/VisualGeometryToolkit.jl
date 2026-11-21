@@ -16,14 +16,17 @@ first rung that names one:
 | `VGTK_ARTIFACT_STORE` | the environment (a reproduction's jobs get it from their site) |
 | the site profile `VGTK_SITE` names | its `[storage] artifact_store` (VisualGeometryToolkitEval's site profiles, registered with [`set_site_artifact_store!`](@ref)) |
 | the preference `artifact_store` | `Preferences.set_preferences!(VisualGeometryToolkitCore, "artifact_store" => dir)` |
-| the depot | Pkg's default; **refused on the cluster** (a job there sets `NODE_CACHE`) |
+| the depot | Pkg's default; **refused** where the site profile sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai`), and, with no profile to read, where `NODE_CACHE` is set (that cluster's job environment) |
 
 [`install_artifact`](@ref) installs by name from an Artifacts.toml into the
 store, inside [`with_artifact_store`](@ref) (Pkg's `with_artifacts_directory`
 under one lock), so Pkg's sha256 and git-tree-sha1 checks and its atomic move
 into place hold; a Pidfile lock per tree makes the jobs that start together
 download a tree once. A model published as a single file goes in with
-[`store_file`](@ref) (verified by [`download_verified`](@ref)). A machine whose
+[`store_file`](@ref) (verified by [`download_verified`](@ref)), and a tree Pkg
+cannot unpack itself (ONNX Runtime's CUDA build, merged from conda packages) is
+built into the store by [`install_built_artifact`](@ref), checked against its
+pinned git-tree-sha1. A machine whose
 depot already holds trees moves them with [`migrate_artifacts`](@ref), and
 [`store_name_clashes`](@ref) lists a name the store holds under two trees.
 

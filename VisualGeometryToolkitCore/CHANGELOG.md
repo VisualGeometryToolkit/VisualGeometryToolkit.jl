@@ -1,5 +1,21 @@
 # VisualGeometryToolkitCore changelog
 
+## 0.13.1
+
+### Changed
+- **The depot's refusal is a site setting.** `artifact_store()` refuses the depot where the site profile `VGTK_SITE`
+  names sets `[storage] refuse_depot = true` (VisualGeometryToolkitEval's `vcai` does); `NODE_CACHE` (the vcai job
+  environment's node-local depot) remains the fallback for a process that has no profile to read: no `VGTK_SITE`, or a
+  site name without VisualGeometryToolkitEval's reader. A profile file named by its path is read here for both keys.
+  The registered site reader (`set_site_artifact_store!`) now returns `(; artifact_store, refuse_depot)`; a reader that
+  returns the store's path alone (VisualGeometryToolkitEval 0.10.1) still works.
+
+### Added
+- **`install_built_artifact(build!, name, hash; store)`**: a tree Pkg cannot download and unpack itself (ONNX Runtime's
+  CUDA build, merged from conda packages by VisualGeometryToolkitFeatures) built into the artifact store under its
+  pinned git-tree-sha1, under the tree's Pidfile lock, a built tree of another hash removed and refused, its name
+  recorded (`store_name_clashes`). Previously such a tree was created in the depot.
+
 ## 0.13.0
 
 **Breaking: the spherical spline and the dilogarithm are removed; artifacts install into the artifact store, never a

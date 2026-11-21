@@ -58,7 +58,7 @@ end
 const _D1 = r"(?<![\w.$}])/(raid|home|mnt|scratch|Users|nfs|net|cluster|srv|gpfs|lustre)/|(?<![\w.$}/~])~/[\w.]|\$\{?HOME\}?\"?/|\$\(HOME\)/|\bhomedir\(\)|ENV\[\"HOME\"\]|(?<!--site=)(?<!--site=\")(?<!--site=')(?<!--site )(?<!SITE=)(?<!SITE=\")(?<!site = \")(?<!site=\")(?<![\w.\-/])dgx[0-9]+\b"
 const _D2_WRITE = r"\b(mkpath|mkdir|write|open|jldsave|wsave|tagsave|safesave|save|cp|mv|symlink|touch)\(\s*joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\")"
 const _D4 = r"(?<![\w\"])(artifact\"|@artifact_str\b)"
-const _D5 = r"\b(install_artifact|ensure_artifact_installed|download_artifact|create_artifact|bind_artifact!|archive_artifact|with_artifacts_directory|with_artifact_store|store_file|download_verified|migrate_artifacts)\(|\bDownloads\.download\(|\bHTTP\.(get|request)\(|\bLazyArtifacts\b|\bPkg\.Artifacts\b"
+const _D5 = r"\b(install_artifact|install_built_artifact|ensure_artifact_installed|download_artifact|create_artifact|bind_artifact!|archive_artifact|with_artifacts_directory|with_artifact_store|store_file|download_verified|migrate_artifacts)\(|\bDownloads\.download\(|\bHTTP\.(get|request)\(|\bLazyArtifacts\b|\bPkg\.Artifacts\b"
 const _D2_OUTDIR = r"joinpath\(\s*(data_root\(\)|EXP_DATA_ROOT|datadir\(\s*\"exp_raw\"\s*\))\s*,\s*\"results\""
 # `stamp`, `stamps` or `stamped` as a whole identifier token (`_`-separated,
 # CamelCase split, an uppercase run ending where a capitalized word begins):
@@ -80,17 +80,39 @@ _d3(line) =
 
 _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (".sh", ".sbatch") && startswith(l, "#SBATCH")))
 
-# Where D1 also looks for a machine path, beyond the code (`dirs`): a project's tests, examples, configs, docs and
-# tracked provenance, in their code, launcher, config and text files — every comment and paragraph included, since a
-# path in a config's comment or a README is the next run's machine path. A site profile (a TOML file with a `[site]`
-# table, the one place a machine's paths belong: a project's own `sites_dir`) is not read.
-const _MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
+# THE layout of a codified experiment project: each folder (relative to the project root; "" is the root itself) and
+# what the data policy reads in it, `scan`:
+#   :code      every rule, full-line comments skipped (`data_policy_violations`' default `dirs`);
+#   :text      D1 on every line of its code, launcher, config and text files — every comment and paragraph included,
+#              since a path in a config's comment or a README is the next run's machine path (a site profile, a TOML
+#              file with a `[site]` table, the one place a machine's paths belong, is not read);
+#   :markdown  D1 in the Markdown files directly in it (README.md, REPRODUCE.md, data/README.md: the instructions a
+#              reader copies);
+#   :none      not read: the renders a driver publishes (generated, never tracked).
+# `template` marks the folders PaperProjects' template creates (`PAPER_PROJECT_TEMPLATE`), `sub` their subfolders
+# (data/: the inputs, the results, the smoke runs). The scan's folders and the template both derive from this one list,
+# so a folder of the layout is never in one and missing from the other.
+const _PROJECT_LAYOUT = [
+    (dir = "src",        scan = :code,     template = true,  sub = String[]),
+    (dir = "scripts",    scan = :code,     template = true,  sub = String[]),
+    (dir = "test",       scan = :text,     template = true,  sub = String[]),
+    (dir = "examples",   scan = :text,     template = false, sub = String[]),
+    (dir = "configs",    scan = :text,     template = true,  sub = String[]),
+    (dir = "docs",       scan = :text,     template = false, sub = String[]),
+    (dir = "provenance", scan = :text,     template = false, sub = String[]),
+    (dir = "",           scan = :markdown, template = false, sub = String[]),
+    (dir = "data",       scan = :markdown, template = true,  sub = ["exp_raw", "exp_pro", "sims"]),
+    (dir = "plots",      scan = :none,     template = true,  sub = String[]),
+]
+_layout_dirs(scan::Symbol) = [l.dir for l in _PROJECT_LAYOUT if l.scan === scan]
+
+# Where D1 also looks for a machine path, beyond the code (`dirs`), and in which files.
+const _MACHINE_PATH_DIRS = _layout_dirs(:text)
 const _MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".py", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
-# … and the Markdown files directly in the project root and in data/ (README.md, REPRODUCE.md, data/README.md):
-# the instructions a reader copies (with `git`, the ones git does not ignore).
+# … and the Markdown files directly in the layout's :markdown folders (with `git`, the ones git does not ignore).
 function _root_markdown(root, git::Bool)
     md = String[]
-    for d in (String(root), joinpath(root, "data"))
+    for d in (joinpath(root, l) for l in _layout_dirs(:markdown))
         isdir(d) || continue
         append!(md, filter(isfile, [joinpath(d, f) for f in sort(readdir(d)) if endswith(f, ".md")]))
     end
@@ -130,7 +152,7 @@ data/README.md, …). In a git work tree the files git ignores are not read.
 The result is minus the `allow`ed ones, plus a `STALE` finding for every allow entry that
 matched nothing. Empty ⇔ compliant.
 """
-function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
+function data_policy_violations(root::AbstractString; dirs = _layout_dirs(:code),
                                 exts = [".jl", ".sh", ".sbatch"],
                                 allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     found = NamedTuple{(:rule, :file, :line, :text),Tuple{String,String,Int,String}}[]

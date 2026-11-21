@@ -191,6 +191,25 @@ end
     end
 end
 
+# The build's home is the artifact store, never the depot: a tree at its pinned hash in the store is the build (its
+# placeholder here: nothing is downloaded), and a process with no store where the depot is refused names why.
+@testitem "ONNX Runtime's CUDA build: installed into and read from the artifact store" begin
+    using Artifacts: artifact_hash
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    hash = artifact_hash("onnxruntime_cuda", VgtkFeatures._ARTIFACTS_TOML)
+    if hash !== nothing                                   # x86-64 Linux
+        store = mktempdir()
+        tree = mkpath(joinpath(store, bytes2hex(hash.bytes)))
+        withenv("VGTK_ARTIFACT_STORE" => store) do
+            @test VgtkFeatures._onnxruntime_cuda_artifact() == (; dir = tree)
+            @test isfile(joinpath(store, "names", "onnxruntime_cuda", bytes2hex(hash.bytes)))
+        end
+        why = withenv(VgtkFeatures._onnxruntime_cuda_artifact, "VGTK_ARTIFACT_STORE" => nothing, "VGTK_SITE" => nothing,
+                      "NODE_CACHE" => mktempdir())
+        @test why isa String && occursin("did not install", why) && occursin("depot is refused", why)
+    end
+end
+
 # LoMa on CUDA against LoMa on the CPU, on a device (skipped without one: CI). The pair: a textured 784² frame (the graph's
 # input, no resampling) and the same scene shifted by 9 pixels, ASIFT-detected; the same detections on both providers.
 @testitem "LoMa on CUDA describes and matches as on the CPU (skipped without a device)" begin

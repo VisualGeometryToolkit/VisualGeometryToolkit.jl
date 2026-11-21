@@ -46,6 +46,9 @@ results_root = "/results/{project}"     # a project's results tree (results_root
 artifact_store = "/data/artifacts"      # the artifact store (VisualGeometryToolkitCore.artifact_store): the trees of
                                         # every DataArtifacts tier and model's weights, content-addressed, shared by
                                         # every project and package; never the Julia depot of a cluster
+refuse_depot = false                    # true: a process here with no store named (no artifact_store, no
+                                        # VGTK_ARTIFACT_STORE, no preference) is refused the Julia depot as its
+                                        # store, rather than filling a node-local, evicted or quota'd depot
 
 [env]                       # variables every stage gets, e.g.
 # JULIA = "/opt/julia-1.12/bin/julia"     # the julia binary (default: julia on PATH)

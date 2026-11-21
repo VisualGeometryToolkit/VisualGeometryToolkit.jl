@@ -10,11 +10,17 @@
 # DrWatson's `datadir` puts them — `data/exp_raw` (inputs, read-only) and
 # `data/exp_pro` (results). Per machine those two are bound by
 #
-#   data_root():    ENV VGTK_DATA_ROOT    → <project>/data/exp_raw → the site
-#                   profile's data_root (VGTK_SITE) → the project's fallback rung
-#                   (e.g. a package preference) → its artifact view
-#   results_root(): ENV VGTK_RESULTS_ROOT → <project>/data/exp_pro → the site
-#                   profile's results_root (VGTK_SITE)
+#   data_root():    ENV VGTK_DATA_ROOT    → <project>/data/exp_raw → the stage
+#                   graph's [sites.<site>] data_root → the site profile's
+#                   data_root (VGTK_SITE) → the project's fallback rung (e.g. a
+#                   package preference) → its artifact view
+#   results_root(): ENV VGTK_RESULTS_ROOT → <project>/data/exp_pro → the stage
+#                   graph's [sites.<site>] results_root → the site profile's
+#                   results_root (VGTK_SITE)
+#
+# The order up to the site profile is THE ladder of a project's roots, owned by
+# the runner (Reproduce `_root_ladder`) and shared with a launch's roots
+# (`resolve_roots`, which has a command line's roots first and no project link).
 #
 # The site profiles (VisualGeometryToolkitEval's configs/sites/, `[storage]`) are
 # the only place a machine's paths are written; a project names none.
@@ -161,30 +167,44 @@ directory.
 project_name() = _project_name(_project_graph())
 _project_name(g) = g === nothing ? basename(rstrip(project_root(), '/')) : g.name
 
-# The active site profile's `[storage]` root `key` for the bound project, or `nothing`.
-function _site_storage(key::AbstractString)
-    spec = strip(get(ENV, "VGTK_SITE", ""))
-    isempty(spec) && return nothing
-    g = _project_graph()
+# The site VGTK_SITE names for the bound project's graph `g`: its name (the profile's; VGTK_SITE as given for a site
+# the stage graph alone knows, `[sites.<site>]`) and its profile, or `nothing`; ("", nothing) without VGTK_SITE. A job
+# of the runner's gets the profile's name, or its file for a profile loaded by path.
+function _active_site_name(g)
+    spec = String(strip(get(ENV, "VGTK_SITE", "")))
+    isempty(spec) && return ("", nothing)
     s = _site_profile(spec, g)
-    s === nothing && return nothing
-    v = _reproduce().site_root(s, key, _project_name(g))
-    return isempty(v) ? nothing : v
+    return (s === nothing ? spec : s.name, s)
 end
 
-# The rungs that need no download: ENV, the project's data/exp_raw (a link, a
-# directory or an artifact view), the site profile's data root, the project's
-# fallback. `nothing` when none binds.
-function _bound_data_root()
-    haskey(ENV, "VGTK_DATA_ROOT") && return String(ENV["VGTK_DATA_ROOT"])
-    link = joinpath(project_root(), "data", "exp_raw")
-    if _BINDING.resolve_links
-        ispath(link) && return realpath(link)
-    else
-        (islink(link) || isdir(link)) && return link
+# A driver's root `key` ("data_root" or "results_root") through THE ladder of a project's roots, the runner's
+# (`Reproduce._root_ladder`, shared with a launch's `resolve_roots`): `var` in ENV → `bound` (the project's own
+# data/exp_raw or data/exp_pro) → the stage graph's `[sites.<site>]` root → the site profile's, each of the last two
+# once `ready` (it exists); `nothing` when none binds. The graph and the profile are read only past the first two, and
+# only with VGTK_SITE set.
+function _driver_root(key::AbstractString, var::AbstractString, bound; ready::Function)
+    function sites()
+        isempty(strip(get(ENV, "VGTK_SITE", ""))) && return (; table = nothing, site = nothing, project = "", workdir = "")
+        g = _project_graph()
+        name, s = _active_site_name(g)
+        table = g === nothing || isempty(name) ? nothing : get(g.site_roots, name, nothing)
+        return (; table, site = s, project = _project_name(g), workdir = g === nothing ? "" : g.workdir)
     end
-    site = _site_storage("data_root")
-    site === nothing || !isdir(site) || return site      # a site's root not made yet: the artifact view, as before
+    return _reproduce()._root_ladder(key; env = ENV, var, bound, sites, ready)
+end
+
+# The project's own binding of its data/exp_raw (a link, a directory or an artifact view), or `nothing`.
+function _project_data_binding()
+    link = joinpath(project_root(), "data", "exp_raw")
+    _BINDING.resolve_links && return ispath(link) ? realpath(link) : nothing
+    return islink(link) || isdir(link) ? link : nothing
+end
+
+# The rungs that need no download: the ladder (ENV, the project's data/exp_raw, the site's roots once they exist; a
+# site's root not made yet gives the artifact view, as before), then the project's fallback. `nothing` when none binds.
+function _bound_data_root()
+    r = _driver_root("data_root", "VGTK_DATA_ROOT", _project_data_binding(); ready = isdir)
+    r === nothing || return r
     fb = _BINDING.data_fallback
     if fb !== nothing
         r = try fb() catch; nothing end
@@ -198,7 +218,8 @@ end
 
 The project's input tree (read-only): `ENV["VGTK_DATA_ROOT"]` → the project's
 `data/exp_raw` (DrWatson `datadir("exp_raw")`; a link, a directory, or the
-artifact view) → the site profile's `data_root` once it exists ([`active_site`](@ref), its
+artifact view) → the stage graph's `[sites.<site>] data_root` once it exists →
+the site profile's `data_root` once it exists ([`active_site`](@ref), its
 `{project}` the [`project_name`](@ref)) → the project's fallback rung → its [`ArtifactView`](@ref),
 installing `tiers` (default: the view's `default`). Configs state input paths
 RELATIVE to it; nothing under it is written except by a declared producer
@@ -235,22 +256,18 @@ end
 
 The project's results tree: `ENV["VGTK_RESULTS_ROOT"]` → the project's
 `data/exp_pro` (DrWatson `datadir("exp_pro")`; a link or a directory) → the
-site profile's `results_root` ([`active_site`](@ref)) once it exists, or
-when the project binds `create_results = true`; without any of them
-`data/exp_pro`. The root is created when the project binds
+stage graph's `[sites.<site>] results_root`, then the site profile's
+`results_root` ([`active_site`](@ref)), each once it exists or when the
+project binds `create_results = true`; without any of them `data/exp_pro`.
+The order is the runner's launch's too (Reproduce `resolve_roots`), one ladder. The root is created when the project binds
 `create_results = true`; otherwise a missing `data/exp_pro` is an error.
 """
 function results_root()
     local_root = joinpath(project_root(), "data", "exp_pro")
-    root, bound = if haskey(ENV, "VGTK_RESULTS_ROOT")
-        String(ENV["VGTK_RESULTS_ROOT"]), true
-    elseif islink(local_root) || isdir(local_root)
-        local_root, true
-    else
-        site = _site_storage("results_root")
-        # a site's root is used once it exists (as the data root's), or when the project creates its results root
-        site !== nothing && (_BINDING.create_results || isdir(site)) ? (site, true) : (local_root, false)
-    end
+    # a site's root is used once it exists (as the data root's), or when the project creates its results root
+    r = _driver_root("results_root", "VGTK_RESULTS_ROOT", islink(local_root) || isdir(local_root) ? local_root : nothing;
+                     ready = p -> _BINDING.create_results || isdir(p))
+    root, bound = r === nothing ? (local_root, false) : (r, true)
     if _BINDING.create_results
         mkpath(root)
     elseif !bound
@@ -393,17 +410,15 @@ function _tier_root(tier::AbstractString; write::Bool)
     return data_root()
 end
 
-# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names, the graph's workdir (a relative
+# The project's stage graph's `[sites.<site>.tiers]` for the site `VGTK_SITE` names (by its name), the graph's workdir (a relative
 # root's base) and its `data_env` (the prefix of a tier's variable), read by the runner's own reader
 # (`Reproduce.load_stage_graph`, included after this module: resolved at the call); `(nothing, "", "VGTK_DATA_ROOT")`
 # without one.
 function _site_tiers()
-    site = get(ENV, "VGTK_SITE", "")
-    root = project_root()
-    (isempty(site) || isempty(root)) && return (nothing, "", "VGTK_DATA_ROOT")
-    path = joinpath(root, "configs", "reproduce.toml")
-    isfile(path) || return (nothing, "", "VGTK_DATA_ROOT")
+    isempty(strip(get(ENV, "VGTK_SITE", ""))) && return (nothing, "", "VGTK_DATA_ROOT")
     g = _project_graph()
+    g === nothing && return (nothing, "", "VGTK_DATA_ROOT")
+    site, _ = _active_site_name(g)                      # by the site's name, VGTK_SITE a name or a profile's file
     return (get(get(g.site_roots, site, Dict{String,Any}()), "tiers", nothing), g.workdir, g.data_env)
 end
 

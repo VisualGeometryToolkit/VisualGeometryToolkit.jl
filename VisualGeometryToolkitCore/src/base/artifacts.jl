@@ -30,9 +30,16 @@ using FileWatching.Pidfile: mkpidlock
 using Preferences: load_preference
 using Base: SHA1
 
-# A record not yet published or uploaded binds its placeholder, an UPPER_CASE token, where the Zenodo id
-# or the Hugging Face revision goes (DataArtifacts).
-_published(url) = !occursin(r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/", url)
+"""
+    is_published_url(url) -> Bool
+
+Whether `url` is a live download URL: a record not yet published or uploaded
+binds its placeholder, an UPPER_CASE token (`ZENODO_ID`), as a path segment
+where the Zenodo id or the Hugging Face revision goes (VisualGeometryToolkitEval's
+DataArtifacts). [`install_artifact`](@ref) refuses such a URL, and a paper
+project's release check (VisualGeometryToolkitEval's R3) flags it.
+"""
+is_published_url(url::AbstractString) = !occursin(r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/", url)
 
 # ---- the store ---------------------------------------------------------------------
 
@@ -72,7 +79,10 @@ set_site_artifact_store!(f::Function) = (_SITE_STORE[] = f; f)
 function _site_file_store(path::AbstractString)
     isfile(path) || error("VGTK_SITE = $path: no such site profile file")
     s = get(get(TOML.parsefile(path), "storage", Dict{String, Any}()), "artifact_store", "")
-    return isempty(s) ? nothing : String(s)
+    s isa AbstractString || error("site profile $path: [storage] artifact_store = $(repr(s)) is not a path")
+    isempty(s) && return nothing
+    isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path")
+    return String(s)
 end
 
 function _site_store(site::AbstractString)
@@ -127,6 +137,9 @@ end
 # While a block runs, the override is also what any OTHER task's Pkg artifact lookup sees (a lazy `artifact"…"`
 # of another package reads the store then): Pkg offers no task-local form, so the blocks are kept to the install.
 const _STORE_LOCK = ReentrantLock()
+# The store whose block the current task runs in, or `nothing`: a scoped value, so the tasks a block spawns (the
+# packer's) inherit it and enter the same store without the lock their parent holds, and no other task does.
+const _IN_STORE = Base.ScopedValues.ScopedValue{Union{Nothing, String}}(nothing)
 
 """
     with_artifact_store(f, store = artifact_store())
@@ -135,36 +148,43 @@ Run `f()` with Pkg's artifact functions (`artifact_exists`, `artifact_path`,
 `ensure_artifact_installed`, `create_artifact`, …) reading and writing `store`
 (an [`ArtifactStore`](@ref) or a directory): Pkg's `with_artifacts_directory`,
 under one process-wide lock (Pkg's override is a global), nesting into the
-same store allowed. The depot store runs `f` without an override. The one
+same store allowed: the block's task and the tasks it spawns enter it without
+the lock, and another store from inside a block is an error (it would wait on
+the lock the block holds). The depot store runs `f` without an override. The one
 wrapper of Pkg's override in the stack: DataArtifacts' packer stages through it.
 """
 function with_artifact_store(f::Function, store::ArtifactStore = artifact_store())
-    # already inside this store (a task the block spawned, as the packer's): no second lock, which the block's task holds
-    Artifacts.ARTIFACTS_DIR_OVERRIDE[] == store.path && return f()
+    # inside this store's block (the block's own task, or one it spawned, as the packer's): no second lock
+    inside = _IN_STORE[]
+    inside == store.path && return f()
+    # a task of another store's block would wait for ever on the lock its parent holds
+    inside === nothing ||
+        error("with_artifact_store: inside the store $inside's block; not entering $(store.path) (resolve it before the block)")
     lock(_STORE_LOCK) do
-        store.source === :depot && Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing && return f()
-        Artifacts.ARTIFACTS_DIR_OVERRIDE[] == store.path && return f()
         Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing ||
-            error("with_artifact_store: already inside the store $(Artifacts.ARTIFACTS_DIR_OVERRIDE[]); not nesting $(store.path)")
+            error("with_artifact_store: Pkg's artifact directory is overridden ($(Artifacts.ARTIFACTS_DIR_OVERRIDE[])) outside the store's lock; not entering $(store.path)")
+        store.source === :depot && return Base.ScopedValues.with(f, _IN_STORE => store.path)
         mkpath(store.path)
-        return with_artifacts_directory(f, store.path)
+        return Base.ScopedValues.with(() -> with_artifacts_directory(f, store.path), _IN_STORE => store.path)
     end
 end
 with_artifact_store(f::Function, dir::AbstractString) = with_artifact_store(f, ArtifactStore(abspath(dir), :env))
 
-# The Pidfile lock of one tree's install in a store, beside Pkg's own `<hash>.pid` (which its download takes: a
-# second lock on that file from this process would wait on itself). Stale after a minute without its holder.
-_install_lock(f, store::ArtifactStore, key::AbstractString) =
-    (mkpath(store.path); mkpidlock(f, joinpath(store.path, "$key.install.pid"); stale_age = 60))
+# The Pidfile lock of one install into directory `dir` (a store's, or a depot file's), beside Pkg's own `<hash>.pid`
+# (which its download takes: a second lock on that file from this process would wait on itself). Stale after a
+# minute without its holder.
+_install_lock(f, dir::AbstractString, key::AbstractString) =
+    (mkpath(dir); mkpidlock(f, joinpath(dir, "$key.install.pid"); stale_age = 60))
 
 # The store remembers which name installed which tree (`names/<name>/<tree hash>`, an empty file each, so
 # concurrent installs never write one file): a name with two trees is one name for two different data
 # (`store_name_clashes`). The depot keeps no such record (Pkg's gc deletes what it does not know there).
 function _record_name(store::ArtifactStore, name::AbstractString, hash::SHA1)
     store.source === :depot && return nothing
-    d = joinpath(store.path, "names", name)
-    mkpath(d)
-    touch(joinpath(d, bytes2hex(hash.bytes)))
+    f = joinpath(store.path, "names", name, bytes2hex(hash.bytes))
+    isfile(f) && return nothing          # recorded: no write to the shared store on a read
+    mkpath(dirname(f))
+    touch(f)
     return nothing
 end
 
@@ -211,10 +231,10 @@ function install_artifact(name::AbstractString, toml::AbstractString; store::Art
     return with_artifact_store(store) do
         if !artifact_exists(hash)
             url = meta[name]["download"][1]["url"]
-            _published(url) || error(
+            is_published_url(url) || error(
                 "artifact '$name' is not published yet ($toml carries the placeholder URL $url) and no data " *
                 "root is bound: set VGTK_DATA_ROOT or link data/exp_raw at the data tree.")
-            _install_lock(store, bytes2hex(hash.bytes)) do
+            _install_lock(store.path, bytes2hex(hash.bytes)) do
                 artifact_exists(hash) || _download!(name, toml, meta, hash, url)
             end
         end
@@ -262,8 +282,7 @@ function store_file(url::AbstractString, digest::AbstractString, file::AbstractS
     path = joinpath(dir, file)
     isfile(path) && return path
     mkpath(dir)
-    lockdir = store.source === :depot ? ArtifactStore(dir, :depot) : store
-    _install_lock(lockdir, "file-" * digest) do
+    _install_lock(store.source === :depot ? dir : store.path, "file-" * digest) do
         isfile(path) && return path
         @info "Downloading $file into the artifact store ($(store.source)): $dir"
         download_verified(url, digest, path)
@@ -303,18 +322,19 @@ Move the artifacts of `toml` that the depot holds into the store, so a machine
 that installed them before the store existed does not download them again:
 each tree is copied into a temporary directory in the store, its git-tree-sha1
 recomputed and checked, and moved into place atomically under the tree's
-install lock; with `remove = true` the depot's copy is deleted once the store
-holds the tree. Returns `name => status` per name: `:migrated`, `:present`
-(the store had it), `:absent` (the depot does not hold it either) or
-`:mismatch` (the depot's tree does not hash to its git-tree-sha1: left alone,
-never copied). The store must not be the depot.
+install lock (the depots of `DEPOT_PATH` tried in order, the first copy that
+hashes to it migrated); with `remove = true` the depots' copies are deleted
+once the store holds the tree. Returns `name => status` per name: `:migrated`,
+`:present` (the store had it), `:absent` (no depot holds it either) or
+`:mismatch` (no depot copy hashes to its git-tree-sha1: left alone, never
+copied). The store must not be the depot.
 """
 function migrate_artifacts(toml::AbstractString; store::ArtifactStore = artifact_store(),
-                            names = collect(keys(TOML.parsefile(toml))), remove::Bool = false)
+                            names = nothing, remove::Bool = false)
     store.source === :depot && throw(ArgumentError("migrate_artifacts: the store is the depot; set VGTK_ARTIFACT_STORE or VGTK_SITE"))
     meta = TOML.parsefile(toml)
     out = Pair{String, Symbol}[]
-    for name in names
+    for name in something(names, keys(meta))
         haskey(meta, name) || error("unknown artifact '$name' (see $toml)")
         hex = meta[name]["git-tree-sha1"]
         dst = joinpath(store.path, hex)
@@ -324,17 +344,20 @@ function migrate_artifacts(toml::AbstractString; store::ArtifactStore = artifact
         elseif isempty(src)
             :absent
         else
-            _install_lock(store, hex) do
+            _install_lock(store.path, hex) do
                 isdir(dst) && return :present
-                tmp = mktempdir(store.path)
-                try
-                    cp(first(src), joinpath(tmp, "tree"); follow_symlinks = false)
-                    bytes2hex(tree_hash(joinpath(tmp, "tree"))) == hex || return :mismatch
-                    mv(joinpath(tmp, "tree"), dst)
-                    :migrated
-                finally
-                    rm(tmp; recursive = true, force = true)
+                for s in src           # the first depot copy that hashes to its git-tree-sha1
+                    tmp = mktempdir(store.path)
+                    try
+                        cp(s, joinpath(tmp, "tree"); follow_symlinks = false)
+                        bytes2hex(tree_hash(joinpath(tmp, "tree"))) == hex || continue
+                        mv(joinpath(tmp, "tree"), dst)
+                        return :migrated
+                    finally
+                        rm(tmp; recursive = true, force = true)
+                    end
                 end
+                :mismatch
             end
         end
         status in (:migrated, :present) && _record_name(store, name, SHA1(hex))

@@ -194,7 +194,25 @@ end
         end
         @test Artifacts.artifacts_dirs() == [joinpath(dir, "a")]       # still set after the inner block
         @test_throws ErrorException VgtkCore.with_artifact_store(() -> nothing, joinpath(dir, "b"))
+        # a task the block spawns enters the same store without the lock its parent holds, and is refused another
+        # store at once (it would wait for ever on that lock)
+        @test fetch(Threads.@spawn VgtkCore.with_artifact_store(() -> Artifacts.artifacts_dirs(), joinpath(dir, "a"))) ==
+              [joinpath(dir, "a")]
+        t = Threads.@spawn try VgtkCore.with_artifact_store(() -> nothing, joinpath(dir, "b")); :entered catch; :refused end
+        @test fetch(t) === :refused
     end
+    @test Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing
+    # a task outside the block never runs unlocked in its store: it waits for the block, then sets its own override
+    started, release = Channel{Nothing}(1), Channel{Nothing}(1)
+    holder = Threads.@spawn VgtkCore.with_artifact_store(joinpath(dir, "a")) do
+        put!(started, nothing); take!(release)
+    end
+    take!(started)
+    other = Threads.@spawn VgtkCore.with_artifact_store(() -> Artifacts.artifacts_dirs(), joinpath(dir, "a"))
+    sleep(0.2)
+    @test !istaskdone(other)                                       # waiting on the lock, not inside the block
+    put!(release, nothing); wait(holder)
+    @test fetch(other) == [joinpath(dir, "a")]
     @test Artifacts.ARTIFACTS_DIR_OVERRIDE[] === nothing
 end
 

@@ -910,7 +910,7 @@ public stack_ci, workspace_packages, workspace_settings, affected_packages, regi
 public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
-public install_artifact, huggingface_token   # the one install of a published artifact (base/artifacts.jl)
+public install_artifact, huggingface_token, is_published_url   # the one install of a published artifact (base/artifacts.jl)
 public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
     store_name_clashes, migrate_artifacts   # the artifact store: its resolution, the one wrapper of Pkg's override, a single file, depot → store
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, lu_solve!, tree_sum!,

@@ -59,8 +59,11 @@ public engine_fixtures   # the engine's shared test fixtures (the Test extension
 
 # The site rung of VisualGeometryToolkitCore's artifact store: the `[storage] artifact_store` of the site profile
 # VGTK_SITE names (this package owns the site profiles, configs/sites/).
+# The store is shared by every project: the bound project's stage graph only adds its own sites directory to the
+# lookup, so a graph that does not load (a project's work in progress) leaves the shipped profiles and paths.
 function _site_artifact_store(site)
-    s = Experiments.site_profile(site)
+    g = try Experiments._project_graph() catch; nothing end
+    s = Experiments._site_profile(site, g)
     return s === nothing || isempty(s.artifact_store) ? nothing : s.artifact_store
 end
 __init__() = (set_site_artifact_store!(_site_artifact_store); nothing)

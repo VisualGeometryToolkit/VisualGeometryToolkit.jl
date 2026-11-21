@@ -22,14 +22,17 @@ cluster's Julia depot.**
   `artifact_store` (Preferences.jl) → the depot, which is **refused on the cluster** (a job there sets `NODE_CACHE`:
   the depot is node-local and evicted).
 - **`with_artifact_store(f, store)`**: Pkg's `with_artifacts_directory` under one process-wide lock (Pkg's override
-  is a global that its own wrapper resets on exit), nesting into the same store allowed: the stack's one wrapper of
-  the override (DataArtifacts' packer stages through it).
+  is a global that its own wrapper resets on exit), nesting into the same store allowed (the block's task and the
+  tasks it spawns; another store from inside a block is refused at once): the stack's one wrapper of the override
+  (DataArtifacts' packer stages through it).
 - **`store_file(url, sha256, file; depot_dir)`** and **`download_verified(url, sha256, path)`**: a single file (a
   model's weights published as a file) in the store, `<store>/files/<sha256>/<file>`, verified and moved into place
   atomically; the one verified single-file download of the stack.
 - **`migrate_artifacts(toml; store, names, remove)`**: the depot's trees of an Artifacts.toml copied into the store,
   their git-tree-sha1 recomputed and checked, moved into place atomically (`:migrated`, `:present`, `:absent`,
-  `:mismatch` per name), the depot's copy removed with `remove = true`.
+  `:mismatch` per name: no depot copy hashes to it), the depot's copies removed with `remove = true`.
+- **`is_published_url(url)`**: whether a download URL is live, not a record's UPPER_CASE placeholder
+  (`install_artifact` refuses one; VisualGeometryToolkitEval's release check R3 flags one).
 - **`store_name_clashes(store)`**: the names the store installed under more than one tree (the store records
   `names/<name>/<tree>` per install): one name, one tree stack-wide.
 

@@ -20,7 +20,7 @@ store.
   `set_site_artifact_store!` when it loads, so `VGTK_SITE` selects the store.
 - **Paper-project rules**: `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!`; `L6` git tracks
   data under `data/` (anything but `data/README.md`); `D1` also scans tests, examples, configs, docs and tracked
-  provenance (every line of `MACHINE_PATH_EXTS` files under `MACHINE_PATH_DIRS`; `/cluster`, `/srv`, `/gpfs`,
+  provenance (every line of their code, config and text files, a site profile excepted; `/cluster`, `/srv`, `/gpfs`,
   `/lustre` added to the machine roots); `D5` an artifact or download API outside DataArtifacts;
   the check **`:storage`** (default): `A2` a config's `[inputs.<id>]` names no catalogued tier, `A3` an artifact name
   bound to another tree in another project's Artifacts.toml (`stack_artifacts`) or in the store's name record, `A4`

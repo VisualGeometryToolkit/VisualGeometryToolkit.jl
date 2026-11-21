@@ -121,7 +121,7 @@ a message:
 | check | rules |
 |---|---|
 | `:layout` | `L1` a required path is missing · `L2` Project.toml lacks DrWatson or VisualGeometryToolkitEval · `L3` git does not ignore `data/exp_raw` and `data/exp_pro` · `L4` the suite does not call this check · `L5` `scripts/fetch_data.jl` is missing or does not call `fetch_data!` · `L6` git tracks data under `data/` (anything but `data/README.md`) |
-| `:data_policy` | `D1` a machine path (code and launchers; tests, examples, configs, docs and provenance, comments included) · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code · `D5` an artifact or download API outside DataArtifacts (the `data_policy` keyword forwards keywords) |
+| `:data_policy` | `D1` a machine path (code and launchers; tests, examples, configs, docs and provenance, comments included; a site profile, the one place a machine path belongs, excepted) · `D2` a write into the input tree · `D3` an unkeyed output · `D4` an `artifact"…"` in code · `D5` an artifact or download API outside DataArtifacts (the `data_policy` keyword forwards keywords) |
 | `:reproduce` | every kind of `reproduce_index_violations` (the `reproduce` keyword forwards keywords) |
 | `:configs` | `C1` a producing script reads no config of record · `C2` it holds a data constant · `C3` it names a config that does not exist |
 | `:provenance` | `P1` no provenance through the shared writer (in the script, what it includes, or what it launches) · `P2` no run key · `S1` an index generator without `run_stages` |
@@ -164,7 +164,7 @@ that binds:
 | Root | Order |
 |---|---|
 | `data_root()` | `VGTK_DATA_ROOT` → `data/exp_raw` → the site's `data_root` (once it exists) → the project's fallback → the artifact view |
-| `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the site's `results_root` |
+| `results_root()` | `VGTK_RESULTS_ROOT` → `data/exp_pro` → the site's `results_root` (once it exists, or with `create_results = true`) |
 | the artifact store | `VGTK_ARTIFACT_STORE` → the site's `artifact_store` → VisualGeometryToolkitCore's preference `artifact_store` → the depot (refused on the cluster) |
 
 The **artifact store** (VisualGeometryToolkitCore's `artifact_store`) holds

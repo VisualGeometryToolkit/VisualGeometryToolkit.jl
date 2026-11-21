@@ -112,6 +112,17 @@ function _check_job_name_prefix(p, what)
     return String(p)
 end
 
+# The file of site profile `spec` (`load_site`'s lookup): a path (it ends in `.toml` or names an existing file), else
+# `<spec>.toml` in `dirs` and then in SITES_DIR; `nothing` for a name none of them has. A missing path is an error.
+function _site_path(spec::AbstractString; dirs::AbstractVector{<:AbstractString} = String[])
+    if endswith(spec, ".toml") || isfile(spec)
+        isfile(spec) || throw(ArgumentError("site profile $spec: no such file"))
+        return abspath(spec)
+    end
+    k = findfirst(d -> isfile(joinpath(d, spec * ".toml")), [dirs; SITES_DIR])
+    return k === nothing ? nothing : joinpath([dirs; SITES_DIR][k], spec * ".toml")
+end
+
 """
     load_site(spec; dirs = String[]) -> Site
 
@@ -120,15 +131,9 @@ The site profile `spec`: a path to a TOML file (it ends in `.toml` or names an e
 a backend other than `slurm` or `local`, or an unknown name (the error lists the known ones) is refused.
 """
 function load_site(spec::AbstractString; dirs::AbstractVector{<:AbstractString} = String[])
-    path = if endswith(spec, ".toml") || isfile(spec)
-        isfile(spec) || throw(ArgumentError("site profile $spec: no such file"))
-        abspath(spec)
-    else
-        found = [joinpath(d, spec * ".toml") for d in [dirs; SITES_DIR] if isfile(joinpath(d, spec * ".toml"))]
-        isempty(found) && throw(ArgumentError("unknown site $(repr(spec)): the shipped sites are $(join(shipped_sites(), ", "))" *
-            (isempty(dirs) ? "" : ", and none in $(join(dirs, ", "))") * "; or give the path of a site file (configs/sites/_template.toml)"))
-        first(found)
-    end
+    path = _site_path(spec; dirs)
+    path === nothing && throw(ArgumentError("unknown site $(repr(spec)): the shipped sites are $(join(shipped_sites(), ", "))" *
+        (isempty(dirs) ? "" : ", and none in $(join(dirs, ", "))") * "; or give the path of a site file (configs/sites/_template.toml)"))
     d = TOML.parsefile(path)
     _check_tables(d, _SITE_KEYS, "site profile $path")
     s = get(d, "site", Dict{String, Any}())

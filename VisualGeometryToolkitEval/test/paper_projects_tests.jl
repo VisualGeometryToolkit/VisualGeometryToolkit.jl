@@ -290,6 +290,18 @@
             """)
         v = check(root; checks = (:release,))
         @test rules(v) == ["R1", "R2", "R3"]
+        # a platform-specific entry (`[[name]]`, one table per platform) is read, not thrown on
+        write(joinpath(root, "Artifacts.toml"), """
+            [[pools]]
+            arch = "x86_64"
+            os = "linux"
+            git-tree-sha1 = "$(repeat("a", 40))"
+            [[pools.download]]
+            sha256 = "$(repeat("b", 64))"
+            url = "https://zenodo.org/records/ZENODO_RECORD_DATA/files/pools.tar.gz?download=1"
+            """)
+        @test count(x -> x.rule == "R3", check(root; checks = (:release,))) == 1
+        @test !any(x -> x.rule == "A3", check(root; checks = (:storage,), stack_artifacts = [joinpath(root, "Artifacts.toml")]))
     end
 
     @testset "selection and display" begin

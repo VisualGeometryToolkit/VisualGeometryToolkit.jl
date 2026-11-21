@@ -282,7 +282,7 @@ The checks (`checks` selects; [`PAPER_PROJECT_CHECKS`](@ref) by default,
   code, tests, examples, configs, docs and provenance, `D2` writes into the
   input tree, `D3` unkeyed outputs, `D4` `artifact"…"` in code, `D5` an
   artifact or download API outside DataArtifacts); `data_policy` forwards its
-  keywords (`dirs`, `exts`, `machine_dirs`, `machine_exts`).
+  keywords (`dirs`, `exts`).
 - `:reproduce` — Reproduce `reproduce_index_violations` (rule = its kind);
   `reproduce` forwards its keywords (`search_dirs` for a paper built outside
   its own directory, `check_literals`, `ignore_macros`, …).
@@ -414,14 +414,8 @@ function _layout!(add!, root::String, scripts::AbstractString, configs::Abstract
 end
 
 # The files git tracks under `rel` (relative to `root`); none outside a git work tree.
-function _git_tracked(root::String, rel::String)
-    out = try
-        read(pipeline(`git -C $root ls-files -z -- $rel`; stderr = devnull), String)
-    catch
-        ""
-    end
-    return sort!(filter(!isempty, split(out, '\0')))
-end
+_git_tracked(root::String, rel::String) =
+    sort!(filter(!isempty, split(something(_git_line(root, ["ls-files", "-z", "--", rel]), ""), '\0')))
 
 # Whether git ignores `rel` (a path under `root`, existing or not). Outside a
 # git work tree, the project's own .gitignore is read: a line naming the path
@@ -511,6 +505,11 @@ end
 
 # ---- :storage / :release ---------------------------------------------------------------
 
+# An Artifacts.toml entry's bindings: one table, or a platform-specific entry's tables (`[[name]]`).
+_entries(b) = b isa AbstractVector ? b : [b]
+# An entry's git-tree-sha1s, one per binding (sorted: a platform entry's are a set).
+_tree_hashes(b) = sort!([string(get(e, "git-tree-sha1", "")) for e in _entries(b)])
+
 # The catalog's entry names and their parts (every name a config's tier may name), or `nothing` without a catalog.
 function _catalogued(root, catalog)
     path = joinpath(root, catalog)
@@ -549,8 +548,8 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
         theirs = TOML.parsefile(other)
         for (n, b) in sort(collect(own); by = first)
             haskey(theirs, n) || continue
-            h, g = get(b, "git-tree-sha1", ""), get(theirs[n], "git-tree-sha1", "")
-            h == g || add!(:storage, "A3", "Artifacts.toml", 0, "$n is the tree $h here and $g in $other: one name, one tree")
+            h, g = _tree_hashes(b), _tree_hashes(theirs[n])
+            h == g || add!(:storage, "A3", "Artifacts.toml", 0, "$n is the tree $(join(h, ", ")) here and $(join(g, ", ")) in $other: one name, one tree")
         end
     end
     view = joinpath(root, "data", "exp_raw")
@@ -561,26 +560,25 @@ function _storage!(add!, root::String, configs::AbstractString, catalog::Abstrac
         add!(:storage, "A4", "data/exp_raw", 0, sprint(showerror, store))
         return nothing
     end
+    # the depot store: Pkg finds (and links) a tree in any depot of DEPOT_PATH
+    tops = store.source === :depot ? [joinpath(d, "artifacts") for d in DEPOT_PATH] : [store.path]
     for (n, hs) in store_name_clashes(store)
         haskey(own, n) && add!(:storage, "A3", "Artifacts.toml", 0,
                                "the artifact store ($(store.path)) holds $(length(hs)) trees under the name $n ($(join(hs, ", "))): one name, one tree")
     end
     # A4: the artifact view's links resolve into the store
     if has_view
-        top = rstrip(isdir(store.path) ? realpath(store.path) : store.path, '/') * "/"
         for (r, _, fs) in walkdir(view), f in sort(fs)
             p = joinpath(r, f)
             islink(p) || continue
             t = ispath(p) ? realpath(p) : readlink(p)
-            startswith(t, top) || add!(:storage, "A4", relpath(p, root), 0,
-                                       "links to $t, outside the artifact store $(store.path) ($(store.source)): rerun scripts/fetch_data.jl " *
-                                       "(VisualGeometryToolkitCore.migrate_artifacts moves a depot's trees)")
+            any(s -> _is_under(t, s), tops) || add!(:storage, "A4", relpath(p, root), 0,
+                                       "links to $t, outside the artifact store $(store.path) ($(store.source)): remove data/exp_raw " *
+                                       "and rerun scripts/fetch_data.jl (VisualGeometryToolkitCore.migrate_artifacts moves a depot's trees)")
         end
     end
     return nothing
 end
-
-const _PLACEHOLDER_URL = r"/[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/"
 
 function _release!(add!, root::String, catalog::AbstractString)
     path = joinpath(root, catalog)
@@ -599,9 +597,9 @@ function _release!(add!, root::String, catalog::AbstractString)
     end
     arts = joinpath(root, "Artifacts.toml")
     for (n, b) in sort(collect(isfile(arts) ? TOML.parsefile(arts) : Dict{String, Any}()); by = first)
-        for d in get(b, "download", [])
+        for d in Iterators.flatten(get(e, "download", []) for e in _entries(b))
             u = get(d, "url", "")
-            (occursin(_PLACEHOLDER_URL, u) || startswith(u, "file:")) &&
+            (!is_published_url(u) || startswith(u, "file:")) &&
                 add!(:release, "R3", "Artifacts.toml", 0, "$n downloads from $(repr(u)): not a public host")
         end
     end

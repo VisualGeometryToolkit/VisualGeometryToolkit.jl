@@ -67,9 +67,13 @@
             @test_throws ErrorException E.data_root()                                 # the site's root not made yet: no rung
             mkpath(joinpath(sites, "data", basename(dir))); mkpath(joinpath(sites, "data", "paper"))
             @test E.data_root() == joinpath(sites, "data", basename(dir))
+            @test_throws ErrorException E.results_root()                              # the site's results root not made yet
+            mkpath(joinpath(sites, "results", basename(dir)))
             @test E.results_root() == joinpath(sites, "results", basename(dir))
             @test E.is_primary_copy()
             @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(sites, "store"), :site)
+            write(joinpath(dir, "configs", "reproduce.toml"), "[project]\nname = \"paper\"\n")   # a graph in progress: no stage
+            @test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(sites, "store"), :site)   # the store still resolves
             write(joinpath(dir, "configs", "reproduce.toml"), "[project]\nname = \"paper\"\n[[stage]]\nname = \"s\"\ncommand = [\"true\"]\n")
             @test E.project_name() == "paper" && E.data_root() == joinpath(sites, "data", "paper")
             # the project's own binding first: its data/exp_raw and data/exp_pro
@@ -131,8 +135,8 @@
                            download_info = [("https://huggingface.co/datasets/lab/data/resolve/HF_REVISION_X/d.tar.gz", "0"^64)])
             err = try E.install_artifact("tier_d", toml); nothing catch e; e end
             @test err isa ErrorException && occursin("not published", err.msg)
-            @test VgtkCore._published("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
-                  VgtkCore._published("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
+            @test VgtkCore.is_published_url("https://huggingface.co/datasets/lab/data/resolve/$("ab"^20)/d.tar.gz") &&
+                  VgtkCore.is_published_url("https://zenodo.org/records/12345/files/c.tar.gz?download=1")
             @test_throws ErrorException E.install_artifact("tier_zz", toml)
             @test E.install_artifact === VgtkCore.install_artifact   # one implementation, Core's (hoisted for BlobBoards)
             # the Hugging Face token: HF_TOKEN first, else the file `hf auth login` writes under HF_HOME
@@ -647,6 +651,13 @@
         @test length(v2) == length(v3) - 1 + 1
         @test any(x -> x.rule == "STALE" && x.file == "src/ok.jl", v2)
         @test !any(x -> x.rule == "D3" && x.file == "src/bad.jl" && x.line == 5, v2)
+        # D1 beyond the code: every line of a config, but a site profile (a `[site]` table) holds a machine's paths
+        mkpath(joinpath(root, "configs", "sites"))
+        write(joinpath(root, "configs", "run.toml"), "# data under /cluster/projects/x\n")
+        write(joinpath(root, "configs", "sites", "lab.toml"), "[site]\nbackend = \"slurm\"\n[storage]\ndata_root = \"/cluster/projects/x\"\n")
+        v4 = E.data_policy_violations(root)
+        @test [(x.rule, x.line) for x in v4 if startswith(x.file, "configs")] == [("D1", 1)] &&
+              only(x for x in v4 if startswith(x.file, "configs")).file == joinpath("configs", "run.toml")
     end
     store_saved === nothing ? delete!(ENV, "VGTK_ARTIFACT_STORE") : (ENV["VGTK_ARTIFACT_STORE"] = store_saved)
 end

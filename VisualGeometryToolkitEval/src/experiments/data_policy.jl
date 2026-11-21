@@ -75,66 +75,53 @@ _d3(line) =
 
 _policy_comment(line, ext) = (l = lstrip(line); startswith(l, "#") && !(ext in (".sh", ".sbatch") && startswith(l, "#SBATCH")))
 
-"""
-    MACHINE_PATH_DIRS
+# Where D1 also looks for a machine path, beyond the code (`dirs`): a project's tests, examples, configs, docs and
+# tracked provenance, in their code, launcher, config and text files — every comment and paragraph included, since a
+# path in a config's comment or a README is the next run's machine path. A site profile (a TOML file with a `[site]`
+# table, the one place a machine's paths belong: a project's own `sites_dir`) is not read.
+const _MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
+const _MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
 
-Where D1 also looks for a machine path, beyond the code (`dirs`): a project's
-tests, examples, configs, docs and tracked provenance, in their
-[`MACHINE_PATH_EXTS`](@ref) files — every comment and paragraph included, since
-a path in a config's comment or a README is the next run's machine path.
-"""
-const MACHINE_PATH_DIRS = ["test", "examples", "configs", "docs", "provenance"]
-
-"""
-    MACHINE_PATH_EXTS
-
-The files of [`MACHINE_PATH_DIRS`](@ref) D1 reads: code, launchers, configs and
-text (`.jl`, `.sh`, `.sbatch`, `.toml`, `.md`, `.json`, `.yml`, `.yaml`,
-`.txt`, `.tex`).
-"""
-const MACHINE_PATH_EXTS = [".jl", ".sh", ".sbatch", ".toml", ".md", ".json", ".yml", ".yaml", ".txt", ".tex"]
+_is_site_profile(path) = endswith(path, ".toml") && haskey(try TOML.parsefile(path) catch; Dict{String, Any}() end, "site")
 
 """
     data_policy_violations(root; dirs = ["src", "scripts"], exts = [".jl", ".sh", ".sbatch"],
-                           machine_dirs = MACHINE_PATH_DIRS, machine_exts = MACHINE_PATH_EXTS,
                            allow = DataPolicyAllow[])
         -> Vector{NamedTuple{(:rule, :file, :line, :text)}}
 
 The data-policy findings (rules D1–D5, see the file header) in the `dirs` of
-project `root` (code: every rule, comments skipped), and D1 also in its
-`machine_dirs` (every line of their `machine_exts` files: [`MACHINE_PATH_DIRS`](@ref)),
+project `root` (code: every rule, comments skipped), and D1 also in its tests,
+examples, configs, docs and provenance (every line of their code, config and
+text files; a site profile, which holds a machine's paths by design, excepted),
 minus the `allow`ed ones, plus a `STALE` finding for every allow entry that
 matched nothing. Empty ⇔ compliant.
 """
 function data_policy_violations(root::AbstractString; dirs = ["src", "scripts"],
                                 exts = [".jl", ".sh", ".sbatch"],
-                                machine_dirs = MACHINE_PATH_DIRS, machine_exts = MACHINE_PATH_EXTS,
                                 allow::AbstractVector{DataPolicyAllow} = DataPolicyAllow[])
     found = NamedTuple{(:rule, :file, :line, :text),Tuple{String,String,Int,String}}[]
-    scanned = Set{String}()
-    for d in filter(d -> isdir(joinpath(root, d)), dirs), (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
+    seen = Set{String}()
+    for d in filter(d -> isdir(joinpath(root, d)), unique([dirs; _MACHINE_PATH_DIRS])),
+            (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
         ext = splitext(f)[2]
-        ext in exts || continue
         path = joinpath(r, f)
         rel = relpath(path, root)
-        push!(scanned, rel)
+        code = d in dirs && ext in exts
+        (code || (d in _MACHINE_PATH_DIRS && ext in _MACHINE_PATH_EXTS)) && !(rel in seen) || continue
+        push!(seen, rel)                                   # a code dir nested in a machine dir is read once
+        code || !_is_site_profile(path) || continue
         for (i, line) in enumerate(eachline(path))
-            _policy_comment(line, ext) && continue
             hit(rule) = push!(found, (rule = rule, file = rel, line = i, text = strip(line)))
+            if !code
+                occursin(_D1, line) && hit("D1")
+                continue
+            end
+            _policy_comment(line, ext) && continue
             occursin(_D1, line) && hit("D1")
             (occursin(_D2_WRITE, line) || occursin(_D2_OUTDIR, line)) && hit("D2")
             _d3(line) && hit("D3")
             occursin(_D4, line) && hit("D4")
             occursin(_D5, line) && hit("D5")
-        end
-    end
-    for d in filter(d -> isdir(joinpath(root, d)), machine_dirs), (r, _, fs) in walkdir(joinpath(root, d)), f in sort(fs)
-        splitext(f)[2] in machine_exts || continue
-        path = joinpath(r, f)
-        rel = relpath(path, root)
-        rel in scanned && continue
-        for (i, line) in enumerate(eachline(path))
-            occursin(_D1, line) && push!(found, (rule = "D1", file = rel, line = i, text = strip(line)))
         end
     end
     used = falses(length(allow))

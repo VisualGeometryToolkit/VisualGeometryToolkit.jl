@@ -31,7 +31,9 @@ using ..Experiments: DataPolicyAllow, data_policy_violations, contract_violation
 using ..Reproduce: reproduce_index_violations, read_reproduce_index, IndexEntry
 using ..DataArtifacts: load_catalog, catalog_violations, artifact_parts, _PROJECT_CATALOG
 using ..Experiments: is_artifact_view
-using VisualGeometryToolkitCore: artifact_store, store_name_clashes   # the artifact store: its links' target, its name record
+import ..Experiments: _is_under   # experiments/data.jl: a path under a root, both resolved (A4's links into the store)
+import .._git_line                # src/code_identity.jl: one git query, `nothing` outside a work tree (L6)
+using VisualGeometryToolkitCore: artifact_store, store_name_clashes, is_published_url   # the artifact store: its links' target, its name record; R3's placeholder URL
 
 export PaperProjectViolation, PAPER_PROJECT_CHECKS, paper_project_violations,
     PAPER_PROJECT_TEMPLATE, new_paper_project, paper_figures_dir

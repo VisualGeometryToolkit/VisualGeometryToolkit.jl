@@ -669,8 +669,10 @@ end
 
 # Pack `name` into <stage>/tarballs, reusing a staged tarball whose `.files`
 # listing (relpath, size, mtime of every source file) is current.
-function _pack(cat, name, stage, kinds)
-    (; root, pieces) = artifact_files(cat, name; kinds)
+# `files`: the entry's `artifact_files`, resolved before the scratch store is entered (resolving a root may install
+# the artifact view into the project's own store, which the packer's block holds the lock of).
+function _pack(cat, name, stage, files)
+    (; root, pieces) = files
     mkpath(joinpath(stage, "tarballs"))
     tarball = joinpath(stage, "tarballs", "$(published_name(cat, name)).tar.gz")   # the host's file name
     listing = _listing(root, pieces)
@@ -727,8 +729,9 @@ function pack_artifacts(cat::DataCatalog, names::AbstractVector = sort(collect(k
     isempty(stage) && throw(ArgumentError("pack_artifacts: `stage` (a scratch directory with room for the tarballs) is required"))
     # one scratch artifacts directory for every concurrent pack (the override is
     # process-global: set once, around all of them, through Core's one wrapper)
+    files = [n => artifact_files(cat, n; kinds) for n in _bound_names(cat, names)]
     built = with_artifact_store(joinpath(stage, "artifacts")) do
-        fetch.([Threads.@spawn _pack(cat, n, stage, kinds) for n in _bound_names(cat, names)])
+        fetch.([Threads.@spawn _pack(cat, n, stage, f) for (n, f) in files])
     end
     header = _comment_header(cat.artifacts_toml)
     for b in built

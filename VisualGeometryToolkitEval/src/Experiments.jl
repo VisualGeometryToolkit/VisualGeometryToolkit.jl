@@ -107,7 +107,6 @@ function progress(msg::AbstractString)
 end
 
 public cancelled, progress
-public MACHINE_PATH_DIRS, MACHINE_PATH_EXTS   # where the data policy's D1 looks beyond the code (experiments/data_policy.jl)
 
 # The stage runner — Stage, run_stages, require_input.
 include("experiments/stages.jl")

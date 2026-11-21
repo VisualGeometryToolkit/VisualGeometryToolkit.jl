@@ -127,20 +127,28 @@ shipped profiles; `nothing` for a name no profile has (a malformed profile is
 an error). VisualGeometryToolkitCore's `artifact_store` reads its
 `[storage] artifact_store` through it (registered when this package loads).
 """
-function site_profile(spec::AbstractString)
-    R = parentmodule(@__MODULE__).Reproduce              # included after this module: resolved at the call
-    g = _project_graph()
+site_profile(spec::AbstractString) = _site_profile(spec, _project_graph())
+
+function _site_profile(spec::AbstractString, g)
     dirs = g === nothing || isempty(g.sites_dir) ? String[] : [g.sites_dir]
-    endswith(spec, ".toml") || isfile(spec) ||
-        any(d -> isfile(joinpath(d, spec * ".toml")), [dirs; R.SITES_DIR]) || return nothing
-    return R.load_site(String(spec); dirs)
+    path = _reproduce()._site_path(String(spec); dirs)    # the runner's lookup: `nothing` for an unknown name
+    return path === nothing ? nothing : _reproduce().load_site(path)
 end
 
-# The bound project's stage graph (configs/reproduce.toml), or `nothing`.
+# The runner (Reproduce), included after this module: resolved at the call.
+_reproduce() = parentmodule(@__MODULE__).Reproduce
+
+# The bound project's stage graph (configs/reproduce.toml), or `nothing`; parsed once per change of the file (every
+# root lookup on a site reads it).
+const _GRAPH_CACHE = Dict{String, Tuple{Float64, Any}}()
 function _project_graph()
     root = project_root()
     path = isempty(root) ? "" : joinpath(root, "configs", "reproduce.toml")
-    return isfile(path) ? parentmodule(@__MODULE__).Reproduce.load_stage_graph(path) : nothing
+    isfile(path) || return nothing
+    t = mtime(path)
+    c = get(_GRAPH_CACHE, path, nothing)
+    (c === nothing || c[1] != t) && (c = _GRAPH_CACHE[path] = (t, _reproduce().load_stage_graph(path)))
+    return c[2]
 end
 
 """
@@ -150,16 +158,17 @@ The bound project's name, the `{project}` of a site profile's roots: its stage
 graph's `[project] name` (`configs/reproduce.toml`), else the name of its
 directory.
 """
-function project_name()
-    g = _project_graph()
-    return g === nothing ? basename(rstrip(project_root(), '/')) : g.name
-end
+project_name() = _project_name(_project_graph())
+_project_name(g) = g === nothing ? basename(rstrip(project_root(), '/')) : g.name
 
 # The active site profile's `[storage]` root `key` for the bound project, or `nothing`.
 function _site_storage(key::AbstractString)
-    s = active_site()
+    spec = strip(get(ENV, "VGTK_SITE", ""))
+    isempty(spec) && return nothing
+    g = _project_graph()
+    s = _site_profile(spec, g)
     s === nothing && return nothing
-    v = parentmodule(@__MODULE__).Reproduce.site_root(s, key, project_name())
+    v = _reproduce().site_root(s, key, _project_name(g))
     return isempty(v) ? nothing : v
 end
 
@@ -226,18 +235,26 @@ end
 
 The project's results tree: `ENV["VGTK_RESULTS_ROOT"]` → the project's
 `data/exp_pro` (DrWatson `datadir("exp_pro")`; a link or a directory) → the
-site profile's `results_root` ([`active_site`](@ref)); without any of them
+site profile's `results_root` ([`active_site`](@ref)) once it exists, or
+when the project binds `create_results = true`; without any of them
 `data/exp_pro`. The root is created when the project binds
 `create_results = true`; otherwise a missing `data/exp_pro` is an error.
 """
 function results_root()
     local_root = joinpath(project_root(), "data", "exp_pro")
-    site = haskey(ENV, "VGTK_RESULTS_ROOT") || islink(local_root) || isdir(local_root) ? nothing : _site_storage("results_root")
-    root = haskey(ENV, "VGTK_RESULTS_ROOT") ? String(ENV["VGTK_RESULTS_ROOT"]) : something(site, local_root)
+    root, bound = if haskey(ENV, "VGTK_RESULTS_ROOT")
+        String(ENV["VGTK_RESULTS_ROOT"]), true
+    elseif islink(local_root) || isdir(local_root)
+        local_root, true
+    else
+        site = _site_storage("results_root")
+        # a site's root is used once it exists (as the data root's), or when the project creates its results root
+        site !== nothing && (_BINDING.create_results || isdir(site)) ? (site, true) : (local_root, false)
+    end
     if _BINDING.create_results
         mkpath(root)
-    elseif !haskey(ENV, "VGTK_RESULTS_ROOT") && site === nothing
-        islink(root) || isdir(root) || error(
+    elseif !bound
+        error(
             "no results root: set VGTK_RESULTS_ROOT, VGTK_SITE to a site profile with [storage] results_root, " *
             "or create the data/exp_pro symlink under $(project_root())")
     end
@@ -384,7 +401,7 @@ function _site_tiers()
     (isempty(site) || isempty(root)) && return (nothing, "", "VGTK_DATA_ROOT")
     path = joinpath(root, "configs", "reproduce.toml")
     isfile(path) || return (nothing, "", "VGTK_DATA_ROOT")
-    g = parentmodule(@__MODULE__).Reproduce.load_stage_graph(path)
+    g = _project_graph()
     return (get(get(g.site_roots, site, Dict{String,Any}()), "tiers", nothing), g.workdir, g.data_env)
 end
 

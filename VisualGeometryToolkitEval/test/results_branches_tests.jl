@@ -28,7 +28,7 @@
         write_numbers(path, nums)
     end
 
-    # A paper project in a subdirectory of its repository (cvpr2027 of radiometric-camera),
+    # A paper project in a subdirectory of its repository (experiments of radiometric-camera),
     # its base commit, and a reproduction's renders outside it.
     function fixture()
         repo = gitrepo()

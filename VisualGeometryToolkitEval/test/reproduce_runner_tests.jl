@@ -697,9 +697,9 @@ end
 
     @testset "the runner bootstrap a project carries is generated from Eval's one template" begin
         @test isfile(Reproduce.REPRODUCE_SCRIPT_TEMPLATE)
-        t = reproduce_script(; julia_project = "cvpr2027")
-        @test occursin("--project=cvpr2027 -e", t) && occursin("-- --graph=cvpr2027/configs/reproduce.toml \"\$@\"", t)
-        @test occursin("bash cvpr2027/scripts/reproduce/reproduce.sh --site=", t) && !occursin("@@", t)
+        t = reproduce_script(; julia_project = "experiments")
+        @test occursin("--project=experiments -e", t) && occursin("-- --graph=experiments/configs/reproduce.toml \"\$@\"", t)
+        @test occursin("bash experiments/scripts/reproduce/reproduce.sh --site=", t) && !occursin("@@", t)
         @test findfirst("canonical.jl", t)[1] < findfirst("cli.jl\")", t)[1]       # the run keys' encoding first
         @test_throws r"not a path relative" reproduce_script(; julia_project = "/abs")
         @test_throws r"not a path relative" reproduce_script(; julia_project = "a b")

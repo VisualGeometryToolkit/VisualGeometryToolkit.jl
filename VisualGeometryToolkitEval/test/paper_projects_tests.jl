@@ -399,7 +399,7 @@ end
 @testitem "paper_projects: paper_figures_dir" begin
     # The directory a paper reads its generated assets from — `figures/` beside
     # its main .tex, under the project root — once for every paper project
-    # (RANSACScoringDoneRight's neurips2026 and radiometric-camera's cvpr2027
+    # (RANSACScoringDoneRight's neurips2026 and radiometric-camera's experiments
     # each defined `paper_figdir()`; the template wrote it out per driver).
     using VisualGeometryToolkitEval.PaperProjects: paper_figures_dir
     using VisualGeometryToolkitEval.Experiments: set_project_root!

@@ -1,5 +1,26 @@
-docs-pass: 2b4d4867
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs, the install lock, the artifact store or ASIFT's upsampling keywords)
+docs-pass: eb55880e
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page builds a calibration matrix, names a principal point or calls center on a frame)
+
+# Core 0.13.2: CameraCalibrationMat from a focal length and the image; center(::FeatureFrame) removed — at eb55880e
+
+- Public API against 0.13.1: added methods `CameraCalibrationMat(f, pp::AbstractVector{<:Real})`,
+  `CameraCalibrationMat(f, r::Rect2{<:Real})`, `CameraCalibrationMat(f, sz::Size2{<:Real})` (one docstring with a
+  jldoctest, `check` keyword; `f` a real, `(fx, fy)` or `px` quantities); removed the method `center(::FeatureFrame)`
+  (`centroid(f)` is the frame's centre; `center` stays public for the radial models and `center(u)` of an uncertain
+  frame). No name added or removed.
+- Docstrings and pages: `centroid`'s method list (`Rect` returns a `Vec`, a frame a `Point2`), the `FeatureFrame`
+  interface list (`centroid(frame)`), `conventions/feature-frames.md` (the centre is `centroid`), the cameras guide's
+  intrinsics section, the lens guide's three cameras and `examples/image_circle.jl` (K from `Rect(s)` / `Size2`
+  instead of a hand-written principal point), the CHANGELOG (0.13.2, and a planned-review line for the uncertain
+  frame's `center` naming). README unchanged: its example builds the camera from a metric focal length and pitch.
+- Gates: the `CameraCalibrationMat from a focal length` item 27/27; the `feature frames`, `docs`, `README`, `quality`,
+  `naming`, `duplication` and `agent docs` items 2223/2224 locally, the one failure the untracked machine-local
+  `.claude/settings.local.json` (absent from a clone). `Test.detect_ambiguities(VisualGeometryToolkitCore; recursive =
+  true)` empty. The docstring's doctest checked in the REPL. Not run: the strict docs build (a kaimon session for
+  `docs/` needed an approval nobody could give); the release gate's fresh clone runs the suite.
+- Not changed, for a later release of their package: VisualGeometryToolkitIO's README, `docs/src/index.md` and
+  `guide/getting-started.md` (`CameraModel(2400.0px, [2120.0, 1416.0] .* px; …)` beside `Size2(4240, 2832)`: the
+  centre by hand; the new form needs Core 0.13.2 in IO's compat).
 
 # Features 0.9.11: ASIFT's upsample count, nb_scales and nb_octaves — at 2b4d4867
 

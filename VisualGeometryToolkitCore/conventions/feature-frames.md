@@ -9,7 +9,7 @@ factor), [`AffineFrame`](@ref) 6 (a general one). The DOF level is a trait,
 `IsotropicScale()`, `ShapeFactorScale()`.
 
 **Every verb is implemented ONCE**, on `FeatureFrame` or on its trait, from
-the per-type primitives: the centre ([`center`](@ref VisualGeometryToolkitCore.center)), the local shape where a
+the per-type primitives: the centre ([`centroid`](@ref)), the local shape where a
 frame has one ([`shape_factor`](@ref); σ for the isotropic frames), and two
 one-line constructors per type (its frame from mapped lengths, its similarity
 image). A `PointFrame` has only the centre, so it gets the whole interface
@@ -23,7 +23,7 @@ detections, and a benchmark against `Uncertain{Point2}`).
 
 | Verb | Every frame (PointFrame included) |
 |---|---|
-| centre | `center(f)` (also `centroid`, `GeometryBasics.origin`) |
+| centre | `centroid(f)` (also `GeometryBasics.origin`) |
 | the point observation of a detection | `center(u::Uncertain{<:FeatureFrame})`, `center(d::Attributed{<:Uncertain{<:FeatureFrame}})` → `Uncertain{Point2}`: the centre and the first 2×2 block of the frame's covariance. THE one conversion: no code takes a centre and a covariance block apart by hand |
 | similarity action | `S(f)` for a `SimilarityMap{2}`, an `EuclideanMap{2}`, a rotation or uniform-scaling `LinearMap`: exact, the class kept |
 | transfer through any point map | [`transfer`](@ref)`(m, f)`: the centre by `m`; a scaled frame's shape by `m`'s Jacobian at the centre (an `AffineFrame`, first order), exact through a similarity |

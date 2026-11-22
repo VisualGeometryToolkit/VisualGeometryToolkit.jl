@@ -96,10 +96,12 @@ end
 # origin), and the K back in the caller's pixels.
 _about_center(Hs, center) =
     [HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(1, 0, 0, 0, 1, 0, -center[1], -center[2], 1) * SMatrix{3, 3, Float64}(value_of(H)::HomographyMat))) for H in Hs]
-# The pixel K literal (focal lengths `fx`, `fy`, principal point `center`, no
-# skew) — the one spelling — and the intrinsics wrapping it.
-_pixel_K(fx, fy, center) = SMatrix{3, 3, Float64, 9}(fx, 0, 0, 0, fy, 0, center[1], center[2], 1)
-pixel_intrinsics(fx, fy, center) = LogicalIntrinsics(CameraCalibrationMat(_pixel_K(fx, fy, center)))
+# The pixel K (focal lengths `fx`, `fy`, principal point `center`, no skew) as a
+# Float64 SMatrix, and the intrinsics wrapping it: both the calibration matrix's
+# own `(f, pp)` constructor (intrinsics.jl), the focals unchecked in the matrix.
+_pixel_K(fx, fy, center) =
+    SMatrix{3, 3, Float64, 9}(CameraCalibrationMat((Float64(fx), Float64(fy)), SVector(Float64(center[1]), Float64(center[2])); check = false))
+pixel_intrinsics(fx, fy, center) = LogicalIntrinsics(CameraCalibrationMat((Float64(fx), Float64(fy)), SVector(Float64(center[1]), Float64(center[2]))))
 
 """
     zhang_intrinsics(Hs, pitch::Size2; center) -> LogicalIntrinsics{Float64}

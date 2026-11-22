@@ -182,7 +182,7 @@ using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
 s = sensor("Sony", "IMX250")                            # 2448 × 2048 @ 3.45 μm
 k = -4 / (3π^2)                                         # r = θ(1 + kθ²) folds at 90°, r = (2/3)θ
 f = ustrip(px, 6.0mm / (2 * s.pitch.width)) / (π / 3)   # a 180° lens drawing a 6 mm circle
-cam = BoundedCamera(CameraModel(; focal = f, pp = (1224.0, 1024.0), lens = KannalaBrandt(k)), s)
+cam = BoundedCamera(CameraModel(CameraCalibrationMat(f, Rect(s)); lens = KannalaBrandt(k)), s)
 v = valid_domain(cam)                                   # where the lens formula holds
 (centroid(v), v.a, v.b)
 ```
@@ -196,7 +196,7 @@ Here the lens was chosen so the two coincide; for a fitted lens they need not.
 [`angle_of_view`](@ref) is the angle of view the camera images — its extent bounded by its lens coverage, clipped by the model's valid domain; [`field_of_view`](@ref) is the size that angle spans at a distance.
 
 ```@example imagecircle
-rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
+rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Pinhole()), s)
 (valid_domain(rcam), rad2deg(angle_of_view(rcam)), rad2deg(angle_of_view(rcam; dimension = :diagonal)))
 ```
 
@@ -226,7 +226,7 @@ plane as every parameter's support, so [`free_nodes`](@ref) answers `Colon()`
 and only the nodes whose footprint meets the lens coverage are free.
 
 ```@example imagecircle
-fish = CameraModel(; focal = 250.0, pp = (640.0, 480.0), lens = KannalaBrandt(k))
+fish = CameraModel(CameraCalibrationMat(250.0, Size2(1280, 960)); lens = KannalaBrandt(k))   # principal point at the image centre
 g = CameraModel(SplineLens, fish, Size2(1280, 960); grid_size = (20, 16))
 circle = Ellipse(Point2(640.0, 480.0), 250.0, 250.0, 0.0)   # a measured image circle, 250 px
 R = imaged_region(BoundedCamera(fish, Size2(1280, 960); lens_coverage = circle))

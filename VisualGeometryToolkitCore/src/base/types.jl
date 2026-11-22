@@ -42,14 +42,14 @@ Concrete subtypes:
 All frames implement:
 - `AffineMap(frame)` → `AffineMap` from canonical to image coordinates
 - `region(frame, k=1.0)` → unitless `Circle` or `Ellipse` at the k·σ contour
-- `center(frame)` → `Point2{T}` center position
+- `centroid(frame)` → `Point2{T}` center position
 - `Base.inv(frame)` → frame with inverted transformation
 """
 abstract type FeatureFrame{T} end
 
-# ONE `center` generic for every centred geometric object: `FeatureFrame`
-# (geometry/primitives/blob_types.jl) and the radial models
-# (geometry/radial_models.jl). Declared here because Primitives is included
+# The `center` generic: the radial models' centre (geometry/radial_models.jl) and an
+# uncertain frame's point observation (geometry/primitives/feature_frames.jl); a shape's
+# centre is `centroid`. Declared here because Primitives is included
 # before the geometry layer that documents the family.
 function center end
 

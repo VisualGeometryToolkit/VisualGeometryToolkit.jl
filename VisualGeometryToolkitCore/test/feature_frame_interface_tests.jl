@@ -21,7 +21,7 @@
         @test isbitstype(PointFrame{Float64}) && sizeof(PointFrame{Float64}) == sizeof(Point2{Float64})
         @test isbitstype(PointFrame{Float32}) && sizeof(PointFrame{Float32}) == sizeof(Point2{Float32})
         @test reinterpret(PointFrame{Float64}, [c])[1] == PointFrame(c)          # the same bits
-        @test center(PointFrame(c)) === c && PointFrame(center(PointFrame(c))) === PointFrame(c)
+        @test centroid(PointFrame(c)) === c && PointFrame(centroid(PointFrame(c))) === PointFrame(c)
     end
 
     @testset "center: the one detection → point observation conversion" begin
@@ -51,7 +51,7 @@
         S = SimilarityMap(2.0, RotMatrix2(0.4), SVector(1.0, -3.0))
         E = EuclideanMap(RotMatrix2(0.4), SVector(1.0, -3.0))
         for f in frames
-            @test center(S(f)) ≈ S(SVector(c))                     # the centre moves as a point
+            @test centroid(S(f)) ≈ S(SVector(c))                     # the centre moves as a point
             @test typeof(S(f)) == typeof(f) && typeof(E(f)) == typeof(f)
             @test transfer(S, f) == S(f)                           # a similarity keeps the class, exactly
         end
@@ -61,9 +61,9 @@
         H = PerspectiveMap() ∘ HomographyMap(@SMatrix [1.0 0.1 3.0; 0.0 1.1 4.0; 1e-3 2e-3 1.0])
         for m in (a, H)
             t = transfer(m, PointFrame(c))
-            @test t isa PointFrame{Float64} && center(t) ≈ m(SVector(c))
+            @test t isa PointFrame{Float64} && centroid(t) ≈ m(SVector(c))
             d = transfer(m, Disc(c, 2.0))                          # first order: an AffineFrame, the shape by the Jacobian
-            @test d isa AffineFrame && center(d) ≈ m(SVector(c))
+            @test d isa AffineFrame && centroid(d) ≈ m(SVector(c))
         end
         @test shape_factor(transfer(a, Disc(c, 2.0))) ≈ a.linear * shape_factor(Disc(c, 2.0))
     end
@@ -75,7 +75,7 @@
         h = HomographyMap(@SMatrix [1.0 0.1 3.0; 0.0 1.1 4.0; 1e-3 2e-3 1.0])
         for m in (S, EuclideanMap(RotMatrix2(0.4), SVector(1.0, -3.0)), h)
             v, w = propagate(m, u), propagate(m, p)
-            @test v.value isa PointFrame && center(v.value) ≈ w.value && cov(v) ≈ cov(w)
+            @test v.value isa PointFrame && centroid(v.value) ≈ w.value && cov(v) ≈ cov(w)
         end
     end
 
@@ -110,7 +110,7 @@
         end
         for f in frames
             @test (f * 2.0) / 2.0 == f                                                  # a power of two: exact
-            @test center(f * 3.0) == 3.0 * c && f + (1.0, 1.0) == f + SVector(1.0, 1.0)
+            @test centroid(f * 3.0) == 3.0 * c && f + (1.0, 1.0) == f + SVector(1.0, 1.0)
         end
         @test PointFrame(c) * 2.0 == PointFrame(2.0 * c)
         @test ustrip(px, PointFrame(Point2(10.0px, 20.0px))) == PointFrame(c)

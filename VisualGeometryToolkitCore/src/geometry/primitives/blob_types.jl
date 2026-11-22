@@ -14,10 +14,7 @@
 
 # FeatureFrame is defined in base/types.jl (loaded before Primitives)
 
-# THE per-type primitive of the FeatureFrame interface every frame shares: its centre
-# (feature_frames.jl, "The FeatureFrame interface", builds every hoisted verb on it and,
-# for the scaled frames, on `shape_factor`).
-center(f::FeatureFrame) = f.center
+# A frame's centre is `centroid(f)` (feature_frames.jl), the one name for a shape's centre.
 
 # =============================================================================
 # Disc (3 DOF) - Isotropic Feature Frame

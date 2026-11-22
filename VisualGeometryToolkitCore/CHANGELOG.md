@@ -1,5 +1,31 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased (planned)
+
+- Under review for the next breaking minor: the name of an uncertain frame's point observation, `center(u)` (an
+  `Uncertain{Point2}`), beside `centroid` (a shape's centre, a plain point).
+
+## 0.13.2
+
+### Added
+- **A calibration matrix from a focal length and the image**, plain numbers being pixels:
+  `CameraCalibrationMat(f, pp)` (`pp` a `Point2` or any 2-vector), `CameraCalibrationMat(f, r::Rect2)` (the principal
+  point at `centroid(r)`) and `CameraCalibrationMat(f, sz::Size2)` (= `CameraCalibrationMat(f, Rect(sz))`, the image
+  `[0, W] × [0, H]`, so `(W/2, H/2)`). `f` is a real, an `(fx, fy)` tuple, or either as `px` quantities. The element
+  type is the floating-point promotion of the inputs, and `check` refuses a non-positive focal length, as the 9-entry
+  constructor does: `CameraCalibrationMat(412.0, Size2(320, 240))` replaces
+  `CameraCalibrationMat(412.0, 0.0, 0.0, 0.0, 412.0, 0.0, 160.0, 120.0, 1.0)`.
+
+### Changed
+- The `px` forms `CameraCalibrationMat(f::Quantity, pp)` and `CameraCalibrationMat((fx, fy), pp)`,
+  `CameraModel(; focal, pp)`, `pixel_intrinsics` and the internal pixel-K literal now all build through that one
+  constructor; their results are unchanged (the `px` forms still do not check the focal lengths).
+
+### Removed
+- `center(f::FeatureFrame)`, a second name for `centroid(f)`: a frame's centre is `centroid(f)`. `center` stays for
+  the radial models' centre and an uncertain frame's point observation `center(u)` (unexported, `public`; no stack
+  package called it on a plain frame).
+
 ## 0.13.1
 
 ### Changed

@@ -870,7 +870,7 @@ identity on the numbers: no estimator, codec or consumer takes a centre and a
 covariance block apart by hand.
 """
 @inline center(u::Uncertain{<:FeatureFrame{T}, <:Union{CovMat, PrecMat}}) where {T} =
-    Uncertain(Point2{T}(center(getfield(u, :value))), _center_block(getfield(u, :attributes)))
+    Uncertain(Point2{T}(centroid(getfield(u, :value))), _center_block(getfield(u, :attributes)))
 @inline center(d::Attributed{<:Uncertain{<:FeatureFrame}}) = center(getfield(d, :value))
 
 # The centre's block: a 2-DOF form is the block (its frame kept); a larger covariance its leading 2×2 in its
@@ -922,7 +922,7 @@ function _point_frame_hint(io::IO, e::MethodError, argtypes, kwargs)
     print(io, "\nA PointFrame is the 2-DOF point feature: it has no scale and no shape, so `", nameof(f),
           "` (a verb of the scaled frames only: scale, shape_factor, shape_matrix, AffineMap, region, Circle, ",
           "Ellipse(frame, r), characteristic_scale, aspect_ratio, boundary_point, MvNormal, intersects, inv) ",
-          "is absent by design. Its centre is `center(f)`, an uncertain one's point observation `center(u)` and its ",
+          "is absent by design. Its centre is `centroid(f)`, an uncertain one's point observation `center(u)` and its ",
           "error ellipse `Ellipse(u; sigma)` (VisualGeometryToolkitCore's FeatureFrame interface table).")
     return nothing
 end

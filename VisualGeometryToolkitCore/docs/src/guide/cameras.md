@@ -65,8 +65,16 @@ camera = PosedCamera(model, lookat(SVector(0.0, 0.0, 500.0),
 inverse) in pixel units:
 
 ```julia
-intrinsics = LogicalIntrinsics(1000.0px, Point2(960.0px, 540.0px))
+sz = Size2(1920, 1080)
+K = CameraCalibrationMat(1000.0, sz)                    # principal point at the image centre, (960, 540)
+K == CameraCalibrationMat(1000.0, Rect(sz))             # the same: the centroid of the image rect
+K = CameraCalibrationMat((1000.0, 1002.0), Point2(961.5, 538.0))   # (fx, fy) and an explicit principal point
+intrinsics = LogicalIntrinsics(K)
 ```
+
+A focal length and a principal point are pixels, plain numbers or `px`
+quantities (`1000.0px`); the image's centre is `(W/2, H/2)` in COLMAP's
+convention, the image spanning `[0, W] × [0, H]`.
 
 Physical quantities enter through the constructors — a focal length in
 `mm` plus a pixel pitch produce the equivalent logical intrinsics

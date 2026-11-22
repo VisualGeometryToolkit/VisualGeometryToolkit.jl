@@ -118,7 +118,8 @@ Methods:
 - `centroid(::Circle)` → `Point2{T}`
 - `centroid(::Disc)` → `Point2{T}`
 - `centroid(::Ellipse3D)` → `Point3{T}`
-- `centroid(::Rect)` → `Point{N,T}` (midpoint, not origin)
+- `centroid(::Rect)` → `Vec{N}` (midpoint, not origin)
+- `centroid(::FeatureFrame)` → `Point2{T}`
 """
 function centroid end
 

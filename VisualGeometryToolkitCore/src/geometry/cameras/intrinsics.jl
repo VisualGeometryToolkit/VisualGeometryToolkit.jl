@@ -147,14 +147,64 @@ K = CameraCalibrationMat((800.0px, 805.0px), [320.0px, 240.0px])
 """
 CameraCalibrationMat(f::Quantity, pp::AbstractVector{<:Quantity}) = CameraCalibrationMat((f, f), pp)
 
-function CameraCalibrationMat(f::Tuple{T, T}, pp::AbstractVector{<:Quantity}) where {T <: Quantity}
-    # Strip units and store as Float64 (pixels are dimensionless: a length is a DimensionError)
-    pp_val = strip_pixels.(pp)
-    return CameraCalibrationMat{Float64}(
-        Float64(strip_pixels(f[1])), Float64(strip_pixels(f[2])), 0.0,
-        Float64(pp_val[1]), Float64(pp_val[2]), _Unchecked()
-    )
+# Units stripped (pixels are dimensionless: a length is a DimensionError) and stored as Float64,
+# through the one construction below; the focals are not checked here (as they never were).
+CameraCalibrationMat(f::Tuple{T, T}, pp::AbstractVector{<:Quantity}) where {T <: Quantity} =
+    CameraCalibrationMat(map(Float64 ∘ strip_pixels, f), SVector(Float64(strip_pixels(pp[1])), Float64(strip_pixels(pp[2]))); check = false)
+
+# A focal length in pixels: a plain real (a pixel is dimensionless) or a `px` quantity,
+# isotropic or an `(fx, fy)` pair.
+const _PixelFocal = Union{Real, Quantity, Tuple{Real, Real}, Tuple{Quantity, Quantity}}
+_pixel_focals(f::Tuple) = map(strip_pixels, f)
+_pixel_focals(f) = (p = strip_pixels(f); (p, p))
+
+"""
+    CameraCalibrationMat(f, pp::AbstractVector{<:Real}; check = true) -> CameraCalibrationMat
+    CameraCalibrationMat(f, r::Rect2{<:Real}; check = true) -> CameraCalibrationMat
+    CameraCalibrationMat(f, sz::Size2{<:Real}; check = true) -> CameraCalibrationMat
+
+The zero-skew calibration matrix of focal length `f` in pixels and a principal point given by
+plain numbers, which are pixels (a pixel is dimensionless):
+
+- `pp`, the principal point `(cx, cy)`: a `Point2`, an `SVector` or any 2-vector;
+- `r`, an image rectangle: the principal point is its [`centroid`](@ref);
+- `sz`, an image size: the principal point is the centre of `Rect(sz)`, the image
+  `[0, W] × [0, H]` in Core's COLMAP convention (pixel centres at `0.5, 1.5, …`), so `(W/2, H/2)`.
+
+`f` is a real (isotropic, `fx = fy`), an `(fx, fy)` tuple, or the same as `px` quantities
+(`412.0px`, a length is a `DimensionError`). The element type is the floating-point
+promotion of the inputs (`Float32` stays `Float32`, integers give `Float64`). These are
+the 9-entry constructor's matrix `[fx 0 cx; 0 fy cy; 0 0 1]`, checked like it: `check`
+refuses a non-positive focal length (`ArgumentError`).
+
+# Examples
+```jldoctest; setup = :(using VisualGeometryToolkitCore)
+julia> sz = Size2(320, 240);
+
+julia> K = CameraCalibrationMat(412.0, sz);   # principal point at the image centre
+
+julia> (K[1, 1], K[2, 2], K[1, 3], K[2, 3])
+(412.0, 412.0, 160.0, 120.0)
+
+julia> K == CameraCalibrationMat(412.0, Rect(sz)) == CameraCalibrationMat(412.0, centroid(Rect(sz)))
+true
+
+julia> CameraCalibrationMat((412.0, 410.0), Point2(161.5, 119.0))[2, 2]
+410.0
+
+julia> CameraCalibrationMat(412.0px, sz) == K
+true
+```
+"""
+function CameraCalibrationMat(f::_PixelFocal, pp::AbstractVector{<:Real}; check::Bool = true)
+    length(pp) == 2 || throw(DimensionMismatch("a principal point has 2 coordinates, got $(length(pp))"))
+    fx, fy = _pixel_focals(f)
+    T = float(promote_type(typeof(fx), typeof(fy), eltype(pp)))
+    z = zero(T)
+    return CameraCalibrationMat{T}(T(fx), z, z, z, T(fy), z, T(pp[1]), T(pp[2]), one(T); check)
 end
+CameraCalibrationMat(f::_PixelFocal, r::Rect2{<:Real}; check::Bool = true) = CameraCalibrationMat(f, centroid(r); check)
+CameraCalibrationMat(f::_PixelFocal, sz::Size2{<:Real}; check::Bool = true) = CameraCalibrationMat(f, Rect(sz); check)
 
 # Validate the structural invariants of a 3×3 pinhole calibration matrix:
 #   [ fx   s  cx ]        fx > 0, fy > 0 (positive focals: `_assert_calibration_focals`),

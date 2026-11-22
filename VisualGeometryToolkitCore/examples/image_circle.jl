@@ -16,7 +16,7 @@ using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
 s = sensor("Sony", "IMX250")
 k = -4 / (3π^2)
 f = ustrip(px, 6.0mm / (2 * s.pitch.width)) / (π / 3)   # f·r(90°) = the circle's radius in px
-cam = BoundedCamera(CameraModel(; focal = f, pp = (1224.0, 1024.0), lens = KannalaBrandt(k)), s)
+cam = BoundedCamera(CameraModel(CameraCalibrationMat(f, Rect(s)); lens = KannalaBrandt(k)), s)
 
 # ── 2. The lens model's valid domain: an Ellipse about the principal point, in pixels
 v = valid_domain(cam)
@@ -32,7 +32,7 @@ println("fisheye lights the whole sensor: ", Rect(extent(cam)) ∈ q)
 println("fisheye angle of view: ", rad2deg(angle_of_view(cam)), "° horizontal, ", rad2deg(angle_of_view(cam; dimension = :diagonal)), "° diagonal")
 
 # ── 5. A rectilinear lens has no limit of its own: its valid domain is the whole plane
-rcam = BoundedCamera(CameraModel(; focal = 2000.0, pp = (1224.0, 1024.0), lens = Pinhole()), s)
+rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Pinhole()), s)
 println("rectilinear valid domain: ", valid_domain(rcam))
 println("rectilinear angle of view: ", rad2deg(angle_of_view(rcam)), "° horizontal, ", rad2deg(angle_of_view(rcam; dimension = :diagonal)), "° diagonal")
 

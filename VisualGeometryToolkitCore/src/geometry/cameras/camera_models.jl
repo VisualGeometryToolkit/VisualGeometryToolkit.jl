@@ -217,19 +217,10 @@ function CameraModel(;
         focal, pp::Tuple{Real, Real},
         lens::AbstractLensModel = Pinhole()
     )
-    # Build K directly — the former path manufactured px quantities only to
-    # strip them one call later (audit #15 round-trip kill).
+    # The calibration matrix's own `(f, pp)` constructor, in Float64
     fx, fy = focal isa Tuple ? (Float64(focal[1]), Float64(focal[2])) :
         (Float64(focal), Float64(focal))
-    K = CameraCalibrationMat{Float64}(
-        Tuple(
-            SMatrix{3, 3, Float64}(
-                fx, 0.0, 0.0,
-                0.0, fy, 0.0,
-                Float64(pp[1]), Float64(pp[2]), 1.0
-            )
-        )
-    )
+    K = CameraCalibrationMat((fx, fy), SVector(Float64(pp[1]), Float64(pp[2])))
     return CameraModel(LogicalIntrinsics(K), lens)
 end
 

@@ -218,7 +218,7 @@ end
         @test t > 1 && isfile(joinpath(tree, "a"))          # it waited for the lock, then installed
     end
     wait(p)
-    @test success(p) && !isfile(lockfile)
+    @test success(p) && !ispath(lockfile)
 end
 
 @testitem "with_artifact_store: Pkg's override for the block, nested into the same store, restored" setup = [StoreFixture] begin
@@ -349,25 +349,36 @@ end
     @test_throws ErrorException VgtkCore._install_lock(() -> error("in the block"), dir, "k")
     @test !ispath(lock)
     # a holder of this host that is gone: taken over at once
-    p = run(`$(Base.julia_cmd()) --startup-file=no -e "exit()"`)
-    mkdir(lock); write(joinpath(lock, "owner"), "$(gethostname()) $(getpid(p)) 0")
-    @test !VgtkCore._process_alive(getpid(p)) && VgtkCore._process_alive(getpid())
+    gone = parse(Int, readchomp(`$(Base.julia_cmd()) --startup-file=no -e "print(getpid())"`))   # a pid that has exited
+    mkdir(lock); write(joinpath(lock, "owner"), "$(gethostname()) $gone 0")
+    @test !VgtkCore._process_alive(gone) && VgtkCore._process_alive(getpid())
     t = @elapsed VgtkCore._install_lock(() -> nothing, dir, "k")
     @test t < 5 && !ispath(lock)
-    # a live holder of another host: waited for until its heartbeat is `stale_age` old
+    # a live holder of another host: waited for until its owner has not changed for `stale_age` s of this clock
     mkdir(lock); write(joinpath(lock, "owner"), "elsewhere 1 0")
     t = @elapsed VgtkCore._install_lock(() -> nothing, dir, "k"; stale_age = 1.5, poll = 0.1)
     @test t >= 1.4 && !ispath(lock)
-    # a live holder of this host (this process, another task) is waited for, never broken; its heartbeat keeps it fresh
+    # a live holder of this host (this process, another task) is never broken, even past `stale_age` with no heartbeat
     order = String[]
-    holder = @async VgtkCore._install_lock(dir, "k"; stale_age = 0.5, heartbeat = 0.1) do
+    holder = @async VgtkCore._install_lock(dir, "k"; heartbeat = 3600) do
         push!(order, "held"); sleep(1.5); push!(order, "released")
     end
     while isempty(order); sleep(0.01); end
-    VgtkCore._install_lock(() -> push!(order, "second"), dir, "k"; stale_age = 0.5, poll = 0.05)
+    VgtkCore._install_lock(() -> push!(order, "second"), dir, "k"; stale_age = 0.3, poll = 0.05)
     wait(holder)
-    @test order == ["held", "released", "second"]
+    @test order == ["held", "released", "second"] && !ispath(lock)
     # two waiters that judge one lock stale: one moves it aside, the other's move fails quietly
     mkdir(lock); VgtkCore._break_lock(lock); VgtkCore._break_lock(lock)
     @test !ispath(lock) && isempty(readdir(dir))
+    # a lock whose owner changed after it was judged stale (a fresh holder's) is put back
+    mkdir(lock); write(joinpath(lock, "owner"), "elsewhere 2 fresh")
+    VgtkCore._break_lock(lock, "elsewhere 1 old @ 0.0")
+    @test isfile(joinpath(lock, "owner")) && read(joinpath(lock, "owner"), String) == "elsewhere 2 fresh"
+    rm(lock; recursive = true)
+    # a holder releases only its own lock: one taken over meanwhile stays its new holder's
+    VgtkCore._install_lock(dir, "k") do
+        rm(lock; recursive = true); mkdir(lock); write(joinpath(lock, "owner"), "elsewhere 3 other")
+    end
+    @test read(joinpath(lock, "owner"), String) == "elsewhere 3 other"
+    rm(lock; recursive = true)
 end

@@ -12,12 +12,14 @@
   returns the store's path alone (VisualGeometryToolkitEval 0.10.1) still works.
 
 - **The store's install lock is safe on NFS**: a directory per tree (`<hash>.install.lock`), made by an atomic `mkdir`,
-  holding its owner (host, pid, start) and touched every 10 s while held; a waiter polls (backing off to 5 s, no file
-  watching) and takes over a lock whose holder is a gone process of its host, or whose heartbeat is a minute old.
-  The store's FileWatching pid lock, which can hang on an NFS store, is gone, and so is this package's FileWatching
-  dependency. Correctness
-  never rested on the lock: every install lands by an atomic move of a verified tree or file (the sha256 and
-  git-tree-sha1 checks are unchanged).
+  holding its owner (host, pid, a token) and touched every 10 s while held. A waiter polls (backing off to 5 s, no file
+  watching) and takes over a lock whose holder is a gone process of its own host, or, for another host's holder, whose
+  owner has not changed for 5 minutes of the waiter's own clock (no two hosts' clocks compared); a live holder of its
+  own host is never broken. A holder removes only its own lock. The store's FileWatching pid lock, which can hang on an
+  NFS store, is gone, and so is this package's FileWatching dependency (Pkg's own download lock remains, uncontended
+  under this one). The lock only saves duplicate work: every install lands by a move of a verified tree or file, and a
+  built or migrated tree that another process placed first is kept (the sha256 and git-tree-sha1 checks are
+  unchanged).
 - A site profile file read here may name its store under the home, `~/…`.
 
 ### Added

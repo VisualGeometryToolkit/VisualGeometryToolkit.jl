@@ -201,35 +201,50 @@ with_artifact_store(f::Function, dir::AbstractString) = with_artifact_store(f, A
 
 # The lock of one install into directory `dir` (a store's, or a depot file's): the directory `<key>.install.lock`,
 # made by `mkdir` — atomic on every file system the store lives on, NFS included, where a pid file's lock and its file
-# watching are not to be relied on — holding `owner`, "<host> <pid> <start time>", which the holder touches every
+# watching are not to be relied on — holding `owner`, "<host> <pid> <token>", which the holder touches every
 # `heartbeat` seconds while it works. Its name is beside Pkg's own `<hash>.pid` (which Pkg's download takes: one name
-# for both would wait on itself). A waiter polls, backing off to 5 s, and takes over a lock that is stale: its holder
-# is a process of this host that is gone, or its owner file was last touched over `stale_age` seconds ago (a holder of
-# another host, whose process cannot be asked). A stale lock is moved aside (atomic: one waiter succeeds) and removed.
-const _LOCK_STALE_AGE = 60.0
+# for both would wait on itself). A waiter polls, backing off to 5 s, and takes over a stale lock:
+#   - a holder of this host is stale exactly when its process is gone (a live one is never broken, however long it
+#     works without yielding to its heartbeat);
+#   - a holder of another host, whose process cannot be asked, is stale once its owner file has not changed for
+#     `stale_age` seconds of this waiter's own clock (never a comparison of two hosts' clocks).
+# A stale lock is moved aside (a rename: of two waiters, one succeeds) and removed, or put back when it turns out to be
+# another holder's; a holder removes the lock only while it is its own. The lock saves the duplicate work, nothing more:
+# every install lands by an atomic move of a complete, verified tree or file, and a loser of a race reads the winner's.
+const _LOCK_STALE_AGE = 300.0
 const _LOCK_HEARTBEAT = 10.0
 
 function _install_lock(f, dir::AbstractString, key::AbstractString; stale_age::Real = _LOCK_STALE_AGE,
                        heartbeat::Real = _LOCK_HEARTBEAT, poll::Real = 0.25)
     mkpath(dir)
     lock = joinpath(dir, "$key.install.lock")
+    owner = joinpath(lock, "owner")
     wait_s = Float64(poll)
+    seen = (nothing, UInt64(0))                     # (the owner as last seen, when it was first seen so: time_ns)
     while !_make_lock(lock)
-        if _lock_is_stale(lock, stale_age)
-            _break_lock(lock)
+        text = _lock_owner(lock)
+        isequal(text, seen[1]) || (seen = (text, time_ns()))
+        holder = _holder_state(text)
+        if holder === :gone || (holder === :unknown && (time_ns() - seen[2]) / 1e9 > stale_age)
+            _break_lock(lock, text)
+            seen = (nothing, UInt64(0))
             continue
         end
         sleep(wait_s)
         wait_s = min(2wait_s, 5.0)
     end
-    owner = joinpath(lock, "owner")
-    write(owner, "$(gethostname()) $(getpid()) $(time())")
-    beat = Timer(_ -> (try touch(owner) catch end), heartbeat; interval = heartbeat)
+    token = "$(gethostname()) $(getpid()) $(string(rand(UInt64); base = 16))"
+    beat = nothing
     try
+        write(owner, token)
+        beat = Timer(_ -> (try touch(owner) catch end), heartbeat; interval = heartbeat)
         return f()
     finally
-        close(beat)
-        rm(lock; recursive = true, force = true)
+        beat === nothing || close(beat)
+        try
+            _lock_owner(lock) == token && rm(lock; recursive = true, force = true)   # only our own lock
+        catch
+        end
     end
 end
 
@@ -239,37 +254,47 @@ function _make_lock(lock::AbstractString)
         mkdir(lock)
         return true
     catch err
-        err isa Base.IOError && ispath(lock) && return false
+        err isa Base.IOError && (err.code == Base.UV_EEXIST || ispath(lock)) && return false
         rethrow()
     end
 end
 
-# Whether the lock's holder is gone: a process of this host that no longer runs, or no heartbeat for `stale_age` s.
-function _lock_is_stale(lock::AbstractString, stale_age::Real)
-    owner = joinpath(lock, "owner")
-    text = try read(owner, String) catch; nothing end
-    st = stat(text === nothing ? lock : owner)    # a holder that has not written its owner yet: the directory's age
-    st.mtime == 0 && return false                 # gone meanwhile: retry the lock
-    fields = split(something(text, ""))
-    if length(fields) >= 2 && fields[1] == gethostname()
-        pid = tryparse(Int, fields[2])
-        pid === nothing || pid == getpid() || _process_alive(pid) || return true
-    end
-    return time() - st.mtime > stale_age
+# The lock's owner text with its modification time ("<host> <pid> <token> @ <mtime>": a heartbeat changes it), or
+# `nothing` (no owner yet, or no lock).
+function _lock_owner(lock::AbstractString)
+    o = joinpath(lock, "owner")
+    text = try read(o, String) catch; return nothing end
+    return text * " @ " * string(mtime(o))
+end
+
+# The lock's holder as this process can tell: `:alive` (a running process of this host, this one included), `:gone`
+# (a process of this host that no longer runs), or `:unknown` (another host's, or no owner yet: its heartbeat decides).
+function _holder_state(text)
+    text === nothing && return :unknown
+    fields = split(text)
+    length(fields) >= 2 && fields[1] == gethostname() || return :unknown
+    pid = tryparse(Int, fields[2])
+    (pid === nothing || !(0 < pid <= typemax(Cint))) && return :unknown
+    return pid == getpid() || _process_alive(pid) ? :alive : :gone
 end
 
 # Whether process `pid` of this host runs (a signal 0: it exists, ours or not).
 _process_alive(pid::Integer) = ccall(:uv_kill, Cint, (Cint, Cint), pid, 0) != Base.UV_ESRCH
 
-# Move a stale lock aside, atomically (of two waiters that judged it stale, one moves it), and remove it.
-function _break_lock(lock::AbstractString)
+# Move the lock judged stale (its owner `judged`, as `_lock_owner` read it) aside — a rename, so of two waiters one
+# succeeds — and remove it; a lock found to be another's (its owner changed meanwhile) is put back where it was free.
+function _break_lock(lock::AbstractString, judged = _lock_owner(lock))
     aside = tempname(dirname(lock); cleanup = false)   # beside it: the move is a rename
     try
         mv(lock, aside)
     catch
         return nothing                            # another waiter moved it first, or its holder released it
     end
-    rm(aside; recursive = true, force = true)
+    if _lock_owner(aside) != judged && judged !== nothing
+        try mv(aside, lock) catch end             # a fresh holder's: back, unless the place was taken meanwhile
+        ispath(aside) || return nothing
+    end
+    try rm(aside; recursive = true, force = true) catch end
     return nothing
 end
 
@@ -393,7 +418,7 @@ function install_built_artifact(build!::Function, name::AbstractString, hash::SH
                 build!(tmp)
                 got = bytes2hex(tree_hash(tmp))
                 got == hex || error("artifact '$name': the built tree is $got, not the pinned $hex")
-                mv(tmp, tree)
+                isdir(tree) || mv(tmp, tree)     # another process's identical tree, if its lock was taken over: kept
             finally
                 rm(tmp; recursive = true, force = true)
             end
@@ -488,7 +513,7 @@ function migrate_artifacts(toml::AbstractString; store::ArtifactStore = artifact
                     try
                         cp(s, joinpath(tmp, "tree"); follow_symlinks = false)
                         bytes2hex(tree_hash(joinpath(tmp, "tree"))) == hex || continue
-                        mv(joinpath(tmp, "tree"), dst)
+                        isdir(dst) || mv(joinpath(tmp, "tree"), dst)   # another process's copy meanwhile: kept
                         return :migrated
                     finally
                         rm(tmp; recursive = true, force = true)

@@ -1,5 +1,11 @@
-docs-pass: b50661a4
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs, the install lock or the artifact store)
+docs-pass: 2b4d4867
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs, the install lock, the artifact store or ASIFT's upsampling keywords)
+
+# Features 0.9.11: ASIFT's upsample count, nb_scales and nb_octaves — at 2b4d4867
+
+- `asift_detect`'s `upsample` (a count of 2× upsamplings), `nb_scales` and `nb_octaves` keywords: their docstrings
+  (`src/asift/api.jl`) and the CHANGELOG entry say what the code does; no public name added or removed. Features' docs
+  strict green at 2b4d4867.
 
 # Core 0.13.1 and Eval 0.11.0: the NFS-safe install lock, a site profile's home paths — merged at b50661a4
 

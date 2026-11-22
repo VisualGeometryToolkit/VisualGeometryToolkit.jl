@@ -278,14 +278,14 @@ The breaking wave 10, on VisualGeometryToolkitCore 0.10, VisualGeometryToolkitIO
 - **Runner arrays over any list or table of a stage's config, and a loop inside each task.** `array.from` is a dotted
   key of the config (a table's keys sorted, `"cases"` as before; a list of strings in its order: `from = "grid.sets"`),
   and `array.each = { from, env }` runs each task's command once per value at `from` of its item's config, with `env`
-  set to the value (a grid of sets × variants, one task per set: cvpr2027's `chrome_index_grid`). `stage_each` lists a
+  set to the value (a grid of sets × variants, one task per set: RC experiments' `chrome_index_grid`). `stage_each` lists a
   task's values; the dry run prints them; the values key the stage. An unknown selected value names the config's; a key
   of no value (or `items = []`) is refused. A TERM, or a signal the launcher's `--signal` asks for, stops a task's loop:
   no later value starts.
 - **Phases: a stage's CPU and GPU parts as separate jobs** (`[[stage]] phases = [{name, gpu, env, sbatch | command,
   cpus_per_task, mem_per_cpu, gres, time, per_item}, …]`): run one after another, each with its own environment
   (`VGTK_PHASE`), device and resources, task k after task k between arrays (`aftercorr`), so no GPU is held for CPU
-  work (cvpr2027's regenerate_paper: GPU drivers, then CPU numbers; chrome_index_grid: per set a CPU decode, then a GPU
+  work (RC experiments' regenerate_paper: GPU drivers, then CPU numbers; chrome_index_grid: per set a CPU decode, then a GPU
   detect). The last phase is the stage's job; an earlier one writes its markers under `<stage markers>/<phase>/`, and
   `status` names a failed one (`failed (its <phase> phase, job <id>, failed …)`, with its log and error line). A
   phase's command and environment key the stage. **A GPU stage on a Slurm site compiles first**: the runner's
@@ -519,7 +519,7 @@ test environments). No code change: Eval never called the SplineLens refine that
 - **New: the runner bootstrap is Eval's.** `templates/reproduce/reproduce.sh` (`Reproduce.REPRODUCE_SCRIPT_TEMPLATE`)
   is the one copy of a project's `scripts/reproduce/reproduce.sh`; `Reproduce.reproduce_script(; julia_project,
   graph, path)` fills it and `write_reproduce_script(root; …)` writes it (a project's suite compares its copy with
-  `reproduce_script`). RadiometricCamera's cvpr2027 and RSDR's copies are this text.
+  `reproduce_script`). RadiometricCamera's experiments and RSDR's copies are this text.
 - `keyed_cell_dir(cfg, "figures", name; base = results_root())` is the directory of a run over several datasets
   (figures, numbers): `<results root>/figures/<name>-<key>`.
 
@@ -570,7 +570,7 @@ test environments). No code change: Eval never called the SplineLens refine that
   the runner's stage reuse (a stage whose code changed reruns, `rerun: code changed: <tree>: <old> → <new>`; one still
   in flight under other code stops the launch), `Experiments.run_complete` (no longer warns on another commit: the
   trees decide) and `Experiments.cached_result`. `Experiments.current_code_trees` is a driver's current record.
-  RadiometricCamera's cvpr2027, CaliBlobs' icra2026, BlobBoards' bmvc2026, RANSACScoringDoneRight and
+  RadiometricCamera's experiments, CaliBlobs' icra2026, BlobBoards' bmvc2026, RANSACScoringDoneRight and
   LocalOptimizationDoneRight get it through `write_provenance`/`write_run_records`, `run_complete` and the runner,
   with no change of their own; docs: "Code identity: when a stored result is reused" (Reproducible figures).
 - **Behaviour change: a result recorded before the code trees existed runs once more** (a run directory's
@@ -717,7 +717,7 @@ test environments). No code change: Eval never called the SplineLens refine that
 
 - **New: `PaperProjects.paper_figures_dir(paper = "paper/main.tex"; root = project_root())`**: the directory a paper
   reads its generated assets from, `figures/` beside its main .tex under the project root — where a driver's deploy
-  stage puts its renders. RANSACScoringDoneRight's neurips2026 and radiometric-camera's cvpr2027 each defined it as
+  stage puts its renders. RANSACScoringDoneRight's neurips2026 and radiometric-camera's experiments each defined it as
   `paper_figdir()`; the template's driver reads it (`paper_figures_dir(PAPER)`, the paper named once in the
   project's `src/<Name>.jl`) and the template builder places each paper's `figures/` through it.
 
@@ -759,7 +759,7 @@ test environments). No code change: Eval never called the SplineLens refine that
   numbers file that differs from the submitted one in its `% provenance` lines alone (a rerun at a new run key or
   commit) without sign-off; any other change, a changed value, a hand-written comment or whitespace, still needs it.
   The verify report gains the column `provenance_only`. The paper projects'
-  own writers (radiometric-camera cvpr2027, BlobBoards bmvc2026, LocalOptimizationDoneRight accv2026,
+  own writers (radiometric-camera experiments, BlobBoards bmvc2026, LocalOptimizationDoneRight accv2026,
   RANSACScoringDoneRight neurips2026, CaliBlobs icra2026) port to it.
 
 - **Breaking: `load_sparse_matches(path)` returns a `Csponds` carrying the per-match confidence as its attribute column

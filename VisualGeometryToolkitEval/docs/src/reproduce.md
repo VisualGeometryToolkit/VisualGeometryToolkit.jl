@@ -240,10 +240,10 @@ The graph (`[project]`, `[sites.<site>]`, one `[[stage]]` per stage,
 
 ```toml
 [project]
-name = "cvpr2027"
+name = "experiments"
 workdir = "../.."                      # where the jobs are submitted from, relative to this file
-julia_project = "cvpr2027"
-code = ["src", "cvpr2027/src", "cvpr2027/scripts"]   # the project's code: its trees identify a run (below)
+julia_project = "experiments"
+code = ["src", "experiments/src", "experiments/scripts"]   # the project's code: its trees identify a run (below)
 
 [sites.vcai]                           # where this project's data and results are on that machine
 data_root = "/cluster/projects/me/paper-data"
@@ -251,15 +251,15 @@ results_root = "/cluster/projects/me/paper-results"
 
 [[stage]]
 name = "setup"                         # the environment: instantiated inside the scheduler
-sbatch = "cvpr2027/scripts/slurm/setup.sbatch"
+sbatch = "experiments/scripts/slurm/setup.sbatch"
 gpu = true
 
 [[stage]]
 name = "refinement_chrome"
 after = ["setup"]
-sbatch = "cvpr2027/scripts/slurm/refinement_chrome.sbatch"   # the project's own launcher, submitted as is
-driver = "cvpr2027/scripts/refinement_chrome.jl"
-config = "cvpr2027/configs/experiments/refinement_chrome.toml"
+sbatch = "experiments/scripts/slurm/refinement_chrome.sbatch"   # the project's own launcher, submitted as is
+driver = "experiments/scripts/refinement_chrome.jl"
+config = "experiments/configs/experiments/refinement_chrome.toml"
 gpu = true
 array = { from = "cases", select_env = "CHROME_CASES", max_time = "pipeline.lm.max_time", time_margin_s = 10800 }
 
@@ -269,7 +269,7 @@ after = ["refinement_chrome"]
 results_branch = true
 
 [results_branch]
-project = "cvpr2027"
+project = "experiments"
 assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
 ```
 
@@ -374,8 +374,8 @@ assets = [{ from = "plots/*.png", to = "paper/src/fig", submitted_only = true }]
   ```toml
   [[stage]]
   name = "chrome_index_grid_index"
-  sbatch = "cvpr2027/scripts/slurm/chrome_index_grid_index.sbatch"
-  config = "cvpr2027/configs/experiments/chrome_index_grid.toml"
+  sbatch = "experiments/scripts/slurm/chrome_index_grid_index.sbatch"
+  config = "experiments/configs/experiments/chrome_index_grid.toml"
   array = { from = "grid.sets", select_env = "SETS", each = { from = "variants", env = "VARIANT" } }
   ```
 
@@ -501,7 +501,7 @@ setup                            rerun: code changed: VisualGeometryToolkitCore:
 - **A stage still in flight under other code** stops the launch (exit 4): a
   second job would write the same results. Wait for it, or `scancel` it.
 
-For a paper project (RadiometricCamera's cvpr2027, CaliBlobs' icra2026,
+For a paper project (RadiometricCamera's experiments, CaliBlobs' icra2026,
 BlobBoards' bmvc2026, RANSACScoringDoneRight, LocalOptimizationDoneRight) this
 needs nothing new: its drivers' products (`produce`, `produced`) record and
 compare the trees, and its graph's `code` lists the
@@ -530,7 +530,7 @@ the stage like its own; its scheduler labels (CPUs, `nice`) do not.
 ```toml
 [[stage]]                          # GPU drivers, then the CPU numbers, verify and deploy
 name = "regenerate_paper"
-sbatch = "cvpr2027/scripts/slurm/regenerate_paper.sbatch"
+sbatch = "experiments/scripts/slurm/regenerate_paper.sbatch"
 phases = [{ name = "drivers", gpu = true, env = { REGENERATE_PHASE = "drivers" } },
           { name = "numbers", env = { REGENERATE_PHASE = "numbers" } }]
 
@@ -556,7 +556,7 @@ site runs the declared phases in order, each whole, and no `precompile`.
 
 A project's bootstrap, `scripts/reproduce/reproduce.sh`, is generated, never
 written by hand:
-`Reproduce.write_reproduce_script(repo_root; julia_project = "cvpr2027")`
+`Reproduce.write_reproduce_script(repo_root; julia_project = "experiments")`
 writes the one template shipped here
 ([`REPRODUCE_SCRIPT_TEMPLATE`](@ref VisualGeometryToolkitEval.Reproduce.REPRODUCE_SCRIPT_TEMPLATE)),
 and the project's suite checks its copy with

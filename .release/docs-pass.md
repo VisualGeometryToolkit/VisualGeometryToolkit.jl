@@ -1,5 +1,17 @@
-docs-pass: c118f57f
-landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs or the artifact store)
+docs-pass: b50661a4
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page names the site profiles' storage, refuse_depot, the root ladder, asset_stages, product inputs, the install lock or the artifact store)
+
+# Core 0.13.1 and Eval 0.11.0: the NFS-safe install lock, a site profile's home paths — merged at b50661a4
+
+- Core: the install lock (a directory per tree, its owner's heartbeat, a stale holder taken over) described in the
+  `base/artifacts.jl` header and its comments, `install_artifact`, `install_built_artifact` and `store_file`
+  docstrings and `docs/src/api/artifacts.md`; the FileWatching dependency is gone; a profile file's `~/…` store. No
+  public name added or removed.
+- Eval: `Site` and `load_site` (a `[storage]` path may start at the home: `~/…`, `$HOME/…`), the site template, the
+  `desktop` profile (`~/data/vgtk/…`), `paper-projects.md` ("Machines and storage") and `reproduce.md`. No public name
+  added or removed.
+- Builds: Core's and Eval's docs strict green at 5d3229b5 (b50661a4 changes one line of a private function). Simplify
+  and code review on the diff, their findings applied (1b68e417, 5d3229b5, b50661a4).
 
 # Eval 0.11.0 docs review (owner decisions after the 0.10.2 preparation) — branch eval-011-sites, merged at c118f57f
 

@@ -1,5 +1,6 @@
-docs-pass: eb55880e
+docs-pass: d95ae7fc
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page builds a calibration matrix, names a principal point or calls center on a frame)
+(the pass reviewed eb55880e; to d95ae7fc Core changed only by its version and one test line, `centroid(p)` for a removed `center(p)`)
 
 # Core 0.13.2: CameraCalibrationMat from a focal length and the image; center(::FeatureFrame) removed — at eb55880e
 

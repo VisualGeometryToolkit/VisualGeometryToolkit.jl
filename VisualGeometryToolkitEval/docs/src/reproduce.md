@@ -588,7 +588,8 @@ profile file of its own. For another machine:
    `cpus_per_task`, `mem_per_cpu`, `gpu_limit`, `extra` options,
    `job_name_prefix`; `[local]`
    `cuda_visible_devices`, `cpus_per_task`; `[storage]` `data_root`,
-   `results_root` (`{project}` the project's name), `artifact_store` and
+   `results_root` (`{project}` the project's name; a path absolute or from the
+   home, `~/…`, `$HOME/…`), `artifact_store` and
    `refuse_depot` (whether the depot may serve as the artifact store); `[env]`
    variables every stage gets (`JULIA`, `JULIA_DEPOT_PATH`, …).
 2. Keep it with the project (the graph's `[project] sites_dir`) or anywhere,

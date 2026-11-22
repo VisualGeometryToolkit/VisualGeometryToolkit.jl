@@ -160,7 +160,9 @@ artifact_store = "/cluster/projects/vgtk/artifacts"           # every artifact t
 refuse_depot   = true                                         # never fall back to the node-local depot
 ```
 
-`{project}` is the project's name ([`project_name`](@ref): its stage graph's
+A path may start at the home (`~/…`, `$HOME/…`): the profile is the machine's
+and its user's, so the home is spelled out there and nowhere else (a project's
+configs name none, D1). `{project}` is the project's name ([`project_name`](@ref): its stage graph's
 `[project] name`, else its directory's name). The roots resolve, the first
 that binds:
 
@@ -182,7 +184,7 @@ the trees of every published tier and every model's weights, content-addressed
 by their git-tree-sha1, so every project and package on a machine shares one
 copy. VisualGeometryToolkitCore's `install_artifact` installs into it: Pkg's
 `with_artifacts_directory`, its sha256 and tree-hash checks and its atomic move
-into place, under a Pidfile lock per tree, so jobs that start together download
+into place, under a lock per tree (safe on NFS), so jobs that start together download
 a tree once. A cluster's Julia depot (node-local and evicted, or a home with a
 quota) is refused by the site's `[storage] refuse_depot = true`; the shipped
 `vcai` site sets it and names the cluster's store. A machine

@@ -31,10 +31,13 @@ site reader returns the site's `refuse_depot` too).
   its current key: the pair the paper projects copied. **`Experiments.produced_dir(product)`**: a product's
   directory once it is produced under its key, an error naming it otherwise. `paper_figures_dir` is now defined in
   Reproduce (its deploy stages read it); PaperProjects exports the same function, unchanged.
-- **The `desktop` profile's `[storage]`**: every project's data under `/home/jbpritts/data/vgtk/data/{project}`, its
-  results under `/home/jbpritts/data/vgtk/results/{project}` and the artifact store at
-  `/home/jbpritts/data/vgtk/artifacts`, one tree beside the workstation's existing `data/` directories (none moved). A
-  project's own `[sites.desktop]` roots are still read first, and a data or results root is used once it exists.
+- **The `desktop` profile's `[storage]`**: every project's data under `~/data/vgtk/data/{project}`, its results under
+  `~/data/vgtk/results/{project}` and the artifact store at `~/data/vgtk/artifacts`, one tree beside the workstation's
+  existing `data/` directories (none moved). A project's own `[sites.desktop]` roots are still read first, and a data
+  or results root is used once it exists.
+- **A site profile's `[storage]` paths may start at the home**: `~/…`, `$HOME/…` or `${HOME}/…`, spelled out by
+  `load_site` (VisualGeometryToolkitCore's own reader of a profile file takes `~/…`). Only there: a project's configs
+  still name no home (D1).
 - **`[storage] refuse_depot`** in a site profile (`Site.refuse_depot`: `true`, `false`, or `nothing` when unstated):
   whether a process there may fall back to the Julia depot as its artifact store. The shipped `vcai` sets it (and the
   template); VisualGeometryToolkitCore's `artifact_store` reads it through this package's site reader (`NODE_CACHE`,

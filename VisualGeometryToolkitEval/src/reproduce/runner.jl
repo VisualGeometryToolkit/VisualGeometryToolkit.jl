@@ -47,7 +47,8 @@ options every job gets (`partition`, a GPU stage's `gres`, `cpus_per_task`, `mem
 tasks at a time, `extra` options, and `job_name_prefix`, put before every job's name: the launch's label for the
 scheduler, never part of a run key), the local `cuda_visible_devices` and `cpus_per_task`, a shell `setup` run before
 every stage, the environment `env` every stage gets, and the machine's storage (`[storage]`): `data_root` and
-`results_root`, where a project's inputs and results live on it (`{project}` in either is the project's name:
+`results_root`, where a project's inputs and results live on it (absolute, or under the home: `~/…`, `$HOME/…`;
+`{project}` in either is the project's name:
 [`site_root`](@ref)), `artifact_store`, the directory of the artifact store every project and package there
 installs into (VisualGeometryToolkitCore's `artifact_store`), and `refuse_depot`, whether a process there may fall back
 to the Julia depot as its store (`true` where the depot is node-local and evicted, or in a home with a quota; `false`
@@ -145,13 +146,13 @@ function load_site(spec::AbstractString; dirs::AbstractVector{<:AbstractString} 
     sl, lo = get(d, "slurm", Dict{String, Any}()), get(d, "local", Dict{String, Any}())
     cpus = backend == "slurm" ? get(sl, "cpus_per_task", 0) : get(lo, "cpus_per_task", 0)
     prefix = _check_job_name_prefix(get(sl, "job_name_prefix", ""), "site profile $path: [slurm] job_name_prefix")
-    st = get(d, "storage", Dict{String, Any}())
+    st = Dict{String, Any}(k => v isa AbstractString ? _expand_home(v) : v for (k, v) in get(d, "storage", Dict{String, Any}()))
     refuse = get(st, "refuse_depot", nothing)
     refuse === nothing || refuse isa Bool || throw(ArgumentError("site profile $path: [storage] refuse_depot = $(repr(refuse)) is not true or false"))
     for (k, v) in st
         k == "refuse_depot" && continue
         v isa AbstractString && isabspath(v) ||
-            throw(ArgumentError("site profile $path: [storage] $k = $(repr(v)) is not an absolute path"))
+            throw(ArgumentError("site profile $path: [storage] $k = $(repr(v)) is not an absolute path (nor `~/…`, `\$HOME/…`)"))
         k == "artifact_store" && occursin("{project}", v) &&
             throw(ArgumentError("site profile $path: [storage] artifact_store is shared by every project; it names no {project}"))
     end
@@ -845,6 +846,11 @@ function resolve_roots(g::StageGraph, site::Site; data_root = nothing, results_r
     pick(arg, var, key) = _relative_to(something(_root_ladder(key; arg, env, var, sites), ""), g.workdir)
     return (pick(data_root, g.data_env, "data_root"), pick(results_root, g.results_env, "results_root"))
 end
+
+# A site profile's path with its leading home spelled out: `~/…`, `$HOME/…` or `${HOME}/…` → the user's home. Only a
+# site profile's `[storage]` paths are read so (the profile is per machine and per user); a project's configs name no
+# home at all (Experiments' data policy, D1).
+_expand_home(p::AbstractString) = expanduser(replace(p, r"^\$(\{HOME\}|HOME)(?=/|$)" => "~"))
 
 # The VGTK_SITE that re-finds `site` from inside a job of graph `g`'s launch: its name where the name finds this
 # profile, else its file.

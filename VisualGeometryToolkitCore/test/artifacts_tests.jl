@@ -109,6 +109,10 @@ end
             err = withenv(() -> (try VgtkCore.artifact_store(); nothing catch e; e end),
                           "VGTK_SITE" => joinpath(dir, "silent.toml"), "NODE_CACHE" => joinpath(dir, "node"))
             @test err isa ErrorException && occursin("NODE_CACHE is set", err.msg)
+            # a profile file's `~/…` store is the home's
+            write(joinpath(dir, "home.toml"), "[site]\nbackend = \"local\"\n[storage]\nartifact_store = \"~/vgtk-store-test\"\n")
+            withenv(() -> (@test VgtkCore.artifact_store() == VgtkCore.ArtifactStore(joinpath(homedir(), "vgtk-store-test"), :site)),
+                    "VGTK_SITE" => joinpath(dir, "home.toml"))
             write(joinpath(dir, "bad.toml"), "[site]\nbackend = \"local\"\n[storage]\nrefuse_depot = \"yes\"\n")
             err = withenv(() -> (try VgtkCore.artifact_store(); nothing catch e; e end), "VGTK_SITE" => joinpath(dir, "bad.toml"))
             @test err isa ErrorException && occursin("is not true or false", err.msg)
@@ -191,11 +195,13 @@ end
     dir = mktempdir()
     store = joinpath(dir, "store")
     h, toml = published_tree(dir, "tier_a", ["a" => "a"])
-    lockfile = joinpath(store, "$(bytes2hex(h.bytes)).install.pid")
+    lockfile = joinpath(store, "$(bytes2hex(h.bytes)).install.lock")
     mkpath(store)
     ready = joinpath(dir, "held")
-    # another process holds the tree's install lock for 3 s (FileWatching's Pidfile, as install_artifact takes it)
-    code = "using FileWatching.Pidfile: mkpidlock; mkpidlock($(repr(lockfile))) do; touch($(repr(ready))); sleep(3); end"
+    # another process holds the tree's install lock for 3 s, as install_artifact takes it: the lock directory, made
+    # atomically, with its owner "<host> <pid> <time>"
+    code = "mkdir($(repr(lockfile))); write(joinpath($(repr(lockfile)), \"owner\"), \"\$(gethostname()) \$(getpid()) \$(time())\"); " *
+           "touch($(repr(ready))); sleep(3); rm($(repr(lockfile)); recursive = true)"
     # a bare julia (no test flags, no inherited project or load path: the standard libraries only)
     julia = joinpath(Sys.BINDIR, Base.julia_exename())
     errlog = joinpath(dir, "holder.err")
@@ -330,4 +336,38 @@ end
     @test err isa ErrorException && occursin("not the pinned $("1"^40)", err.msg)
     @test sort([f for f in readdir(store.path) if isdir(joinpath(store.path, f))]) == sort([bytes2hex(hash.bytes), "names"])
     @test !isdir(joinpath(store.path, "names", "wrong_tree"))
+end
+
+@testitem "install lock: a directory made atomically (NFS-safe), a stale holder's taken over, released after" setup = [StoreFixture] begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    dir = mktempdir()
+    lock = joinpath(dir, "k.install.lock")
+    # held for the block, released after it, and after an error in it
+    @test VgtkCore._install_lock(() -> (isdir(lock) && isfile(joinpath(lock, "owner"))), dir, "k")
+    @test !ispath(lock)
+    @test_throws ErrorException VgtkCore._install_lock(() -> error("in the block"), dir, "k")
+    @test !ispath(lock)
+    # a holder of this host that is gone: taken over at once
+    p = run(`$(Base.julia_cmd()) --startup-file=no -e "exit()"`)
+    mkdir(lock); write(joinpath(lock, "owner"), "$(gethostname()) $(getpid(p)) 0")
+    @test !VgtkCore._process_alive(getpid(p)) && VgtkCore._process_alive(getpid())
+    t = @elapsed VgtkCore._install_lock(() -> nothing, dir, "k")
+    @test t < 5 && !ispath(lock)
+    # a live holder of another host: waited for until its heartbeat is `stale_age` old
+    mkdir(lock); write(joinpath(lock, "owner"), "elsewhere 1 0")
+    t = @elapsed VgtkCore._install_lock(() -> nothing, dir, "k"; stale_age = 1.5, poll = 0.1)
+    @test t >= 1.4 && !ispath(lock)
+    # a live holder of this host (this process, another task) is waited for, never broken; its heartbeat keeps it fresh
+    order = String[]
+    holder = @async VgtkCore._install_lock(dir, "k"; stale_age = 0.5, heartbeat = 0.1) do
+        push!(order, "held"); sleep(1.5); push!(order, "released")
+    end
+    while isempty(order); sleep(0.01); end
+    VgtkCore._install_lock(() -> push!(order, "second"), dir, "k"; stale_age = 0.5, poll = 0.05)
+    wait(holder)
+    @test order == ["held", "released", "second"]
+    # two waiters that judge one lock stale: one moves it aside, the other's move fails quietly
+    mkdir(lock); VgtkCore._break_lock(lock); VgtkCore._break_lock(lock)
+    @test !ispath(lock) && isempty(filter(f -> occursin(".stale.", f), readdir(dir)))
 end

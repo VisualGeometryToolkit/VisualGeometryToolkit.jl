@@ -21,7 +21,8 @@ first rung that names one:
 [`install_artifact`](@ref) installs by name from an Artifacts.toml into the
 store, inside [`with_artifact_store`](@ref) (Pkg's `with_artifacts_directory`
 under one lock), so Pkg's sha256 and git-tree-sha1 checks and its atomic move
-into place hold; a Pidfile lock per tree makes the jobs that start together
+into place hold; a lock per tree (a directory made atomically, safe on a shared NFS
+store, taken over from a holder that is gone) makes the jobs that start together
 download a tree once. A model published as a single file goes in with
 [`store_file`](@ref) (verified by [`download_verified`](@ref)), and a tree Pkg
 cannot unpack itself (ONNX Runtime's CUDA build, merged from conda packages) is

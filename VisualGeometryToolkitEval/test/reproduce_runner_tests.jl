@@ -192,7 +192,15 @@ end
         desk = load_site("desktop")
         @test desk.backend === :local && desk.cuda_visible_devices == "0" && desk.cpus_per_task == 0
         # the workstation's storage: every project's data and results and the artifact store under one tree of its home
-        @test isabspath(desk.data_root) && endswith(desk.data_root, "/data/vgtk/data/{project}")
+        @test desk.data_root == joinpath(homedir(), "data", "vgtk", "data", "{project}")   # `~/…` in the profile
+        # a profile's [storage] paths may start at the home: ~, $HOME, ${HOME}; nothing else is expanded
+        hd = mktempdir()
+        for (i, spelled) in enumerate(("~/r/{project}", "\$HOME/r/{project}", "\${HOME}/r/{project}"))
+            write(joinpath(hd, "h$i.toml"), "[site]\nbackend = \"local\"\n[storage]\nresults_root = \"$(escape_string(spelled))\"\n")
+            @test load_site(joinpath(hd, "h$i.toml")).results_root == joinpath(homedir(), "r", "{project}")
+        end
+        @test VisualGeometryToolkitEval.Reproduce._expand_home("\$HOMEDIR/x") == "\$HOMEDIR/x"
+        @test VisualGeometryToolkitEval.Reproduce._expand_home("/abs/\$HOME/x") == "/abs/\$HOME/x"
         @test endswith(desk.results_root, "/data/vgtk/results/{project}") && endswith(desk.artifact_store, "/data/vgtk/artifacts")
         tpl = load_site(joinpath(SITES_DIR, "_template.toml"))                    # every key documented there loads
         @test tpl.name == "mymachine" && tpl.backend === :slurm && tpl.extra == String[] && tpl.job_name_prefix == "" && tpl.precompile_time == "0:20:00"

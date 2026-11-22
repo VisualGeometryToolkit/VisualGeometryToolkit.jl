@@ -20,15 +20,17 @@
 #
 # An install runs inside Pkg's `with_artifacts_directory(store)` (under one
 # process-wide lock: Pkg's override is a global), so Pkg's own download keeps
-# its sha256 check, its tree-hash check and its atomic move into place; a
-# Pidfile lock per tree serialises the processes that install the same tree
-# into a shared store (one download, the others wait and read it).
+# its sha256 check, its tree-hash check and its atomic move into place; a lock
+# per tree (an atomically made directory, safe on NFS) serialises the processes
+# that install the same tree into a shared store (one download, the others wait
+# and read it). The lock only saves the duplicate download: every install lands
+# by an atomic move of a complete, verified tree or file, so a broken lock can
+# cost a second download, never a partial tree.
 # =============================================================================
 using Pkg.Artifacts: ensure_artifact_installed, download_artifact
 using Pkg.GitTools: tree_hash
 using Downloads: Downloads
 using Artifacts: Artifacts, artifact_exists, artifact_path, with_artifacts_directory
-using FileWatching.Pidfile: mkpidlock
 using Preferences: load_preference
 using Base: SHA1
 
@@ -90,7 +92,9 @@ function _site_file_storage(path::AbstractString)
     st = get(TOML.parsefile(path), "storage", Dict{String, Any}())
     s = get(st, "artifact_store", "")
     s isa AbstractString || error("site profile $path: [storage] artifact_store = $(repr(s)) is not a path")
-    isempty(s) || isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path")
+    s = expanduser(s)                             # a profile's `~/…` (VisualGeometryToolkitEval's reader also takes `$HOME/…`)
+    isempty(s) || isabspath(s) || error("site profile $path: [storage] artifact_store = $(repr(s)) is not an absolute path " *
+                                        "(or `~/…`; `\$HOME/…` is read once VisualGeometryToolkitEval is loaded)")
     r = get(st, "refuse_depot", nothing)
     r === nothing || r isa Bool || error("site profile $path: [storage] refuse_depot = $(repr(r)) is not true or false")
     return _SiteStorage((String(s), r))
@@ -195,11 +199,78 @@ function with_artifact_store(f::Function, store::ArtifactStore = artifact_store(
 end
 with_artifact_store(f::Function, dir::AbstractString) = with_artifact_store(f, ArtifactStore(abspath(dir), :env))
 
-# The Pidfile lock of one install into directory `dir` (a store's, or a depot file's), beside Pkg's own `<hash>.pid`
-# (which its download takes: a second lock on that file from this process would wait on itself). Stale after a
-# minute without its holder.
-_install_lock(f, dir::AbstractString, key::AbstractString) =
-    (mkpath(dir); mkpidlock(f, joinpath(dir, "$key.install.pid"); stale_age = 60))
+# The lock of one install into directory `dir` (a store's, or a depot file's): the directory `<key>.install.lock`,
+# made by `mkdir` — atomic on every file system the store lives on, NFS included, where a pid file's lock and its file
+# watching are not to be relied on — holding `owner`, "<host> <pid> <start time>", which the holder touches every
+# `heartbeat` seconds while it works. Its name is beside Pkg's own `<hash>.pid` (which Pkg's download takes: one name
+# for both would wait on itself). A waiter polls, backing off to 5 s, and takes over a lock that is stale: its holder
+# is a process of this host that is gone, or its owner file was last touched over `stale_age` seconds ago (a holder of
+# another host, whose process cannot be asked). A stale lock is moved aside (atomic: one waiter succeeds) and removed.
+const _LOCK_STALE_AGE = 60.0
+const _LOCK_HEARTBEAT = 10.0
+
+function _install_lock(f, dir::AbstractString, key::AbstractString; stale_age::Real = _LOCK_STALE_AGE,
+                       heartbeat::Real = _LOCK_HEARTBEAT, poll::Real = 0.25)
+    mkpath(dir)
+    lock = joinpath(dir, "$key.install.lock")
+    wait_s = Float64(poll)
+    while !_make_lock(lock)
+        if _lock_is_stale(lock, stale_age)
+            _break_lock(lock)
+            continue
+        end
+        sleep(wait_s)
+        wait_s = min(2wait_s, 5.0)
+    end
+    owner = joinpath(lock, "owner")
+    write(owner, "$(gethostname()) $(getpid()) $(time())")
+    beat = Timer(_ -> (try touch(owner) catch end), heartbeat; interval = heartbeat)
+    try
+        return f()
+    finally
+        close(beat)
+        rm(lock; recursive = true, force = true)
+    end
+end
+
+# Make the lock directory: `true` when this call made it, `false` when it exists (another holder's).
+function _make_lock(lock::AbstractString)
+    try
+        mkdir(lock)
+        return true
+    catch err
+        err isa Base.IOError && ispath(lock) && return false
+        rethrow()
+    end
+end
+
+# Whether the lock's holder is gone: a process of this host that no longer runs, or no heartbeat for `stale_age` s.
+function _lock_is_stale(lock::AbstractString, stale_age::Real)
+    owner = joinpath(lock, "owner")
+    st = stat(isfile(owner) ? owner : lock)       # a holder that has not written its owner yet: the directory's age
+    st.mtime == 0 && return false                 # gone meanwhile: retry the lock
+    fields = split(isfile(owner) ? (try read(owner, String) catch; "" end) : "")
+    if length(fields) >= 2 && fields[1] == gethostname()
+        pid = tryparse(Int, fields[2])
+        pid === nothing || pid == getpid() || _process_alive(pid) || return true
+    end
+    return time() - st.mtime > stale_age
+end
+
+# Whether process `pid` of this host runs (a signal 0: it exists, ours or not).
+_process_alive(pid::Integer) = ccall(:uv_kill, Cint, (Cint, Cint), pid, 0) != Base.UV_ESRCH
+
+# Move a stale lock aside, atomically (of two waiters that judged it stale, one moves it), and remove it.
+function _break_lock(lock::AbstractString)
+    aside = "$lock.stale.$(string(rand(UInt64); base = 16))"
+    try
+        mv(lock, aside)
+    catch
+        return nothing                            # another waiter moved it first, or its holder released it
+    end
+    rm(aside; recursive = true, force = true)
+    return nothing
+end
 
 # The store remembers which name installed which tree (`names/<name>/<tree hash>`, an empty file each, so
 # concurrent installs never write one file): a name with two trees is one name for two different data
@@ -239,7 +310,7 @@ end
 Install artifact `name` of `toml` into the artifact store ([`artifact_store`](@ref):
 download, verify sha256 and git-tree-sha1, unpack, move into place atomically)
 unless present there, and return its tree. Processes installing the same tree
-into a shared store take turns (a Pidfile lock per tree: one downloads, the
+into a shared store take turns (a lock per tree, safe on NFS: one downloads, the
 others then read it). A Hugging Face tarball is downloaded with the user's
 Hugging Face token when there is one ([`huggingface_token`](@ref)), so a
 private dataset installs for whoever has access to it. A placeholder URL (an
@@ -302,7 +373,7 @@ in the store's directory, whose tree hash must be `hash` (another tree is
 removed, and is an error; a tree already in the store is never touched), and
 then moved into place; the build runs outside Pkg's directory override. Processes
 building the same tree into a shared store take turns under the tree's
-Pidfile lock, as [`install_artifact`](@ref)'s do (one builds, the others then
+lock, as [`install_artifact`](@ref)'s do (one builds, the others then
 read it), and the store records the tree under `name`
 ([`store_name_clashes`](@ref)).
 """
@@ -338,7 +409,7 @@ A single file that is not an artifact tree (a model's weights a release
 publishes as a file, LoMa's ONNX graphs) in the artifact store: downloaded once
 to `<store>/files/<sha256>/<file>`, checked against its `sha256` (a mismatch
 is an error and leaves no file) and moved into place atomically, under the
-same per-file Pidfile lock as a tree. With the depot store its home is
+same per-file lock as a tree. With the depot store its home is
 `depot_dir` (the caller's scratch space), `<depot_dir>/<file>`.
 """
 function store_file(url::AbstractString, digest::AbstractString, file::AbstractString;

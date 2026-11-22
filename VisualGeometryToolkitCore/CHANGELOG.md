@@ -11,6 +11,14 @@
   The registered site reader (`set_site_artifact_store!`) now returns `(; artifact_store, refuse_depot)`; a reader that
   returns the store's path alone (VisualGeometryToolkitEval 0.10.1) still works.
 
+- **The store's install lock is safe on NFS**: a directory per tree (`<hash>.install.lock`), made by an atomic `mkdir`,
+  holding its owner (host, pid, start) and touched every 10 s while held; a waiter polls (backing off to 5 s, no file
+  watching) and takes over a lock whose holder is a gone process of its host, or whose heartbeat is a minute old.
+  FileWatching's pid lock, which can hang on an NFS store, is gone, and so is the FileWatching dependency. Correctness
+  never rested on the lock: every install lands by an atomic move of a verified tree or file (the sha256 and
+  git-tree-sha1 checks are unchanged).
+- A site profile file read here may name its store under the home, `~/…`.
+
 ### Added
 - **`install_built_artifact(build!, name, hash; store)`**: a tree Pkg cannot download and unpack itself (ONNX Runtime's
   CUDA build, merged from conda packages by VisualGeometryToolkitFeatures) built into the artifact store under its

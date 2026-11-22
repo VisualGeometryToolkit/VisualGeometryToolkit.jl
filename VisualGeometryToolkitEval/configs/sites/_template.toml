@@ -39,7 +39,8 @@ cuda_visible_devices = "0"  # CUDA_VISIBLE_DEVICES of a GPU stage (CPU stages ge
 cpus_per_task = 0           # SLURM_CPUS_PER_TASK the launchers read (their thread count); 0: the launcher's default,
                             # which keeps the run keys of a Slurm site's launch
 
-[storage]                   # the machine's storage: absolute paths, on storage that outlives a job
+[storage]                   # the machine's storage: absolute paths (or under the home: `~/…`, `$HOME/…`), on storage
+                            # that outlives a job
 data_root = "/data/{project}"           # a project's input tree (data_root()): `{project}` is its name (the stage
                                         # graph's [project] name, else the project directory's name)
 results_root = "/results/{project}"     # a project's results tree (results_root())

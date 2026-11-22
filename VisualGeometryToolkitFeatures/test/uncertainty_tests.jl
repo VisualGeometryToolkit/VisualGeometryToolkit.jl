@@ -34,7 +34,7 @@
 end
 
 @testitem "detection covariance: the kernels' covariance is J·M·Jᵀ of the refinement, J by finite differences" setup = [UncFixtures] begin
-    using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _unpack_M, _backproject_cov!
+    using VisualGeometryToolkitFeatures: AsiftPlan, asift_detect!, _unpack_M, _backproject_cov!, _phase_class, _octave_phases
     using CUDA: CUDA
     import KernelAbstractions as KA
     # The one implementation is the kernels'; the independent check differentiates the map they linearize. A converged
@@ -88,7 +88,7 @@ end
                             log(σ0) + ((sl - 1) + v[1] + 0.5) / S * log(2) + log(sf)]
                 end
                 J = fd_jacobian(refined, f)
-                M = _unpack_M(tab, sl, 1 + (X & 1) + 2 * (Y & 1), 1)
+                M = _unpack_M(tab, sl, _phase_class(X, Y, _octave_phases(o)), 1)
                 Σfd = J * M * J'
                 c = rc[:, k]
                 Σk = [c[1] c[2] c[3]; c[2] c[4] c[5]; c[3] c[5] c[6]]

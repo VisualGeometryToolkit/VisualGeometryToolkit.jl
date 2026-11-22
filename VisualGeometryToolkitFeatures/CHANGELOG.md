@@ -17,15 +17,17 @@ A patch on VisualGeometryToolkitCore 0.13.1 (`[compat]` VisualGeometryToolkitCor
   (until now `AsiftPlan`'s and `gaussian_scale_space`'s alone; the plan cache is keyed by both). The extremum search
   reads interior DoG slices only (since the 0.9.11 work of 2026-11-10), from `1.6·2^(1.5/S)·2^(−upsample)` input
   pixels: 1.13 px at the defaults, 0.57 px at `upsample = 2`, where the boundary-slice search of before reached 0.90 px
-  — oblique boards foreshorten into those scales. The default octave count grows with `upsample`, keeping the coarsest
-  octave; `nb_octaves` may exceed it by one (the coarsest octave's shorter side ≥ 16 px, VLFeat's count), reaching
+  — oblique boards foreshorten into those scales. The default octave count of `asift_detect`, `AsiftPlan` and
+  `gaussian_scale_space` grows with `upsample`, keeping the coarsest octave (`detect_sfop` keeps its 3 octaves, from
+  octave −upsample); `nb_octaves` may exceed it by one (the coarsest octave's shorter side ≥ 16 px, VLFeat's count), reaching
   459 px instead of 230 px on a 4240×2832 frame. At `upsample ≥ 2` the input's blur (`2^upsample·input_blur` of the
   first octave's pixels) exceeds the default `seed_sigma` and the first level is the upsampled image unblurred
   (VLFeat's and OpenCV's rule), so the first octave's finest levels hold more blur than their σ states (raising the
   seed σ instead needs blur taps beyond the tiled kernel's radius 13 at `nb_scales = 3`). The upsampling is the one
   bilinear sample at `I/2^upsample` (equal to `upsample` doublings in turn); the covariance tables hold each octave's
   own sample phases (`2^k` per axis at octave −k); the noise threshold of a `StabilizedImage` is read off the plan of
-  its `upsample` and `nb_scales`; the pooled extremum's code holds up to 31 slices (`nb_scales ≤ 29`). **The defaults
+  its `upsample` and `nb_scales`; the pooled extremum's code holds up to 31 slices (`nb_scales ≤ 29`), `upsample ≤ 4`; a `seed_sigma` below the input's blur is still refused at
+  `upsample ≤ 1`. **The defaults
   are bit-identical** (`upsample = 1`, `nb_scales = 3`, the default octaves; pinned by the suite).
 
 ## 0.9.10

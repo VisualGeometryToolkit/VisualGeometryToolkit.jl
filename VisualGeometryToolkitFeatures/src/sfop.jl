@@ -37,7 +37,8 @@ each point at full resolution in its own window.
 - **The scale space:** [`gaussian_scale_space`](@ref)`(img; nb_octaves, nb_scales,
   seed_sigma, input_blur, upsample)`, ASIFT's pyramid, 3 octaves by default or as many as the image holds
   ([`gaussian_scale_space`](@ref)'s `sift_nb_octaves`) when that is fewer (a `nb_octaves` beyond the one more a pyramid
-  holds is refused). `upsample` counts the first octave's 2× upsamplings (`true`/`false` read as 1/0). Its first level is the
+  holds is refused). `upsample` counts the first octave's 2× upsamplings (`true`/`false` read as 1/0; the default
+  `seed_sigma`, `2^upsample·input_blur`, fits the pyramid's blur taps at `nb_scales = 3` up to `upsample = 1`). Its first level is the
   input itself (`seed_sigma` the input's own blur in the first octave's pixels:
   no seed blur), so the finest scale searched is the finest the image holds:
   with the defaults the integration scales run from `3·2^(2/3)·0.5 ≈ 2.4` input
@@ -293,7 +294,7 @@ end
 @kernel function _octave_variance!(out, @Const(v), sf::Float32)
     i, j = @index(Global, NTuple)
     H, W = size(v)
-    x = floor(Int, _level_to_canvas(Float32(i - 1), sf) + 0.5f0) + 1   # a tie (the upsampled octave) up: two per input pixel
+    x = floor(Int, _level_to_canvas(Float32(i - 1), sf) + 0.5f0) + 1   # a tie (an upsampled octave) up: 2ᵏ per input pixel at octave −k
     y = floor(Int, _level_to_canvas(Float32(j - 1), sf) + 0.5f0) + 1
     @inbounds out[i, j, 1] = v[clamp(y, 1, H), clamp(x, 1, W)]
 end

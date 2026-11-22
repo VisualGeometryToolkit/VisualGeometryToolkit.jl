@@ -325,6 +325,8 @@ const _MAX_NB_SCALES = (1 << _SLICE_BITS) - 3
 @inline _extremum_code(sl, octave_idx) = sl + ((octave_idx + 2) << _SLICE_BITS)
 @inline _code_octave(code::Int32) = (code >> Int32(_SLICE_BITS)) - Int32(2)
 @inline _code_slice(code::Int32) = code & Int32((1 << _SLICE_BITS) - 1)
+_check_nb_scales(S) = 1 <= S <= _MAX_NB_SCALES ? Int(S) :
+    throw(ArgumentError("nb_scales must lie in 1 … $_MAX_NB_SCALES, got $S"))
 
 @inline function _extract_at!(
         out, count, dog, X, Y, Sl, Lw, W, H, ::Val{NS},
@@ -756,7 +758,7 @@ mutable struct AsiftPlan{D, A2, A3, A4, AI, AU, AU8, GT, KN, SP}
     refine_dropped::Int                  # the last call's extrema whose sub-pixel refinement failed, or whose covariance was singular or NaN (dropped)
     const kern::KN
     # detection covariance (uncertainty.jl), built on the first call that asks for
-    # it: per octave the (45, NS, 4, nw) IFT tables, and two (6, capacity) pool
+    # it: per octave the (45, NS, P², nw) IFT tables (P its sample phases, `_octave_phases`), and two (6, capacity) pool
     # buffers — or (6, 0) — that `_grow_pool!` grows with the pool
     const ctab::Vector{A4}
     rawcov::A2
@@ -826,8 +828,7 @@ function AsiftPlan(
     dev = device
     tilts = tilt_schedule(tilts)
     nw = length(tilts)
-    S = Int(nb_scales)
-    1 <= S <= _MAX_NB_SCALES || throw(ArgumentError("AsiftPlan: nb_scales must lie in 1 … $_MAX_NB_SCALES, got $S"))
+    S = _check_nb_scales(nb_scales)
     o_first = -_upsamplings(upsample)
     no = _nb_octaves("AsiftPlan", W, H, upsample, nb_octaves)
 
@@ -902,7 +903,7 @@ function AsiftPlan(
 
     MARGIN = 64
     _content_h(g) = g.t > 1 ? max(floor(Int, g.H_rot / Float32(g.t)), 1) : g.H_rot
-    # o ≥ 0: content shrinks by 2^o. o = −1: it doubles (both the bound and the
+    # o ≥ 0: content shrinks by 2^o. o < 0: it grows by 2^−o (both the bound and the
     # cap), since `1 << o` / `lim >> o` are not meaningful for a negative o.
     _bound(c, lim, o) = o >= 0 ?
         Int32(min(cld(min(c, lim), 1 << o) + MARGIN, lim >> o)) :
@@ -1231,8 +1232,8 @@ function asift_detect!(
 end
 
 # The Gaussian levels (and, with `dogs`, ASIFT's DoG slices) of the scale space's slots 1:m from `canvas` (W, H, ≥ m),
-# warp slot l of the chunk being the schedule's warp `r[l]`: per octave the seed blur of the first level (octave −1:
-# of the 2× upsampled canvas; octave ≥ 1: the previous octave's level S + 1, downsampled), then each next level, fused
+# warp slot l of the chunk being the schedule's warp `r[l]`: per octave the seed blur of the first level (octave −k:
+# of the canvas upsampled 2× k times; octave ≥ 1: the previous octave's level S + 1, downsampled), then each next level, fused
 # with its DoG when `dogs` is given (`writedog = 1`); `tiles[o]`, `masked[o]` the octave's active and fully masked
 # tiles, `seedtiles` the first octave's tiles the seed blur reads, `awd[o][r]`, `ahd[o][r]` the warps' content bounds.
 # The one pyramid of the package: `asift_detect!` per tilt chunk, `gaussian_scale_space` for one image.

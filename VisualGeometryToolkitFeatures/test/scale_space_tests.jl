@@ -111,6 +111,16 @@ end
     @test_throws ArgumentError asift_detect(img; device = KA.CPU(), tilts = :untilted, nb_octaves = 0)
     @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), upsample = -1)
     @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), nb_scales = 0)
+    @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), upsample = 5)
+    # a seed σ below the input's blur in the first octave's pixels: refused at one upsampling (1.0 there), the
+    # upsampled image itself as the first level at two (2.0 there)
+    @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, seed_sigma = 0.9)
+    @test AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, upsample = 2).space.taps[1] |> Array == [1.0f0, 0.0f0]
+    # a refused nb_scales leaves the cached plan resident
+    clear_asift_plans!()
+    asift_detect(img; device = KA.CPU(), tilts = :untilted)
+    @test_throws ArgumentError asift_detect(img; device = KA.CPU(), tilts = :untilted, nb_scales = 99)
+    @test length(VgtkFeatures._ASIFT_PLAN_CACHE) == 1
     # the covariances and the continuous refinement on a twice upsampled pyramid
     r = asift_detect(img; device = KA.CPU(), raw = true, upsample = 2, uncertainty = FeatureCovariance(),
                      refinement = ContinuousRefinement())

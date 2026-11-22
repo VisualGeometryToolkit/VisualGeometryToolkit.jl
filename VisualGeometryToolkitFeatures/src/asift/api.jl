@@ -92,8 +92,8 @@ function _asift_plan(
         W::Int, H::Int, device::KA.Backend, tilts, upsample::Integer,
         seed_sigma::Real = 1.6, nb_scales::Integer = 3, nb_octaves::Union{Nothing, Integer} = nothing
     )
-    nb_octaves = _nb_octaves("asift_detect", W, H, upsample, nb_octaves)
-    key = (W, H, device, Tuple(tilts), _upsamplings(upsample), Float64(seed_sigma), Int(nb_scales), nb_octaves)
+    nb_octaves = _nb_octaves("asift_detect", W, H, upsample, nb_octaves)     # refused before a cached plan is evicted
+    key = (W, H, device, Tuple(tilts), _upsamplings(upsample), Float64(seed_sigma), _check_nb_scales(nb_scales), nb_octaves)
     cached = get(_ASIFT_PLAN_CACHE, key, nothing)
     if cached !== nothing
         i = findfirst(==(key), _ASIFT_PLAN_ORDER)   # touch: mark most-recent

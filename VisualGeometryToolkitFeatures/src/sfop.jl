@@ -107,7 +107,7 @@ function _detect_sfop(
         img::AbstractMatrix, variance; device::KA.Backend = default_device(),
         noise_sigma::Real = 2.0, significance_level::Real = 0.999, precision_threshold::Real = 0.5,
         nb_scales::Integer = 3, input_blur::Real = 0.5, upsample::Integer = 1,
-        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = exp2(_upsamplings(upsample)) * input_blur,
+        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = _first_octave_blur(input_blur, upsample),
         polarity::Symbol = :none
     )
     0 < significance_level < 1 ||

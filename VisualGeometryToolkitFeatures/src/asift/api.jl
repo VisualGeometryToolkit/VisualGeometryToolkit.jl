@@ -254,13 +254,10 @@ stop erasing the small blobs inside them (see `asift_detect!`).
 plan; the others but `raw` and `exclusion_mask` go to [`asift_detect!`](@ref), which
 refuses a keyword it does not take.
 
-**Scales.** The extremum search reads the interior DoG slices `2 … S + 1` of
-every octave (`S = nb_scales`), from the first octave, the image upsampled 2×
-`upsample` times (a count; `true`/`false` read as 1/0), to the last of
-`nb_octaves` (default [`sift_nb_octaves`](@ref), at most one more): σ from
-`seed_sigma·2^(1.5/S)·2^(−upsample)` to `seed_sigma·2^((S + 0.5)/S)·2^(nb_octaves − 1 − upsample)`
-input pixels, 1.13 to 230 px for a 4240×2832 image at the defaults; `upsample = 2`
-reaches 0.57 px, `nb_octaves` one more 459 px. See [`AsiftPlan`](@ref).
+**Scales.** `upsample` (how many times the first octave is the image upsampled
+2×; `true`/`false` read as 1/0), `nb_scales` and `nb_octaves` set the scales the
+extremum search reads, the interior DoG slices of every octave: see
+[`AsiftPlan`](@ref) for the range they span.
 
 **Tilts.** `tilts` is a [`tilt_schedule`](@ref) name or a vector of `(t, φ)`
 pairs: `:imas25` (the default) the 25 tilts of IMAS-25, `:untilted` the

@@ -248,7 +248,7 @@ end
 # The upsample over a packed tile list (`_dilate_tiles`): the tiles the seed blur
 # reads, a (32, 8) workgroup per 32×32 tile, four rows per thread. The rest of
 # the upsampled slot is scratch the next level overwrites unread.
-@kernel function _bupsample!(dst, @Const(src), @Const(tiles))
+@kernel function _bupsample!(dst, @Const(src), @Const(tiles), k::Int32)
     lx, ly = @index(Local, NTuple)
     g = @index(Group, Linear)
     ox, oy, l = _tile_origin(tiles, g)
@@ -256,7 +256,7 @@ end
     for q in 0:3
         J = oy + ly + 8q
         @inbounds if I <= size(dst, 1) && J <= size(dst, 2)
-            dst[I, J, l] = _upsample_sample(src, I, J, l)
+            dst[I, J, l] = _upsample_sample(src, I, J, l, k)
         end
     end
 end
@@ -266,12 +266,15 @@ end
 # `l` of `src` at input position (I/2, J/2), in `src`'s element type. Clamping
 # the CONTINUOUS coordinate (not the index) is what makes the edge replicate
 # exactly: I=1 → u=1 → fu=0 → src[1]. In COLMAP pixel centres the doubled
-# position x′ is input position (x′ − 1/2)/2.
-@inline function _upsample_sample(src, I, J, l)
+# position x′ is input position (x′ − 1/2)/2. `k` such upsamplings in turn are
+# the one sample at (I/2ᵏ, J/2ᵏ): the doubled grid holds every input sample
+# (dst[2i] = src[i]), so the next doubling's bilinear samples lie on the same
+# piecewise-linear interpolant, edges replicated alike.
+@inline function _upsample_sample(src, I, J, l, k = 1)
     T = eltype(src)
     W = size(src, 1); H = size(src, 2)
-    u = clamp(T(I) / 2, one(T), T(W))
-    v = clamp(T(J) / 2, one(T), T(H))
+    u = clamp(T(I) / (1 << k), one(T), T(W))
+    v = clamp(T(J) / (1 << k), one(T), T(H))
     i0 = unsafe_trunc(Int32, u); j0 = unsafe_trunc(Int32, v)
     fu = u - T(i0); fv = v - T(j0)
     i1 = min(i0 + Int32(1), Int32(W)); j1 = min(j0 + Int32(1), Int32(H))
@@ -534,7 +537,7 @@ end
         xi = unsafe_trunc(Int, rawcov[1, i]); yi = unsafe_trunc(Int, rawcov[2, i])
         sl = Int(_code_slice(code)); Lw = unsafe_trunc(Int, raw[5, i])
         sf = exp2(Float32(octave_idx))
-        c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales, -Int(o_first))
+        c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales, Int(octave_idx))
         for k in 1:6
             cov[k, i] = c[k]
         end
@@ -543,7 +546,7 @@ end
 
 # The IFT covariance of a refined detection at the integer extremum (xi, yi, sl)
 # of warp Lw, from the DoG Hessian there and the refinement offset.
-@inline function _ift_cov_at(dog, xi, yi, sl, Lw, ctab, oS, oX, oY, sf, S, upsample)
+@inline function _ift_cov_at(dog, xi, yi, sl, Lw, ctab, oS, oX, oY, sf, S, octave)
     @inbounds begin
         cc = dog[xi, yi, sl, Lw]
         h22 = dog[xi + 1, yi, sl, Lw] - 2.0f0 * cc + dog[xi - 1, yi, sl, Lw]
@@ -553,7 +556,7 @@ end
         h13 = 0.25f0 * (dog[xi, yi + 1, sl + 1, Lw] - dog[xi, yi - 1, sl + 1, Lw] - dog[xi, yi + 1, sl - 1, Lw] + dog[xi, yi - 1, sl - 1, Lw])
         h23 = 0.25f0 * (dog[xi + 1, yi + 1, sl, Lw] - dog[xi - 1, yi + 1, sl, Lw] - dog[xi + 1, yi - 1, sl, Lw] + dog[xi - 1, yi - 1, sl, Lw])
     end
-    pc = _phase_class(xi, yi, _sample_phases(upsample))
+    pc = _phase_class(xi, yi, _octave_phases(octave))
     return _ift_cov(ctab, sl, pc, Lw, (h11, h22, h33, h12, h13, h23), oS, oX, oY, sf, S)
 end
 
@@ -597,7 +600,6 @@ function _asift_kernels(dev)
         bwarp = OnBackend(dev; workgroupsize = WG)(_bwarp3!), bfpb = OnBackend(dev; workgroupsize = WG)(_bfpb!),
         tile = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_btile_blur_dog!), tfill = OnBackend(dev; workgroupsize = (32, 8))(_tile_fill!),
         down = OnBackend(dev; workgroupsize = WG)(_bdown!), up = OnBackend(dev; workgroupsize = (32, 8))(_bupsample!),
-        updoubled = OnBackend(dev; workgroupsize = WG)(_upsample_doubled!),
         ext = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_bextract!),
         bp = OnBackend(dev; workgroupsize = (256,))(_bbackproject!), pol = OnBackend(dev; workgroupsize = (256,))(_polarity_pool!),
         cov = OnBackend(dev; workgroupsize = (256,))(_bcov!),
@@ -684,10 +686,12 @@ loop over same-size frames without the cache's lock.
   `2 … S + 1` of every octave, so the searched scales run from
   `seed_sigma·2^(1.5/S)·2^(−upsample)` to `seed_sigma·2^((S + 0.5)/S)·2^(nb_octaves − 1 − upsample)`
   input pixels: an upsampling more reaches an octave finer, an octave more one
-  coarser. At `upsample ≥ 2` the input's blur (`2^upsample·input_blur` of the
-  first octave's pixels) exceeds the default `seed_sigma`: the first level is then
-  the upsampled image unblurred, and the first octave's finest levels hold more
-  blur than their nominal σ.
+  coarser (a 4240×2832 image: 1.13 … 230 px at the defaults, 0.57 … 230 px at
+  `upsample = 2`, the top doubled by an octave more). At `upsample ≥ 2` the
+  input's blur (`2^upsample·input_blur` of the first octave's pixels) exceeds the
+  default `seed_sigma`: the first level is then the upsampled image unblurred
+  (VLFeat's and OpenCV's rule), and the first octave's finest levels hold more
+  blur than their σ states.
 - `capacity`: the initial size of the feature pool; it grows when a frame
   produces more extrema.
 - `chunk`: how many warps stay resident at once; `0` sizes the chunk from the
@@ -825,12 +829,6 @@ function AsiftPlan(
     S = Int(nb_scales)
     1 <= S <= _MAX_NB_SCALES || throw(ArgumentError("AsiftPlan: nb_scales must lie in 1 … $_MAX_NB_SCALES, got $S"))
     o_first = -_upsamplings(upsample)
-    sift_nb_octaves(W, H; upsample) >= 0 || throw(
-        ArgumentError(
-            "a $(W)×$(H) image is too small for the SIFT pyramid: min(W, H) must be " *
-                "≥ $(32 >> -o_first) with upsample = $(-o_first)"
-        )
-    )
     no = _nb_octaves("AsiftPlan", W, H, upsample, nb_octaves)
 
     geo = [(; imas_rotated_canvas(W, H, θ)..., t = t, θ = θ) for (t, θ) in tilts]
@@ -1249,18 +1247,11 @@ function _fill_scale_space!(K, space::GaussianScaleSpace, dogs, cv, tiles, maske
             if space.first_octave < 0
                 # Octave −k: upsample the canvas 2× k times first. Slot 2 is free
                 # scratch here — the s=1 blur below overwrites it in full
-                # after reading only slot 1 — so this needs no extra buffer; nor
-                # do the k − 1 intermediate doublings, whole-grid, into the
-                # leading corner of slots 1 and 3 in turn (overwritten in full
-                # later, slot 3 by level 3), the last one over the seed tiles.
-                src = cv
-                for i in 1:(_upsamplings(space) - 1)
-                    Wi, Hi = size(src, 1) << 1, size(src, 2) << 1
-                    dst = view(g4, 1:Wi, 1:Hi, isodd(i) ? 1 : 3, :)
-                    K.updoubled(dst, src; ndrange = (Wi, Hi, m))
-                    src = dst
-                end
-                K.up(view(g4, :, :, 2, :), src, seedtiles; ndrange = (32, 8 * (length(seedtiles) ÷ 3)))
+                # after reading only slot 1 — so this needs no extra buffer.
+                K.up(
+                    view(g4, :, :, 2, :), cv, seedtiles, Int32(_upsamplings(space));
+                    ndrange = (32, 8 * (length(seedtiles) ÷ 3))
+                )
                 _blur_level!(
                     K, space, tiles[o], masked[o], 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :),
                     view(g4, :, :, 2, :), view(g4, :, :, 2, :), aw, ah, Int32(0)

@@ -302,19 +302,17 @@ end
 
 # M (packed, 45) for every (slice, phase class, octave, warp) of a plan. Phase
 # class pc = `_phase_class(X, Y, P)` of the integer extremum's level pixel, P =
-# `_sample_phases(upsample)` phases per axis: an octave upsampled k times has 2ᵏ
-# sample phases between input samples (k = 1: input samples and midpoints); an
-# octave with fewer repeats its tables over the classes.
+# `_octave_phases(octave)` per axis: octave −k's pixels fall at 2ᵏ sample phases
+# between input samples (−1: input samples and midpoints), an octave ≥ 0's at one.
 function _cov_tables(taps::AbstractVector, S::Int, upsample::Int, noct::Int, geo, W::Int, H::Int)
     NS = S + 2
     nw = length(geo)
-    P = _sample_phases(upsample)
     F = _functional_matrix()
     # Threaded over warps and octaves: every task fills its own entries, so the
     # tables do not depend on the scheduling.
     autoc = fetch.([Threads.@spawn(_canvas_autocov(g, W, H)) for g in geo])
     Rmax = maximum(max(a[2], a[3]) for a in autoc)
-    tabs = [zeros(Float32, _NPACK, NS, P^2, nw) for _ in 1:noct]
+    tabs = [zeros(Float32, _NPACK, NS, _octave_phases(oi - 1 - upsample)^2, nw) for oi in 1:noct]
     X0 = 1 << 14                                  # far from the line's origin
     @sync for oi in 1:noct
         Threads.@spawn _octave_tables!(tabs[oi], taps, S, upsample, oi, X0, F, autoc, Rmax)
@@ -322,15 +320,15 @@ function _cov_tables(taps::AbstractVector, S::Int, upsample::Int, noct::Int, geo
     return tabs
 end
 
-# Sample phases per axis of a pyramid whose first octave is upsampled `upsample` times, and a level pixel's class.
-@inline _sample_phases(upsample) = 1 << upsample
+# Sample phases per axis of `octave`'s pixels (octave −k: 2ᵏ), and a level pixel's class.
+@inline _octave_phases(octave) = 1 << max(-octave, 0)
 @inline _phase_class(X, Y, P) = 1 + (X & (P - 1)) + P * (Y & (P - 1))
 
 # One octave's tables, `tab[:, sl, pc, w]` (see `_cov_tables`).
 function _octave_tables!(tab, taps, S, upsample, oi, X0, F, autoc, Rmax)
     NS = S + 2
     nw = length(autoc)
-    P = _sample_phases(upsample)
+    P = _octave_phases(oi - 1 - upsample)
     # 1D kernels for levels 1:S+3 at offsets −1:1, per sample phase
     kern = [
         [_canvas_kernel(taps, S, upsample, oi, l, X0 + p + d) for d in -1:1, l in 1:(S + 3)]

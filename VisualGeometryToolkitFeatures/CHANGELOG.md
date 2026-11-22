@@ -11,6 +11,22 @@ A patch on VisualGeometryToolkitCore 0.13.1 (`[compat]` VisualGeometryToolkitCor
   `migrate_artifacts` (or builds it again into the store); where no store can be had (the depot refused, none named),
   a depot's own tree is still read, with a warning, so the CUDA path does not fall to the CPU for want of a store. The CUDA 12 runtime and cuDNN it loads stay CUDA_Runtime_jll's
   and CUDNN_jll's own lazy artifacts, which Pkg installs into the depot like every JLL's.
+- **ASIFT's finest scales as interior levels, additive:** `upsample` is a count of 2× upsamplings of the first octave
+  (`first_octave = −upsample`; `true`/`false` read as 1/0) on `asift_detect`, `asift_detect(::StabilizedImage)`,
+  `AsiftPlan`, `gaussian_scale_space` and `detect_sfop`, and `asift_detect` takes `nb_scales` and `nb_octaves`
+  (until now `AsiftPlan`'s and `gaussian_scale_space`'s alone; the plan cache is keyed by both). The extremum search
+  reads interior DoG slices only (since the 0.9.11 work of 2026-11-10), from `1.6·2^(1.5/S)·2^(−upsample)` input
+  pixels: 1.13 px at the defaults, 0.57 px at `upsample = 2`, where the boundary-slice search of before reached 0.90 px
+  — oblique boards foreshorten into those scales. The default octave count grows with `upsample`, keeping the coarsest
+  octave; `nb_octaves` may exceed it by one (the coarsest octave's shorter side ≥ 16 px, VLFeat's count), reaching
+  459 px instead of 230 px on a 4240×2832 frame. At `upsample ≥ 2` the input's blur (`2^upsample·input_blur` of the
+  first octave's pixels) exceeds the default `seed_sigma` and the first level is the upsampled image unblurred
+  (VLFeat's and OpenCV's rule), so the first octave's finest levels hold more blur than their σ states (raising the
+  seed σ instead needs blur taps beyond the tiled kernel's radius 13 at `nb_scales = 3`). The upsampling is the one
+  bilinear sample at `I/2^upsample` (equal to `upsample` doublings in turn); the covariance tables hold each octave's
+  own sample phases (`2^k` per axis at octave −k); the noise threshold of a `StabilizedImage` is read off the plan of
+  its `upsample` and `nb_scales`; the pooled extremum's code holds up to 31 slices (`nb_scales ≤ 29`). **The defaults
+  are bit-identical** (`upsample = 1`, `nb_scales = 3`, the default octaves; pinned by the suite).
 
 ## 0.9.10
 

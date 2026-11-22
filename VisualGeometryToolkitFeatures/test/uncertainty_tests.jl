@@ -20,14 +20,15 @@
         err = maximum(abs.(Mi - Mt) ./ sqrt.(diag(Mi) * diag(Mi)'))
         @test err < 1.0e-4
     end
-    # upsampled twice: octave −2 has four sample phases per axis, octave −1 two
+    # upsampled twice: octave −2 has four sample phases per axis, octave −1 two, the others one
     plan = AsiftPlan(128, 128; device = KA.CPU(), tilts = [(1.0, 0.0)], upsample = 2)
     _ensure_cov!(plan)
-    @test size(plan.ctab[1], 3) == 16
+    @test [size(t, 3) for t in plan.ctab] == [16; 4; ones(Int, length(plan.ctab) - 2)]
     for oi in 1:2, sl in 2:(plan.space.nb_scales + 1), px in 0:3, py in 0:3
-        oi == 2 && (px > 1 || py > 1) && continue
+        P = oi == 1 ? 4 : 2
+        (px < P && py < P) || continue
         Mi = impulse_M(plan, oi, sl, px, py)
-        Mt = _unpack_M(Array(plan.ctab[oi]), sl, 1 + px + 4py, 1)
+        Mt = _unpack_M(Array(plan.ctab[oi]), sl, 1 + px + P * py, 1)
         @test maximum(abs.(Mi - Mt) ./ sqrt.(diag(Mi) * diag(Mi)')) < 1.0e-4
     end
 end

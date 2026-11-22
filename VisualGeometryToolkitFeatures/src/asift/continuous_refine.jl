@@ -438,7 +438,7 @@ function _continuous_covariance(
         fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
     )
     S = plan.space.nb_scales
-    upsample = plan.space.first_octave < 0
+    upsample = _upsamplings(plan.space)
     N = size(m.coef, 3)
     v = e.v
     ξ = v[1] - m.X0; η = v[2] - m.Y0; τ = v[3] - m.s0 + 1
@@ -492,14 +492,14 @@ function _refine_chunk!(plan, cfg::ContinuousRefinement, m::Int, nbefore::Int, n
     byoct = Dict{Int, Vector{Int}}()
     for i in 1:nnew
         code = unsafe_trunc(Int32, rawc[3, i])
-        oi = Int((code >> 3) - Int32(2)) - plan.space.first_octave + 1
+        oi = Int(_code_octave(code)) - plan.space.first_octave + 1
         push!(get!(byoct, oi, Int[]), i)
     end
     refined = Tuple{Int, Int, Int, _DogSplineWindow, _DogExtremum}[]   # (pool column, octave, chunk warp, window, extremum)
     for (oi, is) in byoct
         starts = map(is) do i
             code = unsafe_trunc(Int32, rawc[3, i])
-            (Float64(rawc[1, i]) + rawc[5, i], Float64(rawc[2, i]) + rawc[6, i], Float64(code & Int32(7)) + rawc[4, i], Int(rawh[5, i]))
+            (Float64(rawc[1, i]) + rawc[5, i], Float64(rawc[2, i]) + rawc[6, i], Float64(_code_slice(code)) + rawc[4, i], Int(rawh[5, i]))
         end
         dog = view(plan.dogs[oi], :, :, :, 1:m)
         ext, wins, _ = _refine_dog_extrema(plan.dev, dog, starts; seed_sigma = plan.space.seed_sigma, S, cfg)

@@ -122,6 +122,13 @@ end
     dog = Array(plan.dogs[1])[33:(2n - 32), 33:(2n - 32), :, 1]
     empirical = maximum(std(dog[px:2:end, py:2:end, sl]) for px in 1:2, py in 1:2, sl in 2:(size(dog, 3) - 1))
     @test isapprox(thr1 / plan.space.nb_scales, empirical; rtol = 0.03)
+    # upsampled twice, five scales per octave: four sample phases per axis
+    n2 = 256
+    plan2 = AsiftPlan(n2, n2; device = KA.CPU(), tilts = [(1.0, 0.0)], upsample = 2, nb_scales = 5)
+    asift_detect!(plan2, randn(Xoshiro(4), Float32, n2, n2); intensity_thr = 1.0e9)
+    dog2 = Array(plan2.dogs[1])[65:(4n2 - 64), 65:(4n2 - 64), :, 1]
+    empirical2 = maximum(std(dog2[px:4:end, py:4:end, sl]) for px in 1:4, py in 1:4, sl in 2:(size(dog2, 3) - 1))
+    @test isapprox(VF._noise_intensity_thr(1.6, 2, 5) / 5, empirical2; rtol = 0.03)
     # on pure noise of σ 1, a threshold of k σ admits fewer extrema as k grows, and few at 5σ
     rng = Xoshiro(3)
     img = 100 .+ randn(rng, 256, 256)

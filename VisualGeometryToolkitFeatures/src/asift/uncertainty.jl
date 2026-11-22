@@ -19,7 +19,7 @@
 # with M = K·Kᵀ the 9×9 covariance of the nine finite-difference functionals
 # (K: input pixels → [ĝ; Ĥ]) and P(off) = [I₃ | the off-weighted Hessian rows].
 # M depends only on the detector configuration — warp, octave, slice and, at
-# the upsampled octave, the pixel parity — never on the image, so it is
+# the upsampled octaves, the pixel's sample phase — never on the image, so it is
 # tabulated once per plan (`_cov_tables`), exactly for the discrete pipeline
 # (`_canvas_kernel` runs the adjoint of every stage); the per-detection work is
 # `_bcov!` (driver.jl), from the refinement state `_bextract!` stores. The δĤ·off term is the
@@ -160,14 +160,14 @@ end
 # Canvas-space 1D response of the Gaussian level `l` (1-indexed, 1 … S+3) at
 # level pixel `X` of octave `oi` (1 = the plan's finest), for the pyramid with
 # per-level taps `taps` (`taps[1]` the seed blur): `_bdown!` takes level S+1 of
-# the octave below, `_bupsample!` precedes the seed blur when upsampling.
-_canvas_kernel(taps, S::Int, upsample::Bool, oi::Int, l::Int, X::Int) = _canvas_response(taps, S, upsample, oi, l, _Line(X, [1.0]))
+# the octave below, `upsample` 2× upsamplings (`_bupsample!`) precede the seed blur.
+_canvas_kernel(taps, S::Int, upsample::Int, oi::Int, l::Int, X::Int) = _canvas_response(taps, S, upsample, oi, l, _Line(X, [1.0]))
 
 # The canvas-space 1D response of a weighted sum of level `l`'s level pixels (the
 # weights `v`, a `_Line` over level pixels): the adjoint pipeline applied to `v`. A
 # delta gives `_canvas_kernel`; the continuous refinement's spline functionals
 # (continuous_refine.jl) give their own weights.
-function _canvas_response(taps, S::Int, upsample::Bool, oi::Int, l::Int, v::_Line)
+function _canvas_response(taps, S::Int, upsample::Int, oi::Int, l::Int, v::_Line)
     for o in oi:-1:1
         for lev in l:-1:2
             v = _blur_adj(v, taps[lev])
@@ -177,7 +177,9 @@ function _canvas_response(taps, S::Int, upsample::Bool, oi::Int, l::Int, v::_Lin
             l = S + 1
         else
             v = _blur_adj(v, taps[1])
-            upsample && (v = _up_adj(v))
+            for _ in 1:upsample
+                v = _up_adj(v)
+            end
         end
     end
     return v
@@ -298,19 +300,21 @@ end
 
 # ----- the tables --------------------------------------------------------------
 
-# M (packed, 45) for every (slice, parity class, octave, warp) of a plan. Parity
-# class pc = 1 + (X & 1) + 2(Y & 1) of the integer extremum's level pixel: the
-# upsampled octave's pixels alternate between input samples and midpoints; the
-# other octaves repeat one table in all four classes.
-function _cov_tables(taps::AbstractVector, S::Int, upsample::Bool, noct::Int, geo, W::Int, H::Int)
+# M (packed, 45) for every (slice, phase class, octave, warp) of a plan. Phase
+# class pc = `_phase_class(X, Y, P)` of the integer extremum's level pixel, P =
+# `_sample_phases(upsample)` phases per axis: an octave upsampled k times has 2ᵏ
+# sample phases between input samples (k = 1: input samples and midpoints); an
+# octave with fewer repeats its tables over the classes.
+function _cov_tables(taps::AbstractVector, S::Int, upsample::Int, noct::Int, geo, W::Int, H::Int)
     NS = S + 2
     nw = length(geo)
+    P = _sample_phases(upsample)
     F = _functional_matrix()
     # Threaded over warps and octaves: every task fills its own entries, so the
     # tables do not depend on the scheduling.
     autoc = fetch.([Threads.@spawn(_canvas_autocov(g, W, H)) for g in geo])
     Rmax = maximum(max(a[2], a[3]) for a in autoc)
-    tabs = [zeros(Float32, _NPACK, NS, 4, nw) for _ in 1:noct]
+    tabs = [zeros(Float32, _NPACK, NS, P^2, nw) for _ in 1:noct]
     X0 = 1 << 14                                  # far from the line's origin
     @sync for oi in 1:noct
         Threads.@spawn _octave_tables!(tabs[oi], taps, S, upsample, oi, X0, F, autoc, Rmax)
@@ -318,14 +322,19 @@ function _cov_tables(taps::AbstractVector, S::Int, upsample::Bool, noct::Int, ge
     return tabs
 end
 
+# Sample phases per axis of a pyramid whose first octave is upsampled `upsample` times, and a level pixel's class.
+@inline _sample_phases(upsample) = 1 << upsample
+@inline _phase_class(X, Y, P) = 1 + (X & (P - 1)) + P * (Y & (P - 1))
+
 # One octave's tables, `tab[:, sl, pc, w]` (see `_cov_tables`).
 function _octave_tables!(tab, taps, S, upsample, oi, X0, F, autoc, Rmax)
     NS = S + 2
     nw = length(autoc)
-    # 1D kernels for levels 1:S+3 at offsets −1:1, per pixel parity
+    P = _sample_phases(upsample)
+    # 1D kernels for levels 1:S+3 at offsets −1:1, per sample phase
     kern = [
         [_canvas_kernel(taps, S, upsample, oi, l, X0 + p + d) for d in -1:1, l in 1:(S + 3)]
-            for p in 0:1
+            for p in 0:(P - 1)
     ]
     # cross-correlations XC[p][(d₁,l₁), (d₂,l₂), δ]
     XC = map(kern) do K
@@ -337,7 +346,7 @@ function _octave_tables!(tab, taps, S, upsample, oi, X0, F, autoc, Rmax)
         A
     end
     @sync for w in 1:nw
-        Threads.@spawn for sl in 2:(NS - 1), py in 0:1, px in 0:1
+        Threads.@spawn for sl in 2:(NS - 1), py in 0:(P - 1), px in 0:(P - 1)
             c, Rx, Ry = autoc[w]
             Bm = zeros(36, 36)
             for a in 1:36, b in 1:36
@@ -354,7 +363,7 @@ function _octave_tables!(tab, taps, S, upsample, oi, X0, F, autoc, Rmax)
                 Bm[a, b] = s
             end
             M = F * Bm * F'
-            pc = 1 + px + 2py
+            pc = _phase_class(px, py, P)
             for l in 1:_NFUN, k in 1:l
                 tab[_pk(k, l), sl, pc, w] = Float32(M[k, l])
             end

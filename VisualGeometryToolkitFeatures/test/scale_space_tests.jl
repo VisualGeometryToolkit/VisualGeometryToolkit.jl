@@ -59,11 +59,70 @@ end
         "5d55e800f4ad4720a60cbfc3dc4913d30f128ec0d1fd777060ce9bf35d906688"
 end
 
+@testitem "asift_detect: upsample, nb_scales and nb_octaves at their defaults are the detector's bits before them (CPU)" setup = [ScaleSpaceFixture] begin
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    # `upsample` was a Bool and `nb_scales`/`nb_octaves` were not keywords of asift_detect (Features ≤ 0.9.11's
+    # pre-release main, c4fc2168): spelled out at their defaults, and `upsample` as the Bool, they are the pins above,
+    # recorded before them — the untilted detection's and the pyramid's on every machine, the tilted one's per family
+    img = golden_img(150, 200)
+    feat(fs) = bits_hash([Float32(getfield(f, k)) for f in fs for k in fieldnames(typeof(f))])
+    ref = asift_detect(img; device = KA.CPU(), raw = true)
+    for kw in ((; upsample = 1, nb_scales = 3, nb_octaves = VgtkFeatures.sift_nb_octaves(200, 150; upsample = 1)),
+               (; upsample = true), (; upsample = 1))
+        @test feat(asift_detect(img; device = KA.CPU(), raw = true, tilts = :untilted, nms = :none, kw...)) ==
+            "c96560f1da83c94cb89ecfda9ebedb81e1ec9a4b3dd4921b0ff1cfe793783da7"
+        @test feat(asift_detect(img; device = KA.CPU(), raw = true, kw...)) == feat(ref)
+    end
+    plan = AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, upsample = 1, nb_scales = 3)
+    asift_detect!(plan, permutedims(img))
+    @test bits_hash(reduce(vcat, [vec(Array(g)) for g in plan.space.levels])) ==
+        "5d55e800f4ad4720a60cbfc3dc4913d30f128ec0d1fd777060ce9bf35d906688"
+    # one plan for `true` and 1
+    clear_asift_plans!()
+    asift_detect(img; device = KA.CPU(), tilts = :untilted, upsample = true)
+    asift_detect(img; device = KA.CPU(), tilts = :untilted, upsample = 1, nb_scales = 3)
+    @test length(VgtkFeatures._ASIFT_PLAN_CACHE) == 1
+    clear_asift_plans!()
+end
+
+@testitem "asift_detect: upsample a count, nb_scales and nb_octaves pick the pyramid" setup = [ScaleSpaceFixture] begin
+    import KernelAbstractions as KA
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    img = golden_img(150, 200)
+    for (up, S) in ((2, 3), (2, 5), (3, 3))
+        plan = AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, upsample = up, nb_scales = S)
+        @test plan.space.first_octave == -up && plan.space.nb_scales == S
+        @test plan.space.dims[1] == (200 << up, 150 << up)
+        # the same coarsest octave whatever the upsampling
+        @test length(plan.space.dims) == VgtkFeatures.sift_nb_octaves(200, 150; upsample = 1) + up - 1
+        @test last(plan.space.dims) == (50, 37)
+    end
+    # the searched scales halve with each upsampling: a refined σ is no finer than the first DoG slice's,
+    # seed_sigma·2^(0.5/S)·2^(−upsample)
+    for (up, S) in ((1, 3), (2, 3), (2, 5))
+        f = asift_detect(img; device = KA.CPU(), raw = true, tilts = :untilted, upsample = up, nb_scales = S)
+        @test !isempty(f) && minimum(x -> x.σ, f) >= 1.6 * exp2(0.5 / S - up) - 1.0e-4
+    end
+    # an octave more than the default, at most
+    no = VgtkFeatures.sift_nb_octaves(200, 150; upsample = 1)
+    @test length(AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, nb_octaves = no + 1).space.dims) == no + 1
+    @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, nb_octaves = no + 2)
+    @test_throws ArgumentError asift_detect(img; device = KA.CPU(), tilts = :untilted, nb_octaves = 0)
+    @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), upsample = -1)
+    @test_throws ArgumentError AsiftPlan(200, 150; device = KA.CPU(), nb_scales = 0)
+    # the covariances and the continuous refinement on a twice upsampled pyramid
+    r = asift_detect(img; device = KA.CPU(), raw = true, upsample = 2, uncertainty = FeatureCovariance(),
+                     refinement = ContinuousRefinement())
+    @test !isempty(r.features) && all(c -> all(isfinite, Matrix(c)), r.cov)
+    clear_asift_plans!()
+end
+
 @testitem "gaussian_scale_space: the untilted warp's levels, bit for bit; level_sigma" setup = [ScaleSpaceFixture] begin
     import KernelAbstractions as KA
     import VisualGeometryToolkitFeatures as VgtkFeatures
     img = golden_img(150, 200)
-    for upsample in (true, false)
+    for upsample in (true, false, 2)
         plan = AsiftPlan(200, 150; device = KA.CPU(), tilts = :untilted, upsample)
         asift_detect!(plan, permutedims(img))
         space = gaussian_scale_space(img; device = KA.CPU(), upsample)
@@ -78,6 +137,7 @@ end
     space = gaussian_scale_space(img; device = KA.CPU())
     @test VgtkFeatures.level_sigma(space, 1, 1) ≈ 0.8          # octave −1: 1.6 upsampled px
     @test VgtkFeatures.level_sigma(space, 2, 4) ≈ 3.2          # octave 0, level S + 1: 2·1.6
+    @test VgtkFeatures.level_sigma(gaussian_scale_space(img; device = KA.CPU(), upsample = 2), 1, 1) ≈ 0.4   # octave −2
     @test_throws ArgumentError gaussian_scale_space(img; nb_octaves = 99)
 end
 

@@ -182,3 +182,38 @@ end
     @test AsiftPlan(64, 48; device = KA.CPU(), tilts = :untilted).nw == 1
     @test_throws ArgumentError asift_detect(TEXTURE; device = KA.CPU(), tilts = :sideways)
 end
+
+@testitem "ASIFT upsample = 2: a foreshortened blob field below the finest interior scale of upsample = 1" begin
+    import KernelAbstractions as KA
+    # Discs on a plane tilted by t = 2 about the x axis (σ 1.27 px along x, 0.635 along y: a geometric σ of 0.90 px, the
+    # oblique BlobBoards boards' scale), one in four a control 3 px disc; pixel-integrated. The extremum search reads
+    # interior DoG slices only, whose finest σ is 1.6·2^(1.5/3)·2^(−upsample): 1.13 px at upsample = 1, which misses
+    # every small disc, and 0.57 px at upsample = 2, which finds them all. The controls are found by both.
+    N, spacing, t, ss = 192, 16, 2.0, 8
+    img = fill(0.5f0, N, N)
+    discs = Tuple{Float64, Float64, Bool}[]                        # (x, y) COLMAP, small
+    k = 0
+    for cy in spacing:spacing:(N - spacing), cx in spacing:spacing:(N - spacing)
+        k += 1
+        small = k % 4 != 0
+        σp = small ? 1.27 : 3.0
+        x0 = cx + 0.3 * sinpi(k / 7); y0 = cy + 0.3 * cospi(k / 5)
+        sx, sy = σp, σp / t
+        push!(discs, (x0, y0, small))
+        for j in max(1, floor(Int, x0 - 5sx)):min(N, ceil(Int, x0 + 5sx)), i in max(1, floor(Int, y0 - 5sy)):min(N, ceil(Int, y0 + 5sy))
+            acc = 0.0
+            for u in 1:ss, v in 1:ss
+                x = j - 0.5 + (u - 0.5) / ss; y = i - 0.5 + (v - 0.5) / ss   # pixel (i, j)'s centre at (j − ½, i − ½)
+                acc += exp(-((x - x0)^2 / (2sx^2) + (y - y0)^2 / (2sy^2)))
+            end
+            img[i, j] -= 0.4f0 * Float32(acc / ss^2)
+        end
+    end
+    found(dets, small) = count(d -> d[3] == small && any(f -> hypot(f.center[1] - d[1], f.center[2] - d[2]) < 1, dets), discs) /
+        count(d -> d[3] == small, discs)
+    d1 = asift_detect(img; device = KA.CPU(), polarity = :dark)
+    d2 = asift_detect(img; device = KA.CPU(), polarity = :dark, upsample = 2)
+    @test found(d1, true) == 0 && found(d2, true) == 1
+    @test found(d1, false) == 1 && found(d2, false) == 1
+    clear_asift_plans!()
+end

@@ -454,10 +454,15 @@ end
 # package's upsampling puts doubled pixel j at input j/2 (1-based).
 _undouble(r::Real, c::Real) = Point2{Float64}((c - 1) / 2, (r - 1) / 2)
 
+# The package's 2× upsampling (`_upsample_sample`) over the whole doubled grid: `dst` a matrix (slice 1 of `src`,
+# `detect_foerstner`'s doubling) or a stack of slices, slice for slice (ASIFT's first octave upsampled more than once,
+# `_fill_scale_space!`), the ndrange `size(dst)`.
 @kernel function _upsample_doubled!(dst, @Const(src))
-    I, J = @index(Global, NTuple)
-    @inbounds dst[I, J] = _upsample_sample(src, I, J, 1)
+    I = @index(Global, Cartesian)
+    @inbounds dst[I] = _upsample_sample(src, I[1], I[2], _doubled_slice(I))
 end
+_doubled_slice(::CartesianIndex{2}) = 1
+_doubled_slice(I::CartesianIndex{3}) = I[3]
 
 # The image-wide steps on the doubled image (ip_fop.m 127, 177–281) and the
 # window estimates (314–423), positions on the doubled grid, 1-based (row,

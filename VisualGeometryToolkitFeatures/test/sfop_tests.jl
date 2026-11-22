@@ -159,11 +159,11 @@ end
     @test isempty(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5))
     @test isequal(collect(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5)),
                   collect(detect_sfop(small; device = KA.CPU(), noise_sigma = 0.5, nb_octaves = 2)))
-    # an image that holds more keeps 3; more than the image holds, asked for, is refused
+    # an image that holds more keeps 3; more than a pyramid holds (one octave more), asked for, is refused
     truth, img = dot_grid(5, 2.2)
     @test isequal(collect(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5)),
                   collect(detect_sfop(img; device = KA.CPU(), noise_sigma = 0.5, nb_octaves = 3)))
-    @test_throws ArgumentError detect_sfop(small; device = KA.CPU(), nb_octaves = 3)
+    @test_throws ArgumentError detect_sfop(small; device = KA.CPU(), nb_octaves = 4)
 end
 
 @testitem "detect_foerstner at seeds: its own keywords and seeds with a scale" setup = [SfopFixture] begin

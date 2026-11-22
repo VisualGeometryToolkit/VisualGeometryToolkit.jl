@@ -40,8 +40,8 @@ _asift_input(img::AbstractMatrix{<:Real}) = permutedims(Float32.(img), (2, 1))
 
 # Keyed by everything a plan is built from, compared by VALUE: the device
 # instance (not its type — two backends of one type with different settings must
-# not share a plan), the tilt schedule, upsampling and the seed blur.
-const _PlanKey = Tuple{Int, Int, KA.Backend, Tuple, Bool, Float64}
+# not share a plan), the tilt schedule, the upsampling count, the seed blur, the scales per octave and the octaves.
+const _PlanKey = Tuple{Int, Int, KA.Backend, Tuple, Int, Float64, Int, Int}
 const _ASIFT_PLAN_CACHE = Dict{_PlanKey, Any}()
 const _ASIFT_PLAN_ORDER = _PlanKey[]      # least-recently-used first
 # Serialises every use of the cache. A cached plan is ONE set of mutable device
@@ -89,10 +89,11 @@ end
 # Call with `_ASIFT_LOCK` held (the public entry points take it): the cache is a
 # global `Dict`, and eviction under a concurrent caller frees buffers in use.
 function _asift_plan(
-        W::Int, H::Int, device::KA.Backend, tilts, upsample::Bool,
-        seed_sigma::Real = 1.6
+        W::Int, H::Int, device::KA.Backend, tilts, upsample::Integer,
+        seed_sigma::Real = 1.6, nb_scales::Integer = 3, nb_octaves::Union{Nothing, Integer} = nothing
     )
-    key = (W, H, device, Tuple(tilts), upsample, Float64(seed_sigma))
+    nb_octaves = _nb_octaves("asift_detect", W, H, upsample, nb_octaves)
+    key = (W, H, device, Tuple(tilts), _upsamplings(upsample), Float64(seed_sigma), Int(nb_scales), nb_octaves)
     cached = get(_ASIFT_PLAN_CACHE, key, nothing)
     if cached !== nothing
         i = findfirst(==(key), _ASIFT_PLAN_ORDER)   # touch: mark most-recent
@@ -103,7 +104,7 @@ function _asift_plan(
         return cached::AsiftPlan
     end
     _evict_plans!(max(_MAX_CACHED_PLANS[] - 1, 0))   # make room for the new one
-    plan = AsiftPlan(W, H; device, tilts, upsample, seed_sigma)
+    plan = AsiftPlan(W, H; device, tilts, upsample, seed_sigma, nb_scales, nb_octaves)
     _ASIFT_PLAN_CACHE[key] = plan
     push!(_ASIFT_PLAN_ORDER, key)
     return plan
@@ -137,7 +138,7 @@ end
 Drop all cached [`AsiftPlan`](@ref)s, releasing their device buffers
 immediately rather than leaving them to a finalizer.
 
-The cache is keyed by `(W, H, device, tilts, upsample, seed_sigma)` and holds at
+The cache is keyed by `(W, H, device, tilts, upsample, seed_sigma, nb_scales, nb_octaves)` and holds at
 most [`set_max_cached_plans!`](@ref) plans (default 1), evicting the least
 recently used. Call this to release the resident plans outright — e.g. between
 sequences in a mixed-resolution corpus, or before handing the device to another
@@ -210,7 +211,8 @@ _asift_meta(f::ImasFeatureKA) = (
     asift_detect(img; device=default_device(), nms=:mxm, window_half=3,
                  cutoff=3.0, intensity_thr=0.04, edge_thr=10.0,
                  polarity=:none, band_octaves=0.0, band_reach=1, boundary_K=3.0,
-                 tilts=:imas25, exclusion_mask=nothing, upsample=true, seed_sigma=1.6,
+                 tilts=:imas25, exclusion_mask=nothing, upsample=1, nb_scales=3,
+                 nb_octaves=sift_nb_octaves(W, H; upsample), seed_sigma=1.6,
                  raw=false, uncertainty=nothing, refinement=nothing)
 
 Run the IMAS-25 ASIFT detector on `img` (H×W; `Gray`, `UInt8`, or real-valued
@@ -248,9 +250,17 @@ by features whose geometric-mean scale band `⌊log2(√det S) / band_octaves⌋
 within `band_reach` of its own, so board-sized extrema and tilted-warp streaks
 stop erasing the small blobs inside them (see `asift_detect!`).
 `raw=true` returns the `ImasFeatureKA` vector instead of Detections.
-`device`, `tilts`, `upsample` and `seed_sigma` pick the plan; the others but
-`raw` and `exclusion_mask` go to [`asift_detect!`](@ref), which refuses a keyword it does
-not take.
+`device`, `tilts`, `upsample`, `nb_scales`, `nb_octaves` and `seed_sigma` pick the
+plan; the others but `raw` and `exclusion_mask` go to [`asift_detect!`](@ref), which
+refuses a keyword it does not take.
+
+**Scales.** The extremum search reads the interior DoG slices `2 … S + 1` of
+every octave (`S = nb_scales`), from the first octave, the image upsampled 2×
+`upsample` times (a count; `true`/`false` read as 1/0), to the last of
+`nb_octaves` (default [`sift_nb_octaves`](@ref), at most one more): σ from
+`seed_sigma·2^(1.5/S)·2^(−upsample)` to `seed_sigma·2^((S + 0.5)/S)·2^(nb_octaves − 1 − upsample)`
+input pixels, 1.13 to 230 px for a 4240×2832 image at the defaults; `upsample = 2`
+reaches 0.57 px, `nb_octaves` one more 459 px. See [`AsiftPlan`](@ref).
 
 **Tilts.** `tilts` is a [`tilt_schedule`](@ref) name or a vector of `(t, φ)`
 pairs: `:imas25` (the default) the 25 tilts of IMAS-25, `:untilted` the
@@ -292,7 +302,7 @@ point from that model's derivatives. A detection whose continuous refinement fai
 today's. See [`ContinuousRefinement`](@ref) for the response models; the default
 `refinement = nothing` is the detector unchanged.
 
-The plan for `(size, device, tilts, upsample, seed_sigma)` is cached (see
+The plan for `(size, device, tilts, upsample, nb_scales, nb_octaves, seed_sigma)` is cached (see
 [`set_max_cached_plans!`](@ref)) and every call holds a process-wide lock, so
 concurrent calls are safe but do not run in parallel.
 On a `KA.CPU()` device every kernel launch is statically scheduled over the
@@ -304,7 +314,8 @@ function asift_detect(
         device::KA.Backend = default_device(),
         nms::Symbol = :mxm, polarity::Symbol = :none,
         tilts = :imas25, raw::Bool = false,
-        upsample::Bool = true, seed_sigma::Real = 1.6,
+        upsample::Integer = 1, nb_scales::Integer = 3, nb_octaves::Union{Nothing, Integer} = nothing,
+        seed_sigma::Real = 1.6,
         uncertainty::Union{Nothing, FeatureCovariance} = nothing,
         exclusion_mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...
     )
@@ -314,7 +325,7 @@ function asift_detect(
     W, H = inp isa Matrix{UInt8} ? (size(inp, 2), size(inp, 1)) : size(inp)
     ts = tilt_schedule(tilts)
     feats = lock(_ASIFT_LOCK) do
-        plan = _asift_plan(W, H, device, ts, upsample, seed_sigma)
+        plan = _asift_plan(W, H, device, ts, upsample, seed_sigma, nb_scales, nb_octaves)
         asift_detect!(plan, inp; nms, polarity, uncertainty, kwargs...)
     end
     exclusion_mask === nothing || (feats = _unmasked(feats, exclusion_mask))

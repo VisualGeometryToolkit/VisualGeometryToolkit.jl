@@ -21,9 +21,9 @@ const _SfopDetection = Attributed{Disc{Float64}, @NamedTuple{precision::Float64}
 
 """
     detect_sfop(img; device = default_device(), noise_sigma = 2.0, significance_level = 0.999,
-                precision_threshold = 0.5, nb_scales = 3, input_blur = 0.5, upsample = true,
+                precision_threshold = 0.5, nb_scales = 3, input_blur = 0.5, upsample = 1,
                 nb_octaves = min(3, sift_nb_octaves(size(img)...; upsample)),
-                seed_sigma = (upsample ? 2 : 1) * input_blur, polarity = :none) -> StructArray{<:Detection}
+                seed_sigma = 2^upsample * input_blur, polarity = :none) -> StructArray{<:Detection}
     detect_sfop(L::LinearRaw; sensor_model::SensorModel = SensorModel(), kwargs...)
 
 SFOP scale selection [Foerstner2009](@cite) for CIRCULAR points (the spiral
@@ -36,7 +36,8 @@ each point at full resolution in its own window.
 
 - **The scale space:** [`gaussian_scale_space`](@ref)`(img; nb_octaves, nb_scales,
   seed_sigma, input_blur, upsample)`, ASIFT's pyramid, 3 octaves by default or as many as the image holds
-  ([`gaussian_scale_space`](@ref)'s `sift_nb_octaves`) when that is fewer (a `nb_octaves` beyond them is refused). Its first level is the
+  ([`gaussian_scale_space`](@ref)'s `sift_nb_octaves`) when that is fewer (a `nb_octaves` beyond the one more a pyramid
+  holds is refused). `upsample` counts the first octave's 2× upsamplings (`true`/`false` read as 1/0). Its first level is the
   input itself (`seed_sigma` the input's own blur in the first octave's pixels:
   no seed blur), so the finest scale searched is the finest the image holds:
   with the defaults the integration scales run from `3·2^(2/3)·0.5 ≈ 2.4` input
@@ -105,8 +106,8 @@ detect_sfop(L::LinearRaw; sensor_model::SensorModel = SensorModel(), kw...) =
 function _detect_sfop(
         img::AbstractMatrix, variance; device::KA.Backend = default_device(),
         noise_sigma::Real = 2.0, significance_level::Real = 0.999, precision_threshold::Real = 0.5,
-        nb_scales::Integer = 3, input_blur::Real = 0.5, upsample::Bool = true,
-        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = (upsample ? 2 : 1) * input_blur,
+        nb_scales::Integer = 3, input_blur::Real = 0.5, upsample::Integer = 1,
+        nb_octaves::Integer = min(3, sift_nb_octaves(size(img)...; upsample)), seed_sigma::Real = exp2(_upsamplings(upsample)) * input_blur,
         polarity::Symbol = :none
     )
     0 < significance_level < 1 ||
@@ -123,7 +124,7 @@ function _detect_sfop(
     gate = sign == 0 ? nothing : let g = _detection_image(Float32, device, img), v = noise isa Real ? noise^2 : noise
         points -> _polarity_kept(device, g, points, sign, v, significance_level)
     end
-    W, H = space.dims[1] .>> (space.first_octave < 0 ? 1 : 0)
+    W, H = space.dims[1] .>> _upsamplings(space)
     K = _scheduled(_asift_kernels, device)
     S = space.nb_scales
     capacity = 1 << 16

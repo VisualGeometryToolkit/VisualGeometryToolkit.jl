@@ -312,8 +312,17 @@ end
 #     `rawcov` a (6, capacity) buffer, or `nothing` — a separate specialization,
 #     so the default compiles to the kernel without it. Only the refinement's
 #     state is stored here, `(xi, yi, code, offS, offX, offY)` with code =
-#     sl + 8·(octave_idx + 2); `_bcov!` computes the covariance
+#     `_extremum_code(sl, octave_idx)`; `_bcov!` computes the covariance
 #     from it, keeping this kernel's registers (and occupancy) the default's
+# A pooled extremum's slice and octave in one integer (`rawcov`'s row 3, exact in a Float32): the slice in the low
+# `_SLICE_BITS` bits, the octave + 2 above them (an arithmetic shift: an octave below −2 decodes too). The slices
+# 1 … S + 2 bound `nb_scales` by `_MAX_NB_SCALES`.
+const _SLICE_BITS = 5
+const _MAX_NB_SCALES = (1 << _SLICE_BITS) - 3
+@inline _extremum_code(sl, octave_idx) = sl + ((octave_idx + 2) << _SLICE_BITS)
+@inline _code_octave(code::Int32) = (code >> Int32(_SLICE_BITS)) - Int32(2)
+@inline _code_slice(code::Int32) = code & Int32((1 << _SLICE_BITS) - 1)
+
 @inline function _extract_at!(
         out, count, dog, X, Y, Sl, Lw, W, H, ::Val{NS},
         dog_thr, edge_thr, seed_sigma, octave_idx, nb_scales, capacity, rawcov, ::Val{PRECISION} = Val(false)
@@ -430,7 +439,7 @@ end
                         out[5, idx] = Float32(Lw)
                         if rawcov !== nothing
                             rawcov[1, idx] = Float32(xi); rawcov[2, idx] = Float32(yi)
-                            rawcov[3, idx] = Float32(sl + 8 * (octave_idx + 2))
+                            rawcov[3, idx] = Float32(_extremum_code(sl, octave_idx))
                             rawcov[4, idx] = offS; rawcov[5, idx] = offX; rawcov[6, idx] = offY
                         end
                     end
@@ -520,12 +529,12 @@ end
     @inbounds if j <= n
         i = Int(n0) + j
         code = unsafe_trunc(Int32, rawcov[3, i])
-        octave_idx = (code >> 3) - Int32(2)
+        octave_idx = _code_octave(code)
         oi = Int(octave_idx - o_first) + 1
         xi = unsafe_trunc(Int, rawcov[1, i]); yi = unsafe_trunc(Int, rawcov[2, i])
-        sl = Int(code & Int32(7)); Lw = unsafe_trunc(Int, raw[5, i])
+        sl = Int(_code_slice(code)); Lw = unsafe_trunc(Int, raw[5, i])
         sf = exp2(Float32(octave_idx))
-        c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales)
+        c = _ift_cov_at(dogs[oi], xi, yi, sl, Lw, ctabs[oi], rawcov[4, i], rawcov[5, i], rawcov[6, i], sf, nb_scales, -Int(o_first))
         for k in 1:6
             cov[k, i] = c[k]
         end
@@ -534,7 +543,7 @@ end
 
 # The IFT covariance of a refined detection at the integer extremum (xi, yi, sl)
 # of warp Lw, from the DoG Hessian there and the refinement offset.
-@inline function _ift_cov_at(dog, xi, yi, sl, Lw, ctab, oS, oX, oY, sf, S)
+@inline function _ift_cov_at(dog, xi, yi, sl, Lw, ctab, oS, oX, oY, sf, S, upsample)
     @inbounds begin
         cc = dog[xi, yi, sl, Lw]
         h22 = dog[xi + 1, yi, sl, Lw] - 2.0f0 * cc + dog[xi - 1, yi, sl, Lw]
@@ -544,7 +553,7 @@ end
         h13 = 0.25f0 * (dog[xi, yi + 1, sl + 1, Lw] - dog[xi, yi - 1, sl + 1, Lw] - dog[xi, yi + 1, sl - 1, Lw] + dog[xi, yi - 1, sl - 1, Lw])
         h23 = 0.25f0 * (dog[xi + 1, yi + 1, sl, Lw] - dog[xi - 1, yi + 1, sl, Lw] - dog[xi + 1, yi - 1, sl, Lw] + dog[xi - 1, yi - 1, sl, Lw])
     end
-    pc = 1 + (xi & 1) + 2 * (yi & 1)
+    pc = _phase_class(xi, yi, _sample_phases(upsample))
     return _ift_cov(ctab, sl, pc, Lw, (h11, h22, h33, h12, h13, h23), oS, oX, oY, sf, S)
 end
 
@@ -588,6 +597,7 @@ function _asift_kernels(dev)
         bwarp = OnBackend(dev; workgroupsize = WG)(_bwarp3!), bfpb = OnBackend(dev; workgroupsize = WG)(_bfpb!),
         tile = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_btile_blur_dog!), tfill = OnBackend(dev; workgroupsize = (32, 8))(_tile_fill!),
         down = OnBackend(dev; workgroupsize = WG)(_bdown!), up = OnBackend(dev; workgroupsize = (32, 8))(_bupsample!),
+        updoubled = OnBackend(dev; workgroupsize = WG)(_upsample_doubled!),
         ext = OnBackend(dev; workgroupsize = (32, _TILE_NY))(_bextract!),
         bp = OnBackend(dev; workgroupsize = (256,))(_bbackproject!), pol = OnBackend(dev; workgroupsize = (256,))(_polarity_pool!),
         cov = OnBackend(dev; workgroupsize = (256,))(_bcov!),
@@ -650,7 +660,7 @@ _scheduled(build, dev::KA.CPU) = map(_ScheduledKernel, build(KA.CPU(static = tru
 """
     AsiftPlan(W, H; device = default_device(), tilts = :imas25, seed_sigma = 1.6,
               input_blur = 0.5, nb_scales = 3, capacity = 2^20, chunk = 0,
-              upsample = true)
+              upsample = 1, nb_octaves = sift_nb_octaves(W, H; upsample))
 
 The preallocated buffers of the ASIFT detector for `W`×`H` images on `device`
 (any KernelAbstractions backend): the tilted warps, the scale-space pyramids,
@@ -665,9 +675,19 @@ loop over same-size frames without the cache's lock.
 - `tilts`: the tilt schedule, a [`tilt_schedule`](@ref) name (`:imas25`, the
   default, or `:untilted`, the identity alone: plain DoG-SIFT) or a vector of
   `(t, φ)` pairs (tilt and longitude in radians).
-- `seed_sigma`, `input_blur`, `nb_scales`, `upsample`: the SIFT pyramid's seed
-  blur, the input's assumed blur, the scales per octave and whether the first
-  octave is the 2× upsampled image.
+- `seed_sigma`, `input_blur`, `nb_scales`, `upsample`, `nb_octaves`: the SIFT
+  pyramid's seed blur, the input's assumed blur, the scales per octave `S`, how
+  many times the first octave is the image upsampled 2× (a count, `true`/`false`
+  read as 1/0; the first octave is octave `−upsample`) and the octave count (by
+  default [`sift_nb_octaves`](@ref), whose coarsest octave is the same for every
+  `upsample`; one more at most). The extremum search reads the interior DoG slices
+  `2 … S + 1` of every octave, so the searched scales run from
+  `seed_sigma·2^(1.5/S)·2^(−upsample)` to `seed_sigma·2^((S + 0.5)/S)·2^(nb_octaves − 1 − upsample)`
+  input pixels: an upsampling more reaches an octave finer, an octave more one
+  coarser. At `upsample ≥ 2` the input's blur (`2^upsample·input_blur` of the
+  first octave's pixels) exceeds the default `seed_sigma`: the first level is then
+  the upsampled image unblurred, and the first octave's finest levels hold more
+  blur than their nominal σ.
 - `capacity`: the initial size of the feature pool; it grows when a frame
   produces more extrema.
 - `chunk`: how many warps stay resident at once; `0` sizes the chunk from the
@@ -797,20 +817,21 @@ function AsiftPlan(
         tilts = :imas25,
         seed_sigma::Real = 1.6, input_blur::Real = 0.5,
         nb_scales::Integer = 3, capacity::Integer = 1 << 20,
-        chunk::Integer = 0, upsample::Bool = true
+        chunk::Integer = 0, upsample::Integer = 1, nb_octaves::Union{Nothing, Integer} = nothing
     )
     dev = device
     tilts = tilt_schedule(tilts)
     nw = length(tilts)
     S = Int(nb_scales)
-    no = sift_nb_octaves(W, H; upsample)
-    no >= 1 || throw(
+    1 <= S <= _MAX_NB_SCALES || throw(ArgumentError("AsiftPlan: nb_scales must lie in 1 … $_MAX_NB_SCALES, got $S"))
+    o_first = -_upsamplings(upsample)
+    sift_nb_octaves(W, H; upsample) >= 0 || throw(
         ArgumentError(
             "a $(W)×$(H) image is too small for the SIFT pyramid: min(W, H) must be " *
-                "≥ 16 with upsample = true, ≥ 32 without"
+                "≥ $(32 >> -o_first) with upsample = $(-o_first)"
         )
     )
-    o_first = upsample ? -1 : 0
+    no = _nb_octaves("AsiftPlan", W, H, upsample, nb_octaves)
 
     geo = [(; imas_rotated_canvas(W, H, θ)..., t = t, θ = θ) for (t, θ) in tilts]
     Wr_max = maximum(g.W_rot for g in geo)
@@ -834,7 +855,7 @@ function AsiftPlan(
 
     # Blur bookkeeping for the 2× seed (`_scale_space_taps`): the input's nominal blur is stated in
     # NATIVE pixels, so at octave −1 — whose pixels are half a native pixel —
-    # it doubles. Only the first level's taps depend on `input_blur`, so this is the whole
+    # it doubles (at octave −k, 2ᵏ-fold). Only the first level's taps depend on `input_blur`, so this is the whole
     # correction: √(1.6²−1.0²)=1.249 upsampled px instead of √(1.6²−0.5²)=1.520.
     # Leaving it at 0.5 would over-blur by ~22% and throw away much of the
     # resolution the upsample just bought. (VLFeat reaches the same number the
@@ -1226,10 +1247,20 @@ function _fill_scale_space!(K, space::GaussianScaleSpace, dogs, cv, tiles, maske
         aw = view(awd[o], r); ah = view(ahd[o], r)
         if o == 1   # seed blur of the canvas (writedog = 0)
             if space.first_octave < 0
-                # Octave −1: upsample the canvas 2× first. Slot 2 is free
+                # Octave −k: upsample the canvas 2× k times first. Slot 2 is free
                 # scratch here — the s=1 blur below overwrites it in full
-                # after reading only slot 1 — so this needs no extra buffer.
-                K.up(view(g4, :, :, 2, :), cv, seedtiles; ndrange = (32, 8 * (length(seedtiles) ÷ 3)))
+                # after reading only slot 1 — so this needs no extra buffer; nor
+                # do the k − 1 intermediate doublings, whole-grid, into the
+                # leading corner of slots 1 and 3 in turn (overwritten in full
+                # later, slot 3 by level 3), the last one over the seed tiles.
+                src = cv
+                for i in 1:(_upsamplings(space) - 1)
+                    Wi, Hi = size(src, 1) << 1, size(src, 2) << 1
+                    dst = view(g4, 1:Wi, 1:Hi, isodd(i) ? 1 : 3, :)
+                    K.updoubled(dst, src; ndrange = (Wi, Hi, m))
+                    src = dst
+                end
+                K.up(view(g4, :, :, 2, :), src, seedtiles; ndrange = (32, 8 * (length(seedtiles) ÷ 3)))
                 _blur_level!(
                     K, space, tiles[o], masked[o], 1, view(g4, :, :, 1, :), view(g4, :, :, 1, :),
                     view(g4, :, :, 2, :), view(g4, :, :, 2, :), aw, ah, Int32(0)
@@ -1329,7 +1360,7 @@ function _ensure_cov_tables!(plan::AsiftPlan)
     if isempty(plan.ctab)
         taps = [Array(t) for t in plan.space.taps]
         tabs = _cov_tables(
-            taps, plan.space.nb_scales, plan.space.first_octave < 0, length(plan.dogs), plan.geo, plan.W, plan.H
+            taps, plan.space.nb_scales, _upsamplings(plan.space), length(plan.dogs), plan.geo, plan.W, plan.H
         )
         for t in tabs
             push!(plan.ctab, ka_upload(Float32, plan.dev, t))

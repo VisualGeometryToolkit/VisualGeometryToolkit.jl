@@ -94,7 +94,7 @@ end
 """
     impulse_M(plan, oi, sl, px, py) -> Matrix{Float64} (9×9)
 
-M = K·Kᵀ of the nine functionals at octave `oi`, slice `sl`, parity (px, py),
+M = K·Kᵀ of the nine functionals at octave `oi`, slice `sl`, sample phase (px, py) (mod 2^−o at octave o < 0),
 measured on the plan's own kernels (identity warp): impulses at every phase of
 the octave's input stride, each run through the real pyramid; the functionals'
 responses at all level pixels of the parity class, summed. Interior only: the
@@ -105,6 +105,7 @@ function impulse_M(plan, oi, sl, px, py)
     o = oi - 1 + plan.space.first_octave
     q = o <= 0 ? 1 : 1 << o                 # input pixels per level pixel
     Wo, Ho = plan.space.dims[oi]
+    P = o < 0 ? 1 << -o : 1                 # the octave's sample phases per axis: a class steps one input pixel
     M = zeros(9, 9)
     margin = 6                              # level pixels kept clear of the border
     for φy in 0:(q - 1), φx in 0:(q - 1)
@@ -113,7 +114,7 @@ function impulse_M(plan, oi, sl, px, py)
         asift_detect!(plan, img; intensity_thr = 1.0e9)    # pyramid only: no extremum survives
         d = Float64.(Array(plan.dogs[oi])[:, :, :, 1])
         for Y in (margin + 1):(Ho - margin), X in (margin + 1):(Wo - margin)
-            (X & 1 == px && Y & 1 == py) || o >= 0 || continue
+            (X & (P - 1) == px && Y & (P - 1) == py) || o >= 0 || continue
             f = functionals_at(d, X, Y, sl)
             for j in 1:9, i in 1:9
                 M[i, j] += f[i] * f[j]

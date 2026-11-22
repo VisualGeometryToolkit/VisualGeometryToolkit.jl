@@ -25,14 +25,15 @@
     sift_sep_sigmas(seed_sigma, input_blur, nb_scales) -> Vector{Float32}
 
 Per-level separable-blur σ for one octave (nb_scales+3 levels). Level 0 lifts
-the assumed `input_blur` up to `seed_sigma`; each subsequent level advances by a
-factor 2^(1/nb_scales) in absolute scale.
+the assumed `input_blur` up to `seed_sigma` (no blur when `input_blur` is already
+at least `seed_sigma`, VLFeat's and OpenCV's rule); each subsequent level advances
+by a factor 2^(1/nb_scales) in absolute scale.
 """
 function sift_sep_sigmas(seed_sigma::Real, input_blur::Real, nb_scales::Integer)
     S = Int(nb_scales)
     σ0 = Float32(seed_sigma)
     seps = Vector{Float32}(undef, S + 3)
-    seps[1] = sqrt(Float32(seed_sigma)^2 - Float32(input_blur)^2)
+    seps[1] = sqrt(max(Float32(seed_sigma)^2 - Float32(input_blur)^2, 0.0f0))
     for i in 1:(S + 2)                     # levels 1..S+2 (0-indexed)
         sig_prev = 2.0f0^(Float32(i - 1) / S) * σ0
         sig_tot = 2.0f0^(Float32(i) / S) * σ0
@@ -88,12 +89,32 @@ end
 @inline _slice_sigma(s, seed_sigma, S, sf) = seed_sigma * exp2((s + oftype(s, 0.5)) / oftype(s, S)) * sf
 
 """
-    sift_nb_octaves(W, H; upsample=false) -> Int
+    sift_nb_octaves(W, H; upsample=0) -> Int
 
-Auto octave count: floor(log2(min(W,H))) − 4 (+1 if upsampling).
+Auto octave count: floor(log2(min(W,H))) − 4, plus one per 2× upsampling
+(`upsample`, a count; `true`/`false` are 1/0), so the coarsest octave is the same
+whatever the upsampling: its shorter side is at least 32 px. One octave more, a
+shorter side of at least 16 px (VLFeat's count), is the most a pyramid holds
+(`nb_octaves` of [`gaussian_scale_space`](@ref) and [`AsiftPlan`](@ref)).
 """
-sift_nb_octaves(W, H; upsample::Bool = false) =
-    Int(floor(log2(min(W, H)))) - 4 + (upsample ? 1 : 0)
+sift_nb_octaves(W, H; upsample::Integer = 0) =
+    Int(floor(log2(min(W, H)))) - 4 + _upsamplings(upsample)
+
+# The count of 2× upsamplings of the first octave (`first_octave = −upsample`): a Bool reads as 1/0.
+function _upsamplings(upsample::Integer)
+    upsample >= 0 || throw(ArgumentError("upsample is a count of 2× upsamplings (≥ 0), got $upsample"))
+    return Int(upsample)
+end
+
+# The pyramid's octave count: `nb_octaves`, or by default `sift_nb_octaves`; at most one more (the coarsest octave's
+# shorter side ≥ 16 px). `who` names the caller in the error.
+function _nb_octaves(who, W, H, upsample, nb_octaves)
+    no = something(nb_octaves, sift_nb_octaves(W, H; upsample))
+    nmax = sift_nb_octaves(W, H; upsample) + 1
+    1 <= no <= nmax || throw(ArgumentError(
+        "$who: a $(W)×$(H) image with upsample = $(Int(upsample)) holds 1 … $nmax octaves, got nb_octaves = $no"))
+    return Int(no)
+end
 
 # ----- the Gaussian scale space ----------------------------------------------
 
@@ -109,9 +130,9 @@ resident tilted warp: ASIFT's DoG pyramid is the difference of these levels).
   level `l` (1-based) has the blur `seed_sigma·2^((l − 1)/S)` in the octave's
   pixels. Level `S + 1` of an octave is the next octave's level 1 before its 2×
   (Lowe's pixel-aligned) downsample.
-- `dims[o]`: `(W_o, H_o)`; `first_octave`: `−1` when the first octave is the 2×
-  upsampled image, else `0` (octave `o` has pixels of `2^(first_octave + o − 1)`
-  input pixels);
+- `dims[o]`: `(W_o, H_o)`; `first_octave`: `−upsample`, the count of 2× upsamplings
+  of the first octave (`−1` the 2× upsampled image, `0` the image itself; octave `o`
+  has pixels of `2^(first_octave + o − 1)` input pixels);
 - `nb_scales` (`S`), `seed_sigma`, the input's assumed blur `input_blur` (input pixels), and the per-level separable blur `taps`
   (one-sided, [`gaussian_taps`](@ref)) and their `radii`.
 
@@ -137,19 +158,24 @@ The Gaussian blur of level `l` (1-based, fractional allowed) of octave `o`
 level_sigma(space::GaussianScaleSpace, o::Real, l::Real) =
     space.seed_sigma * exp2((l - 1) / space.nb_scales) * exp2(space.first_octave + o - 1)
 
-# The pyramid's octave sizes: `nb_octaves` octaves of a W×H image, from octave −1 (2W×2H) when upsampling. `>>` with a
-# negative shift is a LEFT shift in Julia, so octave −1 comes out at (2W, 2H) from the same expression.
+# The count of 2× upsamplings of `space`'s first octave.
+_upsamplings(space::GaussianScaleSpace) = -space.first_octave
+
+# The pyramid's octave sizes: `nb_octaves` octaves of a W×H image, from octave −k (2ᵏW×2ᵏH) when upsampling k times.
+# `>>` with a negative shift is a LEFT shift in Julia, so octave −k comes out at (2ᵏW, 2ᵏH) from the same expression.
 _octave_dims(W, H, first_octave, nb_octaves) = [(W >> o, H >> o) for o in first_octave:(first_octave + nb_octaves - 1)]
 
-# The per-level separable blur taps on `dev` and their radii: level 1 lifts the input's assumed blur (doubled at an
-# upsampled first octave: its pixels are half an input pixel) to `seed_sigma`, each next level advances by 2^(1/S).
-function _scale_space_taps(dev, seed_sigma, input_blur, S, upsample::Bool)
-    seps = sift_sep_sigmas(seed_sigma, upsample ? 2 * input_blur : input_blur, S)
+# The per-level separable blur taps on `dev` and their radii: level 1 lifts the input's assumed blur (2ᵏ·input_blur
+# at a first octave upsampled k times: its pixels are 2⁻ᵏ input pixels) to `seed_sigma`, each next level advances by
+# 2^(1/S). The input's blur at or above `seed_sigma` (input_blur = 0.5, upsample = 2: 2.0 > 1.6) is not blurred
+# further (`sift_sep_sigmas`): the first octave's finest levels then hold that blur, not their nominal one.
+function _scale_space_taps(dev, seed_sigma, input_blur, S, upsample::Integer)
+    seps = sift_sep_sigmas(seed_sigma, exp2(_upsamplings(upsample)) * input_blur, S)
     radii = Int32[Int32(length(gaussian_taps(s)) - 1) for s in seps]
     maximum(radii) <= 13 || throw(
         ArgumentError(
-            "seed_sigma = $seed_sigma needs a blur tap radius of $(maximum(radii)), beyond the " *
-                "tiled blur's RMAX = 13 (with nb_scales = 3 and upsampling, seed_sigma must be ≲ 1.68)"
+            "seed_sigma = $seed_sigma, nb_scales = $S and upsample = $(Int(upsample)) need a blur tap radius of " *
+                "$(maximum(radii)), beyond the tiled blur's RMAX = 13"
         )
     )
     return [ka_upload(Float32, dev, gaussian_taps(s)) for s in seps], radii
@@ -157,27 +183,27 @@ end
 
 """
     gaussian_scale_space(img; device = default_device(), nb_scales = 3, seed_sigma = 1.6,
-                         input_blur = 0.5, upsample = true, nb_octaves = sift_nb_octaves(W, H; upsample))
+                         input_blur = 0.5, upsample = 1, nb_octaves = sift_nb_octaves(W, H; upsample))
         -> GaussianScaleSpace
 
 The Gaussian scale space of the grey image `img` (H×W, read as
 [`asift_detect`](@ref) reads it) on `device`: `nb_octaves` octaves of
 `nb_scales + 3` levels each, by ASIFT's own pyramid (the same taps, the same
-fused tiled blur kernel, Lowe's pixel-aligned 2× downsample and, with `upsample`,
-the package's 2× upsampling of the first octave), level for level what
-`asift_detect` builds for the untilted warp. See [`GaussianScaleSpace`](@ref).
+fused tiled blur kernel, Lowe's pixel-aligned 2× downsample and the package's 2×
+upsampling of the first octave, applied `upsample` times: a count, `true`/`false`
+read as 1/0), level for level what `asift_detect` builds for the untilted warp.
+`nb_octaves` may exceed the default by one (see [`sift_nb_octaves`](@ref)). See
+[`GaussianScaleSpace`](@ref).
 """
 function gaussian_scale_space(
         img::AbstractMatrix; device::KA.Backend = default_device(), nb_scales::Integer = 3,
-        seed_sigma::Real = 1.6, input_blur::Real = 0.5, upsample::Bool = true, nb_octaves::Union{Nothing, Integer} = nothing
+        seed_sigma::Real = 1.6, input_blur::Real = 0.5, upsample::Integer = 1, nb_octaves::Union{Nothing, Integer} = nothing
     )
     inp = _asift_input(img)
     W, H = inp isa Matrix{UInt8} ? (size(inp, 2), size(inp, 1)) : size(inp)
     S = Int(nb_scales)
-    first_octave = upsample ? -1 : 0
-    no = something(nb_octaves, sift_nb_octaves(W, H; upsample))
-    1 <= no <= sift_nb_octaves(W, H; upsample) || throw(ArgumentError(
-        "gaussian_scale_space: a $(W)×$(H) image holds 1 … $(sift_nb_octaves(W, H; upsample)) octaves, got nb_octaves = $no"))
+    first_octave = -_upsamplings(upsample)
+    no = _nb_octaves("gaussian_scale_space", W, H, upsample, nb_octaves)
     dims = _octave_dims(W, H, first_octave, no)
     taps, radii = _scale_space_taps(device, seed_sigma, input_blur, S, upsample)
     levels = [KA.allocate(device, Float32, d[1], d[2], S + 3, 1) for d in dims]

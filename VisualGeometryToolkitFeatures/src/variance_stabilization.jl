@@ -93,20 +93,20 @@ end
 # (the finest octave's, at its noisiest sample phase when that octave is upsampled; the slices the extremum search
 # reads, the interior ones 2 … NS − 1 — a boundary slice is no candidate's): the DoG is linear, so a slice's noise
 # σ at a sample is the root energy of its impulse response there, read off the pyramid of a unit impulse through a
-# plan of the same seed blur and upsampling (the untilted view: a tilt's anti-aliasing only lowers it). The driver
-# compares the DoG with `intensity_thr / nb_scales`, hence the factor.
-const _NOISE_THR = Dict{Tuple{Float64, Bool}, Float64}()
+# plan of the same seed blur, upsampling and scales per octave (the untilted view: a tilt's anti-aliasing only lowers
+# it). The driver compares the DoG with `intensity_thr / nb_scales`, hence the factor.
+const _NOISE_THR = Dict{Tuple{Float64, Int, Int}, Float64}()
 const _NOISE_THR_LOCK = ReentrantLock()
 
-function _noise_intensity_thr(seed_sigma::Real, upsample::Bool)
+function _noise_intensity_thr(seed_sigma::Real, upsample::Integer, nb_scales::Integer = 3)
     return lock(_NOISE_THR_LOCK) do
-        get!(_NOISE_THR, (Float64(seed_sigma), upsample)) do
+        get!(_NOISE_THR, (Float64(seed_sigma), _upsamplings(upsample), Int(nb_scales))) do
             n = 64
-            plan = AsiftPlan(n, n; device = KA.CPU(), tilts = :untilted, seed_sigma, upsample)
+            plan = AsiftPlan(n, n; device = KA.CPU(), tilts = :untilted, seed_sigma, upsample, nb_scales)
             impulse = zeros(Float32, n, n); impulse[n ÷ 2, n ÷ 2] = 1
             asift_detect!(plan, impulse; intensity_thr = Inf)
             dog = Array(plan.dogs[1])
-            f = plan.space.first_octave < 0 ? 2 : 1                       # an upsampled octave: one impulse response per sample phase
+            f = _sample_phases(_upsamplings(plan.space))                 # an upsampled octave: one impulse response per sample phase
             σ = maximum(sqrt(sum(abs2, view(dog, px:f:size(dog, 1), py:f:size(dog, 2), sl, 1)))
                         for px in 1:f, py in 1:f, sl in 2:(size(dog, 3) - 1))
             plan.space.nb_scales * Float64(σ)
@@ -133,7 +133,8 @@ joins them. The image is scaled by `1 / s.white` into `[0, 1]` for the
 detector (the warps' fill is mid-grey), the threshold with it. `kwargs` are
 [`asift_detect`](@ref)'s but `intensity_thr` (the threshold is `noise_sigmas`).
 """
-function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::Real = 1.6, upsample::Bool = true,
+function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::Real = 1.6, upsample::Integer = 1,
+                      nb_scales::Integer = 3,
                       exclusion_mask::Union{Nothing, AbstractMatrix{Bool}} = nothing, kwargs...)
     _refuse_retired_mask(kwargs)
     haskey(kwargs, :intensity_thr) && throw(ArgumentError(
@@ -141,7 +142,7 @@ function asift_detect(s::StabilizedImage; noise_sigmas::Real = 3.0, seed_sigma::
     isfinite(noise_sigmas) && noise_sigmas > 0 ||
         throw(ArgumentError("asift_detect: noise_sigmas must be positive and finite, got $noise_sigmas"))
     _check_mask(exclusion_mask, size(s.image))
-    thr = noise_sigmas * _noise_intensity_thr(seed_sigma, upsample) / s.white
-    return asift_detect(Float32.(s.image ./ s.white); intensity_thr = thr, seed_sigma, upsample,
+    thr = noise_sigmas * _noise_intensity_thr(seed_sigma, upsample, nb_scales) / s.white
+    return asift_detect(Float32.(s.image ./ s.white); intensity_thr = thr, seed_sigma, upsample, nb_scales,
                         exclusion_mask = exclusion_mask === nothing ? s.saturated : exclusion_mask .| s.saturated, kwargs...)
 end

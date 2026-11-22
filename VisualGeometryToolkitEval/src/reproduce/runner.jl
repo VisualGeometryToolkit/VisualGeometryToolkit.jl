@@ -47,7 +47,7 @@ options every job gets (`partition`, a GPU stage's `gres`, `cpus_per_task`, `mem
 tasks at a time, `extra` options, and `job_name_prefix`, put before every job's name: the launch's label for the
 scheduler, never part of a run key), the local `cuda_visible_devices` and `cpus_per_task`, a shell `setup` run before
 every stage, the environment `env` every stage gets, and the machine's storage (`[storage]`): `data_root` and
-`results_root`, where a project's inputs and results live on it (absolute, or under the home: `~/…`, `$HOME/…`;
+`results_root`, where a project's inputs and results live on it (absolute, or under the home: `~/…`, `\$HOME/…`;
 `{project}` in either is the project's name:
 [`site_root`](@ref)), `artifact_store`, the directory of the artifact store every project and package there
 installs into (VisualGeometryToolkitCore's `artifact_store`), and `refuse_depot`, whether a process there may fall back

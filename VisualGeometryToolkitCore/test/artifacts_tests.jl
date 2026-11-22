@@ -369,5 +369,5 @@ end
     @test order == ["held", "released", "second"]
     # two waiters that judge one lock stale: one moves it aside, the other's move fails quietly
     mkdir(lock); VgtkCore._break_lock(lock); VgtkCore._break_lock(lock)
-    @test !ispath(lock) && isempty(filter(f -> occursin(".stale.", f), readdir(dir)))
+    @test !ispath(lock) && isempty(readdir(dir))
 end

@@ -247,9 +247,10 @@ end
 # Whether the lock's holder is gone: a process of this host that no longer runs, or no heartbeat for `stale_age` s.
 function _lock_is_stale(lock::AbstractString, stale_age::Real)
     owner = joinpath(lock, "owner")
-    st = stat(isfile(owner) ? owner : lock)       # a holder that has not written its owner yet: the directory's age
+    text = try read(owner, String) catch; nothing end
+    st = stat(text === nothing ? lock : owner)    # a holder that has not written its owner yet: the directory's age
     st.mtime == 0 && return false                 # gone meanwhile: retry the lock
-    fields = split(isfile(owner) ? (try read(owner, String) catch; "" end) : "")
+    fields = split(something(text, ""))
     if length(fields) >= 2 && fields[1] == gethostname()
         pid = tryparse(Int, fields[2])
         pid === nothing || pid == getpid() || _process_alive(pid) || return true
@@ -262,7 +263,7 @@ _process_alive(pid::Integer) = ccall(:uv_kill, Cint, (Cint, Cint), pid, 0) != Ba
 
 # Move a stale lock aside, atomically (of two waiters that judged it stale, one moves it), and remove it.
 function _break_lock(lock::AbstractString)
-    aside = "$lock.stale.$(string(rand(UInt64); base = 16))"
+    aside = tempname(dirname(lock); cleanup = false)   # beside it: the move is a rename
     try
         mv(lock, aside)
     catch

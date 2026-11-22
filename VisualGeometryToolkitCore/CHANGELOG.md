@@ -14,7 +14,8 @@
 - **The store's install lock is safe on NFS**: a directory per tree (`<hash>.install.lock`), made by an atomic `mkdir`,
   holding its owner (host, pid, start) and touched every 10 s while held; a waiter polls (backing off to 5 s, no file
   watching) and takes over a lock whose holder is a gone process of its host, or whose heartbeat is a minute old.
-  FileWatching's pid lock, which can hang on an NFS store, is gone, and so is the FileWatching dependency. Correctness
+  The store's FileWatching pid lock, which can hang on an NFS store, is gone, and so is this package's FileWatching
+  dependency. Correctness
   never rested on the lock: every install lands by an atomic move of a verified tree or file (the sha256 and
   git-tree-sha1 checks are unchanged).
 - A site profile file read here may name its store under the home, `~/…`.

@@ -45,7 +45,7 @@ SHA-256 (canonical JSON) of: (a) its TOML section(s) — only what the step read
 chain: an upstream product's key, never a re-hash of its contents); (c) the pinned `sha256` of each raw input it reads (an
 `[inputs.<id>]` record: tier, path, sha256, frames/exclude; data-root files only); (d) the CODE VERSION: the source-tree hash of
 every stack package the step's environment loads — `src`/`ext`/`Project.toml` git trees for a path (dev) checkout, the Manifest
-`git-tree-sha1` for a registered version — plus the project's own `src` and RC (a path dependency of cvpr2027, so its trees
+`git-tree-sha1` for a registered version — plus the project's own `src` and RC (a path dependency of experiments, so its trees
 too): Eval's `current_code_trees(project_root())`, folded as `keyed_with.code`; (e) the execution thread count
 (`[execution] threads`: the closed-form start sums over thread chunks); (f) `scratch` in a scratch run. Any change of a package's
 tree re-keys every product its environment computes (conservative, accepted). produce_or_load only produces or loads the keyed
@@ -125,11 +125,11 @@ cameras the front ends' fits); `regenerate_paper` (which runs geometric_figures 
    one code path: bit-identical by construction, proven by the dgx01 gate (Task 9).
 7. **RC's start key** is the run's options with the refinement-only options set to their defaults (`start_options(opts)`):
    `RadiometricCamera.REFINE_ONLY_KEYS = ("lm.max_iter", "lm.max_time", "lm.log", "io.checkpoint_each", "sweep.iterations",
-   "sweep.lm_chunk", "resume.iteration_offset", "resume.sweep")`, declared in RC (cvpr2027's copy leaves). The start is COMPUTED
+   "sweep.lm_chunk", "resume.iteration_offset", "resume.sweep")`, declared in RC (RC experiments' copy leaves). The start is COMPUTED
    from `start_options(opts)`, so a start that read a refine-only option would read its default: the exclusion cannot be wrong
    silently. `resume.state` keys the start (the front end reads its page flip). `bin/refine.jl --start` refuses a start whose
    recorded start options differ from `start_options(opts)`.
-8. `io.save_init` is retired (refused by name: "bin/refine.jl --stage=start writes the start record"); cvpr2027's `[init.*]` /
+8. `io.save_init` is retired (refused by name: "bin/refine.jl --stage=start writes the start record"); RC experiments' `[init.*]` /
    `init = "self"` runs become start steps.
 
 ## File structure
@@ -153,7 +153,7 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 - Modify `src/calibration_pipeline/pipeline.jl` — `prepare_start(opts)` (the start, saved) and
   `prepare_refinement(opts, start)` (the state rebuilt from a start record; front ends take the stored start).
 - Modify `bin/refine.jl` — `--stage=start`, `--start=<dir>`; without either: start into `io.out/start`, then refine from it.
-- cvpr2027: `src/drivers.jl` (`keyed_run` → `Product`s; `start_product`, `refine_product`; `REFINE_ONLY_KEYS` from RC), every
+- experiments: `src/drivers.jl` (`keyed_run` → `Product`s; `start_product`, `refine_product`; `REFINE_ONLY_KEYS` from RC), every
   `scripts/*.jl` stage table, `src/chrome_evaluation.jl` / `src/frontends*.jl` run lookups, tests.
 
 ## Review Focus
@@ -234,7 +234,7 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 - [ ] `--stage=start` writes `start_options(opts)`'s start into `io.out` and exits; `--start=<dir>` refuses a start whose
   `start.json` options ≠ `start_options(opts)` (names the keys), then refines; neither: `io.out/start/` then refine from it.
 
-### Task 7: cvpr2027 drivers on steps
+### Task 7: experiments drivers on steps
 
 - `src/drivers.jl`: `keyed_run` → `driver_product(stage, record; experiment, output, upstream)`; `prepare_product`, `start_product`
   (record = `init_settings` of the case with RC's `REFINE_ONLY_KEYS`, the inputs, the prepare/init upstream), `refine_product`
@@ -253,7 +253,7 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 | repo | what moves | size |
 |---|---|---|
 | LocalOptimizationDoneRight accv2026 | src/cell_stages.jl (9 stages: run_complete, fresher, oracle_floor_done), 17 scripts' Stage tables, protocol_folds/e2e_timing/paper_numbers/superansac `experiment_dir` | large |
-| RansacScoringDoneRight neurips2026 (+ untracked cvpr2027) | fig_profile, fig_sensitivity, paper_numbers, pool_selection Stage tables (run_complete, fresher) | small |
+| RansacScoringDoneRight neurips2026 | fig_profile, fig_sensitivity, paper_numbers, pool_selection Stage tables (run_complete, fresher) | small |
 | BlobBoards bmvc2026 | src/cache.jl `cached` (cached_result → produce), detection_cv(_replay) stages, 11 single-stage `() -> false` scripts → `Stage(…; check)` | medium |
 | CaliBlobs icra2026 | src/BlobBoardsIcra.jl `cached` (cached_result → produce) | small |
 | LightRigCalibration thesis | calibrate, register, evaluate Stage tables (run_complete, fresher) | small |
@@ -262,7 +262,7 @@ RadiometricCamera (`~/src/rc-pol`, branch `rc-produce-or-load`):
 
 ### Task 9: gates on dgx01
 
-- Eval suite (Slurm, nice 0, `--mem-per-cpu=8480M`), RC unit suite, cvpr2027 suite, check_naming / check_duplication.
+- Eval suite (Slurm, nice 0, `--mem-per-cpu=8480M`), RC unit suite, experiments suite, check_naming / check_duplication.
 - Bit-identity: `siemens_coarse_full` through `scripts/calibrate.jl` — run A (`lm.max_iter` M), run B (same tree, `lm.max_iter`
   M′: the start step loads, its directory untouched), run C (fresh tree, `lm.max_iter` M′): B's refine outputs equal C's bit for
   bit (`test/pipeline/compare_outputs.jl`); the golden gate against `golden/` (the start now passes through its record: a

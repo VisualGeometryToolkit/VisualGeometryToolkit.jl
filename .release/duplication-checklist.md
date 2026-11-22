@@ -294,9 +294,9 @@ The sensor image moved to Core (owner ruling 2026-11-12); the gate of the photos
   `image_circle.jl`, `bbox.jl`).
 - [x] No second demosaic: `load_raw(mosaic; mode = :demosaic)` runs LibRaw's one AHD on the mosaic's buffer
   (`libraw_open_bayer`), bit-identical to the same buffer's file-path demosaic (a test).
-Downstream copies, outside this release (listed for their owners; not release items, so no box): RC `cvpr2027/frontends/scripts/convert_raw.py` (+
+Downstream copies, outside this release (listed for their owners; not release items, so no box): RC `experiments/frontends/scripts/convert_raw.py` (+
   `_night06/_night07` copies: rawpy decode, `(img - black)/(white - black)`, 2×2 binning, `"RGBG"` CFA string, raw-grid
-  green mask), `detect_aprilgrid.py` and `green_copy.py` (rawpy demosaic as detection input), `cvpr2027/src/drivers.jl:375`
+  green mask), `detect_aprilgrid.py` and `green_copy.py` (rawpy demosaic as detection input), `experiments/src/drivers.jl:375`
   (`cfa_string`'s body), `src/calibration_pipeline/io.jl:61-70` `_camera_at` (the size-ratio rescale standing in for
   `raw_frame_map`; spec §4.2); PS `examples/panorama_vignetting/run.jl:530,537`, `src/precompile.jl:14`,
   `test/registration_tests.jl:96` (hard-coded `x ↦ 2x` beside an available `frame_map`); Features
@@ -343,7 +343,7 @@ Downstream copies, outside this release (listed for their owners; not release it
   call (RC final audit item 9); it moves onto the predicate on RC's own branch.
 - [x] ONE cell-grid frame map: `raw_frame_map(::Type{LinearRaw{mode}})` returns `_CELL_FRAME_MAP`, and the one
   composition `_cell_grid_map(m, mode) = raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})` builds every `LinearRaw`'s
-  plane maps and every mosaic channel map from it. RadiometricCamera's probe mosaic (`_CELL_PROBE`, and the cvpr2027
+  plane maps and every mosaic channel map from it. RadiometricCamera's probe mosaic (`_CELL_PROBE`, and the experiments
   `_FRAME_PROBE` alias of it), built only to read that map, goes on RC's own branch.
 - [x] ONE record of that map: the private `_frame_map_record(S)`, which writes both `raw_provenance(LinearRaw{mode}).frame_map`
   and an image's `raw_provenance(L).frame_map`; an image's `mode` is the mode record's. With `raw_frame_map(LinearRaw{mode})`

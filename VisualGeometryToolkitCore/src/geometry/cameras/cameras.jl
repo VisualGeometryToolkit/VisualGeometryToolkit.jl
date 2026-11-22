@@ -32,9 +32,10 @@ using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore.Cameras
 
 s = sensor("Sony", "IMX174")
-f = focal_length(s, deg2rad(40.0))
-model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)
-camera = PosedCamera(model, lookat(...))
+camera = BoundedCamera(8mm, s; lens = Lens(DoubleSphere(0.25, 0.4)))   # a lens on the sensor, centred
+f = focal_length(s, deg2rad(40.0))                                     # or the focal length of a field of view
+model = CameraModel(f, s.pitch, centroid(Rect(s)) .* px)               # the general form: any principal point
+posed = PosedCamera(model, lookat(...))
 ```
 """
 module Cameras
@@ -575,6 +576,38 @@ _lens_coverage(r, _) = throw(ArgumentError("a camera's lens coverage is a Rect2,
 
 BoundedCamera(camera::AbstractCamera, bound::Union{Size2, Sensor}; lens_coverage = nothing) =
     (b = _bound(bound); BoundedCamera(camera, b, _lens_coverage(lens_coverage, _extent(b))))
+
+"""
+    BoundedCamera(f::Quantity, sensor::Sensor; lens = Pinhole(), lens_coverage = nothing) -> BoundedCamera
+
+A lens of focal length `f` (a length, `8mm`) on `sensor`: the camera model of focal length `f / pitch` pixels with its principal
+point at the sensor's centre (`centroid(Rect(sensor))`), bounded by the sensor, so its pitch stays with it
+([`metric_focal_length`](@ref)). The camera of a datasheet, its lens model `lens`. A principal point off the centre is the general
+form, `BoundedCamera(CameraModel(f, sensor.pitch, pp; lens), sensor)`.
+
+```julia
+sensor = Sensor(Size2(320, 240), 20μm)
+camera = BoundedCamera(8mm, sensor; lens = Lens(DoubleSphere(0.25, 0.4)))   # 400 px, principal point (160, 120)
+```
+"""
+BoundedCamera(f::FlexUnits.Quantity, sensor::Sensor; lens = Pinhole(), lens_coverage = nothing) =
+    BoundedCamera(CameraModel(f, sensor.pitch, centroid(Rect(sensor)) .* px; lens), sensor; lens_coverage)
+
+"""
+    metric_focal_length(camera::BoundedCamera) -> length
+
+The camera's focal length as a length: its `fx` pixels times the pixel pitch of the sensor it is bounded by (`fx · pitch.width`,
+the lens's focal length when the camera is a lens on that sensor, [`BoundedCamera`](@ref)`(f, sensor)`). A camera bounded by a bare
+pixel extent has no pitch: an `ArgumentError`.
+"""
+function metric_focal_length(camera::BoundedCamera)
+    s = sensor(camera)
+    s === nothing && throw(ArgumentError(
+        "metric_focal_length: the camera is bounded by a pixel extent, which has no pitch — bound it by its sensor, " *
+            "`BoundedCamera(model, sensor)` or `BoundedCamera(f, sensor; lens)`"
+    ))
+    return base_quantity(calibration_matrix(model(camera))[1, 1] * px * s.pitch.width)
+end
 
 """
     sensor(camera::BoundedCamera) -> Union{Sensor, Nothing}
@@ -1289,6 +1322,7 @@ export bearing_correspondences   # pixel pairs → bearing correspondences with 
 # 7. CAMERA ACCESSORS - Extract camera properties
 # -----------------------------------------------------------------------------
 export focal_length, calibration_matrix
+export metric_focal_length              # a bounded camera's focal length as a length: fx · its sensor's pitch
 export angle_of_view, field_of_view       # the angle of view a bounded camera images, and the size it spans at a distance (utilities.jl)
 export pose, extrinsics, is_in_front, default_frustum_depth
 

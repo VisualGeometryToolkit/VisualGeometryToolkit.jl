@@ -59,6 +59,21 @@ camera = PosedCamera(model, lookat(SVector(0.0, 0.0, 500.0),
                               SVector(0.0, -1.0, 0.0)))
 ```
 
+## A lens on a sensor
+
+The camera of a datasheet — a lens of a stated focal length on a stated sensor — is one call: the principal point at the
+sensor's centre, the camera bounded by the sensor so its pitch stays with it, and its focal length as a length read back by
+[`metric_focal_length`](@ref):
+
+```julia
+sensor = Sensor(Size2(320, 240), 20μm)
+camera = BoundedCamera(8mm, sensor; lens = Lens(DoubleSphere(0.25, 0.4)))   # fx = fy = 400 px, principal point (160, 120)
+metric_focal_length(camera)                                                 # 0.008 m
+```
+
+A principal point off the sensor's centre is the general form, `BoundedCamera(CameraModel(f, sensor.pitch, pp; lens), sensor)`
+(`pp` in `px`), as in the posed example above.
+
 ## Intrinsics
 
 [`LogicalIntrinsics`](@ref) stores the calibration matrix `K` (and its

@@ -5,6 +5,21 @@
 - Under review for the next breaking minor: the name of an uncertain frame's point observation, `center(u)` (an
   `Uncertain{Point2}`), beside `centroid` (a shape's centre, a plain point).
 
+## 0.13.3
+
+### Added
+- **A lens on a sensor:** `BoundedCamera(f, sensor; lens, lens_coverage)`, the camera of a datasheet — the lens of focal
+  length `f` (a length) on `sensor`, its principal point at the sensor's centre, bounded by the sensor so its pitch stays with
+  it. The general form, for a principal point off the centre, is `BoundedCamera(CameraModel(f, sensor.pitch, pp; lens), sensor)`.
+- `metric_focal_length(camera)`: a bounded camera's focal length as a length, `fx` times its sensor's pitch (an
+  `ArgumentError` for a camera bounded by a bare pixel extent).
+- `EuclideanMap(I, t)`: the pure translation by `t`, plain or lengths (the form two docstrings already showed, which was a
+  `MethodError`).
+- `PosedTarget(target)`: the target at the origin of its rig frame (the identity pose, physical when the target is), and
+  `PosedTarget(board::Board[, pose])`: a bare board as a target, a planar target with no pattern points.
+- `cost` and `residuals` are contract generics (`CONTRACT_GENERICS`): a downstream refinement state answers them,
+  `cost(state)` the number ½ Σ‖r‖² and `residuals(state)` its residual vectors.
+
 ## 0.13.2
 
 ### Added

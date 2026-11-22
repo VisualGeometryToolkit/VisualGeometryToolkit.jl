@@ -112,6 +112,22 @@ struct PosedTarget{T <: AbstractTarget, X <: Union{EuclideanMap{3}, Uncertain{<:
         return new{T, typeof(X)}(target, X)
     end
 end
+"""
+    PosedTarget(target::AbstractTarget)
+    PosedTarget(board::Board[, pose])
+
+The target posed at the origin of its rig frame, its frame the rig's (the usual choice of a calibration's world, "the target's
+frame is the world's"): the identity pose, physical when the target is (`EuclideanMap(I, [0m, 0m, 0m])`), plain otherwise. A
+[`Board`](@ref) alone is a target too, a planar target with no pattern points, the board it is printed on: posed by `pose`, at
+the origin without one.
+"""
+PosedTarget(target::AbstractTarget) = PosedTarget(target, _origin_pose(has_units(target)))
+PosedTarget(board::Board) = PosedTarget(board, _origin_pose(board))
+PosedTarget(board::Board, pose::Union{EuclideanMap{3}, Uncertain{<:EuclideanMap{3}}}) =
+    PosedTarget(PlanarTarget(SVector{2, Float64}[]; board), pose)
+_origin_pose(physical::Bool) = physical ? EuclideanMap(LinearAlgebra.I, SVector(0.0m, 0.0m, 0.0m)) : EuclideanMap(LinearAlgebra.I, SVector(0.0, 0.0, 0.0))
+_origin_pose(::Board{<:FlexUnits.Quantity}) = _origin_pose(true)
+_origin_pose(::Board) = _origin_pose(false)
 model(m::PosedTarget) = m.target
 pose(m::PosedTarget) = m.pose
 extrinsics(m::PosedTarget) = _inv_member(m.pose)

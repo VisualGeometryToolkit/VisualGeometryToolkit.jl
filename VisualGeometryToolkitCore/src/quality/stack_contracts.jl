@@ -159,6 +159,9 @@ const CONTRACT_GENERICS = (
     homography_4pt, fundamental_7pt, essential_5pt, essential_dlt, p3p,
     # the FitResult property forwarding, and the per-datum weights a metadata answers otherwise (base/fit_result.jl)
     nested_metadata, weights,
+    # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):
+    # `cost(state)` ½ Σ‖r‖², a number; `residuals(state)` the residual vectors it sums (robust/losses.jl, robust/scoring_contract.jl)
+    cost, residuals,
     # the M-estimator width interface: a shape of another package states its constant (robust/losses.jl)
     efficiency_constant,
     # the TOML config hooks (base/config_toml.jl)

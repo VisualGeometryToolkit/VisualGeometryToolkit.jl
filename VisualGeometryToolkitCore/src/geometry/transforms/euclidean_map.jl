@@ -402,6 +402,16 @@ EuclideanMap(R::Rotation{3, T}, tx::Quantity, ty::Quantity, tz::Quantity) where 
 EuclideanMap(R::Rotation{3, T}, tx::Real, ty::Real, tz::Real) where {T} =
     EuclideanMap(R, Vec{3, Float64}(tx, ty, tz))
 
+"""
+    EuclideanMap(I, t) -> EuclideanMap
+
+The pure translation by `t`: the identity rotation (`LinearAlgebra.I`, a `UniformScaling`) and the translation `t`, plain or a
+vector of lengths, as `EuclideanMap(R, t)` takes them. `EuclideanMap(I, [0m, 0m, 0m])` is a physical identity pose,
+`EuclideanMap(I, zeros(3))` a plain one.
+"""
+EuclideanMap(::LinearAlgebra.UniformScaling, t::AbstractVector) =
+    EuclideanMap(RotMatrix{length(t), Float64}(LinearAlgebra.I), t)
+
 EuclideanMap(E::EuclideanMap) = E
 
 EuclideanMap((R, t)::Tuple{<:Rotation, <:AbstractVector}) = EuclideanMap(R, t)

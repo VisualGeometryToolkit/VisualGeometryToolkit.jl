@@ -310,7 +310,7 @@ export project, backproject, unproject, transfer
 public bearing_correspondences   # pixel pairs → bearing correspondences carrying their pixel Jacobians (M₁, M₂)
 public backproject_with_jacobian   # the bearing and its 3×2 pixel Jacobian (a parametric or spline camera, a non-central spline model): the M columns of a bearing problem
 public normalized_point   # a pixel's normalized image point K⁻¹𝐩: the pixel-frame half of backproject, where a spline lattice is read
-export focal_length, calibration_matrix  # Unit accessors; `focal_length(sensor, θ)` the focal a field of view implies
+export focal_length, metric_focal_length, calibration_matrix  # Unit accessors; `metric_focal_length(camera)` a bounded camera's focal length as a length; `focal_length(sensor, θ)` the focal a field of view implies
 export angle_of_view, field_of_view   # the angle of view a bounded camera images (focal_length's inverse), and the size it spans at a distance
 export intrinsics, lens, model  # Camera component accessors
 export aspect_ratio

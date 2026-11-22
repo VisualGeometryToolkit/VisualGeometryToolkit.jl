@@ -242,7 +242,7 @@ function _install_lock(f, dir::AbstractString, key::AbstractString; stale_age::R
     finally
         beat === nothing || close(beat)
         try
-            _lock_owner(lock) == token && rm(lock; recursive = true, force = true)   # only our own lock
+            (try read(owner, String) catch; "" end) == token && rm(lock; recursive = true, force = true)   # only our own
         catch
         end
     end

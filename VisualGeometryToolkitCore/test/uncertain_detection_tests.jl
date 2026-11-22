@@ -78,7 +78,7 @@ end
         AbstractDetection, feature_frame, centroid, geom, cov, center
 
     p = PointFrame(10.0, 20.0)
-    @test p isa FeatureFrame{Float64} && p.center == Point2(10.0, 20.0) && center(p) == p.center
+    @test p isa FeatureFrame{Float64} && p.center == Point2(10.0, 20.0) && centroid(p) == p.center
     @test PointFrame(Point2(10.0, 20.0)) === p === PointFrame([10.0, 20.0]) === PointFrame(p)
     @test PointFrame(1, 2.5) isa PointFrame{Float64}
     @test PointFrame{Float32}(p) === PointFrame(Point2(10.0f0, 20.0f0))

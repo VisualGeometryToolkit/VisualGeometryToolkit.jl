@@ -45,7 +45,7 @@ end
 # An exception's message as recorded: its first line, without file paths or line numbers (a MethodError's
 # "Closest candidates" list names the checkout's paths, which neither belong in a record nor survive the move).
 function _portable_message(err)
-    line = first(split(sprint(showerror, err), '\n'))
+    line = first(split(sprint(showerror, err; context = :module => _GoldenNoImports), '\n'))   # types fully qualified, whatever the process has loaded
     return replace(line, r"(@ \S+ )?(?<![\w.])/(?:[^\s/:]+/)+[^\s/:]+(:\d+)?" => "<path>")
 end
 
@@ -75,4 +75,18 @@ function replay!(cases, id::AbstractString, fixture, run; map::FieldMap = IDENTI
     any(c -> c.id == id, cases) && error("replay case id `$id` is defined twice")
     push!(cases, ReplayCase(String(id), fixture, run, map, fixture_map))
     return cases
+end
+
+"""
+    golden_module(g) -> Module
+
+A fresh module for the group `g`, into which record.jl and replay.jl include its fixture file and its record or
+replay file: the group sees the framework names imported here and its own bindings, never another group's, whatever
+groups the process ran before it (record.jl states the defect this prevents).
+"""
+function golden_module(g)
+    mod = Module(Symbol("golden_", g))
+    Core.eval(mod, :(include(path) = Base.include($mod, path)))   # a bare Module has no `include` of its own
+    Core.eval(mod, :(using Main: case!, replay!, SEEDS, FieldMap, IDENTITY_MAP, bit_record, Case, ReplayCase))
+    return mod
 end

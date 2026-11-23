@@ -12,26 +12,12 @@ import VisualGeometryToolkitEstimation as VgtkEstimation
 
 const _EP_E = VgtkEstimation.synthetic_scenes().EpipolarScenes
 const _EP_P = VgtkEstimation.synthetic_scenes().PoseScenes
-const EP_PCAM = VgtkCore.CameraModel(; focal = 800.0, pp = (480.0, 360.0))           # FindScenes' PCAM
 const EP_ECAM = _EP_E.ECAM
 const EP_CAM800 = VgtkCore.CameraModel(800.0 * VgtkCore.px, SA[960.0 * VgtkCore.px, 540.0 * VgtkCore.px])   # ransac_essential_tests
 const EP_FISHEYE = VgtkCore.CameraModel(300.0 * VgtkCore.px, SA[600.0 * VgtkCore.px, 600.0 * VgtkCore.px];
                                         lens = VgtkCore.KannalaBrandt(-0.02))   # RotationScene's FISHEYE
 
-# --- TooFewData ----------------------------------------------------------------------------------------------------
-ep_few_points(n) = [VgtkCore.Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-ep_few_correspondences(n) = VgtkCore.correspondences(ep_few_points(n), ep_few_points(n) .+ Ref(VgtkCore.Point2(1.0, 2.0)))
-
-# --- FindScenes.stereo_scene -----------------------------------------------------------------------------------------
-function ep_stereo_scene(cam; seed = 13)
-    u₁, u₂ = _EP_E.stereo_pixel_pairs(
-        StableRNG(seed), cam, cam, RotMatrix(RotXYZ(0.05, 0.12, -0.03)), SVector{3, Float64}(0.9, 0.05, 0.1);
-        n = 140, σ₂ = 0.4, n_out = 60,
-        point = rng -> SA[2.0 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), 4.0 + 3.0 * rand(rng)],
-        outlier = rng -> (SA[960 * rand(rng), 720 * rand(rng)], SA[960 * rand(rng), 720 * rand(rng)])
-    )
-    return u₁, u₂
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the find_* scenes, too-few sets and pixel-pose scenes
 
 # --- ransac_essential_tests' _e_pixel_scene ------------------------------------------------------------------------
 function ep_e_pixel_scene(rng, cam₁, cam₂; n_in = 150, n_out = 60, σ = 0.5)
@@ -46,7 +32,7 @@ end
 
 # The fundamental-matrix scenes: name => correspondences.
 function ep_fundmat_scenes()
-    u₁, u₂ = ep_stereo_scene(EP_PCAM)
+    u₁, u₂ = stereo_scene(PCAM)
     fs = _EP_E.fundmat_scene(StableRNG(42); n_inliers = 100, n_outliers = 30, σ = 0.5)
     rng = Xoshiro(5)                                   # ransac_no_model_tests: every source one point
     src = fill(VgtkCore.Point2(10.0, 20.0), 20)
@@ -61,7 +47,7 @@ end
 
 # The essential scenes: name => (camera1, camera2, pixel correspondences).
 function ep_essential_scenes()
-    v₁, v₂ = ep_stereo_scene(EP_ECAM; seed = 14)
+    v₁, v₂ = stereo_scene(EP_ECAM; seed = 14)
     a, b = ep_e_pixel_scene(StableRNG(2034), EP_CAM800, EP_CAM800)
     rng = StableRNG(2033)
     a2, b2 = ep_e_pixel_scene(rng, EP_CAM800, EP_CAM800; n_out = 20)

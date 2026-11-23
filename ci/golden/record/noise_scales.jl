@@ -12,7 +12,7 @@ function record_noise_scales(cases)
     case!(cases, "median_norm_scale/refused/plain_vector", [1.0, 2.0, 3.0], rs -> mad_scale(rs))
     for seed in SEEDS
         rs = [find_homography(cs; rng = StableRNG(seed)) for cs in ns_views(seed)]
-        failed = find_homography(ns_too_few(); rng = StableRNG(seed))
+        failed = find_homography(homography_too_few(); rng = StableRNG(seed))
         case!(cases, "pooled_scale/results4/seed$seed", rs, rs -> pooled_noise_scale(rs))
         case!(cases, "pooled_scale/results1/seed$seed", rs[1:1], rs -> pooled_noise_scale(rs))
         case!(cases, "pooled_scale/results_with_failed/seed$seed", [rs; failed], rs -> pooled_noise_scale(rs))

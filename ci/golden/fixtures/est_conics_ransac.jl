@@ -20,22 +20,9 @@ const _CR_C = _CR.Contamination
 const _CR_D = _CR.DivisionBoards
 const _CR_R = _CR.RadialScenes
 
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the find_* scenes and too-few sets
+
 # --- ConicScenes ---------------------------------------------------------------------------------------------------
-const CR_C₀ = SVector(512.3, 401.7)
-const CR_R₀ = 300.0
-const CR_E₀ = VgtkCore.Ellipse(VgtkCore.Point2(512.3, 401.7), 300.0, 180.0, 0.6)
-function cr_contaminated_boundary(rng, curve, n; σ, outl)
-    pts = [VgtkCore.Point2{Float64}(SVector(VgtkCore.boundary_point(curve, t)...) + σ * randn(rng, SVector{2, Float64})) for t in 2π .* rand(rng, n)]
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for (k, i) in enumerate(bad)
-        pts[i] = isodd(k) ? VgtkCore.Point2{Float64}(250.0 + 500 * rand(rng), 760.0 + randn(rng)) :
-            VgtkCore.Point2{Float64}(1024 * rand(rng), 800 * rand(rng))
-    end
-    return pts
-end
-cr_circle_scene(rng, n; σ = 0.5, outl = 0.4) = cr_contaminated_boundary(rng, VgtkCore.Circle(VgtkCore.Point2(CR_C₀), CR_R₀), n; σ, outl)
-cr_ellipse_scene(rng, n; σ = 0.5, outl = 0.4) = cr_contaminated_boundary(rng, CR_E₀, n; σ, outl)
-cr_few_points(n) = [VgtkCore.Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
 cr_collinear() = [VgtkCore.Point2(Float64(i), 2.0 * i + 1) for i in 1:10]
 
 function cr_circle_scenes()
@@ -46,19 +33,19 @@ function cr_circle_scenes()
     C, R = SVector(200.0, 150.0), 80.0
     pts51 = [VgtkCore.Point2{Float64}(C + R * SVector(cos(t), sin(t)) + 0.3 * randn(rng51, SVector{2})) for t in 2π .* rand(rng51, 200)]
     return [
-        "outl40_1000" => cr_circle_scene(Xoshiro(32), 1000),
-        "outl30_300" => cr_circle_scene(Xoshiro(33), 300; outl = 0.3),
-        "outl40_600" => cr_circle_scene(Xoshiro(5), 600),
-        "outl20_200" => cr_circle_scene(Xoshiro(3), 200; outl = 0.2),
+        "outl40_1000" => first(circle_scene(Xoshiro(32), 1000)),
+        "outl30_300" => first(circle_scene(Xoshiro(33), 300; outl = 0.3)),
+        "outl40_600" => first(circle_scene(Xoshiro(5), 600)),
+        "outl20_200" => first(circle_scene(Xoshiro(3), 200; outl = 0.2)),
         "run_60+20" => pts46,
         "clean_noisy0.3_200" => pts51,
     ]
 end
 function cr_ellipse_scenes()
     return [
-        "outl40_1000" => cr_ellipse_scene(Xoshiro(32), 1000),
-        "outl30_300" => cr_ellipse_scene(Xoshiro(34), 300; outl = 0.3),
-        "outl40_600" => cr_ellipse_scene(Xoshiro(6), 600),
+        "outl40_1000" => first(ellipse_scene(Xoshiro(32), 1000)),
+        "outl30_300" => first(ellipse_scene(Xoshiro(34), 300; outl = 0.3)),
+        "outl40_600" => first(ellipse_scene(Xoshiro(6), 600)),
     ]
 end
 # The refine fixtures from a given guess: name => (guess, points).
@@ -67,11 +54,11 @@ function cr_circle_refine_fixtures()
     C, R = SVector(200.0, 150.0), 80.0
     pts51 = [VgtkCore.Point2{Float64}(C + R * SVector(cos(t), sin(t)) + 0.3 * randn(rng51, SVector{2})) for t in 2π .* rand(rng51, 200)]
     return [
-        "perturbed_outl40_800" => (VgtkCore.Circle(VgtkCore.Point2(CR_C₀ + SVector(2.0, -1.5)), CR_R₀ + 3.0), cr_circle_scene(Xoshiro(41), 800)),
-        "truth_clean_200" => (VgtkCore.Circle(VgtkCore.Point2(CR_C₀), CR_R₀), cr_circle_scene(Xoshiro(43), 200; σ = 0.0, outl = 0.0)),
-        "perturbed_outl30_300" => (VgtkCore.Circle(VgtkCore.Point2(CR_C₀ + SVector(1.0, -1.0)), CR_R₀ + 1.0), cr_circle_scene(Xoshiro(33), 300; outl = 0.3)),
+        "perturbed_outl40_800" => (VgtkCore.Circle(VgtkCore.Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0), first(circle_scene(Xoshiro(41), 800))),
+        "truth_clean_200" => (VgtkCore.Circle(VgtkCore.Point2(C₀), R₀), first(circle_scene(Xoshiro(43), 200; σ = 0.0, outl = 0.0))),
+        "perturbed_outl30_300" => (VgtkCore.Circle(VgtkCore.Point2(C₀ + SVector(1.0, -1.0)), R₀ + 1.0), first(circle_scene(Xoshiro(33), 300; outl = 0.3))),
         "perturbed_noisy0.3_200" => (VgtkCore.Circle(VgtkCore.Point2(C + SVector(1.0, -0.8)), R + 1.2), pts51),
-        "too_few_2" => (VgtkCore.Circle(VgtkCore.Point2(0.0, 0.0), 1.0), cr_few_points(2)),
+        "too_few_2" => (VgtkCore.Circle(VgtkCore.Point2(0.0, 0.0), 1.0), few_points(2)),
         "too_few_1" => (VgtkCore.Circle(VgtkCore.Point2(0.0, 0.0), 1.0), [VgtkCore.Point2(1.0, 0.0)]),
     ]
 end
@@ -84,14 +71,14 @@ function cr_ellipse_refine_fixtures()
     p60 = cr_ellipse_points(CR_e0, 60; σ = 0.5)
     p60arc = cr_ellipse_points(CR_e0, 60; σ = 0.5, arc = π)
     return [
-        "perturbed_outl40_1000" => (VgtkCore.Ellipse(VgtkCore.Point2(515.0, 399.0), 303.0, 177.0, 0.62), cr_ellipse_scene(Xoshiro(42), 1000)),
-        "truth_clean_200" => (CR_E₀, cr_ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0)),
+        "perturbed_outl40_1000" => (VgtkCore.Ellipse(VgtkCore.Point2(515.0, 399.0), 303.0, 177.0, 0.62), first(ellipse_scene(Xoshiro(42), 1000))),
+        "truth_clean_200" => (E₀, first(ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0))),
         "e0_exact_30" => (CR_e0, p30),
         "direct_exact_30" => (VgtkCore.direct_ellipse(p30), p30),
         "direct_noisy_60" => (VgtkCore.direct_ellipse(p60), p60),
         "direct_noisy_arc_60" => (VgtkCore.direct_ellipse(p60arc), p60arc),
         "e0_too_few_4" => (CR_e0, cr_ellipse_points(CR_e0, 4)),
-        "too_few_4" => (VgtkCore.Ellipse(VgtkCore.Point2(0.0, 0.0), 2.0, 1.0, 0.0), cr_few_points(4)),
+        "too_few_4" => (VgtkCore.Ellipse(VgtkCore.Point2(0.0, 0.0), 2.0, 1.0, 0.0), few_points(4)),
     ]
 end
 
@@ -145,36 +132,17 @@ function cr_homography_thin()   # termination_record / ransac_homography: 5 exac
     end
     return VgtkCore.correspondences(src, dst)
 end
-function cr_h_scene()   # FindScenes.h_scene
-    src, dst = _CR_H.homography_pairs(StableRNG(11), _CR_H.H_PX; n_in = 120, n_out = 60, σ = 0.3,
-                                      source = _CR_H.gaussian_source, target = rng -> randn(rng, 2) .* 400 .+ 300)
-    return StructArray(src .=> dst)
-end
 function cr_fundmat_data()
     fs = _CR_E.fundmat_scene(StableRNG(42); n_inliers = 100, n_outliers = 30, σ = 0.5)
     return VgtkCore.correspondences(fs.source, fs.target)
 end
 
 # --- the solve fixtures: per problem type, its data (the problem's constructor arguments) ---------------------------
-const CR_PCAM = VgtkCore.CameraModel(; focal = 800.0, pp = (480.0, 360.0))
 const CR_FISHEYE = VgtkCore.CameraModel(300.0 * VgtkCore.px, SA[600.0 * VgtkCore.px, 600.0 * VgtkCore.px]; lens = VgtkCore.KannalaBrandt(-0.02))
-function cr_essential_pixels()
-    u₁, u₂ = _CR_E.stereo_pixel_pairs(
-        StableRNG(14), _CR_E.ECAM, _CR_E.ECAM, RotMatrix(RotXYZ(0.05, 0.12, -0.03)), SVector{3, Float64}(0.9, 0.05, 0.1);
-        n = 140, σ₂ = 0.4, n_out = 60,
-        point = rng -> SA[2.0 * (rand(rng) - 0.5), 1.5 * (rand(rng) - 0.5), 4.0 + 3.0 * rand(rng)],
-        outlier = rng -> (SA[960 * rand(rng), 720 * rand(rng)], SA[960 * rand(rng), 720 * rand(rng)]))
-    return VgtkCore.correspondences(u₁, u₂)
-end
-function cr_pnp_pairs()
-    R, t = RotMatrix(RotXYZ(0.15, -0.25, 0.1)), VgtkCore.Vec3{Float64}(0.3, -0.2, 0.6)
-    pairs, _ = _CR_C.contaminated_pairs(StableRNG(19), (rng, _) -> Pair(_CR_P.frustum_point(rng, CR_PCAM, R, t)...), 120; σ = 0.5, n_out = 60,
-        outlier = (rng, _) -> first(_CR_P.frustum_point(rng, CR_PCAM, R, t)) => SVector(40.0 + 880.0 * rand(rng), 40.0 + 640.0 * rand(rng)))
-    return StructArray(first.(pairs) .=> last.(pairs))
-end
+cr_essential_pixels() = (sc = stereo_scene(_CR_E.ECAM; seed = 14); VgtkCore.correspondences(sc[1], sc[2]))
 function cr_bearing_pose()   # central bearings of the PnP set's points, through the pinhole
-    cs = cr_pnp_pairs()
-    fM = [VgtkCore.backproject_with_jacobian(CR_PCAM, u) for u in VgtkCore.targets(cs)]
+    cs = pnp_scene()
+    fM = [VgtkCore.backproject_with_jacobian(PCAM, u) for u in VgtkCore.targets(cs)]
     return VgtkCore.withattrs(VgtkCore.Correspondences(collect(VgtkCore.sources(cs)), first.(fM)); M = last.(fM))
 end
 function cr_rotation_pixels()
@@ -189,13 +157,7 @@ function cr_rotation_pixels()
     end
     return VgtkCore.Correspondences(u₁, u₂)
 end
-function cr_hand_eye_motions()
-    rng = StableRNG(29)
-    sc = _CR_P.robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
-                                          A = (ang_max = π / 3, t_scale = 0.5))
-    X, Y, A = only(sc.X), sc.Y, sc.A
-    return A .=> [_CR_P.perturb_pose(rng, _CR_P.marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
-end
+cr_hand_eye_motions() = first(hand_eye_scene())
 cr_radial_homography_pairs() = first(_CR_R.radial_homography_pairs(StableRNG(17), _CR_R.radial_homography_truth(-0.25); n_in = 70, n_out = 30, σ = 0.3))
 cr_radial_board_pairs() = _CR_D.radial_board(StableRNG(7); σ = 0.2)[2]
 

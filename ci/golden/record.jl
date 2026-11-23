@@ -19,6 +19,12 @@ Threads.nthreads() == 1 || error("record.jl runs with one thread: julia -t 1")
 include(joinpath(@__DIR__, "bits.jl"))
 include(joinpath(@__DIR__, "cases.jl"))
 
+# Every group is evaluated in its OWN fresh module, never in Main, so no group sees another's bindings, whatever
+# groups the process runs before it. In Main, `using PoseLib: refine_homography` was silently ignored after the
+# homography and est_pose groups had bound Estimation's `refine_homography` and `refine_absolute_pose`: in a run of
+# every group the poselib cases called Estimation's refine and recorded its keyword refusal, alone they called
+# PoseLib's. `golden_module` (cases.jl) makes the module; a group reaches the framework only through the names it imports.
+
 const GROUPS = isempty(ARGS) ? sort!([splitext(f)[1] for f in readdir(joinpath(@__DIR__, "record")) if endswith(f, ".jl")]) : ARGS
 
 function _head(dir)
@@ -34,9 +40,10 @@ const SOURCE_COMMIT = _head(pkgdir(VisualGeometryToolkitCore))
 
 for g in GROUPS
     cases = Case[]
-    Base.include(Main, joinpath(@__DIR__, "fixtures", g * ".jl"))
-    Base.include(Main, joinpath(@__DIR__, "record", g * ".jl"))
-    Base.invokelatest(Base.invokelatest(getglobal, Main, Symbol("record_", g)), cases)
+    mod = golden_module(g)
+    Base.include(mod, joinpath(@__DIR__, "fixtures", g * ".jl"))
+    Base.include(mod, joinpath(@__DIR__, "record", g * ".jl"))
+    Base.invokelatest(Base.invokelatest(getglobal, mod, Symbol("record_", g)), cases)
     entries = Pair{String, Vector{Tuple{String, String, String}}}[]
     t = time()
     for c in cases

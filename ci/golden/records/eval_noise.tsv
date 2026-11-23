@@ -133,16 +133,16 @@ scale_prior/six_heavy_tail/ig_robust_family_form	alpha0	Float64	0000000000000440
 scale_prior/six_heavy_tail/ig_robust_family_form	beta0	Float64	c8bab88d06f0463f
 scale_prior/refused/jeffreys_mle#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
 scale_prior/refused/jeffreys_mle	exception	type	ErrorException
-scale_prior/refused/jeffreys_mle	exception.msg	String	Jeffreys family is parameterless; got fitting=MLE. Use Unfitted().
+scale_prior/refused/jeffreys_mle	exception.msg	String	Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted().
 scale_prior/refused/jeffreys_robust#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
 scale_prior/refused/jeffreys_robust	exception	type	ErrorException
-scale_prior/refused/jeffreys_robust	exception.msg	String	Jeffreys family is parameterless; got fitting=RobustFit. Use Unfitted().
+scale_prior/refused/jeffreys_robust	exception.msg	String	Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.RobustFit. Use Unfitted().
 scale_prior/refused/ig_unfitted#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
 scale_prior/refused/ig_unfitted	exception	type	ErrorException
 scale_prior/refused/ig_unfitted	exception.msg	String	InverseGamma family requires a non-trivial fitting (RobustFit or MLE).
 scale_prior/refused/jeffreys_mle_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
 scale_prior/refused/jeffreys_mle_family_form	exception	type	ErrorException
-scale_prior/refused/jeffreys_mle_family_form	exception.msg	String	Jeffreys family is parameterless; got fitting=MLE. Use Unfitted().
+scale_prior/refused/jeffreys_mle_family_form	exception.msg	String	Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted().
 scale_prior/refused/ig_unfitted_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
 scale_prior/refused/ig_unfitted_family_form	exception	type	ErrorException
 scale_prior/refused/ig_unfitted_family_form	exception.msg	String	InverseGamma family requires a non-trivial fitting (RobustFit or MLE).

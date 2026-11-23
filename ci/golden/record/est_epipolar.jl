@@ -76,28 +76,8 @@ function ep_refine_cases!(cases, family, name, fx, find, refine, P, n; full = tr
     return cases
 end
 
-# The refusals every find_* and refine_* shares (core_defaults, refine_contract, ransac_no_model).
-function ep_refusal_cases!(cases, family, fx, find, refine, θ)
-    case!(cases, "$family/refused/find_threshold_kw", fx, fx -> find(fx; threshold = 3.0))
-    case!(cases, "$family/refused/find_outlier_halfwidth_kw", fx, fx -> find(fx; outlier_halfwidth = 20.0))
-    case!(cases, "$family/refused/find_retired_local_optimization", fx, fx -> find(fx; local_optimization = Irls{TLSShape}()))
-    case!(cases, "$family/refused/find_unknown_kw", fx, fx -> find(fx; no_such_keyword = 1))
-    rfx = (fx, θ)
-    for (lbl, kw) in (
-            "no_scale" => (;), "scale_and_width" => (; scale = 1.0, width = 1.0), "negative_scale" => (; scale = -1.0),
-            "nan_scale" => (; scale = NaN), "zero_width" => (; width = 0.0), "ls_with_scale" => (; optimization_strategy = nothing, scale = 1.0),
-            "tls_scale_no_constant" => (; optimization_strategy = Triggs{TLSShape}(), scale = 1.0),
-            "constant_with_width" => (; optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), width = 1.0),
-            "irls_huber" => (; optimization_strategy = Irls{HuberShape}(), scale = 1.0),
-            "irls_gaussian" => (; optimization_strategy = Irls{GaussianShape}(), scale = 1.0),
-            "terminal_lo" => (; optimization_strategy = TerminalLO(Irls{TLSShape}()), scale = 1.0),
-            "scoring_kw" => (; scale = 1.0, scoring = MsacScoring(FundMatProblem; threshold = 3.0)),
-            "rng_kw" => (; scale = 1.0, rng = StableRNG(1)), "max_trials_kw" => (; scale = 1.0, max_trials = 10),
-            "extent_kw" => (; scale = 1.0, extent = nothing), "unknown_kw" => (; scale = 1.0, nonsense = 1))
-        case!(cases, "$family/refused/refine_$lbl", rfx, ((fx, θ),) -> refine(fx, θ; kw...))
-    end
-    return cases
-end
+# The shared refusals (`refusal_cases!`): the record side's one copy
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "refusal_cases.jl"))
 
 function record_est_epipolar(cases)
     I3 = SMatrix{3, 3, Float64}(I)
@@ -111,7 +91,7 @@ function record_est_epipolar(cases)
         ep_find_cases!(cases, "fundmat_find", name, cs, ffind, FundMatProblem, 3.0, FundMatProblem{Float64}, length(cs); full)
         ep_refine_cases!(cases, "fundmat_refine", name, cs, ffind, frefine, FundMatProblem{Float64}, length(cs); full = k == 1)
     end
-    few = ep_few_correspondences(6)
+    few = few_correspondences(6)
     for seed in SEEDS
         case!(cases, "fundmat_find/too_few_6/seed$seed", few, cs -> find_fundmat(cs; rng = StableRNG(seed)))
     end
@@ -119,7 +99,7 @@ function record_est_epipolar(cases)
     case!(cases, "fundmat_refine/too_few_6/scale1", (few, F0), ((cs, F),) -> refine_fundmat(F, cs; scale = 1.0))
     case!(cases, "fundmat_refine/too_few_6/ls", (few, F0), ((cs, F),) -> refine_fundmat(F, cs; optimization_strategy = nothing))
     cs1 = last(first(ep_fundmat_scenes()))
-    ep_refusal_cases!(cases, "fundmat", cs1, ffind, frefine, estimate(find_fundmat(cs1; rng = StableRNG(1))))
+    refusal_cases!(cases, "fundmat", cs1, ffind, frefine, estimate(find_fundmat(cs1; rng = StableRNG(1))), FundMatProblem)
     case!(cases, "fundmat/refused/find_zero_threshold", cs1, cs -> find_fundmat(cs; scoring = MsacScoring(FundMatProblem(cs); threshold = 0.0)))
 
     # ---------------------------------------------------------------- essential matrix
@@ -138,7 +118,7 @@ function record_est_epipolar(cases)
             end
         end
     end
-    fx4 = (EP_ECAM, EP_ECAM, ep_few_correspondences(4))
+    fx4 = (EP_ECAM, EP_ECAM, few_correspondences(4))
     for seed in SEEDS
         case!(cases, "essential_find/too_few_4/seed$seed", fx4, fx -> efind(fx; rng = StableRNG(seed)))
     end
@@ -146,7 +126,7 @@ function record_est_epipolar(cases)
     case!(cases, "essential_refine/too_few_4/scale1", (fx4, E0), ((fx, E),) -> erefine(fx, E; scale = 1.0))
     case!(cases, "essential_refine/too_few_4/ls", (fx4, E0), ((fx, E),) -> erefine(fx, E; optimization_strategy = nothing))
     efx = last(ep_essential_scenes()[2])
-    ep_refusal_cases!(cases, "essential", efx, efind, erefine, estimate(efind(efx; rng = StableRNG(1))))
+    refusal_cases!(cases, "essential", efx, efind, erefine, estimate(efind(efx; rng = StableRNG(1))), FundMatProblem)
     for thr in (0.02, 0.05)   # the sub-detector threshold, refused on every entry (V17)
         case!(cases, "essential/refused/find_msac_threshold$thr", efx, fx -> efind(fx; scoring = MsacScoring(eprob(fx); threshold = thr)))
     end
@@ -170,7 +150,7 @@ function record_est_epipolar(cases)
         ep_find_cases!(cases, "rotation_find", "$(name)_bearings", b, bfind, RotationProblem, 1.0, RotationProblem, n; full = k == 1)
         ep_refine_cases!(cases, "rotation_refine", "$(name)_bearings", b, bfind, brefine, RotationProblem, n; full = false)
     end
-    for (name, fx) in ("pcam_1" => (EP_PCAM, EP_PCAM, ep_few_correspondences(1)),
+    for (name, fx) in ("pcam_1" => (PCAM, PCAM, few_correspondences(1)),
                        "fisheye_1" => (EP_FISHEYE, EP_FISHEYE, VgtkCore.Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]])))
         for seed in SEEDS
             case!(cases, "rotation_find/too_few_$name/seed$seed", fx, fx -> rfind(fx; rng = StableRNG(seed)))
@@ -186,7 +166,7 @@ function record_est_epipolar(cases)
     case!(cases, "rotation_refine/too_few_bearings_1/ls", (b1, one(RotMatrix{3, Float64})),
         ((b, R),) -> refine_rotation(R, b; optimization_strategy = nothing))
     rfx = last(first(ep_rotation_scenes()))
-    ep_refusal_cases!(cases, "rotation", rfx, rfind, rrefine, estimate(rfind(rfx; rng = StableRNG(1))))
+    refusal_cases!(cases, "rotation", rfx, rfind, rrefine, estimate(rfind(rfx; rng = StableRNG(1))), FundMatProblem)
     case!(cases, "rotation/refused/find_msac_threshold0.01", rfx,
         fx -> rfind(fx; scoring = MsacScoring(RotationProblem; threshold = 0.01)))
     case!(cases, "rotation/refused/bearings_pairs_vector", b1,

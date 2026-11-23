@@ -51,24 +51,10 @@ function pnp_scene()
     _, _, p, _ = p3p_scene(StableRNG(13), ECAM, 60; σ = 0.5)
     return p, fitted(p, 3.0)
 end
-function radial_homography_scene()
-    W, H = 1200.0, 900.0
-    m = RadialHomography{Float64}(
-        HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
-        -0.25 / hypot(W, H)^2, SVector(W / 2, H / 2)
-    )
-    function inlier(rng, _)
-        while true
-            s = SVector(200 * rand(rng), 150 * rand(rng))
-            d = radial_transfer(m, s)
-            d === nothing && continue
-            (0 < d[1] < W && 0 < d[2] < H) && return s => SVector(d[1], d[2])
-        end
-    end
-    pairs, _ = contaminated_pairs(
-        StableRNG(17), inlier, 70; σ = 0.3, n_out = 20, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(W * rand(rng), H * rand(rng))
-    )
+function radial_homography_problem()
+    # FindScenes' scene with 20 outliers (test/fixtures/find_scenes.jl, which RadialCameraScene includes)
+    pairs, _ = RadialCameraScene.radial_homography_scene(StableRNG(17); n_out = 20)
+    W, H = RadialCameraScene.RW, RadialCameraScene.RH
     p = RadialHomographyProblem(pairs; center = (W / 2, H / 2))
     return p, fitted(p, 3.0)
 end
@@ -152,7 +138,7 @@ end
     # agree to rounding at the residuals' scale (E measured ≤ 5.7e-14 px against
     # residuals up to 271 px, 2026-10-09; PnP ≤ 1.3e-13 px; FMA contraction
     # differs between the vectorized loop and a single call).
-    scenes = (h_scene(), radial_homography_scene(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi),
+    scenes = (h_scene(), radial_homography_problem(), radial_camera_scene(), circle_scene(), ellipse_scene(), (pl, θl), (pih, θi),
         hand_eye_scene(), pnp_scene(), (pe, θe), (pf, θf), relpose_bundle_scene(), bearing_pose_scene())
     for (p, θ) in scenes
         test_constraint_problem(p, θ)
@@ -289,7 +275,7 @@ end
             ("essential", (pe, θe)),
             ("fundmat", (pf, θf)),
             ("absolute_pose", pnp_scene()),
-            ("radial_homography", radial_homography_scene()),
+            ("radial_homography", radial_homography_problem()),
             ("radial_camera", radial_camera_scene()),
             ("circle", circle_scene()),
         )

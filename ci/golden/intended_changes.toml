@@ -1,0 +1,11 @@
+# Deliberate behaviour changes of the Core 0.14 migration: results that a review fix CHANGED, each named, never a
+# loosened comparison (owner ruling, 2026-11-23). replay.jl requires every listed leaf to equal `old` in the record
+# and `new` in the replacement, bit for bit, and refuses an entry that matches nothing. Every other leaf replays `===`.
+#
+# [[change]]
+# group  = "<group>"
+# case   = "<case id>"
+# field  = "<recorded path>"
+# old    = { type = "<recorded type>", value = "<recorded bits>" }
+# new    = { type = "<new type>", value = "<new bits>" }
+# reason = "<the review finding and why the new value is right>"

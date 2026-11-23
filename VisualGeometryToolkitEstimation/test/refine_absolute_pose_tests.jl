@@ -22,29 +22,9 @@
     using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project
     export true_pose, perturbed, pose_errors, scene_points, pixel_pairs
 
-    true_pose() = EuclideanMap(RotMatrix(RotXYZ(0.3, -0.2, 0.1)), SVector(0.1, -0.05, 2.0))
-    # the truth moved by 0.08 rad about a skew axis and 0.15 in translation
-    function perturbed(E)
-        ΔR = exp_so3(SVector(0.05, -0.04, 0.05))
-        return EuclideanMap(RotMatrix{3, Float64}(ΔR * E.R), E.t + SVector(0.1, -0.08, 0.07))
-    end
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "pixel_pose_scenes.jl"))   # shared with the golden records
     pose_errors(E, F) = (maximum(abs, E.R - F.R), maximum(abs, E.t - F.t))
-    # world points whose camera-frame directions span ±`θmax` off the optical axis
-    function scene_points(E, θmax; n = 40, depth = 3.0)
-        pts = SVector{3, Float64}[]
-        for k in 1:n
-            θ = θmax * (k / n); φ = 2.399963 * k                     # golden-angle spiral
-            d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-            Xc = (depth * (0.7 + 0.6 * ((7k) % 10) / 10)) * d
-            push!(pts, E.R' * (Xc - E.t))                            # back into the world
-        end
-        return pts
-    end
-    # `X => u` through the camera, the points it can image
-    function pixel_pairs(cam, E, Xs)
-        keep = [X for X in Xs if all(isfinite, project(cam, E.R * X + E.t))]
-        return [X => SVector{2, Float64}(project(cam, E.R * X + E.t)) for X in keep]
-    end
 end
 
 @testitem "refine_absolute_pose: pinhole and fisheye past 90°, any strategy" setup = [PixelPoseScenes] begin

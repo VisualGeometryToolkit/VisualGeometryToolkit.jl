@@ -18,38 +18,9 @@ const _EOF_DB = VgtkEstimation.synthetic_scenes().DivisionBoards
 # =================================================================================================================
 # The robust-estimation contract's scenes (fit_contract_tests.jl FitContractScenes)
 # =================================================================================================================
-function eof_contract_linear(seed)
-    rng = StableRNG(seed)
-    A = randn(rng, 60, 3); x0 = randn(rng, 3)
-    return A, A * x0 .+ 1.0e-3 .* randn(rng, 60)
-end
-function eof_contract_rotation(seed)
-    rng = StableRNG(seed)
-    R = RotMatrix(RotXYZ(0.2, -0.4, 0.9))
-    as = [normalize(randn(rng, SVector{3, Float64})) for _ in 1:40]
-    return VgtkCore.Correspondences(as, [R * a for a in as])
-end
-function eof_contract_averaging()
-    R = Dict(k => RotMatrix(RotXYZ(0.3k, -0.2k, 0.1k^2)) for k in 1:6)
-    return Dict((i, j) => SMatrix{3, 3, Float64, 9}(R[j]' * R[i]) for i in 1:6 for j in (i + 1):6)
-end
-function eof_contract_points(seed; n = 60)
-    rng = StableRNG(seed)
-    R = RotMatrix(RotXYZ(0.1, 0.5, -0.3)); t = SVector(0.4, -1.0, 2.0)
-    as = [SVector{3, Float64}(4 .* randn(rng, 3)) for _ in 1:n]
-    return VgtkCore.Correspondences(as, [R * a + t for a in as])
-end
-function eof_contract_handeye(seed; N = 12, M = 2, noise = 1.0e-4)
-    rng = StableRNG(seed)
-    rot(s) = SMatrix{3, 3, Float64, 9}(RotMatrix(RotXYZ((s .* randn(rng, 3))...)))
-    E(R, t) = VgtkCore.EuclideanMap(R, SVector{3, Float64}(t))
-    Y = E(rot(1.0), 0.5 .* randn(rng, 3)); X = [E(rot(0.5), 0.3 .* randn(rng, 3)) for _ in 1:M]
-    A = [E(rot(1.0), randn(rng, 3)) for _ in 1:N]
-    return Dict(m => [let B = inv(Y) ∘ A[i] ∘ X[m]
-                          A[i] => E(SMatrix{3, 3, Float64, 9}(VgtkCore.exp_so3(noise .* randn(rng, SVector{3, Float64}))) * VgtkCore.rotation(B),
-                                    VgtkCore.translation(B) + noise .* randn(rng, SVector{3, Float64}))
-                      end for i in 1:N] for m in 1:M)
-end
+# `contract_linear`, `contract_rotation`, `contract_averaging`, `contract_points`, `contract_handeye`, each drawn from
+# the caller's RNG (here StableRNG(seed)): the suite's fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "contract_scenes.jl"))
 
 # =================================================================================================================
 # fit_rotation (fit_rotation_tests.jl)
@@ -197,65 +168,28 @@ end
 # =================================================================================================================
 # refine_robot_world_hand_eye (refine_robot_world_hand_eye_tests.jl, termination_record_tests.jl, units_boundary_tests.jl)
 # =================================================================================================================
-eof_rw_grid(s = 0.03) = [SVector(s * (i - 3), s * (j - 3), 0.0) for i in 1:5 for j in 1:5]
-function _eof_rw_marker_origin(rng, m, M, layout)
-    layout === :row && return SVector(0.08 * (m - (M + 1) / 2), 0.03 * randn(rng), 0.0)
-    nc = ceil(Int, sqrt(M)); nr = cld(M, nc); r, c = divrem(m - 1, nc)
-    return SVector(0.15 * (c - (nc - 1) / 2), 0.15 * (r - (nr - 1) / 2), 0.0)
-end
-function eof_rw_scene(rng; N = 12, M = 3, f = 600.0, W = 800, H = 600, depth = 1.2, σ = 0.5, ang = 0.35, layout = :row)
-    rigid = _EOF_PS.rigid
-    camera = VgtkCore.CameraModel(; focal = f, pp = (W / 2, H / 2))
-    Y = rigid(AngleAxis(π * rand(rng), normalize(randn(rng, 3))...), 0.5 .* randn(rng, SVector{3, Float64}))
-    X = [rigid(AngleAxis(0.3 * rand(rng), normalize(randn(rng, 3))...), _eof_rw_marker_origin(rng, m, M, layout)) for m in 1:M]
-    lat = 0.35 * depth * (W / 2) / f
-    A = map(1:N) do _
-        C = rigid(AngleAxis(ang * rand(rng), normalize(randn(rng, 3))...), SVector(lat * (2rand(rng) - 1), lat * (H / W) * (2rand(rng) - 1), depth * (0.85 + 0.3rand(rng))))
-        Y ∘ C
-    end
-    obs = Tuple{Int, Int, Vector{Pair{SVector{3, Float64}, SVector{2, Float64}}}}[]
-    for i in 1:N, m in 1:M
-        B = _EOF_PS.marker_pose(Y, A[i], X[m])
-        cs = Pair{SVector{3, Float64}, SVector{2, Float64}}[]
-        for P in eof_rw_grid()
-            Pc = B(P)
-            Pc[3] > 0.1 || continue
-            u0 = SVector{2, Float64}(VgtkCore.project(camera, Pc)...)
-            (0 < u0[1] < W && 0 < u0[2] < H) || continue
-            push!(cs, P => u0 + σ * randn(rng, SVector{2, Float64}))
-        end
-        isempty(cs) || push!(obs, (i, m, cs))
-    end
-    return (; camera, Y, X, A, obs)
-end
-eof_rw_markers(sc; frames = 1:length(sc.A)) = Dict(
-    m => [sc.A[i] => cs for (i, mm, cs) in sc.obs if mm == m && i in frames]
-        for m in unique(o[2] for o in sc.obs if o[1] in frames)
-)
-function eof_rw_seed(rng, sc; rot = 0.01, tr = 0.01)
-    pert(T) = _EOF_PS.perturb_pose(rng, T; σ_R = rot, σ_t = tr)
-    return VgtkEstimation.RobotWorldHandEyeCalibration(pert(sc.Y), Dict(m => pert(sc.X[m]) for m in eachindex(sc.X)))
-end
+# `rw_grid`, `rw_marker_origin`, `rw_scene`, `rw_markers`, `rw_seed`: the suite's fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "robot_world_scenes.jl"))
 # (guess, camera, markers): a scene and its perturbed seed
 function eof_rw_problem(seed; σ = 0.5, rot = 0.01, tr = 0.01, kw...)
     rng = StableRNG(seed)
-    sc = eof_rw_scene(rng; σ, kw...)
-    return (eof_rw_seed(rng, sc; rot, tr), sc.camera, eof_rw_markers(sc))
+    sc = rw_scene(rng; σ, kw...)
+    return (rw_seed(rng, sc; rot, tr), sc.camera, rw_markers(sc))
 end
 # 5 % of the features moved 20–40 px
 function eof_rw_moved(seed)
     rng = StableRNG(seed)
-    sc = eof_rw_scene(rng; σ = 0.5)
-    mk = eof_rw_markers(sc)
+    sc = rw_scene(rng; σ = 0.5)
+    mk = rw_markers(sc)
     moved = Dict(m => [A => [X => (rand(rng) < 0.05 ? u + (20 + 20rand(rng)) * normalize(randn(rng, SVector{2, Float64})) : u)
                              for (X, u) in cs] for (A, cs) in els] for (m, els) in mk)
-    return (eof_rw_seed(rng, sc), sc.camera, moved)
+    return (rw_seed(rng, sc), sc.camera, moved)
 end
 # the argument contract's refused inputs, from one 2-marker scene
 function eof_rw_contract_inputs()
-    sc = eof_rw_scene(StableRNG(2); M = 2)
-    seed = eof_rw_seed(StableRNG(3), sc)
-    mk = eof_rw_markers(sc)
+    sc = rw_scene(StableRNG(2); M = 2)
+    seed = rw_seed(StableRNG(3), sc)
+    mk = rw_markers(sc)
     rigid = _EOF_PS.rigid
     bad(f) = Dict(1 => [mk[1][1:(end - 1)]; [first(mk[1][end]) => f(last(mk[1][end]))]], 2 => mk[2])
     inputs = [
@@ -280,7 +214,7 @@ function eof_rw_pure_z()
     Y = rigid(RotMatrix{3}(1.0I), SVector(0.0, 0.0, -1.2))
     X = [rigid(AngleAxis(0.3 * rand(rng), normalize(randn(rng, 3))...), SVector(0.08 * (m - 1.5), 0.03, 0.0)) for m in 1:2]
     A = [rigid(RotMatrix(RotZ(θ)), SVector(0.0, 0.0, 0.0)) for θ in range(0.3, 2.0; length = 8)]
-    markers = Dict(m => [A[i] => [P => SVector{2, Float64}(VgtkCore.project(camera, _EOF_PS.marker_pose(Y, A[i], X[m])(P))...) for P in eof_rw_grid()] for i in 1:8] for m in 1:2)
+    markers = Dict(m => [A[i] => [P => SVector{2, Float64}(VgtkCore.project(camera, _EOF_PS.marker_pose(Y, A[i], X[m])(P))...) for P in rw_grid()] for i in 1:8] for m in 1:2)
     return (VgtkEstimation.RobotWorldHandEyeCalibration(Y, Dict(1 => X[1], 2 => X[2])), camera, markers)
 end
 # termination_record_tests' set (seed 3) and units_boundary_tests' (seed 13, with its physical twin)
@@ -288,7 +222,7 @@ function eof_rw_fixed_scene(seed, nA, ang)
     rng = StableRNG(seed)
     rigid = _EOF_PS.rigid
     camera = VgtkCore.CameraModel(; focal = 600.0, pp = (400.0, 300.0))
-    grid = eof_rw_grid()
+    grid = rw_grid()
     Y = rigid(AngleAxis(0.7, normalize(SVector(0.3, -0.2, 0.9))...), SVector(0.2, -0.1, 0.3))
     X = [rigid(AngleAxis(0.2, normalize(SVector(1.0, 0.5, 0.2))...), SVector(0.08 * (m - 1.5), 0.0, 0.0)) for m in 1:2]
     A = [Y ∘ rigid(AngleAxis(ang * rand(rng), normalize(randn(rng, 3))...), SVector(0.1 * randn(rng), 0.1 * randn(rng), 1.2)) for _ in 1:nA]
@@ -431,41 +365,11 @@ end
 # =================================================================================================================
 # fit_residual_mixture (residual_mixture_tests.jl, termination_record_tests.jl)
 # =================================================================================================================
-# The suite's test-only scorer with a uniform outlier model: its consensus set the residuals below its threshold
-# (inliers first, each part in index order), its per-point scores the squared residuals, its outlier half-width.
-struct EofHalfwidthScoring{DG} <: VgtkCore.AbstractScoring
-    threshold::Float64
-    outlier_halfwidth::Float64
-end
-EofHalfwidthScoring(dg::Integer; threshold, outlier_halfwidth) = EofHalfwidthScoring{Int(dg)}(Float64(threshold), Float64(outlier_halfwidth))
-mutable struct EofHalfwidthScoringWorkspace
-    order::Vector{Int}
-    k::Int
-end
-VgtkCore.codimension(::EofHalfwidthScoring{DG}) where {DG} = DG
-VgtkCore.outlier_halfwidth(s::EofHalfwidthScoring) = s.outlier_halfwidth
-VgtkCore.scoring_workspace(::EofHalfwidthScoring, n::Int, _d_g::Int) = EofHalfwidthScoringWorkspace(Vector{Int}(undef, n), 0)
-VgtkCore.inlier_count(::EofHalfwidthScoring, W::EofHalfwidthScoringWorkspace) = W.k
-VgtkCore.consensus_order(::EofHalfwidthScoring, W::EofHalfwidthScoringWorkspace) = W.order
-function VgtkCore.score!(W::EofHalfwidthScoringWorkspace, s::EofHalfwidthScoring, scores, r, n; sample = nothing, bound = -Inf)
-    sq_threshold = s.threshold^2
-    k = 0
-    for i in 1:n
-        scores[i] = Float64(r[i])^2
-        scores[i] < sq_threshold && (k += 1; W.order[k] = i)
-    end
-    j = k
-    for i in 1:n
-        scores[i] < sq_threshold || (j += 1; W.order[j] = i)
-    end
-    W.k = k
-    return Float64(k)
-end
-# codimension-2 residual norms: Rayleigh inliers at σ, gross outliers uniform over the ±halfwidth square
-function eof_mixture_residuals(seed; n_in, n_out, σ, halfwidth)
-    rng = StableRNG(seed)
-    return vcat([σ * hypot(randn(rng), randn(rng)) for _ in 1:n_in], [hypot(halfwidth * (2rand(rng) - 1), halfwidth * (2rand(rng) - 1)) for _ in 1:n_out])
-end
+# The suite's test-only scorer with a uniform outlier model (`HalfwidthScoring`) and its codimension-2 residual draw
+# (`reprojection_residuals`: Rayleigh inliers at σ, gross outliers uniform over the ±halfwidth square): the suite's
+# fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "residual_mixture.jl"))
+eof_mixture_residuals(seed; n_in, n_out, σ, halfwidth) = first(reprojection_residuals(StableRNG(seed); n_in, n_out, σ, halfwidth))
 eof_mixture_signed() = (r = eof_mixture_residuals(11; n_in = 100, n_out = 10, σ = 0.5, halfwidth = 50.0); r[3] = -r[3]; r)
 # termination_record_tests' scalar draw
 eof_mixture_scalar(seed) = abs.(vcat(0.5 .* randn(StableRNG(seed), 200), 40.0 .* rand(StableRNG(seed + 100), 40)))

@@ -11,11 +11,11 @@ using VisualGeometryToolkitEstimation: fit_linear, fit_rotation, fit_rotation_av
 
 # The five contract fits, each `(fixture, kw) -> result` on its fixture
 const EOF_CONTRACT_FITS = (
-    ("linear", 1, s -> eof_contract_linear(s), (fx, kw) -> fit_linear(fx...; kw...)),
-    ("rotation", 2, s -> eof_contract_rotation(s), (fx, kw) -> fit_rotation(fx; kw...)),
-    ("rot_avg", 3, s -> eof_contract_averaging(), (fx, kw) -> fit_rotation_averaging(fx; kw...)),
-    ("rigid", 3, s -> eof_contract_points(s), (fx, kw) -> fit_rigid_alignment(fx; kw...)),
-    ("rwhe", 6, s -> eof_contract_handeye(s), (fx, kw) -> fit_robot_world_hand_eye(fx; σ_rot = 1.0e-2, σ_trans = 1.0e-2, kw...)),
+    ("linear", 1, s -> contract_linear(StableRNG(s)), (fx, kw) -> fit_linear(fx...; kw...)),
+    ("rotation", 2, s -> contract_rotation(StableRNG(s)), (fx, kw) -> fit_rotation(fx; kw...)),
+    ("rot_avg", 3, s -> contract_averaging(), (fx, kw) -> fit_rotation_averaging(fx; kw...)),
+    ("rigid", 3, s -> first(contract_points(StableRNG(s))), (fx, kw) -> fit_rigid_alignment(fx; kw...)),
+    ("rwhe", 6, s -> contract_handeye(StableRNG(s)), (fx, kw) -> fit_robot_world_hand_eye(fx; σ_rot = 1.0e-2, σ_trans = 1.0e-2, kw...)),
 )
 # the contract's settings on clean data (fit_contract_tests, termination_record_tests)
 const EOF_CONTRACT_SETTINGS = [
@@ -345,13 +345,13 @@ function _eof_mixture!(cases)
     a = 40.0
     for seed in SEEDS
         r = eof_mixture_residuals(seed; n_in = 400, n_out = 100, σ = 0.8, halfwidth = a)
-        sc = EofHalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = a)
+        sc = HalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = a)
         case!(cases, "residual_mix/known_400+100/halfwidth_t3/seed$seed", r, r -> fit_residual_mixture(r; weighting = sc, model_dof = 4))
         case!(cases, "residual_mix/known_400+100_f32/halfwidth_t3/seed$seed", Float32.(r), r -> fit_residual_mixture(r; weighting = sc, model_dof = 4))
         case!(cases, "residual_mix/known_400+100/thin_partition/seed$seed", r,
-            r -> fit_residual_mixture(r; weighting = EofHalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a), model_dof = 4))
+            r -> fit_residual_mixture(r; weighting = HalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a), model_dof = 4))
         r2 = eof_mixture_residuals(seed + 6; n_in = 200, n_out = 50, σ = 1.2, halfwidth = 60.0)
-        sc2 = EofHalfwidthScoring(2; threshold = 4.0, outlier_halfwidth = 60.0)
+        sc2 = HalfwidthScoring(2; threshold = 4.0, outlier_halfwidth = 60.0)
         case!(cases, "residual_mix/defaults_200+50/omitted_config/seed$seed", r2, r -> fit_residual_mixture(r; weighting = sc2, model_dof = 3))
         case!(cases, "residual_mix/defaults_200+50/empty_toml_config/seed$seed", r2,
             r -> fit_residual_mixture(r; weighting = sc2, model_dof = 3, config = mixture_em_from_toml(Dict{String, Any}())))
@@ -360,7 +360,7 @@ function _eof_mixture!(cases)
                 config = MixtureEmConfig(nuisance = (; scale = Estimated(), inlier_prior = FixedPrior(0.75), nu = FixedNu(6.0)))))
         # a calibration pipeline's call: [classification] (the image's half-diagonal, codimension 2, ν at the consensus dof)
         rc = eof_mixture_residuals(seed + 12; n_in = 900, n_out = 25, σ = 0.4, halfwidth = 300.0)
-        scc = EofHalfwidthScoring(2; threshold = 2.0, outlier_halfwidth = hypot(4000, 3000) / 2)
+        scc = HalfwidthScoring(2; threshold = 2.0, outlier_halfwidth = hypot(4000, 3000) / 2)
         case!(cases, "residual_mix/pipeline_900+25/classification_em/seed$seed", rc,
             r -> fit_residual_mixture(r; weighting = scc, model_dof = 76, config = eof_mixture_classification_em()))
         case!(cases, "residual_mix/pipeline_900+25/consensus_dof_max_iter1/seed$seed", rc,
@@ -375,7 +375,7 @@ function _eof_mixture!(cases)
     case!(cases, "residual_mix/refused/weighted_refine", r,
         r -> fit_residual_mixture(r; weighting = MsacScoring(2; threshold = 2.0), model_dof = 4, config = MixtureEmConfig(model_update = WeightedRefine())))
     case!(cases, "residual_mix/refused/signed", eof_mixture_signed(), r -> fit_residual_mixture(r; weighting = MsacScoring(2; threshold = 2.0), model_dof = 4))
-    sc = EofHalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = 50.0)
+    sc = HalfwidthScoring(2; threshold = 3.0, outlier_halfwidth = 50.0)
     case!(cases, "residual_mix/refused/parameter_change_stop", r,
         r -> fit_residual_mixture(r; weighting = sc, model_dof = 4, config = MixtureEmConfig(stop = ParameterChangeStop(1.0e-6))))
     case!(cases, "residual_mix/refused/positional_scorer", r, r -> fit_residual_mixture(r, sc; model_dof = 4))

@@ -117,19 +117,11 @@ export FISHEYE, REGION, SOURCE, MODEL, noncentral_source
 
 const FISHEYE = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02))
 const REGION = Rect(0, 0, 1000, 1000) ∩ Ellipse(SVector(500.0, 500.0), 480.0, 480.0, 0.0)
-const CENTRAL = CameraModel(SplineLens, FISHEYE, Size2(1000, 1000); grid_size = (53, 47))
+import VisualGeometryToolkitEstimation as VgtkEstimation
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "noncentral_fisheye.jl"))   # shared with the golden records
+const CENTRAL = noncentral_central()
 # the source with every line translated by `t` (metres), bounded by its image
-function noncentral_source(t = SVector(0.0, 0.0, 0.0))
-    d = CENTRAL.lens.backward
-    gh, gw = size(d.controls)
-    points = map(CartesianIndices((gh, gw))) do ij
-        i, j = Tuple(ij)
-        x, y = (j - 2) * 1000 / (gw - 3), (i - 2) * 1000 / (gh - 3)
-        ρ = hypot(x - 500, y - 500) / 500
-        SVector{3, Float64}(2.0e-4 * sin(x / 300) + t[1], 1.5e-4 * cos(y / 400) + t[2], 3.0e-3 * ρ^2 + t[3])
-    end
-    return BoundedCamera(NoncentralSplineModel(CENTRAL.intrinsics, d, ChartSpline(d.area, points)), Size2(1000, 1000))
-end
+noncentral_source(t = SVector(0.0, 0.0, 0.0)) = noncentral_fisheye(CENTRAL, t)
 const SOURCE = noncentral_source()
 const MODEL = model(SOURCE)
 end

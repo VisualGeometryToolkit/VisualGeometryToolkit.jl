@@ -31,5 +31,4 @@ function homography_scenes()
     ]
 end
 
-# Too few data for a minimal sample (the suite's ransac_no_model cases).
-homography_too_few() = let (s, d) = _HS.homography_pairs(StableRNG(42), _HS.H_TRUE; n_in = 3, n_out = 0, σ = 0.5); StructArray(s .=> d) end
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the shared sets (`homography_too_few`)

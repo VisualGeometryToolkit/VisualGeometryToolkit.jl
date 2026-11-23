@@ -75,7 +75,7 @@ median_norm_scale/one#fixture		array Base.Vector{StaticArraysCore.SVector{2, Flo
 median_norm_scale/one		Float64	548a80e9a42dfb3f
 median_norm_scale/refused/plain_vector#fixture		array Base.Vector{Float64} [3]	2f2ac31df0d0e6658d3415acd0e6fa8bcf00b3d2c3ee3769f680b9cbe70b59f5
 median_norm_scale/refused/plain_vector	exception	type	MethodError
-median_norm_scale/refused/plain_vector	exception.msg	String	MethodError: no method matching mad_scale(::Vector{Float64})
+median_norm_scale/refused/plain_vector	exception.msg	String	MethodError: no method matching mad_scale(::Base.Vector{Float64})
 pooled_scale/results4/seed1#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [4]	9fe60dc199119f13d9ee37da5169baf432ab3ed3b2b7254df28c2b5f62412755
 pooled_scale/results4/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
 pooled_scale/results4/seed1	estimate	Float64	535bdb7b276ee53f

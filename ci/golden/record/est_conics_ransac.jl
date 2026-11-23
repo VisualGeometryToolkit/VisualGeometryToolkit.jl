@@ -229,8 +229,8 @@ function record_est_conics_ransac(cases)
     end
     for seed in SEEDS
         case!(cases, "circle_find/collinear_10/seed$seed", cr_collinear(), pts -> find_circle(pts; rng = StableRNG(seed)))
-        case!(cases, "circle_find/too_few_2/seed$seed", cr_few_points(2), pts -> find_circle(pts; rng = StableRNG(seed)))
-        case!(cases, "circle_find/too_few_2_workspace_f64/seed$seed", cr_few_points(2),
+        case!(cases, "circle_find/too_few_2/seed$seed", few_points(2), pts -> find_circle(pts; rng = StableRNG(seed)))
+        case!(cases, "circle_find/too_few_2_workspace_f64/seed$seed", few_points(2),
             pts -> find_circle(pts; workspace = RansacWorkspace(Float64, CircleProblem, 2), rng = StableRNG(seed)))
     end
     for (name, (g, pts)) in cr_circle_refine_fixtures()
@@ -261,7 +261,7 @@ function record_est_conics_ransac(cases)
     end
     for seed in SEEDS
         case!(cases, "ellipse_find/collinear_10/seed$seed", cr_collinear(), pts -> find_ellipse(pts; rng = StableRNG(seed)))
-        case!(cases, "ellipse_find/too_few_4/seed$seed", cr_few_points(4), pts -> find_ellipse(pts; rng = StableRNG(seed)))
+        case!(cases, "ellipse_find/too_few_4/seed$seed", few_points(4), pts -> find_ellipse(pts; rng = StableRNG(seed)))
         case!(cases, "ellipse_find/square_4/seed$seed", [VgtkCore.Point2(0.0, 0.0), VgtkCore.Point2(1.0, 0.0), VgtkCore.Point2(1.0, 1.0), VgtkCore.Point2(0.0, 1.0)],
             pts -> find_ellipse(pts; rng = StableRNG(seed)))
     end
@@ -280,7 +280,7 @@ function record_est_conics_ransac(cases)
     # ================================================================ ransac / ransac!
     hdata = VgtkCore.correspondences(cr_make_homography_data()...)
     cr_ransac_cases!(cases, "homography_100+30", hdata, HomographyProblem, 3.0; cfg = RansacConfig(max_trials = 3000, min_trials = 200))
-    cr_ransac_cases!(cases, "homography_h_scene", cr_h_scene(), HomographyProblem, 3.0; full = false)
+    cr_ransac_cases!(cases, "homography_h_scene", first(h_scene()), HomographyProblem, 3.0; full = false)
     cr_ransac_cases!(cases, "homography_prosac", cr_homography_scored(), HomographyProblem, 3.0; full = false,
                      cfg = RansacConfig(max_trials = 3000, min_trials = 200))
     fdata = cr_fundmat_data()
@@ -377,7 +377,7 @@ function record_est_conics_ransac(cases)
         "homography" => (hdata, HomographyProblem),
         "fundmat" => (fdata, FundMatProblem),
         "essential" => (edata, d -> EssentialProblem(_CR_E.ECAM, _CR_E.ECAM, d)),
-        "absolute_pose" => (cr_pnp_pairs(), d -> AbsolutePoseProblem(CR_PCAM, d)),
+        "absolute_pose" => (pnp_scene(), d -> AbsolutePoseProblem(PCAM, d)),
         "bearing_pose" => (cr_bearing_pose(), BearingPoseProblem),
         "rotation" => (cr_rotation_pixels(), d -> RotationProblem(CR_FISHEYE, CR_FISHEYE, d)),
         "radial_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc)),

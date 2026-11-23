@@ -19,18 +19,7 @@ index_samples(rng, N, k, n) = [randperm(rng, N)[1:k] for _ in 1:n]
 
 # --- circles and ellipses (ConicScenes; circle_tests / ellipse_tests) ---------------------------------------------
 
-const CONIC_C₀ = SVector(512.3, 401.7)
-const CONIC_E₀ = Ellipse(Point2(512.3, 401.7), 300.0, 180.0, 0.6)
-function contaminated_boundary(rng, curve, n; σ = 0.5, outl = 0.4)
-    pts = [Point2{Float64}(SVector(boundary_point(curve, t)...) + σ * randn(rng, SVector{2, Float64})) for t in 2π .* rand(rng, n)]
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for (k, i) in enumerate(bad)
-        pts[i] = isodd(k) ? Point2{Float64}(250.0 + 500 * rand(rng), 760.0 + randn(rng)) : Point2{Float64}(1024 * rand(rng), 800 * rand(rng))
-    end
-    return pts
-end
-circle_scene(rng, n) = contaminated_boundary(rng, Circle(Point2(CONIC_C₀), 300.0), n)
-ellipse_scene(rng, n) = contaminated_boundary(rng, CONIC_E₀, n)
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # ConicScenes' `circle_scene`, `ellipse_scene`; FindScenes' scenes
 
 # circle_tests: 200 exact triples on random circles.
 function circle_triples(rng)
@@ -159,15 +148,8 @@ p3p_degenerate() = let p0 = SVector(0.0, 0.0, 0.0), d = SVector(1.0, 0.0, 0.0), 
 end
 # FindScenes' pnp_scene (its frustum points, 120 inliers at σ = 0.5 px, 60 outliers) with the scene's StableRNG(seed),
 # the pixels lifted to bearings through the camera.
-const PCAM = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
-const R_PNP = RotMatrix(RotXYZ(0.15, -0.25, 0.1))
-const T_PNP = Vec3{Float64}(0.3, -0.2, 0.6)
-function pnp_scene(rng)
-    P = _MS.PoseScenes
-    pairs, _ = _MS.Contamination.contaminated_pairs(
-        rng, (rng, _) -> Pair(P.frustum_point(rng, PCAM, R_PNP, T_PNP)...), 120; σ = 0.5, n_out = 60,
-        outlier = (rng, _) -> first(P.frustum_point(rng, PCAM, R_PNP, T_PNP)) => SVector(40.0 + 880.0 * rand(rng), 40.0 + 640.0 * rand(rng)))
-    return Correspondences([SVector{3, Float64}(first(p)) for p in pairs], [SVector{3, Float64}(backproject(PCAM, last(p))) for p in pairs])
+pnp_bearing_scene(rng) = let cs = pnp_scene(rng)
+    Correspondences([SVector{3, Float64}(first(p)) for p in cs], [SVector{3, Float64}(backproject(PCAM, last(p))) for p in cs])
 end
 
 # --- the radial homography (homography_5pt_radial_tests; FindScenes' radial_homography_scene) ---------------------
@@ -183,14 +165,7 @@ function radial_golden()
     return (; golden = Correspondences(s, d), collinear = Correspondences(s_bad, d))
 end
 _transfer(H, s) = (PerspectiveMap() ∘ HomographyMap(SMatrix{3, 3, Float64}(H)))(s)
-function _distort_div(u, k)
-    r = norm(u)
-    (abs(k) < 1.0e-14 || r < 1.0e-14) && return SVector{2, Float64}(u[1], u[2])
-    disc = 1 - 4k * r^2
-    disc <= 0 && return nothing
-    t = (1 - sqrt(disc)) / (2k * r)
-    return SVector{2, Float64}(u[1] * t / r, u[2] * t / r)
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "division_distortion.jl"))
 # The test's synthetic ground-truth ensemble: 200 attempts of a similarity-plus-projective H and a division k.
 function radial_quintuples(rng)
     out = Correspondences{SVector{2, Float64}, SVector{2, Float64}, Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, @NamedTuple{}}[]
@@ -203,7 +178,7 @@ function radial_quintuples(rng)
         src = [SVector(rand(rng) - 0.5, rand(rng) - 0.5) for _ in 1:5]
         dst_u = map(p -> _transfer(H0, p), src)
         any(p -> norm(p) > 1.2, dst_u) && continue
-        dst = map(p -> _distort_div(p, k_gt), dst_u)
+        dst = map(p -> distort_division(p, k_gt), dst_u)
         any(isnothing, dst) && continue
         push!(out, Correspondences(src, [p::SVector{2, Float64} for p in dst]))
     end
@@ -223,23 +198,10 @@ function radial_board()
     return (; raw = cs, normalized = csn)
 end
 # FindScenes' radial_homography_scene (70 inliers at σ = 0.3 px, 30 outliers, shuffled) with StableRNG(seed).
-function radial_homography_scene(rng)
-    W, H = 1200.0, 900.0
-    M = RadialHomography{Float64}(
-        HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
-        -0.25 / hypot(W, H)^2, SVector(W / 2, H / 2))
-    function inlier(rng, _)
-        while true
-            s = SVector(200 * rand(rng), 150 * rand(rng))
-            d = radial_transfer(M, s)
-            d === nothing && continue
-            (0 < d[1] < W && 0 < d[2] < H) && return s => SVector(d[1], d[2])
-        end
-    end
-    pairs, _ = _MS.Contamination.contaminated_pairs(rng, inlier, 70; σ = 0.3, n_out = 30, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(W * rand(rng), H * rand(rng)))
+function radial_homography_normalized_scene(rng)
+    pairs, _ = radial_homography_scene(rng)
     cs = Correspondences(first.(pairs), last.(pairs))
-    return (; raw = cs, normalized = LinearAlgebra.normalize(VgtkCore.CorrespondenceNormalization(RadialHomography, cs; center = SVector(W / 2, H / 2)), cs))
+    return (; raw = cs, normalized = LinearAlgebra.normalize(VgtkCore.CorrespondenceNormalization(RadialHomography, cs; center = SVector(RW / 2, RH / 2)), cs))
 end
 
 # --- the radial camera (lens_contract_tests; RadialCameraScene) ---------------------------------------------------
@@ -262,14 +224,7 @@ function radial_camera_board()
             center = c, collinear = Correspondences(first.(col), last.(col)))
 end
 # RadialCameraScene's contaminated board (StableRNG(seed) in place of its StableRNG(19)).
-const RC_CENTER = SVector(2000.0, 1500.0)
-function radial_camera_scene(rng)
-    D, C = _MS.DivisionBoards, _MS.Contamination
-    cam = D.board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = RC_CENTER)
-    pairs, _ = C.contaminated_pairs(rng, D.board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(4000 * rand(rng), 3000 * rand(rng)))
-    return Correspondences(first.(pairs), last.(pairs))
-end
+radial_camera_scene(rng) = let pairs = first(radial_camera_pairs(rng)); Correspondences(first.(pairs), last.(pairs)) end
 
 # --- the homography (PoseLib backend only: the native kernel is the pilot's) --------------------------------------
 

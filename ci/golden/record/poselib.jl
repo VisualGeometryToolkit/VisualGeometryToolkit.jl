@@ -3,7 +3,10 @@
 # forms), and PoseLib's PoseLibSolver backends of Core's kernels: essential_dlt (also the backend-less form, which
 # PoseLib defines), essential_5pt, homography_4pt, fundamental_7pt, p3p, each as the kernel and as
 # solve(<Solver>(PoseLibSolver()), cs, idx).
-using PoseLib: refine_relpose, refine_fundamental, refine_homography, refine_absolute_pose, LeZach
+# The refiners are called qualified, `PoseLib.refine_*`: VisualGeometryToolkitEstimation exports a `refine_homography` and
+# a `refine_absolute_pose` of its own.
+import PoseLib
+using PoseLib: LeZach
 using VisualGeometryToolkitCore: Irls, Triggs, TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape,
     EfficiencyConstant, LossWidth, efficiency_constant, PoseLibSolver, Essential5pt, Homography4pt, Fundamental7pt, P3P
 
@@ -14,11 +17,11 @@ const POSELIB_FAMILY = (relpose_cam = "relpose_pixels_refine", relpose_bearing =
 
 # test_contract.jl's `_baseline_calls`: (refiner family, the call on a contract scene and keywords)
 const POSELIB_CALLS = (
-    relpose_cam = (d, kw) -> refine_relpose(d.seed, d.K1, d.K2, d.rel; max_iter = 25, kw...),
-    relpose_bearing = (d, kw) -> refine_relpose(d.seed, d.bear; max_iter = 25, kw...),
-    fundamental = (d, kw) -> refine_fundamental(d.F0, d.rel; max_iter = 25, kw...),
-    homography = (d, kw) -> refine_homography(d.H0, d.hom; max_iter = 25, kw...),
-    absolute_pose = (d, kw) -> refine_absolute_pose(d.seed, d.K1, d.abs_cs; max_iter = 25, kw...),
+    relpose_cam = (d, kw) -> PoseLib.refine_relpose(d.seed, d.K1, d.K2, d.rel; max_iter = 25, kw...),
+    relpose_bearing = (d, kw) -> PoseLib.refine_relpose(d.seed, d.bear; max_iter = 25, kw...),
+    fundamental = (d, kw) -> PoseLib.refine_fundamental(d.F0, d.rel; max_iter = 25, kw...),
+    homography = (d, kw) -> PoseLib.refine_homography(d.H0, d.hom; max_iter = 25, kw...),
+    absolute_pose = (d, kw) -> PoseLib.refine_absolute_pose(d.seed, d.K1, d.abs_cs; max_iter = 25, kw...),
 )
 
 function _record_poselib_contract!(cases)
@@ -45,22 +48,22 @@ function _record_poselib_contract!(cases)
     H = (d, kw) -> POSELIB_CALLS.homography(d, kw)
     # the result record: the budget used up; an upstream result's scale handed on
     case!(cases, "homography_refine/contract/ls_maxiter1", d,
-        d -> refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
+        d -> PoseLib.refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
     case!(cases, "homography_refine/contract/huber_scale_upstream0.5", d,
         d -> H(d, (; optimization_strategy = Irls{HuberShape}(), scale = H(d, (; optimization_strategy = Irls{HuberShape}(), scale = 0.5)))))
     # the physical absolute pose (metre points, metre seed)
     for (l, kw) in ("tls_width40.0" => (; optimization_strategy = Irls{TLSShape}(), width = 40.0), "ls_widthnone" => (; optimization_strategy = nothing))
         case!(cases, "absolute_pose_refine/contract_metres/$l", d,
-            d -> refine_absolute_pose(d.seedm, d.K1, d.abs_cs_m; max_iter = 25, kw...))
+            d -> PoseLib.refine_absolute_pose(d.seedm, d.K1, d.abs_cs_m; max_iter = 25, kw...))
     end
     # below the minimal sample: the seed back, InitialFailure
-    case!(cases, "relpose_pixels_refine/contract_first4/ls", d, d -> refine_relpose(d.seed, d.K1, d.K2, d.rel[1:4]; max_iter = 25, optimization_strategy = nothing))
-    case!(cases, "relpose_bearings_refine/contract_first4/ls", d, d -> refine_relpose(d.seed, d.bear[1:4]; max_iter = 25, optimization_strategy = nothing))
-    case!(cases, "fundamental_refine/contract_first6/tls_width2.0", d, d -> refine_fundamental(d.F0, d.rel[1:6]; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
-    case!(cases, "homography_refine/contract_first3/ls", d, d -> refine_homography(d.H0, d.hom[1:3]; max_iter = 25, optimization_strategy = nothing))
-    case!(cases, "homography_refine/contract_empty/ls", d, d -> refine_homography(d.H0, d.hom[1:0]; max_iter = 25, optimization_strategy = nothing))
-    case!(cases, "homography_refine/contract_first4/ls", d, d -> refine_homography(d.H0, d.hom[1:4]; max_iter = 25, optimization_strategy = nothing))
-    case!(cases, "absolute_pose_refine/contract_first2/ls", d, d -> refine_absolute_pose(d.seed, d.K1, d.abs_cs[1:2]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "relpose_pixels_refine/contract_first4/ls", d, d -> PoseLib.refine_relpose(d.seed, d.K1, d.K2, d.rel[1:4]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "relpose_bearings_refine/contract_first4/ls", d, d -> PoseLib.refine_relpose(d.seed, d.bear[1:4]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "fundamental_refine/contract_first6/tls_width2.0", d, d -> PoseLib.refine_fundamental(d.F0, d.rel[1:6]; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
+    case!(cases, "homography_refine/contract_first3/ls", d, d -> PoseLib.refine_homography(d.H0, d.hom[1:3]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "homography_refine/contract_empty/ls", d, d -> PoseLib.refine_homography(d.H0, d.hom[1:0]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "homography_refine/contract_first4/ls", d, d -> PoseLib.refine_homography(d.H0, d.hom[1:4]; max_iter = 25, optimization_strategy = nothing))
+    case!(cases, "absolute_pose_refine/contract_first2/ls", d, d -> PoseLib.refine_absolute_pose(d.seed, d.K1, d.abs_cs[1:2]; max_iter = 25, optimization_strategy = nothing))
     # refusals: the retired keywords and the missing strategy, on every refiner
     for name in keys(POSELIB_CALLS)
         call = POSELIB_CALLS[name]
@@ -100,42 +103,42 @@ function _record_poselib_refine_scene!(cases)
     s = poselib_refine_scene()
     kw(w) = (; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = w)
     # relative pose: the z = 1 chart refused (both containers); camera-aware pixels; K1 = K2 pixels vs identity cameras
-    case!(cases, "relpose_bearings_refine/refused/chart_correspondences", s, s -> refine_relpose(s.seed, Correspondences(s.chart.x1, s.chart.x2); kw(3e-3)...))
-    case!(cases, "relpose_bearings_refine/refused/chart_pairs", s, s -> refine_relpose(s.seed, s.chart.x1 .=> s.chart.x2; kw(3e-3)...))
-    case!(cases, "relpose_pixels_refine/refine_scene/tls_width2.0", s, s -> refine_relpose(s.seed, s.K1, s.K2, s.relcam.cs; kw(2.0)...))
-    case!(cases, "relpose_pixels_refine/refine_scene_K1K1/tls_width2.0", s, s -> refine_relpose(s.seed, s.K1, s.K1, s.relcam.cs_K1; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refused/chart_correspondences", s, s -> PoseLib.refine_relpose(s.seed, Correspondences(s.chart.x1, s.chart.x2); kw(3e-3)...))
+    case!(cases, "relpose_bearings_refine/refused/chart_pairs", s, s -> PoseLib.refine_relpose(s.seed, s.chart.x1 .=> s.chart.x2; kw(3e-3)...))
+    case!(cases, "relpose_pixels_refine/refine_scene/tls_width2.0", s, s -> PoseLib.refine_relpose(s.seed, s.K1, s.K2, s.relcam.cs; kw(2.0)...))
+    case!(cases, "relpose_pixels_refine/refine_scene_K1K1/tls_width2.0", s, s -> PoseLib.refine_relpose(s.seed, s.K1, s.K1, s.relcam.cs_K1; kw(2.0)...))
     case!(cases, "relpose_pixels_refine/refine_scene_identity_cameras/tls_calibrated_width", s,
-        s -> refine_relpose(s.seed, s.relcam.I3, s.relcam.I3, s.relcam.cs_cal; kw(PoseLib.calibrated_loss_width(s.K1, s.K1, 2.0))...))
+        s -> PoseLib.refine_relpose(s.seed, s.relcam.I3, s.relcam.I3, s.relcam.cs_cal; kw(PoseLib.calibrated_loss_width(s.K1, s.K1, 2.0))...))
     case!(cases, "relpose_pixels_refine/refused/physical_seed", s,
-        s -> refine_relpose(VgtkCore.EuclideanMap(s.seed.R, s.seed.t .* VgtkCore.m), s.K1, s.K2,
+        s -> PoseLib.refine_relpose(VgtkCore.EuclideanMap(s.seed.R, s.seed.t .* VgtkCore.m), s.K1, s.K2,
             Correspondences([SVector(0.0, 0.0)], [SVector(0.0, 0.0)]); max_iter = 1, optimization_strategy = Irls{TLSShape}(), width = 1.0))
     # fundamental, homography (and their 3×3 refusals)
-    case!(cases, "fundamental_refine/refine_scene/tls_width2.0", s, s -> refine_fundamental(s.fund.F0, s.fund.cs; kw(2.0)...))
-    case!(cases, "fundamental_refine/refused/seed_2x3", s, s -> refine_fundamental(s.fund.F0_2x3, s.fund.cs; kw(2.0)...))
-    case!(cases, "homography_refine/refine_scene/tls_width2.0", s, s -> refine_homography(s.hom.H0, s.hom.cs; kw(2.0)...))
-    case!(cases, "homography_refine/refused/seed_2x2", s, s -> refine_homography(s.hom.H0_2x2, s.hom.cs; kw(2.0)...))
+    case!(cases, "fundamental_refine/refine_scene/tls_width2.0", s, s -> PoseLib.refine_fundamental(s.fund.F0, s.fund.cs; kw(2.0)...))
+    case!(cases, "fundamental_refine/refused/seed_2x3", s, s -> PoseLib.refine_fundamental(s.fund.F0_2x3, s.fund.cs; kw(2.0)...))
+    case!(cases, "homography_refine/refine_scene/tls_width2.0", s, s -> PoseLib.refine_homography(s.hom.H0, s.hom.cs; kw(2.0)...))
+    case!(cases, "homography_refine/refused/seed_2x2", s, s -> PoseLib.refine_homography(s.hom.H0_2x2, s.hom.cs; kw(2.0)...))
     # bearings with tangent Jacobians, and the pixel twin they reduce to; the refusals
     b = s.bearings
-    case!(cases, "relpose_pixels_refine/refine_scene_Kb2/tls_width2.0", s, s -> refine_relpose(s.seed, s.K1, s.bearings.Kb2, s.bearings.pix; kw(2.0)...))
-    case!(cases, "relpose_bearings_refine/refine_scene/tls_width2.0", s, s -> refine_relpose(s.seed, s.bearings.cs; kw(2.0)...))
-    case!(cases, "relpose_bearings_refine/refused/no_jacobians", s, s -> refine_relpose(s.seed, s.bearings.no_jacobians; kw(2.0)...))
-    case!(cases, "relpose_bearings_refine/refused/chart_sources", s, s -> refine_relpose(s.seed, s.bearings.chart_sources; kw(2.0)...))
-    case!(cases, "relpose_bearings_refine/refused/chart_targets", s, s -> refine_relpose(s.seed, s.bearings.chart_targets; kw(2.0)...))
-    case!(cases, "relpose_bearings_refine/refused/nan_source", s, s -> refine_relpose(s.seed, s.bearings.nan_source; kw(2.0)...))
+    case!(cases, "relpose_pixels_refine/refine_scene_Kb2/tls_width2.0", s, s -> PoseLib.refine_relpose(s.seed, s.K1, s.bearings.Kb2, s.bearings.pix; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refine_scene/tls_width2.0", s, s -> PoseLib.refine_relpose(s.seed, s.bearings.cs; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refused/no_jacobians", s, s -> PoseLib.refine_relpose(s.seed, s.bearings.no_jacobians; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refused/chart_sources", s, s -> PoseLib.refine_relpose(s.seed, s.bearings.chart_sources; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refused/chart_targets", s, s -> PoseLib.refine_relpose(s.seed, s.bearings.chart_targets; kw(2.0)...))
+    case!(cases, "relpose_bearings_refine/refused/nan_source", s, s -> PoseLib.refine_relpose(s.seed, s.bearings.nan_source; kw(2.0)...))
     # past 90°: radians width; its chart refused
-    case!(cases, "relpose_bearings_refine/past90/tls_width0.5deg", s, s -> refine_relpose(s.past90.seed, s.past90.cs; kw(deg2rad(0.5))...))
-    case!(cases, "relpose_bearings_refine/refused/past90_chart", s, s -> refine_relpose(s.past90.seed, s.past90.chart; kw(deg2rad(0.5))...))
+    case!(cases, "relpose_bearings_refine/past90/tls_width0.5deg", s, s -> PoseLib.refine_relpose(s.past90.seed, s.past90.cs; kw(deg2rad(0.5))...))
+    case!(cases, "relpose_bearings_refine/refused/past90_chart", s, s -> PoseLib.refine_relpose(s.past90.seed, s.past90.chart; kw(deg2rad(0.5))...))
     # absolute pose: the chart refused; pixels; K 3×4; the wrong unit and the dropped principal point; metres; labeled
     a = s.absolute
-    case!(cases, "absolute_pose_refine/refused/chart", s, s -> refine_absolute_pose(s.seed, s.absolute.chart; kw(0.05)...))
-    case!(cases, "absolute_pose_refine/refine_scene/tls_width40.0", s, s -> refine_absolute_pose(s.seed, s.K1, s.absolute.cs; kw(s.absolute.f * 0.05)...))
-    case!(cases, "absolute_pose_refine/refused/K_3x4", s, s -> refine_absolute_pose(s.seed, s.absolute.K_3x4, s.absolute.cs; kw(s.absolute.f * 0.05)...))
-    case!(cases, "absolute_pose_refine/refine_scene/tls_width0.05_wrong_unit", s, s -> refine_absolute_pose(s.seed, s.K1, s.absolute.cs; kw(0.05)...))
-    case!(cases, "absolute_pose_refine/refine_scene_no_principal_point/tls_width40.0", s, s -> refine_absolute_pose(s.seed, s.absolute.Kbad, s.absolute.cs; kw(s.absolute.f * 0.05)...))
-    case!(cases, "absolute_pose_refine/refine_scene_metres/tls_width40.0", s, s -> refine_absolute_pose(s.absolute.seedm, s.K1, s.absolute.cs_m; kw(s.absolute.f * 0.05)...))
-    case!(cases, "absolute_pose_refine/refine_scene_metres_labeled/tls_width40.0", s, s -> refine_absolute_pose(s.absolute.labeled, s.K1, s.absolute.cs_m; kw(s.absolute.f * 0.05)...))
-    case!(cases, "absolute_pose_refine/refused/metre_seed_plain_points", s, s -> refine_absolute_pose(s.absolute.seedm, s.K1, s.absolute.cs; kw(1.0)...))
-    case!(cases, "absolute_pose_refine/refused/plain_seed_metre_points", s, s -> refine_absolute_pose(s.seed, s.K1, s.absolute.cs_m; kw(1.0)...))
+    case!(cases, "absolute_pose_refine/refused/chart", s, s -> PoseLib.refine_absolute_pose(s.seed, s.absolute.chart; kw(0.05)...))
+    case!(cases, "absolute_pose_refine/refine_scene/tls_width40.0", s, s -> PoseLib.refine_absolute_pose(s.seed, s.K1, s.absolute.cs; kw(s.absolute.f * 0.05)...))
+    case!(cases, "absolute_pose_refine/refused/K_3x4", s, s -> PoseLib.refine_absolute_pose(s.seed, s.absolute.K_3x4, s.absolute.cs; kw(s.absolute.f * 0.05)...))
+    case!(cases, "absolute_pose_refine/refine_scene/tls_width0.05_wrong_unit", s, s -> PoseLib.refine_absolute_pose(s.seed, s.K1, s.absolute.cs; kw(0.05)...))
+    case!(cases, "absolute_pose_refine/refine_scene_no_principal_point/tls_width40.0", s, s -> PoseLib.refine_absolute_pose(s.seed, s.absolute.Kbad, s.absolute.cs; kw(s.absolute.f * 0.05)...))
+    case!(cases, "absolute_pose_refine/refine_scene_metres/tls_width40.0", s, s -> PoseLib.refine_absolute_pose(s.absolute.seedm, s.K1, s.absolute.cs_m; kw(s.absolute.f * 0.05)...))
+    case!(cases, "absolute_pose_refine/refine_scene_metres_labeled/tls_width40.0", s, s -> PoseLib.refine_absolute_pose(s.absolute.labeled, s.K1, s.absolute.cs_m; kw(s.absolute.f * 0.05)...))
+    case!(cases, "absolute_pose_refine/refused/metre_seed_plain_points", s, s -> PoseLib.refine_absolute_pose(s.absolute.seedm, s.K1, s.absolute.cs; kw(1.0)...))
+    case!(cases, "absolute_pose_refine/refused/plain_seed_metre_points", s, s -> PoseLib.refine_absolute_pose(s.seed, s.K1, s.absolute.cs_m; kw(1.0)...))
     # the eight-point E (backend-less and PoseLibSolver forms) and its refusal below eight
     case!(cases, "essential8pt/refine_scene_first20/correspondences", s, s -> VgtkCore.essential_dlt(Correspondences(s.b1[1:20], s.b2[1:20])))
     case!(cases, "essential8pt/refine_scene_first20/poselib_pairs", s, s -> VgtkCore.essential_dlt(PoseLibSolver(), s.b1[1:20] .=> s.b2[1:20]))
@@ -161,14 +164,14 @@ end
 
 function _record_poselib_typed_loss!(cases)
     t = poselib_typed_loss_scene()
-    fit(cs, lo, w) = refine_homography(t.H0, cs; max_iter = 100, optimization_strategy = lo, width = w)
+    fit(cs, lo, w) = PoseLib.refine_homography(t.H0, cs; max_iter = 100, optimization_strategy = lo, width = w)
     for (lbl, lo, w) in (("tls_width2.5", Irls{TLSShape}(), 2.5), ("tls_width3.5", Irls{TLSShape}(), 3.5),
                           ("lezach_width1.0", LeZach(), 1.0), ("lezach_width3.5", LeZach(), 3.5))
         case!(cases, "homography_refine/typed_loss_outliers3px/$lbl", t, t -> fit(t.outliers, lo, w))
     end
     for sc in (:noisy, :noisy_out)
         case!(cases, "homography_refine/typed_loss_$sc/ls_maxiter100", t,
-            t -> refine_homography(t.H0, getproperty(t, sc); max_iter = 100, optimization_strategy = nothing))
+            t -> PoseLib.refine_homography(t.H0, getproperty(t, sc); max_iter = 100, optimization_strategy = nothing))
         case!(cases, "homography_refine/typed_loss_$sc/huber_width2.0", t, t -> fit(getproperty(t, sc), Irls{HuberShape}(), 2.0))
     end
     case!(cases, "homography_refine/typed_loss_noisy_out/huber_width6.0", t, t -> fit(t.noisy_out, Irls{HuberShape}(), 6.0))

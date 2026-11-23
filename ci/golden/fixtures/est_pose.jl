@@ -17,30 +17,17 @@ const _PO_P = _PO.PoseScenes
 const _PO_C = _PO.Contamination
 const _PO_D = _PO.DivisionBoards
 const _PO_R = _PO.RadialScenes
-const PO_PCAM = VgtkCore.CameraModel(; focal = 800.0, pp = (480.0, 360.0))
-const PO_R_PNP = RotMatrix(RotXYZ(0.15, -0.25, 0.1))
-const PO_T_PNP = VgtkCore.Vec3{Float64}(0.3, -0.2, 0.6)
-const PO_RW, PO_RH = 1200.0, 900.0
-const PO_RC_CENTER = SVector(2000.0, 1500.0)
 const po_m = VgtkCore.m
 const po_mm = VgtkCore.mm
 
-po_few_points(n) = [VgtkCore.Point2(100.0 + 10i, 50.0 + 7i^2) for i in 1:n]
-po_few_correspondences(n) = VgtkCore.correspondences(po_few_points(n), po_few_points(n) .+ Ref(VgtkCore.Point2(1.0, 2.0)))
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the find_* scenes, too-few sets and pixel-pose scenes
 
 # =================================================================================================================
 # The absolute pose, pixel form: name => (camera, X => u pairs[, extent])
 # =================================================================================================================
-function po_pnp_scene()   # FindScenes.pnp_scene
-    pairs, _ = _PO_C.contaminated_pairs(
-        StableRNG(19), (rng, _) -> Pair(_PO_P.frustum_point(rng, PO_PCAM, PO_R_PNP, PO_T_PNP)...), 120; σ = 0.5, n_out = 60,
-        outlier = (rng, _) -> first(_PO_P.frustum_point(rng, PO_PCAM, PO_R_PNP, PO_T_PNP)) => SVector(40.0 + 880.0 * rand(rng), 40.0 + 640.0 * rand(rng))
-    )
-    return StructArray(first.(pairs) .=> last.(pairs))
-end
 function po_units_pnp()   # units_boundary_tests: 80 frustum points, every fifth pixel moved (20 % outliers)
     rng = StableRNG(9)
-    obs = [Pair(_PO_P.frustum_point(rng, PO_PCAM, PO_R_PNP, PO_T_PNP)...) for _ in 1:80]
+    obs = [Pair(_PO_P.frustum_point(rng, PCAM, R_PNP, T_PNP)...) for _ in 1:80]
     obs = [(k % 5 == 0 ? first(p) => last(p) + SVector(40.0, -25.0) : p) for (k, p) in enumerate(obs)]
     return first.(obs), last.(obs)
 end
@@ -56,13 +43,13 @@ function po_abspose_scenes()
     X, u = po_units_pnp()
     s = collect(range(1.0, 0.1; length = length(X)))
     return [
-        "pnp_120+60" => (PO_PCAM, po_pnp_scene()),
-        "units_80_pairs" => (PO_PCAM, X .=> u),
-        "units_80_metres" => (PO_PCAM, [x .* po_m for x in X] .=> u),
-        "units_80_millimetres" => (PO_PCAM, [(1000 .* x) .* po_mm for x in X] .=> u),
-        "units_80_plain_mm" => (PO_PCAM, [1000 .* x for x in X] .=> u),
-        "units_80_scored" => (PO_PCAM, VgtkCore.Correspondences(X, u; score = s)),
-        "units_80_scored_metres" => (PO_PCAM, VgtkCore.Correspondences([x .* po_m for x in X], u; score = s)),
+        "pnp_120+60" => (PCAM, pnp_scene()),
+        "units_80_pairs" => (PCAM, X .=> u),
+        "units_80_metres" => (PCAM, [x .* po_m for x in X] .=> u),
+        "units_80_millimetres" => (PCAM, [(1000 .* x) .* po_mm for x in X] .=> u),
+        "units_80_plain_mm" => (PCAM, [1000 .* x for x in X] .=> u),
+        "units_80_scored" => (PCAM, VgtkCore.Correspondences(X, u; score = s)),
+        "units_80_scored_metres" => (PCAM, VgtkCore.Correspondences([x .* po_m for x in X], u; score = s)),
         po_lens_scenes()...,
     ]
 end
@@ -70,81 +57,62 @@ po_abspose_extent() = VgtkCore.HyperRectangle(VgtkCore.Vec2(-2.0, -2.0), VgtkCor
 po_abspose_extent_m() = VgtkCore.HyperRectangle(VgtkCore.Vec2(-2.0, -2.0) .* po_m, VgtkCore.Vec2(4.0, 4.0) .* po_m)
 function po_abspose_degenerate()   # ransac_no_model_tests: three collinear world points
     X = [SVector(0.1i, 0.0, 2.0) for i in 1:3]
-    u = [VgtkCore.project(PO_PCAM, x) for x in X]
-    return ["collinear_3" => (PO_PCAM, X .=> u), "collinear_3_metres" => (PO_PCAM, [x .* po_m for x in X] .=> u),
-            "too_few_2" => (PO_PCAM, [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]] .=> [SA[400.0, 300.0], SA[500.0, 350.0]]),
-            "too_few_2_metres" => (PO_PCAM, [SA[0.1, 0.2, 2.0] .* po_m, SA[-0.3, 0.1, 2.5] .* po_m] .=> [SA[400.0, 300.0], SA[500.0, 350.0]])]
+    u = [VgtkCore.project(PCAM, x) for x in X]
+    return ["collinear_3" => (PCAM, X .=> u), "collinear_3_metres" => (PCAM, [x .* po_m for x in X] .=> u),
+            "too_few_2" => (PCAM, [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]] .=> [SA[400.0, 300.0], SA[500.0, 350.0]]),
+            "too_few_2_metres" => (PCAM, [SA[0.1, 0.2, 2.0] .* po_m, SA[-0.3, 0.1, 2.5] .* po_m] .=> [SA[400.0, 300.0], SA[500.0, 350.0]])]
 end
 
 # --- refine_absolute_pose_tests' PixelPoseScenes ------------------------------------------------------------------
-po_true_pose() = VgtkCore.EuclideanMap(RotMatrix(RotXYZ(0.3, -0.2, 0.1)), SVector(0.1, -0.05, 2.0))
-function po_perturbed(E)
-    ΔR = VgtkCore.exp_so3(SVector(0.05, -0.04, 0.05))
-    return VgtkCore.EuclideanMap(RotMatrix{3, Float64}(ΔR * E.R), E.t + SVector(0.1, -0.08, 0.07))
-end
-function po_scene_points(E, θmax; n = 40, depth = 3.0)
-    pts = SVector{3, Float64}[]
-    for k in 1:n
-        θ = θmax * (k / n); φ = 2.399963 * k
-        d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-        Xc = (depth * (0.7 + 0.6 * ((7k) % 10) / 10)) * d
-        push!(pts, E.R' * (Xc - E.t))
-    end
-    return pts
-end
-function po_pixel_pairs(cam, E, Xs)
-    keep = [X for X in Xs if all(isfinite, VgtkCore.project(cam, E.R * X + E.t))]
-    return [X => SVector{2, Float64}(VgtkCore.project(cam, E.R * X + E.t)) for X in keep]
-end
 const PO_PIN = VgtkCore.CameraModel(; focal = 800.0, pp = (640.0, 480.0))
 const PO_FISH = VgtkCore.CameraModel(; focal = 400.0, pp = (800.0, 800.0), lens = VgtkCore.Lens(VgtkCore.Equidistant()))
 
 # The pixel-form refine fixtures: name => (guess, camera, pairs).
 function po_pixel_refine_fixtures()
-    E = po_true_pose()
+    E = true_pose()
     out = Pair{String, Any}[]
     for (lbl, cam, θmax) in (("pinhole", PO_PIN, 0.5), ("fisheye110", PO_FISH, deg2rad(110)))
-        cs = po_pixel_pairs(cam, E, po_scene_points(E, θmax))
-        push!(out, "$(lbl)_perturbed" => (po_perturbed(E), cam, cs))
+        cs = pixel_pairs(cam, E, scene_points(E, θmax))
+        push!(out, "$(lbl)_perturbed" => (perturbed(E), cam, cs))
         push!(out, "$(lbl)_near_noisy" => (E, cam, [X => u + SVector(0.3 * sin(7i), 0.3 * cos(11i)) for (i, (X, u)) in enumerate(cs)]))
     end
-    cs = po_pixel_pairs(PO_PIN, E, po_scene_points(E, 0.6; n = 12))
-    push!(out, "pinhole12_labeled" => (VgtkCore.relabel(VgtkCore.WorldFrame, VgtkCore.CameraFrame, po_perturbed(E)), PO_PIN, cs))
-    push!(out, "pinhole12_metres" => (VgtkCore.EuclideanMap(po_perturbed(E).R, po_perturbed(E).t .* po_m), PO_PIN, [X .* po_m => u for (X, u) in cs]))
+    cs = pixel_pairs(PO_PIN, E, scene_points(E, 0.6; n = 12))
+    push!(out, "pinhole12_labeled" => (VgtkCore.relabel(VgtkCore.WorldFrame, VgtkCore.CameraFrame, perturbed(E)), PO_PIN, cs))
+    push!(out, "pinhole12_metres" => (VgtkCore.EuclideanMap(perturbed(E).R, perturbed(E).t .* po_m), PO_PIN, [X .* po_m => u for (X, u) in cs]))
     push!(out, "pinhole12_too_few_2" => (E, PO_PIN, cs[1:2]))
     push!(out, "too_few_2_metres" => (VgtkCore.with_unit(VgtkCore.Extrinsics3(one(RotMatrix{3, Float64}), VgtkCore.Vec3{Float64}(0.0, 0.0, 0.0)), po_m),
-        PO_PCAM, [SA[0.1, 0.2, 2.0] .* po_m, SA[-0.3, 0.1, 2.5] .* po_m] .=> [SA[400.0, 300.0], SA[500.0, 350.0]]))
+        PCAM, [SA[0.1, 0.2, 2.0] .* po_m, SA[-0.3, 0.1, 2.5] .* po_m] .=> [SA[400.0, 300.0], SA[500.0, 350.0]]))
     return out
 end
 
 # The bearing-form refine fixtures: name => (guess, bearing correspondences).
 function po_bearing_refine_fixtures()
-    E = po_true_pose()
+    E = true_pose()
     out = Pair{String, Any}[]
     # pinhole, pixel-whitened (with M), noisy, and without M
-    Xs = po_scene_points(E, 0.5)
+    Xs = scene_points(E, 0.5)
     us = [SVector{2, Float64}(VgtkCore.project(PO_PIN, E.R * X + E.t)) for X in Xs]
     fM = [VgtkCore.backproject_with_jacobian(PO_PIN, u) for u in us]
-    push!(out, "pinhole_M" => (po_perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs, first.(fM)); M = last.(fM))))
+    push!(out, "pinhole_M" => (perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs, first.(fM)); M = last.(fM))))
     noise = [SVector(0.3 * sin(7i), 0.3 * cos(11i)) for i in eachindex(us)]
     fMn = [VgtkCore.backproject_with_jacobian(PO_PIN, u + δ) for (u, δ) in zip(us, noise)]
     push!(out, "pinhole_noisy_M" => (E, VgtkCore.withattrs(VgtkCore.Correspondences(Xs, first.(fMn)); M = last.(fMn))))
     push!(out, "pinhole_noisy_angle" => (E, VgtkCore.Correspondences(Xs, first.(fMn))))
     # a fisheye past 90° with a ray behind the camera; the same rays through a fisheye camera's Jacobians
-    Xs = po_scene_points(E, deg2rad(110))
+    Xs = scene_points(E, deg2rad(110))
     fs = [normalize(E.R * X + E.t) for X in Xs]
     Xb = E.R' * (SVector(0.3, 0.1, -2.5) - E.t)
     push!(Xs, Xb); push!(fs, normalize(E.R * Xb + E.t))
-    push!(out, "fisheye110_behind" => (po_perturbed(E), VgtkCore.Correspondences(Xs, fs)))
+    push!(out, "fisheye110_behind" => (perturbed(E), VgtkCore.Correspondences(Xs, fs)))
     keep = [i for i in 1:(length(Xs) - 1) if all(isfinite, VgtkCore.project(PO_FISH, E.R * Xs[i] + E.t))]
     fM = [VgtkCore.backproject_with_jacobian(PO_FISH, SVector{2, Float64}(VgtkCore.project(PO_FISH, E.R * Xs[i] + E.t))) for i in keep]
-    push!(out, "fisheye_camera_M" => (po_perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs[keep], first.(fM)); M = last.(fM))))
+    push!(out, "fisheye_camera_M" => (perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs[keep], first.(fM)); M = last.(fM))))
     # a generalized camera (ray origins), and its central form on the same rays
-    Xs = po_scene_points(E, deg2rad(100))
+    Xs = scene_points(E, deg2rad(100))
     os = [SVector(0.02 * sin(3i), 0.02 * cos(5i), 0.01 * sin(i)) for i in eachindex(Xs)]
     fs = [normalize(E.R * X + E.t - o) for (X, o) in zip(Xs, os)]
-    push!(out, "generalized_origins" => (po_perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs, fs); origins = os)))
-    push!(out, "generalized_as_central" => (po_perturbed(E), VgtkCore.Correspondences(Xs, fs)))
+    push!(out, "generalized_origins" => (perturbed(E), VgtkCore.withattrs(VgtkCore.Correspondences(Xs, fs); origins = os)))
+    push!(out, "generalized_as_central" => (perturbed(E), VgtkCore.Correspondences(Xs, fs)))
     push!(out, "origin_on_point" => (E, VgtkCore.withattrs(VgtkCore.Correspondences(Xs, fs);
                                                            origins = [i == 1 ? E.R * Xs[1] + E.t : o for (i, o) in enumerate(os)])))
     # contaminated rays with origins and 800 px Jacobians, from a near guess
@@ -159,16 +127,16 @@ function po_bearing_refine_fixtures()
     guess = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(VgtkCore.exp_so3(SVector(0.002, -0.0015, 0.002)) * E.R), E.t + SVector(0.004, -0.003, 0.003))
     push!(out, "contaminated_rays" => (guess, VgtkCore.withattrs(VgtkCore.Correspondences(Xs, fs); origins = os, M = Ms)))
     # refusals, frames, units
-    Xs = po_scene_points(E, 0.6; n = 12)
+    Xs = scene_points(E, 0.6; n = 12)
     fs = [normalize(E.R * X + E.t) for X in Xs]
     push!(out, "chart_points" => (E, VgtkCore.Correspondences(Xs, [f / f[3] for f in fs])))
     Mbad = [hcat(normalize(SVector(1.0, 0.0, 0.0) - f[1] * f) + f, normalize(SVector(0.0, 1.0, 0.0) - f[2] * f)) for f in fs]
     push!(out, "nontangent_M" => (E, VgtkCore.withattrs(VgtkCore.Correspondences(Xs, fs); M = Mbad)))
     push!(out, "too_few_2" => (E, VgtkCore.Correspondences(Xs[1:2], fs[1:2])))
-    push!(out, "labeled_12" => (VgtkCore.relabel(VgtkCore.WorldFrame, VgtkCore.CameraFrame, po_perturbed(E)), VgtkCore.Correspondences(Xs, fs)))
+    push!(out, "labeled_12" => (VgtkCore.relabel(VgtkCore.WorldFrame, VgtkCore.CameraFrame, perturbed(E)), VgtkCore.Correspondences(Xs, fs)))
     os = [SVector(0.01, 0.0, 0.0) for _ in Xs]
     fo = [normalize(E.R * X + E.t - o) for (X, o) in zip(Xs, os)]
-    push!(out, "metres_origins_12" => (VgtkCore.EuclideanMap(po_perturbed(E).R, po_perturbed(E).t .* po_m),
+    push!(out, "metres_origins_12" => (VgtkCore.EuclideanMap(perturbed(E).R, perturbed(E).t .* po_m),
         VgtkCore.withattrs(VgtkCore.Correspondences([X .* po_m for X in Xs], fo); origins = [o .* po_m for o in os])))
     # zero_weight_rows_tests: a point at the camera centre at caller weight 0
     E₀ = VgtkCore.EuclideanMap(RotMatrix(RotXYZ(0.33, -0.18, 0.12)), SVector(0.13, -0.08, 2.05))
@@ -188,14 +156,6 @@ end
 # =================================================================================================================
 # Hand-eye: name => the A => B motions
 # =================================================================================================================
-function po_hand_eye_scene()   # FindScenes.hand_eye_scene
-    rng = StableRNG(29)
-    sc = _PO_P.robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
-                                          A = (ang_max = π / 3, t_scale = 0.5))
-    X, Y, A = only(sc.X), sc.Y, sc.A
-    B = [_PO_P.perturb_pose(rng, _PO_P.marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
-    return A .=> B
-end
 function po_synth_dataset(rng; N = 60, σ_R = 0.001, σ_t = 0.001, n_outliers = 0)   # hand_eye_tests' _synth_dataset
     sc = _PO_P.robot_world_hand_eye_scene(rng; N, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1), A = (ang_max = π / 3, t_scale = 0.5))
     Xgt, Ygt, A = only(sc.X), sc.Y, sc.A
@@ -238,7 +198,7 @@ function po_hand_eye_scenes()
     Amm = po_phys.([VgtkCore.EuclideanMap(VgtkCore.rotation(a), 1000 .* VgtkCore.translation(a)) for a in A], Ref(po_mm))
     Bmm = po_phys.([VgtkCore.EuclideanMap(VgtkCore.rotation(b), 1000 .* VgtkCore.translation(b)) for b in B], Ref(po_mm))
     return [
-        "find_scene_30" => po_hand_eye_scene(),
+        "find_scene_30" => first(hand_eye_scene()),
         "noiseless_30" => noiseless,
         "moderate_80" => moderate,
         "outliers_120+15" => outliers,
@@ -262,23 +222,8 @@ end
 # =================================================================================================================
 # The radial homography: name => (pairs, center)
 # =================================================================================================================
-function po_radial_homography_scene()   # FindScenes.radial_homography_scene
-    M = VgtkCore.RadialHomography{Float64}(
-        VgtkCore.HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
-        -0.25 / hypot(PO_RW, PO_RH)^2, SVector(PO_RW / 2, PO_RH / 2))
-    function inlier(rng, _)
-        while true
-            s = SVector(200 * rand(rng), 150 * rand(rng))
-            d = VgtkCore.radial_transfer(M, s)
-            d === nothing && continue
-            (0 < d[1] < PO_RW && 0 < d[2] < PO_RH) && return s => SVector(d[1], d[2])
-        end
-    end
-    return first(_PO_C.contaminated_pairs(StableRNG(17), inlier, 70; σ = 0.3, n_out = 30, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng), 150 * rand(rng)) => SVector(PO_RW * rand(rng), PO_RH * rand(rng))))
-end
 function po_radial_homography_scenes()
-    c = (PO_RW / 2, PO_RH / 2)
+    c = (RW / 2, RH / 2)
     m_gt = _PO_R.radial_homography_truth(-0.25)
     rng = StableRNG(1234)   # radial_homography_tests' draws, in its order
     clean20 = first(_PO_R.radial_homography_pairs(rng, m_gt; n_in = 20, n_out = 0))
@@ -289,7 +234,7 @@ function po_radial_homography_scenes()
     ext60 = first(_PO_R.radial_homography_pairs(rng, m_gt; n_in = 60, n_out = 15))
     four80 = first(_PO_R.radial_homography_pairs(StableRNG(77), m_gt; n_in = 80, n_out = 25, σ = 0.3))
     return [
-        "find_scene_70+30" => (po_radial_homography_scene(), c),
+        "find_scene_70+30" => (first(radial_homography_scene()), c),
         "clean_20" => (clean20, c), "exact_70+30_a" => (exact70a, c), "exact_70+30_b" => (exact70b, c),
         "noisy_120+20" => (noisy120, c), "noisy_40" => (noisy40, c), "extent_60+15" => (ext60, c), "four_80+25" => (four80, c),
     ]
@@ -298,14 +243,8 @@ end
 # =================================================================================================================
 # The radial camera: name => (pairs, center)
 # =================================================================================================================
-function po_radial_camera_pairs()   # RadialCameraScene.radial_camera_pairs
-    cam = _PO_D.board_camera(RotXYZ(0.35, -0.25, 0.15), SVector(40.0, -30.0, 600.0); f = 900.0, ks = (-2.0e-7,), center = PO_RC_CENTER)
-    return first(_PO_C.contaminated_pairs(
-        StableRNG(19), _PO_D.board_pixels(cam; grid = -100.0:25.0:100.0); σ = 0.2, n_out = 20, shuffle = true,
-        outlier = (rng, _) -> SVector(200 * rand(rng) - 100, 200 * rand(rng) - 100) => SVector(4000 * rand(rng), 3000 * rand(rng))))
-end
 po_radial_camera_scenes() = [
-    "find_scene_81+20" => (po_radial_camera_pairs(), PO_RC_CENTER),
+    "find_scene_81+20" => (first(radial_camera_pairs()), RC_CENTER),
     "board_exact_seed7" => (_PO_D.radial_board(StableRNG(7))[2], _PO_D.RADIAL_BOARD_CENTER),
     "board_noisy0.3_seed3" => (_PO_D.radial_board(StableRNG(3); σ = 0.3)[2], _PO_D.RADIAL_BOARD_CENTER),
     "board_noisy0.2_seed11" => (_PO_D.radial_board(StableRNG(11); σ = 0.2)[2], _PO_D.RADIAL_BOARD_CENTER),

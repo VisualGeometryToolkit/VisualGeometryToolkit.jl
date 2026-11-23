@@ -62,11 +62,11 @@ function record_features_image_circle(cases)
             f -> detect_image_circle(rng(), f; outlier_halfwidth = 0.1 * hypot(FIC_W, FIC_H), device = FIC_DEV))
         # --- rims of known edge and knee, 640 × 480 ----------------------------------------------------------------
         W, H, c, re, rk = 640, 480, (321.3, 240.7), 150.0, 120.0
-        ramp = fic_rim_synth(W, H, c, re, rk, seed; sat_at = 95.0, sat_radius = 20)
+        ramp = rim_synth(StableRNG(seed), W, H, c, re, rk; sat_at = 95.0, sat_radius = 20)
         case!(cases, "rim/ramp150_120_sat/ellipse/$s", ramp, f -> detect_image_circle(rng(), f; outlier_halfwidth = 50, device = FIC_DEV))
-        sharp = fic_rim_synth(W, H, c, re, re, seed; sat_at = 95.0, sat_radius = 20)
+        sharp = rim_synth(StableRNG(seed), W, H, c, re, re; sat_at = 95.0, sat_radius = 20)
         case!(cases, "rim/sharp150_sat/ellipse/$s", sharp, f -> detect_image_circle(rng(), f; outlier_halfwidth = 50, device = FIC_DEV))
-        plain = fic_rim_synth(W, H, c, re, re, seed)
+        plain = rim_synth(StableRNG(seed), W, H, c, re, re)
         case!(cases, "rim/sharp150/rim_angles72/$s", plain,
             f -> detect_image_circle(rng(), f; outlier_halfwidth = 50, rim_angles = 72, device = FIC_DEV))
         init = VgtkCore.Ellipse(VgtkCore.Point2(318.0, 243.0), 200.0, 200.0, 0.0)

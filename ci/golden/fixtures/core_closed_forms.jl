@@ -103,24 +103,15 @@ end
 
 # --- the calibration from plane homographies (zhang_intrinsics_tests) ---------------------------------------------
 
-const ZHANG_CENTER = SVector(640.0, 480.0)
-_zhang_hom(K, R, t) = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(K * hcat(R[:, 1], R[:, 2], t))))
-function zhang_views(fx, fy)
-    c = ZHANG_CENTER
-    K = @SMatrix [fx 0.0 c[1]; 0.0 fy c[2]; 0.0 0.0 1.0]
-    angles = [(0.4, -0.3, 0.2), (-0.5, 0.2, -0.1), (0.2, 0.5, 0.3), (-0.3, -0.4, 0.1), (0.6, 0.1, -0.2), (0.1, -0.6, 0.4)]
-    ts = [SVector(0.3, -0.2, 2.5), SVector(-0.4, 0.1, 3.0), SVector(0.2, 0.3, 2.2), SVector(-0.1, -0.3, 2.8), SVector(0.5, 0.2, 3.5),
-          SVector(0.0, 0.4, 2.0)]
-    return [_zhang_hom(K, RotXYZ(a...), t) for (a, t) in zip(angles, ts)]
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "zhang_views.jl"))
 function zhang_fixtures()
     fx, fy = 1226.3, 1219.7
     Hs = zhang_views(fx, fy)
-    junk = _zhang_hom((@SMatrix [500.0 0 0; 0 900.0 0; 0 0 1.0]), RotXYZ(0.3, 0.2, 0.1), SVector(0.1, 0.1, 2.0))
+    junk = zhang_homography((@SMatrix [500.0 0 0; 0 900.0 0; 0 0 1.0]), RotXYZ(0.3, 0.2, 0.1), SVector(0.1, 0.1, 2.0))
     voted = [[Attributed(H, (; weight = 10)) for H in Hs]; Attributed(junk, (; weight = 0))]
     mixed = [Hs[1:3]; [Attributed(H, (; weight = 1.0)) for H in Hs[4:end]]]
     K = @SMatrix [fx 0.0 ZHANG_CENTER[1]; 0.0 fy ZHANG_CENTER[2]; 0.0 0.0 1.0]
-    flat = [_zhang_hom(K, RotXYZ(0.0, 0.0, ψ), SVector(0.1ψ, -0.2ψ, 2.0 + ψ)) for ψ in (0.0, 0.3, -0.4, 0.7)]
+    flat = [zhang_homography(K, RotXYZ(0.0, 0.0, ψ), SVector(0.1ψ, -0.2ψ, 2.0 + ψ)) for ψ in (0.0, 0.3, -0.4, 0.7)]
     τ = 3.9 / 4.0
     return (; Hs, voted, mixed, flat, Hs_τ = zhang_views(1300.0, τ * 1300.0),
             pitch1 = Size2(width = 1.0μm / px, height = 1.0μm / px), pitch = Size2(width = 3.9μm / px, height = 4.0μm / px),

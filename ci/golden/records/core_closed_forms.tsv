@@ -34,12 +34,12 @@ fundmat_dlt/layer_20/refused_weights_keyword/seed1#fixture		struct	Tuple{VisualG
 fundmat_dlt/layer_20/refused_weights_keyword/seed1#fixture	1	array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [20]	c048aef99db33e8f8a9171c2afb590deb295073b695cb5126e51ef794f5742d1
 fundmat_dlt/layer_20/refused_weights_keyword/seed1#fixture	2	array Base.Vector{Float64} [20]	889dd4e4845980f23fc65c3897eaa8ae2e6800334c3baf16166da5247b0bbd53
 fundmat_dlt/layer_20/refused_weights_keyword/seed1	exception	type	MethodError
-fundmat_dlt/layer_20/refused_weights_keyword/seed1	exception.msg	String	MethodError: no method matching fundamental_dlt(::Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Vector{GeometryBasics.Point{2, Float64}}, Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Vector{Float64})
+fundmat_dlt/layer_20/refused_weights_keyword/seed1	exception.msg	String	MethodError: no method matching fundamental_dlt(::VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Base.Vector{Float64})
 fundmat_dlt/layer_20/refused_parallel_arrays/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}}
 fundmat_dlt/layer_20/refused_parallel_arrays/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	343ea5e63523a16e0edfc381ed1d119cfb11eca0492e1e01cb12727cb1f71b2e
 fundmat_dlt/layer_20/refused_parallel_arrays/seed1#fixture	2	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	007538f72fc2d3976ea9315a518e8c18f63daa4a5b41b29f2ce82a3a52d639d6
 fundmat_dlt/layer_20/refused_parallel_arrays/seed1	exception	type	MethodError
-fundmat_dlt/layer_20/refused_parallel_arrays/seed1	exception.msg	String	MethodError: no method matching fundamental_dlt(::Vector{GeometryBasics.Point{2, Float64}}, ::Vector{GeometryBasics.Point{2, Float64}})
+fundmat_dlt/layer_20/refused_parallel_arrays/seed1	exception.msg	String	MethodError: no method matching fundamental_dlt(::Base.Vector{GeometryBasics.Point{2, Float64}}, ::Base.Vector{GeometryBasics.Point{2, Float64}})
 fundmat_dlt/layer_9/nonfinite_row/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [9]	c59bde5fa7f7db56c0497779fb69abb8537af6e8151cf50ac59fe0cd24d4e6ef
 fundmat_dlt/layer_9/nonfinite_row/seed1		Nothing	nothing
 fundmat_dlt/fundmat_scene_130/all/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [130]	73fd5538706b52c9c020172b3da98d35cd0b921ba71055e464bf080779d3a208
@@ -93,12 +93,12 @@ fundmat_dlt/layer_20/refused_weights_keyword/seed2#fixture		struct	Tuple{VisualG
 fundmat_dlt/layer_20/refused_weights_keyword/seed2#fixture	1	array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [20]	496cf76f5f4a6ddffe3fdeee20551fb5232d378808792714e8903fed62f6b8b0
 fundmat_dlt/layer_20/refused_weights_keyword/seed2#fixture	2	array Base.Vector{Float64} [20]	889dd4e4845980f23fc65c3897eaa8ae2e6800334c3baf16166da5247b0bbd53
 fundmat_dlt/layer_20/refused_weights_keyword/seed2	exception	type	MethodError
-fundmat_dlt/layer_20/refused_weights_keyword/seed2	exception.msg	String	MethodError: no method matching fundamental_dlt(::Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Vector{GeometryBasics.Point{2, Float64}}, Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Vector{Float64})
+fundmat_dlt/layer_20/refused_weights_keyword/seed2	exception.msg	String	MethodError: no method matching fundamental_dlt(::VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Base.Vector{Float64})
 fundmat_dlt/layer_20/refused_parallel_arrays/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}}
 fundmat_dlt/layer_20/refused_parallel_arrays/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	673b8b7789a1964fc9f18820cfd00ab785ab2a0d83fdc5176fcd2f8db7c18051
 fundmat_dlt/layer_20/refused_parallel_arrays/seed2#fixture	2	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	25da9607d0bc719333365c7dd564de30a987ea25ee092cace62b6f8c82f022a9
 fundmat_dlt/layer_20/refused_parallel_arrays/seed2	exception	type	MethodError
-fundmat_dlt/layer_20/refused_parallel_arrays/seed2	exception.msg	String	MethodError: no method matching fundamental_dlt(::Vector{GeometryBasics.Point{2, Float64}}, ::Vector{GeometryBasics.Point{2, Float64}})
+fundmat_dlt/layer_20/refused_parallel_arrays/seed2	exception.msg	String	MethodError: no method matching fundamental_dlt(::Base.Vector{GeometryBasics.Point{2, Float64}}, ::Base.Vector{GeometryBasics.Point{2, Float64}})
 fundmat_dlt/layer_9/nonfinite_row/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [9]	70232dcabd00c495f073c78ae98841cb992755038e28d9c616e63e07a6e887a4
 fundmat_dlt/layer_9/nonfinite_row/seed2		Nothing	nothing
 fundmat_dlt/fundmat_scene_130/all/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [130]	5beb294609b4e34e69fd3a629f371f95d1fdd26d5a8d7832a0c868ce67600644
@@ -152,12 +152,12 @@ fundmat_dlt/layer_20/refused_weights_keyword/seed3#fixture		struct	Tuple{VisualG
 fundmat_dlt/layer_20/refused_weights_keyword/seed3#fixture	1	array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [20]	1b110ba5a588f273ebd8dc3dd6c322fb4dfd084fbafd0345ddb0e8a05d0feb9a
 fundmat_dlt/layer_20/refused_weights_keyword/seed3#fixture	2	array Base.Vector{Float64} [20]	889dd4e4845980f23fc65c3897eaa8ae2e6800334c3baf16166da5247b0bbd53
 fundmat_dlt/layer_20/refused_weights_keyword/seed3	exception	type	MethodError
-fundmat_dlt/layer_20/refused_weights_keyword/seed3	exception.msg	String	MethodError: no method matching fundamental_dlt(::Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Vector{GeometryBasics.Point{2, Float64}}, Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Vector{Float64})
+fundmat_dlt/layer_20/refused_weights_keyword/seed3	exception.msg	String	MethodError: no method matching fundamental_dlt(::VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}}; weights::Base.Vector{Float64})
 fundmat_dlt/layer_20/refused_parallel_arrays/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}}
 fundmat_dlt/layer_20/refused_parallel_arrays/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	a930450dc180ae70b9f75340569089180af30d1842e330f5a185ba4f56fcf226
 fundmat_dlt/layer_20/refused_parallel_arrays/seed3#fixture	2	array Base.Vector{GeometryBasics.Point{2, Float64}} [20]	05caf81cccb7f78aafd139259abeee1ddae49ea0fbeb481c87bbf83ebd47cc36
 fundmat_dlt/layer_20/refused_parallel_arrays/seed3	exception	type	MethodError
-fundmat_dlt/layer_20/refused_parallel_arrays/seed3	exception.msg	String	MethodError: no method matching fundamental_dlt(::Vector{GeometryBasics.Point{2, Float64}}, ::Vector{GeometryBasics.Point{2, Float64}})
+fundmat_dlt/layer_20/refused_parallel_arrays/seed3	exception.msg	String	MethodError: no method matching fundamental_dlt(::Base.Vector{GeometryBasics.Point{2, Float64}}, ::Base.Vector{GeometryBasics.Point{2, Float64}})
 fundmat_dlt/layer_9/nonfinite_row/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{GeometryBasics.Point{2, Float64}, GeometryBasics.Point{2, Float64}, Base.Vector{GeometryBasics.Point{2, Float64}}, Base.Vector{GeometryBasics.Point{2, Float64}}, @NamedTuple{}} [9]	eb629a978bbddda484edd16ef3be779c3cbc0eaf1bd869561cbc8f2e00fb6afe
 fundmat_dlt/layer_9/nonfinite_row/seed3		Nothing	nothing
 fundmat_dlt/fundmat_scene_130/all/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [130]	b33e3921a3d8221e04d43b65902374c82a84af0a54c4dd2f619e0bfc6666f6db
@@ -191,7 +191,7 @@ essential_dlt/refine_scene_7/too_few/seed1	exception	type	ArgumentError
 essential_dlt/refine_scene_7/too_few/seed1	exception.msg	String	ArgumentError: essential_dlt needs at least 8 correspondences, got 7
 essential_dlt/refine_scene_20/refused_chart/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [20]	c8779d6561ce49c66cdf109be29b055828ee8b59257b5e8a60ca4f3a9166e95d
 essential_dlt/refine_scene_20/refused_chart/seed1	exception	type	MethodError
-essential_dlt/refine_scene_20/refused_chart/seed1	exception.msg	String	MethodError: no method matching essential_dlt(::PoseLibSolver, ::Correspondences{SVector{2, Float64}, SVector{2, Float64}, Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, @NamedTuple{}})
+essential_dlt/refine_scene_20/refused_chart/seed1	exception.msg	String	MethodError: no method matching essential_dlt(::VisualGeometryToolkitCore.PoseLibSolver, ::VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}})
 essential_dlt/refine_scene_20/bare/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{}} [20]	16e58670698b162484ba2c0c57711cf207114020e27f65503a4d335dbf98c4f7
 essential_dlt/refine_scene_20/bare/seed2		array VisualGeometryToolkitCore.EssentialMat{Float64} [3x3]	4d1137e5a4c41fbc117308174a2917e5c7160437e234055b7a1d1744009ea39f
 essential_dlt/refine_scene_20/poselib_pairs/seed2#fixture		array Base.Vector{Pair{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}}} [20]	16e58670698b162484ba2c0c57711cf207114020e27f65503a4d335dbf98c4f7
@@ -207,7 +207,7 @@ essential_dlt/refine_scene_7/too_few/seed2	exception	type	ArgumentError
 essential_dlt/refine_scene_7/too_few/seed2	exception.msg	String	ArgumentError: essential_dlt needs at least 8 correspondences, got 7
 essential_dlt/refine_scene_20/refused_chart/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [20]	cb89989552b6c0c44b02cbc54478a5e382a919fbb3bd88ce29aeb37d095cf06d
 essential_dlt/refine_scene_20/refused_chart/seed2	exception	type	MethodError
-essential_dlt/refine_scene_20/refused_chart/seed2	exception.msg	String	MethodError: no method matching essential_dlt(::PoseLibSolver, ::Correspondences{SVector{2, Float64}, SVector{2, Float64}, Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, @NamedTuple{}})
+essential_dlt/refine_scene_20/refused_chart/seed2	exception.msg	String	MethodError: no method matching essential_dlt(::VisualGeometryToolkitCore.PoseLibSolver, ::VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}})
 essential_dlt/refine_scene_20/bare/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{}} [20]	83f785451de94334a2c942cc10d5992e819cea8972c7392c3a2811bb1cb18305
 essential_dlt/refine_scene_20/bare/seed3		array VisualGeometryToolkitCore.EssentialMat{Float64} [3x3]	47b9aa4cb90dcc5d1c56783a0c51f331e1ea3b719562c9b7f0ac69eaa782b7b8
 essential_dlt/refine_scene_20/poselib_pairs/seed3#fixture		array Base.Vector{Pair{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}}} [20]	83f785451de94334a2c942cc10d5992e819cea8972c7392c3a2811bb1cb18305
@@ -223,7 +223,7 @@ essential_dlt/refine_scene_7/too_few/seed3	exception	type	ArgumentError
 essential_dlt/refine_scene_7/too_few/seed3	exception.msg	String	ArgumentError: essential_dlt needs at least 8 correspondences, got 7
 essential_dlt/refine_scene_20/refused_chart/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}} [20]	20b54050b30430b7a41dbc04742911747dfced3e8630a4248311dfd3a8362bf3
 essential_dlt/refine_scene_20/refused_chart/seed3	exception	type	MethodError
-essential_dlt/refine_scene_20/refused_chart/seed3	exception.msg	String	MethodError: no method matching essential_dlt(::PoseLibSolver, ::Correspondences{SVector{2, Float64}, SVector{2, Float64}, Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, @NamedTuple{}})
+essential_dlt/refine_scene_20/refused_chart/seed3	exception.msg	String	MethodError: no method matching essential_dlt(::VisualGeometryToolkitCore.PoseLibSolver, ::VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{2, Float64}, StaticArraysCore.SVector{2, Float64}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, Base.Vector{StaticArraysCore.SVector{2, Float64}}, @NamedTuple{}})
 kabsch/fits_40/exact_pairs/seed1#fixture		array Base.Vector{Pair{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}}} [40]	471869fe27ad7b9b58aa659d70ccfb7bfac27e07cb1529c4fac1eeb06825da22
 kabsch/fits_40/exact_pairs/seed1		array Rotations.RotMatrix3{Float64} [3x3]	02011586099ff4d8935a9e4cb5dc22c5756a136cfe13e902f19fa28284b33320
 kabsch/fits_40/exact_correspondences/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{}} [40]	471869fe27ad7b9b58aa659d70ccfb7bfac27e07cb1529c4fac1eeb06825da22
@@ -244,7 +244,7 @@ kabsch/fits_40/refused_parallel_arrays/seed1#fixture		struct	Tuple{Base.Vector{S
 kabsch/fits_40/refused_parallel_arrays/seed1#fixture	1	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	adbb465027aabd4685a003c541bce97c79ab5243916e93a94a8491263742e051
 kabsch/fits_40/refused_parallel_arrays/seed1#fixture	2	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	da829f138d7c35538807afb2b874fe732aa58916b4cba8803b831b92c23305b5
 kabsch/fits_40/refused_parallel_arrays/seed1	exception	type	MethodError
-kabsch/fits_40/refused_parallel_arrays/seed1	exception.msg	String	MethodError: no method matching kabsch(::Vector{SVector{3, Float64}}, ::Vector{SVector{3, Float64}})
+kabsch/fits_40/refused_parallel_arrays/seed1	exception.msg	String	MethodError: no method matching kabsch(::Base.Vector{StaticArraysCore.SVector{3, Float64}}, ::Base.Vector{StaticArraysCore.SVector{3, Float64}})
 kabsch/weighted_30/weights/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	3a8e1c354a5afe4110ed0ee52c21a6d1080232898fae8fa41a40a0329d921680
 kabsch/weighted_30/weights/seed1		array Rotations.RotMatrix3{Float64} [3x3]	69471c997d625c04110950fa751e077e408a5dce6fd9cdfa8176f801e84a12db
 kabsch/weighted_30/unit_weights/seed1#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	3a8e1c354a5afe4110ed0ee52c21a6d1080232898fae8fa41a40a0329d921680
@@ -285,7 +285,7 @@ kabsch/fits_40/refused_parallel_arrays/seed2#fixture		struct	Tuple{Base.Vector{S
 kabsch/fits_40/refused_parallel_arrays/seed2#fixture	1	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	b305ca2d02ad394a42921d53fc8ffe36befe45f03c28cd13ac487fc30fe24cfa
 kabsch/fits_40/refused_parallel_arrays/seed2#fixture	2	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	35c45ce98c25b894eacc1c50fb193bbab8a8c09427a868d8cfa25844ce715c1f
 kabsch/fits_40/refused_parallel_arrays/seed2	exception	type	MethodError
-kabsch/fits_40/refused_parallel_arrays/seed2	exception.msg	String	MethodError: no method matching kabsch(::Vector{SVector{3, Float64}}, ::Vector{SVector{3, Float64}})
+kabsch/fits_40/refused_parallel_arrays/seed2	exception.msg	String	MethodError: no method matching kabsch(::Base.Vector{StaticArraysCore.SVector{3, Float64}}, ::Base.Vector{StaticArraysCore.SVector{3, Float64}})
 kabsch/weighted_30/weights/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	8d7d8adabb866d9c0de22acc147751d70864e64d3e9ec98f77ebea16a6058f80
 kabsch/weighted_30/weights/seed2		array Rotations.RotMatrix3{Float64} [3x3]	0b94e23d4caff8080041e84f0bf1bc0cff94b699f7c33064ea197a61413b2119
 kabsch/weighted_30/unit_weights/seed2#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	8d7d8adabb866d9c0de22acc147751d70864e64d3e9ec98f77ebea16a6058f80
@@ -326,7 +326,7 @@ kabsch/fits_40/refused_parallel_arrays/seed3#fixture		struct	Tuple{Base.Vector{S
 kabsch/fits_40/refused_parallel_arrays/seed3#fixture	1	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	6d8b79d43ff56645f550bb7d30674b7f5853ea6537bf3e4a9a9d34fb094996e8
 kabsch/fits_40/refused_parallel_arrays/seed3#fixture	2	array Base.Vector{StaticArraysCore.SVector{3, Float64}} [40]	bd41c1528f86fa1887eaf2b3bc6fd51b568886c02a52d801b0323275c69466b7
 kabsch/fits_40/refused_parallel_arrays/seed3	exception	type	MethodError
-kabsch/fits_40/refused_parallel_arrays/seed3	exception.msg	String	MethodError: no method matching kabsch(::Vector{SVector{3, Float64}}, ::Vector{SVector{3, Float64}})
+kabsch/fits_40/refused_parallel_arrays/seed3	exception.msg	String	MethodError: no method matching kabsch(::Base.Vector{StaticArraysCore.SVector{3, Float64}}, ::Base.Vector{StaticArraysCore.SVector{3, Float64}})
 kabsch/weighted_30/weights/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	89c7e1b627cae912175ae6dd62e3cc10d3a471ec776adea4beef428a09a67dbf
 kabsch/weighted_30/weights/seed3		array Rotations.RotMatrix3{Float64} [3x3]	8f098e810e9c6b15fbd653b05e81ffbc0c3960698ebb044d7f17f246812d7969
 kabsch/weighted_30/unit_weights/seed3#fixture		array VisualGeometryToolkitCore.Correspondences{StaticArraysCore.SVector{3, Float64}, StaticArraysCore.SVector{3, Float64}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, Base.Vector{StaticArraysCore.SVector{3, Float64}}, @NamedTuple{weights::Base.Vector{Float64}}} [30]	89c7e1b627cae912175ae6dd62e3cc10d3a471ec776adea4beef428a09a67dbf
@@ -582,7 +582,7 @@ rotation_averaging/six_frames/refused_weights_dict/seed1#fixture	[(4, 5)]	array 
 rotation_averaging/six_frames/refused_weights_dict/seed1#fixture	[(4, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	457b79d6cc5ee76f0a34a88ffd1fc920b4a3f15c0dc03a2e94b2e34c11aa43ed
 rotation_averaging/six_frames/refused_weights_dict/seed1#fixture	[(5, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	6b5d59a53e58d7608d6e491fdabd88986555e5881df78da51bdedaa374790981
 rotation_averaging/six_frames/refused_weights_dict/seed1	exception	type	MethodError
-rotation_averaging/six_frames/refused_weights_dict/seed1	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Dict{Tuple{Int64, Int64}, Float64})
+rotation_averaging/six_frames/refused_weights_dict/seed1	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Base.Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Base.Dict{Tuple{Int64, Int64}, Float64})
 rotation_averaging/six_frames/pairs/seed2#fixture		dict[15]	
 rotation_averaging/six_frames/pairs/seed2#fixture	[(1, 2)]	array Rotations.RotMatrix3{Float64} [3x3]	7b61acb056180d2f467501c2e095c062eab5efd84f069d0114e101465de071b0
 rotation_averaging/six_frames/pairs/seed2#fixture	[(1, 3)]	array Rotations.RotMatrix3{Float64} [3x3]	687a14c9c89e13459579efaf82202586b06962d92e702a35ec30280a4a6cf6dd
@@ -791,7 +791,7 @@ rotation_averaging/six_frames/refused_weights_dict/seed2#fixture	[(4, 5)]	array 
 rotation_averaging/six_frames/refused_weights_dict/seed2#fixture	[(4, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	85a5f155cd4b025e3b993a9c99a50f5b079001699304f70b96fb88830328611b
 rotation_averaging/six_frames/refused_weights_dict/seed2#fixture	[(5, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	996fcf7bafd5b1b605ccfad9fd3da67f41b8f115becbdf5972dded5a277feb24
 rotation_averaging/six_frames/refused_weights_dict/seed2	exception	type	MethodError
-rotation_averaging/six_frames/refused_weights_dict/seed2	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Dict{Tuple{Int64, Int64}, Float64})
+rotation_averaging/six_frames/refused_weights_dict/seed2	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Base.Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Base.Dict{Tuple{Int64, Int64}, Float64})
 rotation_averaging/six_frames/pairs/seed3#fixture		dict[15]	
 rotation_averaging/six_frames/pairs/seed3#fixture	[(1, 2)]	array Rotations.RotMatrix3{Float64} [3x3]	ccc247608625584f06406227102cb78348b587331d30ffe5e8fed8d5c3910ae1
 rotation_averaging/six_frames/pairs/seed3#fixture	[(1, 3)]	array Rotations.RotMatrix3{Float64} [3x3]	a69ce9ecd33f0475443346ea4c767dfadad0de186852d48ed9e6aa3b1aec23f0
@@ -1000,7 +1000,7 @@ rotation_averaging/six_frames/refused_weights_dict/seed3#fixture	[(4, 5)]	array 
 rotation_averaging/six_frames/refused_weights_dict/seed3#fixture	[(4, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	8b5f4e0b3eb3ff0fb51735ebc3cd855b292852c692104502de1f4cf3ffb244b8
 rotation_averaging/six_frames/refused_weights_dict/seed3#fixture	[(5, 6)]	array Rotations.RotMatrix3{Float64} [3x3]	9d86d16d98d3001ea56b4102a3de450d44855311958533e17dcd03b70f616aef
 rotation_averaging/six_frames/refused_weights_dict/seed3	exception	type	MethodError
-rotation_averaging/six_frames/refused_weights_dict/seed3	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Dict{Tuple{Int64, Int64}, Float64})
+rotation_averaging/six_frames/refused_weights_dict/seed3	exception.msg	String	MethodError: no method matching spectral_rotation_averaging(::Base.Dict{Tuple{Int64, Int64}, Rotations.RotMatrix3{Float64}}, ::Base.Dict{Tuple{Int64, Int64}, Float64})
 rotation_averaging/empty/refused#fixture		dict[0]	
 rotation_averaging/empty/refused	exception	type	ArgumentError
 rotation_averaging/empty/refused	exception.msg	String	ArgumentError: spectral_rotation_averaging: no relative rotations
@@ -1059,7 +1059,7 @@ zhang/six_views/free/refused_weights_keyword#fixture		struct	Tuple{Base.Vector{V
 zhang/six_views/free/refused_weights_keyword#fixture	1	array Base.Vector{VisualGeometryToolkitCore.HomographyMat{Float64}} [6]	b3261cebf772318eda6a9a2f7ea87d647b3c008d829ae9db2247a209d05b8c63
 zhang/six_views/free/refused_weights_keyword#fixture	2	array StaticArraysCore.SVector{2, Float64} [2]	505bd82e938dfa09c6e2588a1364304bff7c6375f274cac4ac4a99b53727ee32
 zhang/six_views/free/refused_weights_keyword	exception	type	MethodError
-zhang/six_views/free/refused_weights_keyword	exception.msg	String	MethodError: no method matching zhang_intrinsics(::Vector{HomographyMat{Float64}}; center::SVector{2, Float64}, weights::Vector{Float64})
+zhang/six_views/free/refused_weights_keyword	exception.msg	String	MethodError: no method matching zhang_intrinsics(::Base.Vector{VisualGeometryToolkitCore.HomographyMat{Float64}}; center::StaticArraysCore.SVector{2, Float64}, weights::Base.Vector{Float64})
 zhang/six_views/free/negative_weight#fixture		struct	Tuple{Base.Vector{Any}, StaticArraysCore.SVector{2, Float64}}
 zhang/six_views/free/negative_weight#fixture	1	array Base.Vector{Any} [6]	2964ff08c127038cce512bc1da2a19498a2ac7d5a6772421184e958211e2a3e5
 zhang/six_views/free/negative_weight#fixture	2	array StaticArraysCore.SVector{2, Float64} [2]	505bd82e938dfa09c6e2588a1364304bff7c6375f274cac4ac4a99b53727ee32

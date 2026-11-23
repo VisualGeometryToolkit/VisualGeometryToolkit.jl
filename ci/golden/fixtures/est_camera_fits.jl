@@ -114,19 +114,8 @@ function ecf_circular_fisheye()
     return (; spl, circle)
 end
 
-# FitCameraNoncentral: the non-central fisheye, bounded by its image
-function ecf_noncentral_source(t = SVector(0.0, 0.0, 0.0))
-    central = CameraModel(SplineLens, ecf_fisheye_model(), Size2(1000, 1000); grid_size = (53, 47))
-    d = central.lens.backward
-    gh, gw = size(d.controls)
-    points = map(CartesianIndices((gh, gw))) do ij
-        i, j = Tuple(ij)
-        x, y = (j - 2) * 1000 / (gw - 3), (i - 2) * 1000 / (gh - 3)
-        ρ = hypot(x - 500, y - 500) / 500
-        SVector{3, Float64}(2.0e-4 * sin(x / 300) + t[1], 1.5e-4 * cos(y / 400) + t[2], 3.0e-3 * ρ^2 + t[3])
-    end
-    return BoundedCamera(NoncentralSplineModel(central.intrinsics, d, ChartSpline(d.area, points)), Size2(1000, 1000))
-end
+# FitCameraNoncentral: the non-central fisheye (`noncentral_central`, `noncentral_fisheye`): the suite's fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "noncentral_fisheye.jl"))
 
 # the RC siemens start camera (a re-gridded Schöps calibration) and its support
 function ecf_siemens()
@@ -187,22 +176,11 @@ ecf_first_board_pixels() = _ECF_DB.board_pixels(_ECF_DB.board_camera(Rotations.R
 # ---------------------------------------------------------------------------------------------------------------
 # CameraPoseScenes, SplineCameraPoseScenes, BoardScenes, RotationCenterScenes (refine_camera_and_poses_tests.jl)
 # ---------------------------------------------------------------------------------------------------------------
-ecf_pinhole_camera() = CameraModel(; focal = 800.0, pp = (640.0, 480.0), lens = Pinhole())
-ecf_fisheye_camera() = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
-ecf_truth_poses(V) = [EuclideanMap(Rotations.RotMatrix(Rotations.RotXYZ(0.3 - 0.1v, -0.2 + 0.07v, 0.1v)), SVector(0.1 - 0.05v, -0.05, 2.0 + 0.1v)) for v in 1:V]
-ecf_perturbed_pose(E, v) = EuclideanMap(Rotations.RotMatrix{3, Float64}(exp_so3(SVector(0.03, -0.02v / 4, 0.03)) * E.R), E.t + SVector(0.05, -0.04, 0.06 - 0.01v))
+# the scenes (`pinhole_camera`, `fisheye_camera`, `truth_poses`, `perturbed_pose`, `views_of`, `spline_truth`,
+# `perturbed_controls`, `spline_views`, `board_points`, `truth_boards`, `view_poses`, `board_views`, `nudged`,
+# `center_truth`, `center_views`): the suite's fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "camera_pose_scenes.jl"))
 ecf_near_pose(E, v) = EuclideanMap(Rotations.RotMatrix{3, Float64}(exp_so3(SVector(0.002, -0.0015v / 4, 0.002)) * E.R), E.t + SVector(0.004, -0.003, 0.005 - 0.001v))
-function ecf_views_of(camera, poses, θmax; n = 60)
-    map(enumerate(poses)) do (v, E)
-        map(1:n) do k
-            θ = θmax * (k / n); φ = 2.399963 * k + v
-            d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-            Xc = (2.0 + 1.5 * ((7k + v) % 10) / 10) * d
-            X = E.R' * (Xc - E.t)
-            X => SVector{2, Float64}(project(camera, Xc))
-        end
-    end
-end
 # σ = 0.2 px detections, 8 % of them moved 20–60 px (the robust-refine item's draw, from a StableRNG)
 ecf_contaminate(rng, views) = [[X => u + 0.2 * SVector(randn(rng), randn(rng)) +
                                     (rand(rng) < 0.08 ? (20 + 40rand(rng)) * normalize(SVector(randn(rng), randn(rng))) : zero(SVector{2}))
@@ -213,68 +191,23 @@ ecf_contaminate_inner(rng, views) = [[(k <= 80 && rand(rng) < 0.08) ? (X => u + 
                                       for (k, (X, u)) in enumerate(cs)] for cs in views]
 
 ecf_bounded(c) = BoundedCamera(c, Size2(1280, 960))
-ecf_spline_truth() = CameraModel(SplineLens, ecf_fisheye_camera(), Size2(1280, 960); grid_size = (12, 10))
-function ecf_perturbed_controls(cam, ϵ)
-    b = cam.lens.backward
-    C = map(CartesianIndices(b.controls)) do i
-        c = b.controls[i]; k = i[1] + 13 * i[2]
-        isfinite(c[1]) ? norm(c) * normalize(c / norm(c) + ϵ * SVector(sin(1.3k), cos(0.7k), sin(2.1k + 0.5))) : c
-    end
-    return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, C); present = cam.lens.present))
-end
-function ecf_spline_views(camera, poses, θmax; n = 120)
-    map(enumerate(poses)) do (v, E)
-        map(1:n) do k
-            θ = θmax * sqrt(k / n); φ = 2.399963 * k + v
-            d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-            Xc = (2.0 + 1.5 * ((7k + v) % 10) / 10) * d
-            X = E.R' * (Xc - E.t)
-            X => SVector{2, Float64}(project(camera, Xc))
-        end
-    end
-end
 ecf_kb_spline_quasi() = CameraModel(SplineLens, ecf_kb420_ray, Size2(1280, 960); init = :quasi_interpolate)
-ecf_kb420_ray(u) = backproject(ecf_fisheye_camera(), u)
+ecf_kb420_ray(u) = backproject(fisheye_camera(), u)
 function ecf_scaled_spline()
-    t = ecf_spline_truth(); bt = lens(t).backward
+    t = spline_truth(); bt = lens(t).backward
     return CameraModel(t.intrinsics, SplineLens(ChartSpline(bt.area, map(c -> 2.0 * c, bt.controls))))
 end
 function ecf_masked_spline()
     present = trues(10, 12); present[1:3, 9:12] .= false
-    return with_present(ecf_perturbed_controls(ecf_spline_truth(), 0.01), present)
+    return with_present(perturbed_controls(spline_truth(), 0.01), present)
 end
 function ecf_flat_spline()
-    truth = ecf_spline_truth(); b = lens(truth).backward
+    truth = spline_truth(); b = lens(truth).backward
     return CameraModel(truth.intrinsics, SplineLens(ChartSpline(b.area, fill(SVector(0.0, 0.0, 1.0), size(b.controls)))))
 end
 
-ecf_board_points() = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
-ecf_truth_boards() = Dict(:A => EuclideanMap(Rotations.RotMatrix(Rotations.RotXYZ(0.0, 0.0, 0.0)), SVector(0.0, 0.0, 0.0)),
-                          :B => EuclideanMap(Rotations.RotMatrix(Rotations.RotXYZ(0.25, -0.3, 0.1)), SVector(0.42, 0.05, 0.08)),
-                          :C => EuclideanMap(Rotations.RotMatrix(Rotations.RotXYZ(-0.2, 0.35, -0.15)), SVector(-0.38, -0.06, 0.12)))
-ecf_view_poses() = Dict(v => EuclideanMap(Rotations.RotMatrix(Rotations.RotXYZ(0.15 * sin(v), 0.2 * cos(v), 0.05v)), SVector(0.08 * (v - 3.5), 0.03 * (-1)^v, 1.2 + 0.08v))
-                        for v in 1:6)
-const ECF_SEES = Dict(1 => (:A, :B), 2 => (:A, :C), 3 => (:B, :C), 4 => (:A, :B, :C), 5 => (:B,), 6 => (:C, :A))
 # the board views, the noise drawn in sorted (view, board) order from a StableRNG (the suite draws from Xoshiro over a Dict)
-function ecf_board_obs(camera, views, boards; σ = 0.0, rng = StableRNG(1))
-    out = Dict{Tuple{Int, Symbol}, Vector{Pair{SVector{3, Float64}, SVector{2, Float64}}}}()
-    for v in sort!(collect(keys(views))), b in ECF_SEES[v]
-        out[(v, b)] = [X => SVector{2, Float64}(project(camera, views[v](boards[b](X)))) + σ * SVector(randn(rng), randn(rng)) for X in ecf_board_points()]
-    end
-    return out
-end
-ecf_nudged(E, k) = EuclideanMap(Rotations.RotMatrix{3, Float64}(exp_so3(SVector(0.02, -0.015, 0.03) .* (1 + 0.1k)) * rotation(E)),
-                                translation(E) + SVector(0.03, -0.02, 0.025) .* (1 - 0.07k))
-
-const ECF_R0 = SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, -1, 0, 0, 0, -1)
-ecf_center_truth(axes) = (c = ECF_R0' * (SVector(0.004, -0.06, 0.05) - SVector(0.0, 0.0, 0.6)), d = SVector(0.004, -0.06, 0.05),
-                          R = Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(ω)) * ECF_R0 for (k, ω) in enumerate(axes)))
-function ecf_center_views(camera, t; σ = 0.0, outliers = 0.0, rng = StableRNG(2))
-    X = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
-    return Dict(k => [x => SVector{2, Float64}(project(camera, t.R[k] * (x - t.c) + t.d)) + σ * SVector(randn(rng), randn(rng)) +
-                          (rand(rng) < outliers ? SVector(25.0, -30.0) : zero(SVector{2, Float64})) for x in X]
-                for k in sort!(collect(keys(t.R))))
-end
+ecf_board_obs(camera, views, boards; σ = 0.0, rng = StableRNG(1)) = board_views(camera, views, boards; σ, rng, order = sort!(collect(keys(views))))
 const ECF_CENTER_AXES = [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03),
                          SVector(0.05, -0.07, -0.04), SVector(0.0, 0.0, 0.1)]
 ecf_center_start(t) = VgtkEstimation.RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),

@@ -3,7 +3,7 @@
 # find_radial_homography / refine_radial_homography and find_radial_camera / refine_radial_camera.
 using VisualGeometryToolkitCore: estimate, MsacScoring, RansacScoring, Irls, Triggs, TLSShape, WelschShape, CauchyShape,
     HuberShape, GaussianShape
-using VisualGeometryToolkitEstimation: find_absolute_pose, refine_absolute_pose, find_hand_eye, refine_hand_eye,
+using VisualGeometryToolkitEstimation: find_absolute_pose, find_hand_eye, refine_hand_eye,
     find_radial_homography, refine_radial_homography, find_radial_camera, refine_radial_camera, AbsolutePoseProblem,
     HandEyeProblem, RadialHomographyProblem, RadialCameraProblem, RansacConfig, RansacWorkspace, TerminalLO, scoring_from_toml,
     data_size
@@ -74,34 +74,13 @@ function po_refine_cases!(cases, family, name, fx, find, refine; full = true, pr
     return cases
 end
 
-# The refusals every find_* and refine_* shares (core_defaults, refine_contract, ransac_no_model).
-function po_refusal_cases!(cases, family, fx, find, refine, θ)
-    if find !== nothing
-        case!(cases, "$family/refused/find_threshold_kw", fx, fx -> find(fx; threshold = 3.0))
-        case!(cases, "$family/refused/find_outlier_halfwidth_kw", fx, fx -> find(fx; outlier_halfwidth = 20.0))
-        case!(cases, "$family/refused/find_retired_local_optimization", fx, fx -> find(fx; local_optimization = Irls{TLSShape}()))
-        case!(cases, "$family/refused/find_unknown_kw", fx, fx -> find(fx; no_such_keyword = 1))
-    end
-    for (lbl, kw) in (
-            "no_scale" => (;), "scale_and_width" => (; scale = 1.0, width = 1.0), "negative_scale" => (; scale = -1.0),
-            "nan_scale" => (; scale = NaN), "zero_width" => (; width = 0.0), "ls_with_scale" => (; optimization_strategy = nothing, scale = 1.0),
-            "tls_scale_no_constant" => (; optimization_strategy = Triggs{TLSShape}(), scale = 1.0),
-            "constant_with_width" => (; optimization_strategy = Triggs{WelschShape}(efficiency_constant = 2.5), width = 1.0),
-            "irls_huber" => (; optimization_strategy = Irls{HuberShape}(), scale = 1.0),
-            "irls_gaussian" => (; optimization_strategy = Irls{GaussianShape}(), scale = 1.0),
-            "terminal_lo" => (; optimization_strategy = TerminalLO(Irls{TLSShape}()), scale = 1.0),
-            "scoring_kw" => (; scale = 1.0, scoring = MsacScoring(AbsolutePoseProblem; threshold = 3.0)),
-            "rng_kw" => (; scale = 1.0, rng = StableRNG(1)), "max_trials_kw" => (; scale = 1.0, max_trials = 10),
-            "extent_kw" => (; scale = 1.0, extent = nothing), "unknown_kw" => (; scale = 1.0, nonsense = 1))
-        case!(cases, "$family/refused/refine_$lbl", (fx, θ), ((fx, θ),) -> refine(fx, θ; kw...))
-    end
-    return cases
-end
+# The shared refusals (`refusal_cases!`): the record side's one copy
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "refusal_cases.jl"))
 
 function record_est_pose(cases)
     # ---------------------------------------------------------------- the absolute pose, pixel form
     afind((cam, cs); kw...) = find_absolute_pose(cam, cs; kw...)
-    arefine((cam, cs), θ; kw...) = refine_absolute_pose(θ, cam, cs; kw...)
+    arefine((cam, cs), θ; kw...) = VgtkEstimation.refine_absolute_pose(θ, cam, cs; kw...)
     aprob((cam, cs)) = AbsolutePoseProblem(cam, cs)
     for (name, fx) in po_abspose_scenes()
         if name == "pnp_120+60"
@@ -122,47 +101,47 @@ function record_est_pose(cases)
     end
     X, u = po_units_pnp()
     for seed in SEEDS   # an extent: plain with plain, physical with physical
-        case!(cases, "abspose_find/units_80_pairs/extent/seed$seed", (PO_PCAM, X .=> u, po_abspose_extent()),
+        case!(cases, "abspose_find/units_80_pairs/extent/seed$seed", (PCAM, X .=> u, po_abspose_extent()),
             ((cam, cs, ext),) -> find_absolute_pose(cam, cs; extent = ext, rng = StableRNG(seed)))
-        case!(cases, "abspose_find/units_80_metres/extent_metres/seed$seed", (PO_PCAM, [x .* po_m for x in X] .=> u, po_abspose_extent_m()),
+        case!(cases, "abspose_find/units_80_metres/extent_metres/seed$seed", (PCAM, [x .* po_m for x in X] .=> u, po_abspose_extent_m()),
             ((cam, cs, ext),) -> find_absolute_pose(cam, cs; extent = ext, rng = StableRNG(seed)))
     end
-    case!(cases, "abspose/refused/metres_with_plain_extent", (PO_PCAM, [x .* po_m for x in X] .=> u, po_abspose_extent()),
+    case!(cases, "abspose/refused/metres_with_plain_extent", (PCAM, [x .* po_m for x in X] .=> u, po_abspose_extent()),
         ((cam, cs, ext),) -> find_absolute_pose(cam, cs; extent = ext, rng = StableRNG(3)))
-    case!(cases, "abspose/refused/plain_with_metres_extent", (PO_PCAM, X .=> u, po_abspose_extent_m()),
+    case!(cases, "abspose/refused/plain_with_metres_extent", (PCAM, X .=> u, po_abspose_extent_m()),
         ((cam, cs, ext),) -> find_absolute_pose(cam, cs; extent = ext, rng = StableRNG(3)))
     for (name, fx) in po_abspose_degenerate(), seed in SEEDS
         case!(cases, "abspose_find/$name/seed$seed", fx, fx -> afind(fx; rng = StableRNG(seed)))
     end
     pfx = last(po_abspose_scenes()[1])
-    po_refusal_cases!(cases, "abspose", pfx, afind, arefine, estimate(afind(pfx; rng = StableRNG(1))))
+    refusal_cases!(cases, "abspose", pfx, afind, arefine, estimate(afind(pfx; rng = StableRNG(1))), AbsolutePoseProblem)
     # refine_absolute_pose_tests' pixel fixtures: least squares, the default at the pixels' scale, a Cauchy
     for (name, (g, cam, cs)) in po_pixel_refine_fixtures()
         fx = (g, cam, cs)
-        case!(cases, "abspose_refine/$name/ls", fx, ((g, cam, cs),) -> refine_absolute_pose(g, cam, cs; optimization_strategy = nothing))
-        case!(cases, "abspose_refine/$name/scale0.3", fx, ((g, cam, cs),) -> refine_absolute_pose(g, cam, cs; scale = 0.3))
-        case!(cases, "abspose_refine/$name/scale1", fx, ((g, cam, cs),) -> refine_absolute_pose(g, cam, cs; scale = 1.0))
+        case!(cases, "abspose_refine/$name/ls", fx, ((g, cam, cs),) -> VgtkEstimation.refine_absolute_pose(g, cam, cs; optimization_strategy = nothing))
+        case!(cases, "abspose_refine/$name/scale0.3", fx, ((g, cam, cs),) -> VgtkEstimation.refine_absolute_pose(g, cam, cs; scale = 0.3))
+        case!(cases, "abspose_refine/$name/scale1", fx, ((g, cam, cs),) -> VgtkEstimation.refine_absolute_pose(g, cam, cs; scale = 1.0))
         startswith(name, "pinhole_") && case!(cases, "abspose_refine/$name/triggs_huber_width1e9", fx,
-            ((g, cam, cs),) -> refine_absolute_pose(g, cam, cs; optimization_strategy = Triggs{HuberShape}(), width = 1.0e9))
+            ((g, cam, cs),) -> VgtkEstimation.refine_absolute_pose(g, cam, cs; optimization_strategy = Triggs{HuberShape}(), width = 1.0e9))
     end
 
     # ---------------------------------------------------------------- the absolute pose, bearing form (refine only)
-    brefine(cs, θ; kw...) = refine_absolute_pose(θ, cs; kw...)
+    brefine(cs, θ; kw...) = VgtkEstimation.refine_absolute_pose(θ, cs; kw...)
     for (name, (g, cs)) in po_bearing_refine_fixtures()
         fx = (g, cs)
-        case!(cases, "bearingpose_refine/$name/ls", fx, ((g, cs),) -> refine_absolute_pose(g, cs; optimization_strategy = nothing))
-        case!(cases, "bearingpose_refine/$name/scale1", fx, ((g, cs),) -> refine_absolute_pose(g, cs; scale = 1.0))
+        case!(cases, "bearingpose_refine/$name/ls", fx, ((g, cs),) -> VgtkEstimation.refine_absolute_pose(g, cs; optimization_strategy = nothing))
+        case!(cases, "bearingpose_refine/$name/scale1", fx, ((g, cs),) -> VgtkEstimation.refine_absolute_pose(g, cs; scale = 1.0))
         if name in ("contaminated_rays", "pinhole_noisy_M")
             for (lbl, lo) in ("triggs_cauchy_ec2.5" => Triggs{CauchyShape}(efficiency_constant = 2.5), "triggs_welsch" => Triggs{WelschShape}())
                 case!(cases, "bearingpose_refine/$name/$(lbl)_scale0.3", fx,
-                    ((g, cs),) -> refine_absolute_pose(g, cs; optimization_strategy = lo, scale = 0.3))
+                    ((g, cs),) -> VgtkEstimation.refine_absolute_pose(g, cs; optimization_strategy = lo, scale = 0.3))
             end
             case!(cases, "bearingpose_refine/$name/triggs_tls_width3", fx,
-                ((g, cs),) -> refine_absolute_pose(g, cs; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
+                ((g, cs),) -> VgtkEstimation.refine_absolute_pose(g, cs; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
         end
     end
     g, bcs = last(po_bearing_refine_fixtures()[1])
-    po_refusal_cases!(cases, "bearingpose", bcs, nothing, brefine, g)
+    refusal_cases!(cases, "bearingpose", bcs, nothing, brefine, g, AbsolutePoseProblem)
 
     # ---------------------------------------------------------------- hand-eye
     hfind(cs; kw...) = find_hand_eye(cs; kw...)
@@ -218,7 +197,7 @@ function record_est_pose(cases)
     case!(cases, "handeye/refused/metres_plain_char_length", po_phys.(A) .=> po_phys.(B), cs -> find_hand_eye(cs; char_length = 0.4))
     case!(cases, "handeye/refused/mixed_forms", A .=> po_phys.(B), cs -> find_hand_eye(cs))
     hfx = last(po_hand_eye_scenes()[1])
-    po_refusal_cases!(cases, "handeye", hfx, hfind, hrefine, estimate(hfind(hfx; rng = StableRNG(1))))
+    refusal_cases!(cases, "handeye", hfx, hfind, hrefine, estimate(hfind(hfx; rng = StableRNG(1))), AbsolutePoseProblem)
 
     # ---------------------------------------------------------------- the radial homography
     rhfind((cs, c); kw...) = find_radial_homography(cs; center = c, kw...)
@@ -264,23 +243,23 @@ function record_est_pose(cases)
     case!(cases, "radialh/refused/minimal_other", four, fx -> rhfind(fx; minimal = :other))
     c = VgtkCore.Point2(500.0, 400.0)
     for seed in SEEDS
-        case!(cases, "radialh_find/too_few_4/seed$seed", (po_few_correspondences(4), c), fx -> rhfind(fx; rng = StableRNG(seed)))
-        case!(cases, "radialh_find/too_few_3_minimal_homography/seed$seed", (po_few_correspondences(3), c),
+        case!(cases, "radialh_find/too_few_4/seed$seed", (few_correspondences(4), c), fx -> rhfind(fx; rng = StableRNG(seed)))
+        case!(cases, "radialh_find/too_few_3_minimal_homography/seed$seed", (few_correspondences(3), c),
             fx -> rhfind(fx; minimal = :homography, rng = StableRNG(seed)))
     end
     H = VgtkCore.HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(I)))
-    case!(cases, "radialh_refine/too_few_4/scale1", (po_few_correspondences(4), VgtkCore.RadialHomography{Float64}(H, 0.0)),
+    case!(cases, "radialh_refine/too_few_4/scale1", (few_correspondences(4), VgtkCore.RadialHomography{Float64}(H, 0.0)),
         ((cs, θ),) -> refine_radial_homography(θ, cs; scale = 1.0))
     m2 = VgtkCore.RadialHomography{Float64}(
         VgtkCore.HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
-        (1.0e-7, 1.0e-13), SVector(PO_RW / 2, PO_RH / 2))
+        (1.0e-7, 1.0e-13), SVector(RW / 2, RH / 2))
     case!(cases, "radialh/refused/two_coefficient_model", ([SVector(1.0 * i, 2.0 * i) => SVector(3.0 * i, 4.0 * i) for i in 1:8], m2),
         ((cs, θ),) -> refine_radial_homography(θ, cs))
     rh, _ = po_radial_homography_scenes()[1]
     case!(cases, "radialh/refused/metres_plane", [SVector(1.0 * i, 2.0 * i) .* po_m => SVector(3.0 * i, 4.0 * i) for i in 1:8],
         cs -> find_radial_homography(cs; center = (600.0, 450.0)))
     rhfx = last(po_radial_homography_scenes()[1])
-    po_refusal_cases!(cases, "radialh", rhfx, rhfind, rhrefine, estimate(rhfind(rhfx; rng = StableRNG(1))))
+    refusal_cases!(cases, "radialh", rhfx, rhfind, rhrefine, estimate(rhfind(rhfx; rng = StableRNG(1))), AbsolutePoseProblem)
 
     # ---------------------------------------------------------------- the radial camera
     rcfind((cs, c); kw...) = find_radial_camera(cs; center = c, kw...)
@@ -302,13 +281,13 @@ function record_est_pose(cases)
     for seed in SEEDS   # an extent over the board's plane
         case!(cases, "radialcam_find/find_scene_81+20/extent_board/seed$seed", (last(po_radial_camera_scenes()[1]), VgtkCore.Rect(-100.0, -100.0, 200.0, 200.0)),
             ((fx, rect),) -> rcfind(fx; extent = rect, rng = StableRNG(seed)))
-        case!(cases, "radialcam_find/too_few_4/seed$seed", (po_few_correspondences(4), c), fx -> rcfind(fx; rng = StableRNG(seed)))
+        case!(cases, "radialcam_find/too_few_4/seed$seed", (few_correspondences(4), c), fx -> rcfind(fx; rng = StableRNG(seed)))
     end
-    case!(cases, "radialcam_refine/too_few_4/scale1", (po_few_correspondences(4), VgtkCore.RadialCamera(H, c)),
+    case!(cases, "radialcam_refine/too_few_4/scale1", (few_correspondences(4), VgtkCore.RadialCamera(H, c)),
         ((cs, θ),) -> refine_radial_camera(θ, cs; scale = 1.0))
-    case!(cases, "radialcam_refine/too_few_4/ls", (po_few_correspondences(4), VgtkCore.RadialCamera(H, c)),
+    case!(cases, "radialcam_refine/too_few_4/ls", (few_correspondences(4), VgtkCore.RadialCamera(H, c)),
         ((cs, θ),) -> refine_radial_camera(θ, cs; optimization_strategy = nothing))
     rcfx = last(po_radial_camera_scenes()[1])
-    po_refusal_cases!(cases, "radialcam", rcfx, rcfind, rcrefine, estimate(rcfind(rcfx; rng = StableRNG(1))))
+    refusal_cases!(cases, "radialcam", rcfx, rcfind, rcrefine, estimate(rcfind(rcfx; rng = StableRNG(1))), AbsolutePoseProblem)
     return cases
 end

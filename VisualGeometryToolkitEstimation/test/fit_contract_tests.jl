@@ -15,42 +15,15 @@
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 
-    function contract_linear(; seed = 1)
-        rng = Xoshiro(seed)
-        A = randn(rng, 60, 3); x0 = randn(rng, 3)
-        return A, A * x0 .+ 1.0e-3 .* randn(rng, 60)
-    end
-    function contract_rotation(; seed = 2)
-        rng = Xoshiro(seed)
-        R = RotMatrix(RotXYZ(0.2, -0.4, 0.9))
-        as = [normalize(randn(rng, SVector{3, Float64})) for _ in 1:40]
-        return Correspondences(as, [R * a for a in as])
-    end
-    function contract_averaging()
-        R = Dict(k => RotMatrix(RotXYZ(0.3k, -0.2k, 0.1k^2)) for k in 1:6)
-        return Dict((i, j) => SMatrix{3, 3, Float64, 9}(R[j]' * R[i]) for i in 1:6 for j in (i + 1):6)
-    end
-    function contract_points(; seed = 3, n = 60)
-        rng = Xoshiro(seed)
-        R = RotMatrix(RotXYZ(0.1, 0.5, -0.3)); t = SVector(0.4, -1.0, 2.0)
-        as = [SVector{3, Float64}(4 .* randn(rng, 3)) for _ in 1:n]
-        return Correspondences(as, [R * a + t for a in as]), R, t
-    end
+    # the scenes, each drawn from the caller's RNG: the suite's fixture file, shared with the golden records
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "contract_scenes.jl"))
+    contract_linear(; seed = 1) = contract_linear(Xoshiro(seed))
+    contract_rotation(; seed = 2) = contract_rotation(Xoshiro(seed))
+    contract_points(; seed = 3, n = 60) = contract_points(Xoshiro(seed); n)
     # robot-world hand-eye: N frames × M markers, a little pose noise (1e-4 rad / 1e-4); its robust fit whitens by the
     # given σ_rot = σ_trans = σ (1e-2), so scale and width are in whitened units and the clean residuals sit well inside
     # the widths the contract items use
-    function contract_handeye(; seed = 4, N = 12, M = 2, noise = 1.0e-4, σ = 1.0e-2)
-        rng = Xoshiro(seed)
-        rot(s) = SMatrix{3, 3, Float64, 9}(RotMatrix(RotXYZ((s .* randn(rng, 3))...)))
-        E(R, t) = EuclideanMap(R, SVector{3, Float64}(t))
-        Y = E(rot(1.0), 0.5 .* randn(rng, 3)); X = [E(rot(0.5), 0.3 .* randn(rng, 3)) for _ in 1:M]
-        A = [E(rot(1.0), randn(rng, 3)) for _ in 1:N]
-        markers = Dict(m => [let B = inv(Y) ∘ A[i] ∘ X[m]
-                                 A[i] => E(SMatrix{3, 3, Float64, 9}(VgtkCore.exp_so3(noise .* randn(rng, SVector{3, Float64}))) * rotation(B),
-                                           translation(B) + noise .* randn(rng, SVector{3, Float64}))
-                             end for i in 1:N] for m in 1:M)
-        return markers, σ
-    end
+    contract_handeye(; seed = 4, N = 12, M = 2, noise = 1.0e-4, σ = 1.0e-2) = (contract_handeye(Xoshiro(seed); N, M, noise), σ)
     # fit(scale/width keywords...) for each of the five fits, on clean data (the hand-eye at its whitening σ)
     const CONTRACT_FITS = (
         (:fit_linear, 1, kw -> VgtkEstimation.fit_linear(contract_linear()...; kw...)),

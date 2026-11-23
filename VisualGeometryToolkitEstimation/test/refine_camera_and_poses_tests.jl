@@ -17,31 +17,9 @@
 # residual, the poses alone, a forward spline refitted, a masked lattice.
 
 @testsetup module CameraPoseScenes
-    using StaticArrays: SVector
-    using LinearAlgebra: normalize
-    using Rotations: RotMatrix, RotXYZ
-    using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project, CameraModel, Pinhole, KannalaBrandt, parameter_vector
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "camera_pose_scenes.jl"))   # shared with the golden records
     export views_of, truth_poses, perturbed_pose, pinhole_camera, fisheye_camera
-
-    pinhole_camera() = CameraModel(; focal = 800.0, pp = (640.0, 480.0), lens = Pinhole())
-    fisheye_camera() = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
-    truth_poses(V) = [EuclideanMap(RotMatrix(RotXYZ(0.3 - 0.1v, -0.2 + 0.07v, 0.1v)), SVector(0.1 - 0.05v, -0.05, 2.0 + 0.1v)) for v in 1:V]
-    # the truth moved by ≈ 0.05 rad and ≈ 0.08 in translation, differently per view
-    perturbed_pose(E, v) = EuclideanMap(
-        RotMatrix{3, Float64}(exp_so3(SVector(0.03, -0.02v / 4, 0.03)) * E.R), E.t + SVector(0.05, -0.04, 0.06 - 0.01v)
-    )
-    # per view, scene points whose camera-frame directions spiral out to `θmax` off the axis, and their exact pixels
-    function views_of(camera, poses, θmax; n = 60)
-        map(enumerate(poses)) do (v, E)
-            map(1:n) do k
-                θ = θmax * (k / n); φ = 2.399963 * k + v
-                d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-                Xc = (2.0 + 1.5 * ((7k + v) % 10) / 10) * d
-                X = E.R' * (Xc - E.t)
-                X => SVector{2, Float64}(project(camera, Xc))
-            end
-        end
-    end
 end
 
 @testitem "refine_camera_and_poses: a pinhole camera and its poses recovered" setup = [CameraPoseScenes] begin
@@ -201,6 +179,8 @@ end
     using VisualGeometryToolkitEstimation: refine_camera_and_poses, optical_axis
     using VisualGeometryToolkitCore: axis_gauged, calibration_matrix, metadata, rotation, BoundedCamera, Size2, model
     using Rotations: RotMatrix
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "camera_pose_scenes.jl"))   # shared with the golden records
     export spline_truth, perturbed_controls, spline_views, spline_rms, ray_error, entry_gauge, truth_in_frame, bounded, model
 
     # a SplineLens camera is refined as a bounded camera (2026-11-11, owner: its optical axis is fitted over the camera's
@@ -225,30 +205,6 @@ end
         return axis_gauged(truth, Q, K), [axis_gauged(E, Q) for E in Es]
     end
 
-    # the truth: a Kannala–Brandt fisheye's SplineLens camera (unit controls, 12 × 10 nodes over 1280 × 960)
-    spline_truth() = CameraModel(SplineLens, CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002)),
-                                 Size2(1280, 960); grid_size = (12, 10))
-    # every present control turned by ≈ `ϵ` rad off its own direction, differently per node (its norm kept)
-    function perturbed_controls(cam, ϵ)
-        b = cam.lens.backward
-        C = map(CartesianIndices(b.controls)) do i
-            c = b.controls[i]; k = i[1] + 13 * i[2]
-            isfinite(c[1]) ? norm(c) * normalize(c / norm(c) + ϵ * SVector(sin(1.3k), cos(0.7k), sin(2.1k + 0.5))) : c
-        end
-        return CameraModel(cam.intrinsics, SplineLens(ChartSpline(b.area, C); present = cam.lens.present))
-    end
-    # per view, scene points spiralling out to `θmax` off the axis, and their exact pixels through `camera`
-    function spline_views(camera, poses, θmax; n = 120)
-        map(enumerate(poses)) do (v, E)
-            map(1:n) do k
-                θ = θmax * sqrt(k / n); φ = 2.399963 * k + v
-                d = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
-                Xc = (2.0 + 1.5 * ((7k + v) % 10) / 10) * d
-                X = E.R' * (Xc - E.t)
-                X => SVector{2, Float64}(project(camera, Xc))
-            end
-        end
-    end
     # the largest angle between two cameras' rays at the detections
     ray_error(a, b, views) = maximum(angle_between(backproject(a, last(x)), backproject(b, last(x))) for cs in views for x in cs)
     spline_rms(camera, poses, views) =
@@ -347,29 +303,9 @@ end
 # Several boards (owner decision 20): the board poses a block of the same bundle, each board → world a variable unless
 # held; each connected component of the view–board graph fixes its gauge by a held pose, exactly (no pin, no prior).
 @testsetup module BoardScenes
-    using StaticArrays: SVector
-    using Rotations: RotMatrix, RotXYZ
-    using Random: Xoshiro, randn
-    using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project, rotation, translation
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "camera_pose_scenes.jl"))   # shared with the golden records
     export board_points, truth_boards, view_poses, board_views, nudged
-    # a 9 × 7 grid of points on the board's plane (z = 0), 4 cm pitch
-    board_points() = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
-    # three boards around the world origin, tilted differently (board → world)
-    truth_boards() = Dict(:A => EuclideanMap(RotMatrix(RotXYZ(0.0, 0.0, 0.0)), SVector(0.0, 0.0, 0.0)),
-                          :B => EuclideanMap(RotMatrix(RotXYZ(0.25, -0.3, 0.1)), SVector(0.42, 0.05, 0.08)),
-                          :C => EuclideanMap(RotMatrix(RotXYZ(-0.2, 0.35, -0.15)), SVector(-0.38, -0.06, 0.12)))
-    # six cameras looking at the boards from 1.2–1.6 m (world → camera)
-    view_poses() = Dict(v => EuclideanMap(RotMatrix(RotXYZ(0.15 * sin(v), 0.2 * cos(v), 0.05v)), SVector(0.08 * (v - 3.5), 0.03 * (-1)^v, 1.2 + 0.08v))
-                        for v in 1:6)
-    # which boards each view sees: every board twice or more, the graph connected
-    const SEES = Dict(1 => (:A, :B), 2 => (:A, :C), 3 => (:B, :C), 4 => (:A, :B, :C), 5 => (:B,), 6 => (:C, :A))
-    function board_views(camera, views, boards; σ = 0.0, rng = Xoshiro(1))
-        Dict((v, b) => [X => SVector{2, Float64}(project(camera, views[v](boards[b](X)))) + σ * SVector(randn(rng), randn(rng))
-                        for X in board_points()] for v in keys(views) for b in SEES[v])
-    end
-    # a pose moved by ≈ 0.04 rad and ≈ 3 cm, differently per key
-    nudged(E, k) = EuclideanMap(RotMatrix{3, Float64}(exp_so3(SVector(0.02, -0.015, 0.03) .* (1 + 0.1k)) * rotation(E)),
-                                translation(E) + SVector(0.03, -0.02, 0.025) .* (1 - 0.07k))
 end
 
 @testitem "refine_camera_and_poses: board poses, recovered from exact and noisy pixels, the gauge held exactly" setup = [CameraPoseScenes, BoardScenes] begin
@@ -679,22 +615,9 @@ end
 # start the truth is recovered; from noisy, contaminated pixels a robust refine at an upstream scale recovers it to the
 # noise and records ScaleUpstream; a one-axis set, two views, a free camera and mismatched keys are refused.
 @testsetup module RotationCenterScenes
-    using StaticArrays: SVector, SMatrix
-    using StableRNGs: StableRNG
-    using VisualGeometryToolkitCore: exp_so3, project
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "camera_pose_scenes.jl"))   # shared with the golden records
     export center_truth, center_views
-    # a 9 × 7 board at 4 cm (z = 0); the camera ≈ 0.6 m in front, its projection centre 5 cm off the rotation centre
-    const R0 = SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, -1, 0, 0, 0, -1)
-    center_truth(axes) = (c = R0' * (SVector(0.004, -0.06, 0.05) - SVector(0.0, 0.0, 0.6)), d = SVector(0.004, -0.06, 0.05),
-                          R = Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(ω)) * R0 for (k, ω) in enumerate(axes)))
-    # The noise is drawn from a StableRNG, view by view in key order: the same draw on every Julia version (`Xoshiro`'s
-    # `randn` stream and a `Dict`'s iteration order both may change with it, and Julia 1.12 drew differently from 1.13).
-    function center_views(camera, t; σ = 0.0, outliers = 0.0, rng = StableRNG(2))
-        X = [SVector(0.04 * (i - 5), 0.04 * (j - 4), 0.0) for i in 1:9 for j in 1:7]
-        return Dict(k => [x => SVector{2, Float64}(project(camera, t.R[k] * (x - t.c) + t.d)) + σ * SVector(randn(rng), randn(rng)) +
-                              (rand(rng) < outliers ? SVector(25.0, -30.0) : zero(SVector{2, Float64})) for x in X]
-                    for k in sort!(collect(keys(t.R))))
-    end
 end
 
 @testitem "refine_camera_and_poses: rotation-centre views — the centre, the offset and the rotations recovered" setup = [CameraPoseScenes, RotationCenterScenes] begin

@@ -26,55 +26,9 @@ using VisualGeometryToolkitCore: noise_scale, scale_source, weight_kind, weights
 import VisualGeometryToolkitEstimation as VgtkEstimation
 import NLLSsolver
 
-# A marker: a 5×5 grid of points (spacing 3 cm) in its own z = 0 plane.
-_grid(s = 0.03) = [SVector(s * (i - 3), s * (j - 3), 0.0) for i in 1:5 for j in 1:5]
-
-# The camera Y = T_WC, rig poses A_i = Y ∘ C_i placing the rig ~depth in front
-# of the camera (C_i = rig in camera, rotations up to `ang`), M markers X_m on
-# the rig — in a row 8 cm apart (`layout = :row`), or, for many markers, on a
-# ⌈√M⌉-column grid 15 cm apart (`layout = :grid`) that keeps every marker in
-# view. f and the image set the FOV; the rig's lateral jitter scales with it
-# so every point stays in the image. Pixel noise σ, isotropic.
-function _rw_marker_origin(rng, m, M, layout)
-    layout === :row && return SVector(0.08 * (m - (M + 1) / 2), 0.03 * randn(rng), 0.0)
-    nc = ceil(Int, sqrt(M)); nr = cld(M, nc); r, c = divrem(m - 1, nc)
-    return SVector(0.15 * (c - (nc - 1) / 2), 0.15 * (r - (nr - 1) / 2), 0.0)
-end
-function rw_scene(rng; N = 12, M = 3, f = 600.0, W = 800, H = 600, depth = 1.2, σ = 0.5, ang = 0.35, layout = :row)
-    camera = CameraModel(; focal = f, pp = (W / 2, H / 2))
-    Y = rigid(AngleAxis(π * rand(rng), normalize(randn(rng, 3))...), 0.5 .* randn(rng, SVector{3, Float64}))
-    X = [rigid(AngleAxis(0.3 * rand(rng), normalize(randn(rng, 3))...), _rw_marker_origin(rng, m, M, layout)) for m in 1:M]
-    lat = 0.35 * depth * (W / 2) / f
-    A = map(1:N) do _
-        C = rigid(AngleAxis(ang * rand(rng), normalize(randn(rng, 3))...), SVector(lat * (2rand(rng) - 1), lat * (H / W) * (2rand(rng) - 1), depth * (0.85 + 0.3rand(rng))))
-        Y ∘ C
-    end
-    obs = Tuple{Int, Int, Vector{Pair{SVector{3, Float64}, SVector{2, Float64}}}}[]
-    for i in 1:N, m in 1:M
-        B = marker_pose(Y, A[i], X[m])
-        cs = Pair{SVector{3, Float64}, SVector{2, Float64}}[]
-        for P in _grid()
-            Pc = B(P)
-            Pc[3] > 0.1 || continue
-            u0 = SVector{2, Float64}(project(camera, Pc)...)
-            (0 < u0[1] < W && 0 < u0[2] < H) || continue
-            push!(cs, P => u0 + σ * randn(rng, SVector{2, Float64}))
-        end
-        isempty(cs) || push!(obs, (i, m, cs))
-    end
-    return (; camera, Y, X, A, obs)
-end
-# The refinement's input: per marker, one `A_i => [X => u, …]` element per frame
-# it is seen in (frame order), over the frames in `frames`.
-rw_markers(sc; frames = 1:length(sc.A)) = Dict(
-    m => [sc.A[i] => cs for (i, mm, cs) in sc.obs if mm == m && i in frames]
-        for m in unique(o[2] for o in sc.obs if o[1] in frames)
-)
-# A seed: the truth perturbed by `rot` rad and `tr` (length) per block.
-function rw_seed(rng, sc; rot = 0.01, tr = 0.01)
-    pert(T) = perturb_pose(rng, T; σ_R = rot, σ_t = tr)
-    return RobotWorldHandEyeCalibration(pert(sc.Y), Dict(m => pert(sc.X[m]) for m in eachindex(sc.X)))
-end
+# The scene and its seed (`rw_grid`, `rw_marker_origin`, `rw_scene`, `rw_markers`, `rw_seed`): the suite's fixture file, shared with the golden
+# records
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "robot_world_scenes.jl"))
 # The chart error (δω, δt) with truth = exp(δω)·R̂, t̂ + δt — the reported chart.
 _rwδ(gt, h) = local_coordinates(RigidExpManifold6(h), gt)
 # block: :Y, a marker index, or :joint (dof 6(M + 1)).
@@ -194,7 +148,7 @@ end
         Y = rigid(RotMatrix{3}(1.0I), SVector(0.0, 0.0, -1.2))
         X = [rigid(AngleAxis(0.3 * rand(rng), normalize(randn(rng, 3))...), SVector(0.08 * (m - 1.5), 0.03, 0.0)) for m in 1:2]
         A = [rigid(RotMatrix(RotZ(θ)), SVector(0.0, 0.0, 0.0)) for θ in range(0.3, 2.0; length = 8)]
-        markers = Dict(m => [A[i] => [P => SVector{2, Float64}(project(camera, marker_pose(Y, A[i], X[m])(P))...) for P in _grid()] for i in 1:8] for m in 1:2)
+        markers = Dict(m => [A[i] => [P => SVector{2, Float64}(project(camera, marker_pose(Y, A[i], X[m])(P))...) for P in rw_grid()] for i in 1:8] for m in 1:2)
         rd = refine_robot_world_hand_eye(RobotWorldHandEyeCalibration(Y, Dict(1 => X[1], 2 => X[2])), camera, markers; optimization_strategy = nothing)
         sc = rw_scene(StableRNG(8); M = 2, σ = 0.0)
         rh = refine_robot_world_hand_eye(rw_seed(StableRNG(9), sc; rot = 0.0, tr = 0.0), sc.camera, rw_markers(sc); optimization_strategy = nothing)

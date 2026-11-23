@@ -25,7 +25,9 @@ _is_primitive(::Type{T}) where {T} = isprimitivetype(T)
 # A type's name, fully qualified, whatever the running script has loaded: shown from a module that imports
 # nothing (an exported name and a `public` one print the same, so a changed export does not move a record).
 baremodule _GoldenNoImports end
-_tstr(T) = sprint(io -> show(IOContext(io, :module => _GoldenNoImports), T))
+# A function or type a golden group defines (in Main, or in its own module `Main.golden_<group>`, cases.jl) is
+# named without that module path, so a record does not depend on where the group was evaluated.
+_tstr(T) = replace(sprint(io -> show(IOContext(io, :module => _GoldenNoImports), T)), r"\bMain\.(?:golden_\w+\.)?" => "")
 _hex(x) = bytes2hex(reinterpret(UInt8, [x]))
 
 # Every leaf's bytes of `x`, in field and index order, into the hash context: the array digest. A leaf
@@ -38,8 +40,8 @@ function _feed!(ctx, x)
         update!(ctx, codeunits(string("s:", x, "\0")))
     elseif x === nothing || x === missing
         update!(ctx, codeunits(string("n:", x, "\0")))
-    elseif x isa Union{Type, Function, Module}
-        update!(ctx, codeunits(string("t:", x, "\0")))
+    elseif x isa Union{Type, Function, Module}   # named as the walker names them (`_walk!`)
+        update!(ctx, codeunits(string("t:", x isa Type ? _tstr(x) : x isa Function ? nameof(x) : x, "\0")))
     elseif x isa AbstractArray
         update!(ctx, codeunits(string("a:", join(size(x), "x"), "\0")))
         for v in x
@@ -90,7 +92,11 @@ function _walk!(out, path, x, seen, depth)
         push!(out, (path, _tstr(T), string(x)))
     elseif x isa Union{AbstractString, Symbol}
         push!(out, (path, _tstr(T), escape_string(string(x))))
-    elseif x isa Union{Type, Function, Module}
+    elseif x isa Type
+        push!(out, (path, "type", _tstr(x)))              # fully qualified, whatever the process has loaded
+    elseif x isa Function
+        push!(out, (path, "type", string(nameof(x))))     # its name, not its module path
+    elseif x isa Module
         push!(out, (path, "type", string(x)))
     elseif x isa AbstractArray
         push!(out, (path, string("array ", _tstr(typeof(x)), " [", join(size(x), "x"), "]"), _digest(x)))
@@ -166,6 +172,9 @@ paths whose TYPE the migration changes (a result's own type, a renamed metadata 
 struct's fields are still compared one by one, an array's leaf bits as a whole. Every recorded path must be matched by exactly one new path, with the
 same leaf type and the same bits. `ignored` lists recorded paths that are not compared at all — only an
 exception's message (`exception.msg`), whose wording names the old keywords; its type is always compared.
+`intended` holds a case's deliberate behaviour changes (`intended_changes.toml`, by recorded path): such a
+leaf must equal the listed old bits in the record AND the listed new bits in the replacement, exactly; each one
+matched is pushed to `used`, so the replay can refuse an entry that matched nothing.
 """
 struct FieldMap
     renames::Vector{Pair{String, String}}
@@ -200,7 +209,7 @@ The differences between the recorded leaves `old` and the replacement's `new_rec
 `map`: every recorded path missing from the new result, every new path neither mapped onto a recorded one
 nor declared `new_only`, and every leaf whose type or bits differ. Empty means bit-identical.
 """
-function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP)
+function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP, intended = Dict{String, Any}(), used = Set{String}())
     diffs = String[]
     want = Dict(p => (t, v) for (p, t, v) in old)
     got = Dict{String, Tuple{String, String}}()
@@ -215,7 +224,14 @@ function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP)
         delete!(want, p); delete!(got, p)
     end
     for (p, (t, v)) in want
-        if !haskey(got, p)
+        if haskey(intended, p) && haskey(got, p)
+            c = intended[p]   # a deliberate behaviour change (intended_changes.toml): exact old and new bits, or a failure
+            if (t, v) == (c["old"]["type"], c["old"]["value"]) && got[p] == (c["new"]["type"], c["new"]["value"])
+                push!(used, p)
+            else
+                push!(diffs, "`$p`: intended change does not match — recorded $t $v, new $(got[p][1]) $(got[p][2]); listed old $(c["old"]["type"]) $(c["old"]["value"]), new $(c["new"]["type"]) $(c["new"]["value"])")
+            end
+        elseif !haskey(got, p)
             push!(diffs, "recorded `$p` ($t) has no counterpart")
         elseif p in map.retyped && (t == "struct") == (got[p][1] == "struct") && v == got[p][2]
             continue   # a declared type change: the struct's fields, or the array's leaf bits, still compared

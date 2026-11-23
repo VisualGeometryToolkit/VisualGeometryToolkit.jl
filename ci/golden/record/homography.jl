@@ -2,7 +2,7 @@
 # refine_homography (and ransac/ransac! on HomographyProblem, the preallocated form).
 using VisualGeometryToolkitCore: homography_dlt, estimate, Homography4pt, MsacScoring, RansacScoring, Irls, Triggs,
     TLSShape, WelschShape, CauchyShape, withattrs, SvdWorkspace, Correspondences
-using VisualGeometryToolkitEstimation: find_homography, refine_homography, HomographyProblem, RansacConfig, TerminalLO
+using VisualGeometryToolkitEstimation: find_homography, HomographyProblem, RansacConfig, TerminalLO
 
 const HOMOGRAPHY_LOS = [
     "classdefault" => (;),
@@ -49,12 +49,12 @@ function record_homography(cases)
             H0 = estimate(r)
             H0 === nothing && continue
             fx = (cs, H0, r)
-            case!(cases, "refine/$name/classdefault_scale_r/seed$seed", fx, ((cs, H0, r),) -> refine_homography(H0, cs; scale = r))
-            case!(cases, "refine/$name/ls/seed$seed", (cs, H0), ((cs, H0),) -> refine_homography(H0, cs; optimization_strategy = nothing))
+            case!(cases, "refine/$name/classdefault_scale_r/seed$seed", fx, ((cs, H0, r),) -> VgtkEstimation.refine_homography(H0, cs; scale = r))
+            case!(cases, "refine/$name/ls/seed$seed", (cs, H0), ((cs, H0),) -> VgtkEstimation.refine_homography(H0, cs; optimization_strategy = nothing))
             case!(cases, "refine/$name/triggs_tls_width3/seed$seed", (cs, H0),
-                ((cs, H0),) -> refine_homography(H0, cs; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
+                ((cs, H0),) -> VgtkEstimation.refine_homography(H0, cs; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
             case!(cases, "refine/$name/triggs_cauchy_scale0.7/seed$seed", (cs, H0),
-                ((cs, H0),) -> refine_homography(H0, cs; optimization_strategy = Triggs{CauchyShape}(), scale = 0.7))
+                ((cs, H0),) -> VgtkEstimation.refine_homography(H0, cs; optimization_strategy = Triggs{CauchyShape}(), scale = 0.7))
         end
     end
     # --- too few data, and the refusals ---------------------------------------------------------------------
@@ -63,11 +63,11 @@ function record_homography(cases)
     for seed in SEEDS
         case!(cases, "find/too_few_3/seed$seed", few, cs -> find_homography(cs; rng = StableRNG(seed)))
     end
-    case!(cases, "refine/too_few_3/scale1", (few, H), ((cs, H),) -> refine_homography(H, cs; scale = 1.0))
+    case!(cases, "refine/too_few_3/scale1", (few, H), ((cs, H),) -> VgtkEstimation.refine_homography(H, cs; scale = 1.0))
     case!(cases, "dlt/too_few_3", few, cs -> homography_dlt(cs))
     cs = last(first(homography_scenes()))
-    case!(cases, "refine/refused/no_scale", (cs, H), ((cs, H),) -> refine_homography(H, cs))
-    case!(cases, "refine/refused/scale_and_width", (cs, H), ((cs, H),) -> refine_homography(H, cs; scale = 1.0, width = 1.0))
-    case!(cases, "refine/refused/negative_scale", (cs, H), ((cs, H),) -> refine_homography(H, cs; scale = -1.0))
+    case!(cases, "refine/refused/no_scale", (cs, H), ((cs, H),) -> VgtkEstimation.refine_homography(H, cs))
+    case!(cases, "refine/refused/scale_and_width", (cs, H), ((cs, H),) -> VgtkEstimation.refine_homography(H, cs; scale = 1.0, width = 1.0))
+    case!(cases, "refine/refused/negative_scale", (cs, H), ((cs, H),) -> VgtkEstimation.refine_homography(H, cs; scale = -1.0))
     return cases
 end

@@ -30,4 +30,4 @@ ns_exact_residuals() = [
 # The homography scenes the pool test draws its RANSAC results on (one per "view").
 ns_views(seed) = [let (s, d) = _NS_HS.homography_pairs(StableRNG(100 * seed + k), _NS_HS.H_TRUE;
         n_in = 60 + 20k, n_out = 20, σ = 0.3 + 0.2k); StructArray(s .=> d) end for k in 1:4]
-ns_too_few() = let (s, d) = _NS_HS.homography_pairs(StableRNG(42), _NS_HS.H_TRUE; n_in = 3, n_out = 0, σ = 0.5); StructArray(s .=> d) end
+Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the shared sets (`homography_too_few`)

@@ -23,10 +23,10 @@ function record_core_minimal(cases)
     for seed in SEEDS
         rng = StableRNG(seed)
         # --- Circle3pt ------------------------------------------------------------------------------------------
-        _scene_cases!(cases, "circle3pt", "conic_scene_200", ("default" => Circle3pt(),), circle_scene(StableRNG(seed), 200), 3, seed)
+        _scene_cases!(cases, "circle3pt", "conic_scene_200", ("default" => Circle3pt(),), first(circle_scene(StableRNG(seed), 200)), 3, seed)
         case!(cases, "circle3pt/exact_triples_200/default/seed$seed", (Circle3pt(), circle_triples(StableRNG(seed)), 3), _SOLVE_SETS)
         # --- Ellipse5pt -----------------------------------------------------------------------------------------
-        _scene_cases!(cases, "ellipse5pt", "conic_scene_200", ("default" => Ellipse5pt(),), ellipse_scene(StableRNG(seed), 200), 5, seed)
+        _scene_cases!(cases, "ellipse5pt", "conic_scene_200", ("default" => Ellipse5pt(),), first(ellipse_scene(StableRNG(seed), 200)), 5, seed)
         case!(cases, "ellipse5pt/exact_quintuples_200/default/seed$seed", (Ellipse5pt(), ellipse_quintuples(StableRNG(seed)), 5), _SOLVE_SETS)
         # --- Rotation2pt ----------------------------------------------------------------------------------------
         R = RotMatrix(QuatRotation(normalize(randn(StableRNG(50 + seed), 4))))
@@ -46,14 +46,14 @@ function record_core_minimal(cases)
         case!(cases, "essential5pt/layer_scene_20/refused_plane_points/seed$seed", (Essential5pt(), Correspondences(ep.u1, ep.u2)),
             ((s, cs),) -> solve(s, cs, 1:5))
         # --- P3P ------------------------------------------------------------------------------------------------
-        _scene_cases!(cases, "p3p", "pnp_scene_180", native_poselib(P3P), pnp_scene(StableRNG(seed)), 3, seed)
+        _scene_cases!(cases, "p3p", "pnp_scene_180", native_poselib(P3P), pnp_bearing_scene(StableRNG(seed)), 3, seed)
         pt = p3p_triples(StableRNG(seed))
         for (lbl, s) in native_poselib(P3P)
             case!(cases, "p3p/native_ensemble/$lbl/seed$seed", (s, pt, 3), _SOLVE_SETS)
         end
         # --- Homography5ptRadial --------------------------------------------------------------------------------
         h5 = ("default" => Homography5ptRadial(), "extra_check" => Homography5ptRadial(extra_check = true))
-        rh = radial_homography_scene(StableRNG(seed))
+        rh = radial_homography_normalized_scene(StableRNG(seed))
         _scene_cases!(cases, "homography5pt_radial", "find_scene_100_raw", h5, rh.raw, 5, seed)
         _scene_cases!(cases, "homography5pt_radial", "find_scene_100_normalized", h5, rh.normalized, 5, seed)
         rq = radial_quintuples(StableRNG(seed))

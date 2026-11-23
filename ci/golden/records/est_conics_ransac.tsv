@@ -5470,7 +5470,7 @@ circle/refused/find_retired_local_optimization	exception	type	ArgumentError
 circle/refused/find_retired_local_optimization	exception.msg	String	ArgumentError: the keyword `local_optimization` is retired: give `local_optimization_strategy`
 circle/refused/find_extent_kw#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [300]	d7c9963c6e68f96692416d9037746638e04dce3f7000d3b5cf73c8013b8e345f
 circle/refused/find_extent_kw	exception	type	MethodError
-circle/refused/find_extent_kw	exception.msg	String	MethodError: no method matching _ransac_pipeline(::CircleProblem{Vector{GeometryBasics.Point{2, Float64}}, Nothing, Vector{GeometryBasics.Point{2, Float64}}, Nothing, Circle3pt, Nothing, VisualGeometryToolkitEstimation.UniformSampler, HomographyMap{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{2}, UnlabeledFrame{2}}, HomographyMap{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{2}, UnlabeledFrame{2}}}, ::Symbol; extent::Nothing)
+circle/refused/find_extent_kw	exception.msg	String	MethodError: no method matching _ransac_pipeline(::VisualGeometryToolkitEstimation.CircleProblem{Base.Vector{GeometryBasics.Point{2, Float64}}, Nothing, Base.Vector{GeometryBasics.Point{2, Float64}}, Nothing, VisualGeometryToolkitCore.Circle3pt, Nothing, VisualGeometryToolkitEstimation.UniformSampler, VisualGeometryToolkitCore.HomographyMap{3, Float64, StaticArraysCore.SMatrix{3, 3, Float64, 9}, VisualGeometryToolkitCore.UnlabeledFrame{2}, VisualGeometryToolkitCore.UnlabeledFrame{2}}, VisualGeometryToolkitCore.HomographyMap{3, Float64, StaticArraysCore.SMatrix{3, 3, Float64, 9}, VisualGeometryToolkitCore.UnlabeledFrame{2}, VisualGeometryToolkitCore.UnlabeledFrame{2}}}, ::Symbol; extent::Nothing)
 circle/refused/find_zero_threshold#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [300]	d7c9963c6e68f96692416d9037746638e04dce3f7000d3b5cf73c8013b8e345f
 circle/refused/find_zero_threshold	exception	type	ArgumentError
 circle/refused/find_zero_threshold	exception.msg	String	ArgumentError: MsacScoring: threshold must be positive and finite, got 0.0
@@ -10606,7 +10606,7 @@ ellipse/refused/find_retired_local_optimization	exception	type	ArgumentError
 ellipse/refused/find_retired_local_optimization	exception.msg	String	ArgumentError: the keyword `local_optimization` is retired: give `local_optimization_strategy`
 ellipse/refused/find_extent_kw#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [300]	802de2ec603cda7388b55441c3e7ec151aee4d70c0be81d5892de0cb9e67f6d5
 ellipse/refused/find_extent_kw	exception	type	MethodError
-ellipse/refused/find_extent_kw	exception.msg	String	MethodError: no method matching _ransac_pipeline(::EllipseProblem{Vector{GeometryBasics.Point{2, Float64}}, Nothing, Vector{GeometryBasics.Point{2, Float64}}, Nothing, Ellipse5pt, Nothing, VisualGeometryToolkitEstimation.UniformSampler, HomographyMap{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{2}, UnlabeledFrame{2}}, HomographyMap{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{2}, UnlabeledFrame{2}}}, ::Symbol; extent::Nothing)
+ellipse/refused/find_extent_kw	exception.msg	String	MethodError: no method matching _ransac_pipeline(::VisualGeometryToolkitEstimation.EllipseProblem{Base.Vector{GeometryBasics.Point{2, Float64}}, Nothing, Base.Vector{GeometryBasics.Point{2, Float64}}, Nothing, VisualGeometryToolkitCore.Ellipse5pt, Nothing, VisualGeometryToolkitEstimation.UniformSampler, VisualGeometryToolkitCore.HomographyMap{3, Float64, StaticArraysCore.SMatrix{3, 3, Float64, 9}, VisualGeometryToolkitCore.UnlabeledFrame{2}, VisualGeometryToolkitCore.UnlabeledFrame{2}}, VisualGeometryToolkitCore.HomographyMap{3, Float64, StaticArraysCore.SMatrix{3, 3, Float64, 9}, VisualGeometryToolkitCore.UnlabeledFrame{2}, VisualGeometryToolkitCore.UnlabeledFrame{2}}}, ::Symbol; extent::Nothing)
 ellipse/refused/find_zero_threshold#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [300]	802de2ec603cda7388b55441c3e7ec151aee4d70c0be81d5892de0cb9e67f6d5
 ellipse/refused/find_zero_threshold	exception	type	ArgumentError
 ellipse/refused/find_zero_threshold	exception.msg	String	ArgumentError: MsacScoring: threshold must be positive and finite, got 0.0
@@ -13939,22 +13939,22 @@ ransac/line_200+50/msac_irls_huber_ec1.345/seed3	metadata.lo_stop_rule	VisualGeo
 ransac/line_200+50/msac_irls_huber_ec1.345/seed3	metadata.nonfinite_scale	Bool	00
 ransac/line_200+50/msac_triggs_welsch/seed1#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_welsch/seed1	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_triggs_welsch/seed2#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_welsch/seed2	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_triggs_welsch/seed3#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_welsch/seed3	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed1#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed1	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed1	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed1	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed2#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed2	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed2	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed2	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed3#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed3	exception	type	ArgumentError
-ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed3	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+ransac/line_200+50/msac_triggs_cauchy_ec2.5/seed3	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 ransac/line_200+50/msac_terminal_irls_welsch_ec1.5/seed1#fixture		array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 ransac/line_200+50/msac_terminal_irls_welsch_ec1.5/seed1		struct	VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{1, Float64}}}
 ransac/line_200+50/msac_terminal_irls_welsch_ec1.5/seed1	estimate	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -21959,13 +21959,13 @@ locally_optimize/line_200+50/model_triggs_welsch/seed1#fixture	1	array Base.Vect
 locally_optimize/line_200+50/model_triggs_welsch/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_welsch/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 locally_optimize/line_200+50/model_triggs_welsch/seed1	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed1	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22192,7 +22192,7 @@ locally_optimize/line_200+50/fixed2_triggs_welsch/seed1#fixture	2.coeffs	array S
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed1#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed1#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	44729d35b5fa0a6d2ddd4e71bbe8f3a2256fbab17d9af4ad52608bf11b18b775
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed1	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed2_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed2_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22200,7 +22200,7 @@ locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture	2.coeffs	arra
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	44729d35b5fa0a6d2ddd4e71bbe8f3a2256fbab17d9af4ad52608bf11b18b775
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22393,25 +22393,25 @@ rescored/line_200+50/triggs_welsch_msac_same/seed1#fixture	1	array Base.Vector{G
 rescored/line_200+50/triggs_welsch_msac_same/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_same/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 rescored/line_200+50/triggs_welsch_msac_same/seed1	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_same/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_same/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_double/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_double/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_double/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_double/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 rescored/line_200+50/triggs_welsch_msac_double/seed1	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_double/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_double/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_half/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_half/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_half/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_half/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 rescored/line_200+50/triggs_welsch_msac_half/seed1	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_half/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_half/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed1#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	b8c122d113da946a9540d5c2202bac4571ee5d6da4320912dda3ca6d29adfdc9
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed1	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_ransac_scoring/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_ransac_scoring/seed1	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/none_msac_same/seed1#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/none_msac_same/seed1#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/none_msac_same/seed1#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22565,13 +22565,13 @@ locally_optimize/line_200+50/model_triggs_welsch/seed2#fixture	1	array Base.Vect
 locally_optimize/line_200+50/model_triggs_welsch/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_welsch/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 locally_optimize/line_200+50/model_triggs_welsch/seed2	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed2	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22798,7 +22798,7 @@ locally_optimize/line_200+50/fixed2_triggs_welsch/seed2#fixture	2.coeffs	array S
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed2#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed2#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	844ba26f98e2ad7671ce5b7e852369b75025baa5e73ec16ff5345823fc74e746
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed2	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed2_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed2_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22806,7 +22806,7 @@ locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture	2.coeffs	arra
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	844ba26f98e2ad7671ce5b7e852369b75025baa5e73ec16ff5345823fc74e746
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -22999,25 +22999,25 @@ rescored/line_200+50/triggs_welsch_msac_same/seed2#fixture	1	array Base.Vector{G
 rescored/line_200+50/triggs_welsch_msac_same/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_same/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 rescored/line_200+50/triggs_welsch_msac_same/seed2	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_same/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_same/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_double/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_double/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_double/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_double/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 rescored/line_200+50/triggs_welsch_msac_double/seed2	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_double/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_double/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_half/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_half/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_half/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_half/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 rescored/line_200+50/triggs_welsch_msac_half/seed2	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_half/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_half/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed2#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	c52ab73134d348e2ffba04eaef6f957d7866819cb792857e2e9ad5ba72b64d82
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed2	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_ransac_scoring/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_ransac_scoring/seed2	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/none_msac_same/seed2#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/none_msac_same/seed2#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/none_msac_same/seed2#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -23171,13 +23171,13 @@ locally_optimize/line_200+50/model_triggs_welsch/seed3#fixture	1	array Base.Vect
 locally_optimize/line_200+50/model_triggs_welsch/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_welsch/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 locally_optimize/line_200+50/model_triggs_welsch/seed3	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3	exception	type	ArgumentError
-locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/model_triggs_cauchy_ec2.5/seed3	exception.msg	String	ArgumentError: Triggs{CauchyShape, VisualGeometryToolkitCore.EfficiencyConstant{Float64}} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/model_terminal_irls_welsch_ec1.5/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -23404,7 +23404,7 @@ locally_optimize/line_200+50/fixed2_triggs_welsch/seed3#fixture	2.coeffs	array S
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed3#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed3#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	6d59ca6884b75700da089fdf42bdcd1d424d51a98c9c8994f208c88cb0ed7d3a
 locally_optimize/line_200+50/fixed2_triggs_welsch/seed3	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed2_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed2_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -23412,7 +23412,7 @@ locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture	2.coeffs	arra
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture	3	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3#fixture	3.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	6d59ca6884b75700da089fdf42bdcd1d424d51a98c9c8994f208c88cb0ed7d3a
 locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3	exception	type	ArgumentError
-locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+locally_optimize/line_200+50/fixed1of2_triggs_welsch/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 locally_optimize/line_200+50/fixed2_irls_welsch_ec1.5/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
@@ -23605,25 +23605,25 @@ rescored/line_200+50/triggs_welsch_msac_same/seed3#fixture	1	array Base.Vector{G
 rescored/line_200+50/triggs_welsch_msac_same/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_same/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 rescored/line_200+50/triggs_welsch_msac_same/seed3	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_same/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_same/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_double/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_double/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_double/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_double/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 rescored/line_200+50/triggs_welsch_msac_double/seed3	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_double/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_double/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_msac_half/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_msac_half/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_msac_half/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_msac_half/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 rescored/line_200+50/triggs_welsch_msac_half/seed3	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_msac_half/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_msac_half/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed3#fixture	2.coeffs	array StaticArraysCore.SVector{3, Float64} [3]	bb688a295ec1d48dfbd2f3665fa831acd6585f6ff19c7bf92ef4c774bbd1d2b3
 rescored/line_200+50/triggs_welsch_ransac_scoring/seed3	exception	type	ArgumentError
-rescored/line_200+50/triggs_welsch_ransac_scoring/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
+rescored/line_200+50/triggs_welsch_ransac_scoring/seed3	exception.msg	String	ArgumentError: Triggs{WelschShape, Nothing} has no local optimization for VisualGeometryToolkitEstimation.LineFittingProblem{Float64}; it is implemented for VisualGeometryToolkitEstimation.MinimalSolveProblem.
 rescored/line_200+50/none_msac_same/seed3#fixture		struct	Tuple{Base.Vector{GeometryBasics.Point{2, Float64}}, VisualGeometryToolkitCore.Primitives.Line2D{Float64}}
 rescored/line_200+50/none_msac_same/seed3#fixture	1	array Base.Vector{GeometryBasics.Point{2, Float64}} [250]	8ebc2c707c779395aeff04460ec459d4f476dea23305bd82aa440d415ae1c62f
 rescored/line_200+50/none_msac_same/seed3#fixture	2	struct	VisualGeometryToolkitCore.Primitives.Line2D{Float64}

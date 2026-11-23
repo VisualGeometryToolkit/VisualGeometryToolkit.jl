@@ -246,10 +246,10 @@ function _record_ecf_spline!(cases)
           ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 1.0e-2))
 
     # non-central targets
-    S = ecf_noncentral_source()
+    S = noncentral_fisheye(noncentral_central())
     case!(cases, "noncentralfit/source_disc/tol3e-4", (S, R), ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 3.0e-4))
     case!(cases, "noncentralfit/source_disc/tol1e-3", (S, R), ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 1.0e-3))
-    case!(cases, "noncentralfit/source_translated_disc/tol3e-4", (ecf_noncentral_source(SVector(0.5, -0.25, 2.0)), R),
+    case!(cases, "noncentralfit/source_translated_disc/tol3e-4", (noncentral_fisheye(noncentral_central(), SVector(0.5, -0.25, 2.0)), R),
           ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 3.0e-4))
     case!(cases, "noncentralfit/source_disc/tol1e-9_out_of_reach", (S, R), ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 1.0e-9))
     case!(cases, "noncentralfit/model_bare/refused_no_image", (VgtkCore.model(S), R), ((s, r),) -> fit_camera(NoncentralSplineModel, s, r; tolerance = 1.0e-3))
@@ -446,11 +446,11 @@ end
 function _record_ecf_bundle!(cases)
     ls = (; optimization_strategy = nothing)
     # --- a pinhole camera and five views from exact pixels -----------------------------------------------------------
-    cam = ecf_pinhole_camera(); Es = ecf_truth_poses(5)
-    views = ecf_views_of(cam, Es, 0.6)
+    cam = pinhole_camera(); Es = truth_poses(5)
+    views = views_of(cam, Es, 0.6)
     θ = parameter_vector(cam)
     cam0 = with_parameters(cam, θ .* SVector(1.04, 1.01, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 6.0, -5.0))
-    poses0 = [ecf_perturbed_pose(E, v) for (v, E) in enumerate(Es)]
+    poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     fx = (cam0, poses0, views)
     case!(cases, "bundle/pinhole5_exact/ls", fx, ((c, p, v),) -> refine_camera_and_poses(c, p, v; ls...))
     case!(cases, "bundle/pinhole5_exact/ls_max_iter1", fx, ((c, p, v),) -> refine_camera_and_poses(c, p, v; ls..., max_iter = 1))
@@ -466,16 +466,16 @@ function _record_ecf_bundle!(cases)
               ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = (:aspect,), ls...))
     end
     # a fisheye past 90°
-    fcam = ecf_fisheye_camera(); fEs = ecf_truth_poses(4)
-    fviews = ecf_views_of(fcam, fEs, deg2rad(100))
+    fcam = fisheye_camera(); fEs = truth_poses(4)
+    fviews = views_of(fcam, fEs, deg2rad(100))
     fθ = parameter_vector(fcam)
     fcam0 = with_parameters(fcam, fθ .* SVector(1.03, 1.0, 1.0, 1.0, 1.0, 0.8, 1.2, 0.9, 1.1) .+ SVector(0.0, 0.0, 0.0, -4.0, 3.0, 0.0, 0.0, 0.0, 0.0))
-    ff = (fcam0, [ecf_perturbed_pose(E, v) for (v, E) in enumerate(fEs)], fviews)
+    ff = (fcam0, [perturbed_pose(E, v) for (v, E) in enumerate(fEs)], fviews)
     case!(cases, "bundle/fisheye4_exact/ls", ff, ((c, p, v),) -> refine_camera_and_poses(c, p, v; ls...))
     case!(cases, "bundle/fisheye4_exact/ls_fixed_k_skew", ff, ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = (:k, :skew), ls...))
     # a held camera; the forms; refusals
-    Es3 = ecf_truth_poses(3); views3 = ecf_views_of(cam, Es3, 0.5)
-    p3 = [ecf_perturbed_pose(E, v) for (v, E) in enumerate(Es3)]
+    Es3 = truth_poses(3); views3 = views_of(cam, Es3, 0.5)
+    p3 = [perturbed_pose(E, v) for (v, E) in enumerate(Es3)]
     case!(cases, "bundle/pinhole3_exact/ls_camera_held", (cam, p3, views3), ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = parameter_names(c), ls...))
     case!(cases, "bundle/pinhole3_exact/ls_fixed_aspect", (cam, p3, views3), ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = (:aspect,), ls...))
     case!(cases, "bundle/pinhole3_exact/ls_fixed_empty", (cam, p3, views3), ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = (), ls...))
@@ -542,11 +542,11 @@ function _record_ecf_bundle!(cases)
           ((c, p, v),) -> refine_camera_and_poses(c, p, v; local_optimization = W, scale = 0.2))
 
     # --- the board form -----------------------------------------------------------------------------------------------
-    boards = ecf_truth_boards(); vposes = ecf_view_poses()
+    boards = truth_boards(); vposes = view_poses()
     bcam0 = with_parameters(cam, θ .* SVector(1.03, 1.0, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 5.0, -4.0))
-    views0 = Dict(v => ecf_nudged(E, v) for (v, E) in vposes)
+    views0 = Dict(v => nudged(E, v) for (v, E) in vposes)
     keyn = Dict(:A => 1, :B => 2, :C => 3)
-    boards0 = Dict(b => b === :A ? E : ecf_nudged(E, 7 + keyn[b]) for (b, E) in boards)
+    boards0 = Dict(b => b === :A ? E : nudged(E, 7 + keyn[b]) for (b, E) in boards)
     exact = ecf_board_obs(cam, vposes, boards)
     case!(cases, "boardbundle/three_boards_exact/ls", (bcam0, views0, boards0, exact), ((c, v, b, o),) -> refine_camera_and_poses(c, v, b, o; ls...))
     for seed in SEEDS
@@ -556,9 +556,9 @@ function _record_ecf_bundle!(cases)
         case!(cases, "boardbundle/three_boards_noisy/ls_view1_held/seed$seed", (bcam0, views0, boards0, nb),
               ((c, v, b, o),) -> refine_camera_and_poses(c, v, b, o; held_boards = (), held_views = (1,), ls...))
     end
-    vd = merge(vposes, Dict(7 => vposes[2])); bd = merge(boards, Dict(:D => ecf_nudged(boards[:B], 1)))
-    obs = merge(exact, Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X)))) for X in ecf_board_points()]))
-    case!(cases, "boardbundle/two_components_exact/ls", (bcam0, merge(views0, Dict(7 => ecf_nudged(vposes[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs),
+    vd = merge(vposes, Dict(7 => vposes[2])); bd = merge(boards, Dict(:D => nudged(boards[:B], 1)))
+    obs = merge(exact, Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X)))) for X in board_points()]))
+    case!(cases, "boardbundle/two_components_exact/ls", (bcam0, merge(views0, Dict(7 => nudged(vposes[2], 3))), merge(boards0, Dict(:D => bd[:D])), obs),
           ((c, v, b, o),) -> refine_camera_and_poses(c, v, b, o; ls...))
     nb = ecf_board_obs(cam, vposes, boards; σ = 0.2, rng = StableRNG(1))
     case!(cases, "boardbundle/three_boards_noisy/refused_no_held_pose", (bcam0, views0, boards0, nb),
@@ -569,10 +569,10 @@ function _record_ecf_bundle!(cases)
           ((c, v, b, o),) -> refine_camera_and_poses(c, v, b, o; ls...))
 
     # --- a SplineLens camera: refused free; held -------------------------------------------------------------------
-    struth = ecf_spline_truth(); sEs = ecf_truth_poses(3)
-    sviews = ecf_spline_views(struth, sEs, 1.1)
-    sp0 = [ecf_perturbed_pose(E, v) for (v, E) in enumerate(sEs)]
-    pc = ecf_perturbed_controls(struth, 0.01)
+    struth = spline_truth(); sEs = truth_poses(3)
+    sviews = spline_views(struth, sEs, 1.1)
+    sp0 = [perturbed_pose(E, v) for (v, E) in enumerate(sEs)]
+    pc = perturbed_controls(struth, 0.01)
     sfx = (ecf_bounded(pc), sp0, sviews)
     case!(cases, "bundle/spline3_exact/refused_free_controls", sfx, ((c, p, v),) -> refine_camera_and_poses(c, p, v))
     case!(cases, "bundle/spline3_exact/refused_free_controls_fixed_empty", sfx, ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = ()))
@@ -584,10 +584,10 @@ function _record_ecf_bundle!(cases)
     case!(cases, "bundle/spline3_exact_bare_keyed/refused_free_controls", (pc, Dict(v => sp0[v] for v in 1:3), Dict(v => sviews[v] for v in 1:3)),
           ((c, p, v),) -> refine_camera_and_poses(c, p, v; fixed = ()))
     held = (; fixed = (:controls,), optimization_strategy = nothing)
-    kb = ecf_fisheye_camera(); bk = BoundedCamera(kb, Size2(1280, 960))
+    kb = fisheye_camera(); bk = BoundedCamera(kb, Size2(1280, 960))
     fitted = estimate(fit_camera(SplineLens, bk, imaged_region(bk); tolerance = 1.0e-2, forward = false))
     for (lbl, tc) in (("fitted", fitted), ("quasi", ecf_kb_spline_quasi()), ("scaled", ecf_scaled_spline()), ("truth", struth))
-        case!(cases, "bundle/spline3_$(lbl)_exact/held_ls", (ecf_bounded(tc), sp0, ecf_spline_views(tc, sEs, 1.1)), ((c, p, v),) -> refine_camera_and_poses(c, p, v; held...))
+        case!(cases, "bundle/spline3_$(lbl)_exact/held_ls", (ecf_bounded(tc), sp0, spline_views(tc, sEs, 1.1)), ((c, p, v),) -> refine_camera_and_poses(c, p, v; held...))
     end
     case!(cases, "bundle/spline3_truth_bare_exact/held_ls", (struth, sp0, sviews), ((c, p, v),) -> refine_camera_and_poses(c, p, v; held...))
     fwd = BoundedCamera(estimate(fit_camera(SplineLens, BoundedCamera(pc, Size2(1280, 960)), imaged_region(BoundedCamera(pc, Size2(1280, 960))); tolerance = 1.0e-3)),
@@ -615,13 +615,13 @@ function _record_ecf_bundle!(cases)
     end
 
     # --- rotation-centre views of a held pinhole camera ------------------------------------------------------------
-    t = ecf_center_truth(ECF_CENTER_AXES)
+    t = center_truth(ECF_CENTER_AXES)
     start = ecf_center_start(t)
     hp = held_parameters(cam)
-    case!(cases, "centerbundle/pinhole6_exact/ls", (cam, start, ecf_center_views(cam, t)), ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
+    case!(cases, "centerbundle/pinhole6_exact/ls", (cam, start, center_views(cam, t)), ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
     upstream = FitResult(0.3, ReturnCode.Success, ClosedForm, 0, NaN, 6, (; scale = 0.3, scale_source = ScaleEstimated))
     for seed in SEEDS   # StableRNG(2) is the suite's own draw
-        vs = ecf_center_views(cam, t; σ = 0.3, outliers = 0.05, rng = StableRNG(seed))
+        vs = center_views(cam, t; σ = 0.3, outliers = 0.05, rng = StableRNG(seed))
         id = "/seed$seed"
         f = (cam, start, vs)
         case!(cases, "centerbundle/pinhole6_contaminated/triggs_huber3_upstream$id", (f..., upstream),
@@ -632,22 +632,22 @@ function _record_ecf_bundle!(cases)
         case!(cases, "centerbundle/pinhole6_contaminated/triggs_huber_width0.9$id", f,
               ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), optimization_strategy = Triggs{HuberShape}(), width = 0.9))
     end
-    case!(cases, "centerbundle/pinhole6_clean_sigma0.1/ls", (cam, start, ecf_center_views(cam, t; σ = 0.1, rng = StableRNG(7))),
+    case!(cases, "centerbundle/pinhole6_clean_sigma0.1/ls", (cam, start, center_views(cam, t; σ = 0.1, rng = StableRNG(7))),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
-    one_axis = ecf_center_truth([SVector(0.0, 0.0, a) for a in -0.1:0.05:0.1])
-    case!(cases, "centerbundle/pinhole_one_axis/refused", (cam, RotationCenterViews(one_axis.R, one_axis.c, one_axis.d), ecf_center_views(cam, one_axis)),
+    one_axis = center_truth([SVector(0.0, 0.0, a) for a in -0.1:0.05:0.1])
+    case!(cases, "centerbundle/pinhole_one_axis/refused", (cam, RotationCenterViews(one_axis.R, one_axis.c, one_axis.d), center_views(cam, one_axis)),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
-    two = ecf_center_truth(ECF_CENTER_AXES[1:2])
-    case!(cases, "centerbundle/pinhole_two_views/refused", (cam, RotationCenterViews(two.R, two.c, two.d), ecf_center_views(cam, two)),
+    two = center_truth(ECF_CENTER_AXES[1:2])
+    case!(cases, "centerbundle/pinhole_two_views/refused", (cam, RotationCenterViews(two.R, two.c, two.d), center_views(cam, two)),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
-    case!(cases, "centerbundle/pinhole6_exact/refused_free_camera", (cam, start, ecf_center_views(cam, t)), ((c, s, v),) -> refine_camera_and_poses(c, s, v; ls...))
-    case!(cases, "centerbundle/pinhole6_exact/refused_missing_view", (cam, start, Dict(k => v for (k, v) in ecf_center_views(cam, t) if k != 3)),
+    case!(cases, "centerbundle/pinhole6_exact/refused_free_camera", (cam, start, center_views(cam, t)), ((c, s, v),) -> refine_camera_and_poses(c, s, v; ls...))
+    case!(cases, "centerbundle/pinhole6_exact/refused_missing_view", (cam, start, Dict(k => v for (k, v) in center_views(cam, t) if k != 3)),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = held_parameters(c), ls...))
 
     # --- rotation-centre views of a held SplineLens camera ----------------------------------------------------------
-    st = ecf_center_truth(4 .* ECF_CENTER_AXES[1:5])
+    st = center_truth(4 .* ECF_CENTER_AXES[1:5])
     sstart = ecf_center_start(st)
-    sexact = ecf_center_views(struth, st)
+    sexact = center_views(struth, st)
     hc = (; fixed = (:controls,))
     case!(cases, "centerbundle/spline5_exact/ls", (struth, sstart, sexact), ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., ls...))
     case!(cases, "centerbundle/spline5_exact/ls_held_parameters", (struth, sstart, sexact),
@@ -658,14 +658,14 @@ function _record_ecf_bundle!(cases)
     rim = Dict(k => [(R' * (2.5 * f - (st.d - R * st.c))) => u for (f, u) in zip(rays, pxs)] for (k, R) in st.R)
     turned = RotationCenterViews(Dict(k => Q * R for (k, R) in st.R), st.c, Q * st.d)
     case!(cases, "centerbundle/spline5_rim_turned_start/ls", (struth, turned, rim), ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., ls...))
-    snoisy = ecf_center_views(struth, st; σ = 0.3, rng = StableRNG(5))
+    snoisy = center_views(struth, st; σ = 0.3, rng = StableRNG(5))
     for (lbl, strategy, input) in (("triggs_huber3_scale0.3", Triggs{HuberShape}(efficiency_constant = 3.0), (; scale = 0.3)),
                                    ("triggs_huber1.345_scale0.3", H, (; scale = 0.3)),
                                    ("triggs_huber_width0.9", Triggs{HuberShape}(), (; width = 0.9)))
         case!(cases, "centerbundle/spline5_noisy/$lbl", (struth, sstart, snoisy),
               ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., optimization_strategy = strategy, input...))
     end
-    sbad = ecf_center_views(struth, st; σ = 0.3, outliers = 0.05, rng = StableRNG(3))
+    sbad = center_views(struth, st; σ = 0.3, outliers = 0.05, rng = StableRNG(3))
     case!(cases, "centerbundle/spline5_contaminated/triggs_huber3_scale0.3", (struth, sstart, sbad),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., optimization_strategy = Triggs{HuberShape}(efficiency_constant = 3.0), scale = 0.3))
     case!(cases, "centerbundle/spline5_contaminated/ls", (struth, sstart, sbad), ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., ls...))
@@ -676,7 +676,7 @@ function _record_ecf_bundle!(cases)
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; hc..., box = (; f = (100.0, 900.0)), ls...))
     case!(cases, "centerbundle/spline5_exact/refused_fixed_controls_f", (struth, sstart, sexact),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v; fixed = (:controls, :f), ls...))
-    sv5 = ecf_center_views(struth, st; σ = 0.5)
+    sv5 = center_views(struth, st; σ = 0.5)
     case!(cases, "centerbundle/spline5_noisy0.5/ls_bearing_residual", (struth, sstart, sv5),
           ((c, s, v),) -> refine_camera_and_poses(c, s, v, BearingResidual(); hc..., ls...))
     case!(cases, "centerbundle/spline5_noisy0.5/ls_reprojection_residual", (struth, sstart, sv5),

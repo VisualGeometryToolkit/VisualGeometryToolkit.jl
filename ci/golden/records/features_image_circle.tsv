@@ -7514,4 +7514,4 @@ refused/not_an_image	exception	type	ArgumentError
 refused/not_an_image	exception.msg	String	ArgumentError: detect_image_circle: a frame is a gray image, a LinearRaw or a RawMosaic, got Symbol
 refused/partial_rim/model_type_int#fixture		array Base.Vector{Base.Matrix{Float32}} [6]	01051bac0350273091c4d9aae8c4ce4164d2531a5aa4b5654cf3afa159f71f35
 refused/partial_rim/model_type_int	exception	type	MethodError
-refused/partial_rim/model_type_int	exception.msg	String	MethodError: no method matching detect_image_circle(::StableRNGs.LehmerRNG, ::Type{Int64}, ::Vector{Matrix{Float32}}; outlier_halfwidth::Float64, device::CPU)
+refused/partial_rim/model_type_int	exception.msg	String	MethodError: no method matching detect_image_circle(::StableRNGs.LehmerRNG, ::Type{Int64}, ::Base.Vector{Base.Matrix{Float32}}; outlier_halfwidth::Float64, device::KernelAbstractions.CPU)

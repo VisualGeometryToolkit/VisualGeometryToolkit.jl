@@ -1,0 +1,373 @@
+# golden bit records, group noise_scales: id	path	type	value
+median_norm_scale/gauss_d1_n5_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [5]	c2da400884252ed1db4a12b7ebdca7155c2e1b9a4e1343af65ae2c046b02db34
+median_norm_scale/gauss_d1_n5_s0.37/seed1		Float64	022d41d9ae6eda3f
+median_norm_scale/gauss_d1_n200_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [200]	bf3bd0074af1440a9e53f13106ee50b91bd011b3fd3528e7151c9a26ef1c743c
+median_norm_scale/gauss_d1_n200_s0.37/seed1		Float64	b1f69afdd9b5d73f
+median_norm_scale/gauss_d2_n5_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [5]	1bd2947c791572cb7b588a2e5e13a2d04b41b5a67a9d6821db7ed2047ec9278e
+median_norm_scale/gauss_d2_n5_s0.37/seed1		Float64	5d1478451095d53f
+median_norm_scale/gauss_d2_n200_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	44136ca567b38bf69e9174b8791dad9f4ee7fba77d35e3f82b6ffe4b3ca330d3
+median_norm_scale/gauss_d2_n200_s0.37/seed1		Float64	d2c957e93d9bd83f
+median_norm_scale/gauss_d3_n5_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [5]	4ed7b5de1e570bedc837838082d39de70c493d291c6267c0909f4af0df2dbe66
+median_norm_scale/gauss_d3_n5_s0.37/seed1		Float64	669121bcbd3bd33f
+median_norm_scale/gauss_d3_n200_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [200]	6a607e9a211586a674ba6f193eb62add7c04b85871ee06a89ae46a1ec5f8fe40
+median_norm_scale/gauss_d3_n200_s0.37/seed1		Float64	cd5da728d5dfd63f
+median_norm_scale/gauss_d6_n5_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [5]	ed385405639a612dc736436229c84dde606e0e5051ff0fe7eb729464935771d9
+median_norm_scale/gauss_d6_n5_s0.37/seed1		Float64	218599ae8923d13f
+median_norm_scale/gauss_d6_n200_s0.37/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [200]	d2dd9d25409391777fb1e3ac1f439ab6d3e8ffccdfa7368e852239c9a76c20a7
+median_norm_scale/gauss_d6_n200_s0.37/seed1		Float64	89ad8cd52c65d83f
+median_norm_scale/contaminated_d2/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	3680063ea93f8f0697912fd0b37850c6d091717df8648f1a6091c3e3cbf45a62
+median_norm_scale/contaminated_d2/seed1		Float64	47a182ddc430e43f
+median_norm_scale/biased_d1/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [100]	e22d92684afe65fe4c0e21353b1f4dbd72e652ab999f36024901bac81d852973
+median_norm_scale/biased_d1/seed1		Float64	ccaf18c7cc95f53f
+median_norm_scale/float32_d2/seed1#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float32}} [64]	a2faf40fd7ae325f6cfeb57a2250298a7f160dc69de2199b72f81730b7d7479e
+median_norm_scale/float32_d2/seed1		Float64	392603f7a038f23f
+median_norm_scale/gauss_d1_n5_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [5]	cbfc48b9f87d3c1ee53d2d34bdd0eb2c7ba3129eb667dd559c89e4ac385bf324
+median_norm_scale/gauss_d1_n5_s0.37/seed2		Float64	ef33369ca177d83f
+median_norm_scale/gauss_d1_n200_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [200]	3c695b2717f269d072fd3769e5809d6257719aac17fc4168c775798c87dcd0b5
+median_norm_scale/gauss_d1_n200_s0.37/seed2		Float64	8ec17435fc73d73f
+median_norm_scale/gauss_d2_n5_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [5]	bd745213653c9dc940a85987783a9e0402e36db6a846e618e9ec2d6f21f402d1
+median_norm_scale/gauss_d2_n5_s0.37/seed2		Float64	473788091a21d83f
+median_norm_scale/gauss_d2_n200_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	33bb77779e944570c6c8134a7c013dd559916f227ba5d8860faec0946d616ecf
+median_norm_scale/gauss_d2_n200_s0.37/seed2		Float64	ee286010c1b2d63f
+median_norm_scale/gauss_d3_n5_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [5]	353722b762bc9a2256578852d306bb8eb33be67d52733979c4ef3cba577c50e8
+median_norm_scale/gauss_d3_n5_s0.37/seed2		Float64	64028c959f7ee03f
+median_norm_scale/gauss_d3_n200_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [200]	a6ea46096cd3569f754de52d9af4c828e08f0c30f51460ed84f27f7c18bca59e
+median_norm_scale/gauss_d3_n200_s0.37/seed2		Float64	7edebf7f221dd73f
+median_norm_scale/gauss_d6_n5_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [5]	95bdd0524a032e5b03669052e011f4cde4cc21d5d69c0f924796f612a8dfab1b
+median_norm_scale/gauss_d6_n5_s0.37/seed2		Float64	d82307b87169d73f
+median_norm_scale/gauss_d6_n200_s0.37/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [200]	dd91c05bc840791654f5141f8bc31b79e6a59e8e7c64ab2407edc47a0efac854
+median_norm_scale/gauss_d6_n200_s0.37/seed2		Float64	62fa9ee65252d73f
+median_norm_scale/contaminated_d2/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	2d983142d11c120dd82830363fdb53010afd255769f96861ba0e547fcf1adcbf
+median_norm_scale/contaminated_d2/seed2		Float64	0bc2848fefc1e23f
+median_norm_scale/biased_d1/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [100]	9287701c01f3cb1b898e4a4000e2496b6c0719004e770a8cca5a8e69fe41166b
+median_norm_scale/biased_d1/seed2		Float64	c1f4450b7b2ef53f
+median_norm_scale/float32_d2/seed2#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float32}} [64]	fda4ba260e9032d971933c39828c31cfcb60c6aaa468093acf546e6c6e5adafd
+median_norm_scale/float32_d2/seed2		Float64	87aec244b573f33f
+median_norm_scale/gauss_d1_n5_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [5]	ae800b65239bcc8f1a8018a6fafae12d19156efee13334d9935e8ab24178328b
+median_norm_scale/gauss_d1_n5_s0.37/seed3		Float64	12751ac3f497cb3f
+median_norm_scale/gauss_d1_n200_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [200]	511ff5a35c58f4f39dbaf21b6fb32051b3667f2650555676387286700519adbe
+median_norm_scale/gauss_d1_n200_s0.37/seed3		Float64	5b33d63bb468d73f
+median_norm_scale/gauss_d2_n5_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [5]	a30c389447c770cbfa9dcdc72e210b048e17e086ebd8e3417755617f0a634d75
+median_norm_scale/gauss_d2_n5_s0.37/seed3		Float64	109717f8f4abd83f
+median_norm_scale/gauss_d2_n200_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	5c91b8ae3941318a5f0233b8b96149c20951045160153238e54b7dd76e913166
+median_norm_scale/gauss_d2_n200_s0.37/seed3		Float64	9e5cad526e7ed83f
+median_norm_scale/gauss_d3_n5_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [5]	f751fb99894355bae5ed7db35db5df4735e9de6bbb1c8d9bdf7c931fa4fa9e6c
+median_norm_scale/gauss_d3_n5_s0.37/seed3		Float64	f1fd7ae379dad53f
+median_norm_scale/gauss_d3_n200_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [200]	e48d19c31af63a42d22a79832bf36ee562dd2c1a68579a43aa80d3ae5c209f0d
+median_norm_scale/gauss_d3_n200_s0.37/seed3		Float64	378742856e37d63f
+median_norm_scale/gauss_d6_n5_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [5]	885485ad0d618ee328f580a7bb37a10e6731cc722911d33333a18f208fa9d9e1
+median_norm_scale/gauss_d6_n5_s0.37/seed3		Float64	ef6a0650f08cd43f
+median_norm_scale/gauss_d6_n200_s0.37/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{6, Float64}} [200]	44517d92e1c23daed5901d4c84c9e8d20f64026e6580cf45aa6d41164767b05c
+median_norm_scale/gauss_d6_n200_s0.37/seed3		Float64	957391432c15d63f
+median_norm_scale/contaminated_d2/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [200]	38b98a320356e17a8af75f2cf97fb42ca3ff29ded9bdd4317688bd0e4970647b
+median_norm_scale/contaminated_d2/seed3		Float64	4467d25bbb64e43f
+median_norm_scale/biased_d1/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [100]	660a4259c8daa0d6376d4313b3748e8741b7dc29fbedda1d90e574ffafdc25e9
+median_norm_scale/biased_d1/seed3		Float64	1af0736d811bf63f
+median_norm_scale/float32_d2/seed3#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float32}} [64]	c53ef4a933b6f3067043c754df2b18df979ed01d595be2092e77609353d9c327
+median_norm_scale/float32_d2/seed3		Float64	a0a0c04a4f2af23f
+median_norm_scale/rayleigh_513#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [3]	537dc1a2958b970226a74825e8f378b155cd1bf3ebcf265603ef1e1840f221e2
+median_norm_scale/rayleigh_513		Float64	7556f01187fc1040
+median_norm_scale/d1_signed#fixture		array Base.Vector{StaticArraysCore.SVector{1, Float64}} [3]	a736adc17726feadcb37c816f9e412b69fa5063817158a4646b06eb5a6e4d43f
+median_norm_scale/d1_signed		Float64	7456971abdb80740
+median_norm_scale/float32_three#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float32}} [3]	cc172426f49963cf0931d6c110cf84922ba0a8d7f28f5b86f132b6e742c4c5c3
+median_norm_scale/float32_three		Float64	548a80e9a42dfb3f
+median_norm_scale/one#fixture		array Base.Vector{StaticArraysCore.SVector{2, Float64}} [1]	0415de3fba70c4da55899d1a1ba78d0791993f19f4b4fc2f55622d682db4c414
+median_norm_scale/one		Float64	548a80e9a42dfb3f
+median_norm_scale/refused/plain_vector#fixture		array Base.Vector{Float64} [3]	2f2ac31df0d0e6658d3415acd0e6fa8bcf00b3d2c3ee3769f680b9cbe70b59f5
+median_norm_scale/refused/plain_vector	exception	type	MethodError
+median_norm_scale/refused/plain_vector	exception.msg	String	MethodError: no method matching mad_scale(::Vector{Float64})
+pooled_scale/results4/seed1#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [4]	9fe60dc199119f13d9ee37da5169baf432ab3ed3b2b7254df28c2b5f62412755
+pooled_scale/results4/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results4/seed1	estimate	Float64	535bdb7b276ee53f
+pooled_scale/results4/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results4/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results4/seed1	iterations	Int64	0000000000000000
+pooled_scale/results4/seed1	rms	Float64	000000000000f87f
+pooled_scale/results4/seed1	n	Int64	0400000000000000
+pooled_scale/results4/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results4/seed1	metadata.scale	Float64	535bdb7b276ee53f
+pooled_scale/results4/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results4/seed1	metadata.dof	Int64	5003000000000000
+pooled_scale/results4/seed1	metadata.pooled	Int64	0400000000000000
+pooled_scale/results4/seed1	metadata.left_out	Int64	0000000000000000
+pooled_scale/results1/seed1#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	b5e04e91bd8a720a7b5cfe625c6e4cc8e0dd0283711a3aa2a11b64a8935eb5d7
+pooled_scale/results1/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results1/seed1	estimate	Float64	20cf227b4bbcda3f
+pooled_scale/results1/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results1/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results1/seed1	iterations	Int64	0000000000000000
+pooled_scale/results1/seed1	rms	Float64	000000000000f87f
+pooled_scale/results1/seed1	n	Int64	0100000000000000
+pooled_scale/results1/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results1/seed1	metadata.scale	Float64	20cf227b4bbcda3f
+pooled_scale/results1/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results1/seed1	metadata.dof	Int64	9800000000000000
+pooled_scale/results1/seed1	metadata.pooled	Int64	0100000000000000
+pooled_scale/results1/seed1	metadata.left_out	Int64	0000000000000000
+pooled_scale/results_with_failed/seed1#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [5]	08abb9ab1c2556c53850657b1589189b37337671879a79dc09dc5060cd9c5f29
+pooled_scale/results_with_failed/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results_with_failed/seed1	estimate	Float64	535bdb7b276ee53f
+pooled_scale/results_with_failed/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results_with_failed/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results_with_failed/seed1	iterations	Int64	0000000000000000
+pooled_scale/results_with_failed/seed1	rms	Float64	000000000000f87f
+pooled_scale/results_with_failed/seed1	n	Int64	0400000000000000
+pooled_scale/results_with_failed/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results_with_failed/seed1	metadata.scale	Float64	535bdb7b276ee53f
+pooled_scale/results_with_failed/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results_with_failed/seed1	metadata.dof	Int64	5003000000000000
+pooled_scale/results_with_failed/seed1	metadata.pooled	Int64	0400000000000000
+pooled_scale/results_with_failed/seed1	metadata.left_out	Int64	0100000000000000
+pooled_scale/only_failed/seed1#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	188c6e2a42aff27ead284dc55b0705d7b0307cc504f91ca7cb11c1cf509ed5d0
+pooled_scale/only_failed/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/only_failed/seed1	estimate	Float64	000000000000f87f
+pooled_scale/only_failed/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	08000000
+pooled_scale/only_failed/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	00000000
+pooled_scale/only_failed/seed1	iterations	Int64	0000000000000000
+pooled_scale/only_failed/seed1	rms	Float64	000000000000f87f
+pooled_scale/only_failed/seed1	n	Int64	0000000000000000
+pooled_scale/only_failed/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/only_failed/seed1	metadata.scale	Float64	000000000000f87f
+pooled_scale/only_failed/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	03
+pooled_scale/only_failed/seed1	metadata.dof	Int64	0000000000000000
+pooled_scale/only_failed/seed1	metadata.pooled	Int64	0000000000000000
+pooled_scale/only_failed/seed1	metadata.left_out	Int64	0100000000000000
+pooled_scale/numbers/seed1#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers/seed1#fixture	1	array Base.Vector{Float64} [4]	aab6083711cd631bbce4e8d009df92cbcaed78699b5c96588a3ce3be53eb12ff
+pooled_scale/numbers/seed1#fixture	2	array Base.Vector{Int64} [4]	b4cafe29549edfbd39f783018c62c95139d486c84d8f8c4c6f5533f6193b455f
+pooled_scale/numbers/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers/seed1	estimate	Float64	535bdb7b276ee53f
+pooled_scale/numbers/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers/seed1	iterations	Int64	0000000000000000
+pooled_scale/numbers/seed1	rms	Float64	000000000000f87f
+pooled_scale/numbers/seed1	n	Int64	0400000000000000
+pooled_scale/numbers/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers/seed1	metadata.scale	Float64	535bdb7b276ee53f
+pooled_scale/numbers/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers/seed1	metadata.dof	Int64	5003000000000000
+pooled_scale/numbers/seed1	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers/seed1	metadata.left_out	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed1#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers_left_out/seed1#fixture	1	array Base.Vector{Float64} [6]	55c8cad1bcd94e97e36f1a46a4b8a5a5fc0f346ba8ebce87eb978ca4f5ff7e49
+pooled_scale/numbers_left_out/seed1#fixture	2	array Base.Vector{Int64} [6]	df0a5ebe72c388d1a4267cd0a0da810d7985268d9efce985811962807a0804ed
+pooled_scale/numbers_left_out/seed1		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers_left_out/seed1	estimate	Float64	535bdb7b276ee53f
+pooled_scale/numbers_left_out/seed1	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers_left_out/seed1	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers_left_out/seed1	iterations	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed1	rms	Float64	000000000000f87f
+pooled_scale/numbers_left_out/seed1	n	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed1	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers_left_out/seed1	metadata.scale	Float64	535bdb7b276ee53f
+pooled_scale/numbers_left_out/seed1	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers_left_out/seed1	metadata.dof	Int64	5003000000000000
+pooled_scale/numbers_left_out/seed1	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed1	metadata.left_out	Int64	0200000000000000
+pooled_scale/refused/length_mismatch/seed1#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/refused/length_mismatch/seed1#fixture	1	array Base.Vector{Float64} [4]	aab6083711cd631bbce4e8d009df92cbcaed78699b5c96588a3ce3be53eb12ff
+pooled_scale/refused/length_mismatch/seed1#fixture	2	array Base.Vector{Int64} [2]	fde8e0725700e7c5dd6ef5c50255df28f2d870a558d96a6847436a8bc33933e3
+pooled_scale/refused/length_mismatch/seed1	exception	type	Base.DimensionMismatch
+pooled_scale/refused/length_mismatch/seed1	exception.msg	String	DimensionMismatch: pooled_noise_scale: 4 scales, 2 degrees of freedom
+pooled_scale/results4/seed2#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [4]	0cda8bb3b2985bef9507c7c596de552e10a3c6b7707f822346f1f2b8a5ff63a1
+pooled_scale/results4/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results4/seed2	estimate	Float64	e135ec2d03f9e63f
+pooled_scale/results4/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results4/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results4/seed2	iterations	Int64	0000000000000000
+pooled_scale/results4/seed2	rms	Float64	000000000000f87f
+pooled_scale/results4/seed2	n	Int64	0400000000000000
+pooled_scale/results4/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results4/seed2	metadata.scale	Float64	e135ec2d03f9e63f
+pooled_scale/results4/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results4/seed2	metadata.dof	Int64	4c03000000000000
+pooled_scale/results4/seed2	metadata.pooled	Int64	0400000000000000
+pooled_scale/results4/seed2	metadata.left_out	Int64	0000000000000000
+pooled_scale/results1/seed2#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	611a290e0028cc0f82ff8a1a311d21954be1d48afb41058ed750f178b8ecefc8
+pooled_scale/results1/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results1/seed2	estimate	Float64	59aa42e3aa79d93f
+pooled_scale/results1/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results1/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results1/seed2	iterations	Int64	0000000000000000
+pooled_scale/results1/seed2	rms	Float64	000000000000f87f
+pooled_scale/results1/seed2	n	Int64	0100000000000000
+pooled_scale/results1/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results1/seed2	metadata.scale	Float64	59aa42e3aa79d93f
+pooled_scale/results1/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results1/seed2	metadata.dof	Int64	9800000000000000
+pooled_scale/results1/seed2	metadata.pooled	Int64	0100000000000000
+pooled_scale/results1/seed2	metadata.left_out	Int64	0000000000000000
+pooled_scale/results_with_failed/seed2#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [5]	a4c5c77ace66f7ded1ec3667de67d98c751eec1bf61eba01b8d5ec9ac1d5cab2
+pooled_scale/results_with_failed/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results_with_failed/seed2	estimate	Float64	e135ec2d03f9e63f
+pooled_scale/results_with_failed/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results_with_failed/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results_with_failed/seed2	iterations	Int64	0000000000000000
+pooled_scale/results_with_failed/seed2	rms	Float64	000000000000f87f
+pooled_scale/results_with_failed/seed2	n	Int64	0400000000000000
+pooled_scale/results_with_failed/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results_with_failed/seed2	metadata.scale	Float64	e135ec2d03f9e63f
+pooled_scale/results_with_failed/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results_with_failed/seed2	metadata.dof	Int64	4c03000000000000
+pooled_scale/results_with_failed/seed2	metadata.pooled	Int64	0400000000000000
+pooled_scale/results_with_failed/seed2	metadata.left_out	Int64	0100000000000000
+pooled_scale/only_failed/seed2#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	188c6e2a42aff27ead284dc55b0705d7b0307cc504f91ca7cb11c1cf509ed5d0
+pooled_scale/only_failed/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/only_failed/seed2	estimate	Float64	000000000000f87f
+pooled_scale/only_failed/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	08000000
+pooled_scale/only_failed/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	00000000
+pooled_scale/only_failed/seed2	iterations	Int64	0000000000000000
+pooled_scale/only_failed/seed2	rms	Float64	000000000000f87f
+pooled_scale/only_failed/seed2	n	Int64	0000000000000000
+pooled_scale/only_failed/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/only_failed/seed2	metadata.scale	Float64	000000000000f87f
+pooled_scale/only_failed/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	03
+pooled_scale/only_failed/seed2	metadata.dof	Int64	0000000000000000
+pooled_scale/only_failed/seed2	metadata.pooled	Int64	0000000000000000
+pooled_scale/only_failed/seed2	metadata.left_out	Int64	0100000000000000
+pooled_scale/numbers/seed2#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers/seed2#fixture	1	array Base.Vector{Float64} [4]	30b92420e6f3a9c592d07675ef263f0d0f468ce88bad68408d25a59db012d3c3
+pooled_scale/numbers/seed2#fixture	2	array Base.Vector{Int64} [4]	0ae57db8c61e616467499e8783725928f9d59d7f1ee81abbbf632b2c9a68cb5b
+pooled_scale/numbers/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers/seed2	estimate	Float64	e135ec2d03f9e63f
+pooled_scale/numbers/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers/seed2	iterations	Int64	0000000000000000
+pooled_scale/numbers/seed2	rms	Float64	000000000000f87f
+pooled_scale/numbers/seed2	n	Int64	0400000000000000
+pooled_scale/numbers/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers/seed2	metadata.scale	Float64	e135ec2d03f9e63f
+pooled_scale/numbers/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers/seed2	metadata.dof	Int64	4c03000000000000
+pooled_scale/numbers/seed2	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers/seed2	metadata.left_out	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed2#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers_left_out/seed2#fixture	1	array Base.Vector{Float64} [6]	eb1f87e78e3d208c74e60c9630bfa5952ea4f97aba95844c1a4a8522d7b81510
+pooled_scale/numbers_left_out/seed2#fixture	2	array Base.Vector{Int64} [6]	c29ddda4e55f3675da0cbc040ac226a183368843e172c60f8acfddb93bac3a1e
+pooled_scale/numbers_left_out/seed2		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers_left_out/seed2	estimate	Float64	e135ec2d03f9e63f
+pooled_scale/numbers_left_out/seed2	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers_left_out/seed2	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers_left_out/seed2	iterations	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed2	rms	Float64	000000000000f87f
+pooled_scale/numbers_left_out/seed2	n	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed2	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers_left_out/seed2	metadata.scale	Float64	e135ec2d03f9e63f
+pooled_scale/numbers_left_out/seed2	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers_left_out/seed2	metadata.dof	Int64	4c03000000000000
+pooled_scale/numbers_left_out/seed2	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed2	metadata.left_out	Int64	0200000000000000
+pooled_scale/refused/length_mismatch/seed2#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/refused/length_mismatch/seed2#fixture	1	array Base.Vector{Float64} [4]	30b92420e6f3a9c592d07675ef263f0d0f468ce88bad68408d25a59db012d3c3
+pooled_scale/refused/length_mismatch/seed2#fixture	2	array Base.Vector{Int64} [2]	fde8e0725700e7c5dd6ef5c50255df28f2d870a558d96a6847436a8bc33933e3
+pooled_scale/refused/length_mismatch/seed2	exception	type	Base.DimensionMismatch
+pooled_scale/refused/length_mismatch/seed2	exception.msg	String	DimensionMismatch: pooled_noise_scale: 4 scales, 2 degrees of freedom
+pooled_scale/results4/seed3#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [4]	4901c77bd57b4851bd1c02f92a5ec49852a40e70934cf0e949c49d8675954ac1
+pooled_scale/results4/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results4/seed3	estimate	Float64	c4299c8c4a48e63f
+pooled_scale/results4/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results4/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results4/seed3	iterations	Int64	0000000000000000
+pooled_scale/results4/seed3	rms	Float64	000000000000f87f
+pooled_scale/results4/seed3	n	Int64	0400000000000000
+pooled_scale/results4/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results4/seed3	metadata.scale	Float64	c4299c8c4a48e63f
+pooled_scale/results4/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results4/seed3	metadata.dof	Int64	5003000000000000
+pooled_scale/results4/seed3	metadata.pooled	Int64	0400000000000000
+pooled_scale/results4/seed3	metadata.left_out	Int64	0000000000000000
+pooled_scale/results1/seed3#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	c329ed02e033b5b80bcc135e48a4a80edd9646f45f9e457d0a4be5952e8bb08c
+pooled_scale/results1/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results1/seed3	estimate	Float64	bac247c30c91da3f
+pooled_scale/results1/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results1/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results1/seed3	iterations	Int64	0000000000000000
+pooled_scale/results1/seed3	rms	Float64	000000000000f87f
+pooled_scale/results1/seed3	n	Int64	0100000000000000
+pooled_scale/results1/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results1/seed3	metadata.scale	Float64	bac247c30c91da3f
+pooled_scale/results1/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results1/seed3	metadata.dof	Int64	9800000000000000
+pooled_scale/results1/seed3	metadata.pooled	Int64	0100000000000000
+pooled_scale/results1/seed3	metadata.left_out	Int64	0000000000000000
+pooled_scale/results_with_failed/seed3#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [5]	366d12907a7efdeab8c71b5636e3a09b7a88cda80f18cec551cad09010f980f5
+pooled_scale/results_with_failed/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/results_with_failed/seed3	estimate	Float64	c4299c8c4a48e63f
+pooled_scale/results_with_failed/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/results_with_failed/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/results_with_failed/seed3	iterations	Int64	0000000000000000
+pooled_scale/results_with_failed/seed3	rms	Float64	000000000000f87f
+pooled_scale/results_with_failed/seed3	n	Int64	0400000000000000
+pooled_scale/results_with_failed/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/results_with_failed/seed3	metadata.scale	Float64	c4299c8c4a48e63f
+pooled_scale/results_with_failed/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/results_with_failed/seed3	metadata.dof	Int64	5003000000000000
+pooled_scale/results_with_failed/seed3	metadata.pooled	Int64	0400000000000000
+pooled_scale/results_with_failed/seed3	metadata.left_out	Int64	0100000000000000
+pooled_scale/only_failed/seed3#fixture		array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{Nothing, VisualGeometryToolkitCore.HomographyMat{Float64}}, VisualGeometryToolkitEstimation.RansacMetadata{Float32, VisualGeometryToolkitCore.MsacScoring{2, Float64}}}} [1]	188c6e2a42aff27ead284dc55b0705d7b0307cc504f91ca7cb11c1cf509ed5d0
+pooled_scale/only_failed/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/only_failed/seed3	estimate	Float64	000000000000f87f
+pooled_scale/only_failed/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	08000000
+pooled_scale/only_failed/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	00000000
+pooled_scale/only_failed/seed3	iterations	Int64	0000000000000000
+pooled_scale/only_failed/seed3	rms	Float64	000000000000f87f
+pooled_scale/only_failed/seed3	n	Int64	0000000000000000
+pooled_scale/only_failed/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/only_failed/seed3	metadata.scale	Float64	000000000000f87f
+pooled_scale/only_failed/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	03
+pooled_scale/only_failed/seed3	metadata.dof	Int64	0000000000000000
+pooled_scale/only_failed/seed3	metadata.pooled	Int64	0000000000000000
+pooled_scale/only_failed/seed3	metadata.left_out	Int64	0100000000000000
+pooled_scale/numbers/seed3#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers/seed3#fixture	1	array Base.Vector{Float64} [4]	ea297547b54d6b7c1e3c143cbced8eb4f2a9fa896acd7cf088e2d40ab45e282f
+pooled_scale/numbers/seed3#fixture	2	array Base.Vector{Int64} [4]	b4cafe29549edfbd39f783018c62c95139d486c84d8f8c4c6f5533f6193b455f
+pooled_scale/numbers/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers/seed3	estimate	Float64	c4299c8c4a48e63f
+pooled_scale/numbers/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers/seed3	iterations	Int64	0000000000000000
+pooled_scale/numbers/seed3	rms	Float64	000000000000f87f
+pooled_scale/numbers/seed3	n	Int64	0400000000000000
+pooled_scale/numbers/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers/seed3	metadata.scale	Float64	c4299c8c4a48e63f
+pooled_scale/numbers/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers/seed3	metadata.dof	Int64	5003000000000000
+pooled_scale/numbers/seed3	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers/seed3	metadata.left_out	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed3#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers_left_out/seed3#fixture	1	array Base.Vector{Float64} [6]	6ab5797023ab547f133e1d5158bba0e6874d75863745211ab26f205530e69230
+pooled_scale/numbers_left_out/seed3#fixture	2	array Base.Vector{Int64} [6]	df0a5ebe72c388d1a4267cd0a0da810d7985268d9efce985811962807a0804ed
+pooled_scale/numbers_left_out/seed3		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers_left_out/seed3	estimate	Float64	c4299c8c4a48e63f
+pooled_scale/numbers_left_out/seed3	retcode	VisualGeometryToolkitCore.ReturnCode.T	01000000
+pooled_scale/numbers_left_out/seed3	stop_rule	VisualGeometryToolkitCore.StopRule	01000000
+pooled_scale/numbers_left_out/seed3	iterations	Int64	0000000000000000
+pooled_scale/numbers_left_out/seed3	rms	Float64	000000000000f87f
+pooled_scale/numbers_left_out/seed3	n	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed3	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers_left_out/seed3	metadata.scale	Float64	c4299c8c4a48e63f
+pooled_scale/numbers_left_out/seed3	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	02
+pooled_scale/numbers_left_out/seed3	metadata.dof	Int64	5003000000000000
+pooled_scale/numbers_left_out/seed3	metadata.pooled	Int64	0400000000000000
+pooled_scale/numbers_left_out/seed3	metadata.left_out	Int64	0200000000000000
+pooled_scale/refused/length_mismatch/seed3#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/refused/length_mismatch/seed3#fixture	1	array Base.Vector{Float64} [4]	ea297547b54d6b7c1e3c143cbced8eb4f2a9fa896acd7cf088e2d40ab45e282f
+pooled_scale/refused/length_mismatch/seed3#fixture	2	array Base.Vector{Int64} [2]	fde8e0725700e7c5dd6ef5c50255df28f2d870a558d96a6847436a8bc33933e3
+pooled_scale/refused/length_mismatch/seed3	exception	type	Base.DimensionMismatch
+pooled_scale/refused/length_mismatch/seed3	exception.msg	String	DimensionMismatch: pooled_noise_scale: 4 scales, 2 degrees of freedom
+pooled_scale/numbers_none#fixture		struct	Tuple{Base.Vector{Float64}, Base.Vector{Int64}}
+pooled_scale/numbers_none#fixture	1	array Base.Vector{Float64} [1]	618e590e00c098760394cf507252066c24035c9a9b9964bc3e6865551e6f7c20
+pooled_scale/numbers_none#fixture	2	array Base.Vector{Int64} [1]	6043ef47ef283a5f1dab813c367faab4e81f03d1ab9dbeafa41689cf23b53710
+pooled_scale/numbers_none		struct	VisualGeometryToolkitCore.FitResult{Float64, VisualGeometryToolkitEstimation.PooledScaleMetadata}
+pooled_scale/numbers_none	estimate	Float64	000000000000f87f
+pooled_scale/numbers_none	retcode	VisualGeometryToolkitCore.ReturnCode.T	08000000
+pooled_scale/numbers_none	stop_rule	VisualGeometryToolkitCore.StopRule	00000000
+pooled_scale/numbers_none	iterations	Int64	0000000000000000
+pooled_scale/numbers_none	rms	Float64	000000000000f87f
+pooled_scale/numbers_none	n	Int64	0000000000000000
+pooled_scale/numbers_none	metadata	struct	VisualGeometryToolkitEstimation.PooledScaleMetadata
+pooled_scale/numbers_none	metadata.scale	Float64	000000000000f87f
+pooled_scale/numbers_none	metadata.scale_source	VisualGeometryToolkitCore.ScaleSource	03
+pooled_scale/numbers_none	metadata.dof	Int64	0000000000000000
+pooled_scale/numbers_none	metadata.pooled	Int64	0000000000000000
+pooled_scale/numbers_none	metadata.left_out	Int64	0100000000000000

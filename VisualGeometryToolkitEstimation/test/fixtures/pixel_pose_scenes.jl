@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The absolute pose's pixel scenes of refine_absolute_pose_tests.jl's PixelPoseScenes (and of the golden records of
 # ci/golden/fixtures/est_pose.jl): a pose, its perturbation, world points spiralling off the optical axis and their
 # exact pixels. Data constructors only — no estimator is called; include-once safe (functions only).

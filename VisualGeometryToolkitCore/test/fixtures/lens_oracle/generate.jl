@@ -5,6 +5,7 @@
 #
 #   julia --project=<VgtkCore 1.0.0 checkout> generate.jl
 using VisualGeometryToolkitCore, StaticArrays, Random, TOML
+include(joinpath(@__DIR__, "..", "pinhole_points.jl"))   # `pinhole_point`
 const VgtkCore = VisualGeometryToolkitCore
 # the 1.0.0 lens types, by name (they are retired names now: spelled indirectly)
 _old(parts...) = getfield(VgtkCore, Symbol(parts...))
@@ -67,7 +68,7 @@ function probe(lens, rng)
     extra = [(r = ρmax * 1.1 * rand(rng); a = 2π * rand(rng); SVector(r * cos(a), r * sin(a))) for _ in 1:16]
     pts = vcat(fin, extra)
     back = [backproject(lens, x) for x in pts]
-    persp = [SVector(X[1] / X[3], X[2] / X[3]) for X in rays if X[3] > 0.05]
+    persp = [pinhole_point(X) for X in rays if X[3] > 0.05]
     dist = [distort_normalized(lens, x) for x in persp]
     und = [undistort_normalized(lens, x) for x in pts]
     J = [transform_deriv(lens, X) for X in rays[1:8]]

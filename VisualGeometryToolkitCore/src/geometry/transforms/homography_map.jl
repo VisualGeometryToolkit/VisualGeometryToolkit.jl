@@ -122,14 +122,13 @@ HomographyMap(h::HomographyMap) = h
     HomographyMap{N, T}(h::HomographyMap{N}) -> HomographyMap{N, T, SMatrix{N, N, T}}
 
 `h` in element type `T`: the same map, its frame labels kept and its STORED
-inverse converted (never recomputed), both as plain `SMatrix`es. Also reached by
-`convert(HomographyMap{N, T}, h)`.
+inverse converted (never recomputed), both as plain `SMatrix`es. The one change of a homography's number type: it is
+explicit (a store into a slot of another `T` is a `MethodError`, the frame-tagged maps' storage policy, below).
 """
 function (::Type{HomographyMap{N, T}})(h::HomographyMap{N, T2, M2, Src, Dst}) where {N, T, T2, M2, Src, Dst}
     fwd = SMatrix{N, N, T}(h.forward)
     return HomographyMap{N, T, typeof(fwd), Src, Dst}(fwd, SMatrix{N, N, T}(h.inverse))
 end
-Base.convert(::Type{HomographyMap{N, T}}, h::HomographyMap{N}) where {N, T} = HomographyMap{N, T}(h)
 
 """
     HomographyMap{Src, Dst}(m::StaticMatrix{N, N}) -> HomographyMap
@@ -147,38 +146,9 @@ H = HomographyMap{TargetPlaneFrame, PixelFrame{:colmap}}(HomographyMat(camera))
 function (::Type{HomographyMap{Src, Dst}})(
         m::StaticMatrix{N, N}
     ) where {N, K, Src <: Frame{K}, Dst <: Frame{K}}
-    K == N - 1 || throw(
-        ArgumentError(
-            "HomographyMap frame tags must be Frame{N-1} point frames: an " *
-                "$(N)×$(N) matrix acts on $(N - 1)-dimensional frames, got Frame{$K}."
-        )
-    )
-    return relabel(Src, Dst, HomographyMap(m))
+    return relabel(Src, Dst, HomographyMap(m))   # its frame dimension checked there
 end
 
-# Frame labeling escape hatches — the HomographyMap methods of the
-# EuclideanMap relabel/unlabel verbs (same semantics: deliberate, unchecked
-# override; zero-cost — both stored matrices are reused bit-for-bit).
-@inline function relabel(
-        ::Type{Src}, ::Type{Dst}, h::HomographyMap{N, T, M}
-    ) where {N, T, M <: StaticMatrix{N, N, T}, K, Src <: Frame{K}, Dst <: Frame{K}}
-    K == N - 1 || throw(
-        ArgumentError(
-            "HomographyMap frame tags must be Frame{N-1} point frames: an " *
-                "$(N)×$(N) map acts on $(N - 1)-dimensional frames, got Frame{$K}."
-        )
-    )
-    return HomographyMap{N, T, M, Src, Dst}(h.forward, h.inverse)
-end
-
-@inline unlabel(h::HomographyMap{N}) where {N} =
-    relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, h)
-
-# An uncertain homography is relabeled as its value: its covariance, in the
-# chart of the map's own matrix (HomographyManifold8), does not move.
-relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:HomographyMap{N}}) where {N, K, Src <: Frame{K}, Dst <: Frame{K}} =
-    Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
-unlabel(u::Uncertain{<:HomographyMap{N}}) where {N} = relabel(UnlabeledFrame{N - 1}, UnlabeledFrame{N - 1}, u)
 map_frames(::HomographyMap{N, T, M, Src, Dst}) where {N, T, M, Src, Dst} = (Src, Dst)
 
 # AbstractMatrixMap interface: HomographyMap's stored matrix IS its homogeneous
@@ -581,3 +551,91 @@ plane = Plane3D(Point3(0,0,0), Vec3(0,0,1))  # z = 0
     return Hyperplane{K, N, promote_type(T, S)}(coeffs′)
 end
 
+# =============================================================================
+# The frame-tagged maps' frame mechanism — EuclideanMap, SimilarityMap, RotationMap, HomographyMap
+# =============================================================================
+#
+# THE POLICY (one statement, one implementation; this block is in the last of the maps' files):
+# - A map's frame tags are its type's LAST TWO parameters (source, destination), point frames of the dimension the map
+#   acts on (`_frame_dim`: `N`, a homography's `N - 1`).
+# - `relabel(Src, Dst, m)` puts new tags on the map's parts (`_map_parts`), reused bit for bit: deliberate and
+#   unchecked, apart from the tags' dimension (`_check_frame_dim`); `unlabel` puts `UnlabeledFrame`s. An uncertain map
+#   is relabeled as its value: its covariance, in the chart of the map's own coordinates, does not move.
+# - The storage-boundary `convert` into a fully parameterized slot of the same map type (implicit in a container's
+#   `setindex!`, a typed field, `push!`) may LABEL an unlabeled map or keep its frames, never relabel or erase one, and
+#   keeps the number type `T`: a labeled mismatch and a different `T` are `MethodError`s (a change of precision, the
+#   Float32-storage / Float64-statistics boundary, is explicit). Each part is converted to the slot's part type
+#   (`_part_types`).
+
+const _FRAMED_MAPS = (EuclideanMap, SimilarityMap, RotationMap, HomographyMap)
+const _FramedMap = Union{_FRAMED_MAPS...}
+
+# Each map's parts, in its constructor's order, and their types in a fully parameterized map type.
+_map_parts(m::EuclideanMap) = (m.R, m.t)
+_map_parts(m::SimilarityMap) = (m.s, m.R, m.t)
+_map_parts(m::RotationMap) = (m.R,)
+_map_parts(m::HomographyMap) = (m.forward, m.inverse)
+_part_types(::Type{<:EuclideanMap{N, T, R, V}}) where {N, T, R, V} = (R, V)
+_part_types(::Type{<:SimilarityMap{N, T, S, R, V}}) where {N, T, S, R, V} = (S, R, V)
+_part_types(::Type{<:RotationMap{N, T, R}}) where {N, T, R} = (R,)
+_part_types(::Type{<:HomographyMap{N, T, M}}) where {N, T, M} = (M, M)
+
+# The dimension of a map's point frames, and the check of the tags relabel puts on it: a wrong dimension is the
+# homography's `ArgumentError` (a 3×3 map acts on 2-D frames), the other maps' `MethodError` (no such map type).
+_frame_dim(::Type{<:Union{EuclideanMap{N}, SimilarityMap{N}, RotationMap{N}}}) where {N} = N
+_frame_dim(::Type{<:HomographyMap{N}}) where {N} = N - 1
+@inline _check_frame_dim(m, ::Type{Src}, ::Type{Dst}, K) where {Src, Dst} =
+    K == _frame_dim(typeof(m)) || throw(MethodError(relabel, (Src, Dst, m)))
+@inline _check_frame_dim(m::HomographyMap{N}, ::Type, ::Type, K) where {N} = K == N - 1 || throw(
+    ArgumentError(
+        "HomographyMap frame tags must be Frame{N-1} point frames: an " *
+            "$(N)×$(N) map acts on $(N - 1)-dimensional frames, got Frame{$K}."
+    )
+)
+
+# The map type `M` under the tags `S`, `D`: its other parameters kept (computed from the type, at compile time).
+@generated _map_type_with_frames(::Type{M}, ::Type{S}, ::Type{D}) where {M, S, D} =
+    Base.typename(M).wrapper{M.parameters[1:(end - 2)]..., S, D}
+@inline _converted(::Type{M}, m) where {M} = M(map((P, p) -> P(p), _part_types(M), _map_parts(m))...)
+
+"""
+    relabel(Src::Type{<:Frame{K}}, Dst::Type{<:Frame{K}}, m) -> the map with frame tags Src, Dst
+
+Return the map `m` — an `EuclideanMap`, `SimilarityMap`, `RotationMap` or `HomographyMap`, plain or
+[`Uncertain`](@ref) — with its frame tags replaced by `Src`/`Dst` (it consumes `Src`-coordinates and produces
+`Dst`-coordinates). Zero-cost: its parts are reused bit for bit; only the type changes (an uncertain map's covariance,
+in the chart of the map's own coordinates, does not move).
+
+This is a DELIBERATE escape hatch: it overrides whatever frames `m` carried, with no check. Use it at trust boundaries
+(dataset loaders, solver outputs) where the caller — not the type system — knows the frames. A frame of the wrong
+dimension is refused: a `MethodError` (a `Frame{2}` on an `N = 3` Euclidean map), and for a homography, whose
+`N × N` matrix acts on `Frame{N-1}` point frames, an `ArgumentError`.
+
+See also [`unlabel`](@ref), [`Frame`](@ref).
+"""
+@inline function relabel(::Type{Src}, ::Type{Dst}, m::_FramedMap) where {K, Src <: Frame{K}, Dst <: Frame{K}}
+    _check_frame_dim(m, Src, Dst, K)
+    return _map_type_with_frames(typeof(m), Src, Dst)(_map_parts(m)...)
+end
+relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:_FramedMap}) where {Src <: Frame, Dst <: Frame} =
+    Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
+
+"""
+    unlabel(m) -> the map with UnlabeledFrame tags
+
+Erase the frame tags of the map `m` (plain or [`Uncertain`](@ref)): both endpoints become
+[`UnlabeledFrame`](@ref) of the map's point dimension. Zero-cost, deliberate escape hatch — the result composes with
+anything under the wildcard rule. Inverse direction of [`relabel`](@ref).
+"""
+@inline unlabel(m::_FramedMap) = (U = UnlabeledFrame{_frame_dim(typeof(m))}; relabel(U, U, m))
+unlabel(u::Uncertain{<:_FramedMap}) = Uncertain(unlabel(geom(u)), getfield(u, :attributes))
+
+# The storage-boundary convert of every frame-tagged map (the policy above): one definition, a method per map type, the
+# parameters between the number type and the frames read from the map type itself.
+for W in _FRAMED_MAPS
+    P = [Symbol(:P, i) for i in 1:(length(Base.unwrap_unionall(W).parameters) - 4)]
+    @eval @inline Base.convert(
+        ::Type{$W{N, T, $(P...), Src, Dst}}, m::$W{N, T, $((:(<:Any) for _ in P)...), Src0, Dst0}
+    ) where {N, T, $(P...), Src <: Frame, Dst <: Frame, Src0 <: Union{Src, UnlabeledFrame}, Dst0 <: Union{Dst, UnlabeledFrame}} =
+        _converted($W{N, T, $(P...), Src, Dst}, m)
+end

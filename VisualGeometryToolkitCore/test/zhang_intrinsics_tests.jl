@@ -1,37 +1,35 @@
-# zhang_intrinsics — Zhang IAC regression from plane homographies (calibration.jl)
-@testitem "zhang_intrinsics" begin
+# Zhang — the IAC regression from plane homographies (calibration.jl)
+@testitem "Zhang" begin
     using Test
     using StaticArrays: SVector, SMatrix, @SMatrix
     using Rotations: RotXYZ
     using VisualGeometryToolkitCore: HomographyMat, LogicalIntrinsics, Size2, Attributed,
-        zhang_intrinsics, focal_length, μm, px
+        focal_length, μm, px, ReturnCode, ClosedForm
+    using VisualGeometryToolkitCore: solve, EstimationProblem, Zhang
+    import VisualGeometryToolkitCore as VgtkCore
 
-    _hom(K, R, t) = HomographyMat{Float64}(
-        Tuple(SMatrix{3, 3, Float64}(K * hcat(R[:, 1], R[:, 2], t)))
-    )
+    # the closed form's model (its FitResult's `u`); the context is the principal point and, optionally, the pitch
+    zhang(Hs; center) = solve(EstimationProblem(LogicalIntrinsics, Hs, (; center)), Zhang()).u
+    zhang(Hs, pitch; center) = solve(EstimationProblem(LogicalIntrinsics, Hs, (; center, pitch)), Zhang()).u
 
-    _c = SVector(640.0, 480.0)
-    function _synth_views(fx, fy)
-        K = @SMatrix [fx 0.0 _c[1]; 0.0 fy _c[2]; 0.0 0.0 1.0]      # raw pixels, principal point _c
-        angles = [
-            (0.4, -0.3, 0.2), (-0.5, 0.2, -0.1), (0.2, 0.5, 0.3),
-            (-0.3, -0.4, 0.1), (0.6, 0.1, -0.2), (0.1, -0.6, 0.4),
-        ]
-        ts = [
-            SVector(0.3, -0.2, 2.5), SVector(-0.4, 0.1, 3.0), SVector(0.2, 0.3, 2.2),
-            SVector(-0.1, -0.3, 2.8), SVector(0.5, 0.2, 3.5), SVector(0.0, 0.4, 2.0),
-        ]
-        return [_hom(K, RotXYZ(a...), t) for (a, t) in zip(angles, ts)]
-    end
+    # the synthetic views (`zhang_views`, `zhang_homography`, `ZHANG_CENTER`): the suite's fixture file, shared with
+    # the golden records
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "zhang_views.jl"))
+    const _c = ZHANG_CENTER
 
-    @testset "zhang_intrinsics" begin
+    @testset "Zhang" begin
         fx, fy = 1226.3, 1219.7
-        Hs = _synth_views(fx, fy)
+        Hs = zhang_views(fx, fy)
 
         @testset "free fx, fy recovery" begin
-            intr = zhang_intrinsics(Hs; center = _c)
+            intr = zhang(Hs; center = _c)
             @test SMatrix{3, 3}(intr.K)[1:2, 3] == _c                     # pixels in, pixels out
-            @test_throws UndefKeywordError zhang_intrinsics(Hs)
+            @test_throws ArgumentError solve(EstimationProblem(LogicalIntrinsics, Hs), Zhang())   # the centre is required (the context lacks it)
+            # the result record: one closed-form step over every homography
+            r = solve(EstimationProblem(LogicalIntrinsics, Hs, (; center = _c)), Zhang())
+            @test r.u == intr
+            @test r.retcode === ReturnCode.Success && r.stop_rule === ClosedForm
+            @test r.stats.nsteps == 0 && isnan(r.rms) && r.n == length(Hs)
             f̂x, f̂y = focal_length(intr)
             @test f̂x ≈ fx atol = 1.0e-6
             @test f̂y ≈ fy atol = 1.0e-6
@@ -40,27 +38,27 @@
 
         @testset "weights are per-homography vote strengths, carried as Attributed" begin
             # a garbage homography with zero weight must not perturb the solve
-            junk = _hom(
+            junk = zhang_homography(
                 (@SMatrix [500.0 0 0; 0 900.0 0; 0 0 1.0]),
                 RotXYZ(0.3, 0.2, 0.1), SVector(0.1, 0.1, 2.0)
             )
             voted = [[Attributed(H, (; weight = 10)) for H in Hs]; Attributed(junk, (; weight = 0))]   # integer votes
-            intr = zhang_intrinsics(voted; center = _c)
+            intr = zhang(voted; center = _c)
             f̂x, f̂y = focal_length(intr)
             @test f̂x ≈ fx atol = 1.0e-6
             @test f̂y ≈ fy atol = 1.0e-6
             # a bare homography weighs 1; Attributed and bare mix
-            @test focal_length(zhang_intrinsics([Hs[1:3]; [Attributed(H, (; weight = 1.0)) for H in Hs[4:end]]]; center = _c))[1] ≈ fx atol = 1.0e-6
+            @test focal_length(zhang([Hs[1:3]; [Attributed(H, (; weight = 1.0)) for H in Hs[4:end]]]; center = _c))[1] ≈ fx atol = 1.0e-6
             pitch = Size2(width = 1.0μm / px, height = 1.0μm / px)
-            @test zhang_intrinsics(voted[1:end-1], pitch; center = _c) isa LogicalIntrinsics{Float64}
+            @test zhang(voted[1:end-1], pitch; center = _c) isa LogicalIntrinsics{Float64}
         end
 
         @testset "known pitch → single f (dispatch on Size2)" begin
             pitch = Size2(width = 3.9μm / px, height = 4.0μm / px)
             τ = 3.9 / 4.0                      # fy/fx = pitch.width/pitch.height
             f0 = 1300.0
-            Hs_τ = _synth_views(f0, τ * f0)
-            intr = zhang_intrinsics(Hs_τ, pitch; center = _c)
+            Hs_τ = zhang_views(f0, τ * f0)
+            intr = zhang(Hs_τ, pitch; center = _c)
             @test SMatrix{3, 3}(intr.K)[1:2, 3] == _c
             f̂x, f̂y = focal_length(intr)
             @test f̂x ≈ f0 atol = 1.0e-6
@@ -70,17 +68,17 @@
         @testset "degenerate: fronto-parallel views throw" begin
             K = @SMatrix [fx 0.0 _c[1]; 0.0 fy _c[2]; 0.0 0.0 1.0]
             flat = [
-                _hom(K, RotXYZ(0.0, 0.0, ψ), SVector(0.1ψ, -0.2ψ, 2.0 + ψ))
+                zhang_homography(K, RotXYZ(0.0, 0.0, ψ), SVector(0.1ψ, -0.2ψ, 2.0 + ψ))
                     for ψ in (0.0, 0.3, -0.4, 0.7)
             ]   # rotations about the optical axis only
-            @test_throws ArgumentError zhang_intrinsics(flat; center = _c)
+            @test_throws ArgumentError zhang(flat; center = _c)
         end
 
         @testset "input validation" begin
-            @test_throws ArgumentError zhang_intrinsics(HomographyMat{Float64}[]; center = _c)
-            @test_throws MethodError zhang_intrinsics(Hs; center = _c, weights = ones(length(Hs)))   # no weights vector
-            @test_throws ArgumentError zhang_intrinsics([Attributed(Hs[1], (; weight = -1.0)); Hs[2:end]]; center = _c)
-            @test_throws ArgumentError zhang_intrinsics([Attributed(Hs[1], (; weight = Inf)); Hs[2:end]]; center = _c)
+            @test_throws ArgumentError zhang(HomographyMat{Float64}[]; center = _c)
+            @test_throws ArgumentError solve(EstimationProblem(LogicalIntrinsics, Hs, (; center = _c, weights = ones(length(Hs)))), Zhang())   # no weights vector
+            @test_throws ArgumentError zhang([Attributed(Hs[1], (; weight = -1.0)); Hs[2:end]]; center = _c)
+            @test_throws ArgumentError zhang([Attributed(Hs[1], (; weight = Inf)); Hs[2:end]]; center = _c)
         end
     end
 end

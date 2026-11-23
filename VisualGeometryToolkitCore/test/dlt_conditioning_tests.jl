@@ -10,7 +10,7 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: SvdWorkspace, dlt_conditioning, test_dlt_conditioning,
         CorrespondenceNormalization, HartleyNormalization, DiagonalNormalization,
-        homography_dlt, homography_dlt!
+        homography_dlt!
 
     @testset "the ratio is RVG's quantity: S[1] / max(S[8], eps)" begin
         ws = SvdWorkspace{Float64}(64, 9)

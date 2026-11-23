@@ -4,8 +4,9 @@
 lit(x::Bool) = string(x)
 lit(x::Integer) = string(x)
 lit(x::Real) = repr(Float64(x))
+# (`bracketed`: bracketed.jl, which the including generator includes first)
 function lit(A::AbstractArray)
-    flat = "[" * join((lit(a) for a in A), ", ") * "]"
+    flat = bracketed(lit, vec(A), ", ")
     return ndims(A) == 1 ? flat : "reshape($flat, $(join(size(A), ", ")))"
 end
 lit(t::NamedTuple) = "(; " * join(("$k = $(lit(v))" for (k, v) in pairs(t)), ", ") * ")"

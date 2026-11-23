@@ -49,8 +49,8 @@ const _PROVENANCE_ONLY = "measure" * "d"
 # draw, a random LO inner sample) is a TRIAL and is never counted or described
 # as an iteration; a deterministic cycle (IRLS, LM, block coordinate descent,
 # a GNC rung, Newton) is an ITERATION and is never called a trial. The one
-# exception is VisualGeometryToolkitCore's `FitResult.iterations`, which counts a
-# RANSAC's trials. Phrases are matched in prose like the banned words: whole
+# exception is VisualGeometryToolkitCore's `SolveStats.nsteps` (a FitResult's
+# `stats.nsteps`, SciMLBase's name), which counts a RANSAC's trials. Phrases are matched in prose like the banned words: whole
 # words, case-insensitive, as a contiguous run after the same split, so they
 # are listed as word tuples. Only phrases that are wrong wherever they occur
 # are listed: a budget or cap of a deterministic loop is an iteration budget,
@@ -134,7 +134,7 @@ const RETIRED_NAMES = String[
     # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
     # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
     "scale" * "_multiple", "Scale" * "Multiple", "plain_scale" * "_multiple", "deployed_scale" * "_multiple", "deployed" * "_shape",
-    "noise" * "_sigma(", "VgtkCore" * ".noise_sigma",   # residual scales are `mad_scale(residuals)` (the call forms only: Features' Förstner keyword is another quantity)
+    "noise" * "_sigma(", "VgtkCore" * ".noise_sigma",   # residual scales are `MedianNormScale`'s (the call forms only: Features' Förstner keyword is another quantity)
     # the owner's one-kernel policy (2026-11-11): pointwise! is one KernelAbstractions kernel on every backend (`OnBackend`)
     "Execution" * "Policy", "THREADED" * "_MIN_LENGTH", "VgtkCore" * ".Serial", "VgtkCore" * ".Threaded", "VgtkCore" * ".Auto",
     "exec = " * "Serial()", "exec = " * "Threaded()", "exec = " * "Auto()",
@@ -209,7 +209,7 @@ const RETIRED_NAMES = String[
     "_lo" * "_step",
     "ellipse" * "_step",
     # the naming sweep (RANSACScoringDoneRight)
-    "update" * "_nu",                        # the pure ν update is `next_nu`; `update_nu!` writes the ν block
+    "update" * "_nu",                        # the pure ν update is the internal `_next_nu`; `update_nu!` writes the ν block
     "log" * "_step", "inv_log" * "_step",    # the τ-grid's log bin spacing: `log_spacing`, `inv_log_spacing`
     "l" * "step",                            # a test's copy of that spacing: `lspacing`
     "_m" * "step_map",                       # a test's MAP scale estimate: `_map_scale_estimate`
@@ -352,14 +352,14 @@ const RETIRED_NAMES = String[
     # the hand-rolled Levenberg–Marquardt cores, replaced by one LM driver
     # (NLLSsolver): the chart LM is VGC's `lmsolve_chart!`. The rule stands with ONE stated exception: the
     # spline models' device-side two-unknown LM kernel
-    # (`Cameras.static_lm`, `_static_lm_increment`; NLLSsolver cannot run in a
+    # (`StaticLevenbergMarquardt`'s kernel `_static_lm`, `_static_lm_increment`; NLLSsolver cannot run in a
     # KernelAbstractions kernel). No other hand-rolled LM loop is allowed.
     "_lmsolve" * "_manifold!",               # a hand-rolled copy of a static LM loop
     "_lm" * "_cholsolve!",                   # its unrolled Cholesky
     "_lmsolve" * "_p3p!",                    # VisualGeometryToolkitEstimation's P3P copy of the same loop
-    "_pixel" * "_lm_increment",              # the pixel LM's Cholesky step: `_static_lm_increment` (plan 1b, the one LM `static_lm`)
-    "_pixel" * "_lm",                        # the pixel LM of the old grid: `static_lm` on the area's scale-free box (plan 1b)
-    "_newton" * "_solve",                    # the lens inverse's trust-region Newton (a Dual Jacobian in its loop): `_inverse_lm`, `static_lm` with the distortion's analytic Jacobian and a step bound
+    "_pixel" * "_lm_increment",              # the pixel LM's Cholesky step: `_static_lm_increment` (plan 1b, the one device LM `StaticLevenbergMarquardt`)
+    "_pixel" * "_lm",                        # the pixel LM of the old grid: `StaticLevenbergMarquardt` on the area's scale-free box (plan 1b)
+    "_newton" * "_solve",                    # the lens inverse's trust-region Newton (a Dual Jacobian in its loop): `_inverse_lm`, `StaticLevenbergMarquardt` with the distortion's analytic Jacobian and a step bound
     "_det" * "_jacobian",                    # a ForwardDiff determinant of the distortion: `_det(_distort_jacobian(d, x))`
     # the SplineLens fold-in (plan 1b, Core 0.9): the central grid camera is a
     # CameraModel with a SplineLens, the non-central one a NoncentralSplineModel
@@ -564,6 +564,31 @@ const RETIRED_NAMES = String[
     # (the detections themselves, Features' `propagate(map, detection)`, the scorer's own width), never restated
     "Frame" * "Features", "keypoint" * "_covariance_scale", "keypoint" * "_uncertain", "pixel" * "_covariances",
     "bundle" * "_whitening", "scoring" * "_threshold_px",
+    # VisualGeometryToolkitCore 0.14: SciML's problem + algorithm (docs/design/core-0.14-spec.md). An estimator is
+    # `solve(problem, algorithm)`; a closed form is an algorithm type on an `EstimationProblem`, its kernel private
+    "homography" * "_dlt",                   # `solve(EstimationProblem(HomographyMat, cs), DLT())` (inner loop: `homography_dlt!`)
+    "fundamental" * "_dlt",                  # `solve(EstimationProblem(FundMat, cs), DLT())` (inner loop: `fundamental_dlt!`)
+    "essential" * "_dlt",                    # `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`; its kernel the contract generic `essential_8pt`
+    "kab" * "sch",                           # `solve(EstimationProblem(RotMatrix{3}, cs), Kabsch())`
+    "chordal" * "_mean",                     # `solve(EstimationProblem(RotMatrix{3}, Rs), ChordalMean())`
+    "spectral_rotation" * "_averaging",      # `solve(EstimationProblem(AbsoluteRotations, relative), SpectralAveraging())`
+    "zhang" * "_intrinsics",                 # `solve(EstimationProblem(LogicalIntrinsics, Hs, (; center[, pitch])), Zhang())`
+    "tls" * "_line",                         # `solve(EstimationProblem(Line2D, points), TotalLeastSquares())`
+    "direct" * "_ellipse",                   # `solve(EstimationProblem(Ellipse, points), DirectEllipse())`
+    "nearest" * "_point",                    # `solve(EstimationProblem(Point, lines), NearestPoint())`
+    "triang" * "ulate",                      # `solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())`: `u` the point, `metadata.depths`
+    "photon" * "_transfer",                  # `solve(EstimationProblem(PoissonGaussian, groups, (; darks, defects)), PhotonTransfer(; …))`
+    "master" * "_dark",                      # `solve(EstimationProblem(Dark, frames, (; exposure_band)), MasterDark(; false_defects))`
+    "fit" * "_scale",                        # `solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior))` (inner loops: `_ig_map_scale`)
+    "static" * "_lm",                        # `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt(); stops, bound)` (inside Core: `_static_lm`)
+    "nested" * "_metadata",                  # (none: a FitResult forwards no property; read `r.metadata.<field>`)
+    "mad" * "_scale",                        # `solve(EstimationProblem(NoiseScale, residuals), MedianNormScale())` (inner loops: `_mad_scale_norms`)
+    # the classification of non-verb public names (owner, 2026-11-23): steps of the robust toolkit made internal
+    "partition" * "_student_t",              # internal `_partition_student_t` (a partition's Student-t seed; callers: the scorers and the posterior)
+    "next" * "_nu",                          # internal `_next_nu` (the ν M-step; public: `update_nu!`, `next_nu_from_sums`)
+    "posterior" * "_weights!",               # internal `_posterior_weights!` (public: `mixture_ecm!`, `update_scale!`)
+    "posterior_inlier" * "_probs!",          # internal `_posterior_inlier_probs!` (public: `inlier_probabilities!` of the scoring contract)
+    "soft_posterior" * "_weights!",          # internal `_soft_posterior_weights!` (public: `mixture_ecm!`)
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -601,6 +626,8 @@ const FOREIGN_FORMAT_TOKENS = [
     "central" * "_generic" => (; owner = "the `--model` value of Schöps et al.'s camera_calibration program (its central generic model), " *
         "in the shell drivers that run it and the TOML provenance that quotes their command line", accepted_in = :cli_argument),
 ]
+# Whether every hit of `re` on a Julia `line` is inside a string literal (`strings`, the line's literal text).
+_all_in_strings(re, line, strings) = count(re, line) == count(re, strings)
 _is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
 _is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json")) || basename(f) == "Artifacts.toml"   # an Artifacts.toml's keys are its artifacts' published names
 # Whether `name` is a registered stored-format token (a data fixture's key may spell one).
@@ -615,7 +642,7 @@ function _foreign_token(f, r, re, line, strings)
     accepted_in === :cli_argument && return _cli_argument(f, re, line)
     _is_data_fixture(f) && return true
     endswith(f, ".toml") && return _toml_string_value(re, line)
-    return endswith(f, ".jl") && count(re, line) == count(re, strings)
+    return endswith(f, ".jl") && _all_in_strings(re, line, strings)
 end
 # Whether every hit of `re` on a TOML `line` is inside a quoted string VALUE (`key = "…/token"`, or an array
 # element on its own line): not in a key, a table header or a comment.
@@ -687,8 +714,12 @@ const _BCD_HOOKS = (
 )
 
 # Manopt.jl's spelling of the driver's one cycle: the one identifier besides a
-# `<fit>_step` that holds the word (rule 5), kept so a Manopt bridge extends it.
+# SciML counter below, that holds the word (rule 5), kept so a Manopt bridge extends it.
 const _MANOPT_CYCLE_NAMES = ("step" * "_solver!",)
+# SciMLBase's name of a solve's iteration counter (`NLStats.nsteps`), the field of Core's `SolveStats` by the owner's
+# ruling of 2026-11-23 (docs/design/core-0.14-spec.md §2): the one other identifier that holds the word, in any
+# binding (a field, a keyword, a local, a quoted symbol), because SciML's spelling is the point of it.
+const _SCIML_COUNTER_NAMES = ("n" * "steps",)
 
 # The stack's packages: a qualified definition `M.f(…)` whose `M` is one of
 # these (or a module or alias of the scanned package) binds a stack name.
@@ -1495,17 +1526,10 @@ end
 # Rules on a bound name
 # -----------------------------------------------------------------------------
 
-function _is_fit_update(name::AbstractString, fits::Set{String})
-    b = chopprefix(chopsuffix(name, "!"), "_")
-    endswith(b, "_step") || return false
-    fit = chopsuffix(b, "_step")
-    return !isempty(fit) && !occursin("step", fit) && ("fit_" * fit) in fits
-end
-
 # A bound name is matched on SUBSTRINGS of its words: a joined identifier
 # (`stepsize`, a `bypass_cache` flag) holds the word as surely as a separated one,
 # and a name is chosen, not quoted. Prose stays whole-word (`_prose_rules!`).
-function _name_rules(name::AbstractString, kind::Symbol, fits::Set{String}; julia::Bool = true)
+function _name_rules(name::AbstractString, kind::Symbol; julia::Bool = true)
     rules = Symbol[]
     words = _naming_words(name)
     (any(w -> occursin(_STEM, w), words) || _counts_draws_as_iterations(words, kind)) && push!(rules, :R7)
@@ -1514,7 +1538,7 @@ function _name_rules(name::AbstractString, kind::Symbol, fits::Set{String}; juli
     if any(w -> occursin("step", w), words)
         if "delta" in words || "increment" in words
             push!(rules, :R6)
-        elseif !(kind in (:function, :symbol) && (_is_fit_update(name, fits) || name in _MANOPT_CYCLE_NAMES))
+        elseif !(kind in (:function, :symbol) && name in _MANOPT_CYCLE_NAMES) && !(name in _SCIML_COUNTER_NAMES)
             push!(rules, :R5)
         end
     end
@@ -1565,8 +1589,8 @@ deterministic bound is `max_iter`; a random-draw budget is `max_trials`), or
 holding a RANSAC/PROSAC word beside an iteration word, counts random draws as
 iterations. A deterministic loop's stop reason `:max_iterations` is a value and
 stands, and the one sanctioned crossing — VisualGeometryToolkitCore's
-`FitResult.iterations`, which counts a RANSAC's trials — is a field of its own
-name.
+`SolveStats.nsteps` (a result's `stats.nsteps`), which counts a RANSAC's
+trials — is a field of its own name.
 
 The same identifier rules (R3–R7) hold for the names other in-scope files bind,
 read by line-level approximations rather than parsers:
@@ -1676,16 +1700,7 @@ function check_naming(pkgdir::AbstractString)
     # rule 10: a type carries widths when it descends from a width-carrying
     # root, through the package's own declarations
     supertypes = foldl((d, c) -> merge!(d, c.supertypes), values(ctxs); init = Dict{Symbol, Symbol}())
-    function is_carrier(t::Symbol)
-        seen = Set{Symbol}()
-        while !(t in seen)
-            t in _WIDTH_CARRIER_ROOTS && return true
-            push!(seen, t)
-            haskey(supertypes, t) || return false
-            t = supertypes[t]
-        end
-        return false
-    end
+    is_carrier(t::Symbol) = _descends(t, _WIDTH_CARRIER_ROOTS, supertypes)
     foreign = Dict{String, Union{Nothing, Vector{Tuple{Symbol, Int, Symbol}}}}()
     for f in files
         if endswith(f, ".py")
@@ -1696,13 +1711,11 @@ function check_naming(pkgdir::AbstractString)
             foreign[f] = _toml_names(sources[f])
         end
     end
-    fits = Set{String}()
-    for bound in Iterators.flatten((values(names), values(foreign)))
-        bound === nothing && continue
-        for (n, _, k) in bound
-            k === :function && push!(fits, String(n))
-        end
-    end
+
+    # An algorithm's ONE tag (owner, 2026-11-23): `snake_case` of an estimation-algorithm type the package defines, by the
+    # tag rule (`snake_case`), which a TOML table, key or tag string, and a Julia string literal that reads one, may spell
+    # even where it equals a retired function's name (PhotonTransfer's table is its tag, the retired estimator's name).
+    algorithm_tags = Set{String}(snake_case(String(t)) for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes))
 
     # A retired name stands alone: no letter, digit, `_` or `!` on either side.
     # One alternation screens each line; only a hit is resolved name by name.
@@ -1717,10 +1730,10 @@ function check_naming(pkgdir::AbstractString)
         if endswith(f, ".jl")
             err = _parse_error_line(parsed[f])
             err === nothing || push!(out, NamingViolation(f, err, "", :parse))
-            for (n, line, kind) in names[f], rule in _name_rules(String(n), kind, fits)
+            for (n, line, kind) in names[f], rule in _name_rules(String(n), kind)
                 push!(out, NamingViolation(f, line, String(n), rule))
             end
-            for (n, line) in quoted[f], rule in _name_rules(String(n), :symbol, fits)
+            for (n, line) in quoted[f], rule in _name_rules(String(n), :symbol)
                 push!(out, NamingViolation(f, line, ":" * String(n), rule))
             end
             for (line, text) in _julia_prose(src)
@@ -1732,7 +1745,7 @@ function check_naming(pkgdir::AbstractString)
             if bound === nothing
                 push!(out, NamingViolation(f, 1, "", :parse))
             else
-                for (n, line, kind) in bound, rule in _name_rules(String(n), kind, fits; julia = false)
+                for (n, line, kind) in bound, rule in _name_rules(String(n), kind; julia = false)
                     rule === :R14 && _is_data_fixture(f) && _is_format_token(String(n)) && continue
                     push!(out, NamingViolation(f, line, String(n), rule))
                 end
@@ -1753,6 +1766,7 @@ function check_naming(pkgdir::AbstractString)
             strings = endswith(f, ".jl") ? get(literals[], k, "") : ""
             for (r, re) in retired
                 occursin(r, text) && occursin(re, text) && !_foreign_token(f, r, re, text, strings) &&
+                    !_algorithm_tag(f, r, re, text, strings, algorithm_tags) &&
                     push!(out, NamingViolation(f, k, r, :R9))
             end
         end
@@ -1762,6 +1776,9 @@ function check_naming(pkgdir::AbstractString)
         (pkg, f) == _UNIT_HOME && continue
         haskey(_UNIT_RULE_ALLOW, (pkg, f)) && continue
         _unit_rules!(out, f, parsed[f], startswith(f, "test/"))
+    end
+    for f in jl
+        _fitresult_rules!(out, f, parsed[f])
     end
     unique!(v -> (v.file, v.line, v.text, v.rule), out)
     sort!(out; by = v -> (v.file, v.line, v.rule))
@@ -2028,6 +2045,88 @@ function _width_binding_rules!(out, f, ctx::_NamingContext, is_carrier)
 end
 
 # Rule 7 on one line of prose: a banned word, and a retired phrase.
+# -----------------------------------------------------------------------------
+# Rule 9's one structural exception: an algorithm's tag
+# -----------------------------------------------------------------------------
+# The estimation-algorithm types: the package's declarations (`supertypes`, collected by `_walk_names!`) that descend,
+# through any intermediate abstract type, from `AbstractEstimationAlgorithm` or `MinimalSolver` (a minimal solver is an
+# algorithm). Their tags are `snake_case(T)`, the tag rule's.
+const _ALGORITHM_ROOTS = (:AbstractEstimationAlgorithm, :MinimalSolver)
+# Whether the declared type `t` descends from one of `roots` through the `supertypes` chain.
+function _descends(t::Symbol, roots, supertypes)
+    seen = Set{Symbol}()
+    while !(t in seen)
+        t in roots && return true
+        push!(seen, t)
+        haskey(supertypes, t) || return false
+        t = supertypes[t]
+    end
+    return false
+end
+# Whether the retired-name hit `r` on `line` is an algorithm's tag where a tag is spelled: anywhere on a TOML line (a
+# table, a key, a tag value), or, in a Julia file, every hit inside a string literal (a reader of the tag's table).
+function _algorithm_tag(f, r, re, line, strings, tags)
+    r in tags || return false
+    # A TOML table, key or value is the tag; a comment is prose, where a retired name stays retired.
+    endswith(f, ".toml") && return count(re, _hash_code(line)) == count(re, line)
+    # In Julia, the tag only as a whole string literal (a reader of the tag's table, `"photon_transfer"`), never
+    # inside a message or a docstring's prose.
+    return endswith(f, ".jl") && count(Regex("\"" * r * "\""), line) == count(re, line)
+end
+
+# -----------------------------------------------------------------------------
+# Rule 21: the FitResult is read by field, its cross-type quantities by their function
+# -----------------------------------------------------------------------------
+# On the parsed code (calls and dotted access; never a comment, a string or a field of the same name):
+# - a call of a retired accessor on one argument — `estimate(r)`, `iterations(r)`, `converged(r)`, `retcode(r)`,
+#   `metadata(r)`, `stop_rule(r)` (the loop's `stop_rule(criterion, method)` has two) — or of the retired nested-metadata lister, and a
+#   definition of any of them, or of `rms`, on a `::FitResult` argument;
+# - a read `x.metadata.<f>` of a contract quantity (`weights`, `dof`, `scale`, `scale_source`, `s2`, `inlier_mask`)
+#   outside a method of the contract function that answers it.
+const _RETIRED_ACCESSORS = (:estimate, :iterations, :converged, :retcode, :metadata, :stop_rule)
+const _NESTED_LISTER = Symbol("nested" * "_metadata")   # spelled in fragments: the name is retired (R9)
+const _CONTRACT_FIELDS = (:weights, :dof, :scale, :scale_source, :s2, :inlier_mask)
+const _CONTRACT_READERS = (:weights, :dof, :noise_scale, :scale_source, :s2, :inlier_mask, :weight_kind)
+_r21_positional(call::Expr) = [a for a in call.args[2:end] if !(a isa Expr && a.head in (:parameters, :kw))]
+_is_fitresult_annotation(a) = a isa Expr && a.head === :(::) && _type_symbol(a.args[end]) === :FitResult
+function _fitresult_rules!(out, f, ex)
+    line = Ref(0)
+    readers = Symbol[]          # the enclosing definitions' names
+    flag(text) = push!(out, NamingViolation(f, line[], text, :R21))
+    function walk(x)
+        if x isa LineNumberNode
+            line[] = x.line
+        elseif x isa Expr
+            if _is_definition(x) && _is_signature(x.args[1])
+                sig = _unwrap_signature(x.args[1])
+                name = _type_symbol(sig.args[1])
+                (name in (_RETIRED_ACCESSORS..., :rms, _NESTED_LISTER) && any(_is_fitresult_annotation, _r21_positional(sig))) &&
+                    flag(string(name, "(::FitResult)"))
+                push!(readers, name isa Symbol ? name : :anonymous)   # an interpolated `@eval` name has none
+                foreach(walk, x.args)
+                pop!(readers)
+                return nothing
+            end
+            if x.head === :call
+                name = _type_symbol(x.args[1])
+                name === _NESTED_LISTER && flag(string(_NESTED_LISTER, "(…)"))
+                name in _RETIRED_ACCESSORS && length(_r21_positional(x)) == 1 &&
+                    flag(string(name, "(…)"))
+            elseif x.head === :. && length(x.args) == 2 && x.args[2] isa QuoteNode && x.args[2].value in _CONTRACT_FIELDS
+                inner = x.args[1]
+                if inner isa Expr && inner.head === :. && length(inner.args) == 2 && inner.args[2] == QuoteNode(:metadata) &&
+                        !any(in(_CONTRACT_READERS), readers)
+                    flag(string("….metadata.", x.args[2].value))
+                end
+            end
+            foreach(walk, x.args)
+        end
+        return nothing
+    end
+    walk(ex)
+    return out
+end
+
 function _prose_rules!(out, f, line, text)
     words = _naming_words(text)
     any(in(_BANNED_WORDS), words) && push!(out, NamingViolation(f, line, _clip(text), :R7))

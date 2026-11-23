@@ -13,6 +13,7 @@
     const DIR = joinpath(pkgdir(VisualGeometryToolkitCore), "test", "data", "chain_equivalence")
     include(joinpath(DIR, "corpus.jl"))
     using .ChainEquivalenceCorpus
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "bracketed.jl"))   # bracketed (core_values.jl)
     include(joinpath(DIR, "core_values.jl"))
     using VisualGeometryToolkitCore: calibration_tag, transform_deriv, transform_deriv_params
     using CoordinateTransformations: ComposedTransformation

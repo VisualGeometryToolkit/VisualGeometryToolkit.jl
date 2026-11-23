@@ -92,6 +92,8 @@ end
 end
 
 @testitem "vgio_migrate: a few hundred random full-precision lengths and covariances all migrate" setup = [VGIoFixtures, MigrateFixtures] begin
+    import VisualGeometryToolkitCore
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "bracketed.jl"))   # `bracketed`
     import VisualGeometryToolkitIO as VgtkIO
     using Random: Xoshiro
     rng = Xoshiro(20261027)
@@ -99,10 +101,10 @@ end
     pts = [[(rand(rng) - 0.5) * 10.0^rand(rng, 0:3) for _ in 1:3] for _ in 1:n]
     covs = [[[i == j ? rand(rng) * 10.0^rand(rng, -3:1) : 0.0 for j in 1:3] for i in 1:3] for _ in 1:n]
     num(x) = repr(x)                                          # full precision: the shortest text that is x
-    vec_(v) = "[" * join(num.(v), ", ") * "]"
+    vec_(v) = bracketed(num, v, ", ")
     text = """{"schema": "vgio/target/v1", "length_unit": "mm", "target": {"type": "points",
         "points": [$(join(vec_.(pts), ", "))],
-        "point_covariances": [$(join(["[" * join(vec_.(c), ", ") * "]" for c in covs], ", "))]}}"""
+        "point_covariances": [$(join([bracketed(vec_, c, ", ") for c in covs], ", "))]}}"""
     mktempdir() do dir
         src = joinpath(dir, "target.json")
         write(src, text)

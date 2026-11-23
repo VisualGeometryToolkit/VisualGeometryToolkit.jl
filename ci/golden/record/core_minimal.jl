@@ -30,7 +30,7 @@ function record_core_minimal(cases)
         case!(cases, "ellipse5pt/exact_quintuples_200/default/seed$seed", (Ellipse5pt(), ellipse_quintuples(StableRNG(seed)), 5), _SOLVE_SETS)
         # --- Rotation2pt ----------------------------------------------------------------------------------------
         R = RotMatrix(QuatRotation(normalize(randn(StableRNG(50 + seed), 4))))
-        _scene_cases!(cases, "rotation2pt", "fisheye_scene_100", ("default" => Rotation2pt(),), rotation_scene(StableRNG(seed), R, 100), 2, seed)
+        _scene_cases!(cases, "rotation2pt", "fisheye_scene_100", ("default" => Rotation2pt(),), rotation_bearing_scene(StableRNG(seed), R, 100), 2, seed)
         case!(cases, "rotation2pt/exact_pairs_200/default/seed$seed", (Rotation2pt(), rotation_pairs(StableRNG(seed)), 2), _SOLVE_SETS)
         # --- Fundamental7pt -------------------------------------------------------------------------------------
         ep = minimal_epipolar_scene(StableRNG(seed))

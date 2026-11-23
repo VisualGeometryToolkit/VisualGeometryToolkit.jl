@@ -27,14 +27,10 @@ end
 
 # solver_layer_tests' two-view scene: a Haar rotation, t = (0.4, −0.2, 0.1), 20 points; the normalized pixels, the
 # bearings, and view 2's pixels with 1e-3 noise (its weights testset).
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point` (the essential scene's z = 1 chart)
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "two_view_scene.jl"))   # `two_view_scene`
 function epipolar_layer_scene(rng)
-    R = SMatrix{3, 3, Float64}(rand(rng, RotMatrix{3, Float64}))
-    t = SVector(0.4, -0.2, 0.1)
-    X3 = [SVector(2randn(rng), 2randn(rng), 6.0 + 2rand(rng)) for _ in 1:20]
-    x1b = [normalize(Xi) for Xi in X3]
-    x2b = [normalize(R * Xi + t) for Xi in X3]
-    u1 = [Point2{Float64}(PerspectiveMap()(Xi)) for Xi in X3]
-    u2 = [Point2{Float64}((R * Xi + t)[1] / (R * Xi + t)[3], (R * Xi + t)[2] / (R * Xi + t)[3]) for Xi in X3]
+    (; u1, u2, x1b, x2b) = two_view_scene(rng)
     u2n = [p + Point2{Float64}(1.0e-3randn(rng), 1.0e-3randn(rng)) for p in u2]
     return (; u1, u2, u2n, x1b, x2b)
 end
@@ -51,8 +47,8 @@ function essential_scene(rng)
     b1 = [normalize(Y) for Y in X]
     b2 = [normalize(R * Y + t) for Y in X]
     b2n = [normalize(b + 1.0e-3 * randn(rng, SVector{3, Float64})) for b in b2]
-    c1 = [SVector(Y[1] / Y[3], Y[2] / Y[3]) for Y in X]                       # the z = 1 chart: refused
-    c2 = [(Z = R * Y + t; SVector(Z[1] / Z[3], Z[2] / Z[3])) for Y in X]
+    c1 = [pinhole_point(Y) for Y in X]                       # the z = 1 chart: refused
+    c2 = [pinhole_point(R * Y + t) for Y in X]
     return (; b1, b2, b2n, c1, c2)
 end
 
@@ -126,8 +122,7 @@ tls_noisy_points(rng, n) = [Point2{Float64}(Float64(i), 2.0i + 1.0 + 0.05 * rand
 # --- the direct ellipse fit (direct_ellipse_tests) ----------------------------------------------------------------
 
 const ELLIPSE_E0 = Ellipse(Point2(120.0, 80.0), 30.0, 12.0, 0.6)
-ellipse_points(e, n; σ = 0.0, arc = 2π, rng = nothing) =
-    [boundary_point(e, φ) + (σ == 0 ? zero(SVector{2, Float64}) : σ * randn(rng, SVector{2})) for φ in range(0, arc, n + 1)[1:(end - 1)]]
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "ellipse_points.jl"))   # `ellipse_boundary_points`
 
 # --- the point nearest to lines (nearest_point_tests: one rng through the file's testsets, in their order) --------
 

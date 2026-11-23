@@ -70,8 +70,8 @@ end
 # A function barrier: the testitem's locals are globals.
 _refit!(ws, lm) = lmsolve_chart!(ws, lm)
 _refit_allocations(ws, lm) = @allocations _refit!(ws, lm)
-_refit_stops!(ws, lm, stops) = lmsolve_chart!(ws, lm, stops)
-_refit_stops_allocations(ws, lm, stops) = @allocations _refit_stops!(ws, lm, stops)
+_refit_damped!(ws, lm, damping) = lmsolve_chart!(ws, lm, LmStops(), damping)
+_refit_damped_allocations(ws, lm, damping) = @allocations _refit_damped!(ws, lm, damping)
 
 @testset "a refit through the typed cache allocates nothing" begin
     # NLLSsolver's typed `OptimizeCache(problem, options, unfixed)` (upstream
@@ -85,22 +85,24 @@ _refit_stops_allocations(ws, lm, stops) = @allocations _refit_stops!(ws, lm, sto
 end
 
 @testset "the damping strategy: Marquardt by default, Levenberg by dispatch" begin
-    # LmStops' `damping` (Core 0.10.2): MarquardtDamping (λ·DᵀD) is the default, LevenbergDamping (λ·I) opt-in;
-    # both converge on the chart fit to the same minimum, the workspace rebuilds its run for the other damping,
-    # and a Levenberg refit allocates nothing either.
+    # The step's damping (Core 0.10.2; Core 0.14 moved it off LmStops to the algorithm, a chart form's trailing
+    # argument): MarquardtDamping (λ·DᵀD) is the default, LevenbergDamping (λ·I) opt-in; both converge on the chart
+    # fit to the same minimum, the workspace rebuilds its run for the other damping, and a Levenberg refit allocates
+    # nothing either.
     s = collect(range(0.0, 2.0; length = 40))
     lm = _ExpFitLm(s, [1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 for si in s], SVector(1.0, 0.0, 0.0, 0.0))
-    @test LmStops().damping === VgtkCore.MarquardtDamping()
+    @test VgtkCore.LevenbergMarquardt().damping === VgtkCore.MarquardtDamping()
+    @test !hasfield(LmStops, :damping)   # the stops carry no damping
     ws = ManifoldLmWorkspace(length(s), 4)
     xm, Fm, cm, _, rm = lmsolve_chart!(ws, lm)
-    xl, Fl, cl, _, rl = lmsolve_chart!(ws, lm, LmStops(; damping = VgtkCore.LevenbergDamping()))
+    xl, Fl, cl, _, rl = lmsolve_chart!(ws, lm, LmStops(), VgtkCore.LevenbergDamping())
     @test retcode_symbol(rm...) === :converged && retcode_symbol(rl...) === :converged
     @test isapprox(xm, xl; rtol = 1.0e-8, atol = 1.0e-10) && isapprox(Fm, Fl; rtol = 1.0e-8, atol = 1.0e-20)
-    xm2, Fm2, = lmsolve_chart!(ws, lm, LmStops(; damping = VgtkCore.MarquardtDamping()))   # back: Marquardt's run
+    xm2, Fm2, = lmsolve_chart!(ws, lm, LmStops(), VgtkCore.MarquardtDamping())   # back: Marquardt's run
     @test xm2 == xm && Fm2 == Fm
-    lstops = LmStops(; damping = VgtkCore.LevenbergDamping())
-    _refit_stops!(ws, lm, lstops); _refit_stops!(ws, lm, lstops)
-    @test _refit_stops_allocations(ws, lm, lstops) == 0
+    levenberg = VgtkCore.LevenbergDamping()
+    _refit_damped!(ws, lm, levenberg); _refit_damped!(ws, lm, levenberg)
+    @test _refit_damped_allocations(ws, lm, levenberg) == 0
 end
 
 @testset "the stop codes: one decoder, one order" begin
@@ -169,12 +171,12 @@ end
     @test VgtkCore.StaticLmStops(SVector(1.0f0); acceptance = 1).stationarity_tol === Float32(lm_table["stationarity_tol"])
     @test isbits(VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0))
     @test VgtkCore.StaticLmStops(SVector(1.0, 1.0)).acceptance == lm_table["device_acceptance"] == Inf   # stationarity alone
-    o = VgtkCore._nlls_options(LmStops(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11))
+    o = VgtkCore._nlls_options(LmStops(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11), VgtkCore.MarquardtDamping())
     @test o.maxiters == 7 && o.reldcost == 1.0e-9 && o.dstep == 1.0e-11 && o.absdcost == 0.0 && o.maxfails == 3
-    @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd                  # Marquardt's damping, not a knob
+    @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd                  # Marquardt's damping, the default's
     @test o.maxtime == UInt64(1.0e6 * 1.0e9)                                     # no time cap by default
-    @test VgtkCore._nlls_options(LmStops(; max_time = 2.5)).maxtime == UInt64(2.5e9)
-    @test typeof(VgtkCore._nlls_options(LmStops(; max_time = 2.5))) === typeof(o)
+    @test VgtkCore._nlls_options(LmStops(; max_time = 2.5), VgtkCore.MarquardtDamping()).maxtime == UInt64(2.5e9)
+    @test typeof(VgtkCore._nlls_options(LmStops(; max_time = 2.5), VgtkCore.MarquardtDamping())) === typeof(o)
     # Inf is no cap, as `nothing` is; a negative or NaN cap is refused, as is a cosine outside (0, 1]
     @test LmStops(; max_time = Inf).max_time == LmStops().max_time
     @test LmStops(; max_time = 0).max_time == 0
@@ -544,7 +546,7 @@ end
     line(d) = LmProblem([SVector(0.0, 0.0)], [_DampLine(si, yi) for (si, yi) in zip(s, y)]; damping = d)
     # the default and an explicit MarquardtDamping: Core 0.10.1's results bit for bit (measured on 0.10.1, b8cc82b6)
     for (p, stops) in ((LmProblem([SVector(0.0, 0.0)], [_DampLine(si, yi) for (si, yi) in zip(s, y)]), LmStops()),
-            (line(MarquardtDamping()), LmStops(; damping = MarquardtDamping())))
+            (line(MarquardtDamping()), LmStops()))
         sol = lmsolve_chart!(p, stops)
         @test p.variables[1] === SVector(0.5, 2.193694599112287)
         @test sol.cost === 0.04458855362594855 && sol.iterations == 3 && sol.code === ReturnCode.Success
@@ -555,31 +557,25 @@ end
     @test sq.cost === 1.2818989709841442e-30 && sq.iterations == 18
     # LevenbergDamping: the same minima
     pl = line(LevenbergDamping())
-    sl = lmsolve_chart!(pl, LmStops(; damping = LevenbergDamping()))
+    sl = lmsolve_chart!(pl, LmStops())
     @test sl.code === ReturnCode.Success
     @test pl.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
     @test sl.cost ≈ 0.04458855362594855 rtol = 1.0e-10
     ql = LmProblem([SVector(-1.2, 1.0)], [_DampRosen()]; damping = LevenbergDamping())
-    sql = lmsolve_chart!(ql, LmStops(; damping = LevenbergDamping()))
+    sql = lmsolve_chart!(ql, LmStops())
     @test sql.code === ReturnCode.Success
     @test ql.variables[1] ≈ SVector(1.0, 1.0) atol = 1.0e-6
-    # Core 0.10.4: the damping has ONE owner, the problem (its kept cache is built for it); stops of another damping
-    # are refused by name, the problem left as it was
+    # Core 0.10.4: the damping has ONE owner, the problem (its kept cache is built for it); Core 0.14: the stops carry
+    # none, so no stops can disagree with it
     pm = line(LevenbergDamping())
-    x0 = pm.variables[1]
     @test pm.damping === LevenbergDamping()
-    # an EXPLICIT stops of another damping is refused …
-    e = try lmsolve_chart!(pm, LmStops(; damping = MarquardtDamping())); nothing catch err; err end
-    @test e isa ArgumentError && occursin("LevenbergDamping", e.msg) && occursin("MarquardtDamping", e.msg)
-    @test pm.variables[1] == x0
-    @test lmsolve_chart!(pm, LmStops(; damping = LevenbergDamping())).code === ReturnCode.Success
+    @test lmsolve_chart!(pm, LmStops()).code === ReturnCode.Success
     @test pm.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
-    # … and the DEFAULT stops take the problem's damping: 0.10.3's `lmsolve_chart!(p)` on a Levenberg problem solves it,
-    # bit for bit the explicit call's
+    # … and the DEFAULT stops solve a Levenberg problem by its damping, bit for bit the explicit call's
     pd = line(LevenbergDamping())
     @test lmsolve_chart!(pd).code === ReturnCode.Success
     @test pd.variables[1] == pm.variables[1]
-    @test_throws TypeError LmStops(; damping = :levenbergmarquardt)   # a type, never a Symbol flag
+    @test !hasfield(LmStops, :damping)   # the stops carry no damping (the problem and the algorithm own it)
 end
 
 @testitem "lmsolve_chart!(::LmProblem): LevenbergDamping converges where a column starts at zero (non-central-like)" begin
@@ -602,7 +598,7 @@ end
     u = collect(range(0.5, 2.0; length = 12)); v = [sin(3ui) for ui in u]
     rows = [_OriginRow(ui, vi, 2.0 * ui + 2.0 * 0.3 * vi) for (ui, vi) in zip(u, v)]
     p = LmProblem([SVector(0.0, 0.0)], rows; damping = LevenbergDamping())
-    sol = lmsolve_chart!(p, LmStops(; damping = LevenbergDamping()))
+    sol = lmsolve_chart!(p, LmStops())
     @test sol.code === ReturnCode.Success
     @test p.variables[1] ≈ SVector(2.0, 0.3) atol = 1.0e-8
     @test sol.cost < 1.0e-20

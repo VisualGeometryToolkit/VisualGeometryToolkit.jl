@@ -177,7 +177,7 @@ pose(camera)                              # CameraPose (X_WC)
 # 3D world points and 2D image points
 csp = correspondences(X, u)               # StructArray of Pt3-to-Pt2 correspondences
 
-result = p3p(model, csp)          # FixedModels{4, Extrinsics3}, empty when no solution
+result = solve(MinimalProblem(Extrinsics3, csp, 1:3, model), P3P())   # FixedModels{4, Extrinsics3}, empty when no solution
 for ext in result                 # 0–4 Extrinsics3 solutions
     camera_i = PosedCamera(model, ext)
     # score by reprojection error ...

@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The contaminated scenes of every find_* class and the too-few sets (scenes_testsetups.jl's TooFewData, FindScenes and
 # RadialCameraScene, each of which includes this file and exports its own names, and the golden records of
 # ci/golden/fixtures/est_{conics_ransac,epipolar,pose}.jl), built from the shared synthetic scenes

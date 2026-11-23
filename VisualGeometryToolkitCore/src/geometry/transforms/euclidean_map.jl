@@ -8,8 +8,9 @@
 # retinal and distorted frames) in image_frames.jl — both loaded BEFORE
 # base/types.jl so the statistical forms
 # (`CovMat`/`PrecMat`) can constrain their trailing frame parameter. The
-# frame-checked map algebra (Src/Dst parameters, composition truth table,
-# relabel/unlabel) stays HERE.
+# frame-checked map algebra (Src/Dst parameters, composition truth table) stays
+# HERE; relabel/unlabel and the storage-boundary convert of every frame-tagged
+# map are one mechanism, at the end of homography_map.jl.
 #
 # Drake monogram bridge (stated once, used throughout): the monogram symbol
 # `X_AB` — "pose of frame B expressed in frame A", which maps B-coordinates
@@ -175,7 +176,6 @@ end
     )
 )
 
-
 # The rotation a positional constructor stores: a `RotMatrix`, a `QuatRotation`
 # or an `Angle2d` stays what it is (a saved pose's quaternion round-trips bit for
 # bit, and so does a planar map's angle — a target calibration's rigid member
@@ -251,38 +251,7 @@ end
 _float_translation(t::StaticVector{N, <:Integer}) where {N} = SVector{N, float(eltype(t))}(t)
 _float_translation(t::StaticVector) = t
 
-# Storage-boundary conversion: bitcast translation/rotation to the alias
-# parameter types. Triggered implicitly by container `setindex!` and
-# tuple-typed constructors, so callers never need explicit `SVector{N,T}(t)`.
-#
-# Frame policy: `convert` may LABEL (source frame is `UnlabeledFrame` and the
-# target states a frame — the gradual-typing direction) or keep frames as-is;
-# it never silently RELABELS a labeled frame to a different label, and never
-# silently ERASES one (that's the explicit `unlabel`). A labeled→labeled
-# mismatch has no convert method — storing a pose into an extrinsics-typed
-# slot is a `MethodError`.
-
-# Frame-preserving convert to the historical 4-parameter surface.
-@inline function Base.convert(
-        ::Type{EuclideanMap{N, T, R, V}},
-        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N}, Src, Dst}
-    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N}, Src <: Frame{N}, Dst <: Frame{N}}
-    return EuclideanMap{N, T, R, V, Src, Dst}(R(e.R), V(e.t))
-end
-
-# Fully-parameterized target: source frames must match, or be Unlabeled
-# (junction of the diagonal `Union` constraint — labeling an unlabeled map
-# into a labeled slot is allowed; anything else is a MethodError).
-@inline function Base.convert(
-        ::Type{EuclideanMap{N, T, R, V, Src, Dst}},
-        e::EuclideanMap{N, T, <:Rotation{N, T}, <:StaticVector{N}, Src0, Dst0}
-    ) where {
-        N, T, R <: Rotation{N, T}, V <: StaticVector{N},
-        Src <: Frame{N}, Dst <: Frame{N},
-        Src0 <: Union{Src, UnlabeledFrame{N}}, Dst0 <: Union{Dst, UnlabeledFrame{N}},
-    }
-    return EuclideanMap{N, T, R, V, Src, Dst}(R(e.R), V(e.t))
-end
+# Storage-boundary conversion, relabel/unlabel: the frame-tagged maps' one mechanism, homography_map.jl.
 
 """
     EuclideanMap(R::SMatrix{3,3,T,9}, t::StaticVector{3};
@@ -415,46 +384,6 @@ EuclideanMap(::LinearAlgebra.UniformScaling, t::AbstractVector) =
 EuclideanMap(E::EuclideanMap) = E
 
 EuclideanMap((R, t)::Tuple{<:Rotation, <:AbstractVector}) = EuclideanMap(R, t)
-
-# Frame labeling escape hatches — relabel / unlabel
-
-"""
-    relabel(Src::Type{<:Frame{N}}, Dst::Type{<:Frame{N}}, m::EuclideanMap{N}) -> EuclideanMap
-
-Return `m` with its frame tags replaced by `Src`/`Dst` (map consumes
-`Src`-coordinates, produces `Dst`-coordinates). Zero-cost: the rotation and
-translation are reused bit-for-bit; only the type changes.
-
-This is a DELIBERATE escape hatch: it overrides whatever frames `m` carried,
-with no check. Use it at trust boundaries (dataset loaders, solver outputs)
-where the caller — not the type system — knows the frames. Attaching a
-frame of the wrong dimension (e.g. a `Frame{2}` to an `N = 3` map) is a
-type error (`MethodError`).
-
-See also [`unlabel`](@ref), [`Frame`](@ref).
-"""
-@inline function relabel(
-        ::Type{Src}, ::Type{Dst}, m::EuclideanMap{N, T, R, V}
-    ) where {N, T, R <: Rotation{N, T}, V <: StaticVector{N}, Src <: Frame{N}, Dst <: Frame{N}}
-    return EuclideanMap{N, T, R, V, Src, Dst}(m.R, m.t)
-end
-
-"""
-    unlabel(m::EuclideanMap{N}) -> EuclideanMap{..., UnlabeledFrame{N}, UnlabeledFrame{N}}
-
-Erase the frame tags of `m` (both endpoints become
-[`UnlabeledFrame`](@ref)`{N}`). Zero-cost, deliberate escape hatch — the
-result composes with anything under the wildcard rule. Inverse direction of
-[`relabel`](@ref).
-"""
-@inline unlabel(m::EuclideanMap{N}) where {N} =
-    relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, m)
-
-# An uncertain map is relabeled as its value: the covariance, in the
-# `RigidExpManifold6` chart of the map's own coordinates, does not move.
-relabel(::Type{Src}, ::Type{Dst}, u::Uncertain{<:EuclideanMap{N}}) where {N, Src <: Frame{N}, Dst <: Frame{N}} =
-    Uncertain(relabel(Src, Dst, geom(u)), getfield(u, :attributes))
-unlabel(u::Uncertain{<:EuclideanMap{N}}) where {N} = relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, u)
 
 """
     map_frames(X) -> (Src, Dst)

@@ -388,18 +388,6 @@ end
 # The lenses
 # -----------------------------------------------------------------------------
 
-# OpenCV's projectPoints distortion for an n-vector (n = 4, 5, 8, 12, 14), as
-# VisualGeometryToolkitIO's `opencv_lens` builds it: the radial, tangential and
-# thin-prism terms summed at one point, then the tilt.
-function opencv(v::AbstractVector, compose)
-    n = length(v)
-    k = n == 4 ? (v[1], v[2]) : (v[1], v[2], v[5])
-    d = n >= 8 ? (v[6], v[7], v[8]) : ()
-    terms = (Radial(k, d), Tangential(v[3], v[4]))
-    n >= 12 && (terms = (terms..., ThinPrism((v[9], v[10]), (v[11], v[12]))))
-    add = Additive(terms...)
-    return n == 14 ? Lens(Perspective(), compose((add, Tilt(v[13], v[14])))) : Lens(Perspective(), add)
-end
 # Aria's Fisheye624 (COLMAP RAD_TAN_THIN_PRISM_FISHEYE), as VisualGeometryToolkitIO
 # assembles it from COLMAP's 12 extra parameters: the radial factor, then the
 # tangential and thin-prism deltas of the radially distorted point.
@@ -413,7 +401,7 @@ OpenCV's 4-, 5-, 8-, 12- and 14-coefficient lenses and COLMAP's Fisheye624,
 from the stored coefficients.
 """
 lens_cases(P::AbstractDict, V) = Pair{String, Any}[
-    ("opencv$n" => opencv(P["param/opencv$n"], V.compose_distortions) for n in (4, 5, 8, 12, 14))...,
+    ("opencv$n" => VgtkCore.opencv_lens(P["param/opencv$n"]) for n in (4, 5, 8, 12, 14))...,   # Core's builder: OpenCV's composition, the tilt after the sum
     "fisheye624" => fisheye624(P["param/fisheye624"], V.compose_distortions),
 ]
 

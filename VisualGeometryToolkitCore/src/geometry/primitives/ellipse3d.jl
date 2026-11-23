@@ -98,11 +98,13 @@ struct Ellipse3D{T} <: AbstractConic3D{T}
     end
 end
 
-# Convenience constructor with type promotion
-function Ellipse3D(center::Point3{T1}, axis_a::Vec3{T2}, axis_b::Vec3{T3}) where {T1, T2, T3}
-    T = promote_type(T1, T2, T3)
-    return Ellipse3D{T}(Point3{T}(center...), Vec3{T}(axis_a...), Vec3{T}(axis_b...))
+# The convenience constructor with type promotion of the 3D conics (`Ellipse3D`, `Circle3D`): every part in the
+# promoted element type, each converted to its field's type.
+@inline function _promoted_conic(::Type{W}, parts...) where {W}
+    T = promote_type(map(p -> p isa StaticVector ? eltype(p) : typeof(p), parts)...)
+    return W{T}(map((F, p) -> p isa StaticVector ? F(p...) : F(p), fieldtypes(W{T}), parts)...)
 end
+Ellipse3D(center::Point3, axis_a::Vec3, axis_b::Vec3) = _promoted_conic(Ellipse3D, center, axis_a, axis_b)
 
 # Axis vector accessors for Ellipse3D
 _axis_a(e::Ellipse3D) = e.axis_a

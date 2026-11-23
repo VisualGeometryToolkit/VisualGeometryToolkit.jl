@@ -1,16 +1,16 @@
 # =============================================================================
 # Circle3pt — the circle through three 2D points (the minimal solver of the
-# circle; `solve(solver, points, idx)`)
+# circle; `solve(MinimalProblem(Circle, points, idx), Circle3pt())`)
 # =============================================================================
 
 """
     Circle3pt()
 
 Minimal 3-point circle solver: the circle through three 2D points (the
-circumcircle; `solve(Circle3pt(), points, idx)`), `sample_size` 3,
+circumcircle; `solve(MinimalProblem(Circle, points, idx), Circle3pt())`), `sample_size` 3,
 `max_solutions` 1. Its data are POINTS on the curve, an `AbstractVector` of
 `StaticVector{2}` — a circle has no second view, so there is no correspondence
-to form, as for [`tls_line`](@ref) and [`direct_ellipse`](@ref). The solve is
+to form, as for [`TotalLeastSquares`](@ref) and [`DirectEllipse`](@ref). The solve is
 closed form and frame-covariant (pixels in, a circle in pixels out), computed
 about the sample's first point so it needs no normalization.
 
@@ -25,8 +25,10 @@ registry answers correspondence element-type pairs.
 struct Circle3pt <: MinimalSolver{Circle{Float64}} end
 sample_size(::Circle3pt) = 3
 max_solutions(::Circle3pt) = 1
+default_algorithm(::MinimalProblem{<:Circle}) = Circle3pt()
 
-function solve(::Circle3pt, points::AbstractVector, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, ::Circle3pt)
+    points, idx = prob.f, prob.sample
     M = Circle{Float64}
     p₁ = SVector{2, Float64}(@inbounds points[idx[1]])
     a = SVector{2, Float64}(@inbounds points[idx[2]]) - p₁

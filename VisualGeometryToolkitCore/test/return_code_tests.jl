@@ -1,20 +1,20 @@
 # =============================================================================
 # The termination record: ReturnCode (SciMLBase's names, matched), StopRule,
-# retcode/stop_rule/converged/found_model, worst_retcode (base/return_code.jl;
+# the result's record fields, successful_retcode/found_model, worst_retcode (base/return_code.jl;
 # the robust-estimation contract, §14). NLLSsolver's decode into it: lm_driver_tests.jl
 # =============================================================================
 
 @testitem "return_code" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: FitResult, ReturnCode, successful_retcode, StopRule, retcode, stop_rule,
-        converged, found_model, retcode_symbol, worst_retcode, test_termination_record
+    using VisualGeometryToolkitCore: FitResult, SolveStats, ReturnCode, successful_retcode, StopRule,
+        found_model, retcode_symbol, worst_retcode, test_termination_record
     using VisualGeometryToolkitCore: NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap, ParameterChange,
         NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap, NonFinite, Callback,
         TrialBudget, AdaptiveCount
     using Test
 
     # Every result records the code and the rule in its core.
-    result(code, rule; estimate = 1.0) = FitResult(estimate, code, rule, 3, 0.1, 10, nothing)
+    result(code, rule; estimate = 1.0) = FitResult(estimate, code, rule, SolveStats(; nsteps = 3), 0.1, 10, nothing)
 
     @testset "the names are SciMLBase.ReturnCode's (3.58), with its integer values" begin
         # A literal pin of SciMLBase's spelling and values for the codes the stack produces
@@ -47,35 +47,34 @@
         @test retcode_symbol(ReturnCode.Failure, ShapeGate) === :solve_failed
     end
 
-    @testset "accessors: inferred, strict converged, found_model" begin
+    @testset "the record by field, strict success, found_model" begin
         for (code, rule) in ((ReturnCode.Success, CostDecrease), (ReturnCode.Success, ClosedForm),
                              (ReturnCode.MaxIters, IterationCap), (ReturnCode.MaxIters, TrialBudget),
                              (ReturnCode.Stalled, IncrementSize), (ReturnCode.Failure, NonFinite))
             r = result(code, rule)
-            @test @inferred(retcode(r)) === code
-            @test @inferred(stop_rule(r)) === rule
-            @test @inferred(converged(r)) === successful_retcode(code)
-            @test r.converged === converged(r)
+            @test r.retcode === code
+            @test r.stop_rule === rule
+            @test @inferred(successful_retcode(r)) === successful_retcode(code)
             test_termination_record(r)
         end
-        # STRICT: a cap is never converged, a closed form is
-        @test !converged(result(ReturnCode.MaxIters, IterationCap))
-        @test !converged(result(ReturnCode.MaxIters, TrialBudget))      # a RANSAC at its trial budget
-        @test converged(result(ReturnCode.Success, ClosedForm))
+        # STRICT: a cap is never a success, a closed form is
+        @test !successful_retcode(result(ReturnCode.MaxIters, IterationCap))
+        @test !successful_retcode(result(ReturnCode.MaxIters, TrialBudget))      # a RANSAC at its trial budget
+        @test successful_retcode(result(ReturnCode.Success, ClosedForm))
         # found_model: the old find_* meaning, whatever the code
         @test found_model(result(ReturnCode.MaxIters, TrialBudget))
         @test !found_model(result(ReturnCode.Failure, TrialBudget; estimate = nothing))
         # the record is the core's: every result has one, the lean `nothing` metadata included
         @test fieldtype(FitResult{Float64, Nothing}, :retcode) === ReturnCode.T
         @test fieldtype(FitResult{Float64, Nothing}, :stop_rule) === StopRule
-        @test_throws MethodError FitResult(1.0, :converged, 1, 0.0, 3, nothing)     # no Symbol record
+        @test_throws MethodError FitResult(1.0, :converged, NoRule, SolveStats(), 0.0, 3, nothing)     # no Symbol record
         @test @inferred(retcode_symbol(result(ReturnCode.Success, ClosedForm))) === :solved
     end
 
-    @testset "converged agrees with successful_retcode for every code and rule" begin
+    @testset "a result's successful_retcode is its code's, for every code and rule" begin
         for code in instances(ReturnCode.T), rule in instances(StopRule)
             r = result(code, rule)
-            @test converged(r) === successful_retcode(code) === r.converged
+            @test successful_retcode(r) === successful_retcode(code)
         end
         # inferred, as a Bool, for every code
         @test @inferred(successful_retcode(ReturnCode.Success)) === true

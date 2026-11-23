@@ -68,8 +68,7 @@ end
     using VisualGeometryToolkitEval.Stats: eligible_maa
     using VisualGeometryToolkitEval.Render: tuning_slice, emit_tuning_table
 
-    ax(lo, hi, sp, fine) = Dict{String,Any}("coarse" => Dict{String,Any}("type" => "spaced",
-        "window" => Dict{String,Any}("type" => "fixed", "lo" => lo, "hi" => hi), "spacing" => sp), "fine" => fine)
+    ax = coarse_fine_axis
     spec = fixture_spec(Dict{String,Any}("type" => "joint_coarse_fine",
         "criterion" => Dict{String,Any}("type" => "mean_average_accuracy", "max_error" => 10.0),
         "axes" => Dict{String,Any}(

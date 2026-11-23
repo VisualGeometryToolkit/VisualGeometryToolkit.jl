@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The robust-estimation contract's scenes (fit_contract_tests.jl's FitContractScenes, and the golden records of
 # ci/golden/fixtures/est_other_fits.jl), each drawn from the caller's RNG: a linear system, rotated directions, a
 # rotation-averaging graph, a rigid point set and a robot-world hand-eye marker set. Data constructors only — no

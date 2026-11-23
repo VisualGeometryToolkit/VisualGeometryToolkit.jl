@@ -73,11 +73,8 @@ struct Circle3D{T} <: AbstractConic3D{T}
     end
 end
 
-# Convenience constructor with type promotion
-function Circle3D(center::Point3{T1}, radius::T2, u::Vec3{T3}, v::Vec3{T4}) where {T1, T2, T3, T4}
-    T = promote_type(T1, T2, T3, T4)
-    return Circle3D{T}(Point3{T}(center...), T(radius), Vec3{T}(u...), Vec3{T}(v...))
-end
+# Convenience constructor with type promotion (ellipse3d.jl)
+Circle3D(center::Point3, radius, u::Vec3, v::Vec3) = _promoted_conic(Circle3D, center, radius, u, v)
 
 Circle3D(c::Circle3D) = c
 

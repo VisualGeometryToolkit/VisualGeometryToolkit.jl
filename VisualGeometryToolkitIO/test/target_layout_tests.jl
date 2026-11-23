@@ -56,7 +56,7 @@ end
         lt = PlanarTarget(april_grid())
         nt = PlanarTarget(design(lt))                               # the same points, no layout
         @test layout(nt) === nothing && points(nt) == points(lt)
-        rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
+        rig(t) = single_target_rig(BodyFrame{:board_rig}, :grid, t, X)
         rp = joinpath(dir, "rig.json")
         save(rp, rig(lt))
         @test parse_json(read(rp, String)).schema == "vgio/rig/v10.0"
@@ -219,7 +219,7 @@ end
         from_mm = PlanarTarget(AprilGrid(; tag_rows = 6, tag_cols = 6, tag_size = rl(88.0, mm), tag_spacing = rl(26.4, mm)))
         @test k == from_mm && all(map(===, points(k), points(from_mm)))
         X = EuclideanMap(RotMatrix(RotZ(0.3)), SVector(0.1, -0.2, 1.5) .* m)
-        rig(t) = Rig{BodyFrame{:board_rig}}(Dict(:grid => PosedTarget(t, X)))
+        rig(t) = single_target_rig(BodyFrame{:board_rig}, :grid, t, X)
         @test content_id(rig(k)) == content_id(rig(from_mm))
         # a UTF-8 byte-order mark is skipped, by both layout readers
         @test load(PlanarTarget, bom("bom_k.yaml", kalibr)) == k

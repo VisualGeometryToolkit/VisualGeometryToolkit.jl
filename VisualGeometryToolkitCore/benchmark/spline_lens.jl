@@ -44,6 +44,8 @@ using VisualGeometryToolkitCore.Cameras: _spline_camera
 using CoordinateTransformations: AffineMap
 
 include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+using Test   # loads VisualGeometryToolkitCore's test helpers
+using VisualGeometryToolkitCore: sum_first_components
 const G = GOLDEN
 const W, H = G.image[1], G.image[2]
 const SRC = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
@@ -73,16 +75,15 @@ const CPU = KA.CPU()   # `device` defaults to the GPU once CUDA is loaded: the h
 
 us_per(b, n) = minimum(b).time / 1.0e3 / n
 ms(b) = minimum(b).time / 1.0e6
-sum_over(f, xs) = (s = 0.0; for x in xs; s += f(x)[1]; end; s)
 
 R = Dict{String, Float64}()
-R["cpu_backproject_scalar_us"] = us_per(@benchmark(sum_over(u -> backproject($CAM, u), $LATTICE)), length(LATTICE))
+R["cpu_backproject_scalar_us"] = us_per(@benchmark(sum_first_components(u -> backproject($CAM, u), $LATTICE)), length(LATTICE))
 R["cpu_backproject_batch_1e5_ms"] = ms(@benchmark(backproject($CAM, $BPIX; device = $CPU)))
-R["cpu_project_lm_us"] = us_per(@benchmark(sum_over(X -> project($CAM, X), $RAYS)), length(RAYS))
-R["cpu_project_forward_us"] = us_per(@benchmark(sum_over(X -> project($CAM_FWD, X), $RAYS)), length(RAYS))
+R["cpu_project_lm_us"] = us_per(@benchmark(sum_first_components(X -> project($CAM, X), $RAYS)), length(RAYS))
+R["cpu_project_forward_us"] = us_per(@benchmark(sum_first_components(X -> project($CAM_FWD, X), $RAYS)), length(RAYS))
 R["cpu_project_batch_1e5_ms"] = ms(@benchmark(project($CAM, $BRAYS, $BSEEDS; device = $CPU)))
-R["cpu_backproject_with_jacobian_us"] = us_per(@benchmark(sum_over(u -> first(backproject_with_jacobian($CAM, u)), $LATTICE)), length(LATTICE))
-R["cpu_noncentral_project_us"] = us_per(@benchmark(sum_over(X -> project($NC, X), $NC_X)), length(NC_X))
+R["cpu_backproject_with_jacobian_us"] = us_per(@benchmark(sum_first_components(u -> first(backproject_with_jacobian($CAM, u)), $LATTICE)), length(LATTICE))
+R["cpu_noncentral_project_us"] = us_per(@benchmark(sum_first_components(X -> project($NC, X), $NC_X)), length(NC_X))
 R["cpu_undistort_1000_ms"] = ms(@benchmark(undistort($CAM, $CHECKER, $FULL; device = $CPU); samples = 5, evals = 1, seconds = 30))
 R["cpu_undistort_fwd_1000_ms"] = ms(@benchmark(undistort($CAM_FWD, $CHECKER, $FULL; device = $CPU); samples = 5, evals = 1, seconds = 30))
 

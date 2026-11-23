@@ -4,6 +4,7 @@
 # contraction of it, and the E-manifold anchors — against finite differences of
 # the residual along the chart's own retraction.
 @testitem "sampson_rows" begin
+    using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
@@ -121,13 +122,10 @@
         @test Js == J1
         @test J ≈ sqrtw .* J1 rtol = 1.0e-13
         # no allocation in the rows or the per-correspondence Jacobian
-        rows_allocs(f!, r, M, xs) = (f!(r, M, xs); @allocated f!(r, M, xs))
-        jac_allocs(f!, J, M, dM, xs) = (f!(J, M, dM, xs); @allocated f!(J, M, dM, xs))
-        @test rows_allocs(sampson_residuals!, r, M, xs) == 0 && rows_allocs(wres!, r, M, xs) == 0
-        @test jac_allocs(sampson_jacobian_rows!, J, M, dM, xs) == 0 && jac_allocs(wjac!, J, M, dM, xs) == 0
+        @test warm_allocated(sampson_residuals!, r, M, xs) == 0 && warm_allocated(wres!, r, M, xs) == 0
+        @test warm_allocated(sampson_jacobian_rows!, J, M, dM, xs) == 0 && warm_allocated(wjac!, J, M, dM, xs) == 0
         f(M, u, w, A) = sampson_residual_with_jacobian(M, u, w; directions = A)
-        allocs(M, u, w, A) = (f(M, u, w, A); @allocated f(M, u, w, A))
-        @test allocs(M, u₁[1], u₂[1], A) == 0
+        @test warm_allocated(f, M, u₁[1], u₂[1], A) == 0
     end
 
     @testset "one observation per row: a conic's rows" begin
@@ -170,6 +168,7 @@ end
 # ForwardDiff through the residuals, plain and under observation noise (an
 # exact source: the whitened rows of the transfer error); the pool matrix.
 @testitem "sampson_rows: vector constraints and noise" begin
+    using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
@@ -240,8 +239,7 @@ end
         @testset "$name: exact rows (ForwardDiff through the residuals)" begin
             J = zeros(2n, 8); J!(J, retract(ch, a), retract_jacobian(ch, a), xs)
             @test J ≈ ForwardDiff.jacobian(rows(xs, f!), a) rtol = 1.0e-10 atol = 1.0e-12
-            allocs(J, M, D, xs) = (J!(J, M, D, xs); @allocated J!(J, M, D, xs))
-            @test allocs(J, retract(ch, a), retract_jacobian(ch, a), xs) == 0
+            @test warm_allocated(J!, J, retract(ch, a), retract_jacobian(ch, a), xs) == 0
         end
     end
     @testset "whitened rows are unweighted; the weighted rows are √w times them" begin

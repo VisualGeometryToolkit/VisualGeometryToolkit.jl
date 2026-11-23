@@ -408,12 +408,14 @@ struct SplineLens{B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <:
     backward::B
     forward::F
     present::P
-    function SplineLens{B, F, P}(backward::B, forward::F, present::P) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
-        _check_present(present, size(backward.controls))
+    # `Val(:unchecked)`: a value already validated (its device form, or a mask through `_present_mask`), no check,
+    # as `ChartSpline`'s.
+    function SplineLens{B, F, P}(
+            backward::B, forward::F, present::P, check::Union{Val{:checked}, Val{:unchecked}} = Val(:checked)
+        ) where {B <: ChartSpline{3}, F <: Union{Nothing, ChartSpline{2}}, P <: Union{Nothing, AbstractMatrix{Bool}}}
+        check isa Val{:checked} && _check_present(present, size(backward.controls))
         return new{B, F, P}(backward, forward, present)
     end
-    # A value already validated (its device form, or a mask through `_present_mask`): no check, as `ChartSpline`'s.
-    SplineLens{B, F, P}(backward::B, forward::F, present::P, ::Val{:unchecked}) where {B, F, P} = new{B, F, P}(backward, forward, present)
 end
 SplineLens(backward::ChartSpline{3}; forward::Union{Nothing, ChartSpline{2}} = nothing, present = nothing) =
     _spline_lens(backward, forward, _present_mask(present, size(backward.controls)), Val(:unchecked))
@@ -596,7 +598,7 @@ const _PROJECT_TOL = 1.0e-6
 const _SPLINE_REFERENCE_COST_FLOOR = eps(Float64)
 
 
-# The scale-free setting of `static_lm` on a rectangle `area` of any unit (the
+# The scale-free setting of `_static_lm` on a rectangle `area` of any unit (the
 # lens's normalized plane, a pixel rectangle): the area read as
 # `_LM_AREA_UNITS` units per axis, `s = _LM_AREA_UNITS ./ widths` — the
 # reference's pixel constants exactly on its 1000-px calibrated area, and the same
@@ -612,7 +614,7 @@ const _SPLINE_REFERENCE_COST_FLOOR = eps(Float64)
 end
 
 # THE central projection solve on a spline of direction controls `controls`
-# (`[gy, gx]`) over the rectangle `area`: LM (`static_lm`) on the direction
+# (`[gy, gx]`) over the rectangle `area`: LM (`_static_lm`) on the direction
 # residual d̂(x) − t̂, d̂ the backward map, and its analytic Jacobian, both from one
 # evaluation of the basis weights per point (`_spline_direction_differential`), from
 # `x₀`, bounded to `[lb, ub]` (inside the area: every window stays in the grid).
@@ -627,7 +629,7 @@ end
     fj(p) = (r = _spline_direction_differential(controls, area, p); (SVector{3, Float64}(r[2]) - tn, r[3]))
     stops = StaticLmStops(s; acceptance = tol2, max_iter = maxiter, cost_floor = _SPLINE_REFERENCE_COST_FLOOR,
         residual_resolution = _spline_residual_resolution(controls, t))
-    x, ok = static_lm(fj, x₀, lb, ub, stops)
+    x, ok = _static_lm(fj, x₀, lb, ub, stops)
     return x, ok
 end
 
@@ -673,7 +675,7 @@ end
 # `H (I − ddᵀ) = H`). Returns `(∂x/∂t, −H/‖S‖, ix, iy, w)`, `w` the window's weights
 # (`spline_weights`'s). Exact at a zero residual; the solve's tolerance bounds the
 # term it omits. PRECONDITION: `x` is solved to rounding — `_solved_projection`'s, never
-# a solve warm-started within √eps of its answer, which `static_lm` returns as it is
+# a solve warm-started within √eps of its answer, which `_static_lm` returns as it is
 # (the reference's F < eps stop), so that x*(c) would be a step function of the
 # controls. A SplineLens camera's bundle refinement reads it
 # (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
@@ -807,17 +809,24 @@ area's centre; NaN unless it converges onto a point whose window is present.
 # does not image the ray: a NaN value with ZERO partials. The forward's chart (`_FORWARD_CHART`, an equidistant lens
 # after a fixed rotation) and its spline evaluation are eltype-generic; its fitted-chart test (`_in_fitted_chart`) is
 # `project`'s mask, read on the ray's plain values, so no Dual reaches it.
+# The spline models' Dual projections share their two ends (this one and `NoncentralSplineModel`'s): the plain
+# pixel `x` where the ray is not imaged, a NaN value with ZERO partials; and the chain rule through the 2 × 3 pixel
+# Jacobian `J` of the outer layer's ray `X`.
+@inline _dual_unimaged(::Type{D}, x) where {D} = SVector{2, D}(_lift_dual(D, x[1]), _lift_dual(D, x[2]))
+@inline function _dual_pixel(::Type{D}, x, J, X) where {D}
+    P = map(ForwardDiff.partials, X)
+    return SVector{2, D}(ntuple(i -> _with_value(D, x[i], J[i, 1] * P[1] + J[i, 2] * P[2] + J[i, 3] * P[3]), Val(2)))
+end
 @inline function project(l::SplineLens, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
     t = _outer_value(D, X)
     x = project(l, t)
-    all(v -> isfinite(primal_value(v)), x) || return SVector{2, D}(_lift_dual(D, x[1]), _lift_dual(D, x[2]))   # not imaged: NaN, no partials
+    all(v -> isfinite(primal_value(v)), x) || return _dual_unimaged(D, x)   # not imaged: NaN, no partials
     if l.forward !== nothing
         y = l.forward(_FORWARD_CHART(X))
         return SVector{2, D}(y[1], y[2])
     end
     Dt = first(_projection_jacobians(l.backward.controls, l.backward.area, x, t))
-    P = map(ForwardDiff.partials, X)
-    return SVector{2, D}(ntuple(i -> _with_value(D, x[i], Dt[i, 1] * P[1] + Dt[i, 2] * P[2] + Dt[i, 3] * P[3]), Val(2)))
+    return _dual_pixel(D, x, Dt, X)
 end
 
 # THE batched projection: per ray `_project_lens` from its seed — `seed_map` of

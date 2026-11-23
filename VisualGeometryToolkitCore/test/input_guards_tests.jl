@@ -7,8 +7,8 @@
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: HomographyMat, EssentialMat, SvdWorkspace, homography_dlt,
-        fundamental_dlt, dlt_conditioning, whiten, whitening_factor, sampson_residual,
+    using VisualGeometryToolkitCore: HomographyMat, EssentialMat, FundMat, SvdWorkspace, homography_dlt!,
+        fundamental_dlt!, CorrespondenceNormalization, dlt_conditioning, whiten, whitening_factor, sampson_residual,
         sampson_distances!, sampson_distance, SplineLens, CameraModel,
         Division
     using StaticArrays, LinearAlgebra, Random
@@ -19,6 +19,13 @@
     H0 = SMatrix{3, 3}(1.1, 0.05, 1.0e-4, -0.1, 0.9, 2.0e-4, 30.0, -20.0, 1.0)
     xs = [SVector(640rand(rng), 480rand(rng)) for _ in 1:9]
     hcs = [x => PerspectiveMap()(H0 * homog(x)) for x in xs]
+    # the DLT's solve, and its inner-loop forms on a fresh buffer (what the svd workspace and the mask guard reach)
+    hsolve(cs) = solve(EstimationProblem(HomographyMat, cs), DLT()).u
+    fsolve(cs) = solve(EstimationProblem(FundMat, cs), DLT()).u
+    hdlt(cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}}; mask = nothing, svd_ws = nothing) where {T} =
+        homography_dlt!(Matrix{T}(undef, 2length(cs), 9), CorrespondenceNormalization(HomographyMat, cs; mask), cs; mask, svd_ws)
+    fdlt(cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}}; mask = nothing, svd_ws = nothing) where {T} =
+        fundamental_dlt!(Matrix{T}(undef, length(cs), 9), CorrespondenceNormalization(FundMat, cs; mask), cs; mask, svd_ws)
     herr(H, cs) = maximum(norm(PerspectiveMap()(SMatrix{3, 3}(H) * homog(x)) - y) for (x, y) in cs)
 
     K = SMatrix{3, 3}(500.0, 0, 0, 0, 500.0, 0, 320, 240, 1)
@@ -33,15 +40,15 @@
 
     @testset "DLT at the minimum count is exact" begin
         ws = SvdWorkspace{Float64}(100, 9)
-        @test herr(homography_dlt(hcs[1:4]), hcs[1:4]) < 1.0e-8
-        @test herr(homography_dlt(hcs[1:4]; svd_ws = ws), hcs[1:4]) < 1.0e-8
+        @test herr(hsolve(hcs[1:4]), hcs[1:4]) < 1.0e-8
+        @test herr(hdlt(hcs[1:4]; svd_ws = ws), hcs[1:4]) < 1.0e-8
         @test isfinite(dlt_conditioning(ws))
         # a reused workspace: a 5-point solve, then a 4-point one, must not
         # hand back the first solve's null vector
-        homography_dlt(hcs[5:9]; svd_ws = ws)
-        @test herr(homography_dlt(hcs[1:4]; svd_ws = ws), hcs[1:4]) < 1.0e-8
-        @test ferr(fundamental_dlt(fcs[1:8]), fcs[1:8]) < 1.0e-10
-        @test ferr(fundamental_dlt(fcs[1:8]; svd_ws = ws), fcs[1:8]) < 1.0e-10
+        hdlt(hcs[5:9]; svd_ws = ws)
+        @test herr(hdlt(hcs[1:4]; svd_ws = ws), hcs[1:4]) < 1.0e-8
+        @test ferr(fsolve(fcs[1:8]), fcs[1:8]) < 1.0e-10
+        @test ferr(fdlt(fcs[1:8]; svd_ws = ws), fcs[1:8]) < 1.0e-10
     end
 
     @testset "SvdWorkspace is Float64; other eltypes take the allocating SVD" begin
@@ -49,14 +56,14 @@
         @test_throws MethodError SvdWorkspace{Float32}(100, 9)
         ws = SvdWorkspace{Float64}(100, 9)
         hcs32 = [SVector{2, Float32}(x) => SVector{2, Float32}(y) for (x, y) in hcs[1:6]]
-        H32 = homography_dlt(hcs32; svd_ws = ws)
+        H32 = hdlt(hcs32; svd_ws = ws)
         @test eltype(H32) == Float32
         @test herr(H32, hcs[1:6]) < 1.0e-1
     end
 
     @testset "an index mask longer than the data is refused" begin
-        @test_throws DimensionMismatch homography_dlt(hcs[1:5]; mask = [1, 2, 3, 4, 5, 1, 2, 3])
-        @test_throws DimensionMismatch fundamental_dlt(fcs[1:8]; mask = [1:8; 1:3])
+        @test_throws DimensionMismatch hdlt(hcs[1:5]; mask = [1, 2, 3, 4, 5, 1, 2, 3])
+        @test_throws DimensionMismatch fdlt(fcs[1:8]; mask = [1:8; 1:3])
     end
 
     @testset "non-finite sample positions" begin

@@ -3,6 +3,7 @@
 # `Uncertain` point carries its covariance, an `exact` point none — through
 # scoring, the chart rows of the refit, the normalization and the maps.
 @testitem "observation_noise" setup = [HomographyScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -49,8 +50,7 @@
         # whitened rows of the problem's set are the same transfer error
         rr = zeros(2n); whitened_residuals!(rr, H, p.cs)
         @test [norm(rr[2i-1:2i]) for i in 1:n] ≈ r rtol = 1.0e-12
-        wallocs(rr, H, cs) = (whitened_residuals!(rr, H, cs); @allocated whitened_residuals!(rr, H, cs))
-        @test wallocs(rr, H, p.cs) == 0
+        @test warm_allocated(whitened_residuals!, rr, H, p.cs) == 0
         @test (@allocated mahalanobis_distances!(r, p, H)) == 0
         # the chart-LM refit and its lift descend the same pixel residual
         Hs = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0))))

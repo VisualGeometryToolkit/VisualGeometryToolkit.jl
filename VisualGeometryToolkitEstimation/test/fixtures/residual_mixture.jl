@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The residual mixture's test-only scorer and draws (residual_mixture_tests.jl, and the golden records of
 # ci/golden/fixtures/est_other_fits.jl). No estimator is called; include-once safe (an identical struct redefinition is
 # a no-op).

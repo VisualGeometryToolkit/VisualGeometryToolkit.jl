@@ -128,14 +128,6 @@ function SimilarityMap(L::CoordinateTransformations.LinearMap{<:UniformScaling})
     return SimilarityMap(abs(λ), R, zero(SVector{2, T}); check = false)
 end
 
-# Frame labeling escape hatches (zero-cost; the parts are reused bit for bit)
-@inline function relabel(
-        ::Type{Src}, ::Type{Dst}, S::SimilarityMap{N, T, Sc, R, V}
-    ) where {N, T, Sc, R, V, Src <: Frame{N}, Dst <: Frame{N}}
-    return SimilarityMap{N, T, Sc, R, V, Src, Dst}(S.s, S.R, S.t)
-end
-@inline unlabel(S::SimilarityMap{N}) where {N} = relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, S)
-
 # Operations
 (S::SimilarityMap)(x) = S.s * (S.R * x) + S.t
 CoordinateTransformations.transform_deriv(S::SimilarityMap{N}, x) where {N} = S.s * SMatrix{N, N}(S.R)
@@ -182,18 +174,5 @@ Base.:∘(A::SimilarityMap{N}, B::_SimilarityCTMap{N}) where {N} = A ∘ Similar
 Base.:∘(A::CoordinateTransformations.LinearMap{<:UniformScaling}, B::SimilarityMap{2}) = SimilarityMap(A) ∘ B
 Base.:∘(A::SimilarityMap{2}, B::CoordinateTransformations.LinearMap{<:UniformScaling}) = A ∘ SimilarityMap(B)
 
-# Storage-boundary conversion, EuclideanMap's frame policy: it may LABEL an
-# unlabeled map (or keep the frames), never relabel or erase one; the parts
-# are converted to the slot's types.
-@inline function Base.convert(
-        ::Type{SimilarityMap{N, T, S, R, V, Src, Dst}},
-        m::SimilarityMap{N, <:Any, <:Real, <:Rotation{N}, <:StaticVector{N}, Src0, Dst0}
-    ) where {
-        N, T, S, R <: Rotation{N, T}, V <: StaticVector{N},
-        Src <: Frame{N}, Dst <: Frame{N},
-        Src0 <: Union{Src, UnlabeledFrame{N}}, Dst0 <: Union{Dst, UnlabeledFrame{N}},
-    }
-    return SimilarityMap{N, T, S, R, V, Src, Dst}(S(m.s), R(m.R), V(m.t))
-end
 # (propagate through a SimilarityMap is beside EuclideanMap's, propagate_framed.jl;
 # similarity_scale beside the framed affine's, cameras/imaging_chain.jl.)

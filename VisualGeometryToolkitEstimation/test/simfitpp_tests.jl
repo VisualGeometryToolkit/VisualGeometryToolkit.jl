@@ -5,6 +5,7 @@
 # for the pool fixture, built here.
 
 @testitem "simfitpp" begin
+    import VisualGeometryToolkitCore as VgtkCore; include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "geometry_helpers.jl"))   # `similarity_matrix`, `planar_placement`
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, Statistics
     using Distributions: Chisq, quantile, cdf
@@ -131,7 +132,6 @@
         n, K = 300, 12
         # A pool in its pool frame: correspondences in [-1,1]², random fundamental
         # models, pool-frame Sampson residuals computed exactly as the pool generator does.
-        sim(s, tx, ty) = SMatrix{3,3,Float64,9}(s, 0.0, 0.0, 0.0, s, 0.0, tx, ty, 1.0)   # column-major: [s 0 tx; 0 s ty; 0 0 1]
         Kc = SMatrix{3,3,Float64,9}(400.0, 0.0, 0.0, 0.0, 400.0, 0.0, 320.0, 240.0, 1.0)
         I3s = SMatrix{3,3,Float64,9}(I)
         correspondences = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
@@ -146,19 +146,19 @@
         @test pixel_residuals(mk(I3s, I3s)) == Dc
         # equal similarity scales: exactly the pool-frame residual divided by the scale
         s = 1 / 650.0
-        Deq = pixel_residuals(mk(sim(s, -0.9, -0.7), sim(s, -0.95, -0.65)))
+        Deq = pixel_residuals(mk(similarity_matrix(s, -0.9, -0.7), similarity_matrix(s, -0.95, -0.65)))
         @test isapprox(Deq, Dc ./ Float32(s); rtol = 2e-5)
         # unequal scales: per-point ratios lie strictly between 1/s1 and 1/s2 — no
         # single scalar converts the frames, which is why SIMFIT++ runs on these
         s1, s2 = 1 / 650.0, 1 / 340.0
-        Dne = pixel_residuals(mk(sim(s1, -0.9, -0.7), sim(s2, -0.95, -0.65)))
+        Dne = pixel_residuals(mk(similarity_matrix(s1, -0.9, -0.7), similarity_matrix(s2, -0.95, -0.65)))
         ratio = [Dne[i, j] / Dc[i, j] for i in 1:n, j in 1:K if Dc[i, j] > 1e-4]
         @test minimum(ratio) > min(1 / s1, 1 / s2) - 1 && maximum(ratio) < max(1 / s1, 1 / s2) + 1
         @test maximum(ratio) / minimum(ratio) > 1.2
         # the pair method is pixels in, pixels out: SIMFIT++ with the reference's
         # pixel bounds on the pixel residuals — not on the pool's half-diagonal-unit
         # residual matrix, which the default pixel bounds do not fit
-        pair = mk(sim(s, -0.9, -0.7), sim(s, -0.95, -0.65))
+        pair = mk(similarity_matrix(s, -0.9, -0.7), similarity_matrix(s, -0.95, -0.65))
         @test simfitpp_select(pair, 3.0; rng = MersenneTwister(3)) ==
               simfitpp_select(pixel_residuals(pair), 3.0; rng = MersenneTwister(3))
         # the pool frame's unit stays available through the matrix method
@@ -166,7 +166,7 @@
         @test first(simfitpp_select(Dc, 0.01, c; rng = MersenneTwister(3))) in 0:K
         @test pool_pixel_scale(pair) == s
         # the pool's normalization and pool-frame calibrations (VisualGeometryToolkitCore's)
-        T1c, T2c = sim(s, -0.9, -0.7), sim(s, -0.95, -0.65)
+        T1c, T2c = similarity_matrix(s, -0.9, -0.7), similarity_matrix(s, -0.95, -0.65)
         pc = mk(T1c, T2c)
         nz = pool_normalization(pc)
         Sn, Dn = VgtkCore.source_map(nz), VgtkCore.destination_map(nz)

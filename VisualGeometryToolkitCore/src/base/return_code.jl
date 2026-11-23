@@ -5,13 +5,13 @@
 # A fit says WHY it stopped in two parts: the standard verdict, a
 # `ReturnCode.T` (SciMLBase.ReturnCode's names and success rule, matched — not a
 # dependency), and the stack's detail, a `StopRule` (which tolerance, cap or
-# rule fired). Both live in the FitResult CORE (`retcode`, `stop_rule`): every
+# rule fired). Both are FitResult fields (`r.retcode`, `r.stop_rule`): every
 # producer records them through the one constructor, so no result is without a
-# code and `converged(r)` is `successful_retcode(retcode(r))` for every result.
+# code and `successful_retcode(r)` is `successful_retcode(r.retcode)` for every result.
 # A loop that still reports a Symbol records `retcode_from_symbol(s, rule)`, the
 # one map from a Symbol; `retcode_symbol` is the one map back (the legacy
 # spelling). The types load before FitResult (base/fit_result.jl); the
-# accessors on a result are in base/termination_accessors.jl.
+# readings of a result are in base/termination_accessors.jl.
 # =============================================================================
 
 """
@@ -42,7 +42,7 @@ meaning is SciMLBase's:
 - `ReturnCode.Stalled` — an LM stopped at a point that fails the stationarity
   postcondition: the host LM's consecutive-rejection cap (a tolerance stop, the
   cost decrease or the step size, is `Success`: Core 0.11.0's owner ruling), the
-  device LM's (`static_lm`) stops short of its success rule. Not successful.
+  device LM's (`StaticLevenbergMarquardt`) stops short of its success rule. Not successful.
 - `ReturnCode.InitialFailure` — the start was unusable: too few data or a
   degenerate configuration before any iteration, or a non-finite cost or
   gradient at the start point. Not successful.
@@ -93,7 +93,7 @@ end
 
 Whether `code` is a success state — SciMLBase's rule over the values the stack
 defines: `ReturnCode.Success` and `ReturnCode.Terminated`. The one success
-test; [`converged`](@ref) reads it.
+test; a [`FitResult`](@ref)'s `successful_retcode(r)` reads it on `r.retcode`.
 """
 successful_retcode(code::ReturnCode.T) = code == ReturnCode.Success || code == ReturnCode.Terminated
 

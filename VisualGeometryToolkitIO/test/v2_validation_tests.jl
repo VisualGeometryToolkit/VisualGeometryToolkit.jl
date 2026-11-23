@@ -35,13 +35,12 @@
         # covariances, the units sidecar and the correspondences export
         files = Dict{String, String}(k => first(v) for (k, v) in write_every_kind(dir))
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 2120.0, 1416.0, 1))
-        pose(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
         pts = [mm_lengths(SVector(10.0i, 5.0i)) for i in 1:4]
         gc = CameraModel(SplineLens, CameraModel(K; lens = KannalaBrandt(-0.02), pixel_frame = :colmap), Size2(64, 48); grid_size = (5, 4))
         gd = gc.lens.backward
         gn = BoundedCamera(NoncentralSplineModel(gc.intrinsics, gd, ChartSpline(gd.area, [SVector(0.1gx, -0.1gy, 0.05) for gy in 1:4, gx in 1:5])), Size2(64, 48))
         ident = EuclideanMap(one(RotMatrix{3, Float64}), [0.0mm, 0.0mm, 0.0mm])
-        targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b), pose(100.0mm))))
+        targets = Rig{TargetFrame{:a}}(Dict(:a => PosedTarget(PlanarTarget(pts), ident), :b => PosedTarget(PlanarTarget(:b), example_pose(100.0mm))))
         at!(name, base) = (files[name] = joinpath(dir, base))
         files["units"] = mkpath(joinpath(dir, "model"))
         VgtkIO.save_units_sidecar(files["units"], MM_PX)

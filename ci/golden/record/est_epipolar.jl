@@ -44,40 +44,8 @@ function ep_find_cases!(cases, family, name, fx, find, problem, thr, P, n; full 
     return cases
 end
 
-# The refine_* settings from each seed's find (its model and its search's scale), and from the raw incumbent.
-# `fxof(fx, θ, r)` is the refine's fixture, `refine(rfx, θ; kw...)` the old refine on it.
-function ep_refine_cases!(cases, family, name, fx, find, refine, P, n; full = true)
-    for seed in SEEDS
-        r = find(fx; rng = StableRNG(seed))
-        θ = estimate(r)
-        θ === nothing && continue
-        rfx = (fx, θ, r)
-        case!(cases, "$family/$name/scale_upstream/seed$seed", rfx, ((fx, θ, r),) -> refine(fx, θ; scale = r))
-        case!(cases, "$family/$name/ls/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; optimization_strategy = nothing))
-        case!(cases, "$family/$name/scale1/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; scale = 1.0))
-        full || continue
-        case!(cases, "$family/$name/width2/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; width = 2.0))
-        case!(cases, "$family/$name/triggs_cauchy_ec2.5_upstream/seed$seed", rfx,
-            ((fx, θ, r),) -> refine(fx, θ; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = r))
-        case!(cases, "$family/$name/triggs_tls_width3/seed$seed", (fx, θ),
-            ((fx, θ),) -> refine(fx, θ; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
-        case!(cases, "$family/$name/triggs_huber_scale1/seed$seed", (fx, θ),
-            ((fx, θ),) -> refine(fx, θ; optimization_strategy = Triggs{HuberShape}(), scale = 1.0))
-        case!(cases, "$family/$name/workspace_scale1/seed$seed", (fx, θ),
-            ((fx, θ),) -> refine(fx, θ; scale = 1.0, workspace = RansacWorkspace(P, n)))
-        # from the raw RANSAC incumbent (no local optimization) at its search's scale (core_defaults)
-        raw_r = find(fx; local_optimization_strategy = nothing, rng = StableRNG(seed))
-        raw = estimate(raw_r)
-        raw === nothing && continue
-        case!(cases, "$family/$name/from_raw_upstream/seed$seed", (fx, raw, raw_r), ((fx, θ, r),) -> refine(fx, θ; scale = r))
-        case!(cases, "$family/$name/from_raw_cauchy_ec2.5/seed$seed", (fx, raw, raw_r),
-            ((fx, θ, r),) -> refine(fx, θ; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = r))
-    end
-    return cases
-end
-
-# The shared refusals (`refusal_cases!`): the record side's one copy
-Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "refusal_cases.jl"))
+# The case matrices this group shares with est_pose (`refusal_cases!`, `refine_cases!`)
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "shared_cases.jl"))
 
 function record_est_epipolar(cases)
     I3 = SMatrix{3, 3, Float64}(I)
@@ -89,7 +57,7 @@ function record_est_epipolar(cases)
     for (k, (name, cs)) in enumerate(ep_fundmat_scenes())
         full = k == 1 || k == 2
         ep_find_cases!(cases, "fundmat_find", name, cs, ffind, FundMatProblem, 3.0, FundMatProblem{Float64}, length(cs); full)
-        ep_refine_cases!(cases, "fundmat_refine", name, cs, ffind, frefine, FundMatProblem{Float64}, length(cs); full = k == 1)
+        refine_cases!(cases, "fundmat_refine", name, cs, ffind, frefine; full = k == 1, workspace = _ -> RansacWorkspace(FundMatProblem{Float64}, length(cs)))
     end
     few = few_correspondences(6)
     for seed in SEEDS
@@ -110,7 +78,7 @@ function record_est_epipolar(cases)
         full = k <= 2
         n = length(fx[3])
         ep_find_cases!(cases, "essential_find", name, fx, efind, eprob, 1.0, EssentialProblem{Float64}, n; full)
-        ep_refine_cases!(cases, "essential_refine", name, fx, efind, erefine, EssentialProblem{Float64}, n; full = k == 1)
+        refine_cases!(cases, "essential_refine", name, fx, efind, erefine; full = k == 1, workspace = _ -> RansacWorkspace(EssentialProblem{Float64}, n))
         if name == "calib_ecam_120+50"
             for seed in SEEDS   # fitting_pipelines: MSAC at 5 px on the 1.6 px scene
                 case!(cases, "essential_find/$name/msac5/seed$seed", fx,
@@ -145,13 +113,13 @@ function record_est_epipolar(cases)
     for (k, (name, fx)) in enumerate(ep_rotation_scenes())
         n = length(fx[3])
         ep_find_cases!(cases, "rotation_find", name, fx, rfind, rprob, 1.0, RotationProblem, n; full = k == 1)
-        ep_refine_cases!(cases, "rotation_refine", name, fx, rfind, rrefine, RotationProblem, n; full = k == 1)
+        refine_cases!(cases, "rotation_refine", name, fx, rfind, rrefine; full = k == 1, workspace = _ -> RansacWorkspace(RotationProblem, n))
         b = ep_bearings(fx...)
         ep_find_cases!(cases, "rotation_find", "$(name)_bearings", b, bfind, RotationProblem, 1.0, RotationProblem, n; full = k == 1)
-        ep_refine_cases!(cases, "rotation_refine", "$(name)_bearings", b, bfind, brefine, RotationProblem, n; full = false)
+        refine_cases!(cases, "rotation_refine", "$(name)_bearings", b, bfind, brefine; full = false, workspace = _ -> RansacWorkspace(RotationProblem, n))
     end
     for (name, fx) in ("pcam_1" => (PCAM, PCAM, few_correspondences(1)),
-                       "fisheye_1" => (EP_FISHEYE, EP_FISHEYE, VgtkCore.Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]])))
+                       "fisheye_1" => (FISHEYE, FISHEYE, VgtkCore.Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]])))
         for seed in SEEDS
             case!(cases, "rotation_find/too_few_$name/seed$seed", fx, fx -> rfind(fx; rng = StableRNG(seed)))
         end

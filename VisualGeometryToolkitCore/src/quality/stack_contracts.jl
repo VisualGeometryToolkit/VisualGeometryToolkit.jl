@@ -122,7 +122,7 @@ const CONTRACT_GENERICS = (
     # the chart LM's row protocol and its reductions (robust/lm_core.jl)
     residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
     # the RANSAC / LO interface (robust/estimation.jl, robust/losses.jl, robust/width_axes.jl)
-    solve, model_type, test_model, test_sample, test_consensus, constraint, constraint_with_jacobians, constraint_rounding_scale,
+    model_type, test_model, test_sample, test_consensus, constraint, constraint_with_jacobians, constraint_rounding_scale,
     inlier_weight, robust_weight, is_inlier,
     loss_family, loss_shape, decision_width, to_native, scale_interface,
     # the loss's half-quadratic lift facet (robust/losses.jl), answered by a tabulated lift too
@@ -155,10 +155,15 @@ const CONTRACT_GENERICS = (
     # the chart-rows contract (robust/rows.jl)
     rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model,
     lift_valid, lift_rows, lift_residuals, lift_size,
+    # the estimation interface (base/solve_interface.jl): a package adds `__solve`/`__init` (and `reinit!` for its
+    # caches; `solve!` is CommonSolve's, open to every package) for its OWN algorithm types, declares
+    # `estimator_kind` and `supports_solve_rng` for them and `default_algorithm` for its own problem types — never a
+    # method of `solve`/`init` (Core's front end)
+    __solve, __init, reinit!, estimator_kind, default_algorithm, supports_solve_rng,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/)
-    homography_4pt, fundamental_7pt, essential_5pt, essential_dlt, p3p,
-    # the FitResult property forwarding, and the per-datum weights a metadata answers otherwise (base/fit_result.jl)
-    nested_metadata, weights,
+    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p,
+    # the per-datum weights a metadata answers otherwise (base/fit_result.jl)
+    weights,
     # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):
     # `cost(state)` ½ Σ‖r‖², a number; `residuals(state)` the residual vectors it sums (robust/losses.jl, robust/scoring_contract.jl)
     cost, residuals,
@@ -221,8 +226,11 @@ VisualGeometryToolkitCore's, by group:
 - the RANSAC / local-optimization interface, the constraint-problem protocol,
   the scoring and local-optimization contracts, pool selection and the
   chart-rows contract;
-- the minimal-solver backends PoseLib.jl implements;
-- the `FitResult` property forwarding and the TOML config hooks;
+- the estimation interface's extension points (`__solve`, `__init`, `reinit!`;
+  CommonSolve's `solve!` is no Core function) and an algorithm's or a problem type's declarations
+  (`estimator_kind`, `default_algorithm`, `supports_solve_rng`);
+- the minimal-solver backends PoseLib.jl implements (`essential_8pt` among them);
+- the per-datum `weights` a metadata answers otherwise, and the TOML config hooks;
 - the geometry and camera accessors other packages implement for their own
   types (`centroid`, `intrinsics`, `lens`, `model`, `division_coeffs`, …);
 - the parameter protocol (`parameter_vector`, `parameter_names`,

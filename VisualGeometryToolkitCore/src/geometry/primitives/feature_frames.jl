@@ -68,8 +68,6 @@ function OrientedDisc(center::Point2{S}, σ::Real, θ::Real) where {S}
     return OrientedDisc{T}(Point2{T}(center), T(σ), T(θ))
 end
 OrientedDisc(x::Real, y::Real, σ::Real, θ::Real) = OrientedDisc(Point2(x, y), σ, θ)
-OrientedDisc(center::AbstractVector, σ::Real, θ::Real) = OrientedDisc(Point2(SVector{2}(center)), σ, θ)
-OrientedDisc(o::OrientedDisc) = o
 
 # Construct from Disc by adding orientation
 OrientedDisc(d::Disc{T}, θ::Real) where {T} = OrientedDisc{T}(d.center, d.σ, T(θ))
@@ -322,9 +320,6 @@ function EllipticFrame(center::Point2{C}, S::AbstractMatrix) where {C}
     return EllipticFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(S))
 end
 
-EllipticFrame(center::AbstractVector, S::AbstractMatrix) = EllipticFrame(Point2(SVector{2}(center)), S)
-EllipticFrame(e::EllipticFrame) = e
-
 # The symmetric square root S = M^½ of a 2×2 shape matrix (M = S·S): the ONE
 # spelling for every frame constructor. An eigenvalue negative only to rounding
 # (within 8·eps of the largest) clamps to zero, so a PSD matrix that rounds a
@@ -426,9 +421,6 @@ function AffineFrame(center::Point2{C}, A::AbstractMatrix) where {C}
     T = promote_type(C, eltype(A))
     return AffineFrame{T}(Point2{T}(center), SMatrix{2, 2, T}(A))
 end
-
-AffineFrame(center::AbstractVector, A::AbstractMatrix) = AffineFrame(Point2(SVector{2}(center)), A)
-AffineFrame(a::AffineFrame) = a
 
 # Construct from EllipticFrame + rotation
 function AffineFrame(f::EllipticFrame{T}, φ::Real) where {T}
@@ -933,3 +925,13 @@ end
 
 
 # JSON serialization moved to VisualGeometryToolkitFeatures/serialization.jl
+
+# The feature frames' conversions, one definition for every frame: a centre given as any 2-vector is the frame at
+# that `Point2` (the shape arguments as each frame's `Point2` constructor takes them), and a frame is its own value.
+for (F, shape) in (
+        (:PointFrame, ()), (:Disc, (:(σ::Number),)), (:OrientedDisc, (:(σ::Real), :(θ::Real))),
+        (:EllipticFrame, (:(S::AbstractMatrix),)), (:AffineFrame, (:(A::AbstractMatrix),)),
+    )
+    @eval $F(center::AbstractVector, $(shape...)) = $F(Point2(SVector{2}(center)), $((a.args[1] for a in shape)...))
+    @eval $F(x::$F) = x
+end

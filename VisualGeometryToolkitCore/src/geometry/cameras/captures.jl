@@ -91,9 +91,7 @@ struct FrameStamps
     end
 end
 
-Base.:(==)(a::FrameStamps, b::FrameStamps) =
-    a.images == b.images && a.sensors == b.sensors && a.times == b.times && isequal(a.time_origin, b.time_origin)
-Base.hash(s::FrameStamps, h::UInt) = hash(s.time_origin, hash(s.times, hash(s.sensors, hash(s.images, hash(FrameStamps, h)))))
+@fieldwise FrameStamps
 
 # The frames of a labeled pose, unlabeled frames included.
 
@@ -717,10 +715,7 @@ function _positive_quantity(q::Quantity, u, what::Symbol)
     (isfinite(v) && v > 0) || throw(ArgumentError("`$(what)` is positive and finite, got $(q)"))
     return base_quantity(q)
 end
-function _positive_number(x::Real, what::Symbol)
-    (isfinite(x) && x > 0) || throw(ArgumentError("`$(what)` is positive and finite, got $(x)"))
-    return Float64(x)
-end
+_positive_number(x::Real, what::Symbol) = checked_float(x, isfinite(x) && x > 0, "`$(what)` is positive and finite")
 
 """
     ExposureSettings(exposure_time, f_number, iso)
@@ -804,9 +799,7 @@ end
 
 # The identities are part of the value: equal, isequal and hash all see them
 # (AbstractDict's own compare the frames only).
-Base.:(==)(a::CaptureSettings, b::CaptureSettings) = a.frames == b.frames && a.body == b.body && a.lens == b.lens
-Base.isequal(a::CaptureSettings, b::CaptureSettings) = isequal(a.frames, b.frames) && isequal(a.body, b.body) && isequal(a.lens, b.lens)
-Base.hash(x::CaptureSettings, h::UInt) = hash(x.lens, hash(x.body, hash(x.frames, hash(CaptureSettings, h))))
+@fieldwise CaptureSettings
 
 """
     is_constant(cs::CaptureSettings) -> Bool

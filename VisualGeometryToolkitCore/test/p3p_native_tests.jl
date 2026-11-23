@@ -12,7 +12,7 @@
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotMatrix
 
-    _rand_rotation(rng) = SMatrix{3, 3, Float64}(rand(rng, RotMatrix{3, Float64}))   # Haar-uniform
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "two_view_scene.jl"))   # `haar_rotation`, `two_view_scene`
 
     @testset "p3p (NativeSolver)" begin
         rng = MersenneTwister(1234)
@@ -21,7 +21,7 @@
             worst = 0.0
             n_valid = 0
             for _ in 1:10_000
-                R = _rand_rotation(rng)
+                R = haar_rotation(rng)
                 t = SVector(randn(rng), randn(rng), 3.0 + 2rand(rng))
                 X = [SVector{3, Float64}(2randn(rng, 3)...) for _ in 1:3]
                 any((R * Xi + t)[3] <= 0.1 for Xi in X) && continue
@@ -42,7 +42,7 @@
 
         @testset "solutions reproject exactly" begin
             for _ in 1:100
-                R = _rand_rotation(rng)
+                R = haar_rotation(rng)
                 t = SVector(randn(rng), randn(rng), 4.0)
                 X = [SVector{3, Float64}(randn(rng, 3)...) for _ in 1:3]
                 any((R * Xi + t)[3] <= 0.1 for Xi in X) && continue

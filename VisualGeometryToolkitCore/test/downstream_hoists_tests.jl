@@ -97,7 +97,7 @@ end
 @testitem "downstream_hoists: StudentTMixture{T} and the ν update in a kernel's terms" begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, nu_point_terms, next_nu_from_sums,
-        next_nu, lgamma_lanczos
+        _next_nu, lgamma_lanczos
     using SpecialFunctions: loggamma, digamma, trigamma
     # BlobBoards' adapt_ka.jl copies (d_g = 1, π = ½)
     bb_logC(ν, s2, lg) = lg((ν + 1.0) / 2.0) - lg(ν / 2.0) - 0.5 * log(ν * 3.141592653589793 * s2)
@@ -132,7 +132,7 @@ end
         @test a[1] == b[1] && isapprox(a[2], b[2]; atol = 1.0e-17)
     end
     @test nu_point_terms(0.5f0, 4.0f0, 1.0f0, 0.5f0) isa NTuple{2, Float32}
-    # the kernel's two-stage update reproduces `next_nu`'s one Newton update exactly
+    # the kernel's two-stage update reproduces `_next_nu`'s one Newton update exactly
     sq = [0.2, 1.3, 0.05, 4.0, 0.9, 2.2, 30.0]; w = [0.9, 0.8, 1.0, 0.4, 0.95, 0.7, 0.01]
     ν0 = 6.0; dg = 1
     ψa, ψb = digamma((ν0 + dg) / 2), digamma(ν0 / 2)
@@ -142,7 +142,7 @@ end
         dQ += w[i] * t[1]; d2 += w[i] * t[2]; sw += w[i]
     end
     ν1, _ = next_nu_from_sums(ν0, dQ, d2, sw, trigamma((ν0 + dg) / 2), trigamma(ν0 / 2))
-    @test ν1 === next_nu(ν0, sq, 1.1, w, length(sq); max_newton = 1)
+    @test ν1 === _next_nu(ν0, sq, 1.1, w, length(sq); max_newton = 1)
     # the ascent safeguard (BlobBoards' copy steps ν − dQ/d2Q whatever the sign): a convex point steps geometrically
     @test next_nu_from_sums(6.0, 1.0, 50.0, 1.0, 0.0, 0.0)[1] == 12.0
     @test next_nu_from_sums(6.0, -1.0, 50.0, 1.0, 0.0, 0.0)[1] == 3.0

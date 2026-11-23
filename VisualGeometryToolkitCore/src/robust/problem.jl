@@ -43,6 +43,9 @@ Implementors provide `data_size`, `codimension`, `minimal_sample_size`, and
 """
 abstract type AbstractConstraintProblem end
 
+# (The default of a refine whose `f` is a constraint problem, `LevenbergMarquardt()`, is declared with its `__solve`
+# over the chart-LM interface, by the refine pipeline's move into Core: a default no method solves is not declared.)
+
 """
     data_size(problem) -> Int
 

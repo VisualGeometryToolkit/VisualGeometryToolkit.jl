@@ -84,36 +84,6 @@ end
 # Public: N-Point DLT with Hartley Normalization + Rank-2 Enforcement
 # =============================================================================
 
-"""
-    fundamental_dlt(cs; mask = nothing, svd_ws = nothing) -> FundMat or nothing
-
-Compute a fundamental matrix from N >= 8 correspondences `cs` (`u₁ => u₂`
-pairs; any [`sources`](@ref)/[`targets`](@ref) container, a
-[`Correspondences`](@ref) preferred) by the Direct Linear Transform with Hartley
-normalization and rank-2 enforcement.
-
-Per-correspondence weights are the container's `weights` column (set with
-[`withattrs`](@ref)), never a keyword. When `mask` (a `BitVector` or an
-index list) is given, only those correspondences are used.
-
-# Example
-```julia
-cs = Correspondences(pts1, pts2)
-F = fundamental_dlt(cs)
-F = fundamental_dlt(cs; mask = inlier_mask)
-```
-"""
-function fundamental_dlt(
-        cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}};
-        mask = nothing, svd_ws = nothing
-    ) where {T}
-    n = length(cs)
-    A = Matrix{T}(undef, n, 9)
-    # the one normalization of this estimator: built here, once, from the
-    # data (and its `weights` column); the `!` form only uses it
-    return fundamental_dlt!(A, CorrespondenceNormalization(FundMat, cs; mask), cs; mask, svd_ws)
-end
-
 # One correspondence's DLT row in normalized homogeneous points `s`, `d`: the
 # Kronecker product `d ⊗ s` (row-major vec(F)), so `A·vec(F) = dᵀ F s`. The
 # per-point filler of the shared `_dlt!` pipeline (homography_solvers.jl).
@@ -129,7 +99,7 @@ end
 
 In-place N-point DLT for the fundamental matrix of the correspondences `cs`
 using the pre-allocated buffer `A` (N × 9). Weights are the container's
-`weights` column, as for [`fundamental_dlt`](@ref).
+`weights` column, as for [`DLT`](@ref).
 
 When `mask::BitVector` is provided, only masked points are used and rows are
 compacted into the top of `A`. The inner-loop form: `N` is the enclosing
@@ -156,62 +126,61 @@ function fundamental_dlt!(
     return sign_normalize(inv(destination_map(N)) ∘ enforce_rank_two(FundMat{T}(Tuple(F_norm))) ∘ source_map(N))   # composed back to the data frame, then the gauge
 end
 
-"""
-    triangulate(pose::EuclideanMap{3}, f₁, f₂) -> (X, λ₁, λ₂)
-
-Triangulate a correspondence of UNIT BEARINGS: the midpoint of the mutual
-perpendicular between the two rays, in VIEW 1's frame, together with both ray
-depths. `pose` maps view 1 to view 2 (`X₂ = R·X₁ + t`).
-
-The depths are the point of returning them. Cheirality on rays is `λ₁ > 0 && λ₂
-> 0` — the point is in front of both cameras along their own rays — which is
-the plane-free replacement for testing `X[3] > 0`. A z-depth test silently
-assumes a forward hemisphere the ray domain does not have, so it is wrong for
-any camera that sees past 90°.
-
-Returns `λ₁ = λ₂ = NaN` for parallel rays (`|f₁·R'f₂| → 1`), which is
-degenerate rather than exceptional: it is what zero parallax looks like, and
-the caller decides. Never throws.
-
-# Why this form, and what it costs
-
-It is the only form that GENERALISES. The pixel-domain DLT (`uᵢ × Pᵢ X̃ = 0`)
-builds `P = K[I|0]` — pinhole by construction — and calibrated geometry in this
-stack must work for fisheye and omnidirectional cameras, where that matrix does
-not exist. That is the deciding argument, and it is not a number.
-
-MEASURED against that DLT rather than assumed better, paired (identical
-scenes, points and noise draws), binned by parallax, on relative 3-D error.
-Reprojection error cannot discriminate the two — it sits at the noise level
-even where the 3-D error reaches 363 — so it is reported only as a sanity
-check. The trade is real and mixed:
-
-| apex angle | med DLT → ray | q99 DLT → ray | ray wins (paired) |
-|---|---|---|---|
-| [0, 0.1°)  | 0.488 → 0.567 | **21.9 → 1.73** | 43.3% |
-| [0.1, 0.3°)| 0.170 → 0.174 | **3.69 → 1.38** | 45.4% |
-| [0.3, 1°)  | 0.0592 → 0.0585 | 0.354 → 0.336 | 48.0% |
-| [1, 3°)    | 0.0202 → 0.0201 | 0.092 → 0.0925 | 47.8% |
-| [3, 90°)   | 0.00597 → 0.00595 | 0.0279 → 0.0279 | 47.6% |
-
-So: it WINS ONLY IN THE TAIL, and decisively there — a q99 of 21.9 is a point
-placed at 22× its true distance, and those are what corrupt a bundle or a
-cheirality vote downstream. It is slightly WORSE on the median below 0.1°
-(43.3% of paired points, i.e. it loses more often than it wins), in a regime
-where both answers are already about half the true distance. Above 0.3° the
-two are indistinguishable to three significant figures. Noise-free both are
-exact to 1e-13–1e-16, so the entire difference is noise propagation near
-degeneracy, not conditioning.
-
-A NEGATIVE RESULT worth keeping: ray-depth cheirality does NOT reduce the
-behind-camera rate. Below 0.1° parallax it is 20.1% for the DLT's z-test and
-**20.4%** here; in [0.1, 0.3°) both are 0.23%. That was predicted to improve
-and measured not to — at that parallax the noisy rays genuinely cross behind a
-camera, so it is the geometry, not the test. Ray depth is still the right
-statement (a z-test assumes a forward hemisphere the ray domain lacks), but it
-buys correctness of MEANING, not accuracy.
-"""
-@inline function triangulate(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
+# Kernel of [`Triangulation`](@ref) (whose docstring is the one copy): `_triangulate(pose::EuclideanMap{3}, f₁, f₂) -> (X, λ₁, λ₂)`. Its recorded study and
+# NEGATIVE RESULT, kept beside the arithmetic they measured:
+#
+# Triangulate a correspondence of UNIT BEARINGS: the midpoint of the mutual
+# perpendicular between the two rays, in VIEW 1's frame, together with both ray
+# depths. `pose` maps view 1 to view 2 (`X₂ = R·X₁ + t`).
+#
+# The depths are the point of returning them. Cheirality on rays is `λ₁ > 0 && λ₂
+# > 0` — the point is in front of both cameras along their own rays — which is
+# the plane-free replacement for testing `X[3] > 0`. A z-depth test silently
+# assumes a forward hemisphere the ray domain does not have, so it is wrong for
+# any camera that sees past 90°.
+#
+# Returns `λ₁ = λ₂ = NaN` for parallel rays (`|f₁·R'f₂| → 1`), which is
+# degenerate rather than exceptional: it is what zero parallax looks like, and
+# the caller decides. Never throws.
+#
+# # Why this form, and what it costs
+#
+# It is the only form that GENERALISES. The pixel-domain DLT (`uᵢ × Pᵢ X̃ = 0`)
+# builds `P = K[I|0]` — pinhole by construction — and calibrated geometry in this
+# stack must work for fisheye and omnidirectional cameras, where that matrix does
+# not exist. That is the deciding argument, and it is not a number.
+#
+# MEASURED against that DLT rather than assumed better, paired (identical
+# scenes, points and noise draws), binned by parallax, on relative 3-D error.
+# Reprojection error cannot discriminate the two — it sits at the noise level
+# even where the 3-D error reaches 363 — so it is reported only as a sanity
+# check. The trade is real and mixed:
+#
+# | apex angle | med DLT → ray | q99 DLT → ray | ray wins (paired) |
+# |---|---|---|---|
+# | [0, 0.1°)  | 0.488 → 0.567 | **21.9 → 1.73** | 43.3% |
+# | [0.1, 0.3°)| 0.170 → 0.174 | **3.69 → 1.38** | 45.4% |
+# | [0.3, 1°)  | 0.0592 → 0.0585 | 0.354 → 0.336 | 48.0% |
+# | [1, 3°)    | 0.0202 → 0.0201 | 0.092 → 0.0925 | 47.8% |
+# | [3, 90°)   | 0.00597 → 0.00595 | 0.0279 → 0.0279 | 47.6% |
+#
+# So: it WINS ONLY IN THE TAIL, and decisively there — a q99 of 21.9 is a point
+# placed at 22× its true distance, and those are what corrupt a bundle or a
+# cheirality vote downstream. It is slightly WORSE on the median below 0.1°
+# (43.3% of paired points, i.e. it loses more often than it wins), in a regime
+# where both answers are already about half the true distance. Above 0.3° the
+# two are indistinguishable to three significant figures. Noise-free both are
+# exact to 1e-13–1e-16, so the entire difference is noise propagation near
+# degeneracy, not conditioning.
+#
+# A NEGATIVE RESULT worth keeping: ray-depth cheirality does NOT reduce the
+# behind-camera rate. Below 0.1° parallax it is 20.1% for the DLT's z-test and
+# **20.4%** here; in [0.1, 0.3°) both are 0.23%. That was predicted to improve
+# and measured not to — at that parallax the noisy rays genuinely cross behind a
+# camera, so it is the geometry, not the test. Ray depth is still the right
+# statement (a z-test assumes a forward hemisphere the ray domain lacks), but it
+# buys correctness of MEANING, not accuracy.
+@inline function _triangulate(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
     T = float(promote_type(eltype(f₁), eltype(f₂)))
     R = SMatrix{3, 3, T, 9}(pose.R)
     t = SVector{3, T}(pose.t)
@@ -238,7 +207,7 @@ end
 """
     test_cheirality(pose::EuclideanMap{3}, f₁, f₂) -> Bool
 
-Ray-domain cheirality: triangulate the bearing pair and require BOTH depths
+Ray-domain cheirality: the bearing pair's two ray depths (`Triangulation`), BOTH
 positive. The plane-free replacement for `X[3] > 0`, which assumes a forward
 hemisphere that a fisheye or omnidirectional camera does not have.
 
@@ -246,7 +215,7 @@ Parallel rays (no parallax) are rejected — `NaN > 0` is false — which is the
 honest answer: nothing was triangulated.
 """
 @inline function test_cheirality(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
-    _, λ₁, λ₂ = triangulate(pose, f₁, f₂)
+    _, λ₁, λ₂ = _triangulate(pose, f₁, f₂)
     return λ₁ > 0 && λ₂ > 0
 end
 
@@ -261,7 +230,8 @@ camera; the z = 1 chart this used to build through K⁻¹ does not exist for a r
 at 90°. `t` is unit (the essential's translation direction).
 
 Ray depth is right in meaning and camera-general, not a rate fix: see
-[`triangulate`](@ref)'s recorded negative result before re-attempting it as one.
+the recorded negative result beside the triangulation kernel (`_triangulate`, the comment above it in
+geometry/solvers/fundmat.jl) before re-attempting it as one.
 Moved here from VisualGeometryToolkitEstimation's relative-pose bundle, which
 the evaluation protocol's cheirality also called.
 """
@@ -422,8 +392,9 @@ Returns:
     return (g, G_x, G_θ)
 end
 
-@inline constraint_with_jacobians(F::AbstractFundMat, c::Pair{<:StaticVector{2}, <:StaticVector{2}}) =
-    constraint_with_jacobians(F, c.first, c.second)
+# A correspondence (Pair) is its two endpoints, for a homography and a fundamental matrix alike.
+@inline constraint_with_jacobians(M::Union{HomographyMat, AbstractFundMat}, c::Pair{<:StaticVector{2}, <:StaticVector{2}}) =
+    constraint_with_jacobians(M, c.first, c.second)
 
 # =============================================================================
 # The TANGENT form: E on unit bearings, with backprojection Jacobians
@@ -523,8 +494,7 @@ end
 # and target points `s`, `d` with their gradients `b`, `a` lifted to 3-vectors.
 @inline _bilinear_rate(s, d, b, a) = vec(d * b' + a * s')
 # On bearings the constraint reads the back-projection Jacobians per element.
-constraint_keywords(::EssentialMat, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
-    (; M₁ = _required_column(xs, :M₁), M₂ = _required_column(xs, :M₂))
+# (constraint_keywords on bearings: EssentialMat's and TransferForm's one method, forms.jl)
 @inline function observation_gradient_jacobian(
         E::EssentialMat, f₁::StaticVector{3}, f₂::StaticVector{3};
         M₁::StaticMatrix{3, 2}, M₂::StaticMatrix{3, 2}

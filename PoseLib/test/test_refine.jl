@@ -14,24 +14,18 @@ using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_ja
                           scale_source, ScaleGiven, ScaleUpstream, ScaleNone
 
 _rot_err_deg(Ra, Rb) = rad2deg(rotation_angle(RotMatrix{3}(SMatrix{3,3}(Ra)' * SMatrix{3,3}(Rb))))   # the angle of Raᵀ·Rb
-_nrm(Y) = SVector(Y[1] / Y[3], Y[2] / Y[3])
-_proj(K, Y) = _nrm(K * Y)
+# `refine_geometry`, `contract_scene`, `pinhole_point`, `pinhole_pixel`: the suite's fixture file, shared with the golden
+# records
+include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`, `pinhole_pixel`
+include(joinpath(@__DIR__, "fixtures", "refine_scenes.jl"))
 # Projective 3×3 models agree up to scale and sign.
 _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / norm(Matrix(B));
                     min(norm(a - b), norm(a + b)))
 
 @testset "refine_* and essential_dlt take correspondences" begin
-    rng = MersenneTwister(7)
-    n = 200; nout = n ÷ 5
     # SIMPLE_PINHOLE intrinsics (fx = fy): the camera-aware wrapper hands
-    # PoseLib one focal per view, (fx + fy) / 2.
-    K1 = SMatrix{3,3}(800.0, 0, 0, 0, 800.0, 0, 320.0, 240.0, 1.0)
-    K2 = SMatrix{3,3}(760.0, 0, 0, 0, 760.0, 0, 330.0, 250.0, 1.0)
-    R = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.2, normalize([0.3, 1.0, 0.1])...)))
-    t = normalize(SVector(1.0, 0.1, 0.05))
-    X = [SVector(4 * randn(rng), 3 * randn(rng), 8.0 + 4 * rand(rng)) for _ in 1:n]
-    Rs = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.01, 0.0, 1.0, 0.0))) * R
-    seed = PoseLib.Rigid3(RotMatrix{3}(Rs), Vec3{Float64}(normalize(t + SVector(0.0, 0.02, 0.0))))
+    # PoseLib one focal per view, (fx + fy) / 2. The geometry (`refine_geometry`, rng 7) is the suite's fixture file.
+    (; n, nout, K1, K2, R, t, X, seed, tx) = refine_geometry()
     # Each testset draws from its OWN rng: with a shared one, adding or
     # removing a draw in any testset silently retunes every testset after it.
     outlier2(r) = SVector(640 * rand(r), 480 * rand(r))
@@ -41,8 +35,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     # message: a bare MethodError would tell a caller that some argument is
     # wrong, not which of the two live forms to move to.
     @testset "refine_relpose refuses the z = 1 chart" begin
-        x1 = _nrm.(X)
-        x2 = [_nrm(R * Y + t) for Y in X]
+        x1 = pinhole_point.(X)
+        x2 = [pinhole_point(R * Y + t) for Y in X]
         @test_throws ArgumentError refine_relpose(seed, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
         @test_throws ArgumentError refine_relpose(seed, x1 .=> x2; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
         msg = try
@@ -57,8 +51,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
 
     @testset "refine_relpose (camera-aware, pixels)" begin
         rngc = MersenneTwister(101)
-        x1 = [_proj(K1, Y) for Y in X]
-        x2 = [_proj(K2, R * Y + t) for Y in X]
+        x1 = [pinhole_pixel(K1, Y) for Y in X]
+        x2 = [pinhole_pixel(K2, R * Y + t) for Y in X]
         x2[1:nout] .= [outlier2(rngc) for _ in 1:nout]
         ref = estimate(refine_relpose(seed, K1, K2, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
         @test _rot_err_deg(ref.R, R) < 1e-3
@@ -75,10 +69,10 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         # translation's length is free (up to scale) and differs; its direction does not. At the pixel width
         # instead the rotation is 0.09 off.
         I3 = SMatrix{3,3}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0)
-        n1 = [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x1]
-        n2 = [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in [_proj(K1, R * Y + t) for Y in X]]
-        p2 = [_proj(K1, R * Y + t) for Y in X]
-        n2[1:nout] .= [_nrm(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x2[1:nout]]
+        n1 = [pinhole_point(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x1]
+        n2 = [pinhole_point(inv(K1) * SVector(u[1], u[2], 1.0)) for u in [pinhole_pixel(K1, R * Y + t) for Y in X]]
+        p2 = [pinhole_pixel(K1, R * Y + t) for Y in X]
+        n2[1:nout] .= [pinhole_point(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x2[1:nout]]
         p2[1:nout] .= x2[1:nout]
         pix = estimate(refine_relpose(seed, K1, K1, Correspondences(x1, p2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
         cal = estimate(refine_relpose(seed, I3, I3, Correspondences(n1, n2); max_iter = 25, optimization_strategy = Irls{TLSShape}(),
@@ -86,12 +80,11 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         @test maximum(abs.(SMatrix{3,3}(cal.R) .- SMatrix{3,3}(pix.R))) < 1e-9 && norm(normalize(cal.t) - normalize(pix.t)) < 1e-9
     end
 
-    tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)
     @testset "refine_fundamental" begin
         rngf = MersenneTwister(102)
         F = inv(K2)' * tx * R * inv(K1)
-        x1 = [_proj(K1, Y) for Y in X]
-        x2 = [_proj(K2, R * Y + t) for Y in X]
+        x1 = [pinhole_pixel(K1, Y) for Y in X]
+        x2 = [pinhole_pixel(K2, R * Y + t) for Y in X]
         x2[1:nout] .= [outlier2(rngf) for _ in 1:nout]
         F0 = F .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(rngf, 9)))
         Fr = estimate(refine_fundamental(F0, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
@@ -105,7 +98,7 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         rngh = MersenneTwister(103)
         H = K2 * (R + t * SVector(0.0, 0.0, 0.1)') * inv(K1)
         x1 = [outlier2(rngh) for _ in 1:n]
-        x2 = [_proj(H, SVector(u[1], u[2], 1.0)) for u in x1]
+        x2 = [pinhole_pixel(H, SVector(u[1], u[2], 1.0)) for u in x1]
         x2[1:nout] .= [outlier2(rngh) for _ in 1:nout]
         H0 = H .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(rngh, 9)))
         Hr = estimate(refine_homography(H0, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
@@ -116,7 +109,7 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     end
 
     @testset "refine_absolute_pose refuses the z = 1 chart" begin
-        x = [_nrm(R * Y + t) for Y in X]
+        x = [pinhole_point(R * Y + t) for Y in X]
         @test_throws ArgumentError refine_absolute_pose(seed, Correspondences(X, x); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
         msg = try
             refine_absolute_pose(seed, Correspondences(X, x); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
@@ -151,8 +144,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     @testset "refine_relpose (bearings, tangent Sampson)" begin
         rngb = MersenneTwister(31)
         Kb2 = SMatrix{3,3}(1100.0, 0, 0, 0, 1100.0, 0, 330.0, 250.0, 1.0)
-        u1 = [_proj(K1, Y) for Y in X]
-        u2 = [_proj(Kb2, R * Y + t) for Y in X]
+        u1 = [pinhole_pixel(K1, Y) for Y in X]
+        u2 = [pinhole_pixel(Kb2, R * Y + t) for Y in X]
         u2[1:nout] .= [SVector(660 * rand(rngb), 500 * rand(rngb)) for _ in 1:nout]
         cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Pinhole())
         cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kb2)), Pinhole())
@@ -272,7 +265,7 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     @testset "refine_absolute_pose (camera-aware, pixels)" begin
         rnga = MersenneTwister(104)
         f = (K1[1,1] + K1[2,2]) / 2
-        xcal = [_nrm(R * Y + t) for Y in X]
+        xcal = [pinhole_point(R * Y + t) for Y in X]
         xcal[1:nout] .= [SVector(randn(rnga), randn(rnga)) for _ in 1:nout]
         upix = [SVector(f * c[1] + K1[1,3], f * c[2] + K1[2,3]) for c in xcal]
         calibrated_loss_width = 0.05
@@ -357,8 +350,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     # check here: these are inner-loop pieces, and the epipolar and P3P algebra
     # is scale-invariant per ray; the guarantee comes from the producer.)
     @testset "calibrated kernels refuse 2-vectors" begin
-        c1 = [_nrm(Y) for Y in X]
-        c2 = [_nrm(R * Y + t) for Y in X]
+        c1 = [pinhole_point(Y) for Y in X]
+        c2 = [pinhole_point(R * Y + t) for Y in X]
         @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), c1 .=> c2, 1:5)
         @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), Correspondences(c1, c2), 1:5)
         @test_throws MethodError VgtkCore.solve(Essential5pt(PoseLibSolver()), c1 .=> c2, 1:5)
@@ -388,7 +381,7 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         He = SMatrix{3,3}(cos(θ), sin(θ), 0.0, -sin(θ), cos(θ), 0.0, 12.0, -7.0, 1.0)
         m = 120; mout = 20
         y1 = [SVector(640 * rand(rngw), 480 * rand(rngw)) for _ in 1:m]
-        exact = [_proj(He, SVector(u[1], u[2], 1.0)) for u in y1]
+        exact = [pinhole_pixel(He, SVector(u[1], u[2], 1.0)) for u in y1]
         H0 = He + SMatrix{3,3}(0.0, 0, 0, 0, 0, 0, 0.05, -0.05, 0)
         offset = SVector(3.0, 0.0)
         with_outliers = copy(exact); with_outliers[1:mout] .+= Ref(offset)

@@ -47,6 +47,7 @@ const VALUES_3 = [1 / (1.5 + 0.1 * sin(3i)) for i in 1:9]
 const VALUES_5 = [0.2 * cos(0.7i) + 0.05i for i in 1:25]
 const HEIGHTS = SVector{HEIGHT_NC}([0.01 * sin(1.3i) for i in 1:HEIGHT_NC])
 
+include(joinpath(@__DIR__, "..", "bracketed.jl"))         # bracketed
 include(joinpath(@__DIR__, "..", "fixture_literals.jl"))   # lit, rows
 
 function grid_reference(io, name, n, values)

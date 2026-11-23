@@ -9,33 +9,39 @@ decided by its input.
 1. It needs a starting guess → `refine_*`.
 2. It samples hypotheses and verifies them (RANSAC) → `find_*`.
 3. It is one deterministic algebraic step — a minimal sample, or least squares
-   with FIXED weights → an ALGORITHM NAME, no verb ([`homography_dlt`](@ref),
-   [`kabsch`](@ref), [`zhang_intrinsics`](@ref), [`tls_line`](@ref)).
+   with FIXED weights → an ALGORITHM NAME, no verb: a type solved through
+   `solve(problem, algorithm)` ([`DLT`](@ref), [`Kabsch`](@ref), [`Zhang`](@ref),
+   [`TotalLeastSquares`](@ref)).
 4. Otherwise (iterative, reweighted, repeated, staged) → `fit_*`.
 
-| Kind | Input | Needs a guess | Decides inliers | Returns | Must not | Lives in |
+| Kind ([`EstimatorKind`](@ref)) | Input | Needs a guess | Decides inliers | Returns | Must not | Lives in |
 |------|-------|---------------|-----------------|---------|----------|----------|
-| minimal solver | a minimal sample: `solve(solver, cs, idx)` | no | no | every solution (`FixedModels`) | iterate, weigh, reject | VGC (`Homography4pt`, `P3P`, `RadialCamera5pt`) |
-| one-step solver (algorithm name) | an overdetermined set taken as inliers, optionally with FIXED weights | no | no | the model, plus any statistic a consumer reads | iterate, reweight, reject | VGC (`homography_dlt`, `fundamental_dlt`, `kabsch`, `chordal_mean`, `zhang_intrinsics`, `tls_line`) |
-| `fit` | an overdetermined set taken as inliers | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | RVG (`fit_division_camera`, `fit_radial_camera`, `fit_camera`, `fit_line`) |
-| `find` | contaminated data | no | yes: hypothesize, verify, locally optimize | model + inlier set | require a guess | RVG (`find_homography`, `find_absolute_pose`, `find_radial_camera`) |
-| `refine` | a model and its observations | yes, required | no; continuous reweighting at most | the polished model, same family | re-estimate from scratch; change the family | RVG (`refine_robot_world_hand_eye`); PoseLib.jl's `refine_*` bindings; BlobBoards' board bundle |
+| minimal solver ([`MinimalKind`](@ref)) | a minimal sample: `solve(MinimalProblem(M, cs, idx), solver)` | no | no | every solution (`FixedModels`) | iterate, weigh, reject | VGC (`Homography4pt`, `P3P`, `RadialCamera5pt`) |
+| one-step solver, an algorithm name ([`ClosedFormKind`](@ref)) | an overdetermined set taken as inliers, optionally with FIXED weights: `solve(EstimationProblem(M, data), algorithm)` | no | no | the model, plus any statistic a consumer reads | iterate, reweight, reject | VGC (`DLT`, `Kabsch`, `ChordalMean`, `Zhang`, `TotalLeastSquares`) |
+| `fit` ([`FitKind`](@ref)) | an overdetermined set taken as inliers | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | RVG (`fit_division_camera`, `fit_radial_camera`, `fit_camera`, `fit_line`) |
+| `find` ([`FindKind`](@ref)) | contaminated data | no | yes: hypothesize, verify, locally optimize | model + inlier set | require a guess | RVG (`find_homography`, `find_absolute_pose`, `find_radial_camera`) |
+| `refine` ([`RefineKind`](@ref)) | a model and its observations: `RefineProblem(f, u0)` | yes, required | no; continuous reweighting at most | the polished model, same family | re-estimate from scratch; change the family | RVG (`refine_robot_world_hand_eye`); PoseLib.jl's `refine_*` bindings; BlobBoards' board bundle; VGC's [`LevenbergMarquardt`](@ref) |
 
 The kind fixes how a call can fail: an algorithm is one deterministic
 computation and can only be degenerate; a `fit` can fail to converge; a `find`
 is randomized; a `refine` can end in a local minimum. That is the point of
 naming by kind rather than by what comes back — the caller's error handling
-follows the verb.
+follows the verb. In code the kind is the algorithm's [`estimator_kind`](@ref), and
+`solve` refuses a problem of another kind before any method runs.
 
 The name follows the DESIGN, not a knob: `fit_radial_camera(iterations = 1)` is
 still a fit. `find` is RESERVED for the sample-and-verify search.
-**[`solve`](@ref) is ONLY the minimal-solver protocol** — VGC's
-`solve(solver, cs, idx)` and RVG's `solve(problem, idx)`, both returning every
-root — never an estimator's name. The RANSAC local-optimization step is a
+**[`solve`](@ref) is the ONE estimation verb** — CommonSolve's
+`solve(problem, algorithm)`, Core's front end for every problem — never an
+estimator's name; a package adds `__solve` methods for its own algorithms. A
+RANSAC problem's sample solve, returning every root, is
+VisualGeometryToolkitEstimation's `sample_models(problem, idx)`. The RANSAC local-optimization step is a
 refine: `refine!(ws, problem, θ, weights)` starts from the current model θ (a
 linear problem runs its one-step algorithm under the weights and ignores θ).
-The noise-model estimators (VGC's `fit_scale`, VisualGeometryToolkitEval's
+The noise-model estimators (VGC's [`ScaleMAP`](@ref), VisualGeometryToolkitEval's
 `fit_prior`) are outside this rule.
+
+**Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `lmsolve_chart!`, `block_coordinate_descent!`.
 
 **Detection, correspondence, observation — the terminology taxonomy (owner, 2026-11-13), enforced by `check_naming` (R14).**
 - A **detection** is a detector's output in one image, unassociated: `Attributed{Uncertain{<:FeatureFrame}}`, a [`PointFrame`](@ref) as first-class as any scaled frame (feature-frames). A keypoint IS a detection; with a descriptor it is VisualGeometryToolkitFeatures' `DescribedFeature`.
@@ -48,9 +54,9 @@ The noise-model estimators (VGC's `fit_scale`, VisualGeometryToolkitEval's
 2. A **block** is one component of the iteration state the loop overwrites: the model, the residuals, the nuisance and each of its parts (scale, inlier prior, ν, α), and the weights.
 3. **`update_<block>!`** overwrites that one block in place and nothing else. Every name that begins `update_` or `_update_` ends in `!` and writes exactly one block; a composite block's update (`update_nuisance!`) only calls its parts' updates. A function that writes two blocks is split.
 4. **`next_<block>`** (or `_next_<block>`) is pure: it returns a block's new value and mutates nothing.
-5. **`<fit>_step`** (`<fit>_step!` if it mutates) is the public model-block update of the fit `fit_<fit>`, with weights and nuisance held fixed; that fit's `update_model!` calls it. `fit_<fit>` must exist. No other identifier contains the word `step`, except Manopt.jl's `step_solver!` (one cycle of `block_coordinate_descent!`).
+5. **`update_model!`** is the model-block update of an iterative algorithm, with weights and nuisance held fixed: its method of the block-coordinate-descent hook (items 3 and 8), public only as that hook; the computation inside it is internal, named for what it computes (its local Δ is item 6's `<method>_increment`). No identifier contains the word `step`, except Manopt.jl's `step_solver!` (one cycle of `block_coordinate_descent!`) and SciMLBase's iteration counter `nsteps` (a [`SolveStats`](@ref) field).
 6. **`<method>_increment`** is a local model's Δ (`_newton_increment`, `_lm_increment`).
-7. A fixed number of reweight-and-solve cycles is `iterations`; a repetition of a whole estimator after changing its inputs is an `outer_iteration` (`outer_iterations` for the count). A random hypothesis draw — a RANSAC or PROSAC sample-and-verify cycle, a sampler draw, a random LO inner sample — is a *trial* (`trial`, `trials`, `max_trials`, `min_trials`, `n_trials`; its cap is the trial budget), never an iteration, and a deterministic cycle is never a trial; the one exception is VisualGeometryToolkitCore's `FitResult.iterations` field and its `iterations(result)` accessor, which for a RANSAC count its trials. A test, gate or check that holds *succeeds* (`succeeded`, `n_succeeded`), and one that does not *fails*; a caller *supplies* an argument. No other word is used for any of these: the banned words and phrases are listed once, in `VisualGeometryToolkitCore.check_naming`, which every stack package's quality test runs.
+7. A fixed number of reweight-and-solve cycles is `iterations`; a repetition of a whole estimator after changing its inputs is an `outer_iteration` (`outer_iterations` for the count). A random hypothesis draw — a RANSAC or PROSAC sample-and-verify cycle, a sampler draw, a random LO inner sample — is a *trial* (`trial`, `trials`, `max_trials`, `min_trials`, `n_trials`; its cap is the trial budget), never an iteration, and a deterministic cycle is never a trial; the one exception is VisualGeometryToolkitCore's `FitResult` counter `r.stats.nsteps` (SciML's name for the iterations), which for a RANSAC counts its trials. A test, gate or check that holds *succeeds* (`succeeded`, `n_succeeded`), and one that does not *fails*; a caller *supplies* an argument. No other word is used for any of these: the banned words and phrases are listed once, in `VisualGeometryToolkitCore.check_naming`, which every stack package's quality test runs.
 8. The hooks of `block_coordinate_descent!` are exactly `init_state!`, `update_model!`, `update_residuals!`, `update_nuisance!`, `update_weights!`, `post_iteration!`, `stopping_criterion`, `stop_reason` and `block_coordinate_result`; its steps carry Manopt.jl's names, `initialize_solver!`, `step_solver!` and `stop_solver!`, and its termination tests are `StoppingCriterion` values with Manopt's `Stop…` names.
 9. The words are matched as whole `_`-separated tokens (CamelCase split into words) of every identifier the stack binds: functions, types, fields, keywords, locals and constants, in src, ext, test, experiments, scripts and docs/src. A method added to a function the stack does not own keeps the owner's name (Base's `step(r)`). Retired names — listed in `check_naming` — may not appear anywhere, including comments, docstrings and docs, except a `CHANGELOG.md`, whose job is to record what each release removed (banned words are still banned there).
 
@@ -64,11 +70,11 @@ and does no estimation of its own; an estimate from scratch buried inside a
 
 **Nouns are accessors, constructors and algorithm names only** —
 `centroid(frame)`, `blobs(bundle)`, `cutoff(bundle)`,
-`PatternConfig(...)`, `kabsch(cs)` — never pipelines: a pipeline's result's
+`PatternConfig(...)`, `Kabsch()` — never pipelines: a pipeline's result's
 natural variable name is the noun, and `detections = detections(img)`
 makes the name local inside a function (an `UndefVarError`) and rebinds the
-global at top level. An algorithm name carries no such hazard: the result of
-`kabsch(cs)` is named `R`, not `kabsch`.
+global at top level. An algorithm name carries no such hazard: it is a type, and the
+estimate of `solve(EstimationProblem(RotMatrix{3}, cs), Kabsch())` is named `R`.
 
 **Package aliases: one short name per stack package.** The registered names
 carry the full `VisualGeometryToolkit` prefix (General already holds other

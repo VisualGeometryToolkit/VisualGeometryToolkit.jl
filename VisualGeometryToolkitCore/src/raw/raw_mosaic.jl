@@ -111,14 +111,13 @@ Base.copy(m::RawMosaic) = copy(m.raw)
 # Equality is the photosite matrix's (an AbstractMatrix's, so a mosaic is `==` to its held array and `hash` agrees), read
 # through the held array's own methods (a device array's, no scalar read; against a dense array, a device array's kind):
 # the colour pattern, window origin and metadata are not compared.
-for f in (:(==), :isequal)
-    @eval Base.$f(a::RawMosaic, b::RawMosaic) = $f(a.raw, b.raw)
-    @eval Base.$f(a::RawMosaic, b::DenseArray) = $f(a.raw, b)
-    @eval Base.$f(a::DenseArray, b::RawMosaic) = $f(a, b.raw)
+# (`isapprox` forwards its keywords.)
+for f in (:(==), :isequal, :isapprox)
+    kw = f === :isapprox ? (Expr(:parameters, :(kw...)),) : ()
+    @eval Base.$f($(kw...), a::RawMosaic, b::RawMosaic) = $f($(kw...), a.raw, b.raw)
+    @eval Base.$f($(kw...), a::RawMosaic, b::DenseArray) = $f($(kw...), a.raw, b)
+    @eval Base.$f($(kw...), a::DenseArray, b::RawMosaic) = $f($(kw...), a, b.raw)
 end
-Base.isapprox(a::RawMosaic, b::RawMosaic; kw...) = isapprox(a.raw, b.raw; kw...)
-Base.isapprox(a::RawMosaic, b::DenseArray; kw...) = isapprox(a.raw, b; kw...)
-Base.isapprox(a::DenseArray, b::RawMosaic; kw...) = isapprox(a, b.raw; kw...)
 Adapt.adapt_structure(to, m::RawMosaic) = _with_raw(m, Adapt.adapt(to, m.raw), m.window_origin)
 
 # A window (unit ranges in both axes) is a mosaic of the same sensor: the photosites `raw` (the

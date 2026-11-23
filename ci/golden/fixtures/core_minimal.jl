@@ -65,38 +65,19 @@ rotation_degenerate() = let a = SVector(0.0, 0.0, 1.0), u = [SVector(1.0, 0.0, 0
      parallel_target = Correspondences([a, SVector(0.0, 1.0, 0.0)], [a, a]),
      nonfinite = Correspondences([a, SVector(NaN, 0.0, 1.0)], [a, a]))
 end
-const FISHEYE = CameraModel(300.0px, SA[600.0px, 600.0px]; lens = KannalaBrandt(-0.02))
 # RotationScene's fisheye pixel pairs of a pure rotation (rays within 100° of both axes, σ = 0.5 px, 30 % outliers),
-# lifted to the bearings the solver takes.
-function rotation_scene(rng, R, n; σ = 0.5, outl = 0.3, θmax = deg2rad(100))
-    u₁ = SVector{2, Float64}[]; u₂ = SVector{2, Float64}[]
-    while length(u₁) < n
-        d = normalize(randn(rng, SVector{3, Float64}))
-        (acos(clamp(d[3], -1, 1)) < θmax && acos(clamp((R * d)[3], -1, 1)) < θmax) || continue
-        a = project(FISHEYE, d); b = project(FISHEYE, R * d)
-        (all(isfinite, a) && all(isfinite, b)) || continue
-        push!(u₁, a + σ * randn(rng, SVector{2, Float64})); push!(u₂, b + σ * randn(rng, SVector{2, Float64}))
-    end
-    for i in randperm(rng, n)[1:round(Int, outl * n)]
-        while true
-            c = SVector(600 + 500 * (2rand(rng) - 1), 600 + 500 * (2rand(rng) - 1))
-            all(isfinite, backproject_with_jacobian(FISHEYE, c)[1]) && (u₂[i] = c; break)
-        end
-    end
-    return Correspondences([SVector{3, Float64}(backproject(FISHEYE, u)) for u in u₁], [SVector{3, Float64}(backproject(FISHEYE, u)) for u in u₂])
+# lifted to the bearings the solver takes (`FISHEYE`, `rotation_scene`: Estimation's fixture file).
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "rotation_scene.jl"))   # `FISHEYE`, `rotation_scene`
+rotation_bearing_scene(rng, R, n) = let cs = first(rotation_scene(rng, R, n; outl = 0.3))
+    Correspondences([SVector{3, Float64}(backproject(FISHEYE, u)) for u in VgtkCore.sources(cs)], [SVector{3, Float64}(backproject(FISHEYE, u)) for u in VgtkCore.targets(cs)])
 end
 
 # --- two views (solver_layer_tests' scene; EpipolarScenes' fundmat_scene; essential_5pt_native_tests) -------------
 
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "two_view_scene.jl"))   # `two_view_scene`
 function minimal_epipolar_scene(rng)
     src = [Point2{Float64}(100rand(rng), 100rand(rng)) for _ in 1:20]    # the homography scene's draws come first
-    R = SMatrix{3, 3, Float64}(rand(rng, RotMatrix{3, Float64}))
-    t = SVector(0.4, -0.2, 0.1)
-    X3 = [SVector(2randn(rng), 2randn(rng), 6.0 + 2rand(rng)) for _ in 1:20]
-    x1b = [normalize(Xi) for Xi in X3]
-    x2b = [normalize(R * Xi + t) for Xi in X3]
-    u1 = [Point2{Float64}(PerspectiveMap()(Xi)) for Xi in X3]
-    u2 = [Point2{Float64}((R * Xi + t)[1] / (R * Xi + t)[3], (R * Xi + t)[2] / (R * Xi + t)[3]) for Xi in X3]
+    (; u1, u2, x1b, x2b) = two_view_scene(rng)
     return (; u1, u2, x1b, x2b)
 end
 minimal_fundmat_pairs(rng) = let s = _MS.EpipolarScenes.fundmat_scene(rng); Correspondences(s.source, s.target) end
@@ -105,7 +86,7 @@ minimal_fundmat_pairs(rng) = let s = _MS.EpipolarScenes.fundmat_scene(rng); Corr
 function essential_quintuples(rng)
     out = Correspondences{SVector{3, Float64}, SVector{3, Float64}, Vector{SVector{3, Float64}}, Vector{SVector{3, Float64}}, @NamedTuple{}}[]
     for _ in 1:400
-        R = SMatrix{3, 3, Float64, 9}(rand(rng, RotMatrix{3, Float64}))
+        R = haar_rotation(rng)
         t = normalize(SVector{3, Float64}(randn(rng, 3)...))
         X = [SVector{3, Float64}(2randn(rng), 2randn(rng), 6.0 + 2rand(rng)) for _ in 1:5]
         x2p = [R * Xi + t for Xi in X]
@@ -116,7 +97,7 @@ function essential_quintuples(rng)
 end
 # PoseLib's test_refine scene: 200 bearings pairs, 40 of view 2 replaced by uniform directions (outliers), 1e-3 noise.
 function minimal_essential_scene(rng)
-    R = SMatrix{3, 3, Float64, 9}(rand(rng, RotMatrix{3, Float64}))
+    R = haar_rotation(rng)
     t = normalize(SVector(1.0, 0.1, 0.05))
     X = [SVector(4 * randn(rng), 3 * randn(rng), 8.0 + 4 * rand(rng)) for _ in 1:200]
     b1 = [normalize(Y) for Y in X]
@@ -133,7 +114,7 @@ end
 function p3p_triples(rng)
     out = Correspondences{SVector{3, Float64}, SVector{3, Float64}, Vector{SVector{3, Float64}}, Vector{SVector{3, Float64}}, @NamedTuple{}}[]
     for _ in 1:300
-        R = SMatrix{3, 3, Float64}(rand(rng, RotMatrix{3, Float64}))
+        R = haar_rotation(rng)
         t = SVector(randn(rng), randn(rng), 3.0 + 2rand(rng))
         X = [SVector{3, Float64}(2randn(rng, 3)...) for _ in 1:3]
         any((R * Xi + t)[3] <= 0.1 for Xi in X) && continue
@@ -164,7 +145,6 @@ function radial_golden()
     s_bad = [SVector(0.0, 0.0), SVector(0.1, 0.1), SVector(0.2, 0.2), SVector(0.3, 0.3), SVector(0.4, -0.1)]
     return (; golden = Correspondences(s, d), collinear = Correspondences(s_bad, d))
 end
-_transfer(H, s) = (PerspectiveMap() ∘ HomographyMap(SMatrix{3, 3, Float64}(H)))(s)
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "division_distortion.jl"))
 # The test's synthetic ground-truth ensemble: 200 attempts of a similarity-plus-projective H and a division k.
 function radial_quintuples(rng)
@@ -176,7 +156,7 @@ function radial_quintuples(rng)
         H0 = SMatrix{3, 3, Float64}(sc * cos(θ), sc * sin(θ), v1, -sc * sin(θ), sc * cos(θ), v2, t1, t2, 1.0)
         k_gt = -0.4 + 0.55 * rand(rng)
         src = [SVector(rand(rng) - 0.5, rand(rng) - 0.5) for _ in 1:5]
-        dst_u = map(p -> _transfer(H0, p), src)
+        dst_u = map(p -> homography_transfer(H0, p), src)
         any(p -> norm(p) > 1.2, dst_u) && continue
         dst = map(p -> distort_division(p, k_gt), dst_u)
         any(isnothing, dst) && continue

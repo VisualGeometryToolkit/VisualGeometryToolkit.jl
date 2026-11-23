@@ -1,5 +1,5 @@
 @testitem "spline LM kernel: within 2e-6 px of the recorded reference LM, the same converged flags" begin
-# The spline models' two-unknown LM kernel (`Cameras.static_lm`, device-side: the one
+# The spline models' two-unknown LM kernel (`_static_lm`, `StaticLevenbergMarquardt`'s kernel, device-side: the one
 # LM that is not NLLSsolver), at the reference's pixel unit (s = 1, the box [min, max + 0.999]),
 # against the routine it derives from — a static bounded
 # Levenberg–Marquardt `lmsolve` with Marquardt's scaling — recorded on 1000 seeded problems
@@ -30,8 +30,8 @@ for (q, (rx, ry, rF)) in zip(ps, ref)
         res, jac = pixel_res(q.coef...), pixel_jac(q.coef...)    # the kernel's `fj`: both at one point
         stops = VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = tol2, max_iter = q.maxit,
                                        cost_floor = VgtkCore.Cameras._SPLINE_REFERENCE_COST_FLOOR)   # the reference's floor
-        x, ok, J, e = VgtkCore.static_lm(p -> (res(p, nothing), jac(p, nothing)), SVector(Float64(q.x0), Float64(q.y0)),
-                                         SVector(q.minx, q.miny), SVector(q.maxx + 0.999, q.maxy + 0.999), stops)
+        x, ok, J, e = VgtkCore._static_lm(p -> (res(p, nothing), jac(p, nothing)), SVector(Float64(q.x0), Float64(q.y0)),
+                                          SVector(q.minx, q.miny), SVector(q.maxx + 0.999, q.maxy + 0.999), stops)
         global dmax = max(dmax, abs(x[1] - rx), abs(x[2] - ry))
         tol2 == 1.0e-2 && (x[1] != rx || x[2] != ry) && (global ndiff += 1)
         # stationary at x, read independently of the kernel: the floors, the Gauss–Newton step resolved, or the cosine

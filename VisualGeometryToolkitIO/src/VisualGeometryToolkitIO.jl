@@ -94,6 +94,7 @@ import VisualGeometryToolkitCore as VgtkCore
 using StaticArrays: SMatrix, SVector, StaticMatrix, StaticVector
 using LinearAlgebra: I, norm, normalize, Diagonal
 using VisualGeometryToolkitCore: canonical_json   # RFC 8785 (JCS): the ONE canonical JSON, Core's; IO re-exports it (content identities hash it)
+using VisualGeometryToolkitCore: opencv_lens   # OpenCV's distortion vector as its lens: Core's; IO re-exports it beside its inverse (conventions.jl)
 using VisualGeometryToolkitCore: ScaledIdentity   # an isotropic covariance's storage (λ·I): its wire form {"isotropic": λ}
 using VisualGeometryToolkitCore: GaussianBlur, with_unit, ImageFrame   # the blur kind (blur_schema.jl)
 using Statistics: cov

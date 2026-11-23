@@ -32,5 +32,18 @@
         # two frames of a pinhole camera turning about its centre: the solid angle they share
         frame(R) = BoundedCamera(PosedCamera(CameraModel(K, Pinhole()), relabel(CameraFrame, WorldFrame, RotationMap(R))), Size2(640, 480))
         view_overlap(frame(one(RotMatrix{3, Float64})), frame(RotMatrix(RotationVec(0.0, 0.3, 0.0))); boundary_points = 16)
+        # the estimation interface's common entries: the DLTs over the two correspondence containers, the minimal
+        # solves of a homography and a fundamental matrix, Kabsch and the total-least-squares line
+        src = [SVector(Float64(i), Float64(i^2 % 7)) for i in 1:10]
+        dst = [SVector(1.1 * p[1] + 0.2 * p[2] + 3.0, -0.1 * p[1] + 0.9 * p[2] - 1.0) for p in src]
+        for pairs in (Correspondences(src, dst), correspondences(src, dst))
+            solve(EstimationProblem(HomographyMat, pairs), DLT())
+            solve(EstimationProblem(FundMat, pairs), DLT())
+            solve(MinimalProblem(HomographyMat, pairs, 1:4), Homography4pt())
+            solve(MinimalProblem(FundMat, pairs, 1:7), Fundamental7pt())
+        end
+        vs = [SVector(1.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0), SVector(0.0, 0.0, 1.0)]
+        solve(EstimationProblem(RotMatrix{3}, correspondences(vs, [SVector(v[2], -v[1], v[3]) for v in vs])), Kabsch())
+        solve(EstimationProblem(Line2D, src), TotalLeastSquares())
     end
 end

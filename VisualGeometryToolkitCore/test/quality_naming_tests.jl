@@ -54,6 +54,53 @@ end
     Cap = uppercasefirst(P)
     old = NC.RETIRED_NAMES[1]                    # any retired name
 
+    @testset "R9: an algorithm's tag is its one tag, not the retired function's name" begin
+        tag = "photon" * "_transfer"                 # PhotonTransfer's tag, and a retired function's name
+        @test tag in NC.RETIRED_NAMES
+        alg = "struct PhotonTransfer <: AbstractEstimationAlgorithm\n    block::Int\nend\n"
+        # the package defines the algorithm: its TOML table and a reader's string literal spell its tag
+        @test quiet("src/alg.jl" => alg, "configs/default.toml" => "[$(tag)]\nsignificance = 0.001\n",
+                    "src/read.jl" => "const S = toml_default(D, \"$(tag)\", \"significance\")\n")
+        # derived through the tag rule, qualified supertype or minimal solver alike
+        @test quiet("src/alg.jl" => "struct PhotonTransfer{T} <: VgtkCore.AbstractEstimationAlgorithm end\n",
+                    "configs/a.toml" => "[$(tag)]\nx = 1\n")
+        # under an intermediate abstract type too (the supertype chain, followed)
+        @test quiet("src/alg.jl" => "abstract type SensorAlgorithm <: AbstractEstimationAlgorithm end\nstruct PhotonTransfer <: SensorAlgorithm end\n",
+                    "configs/a.toml" => "[$(tag)]\nx = 1\n")
+        # without the algorithm the table is the retired name; and in code it is the retired name, always
+        @test rules("configs/default.toml" => "[$(tag)]\nx = 1\n") == [:R9]
+        @test rules("src/alg.jl" => alg, "src/a.jl" => "x = $(tag)(frames)\n") == [:R9]
+        @test rules("src/alg.jl" => alg, "src/a.jl" => "f(x) = x   # $(tag) of a frame\n") == [:R9]
+        # a retired name that no algorithm's tag spells stays retired in a TOML file
+        other = "fit" * "_scale"
+        @test rules("src/alg.jl" => alg, "configs/a.toml" => "[$(other)]\nx = 1\n") == [:R9]
+    end
+
+    @testset "R21: a FitResult by field, its contract quantities by function (parsed code)" begin
+        # the retired accessors, called on a result
+        for f in ("estimate", "iterations", "converged", "retcode", "metadata", "stop_rule")
+            @test rules("src/a.jl" => "g(r) = $(f)(r)\n") == [:R21]
+            @test rules("src/a.jl" => "g(r) = VgtkCore.$(f)(r)\n") == [:R21]
+        end
+        @test :R21 in rules("src/a.jl" => "g(T) = nested" * "_metadata(T)\n")
+        @test rules("src/a.jl" => "rms(r::FitResult) = r.rms\n") == [:R21]
+        @test rules("src/a.jl" => "estimate(r::VgtkCore.FitResult) = r.u\n") == [:R21]
+        # the contract fields of the metadata, read outside their contract method
+        for c in ("weights", "dof", "scale", "scale_source", "s2", "inlier_mask")
+            @test rules("src/a.jl" => "g(r) = r.metadata.$(c)\n") == [:R21]
+        end
+        # … and inside it: the one place the field is read
+        @test quiet("src/a.jl" => "weights(r::FitResult) = r.metadata.weights\ndof(r::FitResult) = r.metadata.dof\n")
+        @test quiet("src/a.jl" => "function VgtkCore.noise_scale(r::MyResult)\n    return r.metadata.scale\nend\n")
+        # not a retired accessor: fields, locals, other arities, other functions, comments and strings
+        @test quiet("src/a.jl" => "g(r) = (r.retcode, r.stop_rule, r.metadata, r.stats.nsteps, r.rms, r.metadata.depths)\n")
+        @test quiet("src/a.jl" => "struct R\n    retcode::Int\n    estimate::Float64\nend\n")
+        @test quiet("src/a.jl" => "g(estimate, ch, c) = estimate(ch, c)\nh(; estimate = nothing) = estimate\n")
+        @test quiet("src/a.jl" => "g(c, m) = stop_rule(c, m)\nh(e) = rms(e)\nk(r) = successful_retcode(r)\n")
+        @test quiet("src/a.jl" => "# estimate(r) and r.metadata.weights in a comment\ng() = \"estimate(r)\"\n")
+        @test quiet("src/a.jl" => "g(sol) = (sol.iterations, sol.converged)\n")
+    end
+
     @testset "R9: a foreign format's token is accepted in a string literal and a data fixture, never as a name" begin
         tok = first(NC.FOREIGN_FORMAT_TOKENS[findfirst(t -> last(t).accepted_in === :format_literal, NC.FOREIGN_FORMAT_TOKENS)])   # a retired name a stored format spells
         @test tok in NC.RETIRED_NAMES
@@ -137,17 +184,20 @@ end
         @test quiet("src/a.jl" => "next_scale(x) = x\n_next_prior(x) = x\n")
     end
 
-    @testset "R5: step is <fit>_step of an existing fit_<fit>" begin
+    @testset "R5: no identifier holds `step`, but Manopt's step_solver! and SciML's nsteps" begin
         @test rules("src/a.jl" => "lo_step(x) = x\n") == [:R5]
         @test rules("src/a.jl" => "function f(x)\n    step = 2x\n    return step\nend\n") == [:R5]
         @test rules("src/a.jl" => "g(x; steps = 3) = x\n") == [:R5]
         @test rules("src/a.jl" => "struct NewtonStep end\n") == [:R5]
         @test rules("src/a.jl" => "struct S\n    step::Int\nend\n") == [:R5]
-        # the fit exists (in another file of the package): its model update is named
-        @test quiet(
+        # no `fit_*` anchors a `<fit>_step` any longer: an algorithm's model update is its `update_model!`
+        @test rules(
             "src/fit.jl" => "fit_lo(x) = x\nfit_division_camera(x) = x\n",
             "src/a.jl" => "lo_step(x) = x\n_division_camera_step!(x) = x\n"
-        )
+        ) == [:R5]
+        @test quiet("src/a.jl" => "update_model!(s, m, p, θ) = θ\nstep_solver!(x) = x\n")
+        # SciMLBase's counter, in every binding
+        @test quiet("src/a.jl" => "struct SolveStats\n    nsteps::Int\nend\nf(; nsteps = 0) = (n = nsteps; k = :nsteps; n)\n")
         # a local named like a fit update is still a local
         @test rules("src/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lo_step = 1\n") == [:R5]
         # a bound name holds the word even when it is joined to another: only
@@ -584,7 +634,7 @@ end
         # quoted Julia symbols: a name the stack spells as a value
         @test rules("src/a.jl" => "k = :zstep\n") == [:R5]
         @test rules("src/a.jl" => "k = :update_prior\n") == [:R3]
-        @test quiet("src/a.jl" => "fit_lo(x) = x\nk = :lo_step\n")
+        @test rules("src/a.jl" => "fit_lo(x) = x\nk = :lo_step\n") == [:R5]
     end
 
     @testset "scope" begin

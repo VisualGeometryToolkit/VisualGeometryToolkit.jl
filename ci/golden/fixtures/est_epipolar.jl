@@ -14,8 +14,6 @@ const _EP_E = VgtkEstimation.synthetic_scenes().EpipolarScenes
 const _EP_P = VgtkEstimation.synthetic_scenes().PoseScenes
 const EP_ECAM = _EP_E.ECAM
 const EP_CAM800 = VgtkCore.CameraModel(800.0 * VgtkCore.px, SA[960.0 * VgtkCore.px, 540.0 * VgtkCore.px])   # ransac_essential_tests
-const EP_FISHEYE = VgtkCore.CameraModel(300.0 * VgtkCore.px, SA[600.0 * VgtkCore.px, 600.0 * VgtkCore.px];
-                                        lens = VgtkCore.KannalaBrandt(-0.02))   # RotationScene's FISHEYE
 
 Base.include(@__MODULE__, joinpath(@__DIR__, "common.jl"))   # the find_* scenes, too-few sets and pixel-pose scenes
 
@@ -66,25 +64,8 @@ function ep_essential_scenes()
     ]
 end
 
-# --- RotationScene.rotation_scene ----------------------------------------------------------------------------------
-function ep_rotation_scene(rng, R, n; σ = 0.5, outl = 0.0, θmax = deg2rad(100))
-    u₁ = SVector{2, Float64}[]; u₂ = SVector{2, Float64}[]
-    while length(u₁) < n
-        d = normalize(randn(rng, SVector{3, Float64}))
-        (acos(clamp(d[3], -1, 1)) < θmax && acos(clamp((R * d)[3], -1, 1)) < θmax) || continue
-        a = VgtkCore.project(EP_FISHEYE, d); b = VgtkCore.project(EP_FISHEYE, R * d)
-        (all(isfinite, a) && all(isfinite, b)) || continue
-        push!(u₁, a + σ * randn(rng, SVector{2, Float64})); push!(u₂, b + σ * randn(rng, SVector{2, Float64}))
-    end
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for i in bad
-        while true
-            c = SVector(600 + 500 * (2rand(rng) - 1), 600 + 500 * (2rand(rng) - 1))
-            all(isfinite, VgtkCore.backproject_with_jacobian(EP_FISHEYE, c)[1]) && (u₂[i] = c; break)
-        end
-    end
-    return VgtkCore.Correspondences(u₁, u₂)
-end
+# --- RotationScene (`FISHEYE`, `rotation_scene`): the suite's fixture file ------------------------------------
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "rotation_scene.jl"))   # `FISHEYE`, `rotation_scene`
 
 # The bearing form of a pixel set: unit bearings with their back-projection Jacobians as the M₁/M₂ columns.
 function ep_bearings(camera1, camera2, cs)
@@ -95,79 +76,44 @@ end
 
 # The rotation scenes: name => (camera1, camera2, pixel correspondences).
 ep_rotation_scenes() = [
-    "fisheye_120_outl30" => (EP_FISHEYE, EP_FISHEYE, ep_rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120; outl = 0.3)),
-    "fisheye_300_outl30" => (EP_FISHEYE, EP_FISHEYE, ep_rotation_scene(Xoshiro(8), RotMatrix(RotXYZ(0.2, -0.3, 0.4)), 300; outl = 0.3)),
+    "fisheye_120_outl30" => (FISHEYE, FISHEYE, first(rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120; outl = 0.3))),
+    "fisheye_300_outl30" => (FISHEYE, FISHEYE, first(rotation_scene(Xoshiro(8), RotMatrix(RotXYZ(0.2, -0.3, 0.4)), 300; outl = 0.3))),
 ]
 
 # --- relpose_bundle_tests ------------------------------------------------------------------------------------------
-const EP_CAM1 = VgtkCore.CameraModel(; focal = (1.1, 1.05), pp = (0.5, 0.5))
-const EP_CAM2 = VgtkCore.CameraModel(; focal = (1.2, 1.15), pp = (0.48, 0.52))
-const EP_KC1 = SMatrix{3, 3, Float64, 9}(VgtkCore.calibration_matrix(EP_CAM1))
-const EP_KC2 = SMatrix{3, 3, Float64, 9}(VgtkCore.calibration_matrix(EP_CAM2))
-const EP_KP1 = SMatrix{3, 3, Float64, 9}(800.0, 0, 0, 0, 800.0, 0, 640, 360, 1)
-const EP_KP2 = SMatrix{3, 3, Float64, 9}(820.0, 0, 0, 0, 815.0, 0, 630, 370, 1)
 
-function ep_relpose_scene(rng, N; σ = 0.0)
-    Rgt = RotMatrix(RotXYZ(0.1, -0.15, 0.08)); tgt = normalize(SVector(0.7, 0.2, 0.6))
-    u1, u2 = _EP_E.stereo_pixel_pairs(rng, EP_CAM1, EP_CAM2, Rgt, tgt; n = N, σ₁ = σ, σ₂ = σ,
-                                      point = rng -> VgtkCore.Point3(2randn(rng), 2randn(rng), 5 + 2rand(rng)))
-    return Rgt, tgt, u1, u2
-end
-ep_relpose_seed(rng, Rgt, tgt; δ, s) = (SMatrix{3, 3, Float64, 9}(Rgt * RotXYZ(δ...)),
-    VgtkCore.Vec3{Float64}(normalize(tgt + s * SVector(randn(rng), randn(rng), randn(rng)))))
-
-function ep_harness_scene(N; seed = 1, σ = 0.5)
-    rng = StableRNG(seed)
-    Rgt = SMatrix{3, 3, Float64, 9}(RotMatrix(AngleAxis(deg2rad(8.0), normalize(SVector(0.1, 1.0, 0.05))...)))
-    tgt = normalize(SVector(-1.0, 0.05, 0.1))
-    u1 = SVector{2, Float64}[]; u2 = SVector{2, Float64}[]
-    while length(u1) < N
-        X = SVector(8 * (rand(rng) - 0.5), 6 * (rand(rng) - 0.5), 6 + 6 * rand(rng))
-        Y = Rgt * X + tgt
-        Y[3] <= 0.5 && continue
-        w1 = EP_KP1 * X; w2 = EP_KP2 * Y
-        p1 = SVector(w1[1], w1[2]) / w1[3]; p2 = SVector(w2[1], w2[2]) / w2[3]
-        (0 <= p1[1] <= 1280 && 0 <= p1[2] <= 720 && 0 <= p2[1] <= 1280 && 0 <= p2[2] <= 720) || continue
-        push!(u1, p1 + σ * SVector(randn(rng), randn(rng)))
-        push!(u2, p2 + σ * SVector(randn(rng), randn(rng)))
-    end
-    a = normalize(SVector(randn(rng), randn(rng), randn(rng)))
-    R0 = SMatrix{3, 3, Float64, 9}(RotMatrix(AngleAxis(deg2rad(1.0), a...))) * Rgt
-    p = normalize(cross(tgt, SVector(randn(rng), randn(rng), randn(rng))))
-    t0 = normalize(SVector{3, Float64}(RotMatrix(AngleAxis(deg2rad(2.0), p...)) * tgt))
-    return R0, t0, u1, u2
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "relpose_scenes.jl"))   # `CAM1`, `CAM2`, `KC1`, `KC2`, `relpose_scene`, `relpose_seed`, `KP1`, `KP2`, `harness_scene`
 
 # The relative-pose bundle fixtures: name => (seed pose, K1, K2, correspondences).
 function ep_relpose_fixtures()
     rigid = _EP_P.rigid
     out = Pair{String, Any}[]
     for N in (100, 1000)
-        R0, t0, u1, u2 = ep_harness_scene(N)
-        push!(out, "harness_$N" => (rigid(R0, t0), EP_KP1, EP_KP2, VgtkCore.correspondences(u1, u2)))
+        R0, t0, u1, u2 = harness_scene(N)
+        push!(out, "harness_$N" => (rigid(R0, t0), KP1, KP2, VgtkCore.correspondences(u1, u2)))
     end
-    rng = StableRNG(3); Rgt, tgt, u1, u2 = ep_relpose_scene(rng, 30; σ = 0.0)
-    R0, t0 = ep_relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    push!(out, "exact_30" => (rigid(R0, t0), EP_KC1, EP_KC2, VgtkCore.correspondences(u1, u2)))
-    rng = StableRNG(5); Rgt, tgt, u1, u2 = ep_relpose_scene(rng, 40; σ = 0.002)
-    R0, t0 = ep_relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
-    push!(out, "noisy_40" => (rigid(R0, t0), EP_KC1, EP_KC2, VgtkCore.correspondences(u1, u2)))
-    rng = StableRNG(6); Rgt, tgt, u1, u2 = ep_relpose_scene(rng, 30; σ = 0.002)   # a point at infinity, weighted 0 and 1
+    rng = StableRNG(3); Rgt, tgt, u1, u2 = relpose_scene(rng, 30; σ = 0.0)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
+    push!(out, "exact_30" => (rigid(R0, t0), KC1, KC2, VgtkCore.correspondences(u1, u2)))
+    rng = StableRNG(5); Rgt, tgt, u1, u2 = relpose_scene(rng, 40; σ = 0.002)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
+    push!(out, "noisy_40" => (rigid(R0, t0), KC1, KC2, VgtkCore.correspondences(u1, u2)))
+    rng = StableRNG(6); Rgt, tgt, u1, u2 = relpose_scene(rng, 30; σ = 0.002)   # a point at infinity, weighted 0 and 1
     d = normalize(SVector(0.1, -0.05, 1.0))
-    push!(u1, SVector{2, Float64}(VgtkCore.project(EP_CAM1, d))); push!(u2, SVector{2, Float64}(VgtkCore.project(EP_CAM2, Rgt * d)))
-    R0, t0 = ep_relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    push!(u1, SVector{2, Float64}(VgtkCore.project(CAM1, d))); push!(u2, SVector{2, Float64}(VgtkCore.project(CAM2, Rgt * d)))
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     for w_far in (0.0, 1.0)
         push!(out, "infinity_31_wfar$(Int(w_far))" =>
-            (rigid(R0, t0), EP_KC1, EP_KC2, VgtkCore.Correspondences(u1, u2; weights = vcat(ones(30), w_far))))
+            (rigid(R0, t0), KC1, KC2, VgtkCore.Correspondences(u1, u2; weights = vcat(ones(30), w_far))))
     end
-    rng = StableRNG(7); Rgt, tgt, u1, u2 = ep_relpose_scene(rng, 20; σ = 0.002)
+    rng = StableRNG(7); Rgt, tgt, u1, u2 = relpose_scene(rng, 20; σ = 0.002)
     t0 = VgtkCore.Vec3{Float64}(tgt)
-    push!(out, "drifted_seed_20" => (rigid(1.001 * SMatrix{3, 3, Float64, 9}(Rgt), t0), EP_KC1, EP_KC2, VgtkCore.correspondences(u1, u2)))
+    push!(out, "drifted_seed_20" => (rigid(1.001 * SMatrix{3, 3, Float64, 9}(Rgt), t0), KC1, KC2, VgtkCore.correspondences(u1, u2)))
     w = ones(20); w[4] = -0.5
-    push!(out, "negative_weight_20" => (rigid(Rgt, t0), EP_KC1, EP_KC2, VgtkCore.Correspondences(u1, u2; weights = w)))
+    push!(out, "negative_weight_20" => (rigid(Rgt, t0), KC1, KC2, VgtkCore.Correspondences(u1, u2; weights = w)))
     w = ones(20); w[4] = NaN
-    push!(out, "nan_weight_20" => (rigid(Rgt, t0), EP_KC1, EP_KC2, VgtkCore.Correspondences(u1, u2; weights = w)))
-    push!(out, "too_few_4" => (rigid(Rgt, t0), EP_KC1, EP_KC2, VgtkCore.correspondences(u1[1:4], u2[1:4])))
+    push!(out, "nan_weight_20" => (rigid(Rgt, t0), KC1, KC2, VgtkCore.Correspondences(u1, u2; weights = w)))
+    push!(out, "too_few_4" => (rigid(Rgt, t0), KC1, KC2, VgtkCore.correspondences(u1[1:4], u2[1:4])))
     seed = rigid(RotMatrix(RotXYZ(0.01, 0.02, 0.0)), SVector(1.0, 0.0, 0.0))   # units_boundary_tests: a physical seed
     K = SMatrix{3, 3, Float64}(500, 0, 0, 0, 500, 0, 320, 240, 1)
     push!(out, "physical_seed_10" => (VgtkCore.with_unit(seed, VgtkCore.m), K, K,

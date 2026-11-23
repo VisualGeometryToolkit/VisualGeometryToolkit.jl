@@ -78,8 +78,7 @@ _board_origin(o::AbstractVector{<:Quantity}) = SVector{2, Float64}(strip_metres(
 _board_origin(o::AbstractVector{<:Real}) = SVector{2, Float64}(o)
 _board_origin(o::AbstractVector) = _refuse_board_mix("Board", (), o)
 
-Base.:(==)(a::Board, b::Board) = a.size == b.size && a.origin == b.origin
-Base.hash(bd::Board, h::UInt) = hash(bd.origin, hash(bd.size, hash(:Board, h)))
+@fieldwise Board
 
 # Units: the target's rule. A physical board's lengths go to the plain unit
 # `u` (its corner from metres); a plain one's numbers become lengths in `u`.
@@ -233,10 +232,8 @@ for R in (:CanvasTexture, :Canvas)
     @eval has_units(::$R) = false
     @eval _form_sample(r::$R) = r.size.width
 end
-Base.:(==)(a::CanvasTexture, b::CanvasTexture) = a.path == b.path && a.sha256 == b.sha256 && a.size == b.size && a.origin == b.origin
-Base.hash(x::CanvasTexture, h::UInt) = hash(x.origin, hash(x.size, hash(x.sha256, hash(x.path, hash(:CanvasTexture, h)))))
-Base.:(==)(a::Canvas, b::Canvas) = a.size == b.size && a.origin == b.origin && a.texture == b.texture
-Base.hash(c::Canvas, h::UInt) = hash(c.texture, hash(c.origin, hash(c.size, hash(:Canvas, h))))
+@fieldwise CanvasTexture
+@fieldwise Canvas
 
 # Units: the board's rule, the texture moving with its canvas.
 _strip_rect(u, r) = (Size2(width = ustrip(u, r.size.width), height = ustrip(u, r.size.height)), map(x -> _from_metres(x, u), r.origin))

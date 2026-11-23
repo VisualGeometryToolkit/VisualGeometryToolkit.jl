@@ -226,3 +226,60 @@ function require_extension(missing_error, f, args::Tuple, parent::Module, extens
     Base.get_extension(parent, extension) === nothing && throw(missing_error())
     throw(MethodError(f, args, Base.tls_world_age()))
 end
+
+"""
+    resize_buffers!(n::Integer, buffers...) -> nothing
+
+Trim (or grow) each of a workspace's buffers to `n` (`resize!` of every one): the one resize of a workspace sized for
+a larger problem (the scoring buffers, the sweep's launch, VisualGeometryToolkitEstimation's RANSAC result buffers).
+Unrolled over the buffers at compile time; allocates nothing when no buffer grows past its capacity.
+"""
+@inline resize_buffers!(n::Integer, buffers...) = (map(b -> resize!(b, n), buffers); nothing)
+
+"""
+    checked_float(x::Real, ok::Bool, what::AbstractString) -> Float64
+
+`x` as a `Float64` when `ok`, else an `ArgumentError` reading "`what`, got `x`": the one check of a configuration
+value's held number, made once by its constructor (`ok` the value's own condition, such as
+`isfinite(x) && x > 0`).
+"""
+@inline checked_float(x::Real, ok::Bool, what::AbstractString) =
+    ok ? Float64(x) : throw(ArgumentError(string(what, ", got ", x)))
+
+"""
+    @fieldwise T
+
+Field-wise value semantics for the type `T`, the one owner of every `==`, `isequal` and `hash` that is "the same
+fields, in order": it defines all three together, so `T` never has an `==` without the `hash` that agrees with it.
+
+- `a == b` is `a.f₁ == b.f₁ && … && a.fₙ == b.fₙ` (short-circuit) and `isequal(a, b)` the same with `isequal`, over
+  `fieldnames(T)` read with `getfield` (a type's `getproperty` overloads are not its value);
+- `hash(x, h)` is `hash(x.fₙ, … hash(x.f₁, hash(nameof(T), h)))`.
+
+Generated over the fields, each compiles to the field-by-field code a hand-written method is. A type whose equality
+is NOT plainly field-wise (a field compared as the identical object, a derived quantity, the type parameters) keeps
+its own methods.
+"""
+macro fieldwise(T)
+    return esc(quote
+        Base.:(==)(a::$T, b::$T) = $(_fieldwise)(==, a, b)
+        Base.isequal(a::$T, b::$T) = $(_fieldwise)(isequal, a, b)
+        Base.hash(x::$T, h::UInt) = $(_fieldwise_hash)(x, h)
+    end)
+end
+@generated function _fieldwise(op, a, b)
+    names = fieldnames(a)
+    isempty(names) && return :(true)
+    ex = :(op(getfield(a, $(QuoteNode(last(names)))), getfield(b, $(QuoteNode(last(names))))))
+    for f in reverse(names[1:(end - 1)])
+        ex = :(op(getfield(a, $(QuoteNode(f))), getfield(b, $(QuoteNode(f)))) && $ex)
+    end
+    return ex
+end
+@generated function _fieldwise_hash(x, h::UInt)
+    ex = :(hash($(QuoteNode(nameof(x))), h))
+    for f in fieldnames(x)
+        ex = :(hash(getfield(x, $(QuoteNode(f))), $ex))
+    end
+    return ex
+end

@@ -110,7 +110,7 @@ The loss width is `loss_width = efficiency_constant·ŝ` (the plain multiple, as
 [`Irls`](@ref)), frozen at the start of
 the call: ŝ is the Student-t marginal scale of θ's residuals — the Sampson
 errors of all the data — over θ's consensus partition (VisualGeometryToolkitCore's
-`partition_student_t`, the scorer's `scale_s2`), the scale every
+`_partition_student_t`, the scorer's `scale_s2`), the scale every
 consensus-anchored strategy reads. With no `efficiency_constant` (`Triggs{K}()`)
 inside a RANSAC the width follows the scorer's `decision_boundary`, as for
 [`Irls`](@ref); in a refine (VisualGeometryToolkitEstimation's `refine_*`) it is

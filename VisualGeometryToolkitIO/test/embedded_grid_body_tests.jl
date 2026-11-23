@@ -110,22 +110,14 @@ end
     using VisualGeometryToolkitIO: camera_from_json, camera_json, same_value
     import VisualGeometryToolkitIO as VgtkIO
     plain(x) = JSON.parse(JSON.json(x); dicttype = Dict{String, Any})
-    as09_size(s) = Any[s["width"], s["height"]]
-    as09_runs(r) = Any[Any[e[1] - 1, Any[Any[a - 1, b - 1] for (a, b) in e[2]]] for e in r]
-    function as09_lattice(l, names)
-        o = Dict{String, Any}("area" => l["area"], "grid_size" => as09_size(l["grid_size"]))
-        haskey(l, "present") && (o["present"] = as09_runs(l["present"]))
-        for (to, from) in names
-            o[to] = l["controls"][from]
-        end
-        return o
-    end
+    # a 0.10 body written back as 0.9's: the migration's own steps (its size, runs and lattice records)
+    as09_size, as09_lattice = VgtkIO._size_v09, VgtkIO._lattice_v09
     function as09(b)
         o = Dict{String, Any}(k => v for (k, v) in b if !(k in ("image_size", "pitch", "lens", "spline")))
         o["width"], o["height"] = b["image_size"]["width"], b["image_size"]["height"]
         haskey(b, "pitch") && (o["pitch"] = as09_size(b["pitch"]))
-        haskey(b, "lens") && (o["lens"] = haskey(b["lens"], "spline") ? Dict{String, Any}("spline" => as09_lattice(b["lens"]["spline"], ("controls" => "direction",))) : b["lens"])
-        haskey(b, "spline") && (o["spline"] = as09_lattice(b["spline"], ("directions" => "direction", "points" => "point")))
+        haskey(b, "lens") && (o["lens"] = haskey(b["lens"], "spline") ? Dict{String, Any}("spline" => as09_lattice(b["lens"]["spline"], ("direction" => "controls",))) : b["lens"])
+        haskey(b, "spline") && (o["spline"] = as09_lattice(b["spline"], ("direction" => "directions", "point" => "points")))
         return o
     end
     parsed(t) = VgtkIO._parse_vgio_text(JSON.json(t), "a body")

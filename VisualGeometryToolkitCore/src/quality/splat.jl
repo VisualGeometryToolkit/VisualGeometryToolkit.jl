@@ -34,9 +34,12 @@ end
 function Base.show(io::IO, v::SplatViolation)
     v.check === :stale_exception && return print(io, v.file, "  [stale_exception] ", v.type,
         "  — a [[splat]] entry of DUPLICATION.toml that matches nothing: remove it")
-    return print(io, v.file, ":", v.line, "  [", v.check, "] ", v.name, ": ", v.callee, "(…::", v.type, "...)",
-        v.check === :unknown ? "  — a splat of an untyped value: type it (a Tuple, an SVector) or hand over the collection" :
-        "  — a splat of a data-length collection compiles the callee once per length: hand over the collection (a Vector-taking method, reduce/mapreduce, vcat of collections)")
+    return _print_violation(
+        io, v.file, v.line, v.check,
+        v.check === :unknown ? "a splat of an untyped value: type it (a Tuple, an SVector) or hand over the collection" :
+            "a splat of a data-length collection compiles the callee once per length: hand over the collection (a Vector-taking method, reduce/mapreduce, vcat of collections)",
+        v.name, ": ", v.callee, "(…::", v.type, "...)"
+    )
 end
 
 """

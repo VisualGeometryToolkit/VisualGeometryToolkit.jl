@@ -1,4 +1,5 @@
 @testitem "target_homographies" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "zhang_views.jl"))   # zhang_homography
     using VisualGeometryToolkitCore: thrown_message
     using Test
     using VisualGeometryToolkitCore
@@ -95,7 +96,7 @@
         R = SMatrix{3, 3, Float64}(Matrix(qr(randn(rng, 3, 3)).Q))
         R = det(R) < 0 ? -R : R
         t = SVector(30.0, -20.0, 1500.0)
-        H = HomographyMat(K * hcat(R[:, 1], R[:, 2], t))
+        H = zhang_homography(K, R, t)
         m = radial_homography(cam, H)
         @test m isa RadialHomography{Float64, 2}
         @test collect(VisualGeometryToolkitCore.division_coeffs(m)) ≈ [-0.183 / f^2, 0.0411 / f^4]

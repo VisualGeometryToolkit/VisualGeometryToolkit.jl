@@ -4,13 +4,13 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-Why a fit stopped is its termination record: the verdict, a
+Why a solve stopped is its termination record: the verdict, a
 [`ReturnCode`](@ref) (`ReturnCode.T`, SciMLBase's names and success rule),
-read by [`retcode`](@ref), and the rule that fired, a [`StopRule`](@ref), read
-by [`stop_rule`](@ref). Both are in the result's core, so every producer
-records them. [`converged`](@ref) is strict,
-[`successful_retcode`](@ref) of the code: a cap or a stall is not converged.
-Whether a RANSAC found a model is [`found_model`](@ref).
+the result's field `r.retcode`, and the rule that fired, a [`StopRule`](@ref),
+its field `r.stop_rule`. Both are in every [`FitResult`](@ref), so every producer
+records them. Success is strict, [`successful_retcode`](@ref)`(r)` of the code:
+a cap or a stall is not a success. Whether a RANSAC found a model is
+[`found_model`](@ref).
 
 ```@docs
 ReturnCode
@@ -45,7 +45,6 @@ Callback
 TrialBudget
 AdaptiveCount
 SeedKept
-stop_rule
 found_model
 retcode_symbol
 retcode_from_symbol

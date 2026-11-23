@@ -20,27 +20,8 @@
 # terms that length evaluates, zeros included; `cv::fisheye`'s (k1…k4) is
 # `KannalaBrandt`.
 
-const _OPENCV_LENGTHS = (4, 5, 8, 12, 14)
-
-"""
-    opencv_lens(c::AbstractVector) -> Lens
-
-The lens computing OpenCV's `projectPoints` distortion for the coefficient
-vector `c` = `(k1, k2, p1, p2[, k3[, k4, k5, k6[, s1, s2, s3, s4[, τx, τy]]]])`
-— 4, 5, 8, 12 or 14 entries, the terms that length evaluates. Inverse of
-[`opencv_coefficients`](@ref).
-"""
-function opencv_lens(c::AbstractVector{<:Real})
-    n = length(c)
-    n in _OPENCV_LENGTHS || throw(ArgumentError("an OpenCV distortion vector has 4, 5, 8, 12 or 14 entries; got $n"))
-    v = float.(c)
-    k = n == 4 ? (v[1], v[2]) : (v[1], v[2], v[5])
-    d = n >= 8 ? (v[6], v[7], v[8]) : ()
-    terms = (Radial(k, d), Tangential(v[3], v[4]))
-    n >= 12 && (terms = (terms..., ThinPrism((v[9], v[10]), (v[11], v[12]))))
-    add = Additive(terms...)
-    return n == 14 ? Lens(Perspective(), Tilt(v[13], v[14]) ∘ add) : Lens(Perspective(), add)
-end
+# OpenCV's distortion vector as its lens is VisualGeometryToolkitCore's `opencv_lens` (re-exported here); its inverse,
+# `opencv_coefficients`, is this adapter's.
 
 """
     opencv_coefficients(lens) -> Vector{Float64}

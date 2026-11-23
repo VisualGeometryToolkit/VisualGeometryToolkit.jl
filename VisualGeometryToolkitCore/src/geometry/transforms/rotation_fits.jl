@@ -11,33 +11,13 @@
 #
 # NOT AD-safe under Zygote (SVD rule limitations); use outside tracked code.
 
-"""
-    kabsch(cs) -> RotMatrix{3, T}
-
-Kabsch/Wahba: the rotation minimizing `Σᵢ ‖bᵢ − R·aᵢ‖²` over the vector
-pairs `cs` (`aᵢ => bᵢ`, `StaticVector{3}` each side; any
-[`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref)
-preferred): one closed-form step, `Rotations.nearest_rotation` of the
-cross-covariance `Σ bᵢaᵢᵀ` (an SVD with the determinant-sign correction).
-A `weights` attribute column (`withattrs(cs; weights = w)`, `data-arguments.md`)
-weighs the pairs, `Σᵢ wᵢ‖bᵢ − R·aᵢ‖²` and the cross-covariance `Σ wᵢbᵢaᵢᵀ`
-(Wahba's problem): fixed, finite, non-negative weights, one per pair (an
-`ArgumentError` otherwise); a zero weight drops its pair. The vectors are
-used as given, NOT centred: centre them at the call site when aligning point
-clouds rather than directions.
-
-Physical pairs (lengths on both sides) are stripped in metres at entry; the
-rotation is unit-free, so it comes back the same either way.
-
-Throws `ArgumentError` on fewer than 2 pairs, or fewer than 2 of positive
-weight (a single pair leaves a one-parameter family of solutions).
-"""
-function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
+# Kernel of [`Kabsch`](@ref), whose docstring is the one copy of its documentation: `_kabsch(cs) -> RotMatrix{3, T}`.
+function _kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
     stripped = [strip_metres(first(p)) => strip_metres(last(p)) for p in cs]
     w = weights_column(cs)
-    return kabsch(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w))
+    return _kabsch(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w))
 end
-function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
+function _kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}})
     length(cs) >= 2 ||
         throw(ArgumentError("need at least 2 vector pairs, got $(length(cs))"))
     as = sources(cs); bs = targets(cs)
@@ -51,51 +31,19 @@ function kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}
     return Rotations.nearest_rotation(H)
 end
 
-"""
-    chordal_mean(Rs) -> RotMatrix{3, T}
-
-Chordal L2 mean of a set of rotations: the rotation minimizing
-`Σᵢ ‖R − Rᵢ‖²_F`, i.e. `Rotations.nearest_rotation` of the elementwise sum.
-Suited to averaging rotations within a moderate spread (the chordal mean and
-the geodesic mean agree to second order); it is NOT a robust estimator.
-
-Throws `ArgumentError` on an empty collection.
-"""
-function chordal_mean(Rs::AbstractVector{<:Union{Rotation{3}, StaticMatrix{3, 3}}})
+# Kernel of [`ChordalMean`](@ref), whose docstring is the one copy of its documentation: `_chordal_mean(Rs) -> RotMatrix{3, T}`.
+function _chordal_mean(Rs::AbstractVector{<:Union{Rotation{3}, StaticMatrix{3, 3}}})
     isempty(Rs) && throw(ArgumentError("cannot average an empty set of rotations"))
     T = eltype(first(Rs))
     return Rotations.nearest_rotation(sum(SMatrix{3, 3, T, 9}(R) for R in Rs))
 end
 
-"""
-    spectral_rotation_averaging(relative) -> Dict{K, RotMatrix{3, Float64}}
-
-Spectral chordal rotation averaging (Singer 2011; Arie-Nachimson et al. 2012):
-the absolute rotations of a set of frames from their relative rotations,
-`relative` an `AbstractDict` keyed by frame pairs `(i, j)` whose value `R_ij`
-takes frame `i`'s directions into frame `j`'s (`f_j = R_ij·f_i`; with
-`d = R_k·f_k` a direction in the common frame, `R_i = R_j·R_ij`). The `3n × 3n`
-symmetric block matrix with blocks `w_ij·R_ij` at `(j, i)` and its transpose at
-`(i, j)`, identity diagonal blocks, normalized by the frames' weighted degrees
-(`D^{-1/2} A D^{-1/2}`), has the stacked `R_kᵀ` in its three leading
-eigenvectors; each `3 × 3` block of them is projected onto SO(3)
-(`Rotations.nearest_rotation`, the eigenvectors' sign chosen so most blocks are
-proper), and the result is gauged so the first of the sorted frames is the
-identity (the common frame is that frame's). Symmetric in the frames, exact on
-consistent relative rotations, one eigendecomposition — the seed of a robust
-rotation averaging, not a robust estimator. A pair carries its non-negative
-weight as `Attributed(R_ij, (; weight))`, read with [`weight_of`](@ref); a bare
-`R_ij` weighs 1. A zero-weight pair contributes nothing. The pairs of positive weight must
-connect every frame: the caller checks it on its graph (VisualGeometryToolkitEstimation's
-`fit_rotation_averaging` refuses a split one through its `ViewGraph`); on a split graph the
-leading eigenspace is degenerate and the rotations returned are meaningless (a chain with one
-zero-weight bridge came back 180° off).
-"""
-function spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) where {K}
-    isempty(relative) && throw(ArgumentError("spectral_rotation_averaging: no relative rotations"))
+# Kernel of [`SpectralAveraging`](@ref), whose docstring is the one copy of its documentation: `_spectral_rotation_averaging(relative) -> Dict{K, RotMatrix{3, Float64}}`.
+function _spectral_rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}) where {K}
+    isempty(relative) && throw(ArgumentError("SpectralAveraging: no relative rotations"))
     frames = sort!(unique!(collect(Iterators.flatten(keys(relative)))))
     for (p, e) in relative
-        weight_of(e) >= 0 || throw(ArgumentError("spectral_rotation_averaging: weight $(weight_of(e)) of the pair $p is negative"))
+        weight_of(e) >= 0 || throw(ArgumentError("SpectralAveraging: weight $(weight_of(e)) of the pair $p is negative"))
     end
     n = length(frames); idx = Dict(k => a for (a, k) in enumerate(frames))
     A = zeros(3n, 3n); deg = ones(n)

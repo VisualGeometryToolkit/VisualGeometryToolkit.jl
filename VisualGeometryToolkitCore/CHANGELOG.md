@@ -1,5 +1,131 @@
 # VisualGeometryToolkitCore changelog
 
+## Unreleased — 0.14.0
+
+**Breaking: every estimator is `solve(problem, algorithm)`, SciML's interface over CommonSolve.jl's verbs, and a
+`FitResult` is SciML's solution, read by field.** The design record is `docs/design/sciml-mapping.md`; the
+implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is in `check_naming`'s
+`RETIRED_NAMES` with its replacement; there are no aliases.
+
+### Added
+- **The estimation interface** (`src/base/solve_interface.jl`, new dependency CommonSolve):
+  - the problems `AbstractEstimationProblem`, `EstimationProblem(f, p)` / `EstimationProblem(M, data, p)` (from
+    scratch), `RefineProblem(f, u0, p; lb, ub)` (from a required guess) and `MinimalProblem(M, data, sample, p)`
+    (every root of a minimal sample), with the context `p` a type parameter, `NullParameters()` when there is none;
+  - `AbstractEstimationAlgorithm`, whose configuration is its fields, and `ClassDefault()` for a field left at its
+    problem class's default of record;
+  - the kinds `EstimatorKind` = `MinimalKind`, `ClosedFormKind`, `FitKind`, `FindKind`, `RefineKind`, read by the
+    contract generic `estimator_kind(algorithm)` and by `needs_initial_model`, `decides_inliers` and
+    `supports_solve_rng(problem, algorithm)`;
+  - the front end `solve(problem, algorithm; settings...)`, `init` / `solve!` / `reinit!` (the one way a workspace is
+    reused), and `solve(problem)`, which runs the problem type's declared `default_algorithm` (an `ArgumentError`
+    listing the algorithms that apply when it declares none). `solve` checks the kind law (`check_kind`) before any
+    method runs and records the problem and the algorithm on the result (`with_problem`). A package adds `__solve` /
+    `__init` methods for its own algorithm types, never a `solve` or `init` method. Keywords are run settings only
+    (`rng`, `scale`/`width`, `stops`, `bound`).
+- **The closed-form algorithms** (`src/geometry/solvers/closed_forms.jl`): `DLT(backend)`, `Kabsch()`,
+  `ChordalMean()`, `SpectralAveraging()` (with the model tag `AbsoluteRotations`), `TotalLeastSquares()`,
+  `DirectEllipse()`, `NearestPoint()`, `Triangulation()`, and `Zhang()` (`calibration.jl`). Each returns a
+  `FitResult` built by `closed_form_result`: `(Success, ClosedForm)`, `rms` NaN, `n` the data used; a degenerate
+  configuration gives `u = nothing`, `(InitialFailure, NoRule)` and `n = 0`; malformed input is the same
+  `ArgumentError` as before (its message now names the algorithm, e.g. "DirectEllipse requires at least 5 points").
+- **The algorithms of the iterative and statistical estimators:** `LevenbergMarquardt(; optimization_strategy,
+  damping)`, the one host LM (the default algorithm of a `RefineProblem`); `StaticLevenbergMarquardt()`, the device
+  LM; `ScaleMAP(prior)` with the model tag `SquaredScale`; `PhotonTransfer(; block, normalize, significance)` and
+  `MasterDark(; false_defects)`.
+- `SolveStats(; nsteps, nf, njacs, nfactors, nsolve)`, a result's work counters (SciMLBase's names, immutable and
+  isbits); `essential_8pt(backend, cs)`, the contract generic of the 8-point kernel under `DLT(PoseLibSolver())`
+  (PoseLib implements it). `successful_retcode` is now exported.
+
+### Changed
+- **`FitResult{U, M, R, Prob, Alg, Orig}`** has the fields `u, resid, retcode, stats::SolveStats, prob, alg,
+  original, stop_rule, rms, n, metadata`, built as `FitResult(u, retcode, stop_rule, stats, rms, n, metadata; resid,
+  prob, alg, original)` (was `FitResult(estimate, code, rule, iterations, rms, n, metadata)`). Its own data are read
+  by field (`r.u`, `r.retcode`, `r.stats.nsteps`, `r.stop_rule`, `r.rms`, `r.n`, `r.resid`, `r.metadata.<field>`),
+  success by `successful_retcode(r)`, and the cross-type contract quantities by their functions only (`weights`,
+  `dof`, `noise_scale`, `scale_source`, `inlier_mask`, `found_model`, `retcode_symbol`). **A FitResult forwards no
+  property into its metadata**: `r.weights`, `r.quality`, `r.depths`, … are errors; read `weights(r)` or
+  `r.metadata.quality`. `FitResult{U, M}` still names the results of a model type and a metadata type.
+- **`LmStops` has no `damping`** (keyword or field): the damping is `LevenbergMarquardt`'s field, an `LmProblem`'s
+  own (`LmProblem(…; damping)`), and the trailing positional argument of `lmsolve_chart!`'s chart forms
+  (`lmsolve_chart!(ews, lm, stops, damping)`, `lmsolve_chart!(ews, lm, robustifier, Val(C), stops, damping)`).
+  Explicit stops can no longer disagree with a problem's damping, so that refusal is gone.
+- The device LM now reports its iteration count (`r.stats.nsteps`); its Jacobian and evaluation at the solution are
+  `r.metadata.jacobian` and `r.metadata.evaluation`.
+- The single-mosaic photon transfer returns a `FitResult` (its `u` the `PoissonGaussian`).
+- **One frame mechanism for the frame-tagged maps** (`EuclideanMap`, `SimilarityMap`, `RotationMap`, `HomographyMap`;
+  the end of `homography_map.jl`). The storage-boundary `convert` into a fully parameterized slot of the same map type
+  may label an unlabeled map (or keep its frames), never relabel or erase one, and keeps the number type `T`:
+  - a `SimilarityMap` of another `T` (a `Float32` similarity stored in a `Float64` slot) is now a `MethodError`, as
+    an `EuclideanMap`'s always was; it converted before. A change of precision is explicit;
+  - `RotationMap` and `HomographyMap` gain the same labeling convert (an unlabeled map stored in a labeled slot);
+  - `convert(HomographyMap{N, T}, h)` of another number type is a `MethodError` now (it converted): the explicit
+    change of precision is the constructor `HomographyMap{N, T}(h)`;
+  - the 4-parameter `EuclideanMap{N, T, R, V}` convert (frame-preserving, no caller) is removed.
+
+  `relabel`/`unlabel` of the four maps, plain or `Uncertain`, are one method each (the parts reused under the new
+  tags): `unlabel` and `relabel` now also take an uncertain `SimilarityMap` or `RotationMap`. A wrong frame dimension
+  stays a homography's `ArgumentError` and the other maps' `MethodError`.
+- **`@fieldwise T`** (public): field-wise `==`, `isequal` and `hash` of a plain value type, defined together. Board,
+  CanvasTexture, Canvas, CaptureSettings, LensSpec, SplineLensSpec, PosedTarget, PointTarget, RegionIntersection,
+  SensorCharacterisation, SensorModel and its components, FrameStamps, ProjectiveIntrinsics and VisualGeometryToolkitEval's
+  spec types use it. Hash VALUES change (never persisted); a type that had only `==` now has `isequal` and `hash`
+  that agree with it (field-wise `isequal`: NaN equals NaN, `-0.0` differs from `0.0` in a field).
+- **`opencv_lens`** moved here from VisualGeometryToolkitIO (public, not exported; IO re-exports it). **`checked_float`**
+  (public): a configuration value's held number, checked once.
+- An uncertain `PointFrame` propagates through a `HomographyMap` or a `FramedAffine` by the map's general uncertain
+  law (its centre moved, the frame kept); the per-map PointFrame methods are gone. Bit-identical.
+- Source files renamed after their kernels: `geometry/solvers/tls_line.jl` → `total_least_squares.jl`,
+  `nearest_point.jl` → `point_from_lines.jl`, `direct_ellipse.jl` → `algebraic_ellipse.jl`.
+
+- The naming rules: an algorithm's model-block update is its `update_model!` (conventions/naming.md item 5); R5's
+  `<fit>_step` exception is gone and SciMLBase's `nsteps` is the one exempt counter beside Manopt's `step_solver!`.
+  Mechanism tokens (`lm`, `gn`, `irls`) may name contract steps, never estimators.
+
+### Removed
+- **The FitResult accessors:** `estimate(r)` and `r.estimate` → `r.u`; `retcode(r)` → `r.retcode`; `converged(r)`
+  and `r.converged` → `successful_retcode(r)`; `iterations(r)` and `r.iterations` → `r.stats.nsteps`;
+  `stop_rule(r)` → `r.stop_rule` (`stop_rule(criterion, method)` of `block_coordinate_descent!` stays); `rms(r)` →
+  `r.rms` (`rms(residuals[, n])`, the computation, stays); `metadata(r)` → `r.metadata`; `nested_metadata` (no
+  forwarding remains to declare).
+- **The estimator functions**, each replaced by its algorithm:
+  - `homography_dlt(cs; mask, svd_ws)` → `solve(EstimationProblem(HomographyMat, cs), DLT())`; a mask is data
+    selection, `cs[mask]`; `svd_ws` stays only on the inner-loop form `homography_dlt!(A, N, cs; mask, svd_ws)`;
+  - `fundamental_dlt(cs)` → `solve(EstimationProblem(FundMat, cs), DLT())` (inner loop `fundamental_dlt!`);
+  - `essential_dlt([backend,] cs)` → `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`;
+  - `kabsch(cs)` → `solve(EstimationProblem(RotMatrix{3}, cs), Kabsch())`;
+  - `chordal_mean(Rs)` → `solve(EstimationProblem(RotMatrix{3}, Rs), ChordalMean())`;
+  - `spectral_rotation_averaging(rel)` → `solve(EstimationProblem(AbsoluteRotations, rel), SpectralAveraging())`;
+  - `zhang_intrinsics(Hs[, pitch]; center)` → `solve(EstimationProblem(LogicalIntrinsics, Hs, (; center[, pitch])),
+    Zhang())`;
+  - `tls_line(points[, weights])` → `solve(EstimationProblem(Line2D, points), TotalLeastSquares())`, weighted
+    `EstimationProblem(Line2D, withattrs(points; weights))` (the points' `weights` attribute column);
+  - `direct_ellipse(points)` → `solve(EstimationProblem(Ellipse, points), DirectEllipse())`;
+  - `nearest_point(lines)` → `solve(EstimationProblem(Point, lines), NearestPoint())`;
+  - `triangulate(pose, f₁, f₂) -> (X, λ₁, λ₂)` → `solve(EstimationProblem(Point3, f₁ => f₂, pose),
+    Triangulation())`: `u` the point, `metadata.depths` the ray depths;
+  - `photon_transfer(groups, darks; defects, block, normalize, significance)` →
+    `solve(EstimationProblem(PoissonGaussian, groups, (; darks, defects)), PhotonTransfer(; block, normalize,
+    significance))`; the `ReadNoise`-dict form takes `p = (; darks, sensor_model)`, the single-mosaic form
+    `EstimationProblem(PoissonGaussian, mosaic, (; sensor_model))`;
+  - `master_dark(frames; exposure_band, false_defects)` → `solve(EstimationProblem(Dark, frames, (;
+    exposure_band)), MasterDark(; false_defects))`: `u` the `Dark`, `metadata = (; read_noise, defects)`;
+  - `mad_scale(residuals)` → `solve(EstimationProblem(NoiseScale, residuals), MedianNormScale())`: `u` is σ̂ (linear),
+    the same numerics; inner loops keep the internal `_mad_scale_norms`.
+  - `partition_student_t`, `next_nu`, `posterior_weights!`, `posterior_inlier_probs!` and `soft_posterior_weights!` are
+    internal (`_`-prefixed, neither exported nor public): steps of the robust toolkit's own estimators; their public
+    entries are `consensus_s2`, `median_seeded_posterior`, `mixture_ecm!`, `next_nu_from_sums`, `update_nu!`,
+    `update_scale!`, `update_inlier_prior!` and the scoring contract's `inlier_probabilities!`.
+  - `fit_scale(prior, rss, dof)` → `solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior))`: `u` is
+    ŝ²;
+  - `static_lm(fj, x₀, lb, ub, stops[, bound]) -> (x, ok, J, e, rule)` → `solve(RefineProblem(fj, x₀; lb, ub),
+    StaticLevenbergMarquardt(); stops, bound)`: `u = x`, `successful_retcode(r)`, `r.metadata.jacobian`,
+    `r.metadata.evaluation`, `r.stop_rule`.
+- **The old `solve` and `p3p` methods:** `solve(solver, cs, idx)` → `solve(MinimalProblem(M, cs, idx), solver)` (`M`
+  the solver's `model_type`), or `solve(MinimalProblem(M, cs, idx))` for the model's one minimal solver;
+  `p3p(model, cs)` → `solve(MinimalProblem(Extrinsics3, cs, 1:3, model), P3P())`, the camera the context `p`. The
+  positional kernels (`homography_4pt`, `p3p(rays, X)`, `p3p(backend, x, X)`, …) stay.
+
 ## Unreleased (planned)
 
 - Under review for the next breaking minor: the name of an uncertain frame's point observation, `center(u)` (an

@@ -1,5 +1,5 @@
 # The robust layer's noise scale and loss width against Monte Carlo:
-# `mad_scale` (the median-of-norms scale, Rayleigh-median at d = 2) through the
+# `MedianNormScale` (the median-of-norms scale, Rayleigh-median at d = 2) through the
 # calibration harness, and `efficiency_constant`'s defining claim — 95% Gaussian
 # efficiency of the loss's M-estimate — by paired simulation.
 @testitem "noise_scale" begin
@@ -11,17 +11,18 @@
     using Statistics
     using Distributions: Chi, Chisq, Normal, pdf, quantile
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: mad_scale, efficiency_constant, weight,
+    using VisualGeometryToolkitCore: efficiency_constant, weight,
         WelschShape, CauchyShape, GemanMcclureShape
     const CHar = VgtkCore.Synthetic
+    median_norm_scale(rs) = solve(EstimationProblem(NoiseScale, rs), MedianNormScale()).u
 
-    @testset "mad_scale: calibrated against its asymptotic variance (d = 1, 2, 6)" begin
+    @testset "MedianNormScale: calibrated against its asymptotic variance (d = 1, 2, 6)" begin
         # σ̂ = median‖r‖/√q, q = quantile(Chisq(d), 0.5): the sample median of σ·χ_d norms has
         # asymptotic variance 1/(4n·f(m)²), so Var(σ̂) = σ²/(4n·q·f_χd(√q)²)
         predicted_var(σ, n, d) = (q = quantile(Chisq(d), 0.5); f = pdf(Chi(d), sqrt(q)); σ^2 / (4 * n * q * f^2))
         sigma_trial(d, n, σ) = rng -> begin
             residuals = [SVector{d}(σ * randn(rng, d)) for _ in 1:n]
-            ([mad_scale(residuals) - σ], fill(predicted_var(σ, n, d), 1, 1))
+            ([median_norm_scale(residuals) - σ], fill(predicted_var(σ, n, d), 1, 1))
         end
         for d in (1, 2, 6)
             r = CHar.run_calibration(sigma_trial(d, 200, 0.7), MersenneTwister(40 + d), 4000, 1)
@@ -29,7 +30,7 @@
         end
     end
 
-    @testset "mad_scale: gross outliers move it to a predicted quantile" begin
+    @testset "MedianNormScale: gross outliers move it to a predicted quantile" begin
         # A fraction ε of gross errors (above every clean norm) puts the median at the
         # clean distribution's 0.5/(1 − ε) quantile: σ̂/σ = F⁻¹(0.5/(1 − ε))/F⁻¹(½).
         # Robust (50% breakdown), not unbiased — at ε = 0.2, d = 2 it reads 1.19σ.
@@ -47,18 +48,23 @@
         end
     end
 
-    @testset "mad_scale: residual vectors, centred on the model" begin
+    @testset "MedianNormScale: residual vectors, centred on the model" begin
         rs = [SVector(3.0, 4.0), SVector(0.0, 1.0), SVector(6.0, 8.0)]          # norms 5, 1, 10
-        @test @inferred(mad_scale(rs)) == 5.0 / sqrt(quantile(Chisq(2), 0.5))
-        @test mad_scale(rs) === VgtkCore._mad_scale_norms(; norms = [5.0, 1.0, 10.0], codimension = 2)   # the internal norms form
-        @test_throws MethodError mad_scale(; norms = [5.0, 1.0, 10.0], codimension = 2)                   # no public norms form
-        @test mad_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(quantile(Chisq(1), 0.5))   # d = 1: |r|, no centring
-        @test mad_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(quantile(Chisq(2), 0.5))
+        r = solve(EstimationProblem(NoiseScale, rs), MedianNormScale())
+        @test r.u == 5.0 / sqrt(quantile(Chisq(2), 0.5)) && r.n == 3 && r.retcode === VgtkCore.ReturnCode.Success && isnan(r.rms)
+        @test @inferred(median_norm_scale(rs)) == r.u
+        @test VgtkCore.estimator_kind(MedianNormScale()) === ClosedFormKind()
+        @test median_norm_scale(rs) === VgtkCore._mad_scale_norms(; norms = [5.0, 1.0, 10.0], codimension = 2)   # the internal norms form
+        @test_throws MethodError solve(EstimationProblem(NoiseScale, [5.0, 1.0, 10.0], (; codimension = 2)), MedianNormScale())   # no public norms form
+        @test median_norm_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(quantile(Chisq(1), 0.5))   # d = 1: |r|, no centring
+        @test median_norm_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(quantile(Chisq(2), 0.5))
         x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9
-        @test mad_scale(SVector{1}.(x)) > 3 * 0.37                                  # a bias counts as noise
+        @test median_norm_scale(SVector{1}.(x)) > 3 * 0.37                                  # a bias counts as noise
         # no scalar form: the retired centred MAD's call shape is refused, not silently re-meant
-        @test_throws MethodError mad_scale([1.0, 2.0, 3.0])
-        @test_throws MethodError mad_scale([5.0, 1.0, 10.0], 2)
+        @test_throws MethodError solve(EstimationProblem(NoiseScale, [1.0, 2.0, 3.0]), MedianNormScale())
+        @test_throws MethodError solve(EstimationProblem(NoiseScale, [5.0, 1.0, 10.0], 2), MedianNormScale())
+        # named explicitly: a NoiseScale declares no default
+        @test_throws ArgumentError solve(EstimationProblem(NoiseScale, rs))
     end
 
     @testset "efficiency_constant: 95% Gaussian efficiency of the M-estimate" begin

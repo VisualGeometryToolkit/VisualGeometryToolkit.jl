@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The robot-world hand-eye reprojection scene of refine_robot_world_hand_eye_tests.jl (and of the golden records of
 # ci/golden/fixtures/est_other_fits.jl): markers of feature points on a rig, a camera looking at it, the rig's poses,
 # and each marker's pixels per frame. Data constructors only — no estimator is called; include-once safe (functions only).
@@ -57,4 +62,19 @@ function rw_seed(rng, sc; rot = 0.01, tr = 0.01)
     (; perturb_pose) = VgtkEstimation.synthetic_scenes().PoseScenes
     pert(T) = perturb_pose(rng, T; σ_R = rot, σ_t = tr)
     return VgtkEstimation.RobotWorldHandEyeCalibration(pert(sc.Y), Dict(m => pert(sc.X[m]) for m in eachindex(sc.X)))
+end
+
+# A_i X_m = Y B_i^m  ⇒  B = Y⁻¹ ∘ A ∘ X (robot_world_hand_eye_tests.jl): `markers[m]` holds marker m's correspondences
+# A_i => B_i^m, one per frame it is seen in (frame order), each dropped with probability `drop` and perturbed by
+# (σ_R, σ_t); the markers, Y and the X_m.
+function rwhe_synth(rng; N = 25, M = 4, σ_R = 0.0, σ_t = 0.0, drop = 0.0)
+    (; robot_world_hand_eye_scene, marker_pose, perturb_pose) = VgtkEstimation.synthetic_scenes().PoseScenes
+    (; Y, X, A) = robot_world_hand_eye_scene(rng; N, M, Y = (t_scale = 0.5,), X = (ang_max = 0.5, t_scale = 0.3), A = (t_scale = 1.0,))
+    markers = Dict(m => Pair{typeof(Y), typeof(Y)}[] for m in 1:M)
+    for i in 1:N, m in 1:M
+        rand(rng) < drop && continue
+        B = marker_pose(Y, A[i], X[m])
+        push!(markers[m], A[i] => (σ_R == 0 && σ_t == 0 ? B : perturb_pose(rng, B; σ_R, σ_t)))
+    end
+    return markers, Y, X
 end

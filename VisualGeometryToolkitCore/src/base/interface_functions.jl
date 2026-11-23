@@ -55,7 +55,7 @@
 # ordered `[shared | per-group in ids order]`. Keywords are configuration only:
 # thresholds, iteration counts, policies, and the DLT kernels' allocation-free
 # `mask`/`frame`/`svd_ws`. A minimal solver's public protocol is
-# `solve(solver, cs, idx)`; the positional kernels beneath it are kernels.
+# `solve(MinimalProblem(M, cs, idx), solver)`; the positional kernels beneath it are kernels.
 #
 # =============================================================================
 

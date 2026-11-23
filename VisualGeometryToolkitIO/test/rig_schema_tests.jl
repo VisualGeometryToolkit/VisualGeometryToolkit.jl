@@ -383,7 +383,7 @@ end
     using VisualGeometryToolkitCore: TargetPoses, CameraFrame, TargetFrame, Uncertain, CovMat, pose
     using Rotations: RotXYZ
     using Statistics: cov
-    X(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
+    X = example_pose
     Σ = CovMat(SMatrix{6, 6, Float64}(LinearAlgebra.I) * 1.0e-3)
     mktempdir() do dir
         tp = TargetPoses{CameraFrame}(

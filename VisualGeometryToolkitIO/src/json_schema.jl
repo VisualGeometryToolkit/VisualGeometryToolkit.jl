@@ -131,7 +131,7 @@ function _json_schema(s::_Named, defs)
     return o
 end
 _json_schema(::_RealMap, defs) = _jobj("type" => "object", "additionalProperties" => _jobj("type" => "number"))
-_json_schema(::_Free, defs) = _jobj("type" => "object")
+_json_schema(s::Union{_Free, _Bool}, defs) = _jobj("type" => last(_json_value_type(s)))
 _json_schema(s::_Either, defs) = _jobj(
     "type" => "object",
     "oneOf" => [_jobj("required" => [String(k)]) for (k, _) in s.alts],
@@ -221,7 +221,6 @@ function _region_leaf_schema(k::Symbol, defs)
     return _region_object(k, body)
 end
 
-_json_schema(::_Bool, defs) = _jobj("type" => "boolean")
 # A slot's component body, its kind by `type`: one of the bodies (each states its `type` as a const).
 # With a `def` (a body that holds itself): one definition under `\$defs`, referenced, its own recursion included.
 function _json_schema(s::_ByType, defs)

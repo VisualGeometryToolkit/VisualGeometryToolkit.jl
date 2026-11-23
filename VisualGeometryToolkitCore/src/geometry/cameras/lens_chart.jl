@@ -114,7 +114,6 @@ function parameter_bounds end
 # The unbounded default: any model with a parameter vector (`_unbounded_bounds`, the
 # one spelling of "every coordinate unbounded", also a SplineLens's).
 @inline parameter_bounds(x) = _unbounded_bounds(parameter_vector(x))
-@inline _unbounded_bounds(θ) = (T = eltype(θ); (zero(θ) .- T(Inf), zero(θ) .+ T(Inf)))
 
 @inline function parameter_vector(l::AbstractLensModel)
     c = _coefficients_of(l)

@@ -357,6 +357,28 @@ function Lens(p::AbstractProjection, d::ComposedTransformation)
 end
 
 """
+    opencv_lens(c::AbstractVector) -> Lens
+
+The lens computing OpenCV's `projectPoints` distortion for the coefficient vector
+`c = (k1, k2, p1, p2[, k3[, k4, k5, k6[, s1, s2, s3, s4[, τx, τy]]]])` — 4, 5, 8, 12 or 14 entries, the terms that
+length evaluates (OpenCV's flags), zeros included: on the perspective point, the radial factor
+`(1 + k1r² + k2r⁴ + k3r⁶)/(1 + k4r² + k5r⁴ + k6r⁶)`, the tangential terms and the thin prism summed at one point
+(`Additive`), then the tilted sensor's projective map (`Tilt`). Another length is an `ArgumentError`.
+VisualGeometryToolkitIO's `opencv_coefficients` is its inverse.
+"""
+function opencv_lens(c::AbstractVector{<:Real})
+    n = length(c)
+    n in (4, 5, 8, 12, 14) || throw(ArgumentError("an OpenCV distortion vector has 4, 5, 8, 12 or 14 entries; got $n"))
+    v = float.(c)
+    k = n == 4 ? (v[1], v[2]) : (v[1], v[2], v[5])
+    d = n >= 8 ? (v[6], v[7], v[8]) : ()
+    terms = (Radial(k, d), Tangential(v[3], v[4]))
+    n >= 12 && (terms = (terms..., ThinPrism((v[9], v[10]), (v[11], v[12]))))
+    add = Additive(terms...)
+    return n == 14 ? Lens(Perspective(), Tilt(v[13], v[14]) ∘ add) : Lens(Perspective(), add)
+end
+
+"""
     LiftLens(radial::Radial) <: AbstractLensModel
 
 A backward lens: the image point `x_d` lifts to the ray `(x_d·N(ρ), D(ρ))`,

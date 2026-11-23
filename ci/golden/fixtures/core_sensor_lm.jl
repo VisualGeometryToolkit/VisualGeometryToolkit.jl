@@ -1,5 +1,5 @@
-# Fixtures of Core's noise-model estimators and its device LM: sensor_model_tests' SensorFixtures (copied) and its
-# frames, groups and darks; fit_scale_tests' grids; static_lm_tests' problems, pixel_lm_reference_tests' 1000 seeded
+# Fixtures of Core's noise-model estimators and its device LM: sensor_model_tests' SensorFixtures (its fixture file,
+# test/fixtures/sensor_frames.jl) and its frames, groups and darks; fit_scale_tests' grids; static_lm_tests' problems, pixel_lm_reference_tests' 1000 seeded
 # problems (test/fixtures/pixel_lm/problems.jl, copied), lens_inverse_tests' lenses and points (the lens inverse, a
 # Core caller of static_lm) and a SplineLens camera (the spline projection, the other caller). A test's noise draw is
 # redrawn from StableRNG streams derived from the seed, seeds 1–3, in the test's draw order.
@@ -10,43 +10,11 @@ import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: RawMosaic, sensor_fixture, parse_unit, photosite_colors, IGPrior, CameraModel, KannalaBrandt, px,
     SplineLens, Size2, convert_eltype, Lens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Tilt, Additive
 
-# --- SensorFixtures (sensor_model_tests.jl), verbatim ------------------------------------------------------------
+# --- SensorFixtures' constants and frames (sensor_model_tests.jl): the suite's fixture file -----------------------
 
-const RGGB = UInt8[0 1; 3 2]
-const BLACK = 512.0
-const WHITE = 16383.0
-const K_TRUE = 1.6
-const SIGMA_R = 2.5
-const SIGMA_EFF = sqrt(SIGMA_R^2 + 1 / 12)
-synth_mosaic(raw; black = (BLACK, BLACK, BLACK, BLACK)) =
-    RawMosaic(Matrix{UInt16}(raw), RGGB, black, WHITE, (0, 0), size(raw), (; model = "synthetic"))
-code(rng, offset, pois, σ) =
-    UInt16(clamp(round(offset + (pois === nothing ? 0.0 : rand(rng, pois) / K_TRUE) + σ * randn(rng)), 0, WHITE))
-const LEVELS = [2.0 * 6000.0^((l - 1) / 15) for l in 1:16]
-level_of_column(j) = cld(cld(j, 16), 2)
-function ptc_frame(rng; offset = nothing)
-    H, W = 16 * 16, 32 * 16
-    pois = [Poisson(μ * K_TRUE) for μ in LEVELS]
-    raw = Matrix{UInt16}(undef, H, W)
-    for j in 1:W, i in 1:H
-        raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[level_of_column(j)], SIGMA_R)
-    end
-    return synth_mosaic(raw)
-end
-function scene_frame(rng; levels = LEVELS, light = 1.0, response = nothing, texture = nothing, σ = SIGMA_R, black = BLACK)
-    H, W = 16 * 16, 32 * 16
-    raw = Matrix{UInt16}(undef, H, W)
-    for j in 1:W, i in 1:H
-        μ = light * levels[level_of_column(j)] * (response === nothing ? 1.0 : response[i, j]) *
-            (texture === nothing ? 1.0 : texture[i, j])
-        raw[i, j] = code(rng, black, Poisson(μ * K_TRUE), σ)
-    end
-    return synth_mosaic(raw)
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "sensor_frames.jl"))
 
 const SEC = parse_unit("s")
-rn(σ) = sensor_fixture(; read_noise = (σ, σ, σ, σ)).model.noise
-rse(σ, se) = sensor_fixture(; read_noise = (σ, σ, σ, σ), read_noise_std_error = (se, se, se, se)).model.noise
 gain_response(rng) = [(1 + 0.01 * randn(rng)) * (iseven(i) && isodd(j) ? 1.02 : 1.0) for i in 1:256, j in 1:512]
 const DIM_LEVELS = [2.0 * (1600.0 / 2)^((l - 1) / 15) for l in 1:16]
 const TEXTURE = [1 + 0.1 * sinpi(i / 64) * cospi(j / 96) for i in 1:256, j in 1:512]
@@ -74,9 +42,9 @@ function readnoise_series(seed)
     t1, t2 = 0.01SEC, 0.02SEC
     groups = Dict(t1 => [scene_frame(StableRNG(1000seed + 100 + k); light = k == 2 ? 0.5025 : 0.5, response) for k in 1:4],
                   t2 => [scene_frame(StableRNG(1000seed + 110 + k); light = k == 2 ? 1.005 : 1.0, response, σ = sqrt(SIGMA_R^2 + σd^2)) for k in 1:4])
-    darks = Dict(t1 => rn(SIGMA_EFF), t2 => rn(sqrt(SIGMA_EFF^2 + σd^2)))
-    darks_se = Dict(t1 => rse(SIGMA_EFF, 0.01), t2 => rse(sqrt(SIGMA_EFF^2 + σd^2), 0.01))
-    wrong = Dict(t1 => rn(SIGMA_EFF), t2 => rn(SIGMA_EFF))
+    darks = Dict(t1 => read_noise_model(SIGMA_EFF), t2 => read_noise_model(sqrt(SIGMA_EFF^2 + σd^2)))
+    darks_se = Dict(t1 => read_noise_model(SIGMA_EFF, 0.01), t2 => read_noise_model(sqrt(SIGMA_EFF^2 + σd^2), 0.01))
+    wrong = Dict(t1 => read_noise_model(SIGMA_EFF), t2 => read_noise_model(SIGMA_EFF))
     return (; groups, darks, darks_se, wrong, t1, t2)
 end
 

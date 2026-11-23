@@ -60,6 +60,8 @@ function golden_record()
     return out
 end
 
+include(joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "bracketed.jl"))   # bracketed
+
 # The fixture's source text: every value as its shortest round-tripping literal.
 function _golden_literals(rec)
     io = IOBuffer()
@@ -70,7 +72,7 @@ function _golden_literals(rec)
     println(io, "const DIVISION_SOLVE_GOLDEN_CPU = ", repr(Sys.CPU_NAME))
     println(io, "const DIVISION_SOLVE_GOLDEN = Pair{String, Vector{Float64}}[")
     for (k, v) in rec
-        println(io, "    ", repr(k), " => [", join((repr(x) for x in v), ", "), "],")
+        println(io, "    ", repr(k), " => ", bracketed(repr, v, ", "), ",")
     end
     println(io, "]")
     return String(take!(io))

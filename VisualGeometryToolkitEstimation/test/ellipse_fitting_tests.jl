@@ -17,8 +17,8 @@
     using VisualGeometryToolkitCore: estimate, converged, GaussianShape, ambient_coordinates
     using VisualGeometryToolkitEstimation
 
-    _points(e, n; σ = 0.0, arc = 2π, rng = StableRNG(1)) =
-        [Point2{Float64}(boundary_point(e, φ) + σ * randn(rng, SVector{2})) for φ in range(0, arc, n + 1)[1:(end - 1)]]
+    # `ellipse_boundary_points`: VisualGeometryToolkitCore's test fixture file, shared with the golden records
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "ellipse_points.jl"))
     _chart(e) = VgtkCore.ellipse_log_shape(e)
     # RMS orthogonal distance of `pts` to `e`, by the rows' own foot point
     function _orms(e, pts)
@@ -44,7 +44,7 @@
     end
 
     @testset "noise-free points: the ellipse, to rounding" begin
-        pts = _points(e0, 30)
+        pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 30))
         r = ls(direct_ellipse(pts), pts)
         @test converged(r)
         @test norm(_chart(estimate(r)) - _chart(e0)) < 1.0e-9
@@ -55,19 +55,19 @@
 
     @testset "noisy points: no worse than the algebraic start, better on an arc" begin
         for arc in (2π, π)
-            pts = _points(e0, 60; σ = 0.5, arc)
+            pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 60; σ = 0.5, arc))
             r = ls(direct_ellipse(pts), pts)
             @test converged(r)
             @test _orms(estimate(r), pts) <= _orms(direct_ellipse(pts), pts) + 1.0e-12
             @test r.n == 60
         end
-        pts = _points(e0, 60; σ = 0.5, arc = π)
+        pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 60; σ = 0.5, arc = π))
         @test _orms(estimate(ls(direct_ellipse(pts), pts)), pts) < 0.97 * _orms(direct_ellipse(pts), pts)
     end
 
     @testset "a circle: the chart has no singular point there" begin
         circle = Ellipse(Point2(50.0, 40.0), 10.0, 10.0, 0.0)
-        pts = _points(circle, 40; σ = 0.3)
+        pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), circle, 40; σ = 0.3))
         r = ls(direct_ellipse(pts), pts)
         @test converged(r)
         e = estimate(r)
@@ -75,7 +75,7 @@
     end
 
     @testset "another start value, the same minimum" begin
-        pts = _points(e0, 40; σ = 0.2)
+        pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 40; σ = 0.2))
         r = ls(Ellipse(Point2(118.0, 82.0), 25.0, 15.0, 0.4), pts)
         @test converged(r)
         @test norm(_chart(estimate(r)) - _chart(estimate(ls(direct_ellipse(pts), pts)))) < 1.0e-6
@@ -84,7 +84,7 @@
     @testset "the covariance is calibrated (Monte Carlo NEES ≈ 5)" begin
         # s²·solver_covariance over every point (least squares), s² = RSS/(n − 5), in the ambient coordinates (c, Q)
         nees = map(1:300) do s
-            pts = _points(e0, 60; σ = 0.5, rng = StableRNG(1000 + s))
+            pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1000 + s), e0, 60; σ = 0.5))
             r = ls(direct_ellipse(pts), pts)
             e = estimate(r)
             s² = sum(abs2, r.residuals) / (length(pts) - 5)
@@ -96,7 +96,7 @@
     end
 
     @testset "too few points" begin
-        @test let r = refine_ellipse(e0, _points(e0, 4); optimization_strategy = nothing)
+        @test let r = refine_ellipse(e0, Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 4)); optimization_strategy = nothing)
             retcode_symbol(r) === :degenerate && iterations(r) == 0 && estimate(r) == e0
         end
     end

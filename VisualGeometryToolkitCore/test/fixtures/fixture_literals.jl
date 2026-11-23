@@ -5,7 +5,8 @@
 # environment, which provides StaticArrays.
 lit(x::Float64) = repr(x)
 lit(x::Float32) = repr(x)
-lit(v::AbstractVector) = "[" * join(lit.(v), ", ") * "]"
-lit(v::SVector) = "SVector(" * join(lit.(v), ", ") * ")"
+# (`bracketed`: bracketed.jl, which the including generator includes first)
+lit(v::AbstractVector) = bracketed(lit, v, ", ")
+lit(v::SVector) = bracketed(lit, v, ", "; open = "SVector(", close = ")")
 lit(vs::AbstractVector{<:SVector{2}}) = rows(vs)
-rows(vs) = "[\n        " * join(lit.(vs), ",\n        ") * ",\n    ]"
+rows(vs) = bracketed(lit, vs, ",\n        "; open = "[\n        ", close = ",\n    ]")

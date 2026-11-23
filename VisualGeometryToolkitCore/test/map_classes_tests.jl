@@ -250,7 +250,7 @@ end
 
 # Review finding 1: the class was decided in the conic's own eltype, so a Float32
 # conic at pixel coordinates lost γ to cancellation (51% of 1–10 px blobs in a
-# 4000×3000 image refused, 56% of direct_ellipse fits nothing).
+# 4000×3000 image refused, 56% of DirectEllipse fits nothing).
 @testitem "conic class: Float32 ellipses at pixel coordinates" begin
     using Random, StaticArrays, GeometryBasics
     using VisualGeometryToolkitCore
@@ -262,14 +262,15 @@ end
     @test Ellipse(HomographyMap(SMatrix{3, 3, Float32}(1, 0, 0, 0, 1, 0, 0.5, -0.25, 1))(e)) isa Ellipse{Float32}
     @test Circle(Conic(Circle(Point2f(1000, 800), 2.0f0))) isa Circle
     ring(x) = [Point2f(boundary_point(x, θ)) for θ in range(0, 2π; length = 25)[1:24]]
-    @test direct_ellipse(ring(e)) isa Ellipse{Float32}
+    ellipse_fit(points) = solve(EstimationProblem(Ellipse, points), DirectEllipse()).u
+    @test ellipse_fit(ring(e)) isa Ellipse{Float32}
     rng = Xoshiro(7)
     refused = fitted_nothing = 0
     for _ in 1:2000
         a = Float32(1 + 9rand(rng))
         b = Float32(1 + (a - 1) * rand(rng))
         x = Ellipse(Point2f(4000rand(rng), 3000rand(rng)), a, b, Float32(π * rand(rng)))
-        direct_ellipse(ring(x)) === nothing && (fitted_nothing += 1)   # classified where it is solved
+        ellipse_fit(ring(x)) === nothing && (fitted_nothing += 1)   # classified where it is solved
         # below a 2 px minor axis a Float32 coefficient set itself no longer resolves γ at 4000 px
         b >= 2 && !is_ellipse(Conic(x)) && (refused += 1)
     end
@@ -431,4 +432,41 @@ end
     x = SVector(0.3, 0.4)
     @test fuse(chain)(x) ≈ chain(x)
     @test image_warp(chain, 4) isa BoundedMap   # was a MethodError on _as_homography
+end
+
+@testitem "map storage convert: the frame-tagged maps label, keep their number type, refuse another" begin
+    using Test, StaticArrays, Rotations
+    using VisualGeometryToolkitCore: EuclideanMap, SimilarityMap, RotationMap, HomographyMap, relabel, WorldFrame, CameraFrame,
+        TargetPlaneFrame, PixelFrame
+
+    struct Holder{M}
+        m::M
+    end
+    R = RotXYZ(0.1, 0.2, 0.3)
+    E = EuclideanMap(RotMatrix{3}(R), SVector(1.0, 2.0, 3.0))
+    S = SimilarityMap(2.0, RotMatrix{3}(R), SVector(1.0, 2.0, 3.0); check = false)
+    E32 = EuclideanMap(RotMatrix{3, Float32}(R), SVector(1.0f0, 2.0f0, 3.0f0))
+    S32 = SimilarityMap(2.0f0, RotMatrix{3, Float32}(R), SVector(1.0f0, 2.0f0, 3.0f0); check = false)
+    Rm, Rm32 = RotationMap(RotMatrix{3}(R)), RotationMap(RotMatrix{3, Float32}(R))
+    H = HomographyMap(SMatrix{3, 3}(1.0, 0.1, 0.0, 0.0, 1.1, 0.0, 3.0, 4.0, 1.0))
+    H32 = HomographyMap{3, Float32}(H)
+    for (m, m32) in ((E, E32), (S, S32), (Rm, Rm32))
+        slot = typeof(relabel(WorldFrame, CameraFrame, m))
+        @test convert(slot, m) === relabel(WorldFrame, CameraFrame, m)                       # an unlabeled map is labeled
+        @test_throws MethodError convert(typeof(relabel(CameraFrame, WorldFrame, m)), convert(slot, m))   # never relabeled
+        @test_throws MethodError convert(slot, relabel(WorldFrame, CameraFrame, m32))       # another number type: explicit
+        v = Vector{slot}(undef, 1)
+        @test_throws MethodError (v[1] = m32)                                               # nor by a store,
+        @test_throws MethodError push!(slot[], m32)                                         # a push!,
+        @test_throws MethodError Holder{slot}(m32)                                          # a typed field
+        @test_throws MethodError slot(m32)                                                  # or a constructor
+        v[1] = m
+        @test v[1] === convert(slot, m) && Holder{slot}(m).m === convert(slot, m)           # the same number type is stored (labeled)
+    end
+    # a homography acts on 2-D point frames: the same policy
+    slot = typeof(relabel(TargetPlaneFrame, PixelFrame{:colmap}, H))
+    @test convert(slot, H) === relabel(TargetPlaneFrame, PixelFrame{:colmap}, H)
+    @test_throws MethodError convert(slot, relabel(TargetPlaneFrame, PixelFrame{:colmap}, H32))
+    @test_throws MethodError push!(slot[], relabel(TargetPlaneFrame, PixelFrame{:colmap}, H32))
+    @test_throws MethodError Holder{slot}(relabel(TargetPlaneFrame, PixelFrame{:colmap}, H32))
 end

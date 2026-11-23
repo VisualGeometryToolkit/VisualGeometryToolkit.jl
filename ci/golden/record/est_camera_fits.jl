@@ -13,9 +13,8 @@ using VisualGeometryToolkitEstimation: fit_camera, refine_camera, approximate_ca
     BearingResidual, ReprojectionResidual, held_parameters, RotationCenterViews
 using TOML: TOML
 
-# the configured fit_division_camera EM table at another iteration cap
-ecf_em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path())["fit_division_camera"]["mixture_em"],
-                                                 Dict("max_iter" => max_iter)); section = "fit_division_camera.mixture_em")
+# the configured fit_division_camera EM table at another iteration cap (`em_at`): the suite's fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "division_camera_em.jl"))
 ecf_em() = mixture_em_from_toml(TOML.parsefile(default_config_path())["fit_division_camera"]["mixture_em"]; section = "fit_division_camera.mixture_em")
 
 const ECF_RETIRED = (:free, :fix, :fixed_params, :hold)
@@ -39,7 +38,7 @@ function _record_ecf_lens!(cases)
         case!(cases, "lensfit/$name/linear", (m, region), ((m, region),) -> fit_camera(L, m, region))
         case!(cases, "lensapprox/$name/default", (m, region), ((m, region),) -> approximate_camera(L, m, region))
     end
-    md = (mdiv, ecf_disc(mdiv, rc))
+    md = (mdiv, disc(mdiv, rc))
     case!(cases, "lensfit/KB4_mdiv/weight_image", md, ((m, r),) -> fit_camera(ECF_KB4, m, r; weight = :image))
     case!(cases, "lensfit/KB4_mdiv/weight_solid_angle", md, ((m, r),) -> fit_camera(ECF_KB4, m, r; weight = :solid_angle))
     case!(cases, "lensfit/KB4_mdiv/refused_weight_pixels", md, ((m, r),) -> fit_camera(ECF_KB4, m, r; weight = :pixels))
@@ -47,10 +46,10 @@ function _record_ecf_lens!(cases)
     case!(cases, "lensfit/Division1_mdiv/linear", md, ((m, r),) -> fit_camera(Division{1}, m, r))
     case!(cases, "lensfit/LiftLens_mdiv/refused_no_arity", md, ((m, r),) -> fit_camera(LiftLens, m, r))
     case!(cases, "lensfit/KannalaBrandt_mdiv/refused_no_arity", md, ((m, r),) -> fit_camera(KannalaBrandt, m, r))
-    case!(cases, "lensfit/DECENTERED_mdiv1000/linear", (mdiv, ecf_disc(mdiv, 1000.0)), ((m, r),) -> fit_camera(ECF_DECENTERED, m, r))
+    case!(cases, "lensfit/DECENTERED_mdiv1000/linear", (mdiv, disc(mdiv, 1000.0)), ((m, r),) -> fit_camera(ECF_DECENTERED, m, r))
     synth = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)),
         Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3)))))
-    case!(cases, "lensfit/OPENCV3_decentred_source/stripped", (synth, ecf_disc(synth, 500.0)), ((m, r),) -> fit_camera(ECF_OPENCV3, m, r))
+    case!(cases, "lensfit/OPENCV3_decentred_source/stripped", (synth, disc(synth, 500.0)), ((m, r),) -> fit_camera(ECF_OPENCV3, m, r))
     frame = Rect(0, 0, 4240, 2832)
     case!(cases, "lensfit/KB4_mdiv_frame/linear", (mdiv, frame), ((m, r),) -> fit_camera(ECF_KB4, m, r))
     case!(cases, "lensfit/KB4_mdiv/refused_off_pp_region", (mdiv, Rect(0, 0, 100, 100)), ((m, r),) -> fit_camera(ECF_KB4, m, r))
@@ -70,20 +69,20 @@ function _record_ecf_lens!(cases)
 
     # the linear residual and its refine (camera_verbs: KB4, SC3, Division{2} over the 2000 px disc)
     for (lbl, L) in (("KB4", ECF_KB4), ("SC3", ECF_SC3), ("Division2", Division{2}))
-        region = ecf_disc(mdiv, 2000.0)
+        region = disc(mdiv, 2000.0)
         g = estimate(fit_camera(L, mdiv, region))
         case!(cases, "lensrefine/$(lbl)_mdiv2000/from_linear", (g, mdiv, region), ((g, m, r),) -> refine_camera(g, m, r))
     end
     # the families with no linear form: refused by fit_camera, started from their anchor by approximate_camera
     nolin = ["DSL" => ECF_DSL, "Unified" => typeof(Lens(Unified(0.0))), "ExtendedUnified" => typeof(Lens(ExtendedUnified(0.0, 0.0))),
              "FieldOfView" => typeof(Lens(Perspective(), FieldOfView(0.0))), "TiltRadial" => typeof(Lens(Perspective(), Tilt(0.0, 0.0) ∘ Radial((0.0, 0.0))))]
-    d1500 = (mdiv, ecf_disc(mdiv, 1500.0))
+    d1500 = (mdiv, disc(mdiv, 1500.0))
     for (lbl, L) in nolin
         case!(cases, "lensfit/$(lbl)_mdiv1500/refused_no_linear_form", d1500, ((m, r),) -> fit_camera(L, m, r))
         case!(cases, "lensapprox/$(lbl)_mdiv1500/default", d1500, ((m, r),) -> approximate_camera(L, m, r))
     end
     # refine_camera's keywords: L2 only, no scale input; the retired keyword
-    g = estimate(fit_camera(ECF_KB4, mdiv, ecf_disc(mdiv, 1500.0)))
+    g = estimate(fit_camera(ECF_KB4, mdiv, disc(mdiv, 1500.0)))
     fx = (g, d1500...)
     case!(cases, "lensrefine/KB4_mdiv1500/from_linear", fx, ((g, m, r),) -> refine_camera(g, m, r))
     case!(cases, "lensrefine/KB4_mdiv1500/refused_scale", fx, ((g, m, r),) -> refine_camera(g, m, r; scale = 1.0))
@@ -92,7 +91,7 @@ function _record_ecf_lens!(cases)
     case!(cases, "lensrefine/KB4_mdiv1500/refused_local_optimization", fx, ((g, m, r),) -> refine_camera(g, m, r; local_optimization = nothing))
     # from a perturbed guess (focal × 1.05, coefficients × 0.8 of approximate_camera's optimum)
     for (lbl, L, R) in (("KB4", ECF_KB4, rc), ("SC3", ECF_SC3, rc), ("Division2", Division{2}, 2500.0))
-        region = ecf_disc(mdiv, R)
+        region = disc(mdiv, R)
         best = estimate(approximate_camera(L, mdiv, region))
         p = collect(parameter_vector(lens(best)))
         K = SMatrix{3, 3, Float64}(calibration_matrix(best))
@@ -367,7 +366,7 @@ function _record_ecf_division!(cases)
     case!(cases, "divcam/golden_contaminated/refused_no_image_size", d, ((rc, v),) -> fit_division_camera(rc, v))
     case!(cases, "divcam/golden_contaminated/refused_negative_seed", d, ((rc, v),) -> fit_division_camera(rc, v; image_size = sz, focal_seed = -1.0))
     for mi in (1, 2, 5)
-        case!(cases, "divcam/golden_contaminated/em_max_iter$mi", d, ((rc, v),) -> fit_division_camera(rc, v; image_size = sz, mixture_em = ecf_em_at(mi)))
+        case!(cases, "divcam/golden_contaminated/em_max_iter$mi", d, ((rc, v),) -> fit_division_camera(rc, v; image_size = sz, mixture_em = em_at(mi)))
     end
     case!(cases, "divcam/golden_contaminated/seed1800", d, ((rc, v),) -> fit_division_camera(rc, v; image_size = sz, focal_seed = 1800.0))
     case!(cases, "divcam/golden_contaminated/seed1800_image8000", d, ((rc, v),) -> fit_division_camera(rc, v; image_size = (8000, 6000), focal_seed = 1800.0))

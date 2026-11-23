@@ -5,7 +5,7 @@
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: scoring_workspace, score!, inlier_count, consensus_order, consensus_set,
     consensus_s2, decision_boundary, has_decision_boundary, score_bound, ScoreBuffers, score_model!,
-    lo_workspace, locally_optimize!, LoInfo, FitResult, estimate, mahalanobis_distances!, data_size,
+    lo_workspace, locally_optimize!, LoInfo, FitResult, SolveStats, mahalanobis_distances!, data_size,
     codimension, minimal_sample_size, whitened_residual, mahalanobis_distance, residual_context, model_type,
     check_workspace
 
@@ -15,13 +15,14 @@ using StaticArrays: SVector, MVector, StaticVector
 using LinearAlgebra: norm
 
 function VgtkCore.test_termination_record(r::FitResult)
-    return Test.@testset "termination record: $(nameof(typeof(VgtkCore.metadata(r))))" begin
-        code = Test.@inferred VgtkCore.retcode(r)
+    return Test.@testset "termination record: $(nameof(typeof(r.metadata)))" begin
+        code = r.retcode
         Test.@test code isa VgtkCore.ReturnCode.T
-        rule = Test.@inferred VgtkCore.stop_rule(r)
+        rule = r.stop_rule
         Test.@test rule isa VgtkCore.StopRule
-        Test.@test (Test.@inferred VgtkCore.converged(r)) === VgtkCore.successful_retcode(code)
-        Test.@test r.converged === VgtkCore.converged(r)
+        Test.@test r.stats isa SolveStats
+        Test.@test all(>=(0), (r.stats.nsteps, r.stats.nf, r.stats.njacs, r.stats.nfactors, r.stats.nsolve))
+        Test.@test (Test.@inferred VgtkCore.successful_retcode(r)) === VgtkCore.successful_retcode(code)
         Test.@test (Test.@inferred VgtkCore.retcode_symbol(r)) === VgtkCore.retcode_symbol(code, rule)
     end
 end
@@ -110,11 +111,11 @@ function test_local_optimization_contract(::Type{T}, lo, problem, θ, scoring; a
         end
         r = run()
         Test.@test r isa FitResult{<:Any, LoInfo}
-        Test.@test estimate(r) isa model_type(problem)
+        Test.@test r.u isa model_type(problem)
         VgtkCore.test_termination_record(r)            # the refit's termination record
-        if r.residuals_current
+        if r.metadata.residuals_current
             rr = similar(buf.residuals)
-            mahalanobis_distances!(rr, problem, estimate(r))
+            mahalanobis_distances!(rr, problem, r.u)
             Test.@test rr == buf.residuals
         end
         score_model!(buf, scoring, problem, θ)
@@ -163,3 +164,59 @@ function _norm_matches(r, d, scale)
     isfinite(q) || return !isfinite(d)
     return isfinite(d) && (q == d || isapprox(q, d; rtol = 1.0e-11, atol = 1.0e-14 * scale))
 end
+
+# -----------------------------------------------------------------------------
+# The estimation interface's declarations (stub and docstring: src/quality/contract_helpers.jl)
+# -----------------------------------------------------------------------------
+_concrete(T) = (U = Base.unwrap_unionall(T); U isa DataType && !isabstracttype(U))
+# The kind an algorithm type answers, inferred (`Union{}` when it has none).
+_kind_of(A) = Core.Compiler.return_type(VgtkCore.estimator_kind, Tuple{A})
+# The problem type of a one-argument method signature, and the algorithm type of a two-argument `__solve`.
+_sig_arg(m, k) = Base.rewrap_unionall(Base.unwrap_unionall(m.sig).parameters[k], m.sig)
+
+# Whether two problem types can be the same problem: their kind, model and data parameters each intersect (a
+# parameter's bound, read off the UnionAll: `typeintersect` of whole UnionAlls answers non-empty for disjoint bounds).
+function _param_bound(P, k)
+    U = Base.unwrap_unionall(P)
+    U isa DataType && length(U.parameters) >= k || return Any
+    x = U.parameters[k]
+    return x isa TypeVar ? x.ub : x
+end
+_same_problem(P, Q) = Base.unwrap_unionall(P).name === Base.unwrap_unionall(Q).name &&
+    all(k -> typeintersect(_param_bound(P, k), _param_bound(Q, k)) !== Union{}, 1:2)
+
+function check_algorithm_traits(M::Module)
+    mods = VgtkCore._module_tree(M)
+    out = String[]
+    algs = Set{Any}()
+    for N in mods, n in names(N; all = true)
+        isdefined(N, n) || continue
+        T = getfield(N, n)
+        (T isa Type && T <: VgtkCore.AbstractEstimationAlgorithm && _concrete(T) && parentmodule(Base.unwrap_unionall(T)) in mods) || continue
+        push!(algs, T)
+        hasmethod(VgtkCore.estimator_kind, Tuple{T}) || push!(out, "$(nameof(Base.unwrap_unionall(T))): no estimator_kind method")
+    end
+    # the closed forms of M, by the problem types their __solve methods take
+    closed = [(_sig_arg(m, 2), _sig_arg(m, 3)) for m in methods(VgtkCore.__solve) if parentmodule(m) in mods &&
+              length(Base.unwrap_unionall(m.sig).parameters) == 3 && _kind_of(_sig_arg(m, 3)) === VgtkCore.ClosedFormKind]
+    for m in methods(VgtkCore.default_algorithm)
+        parentmodule(m) in mods || continue
+        length(Base.unwrap_unionall(m.sig).parameters) == 2 || continue
+        P = _sig_arg(m, 2)
+        P === VgtkCore.AbstractEstimationProblem && continue      # the generic no-default error
+        # this method's own inferred result (inference over its signature reaches every applicable method: keep its own)
+        A = Union{(last(r) for r in Base.code_typed_by_type(m.sig; optimize = false) if first(r).parent.def === m)...}
+        K = _kind_of(A)
+        where_ = "default_algorithm($(P)) = $(A)"
+        K === VgtkCore.FindKind && push!(out, "$where_: a find is never a default")
+        which(VgtkCore.supports_solve_rng, Tuple{P, A}).sig == Tuple{typeof(VgtkCore.supports_solve_rng), VgtkCore.AbstractEstimationProblem, Any} ||
+            push!(out, "$where_: a default overrides supports_solve_rng")
+        (K === VgtkCore.RefineKind) == (P <: VgtkCore.RefineProblem) || push!(out, "$where_: a guess is needed exactly for a RefineProblem")
+        (K === VgtkCore.MinimalKind) == (P <: VgtkCore.MinimalProblem) || push!(out, "$where_: a minimal solver exactly for a MinimalProblem")
+        K === VgtkCore.ClosedFormKind || K === VgtkCore.MinimalKind || K === VgtkCore.RefineKind ||
+            any(((Q, B),) -> _same_problem(P, Q), closed) &&
+            push!(out, "$where_: a closed form of $(nameof(M)) solves the same problem")
+    end
+    return out
+end
+

@@ -115,8 +115,6 @@ end
 
 # --- the table ----------------------------------------------------------------
 
-struct _Bool <: _Spec end
-_validate(::_Bool, x, file, at) = (x isa Bool || _refuse(file, at, "expected true or false"); nothing)
 const _ANY_STRING = _Named(_ -> true, "a string")
 _attribute_spec(name) = name in ("float64", "float32") ? _Real() : name == "int" ? _Int() : name == "bool" ? _Bool() :
     name == "string" ? _ANY_STRING : name == "symbol" ? _NonEmpty() : _XY

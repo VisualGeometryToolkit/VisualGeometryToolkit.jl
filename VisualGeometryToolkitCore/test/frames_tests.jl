@@ -260,7 +260,8 @@
             H32 = HomographyMap{3, Float32}(H_PB)
             @test H32 isa HomographyMap{3, Float32, SMatrix{3, 3, Float32, 9}, TargetPlaneFrame, PixelFrame{:colmap}}
             @test H32.forward == SMatrix{3, 3, Float32}(H_PB.forward) && H32.inverse == SMatrix{3, 3, Float32}(H_PB.inverse)
-            @test convert(HomographyMap{3, Float32}, H_PB) == H32
+            @test_throws MethodError convert(HomographyMap{3, Float32}, H_PB)   # a change of precision is explicit, never a store
+            @test_throws MethodError (Vector{HomographyMap{3, Float32}}(undef, 1)[1] = H_PB)
             # a 3D frame cannot label a 3x3 (2D-frame) map
             @test_throws Exception HomographyMap{WorldFrame, CameraFrame}(Ha)
         end

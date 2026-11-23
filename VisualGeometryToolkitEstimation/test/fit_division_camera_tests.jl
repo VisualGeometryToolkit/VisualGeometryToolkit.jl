@@ -13,9 +13,9 @@ using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraError,
 using VisualGeometryToolkitEstimation: fit_division_camera, find_radial_camera, division_camera_step,
     mixture_em_from_toml, default_config_path
 using TOML: TOML
-# the fit's EM table (configs/default.toml [fit_division_camera] mixture_em) at another iteration cap
-em_at(max_iter) = mixture_em_from_toml(merge(TOML.parsefile(default_config_path())["fit_division_camera"]["mixture_em"],
-                                             Dict("max_iter" => max_iter)); section = "fit_division_camera.mixture_em")
+# the fit's EM table at another iteration cap (`em_at`): the suite's fixture file, shared with the golden records
+import VisualGeometryToolkitEstimation as VgtkEstimation
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "division_camera_em.jl"))
 
 
 @testset "fit_division_camera (IRLS on the linear focal stack)" begin

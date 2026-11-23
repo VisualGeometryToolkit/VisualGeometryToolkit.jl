@@ -120,9 +120,8 @@ end
             end
             written("detection.json") do p
                 nan2 = CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))
-                det(x, y, Σ, label, st) = Attributed(Uncertain(PointFrame(x, y), Σ), (; label, window = Point2(round(x), round(y)), F = 0.31, covariance_status = st))
-                save(p, Dict("a.png" => [det(512.25, 300.5, CovMat(SMatrix{2, 2}(0.01, 0.002, 0.002, 0.02)), :corner, :propagated),
-                                         det(80.0, 90.0, nan2, :unknown, :unclassified)]))
+                save(p, Dict("a.png" => [example_detection(512.25, 300.5, CovMat(SMatrix{2, 2}(0.01, 0.002, 0.002, 0.02)), :corner, :propagated),
+                                         example_detection(80.0, 90.0, nan2, :unknown, :unclassified)]))
             end
             written("sensor_characterisation.json") do p                  # every component's body, a dark's rasters, an empty entry
                 s = parse_unit("s"); body = DeviceIdentity("Sony", "ILME-FX3", "5012345")

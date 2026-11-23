@@ -160,8 +160,7 @@ inside a kernel, with no rebuild from the target's parts (the checked
     ComposedTransformation(_with_calibration_parameters(c.t1, θ), _with_calibration_parameters(c.t2, θ))
 @inline _with_calibration_parameters(c::_PlainCalibration, θ) = _PlainCalibration(with_parameters(c.c, θ))
 @inline _with_calibration_parameters(c, θ) = c
-Base.:(==)(a::_PlainCalibration, b::_PlainCalibration) = a.c == b.c
-Base.hash(f::_PlainCalibration, h::UInt) = hash(f.c, hash(:_PlainCalibration, h))
+@fieldwise _PlainCalibration
 # the chart plane in its 3-D frame: (c, 0) — Bool entries, so the lift keeps
 # the point's element type (Float32, Duals)
 const _PLANE_LIFT = CoordinateTransformations.LinearMap(SMatrix{3, 2, Bool}(1, 0, 0, 0, 1, 0))

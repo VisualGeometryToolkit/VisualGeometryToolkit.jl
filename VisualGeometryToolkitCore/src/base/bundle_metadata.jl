@@ -20,8 +20,8 @@ The bundle's scale record (the robust-estimation contract), required: `scale`,
 the noise scale it ran with (a LINEAR scale; `NaN` with `ScaleNone`, plain
 least squares), and `scale_source` ([`ScaleSource`](@ref)), read by
 [`noise_scale`](@ref) and [`scale_source`](@ref). Its termination record is the
-FitResult's core ([`retcode`](@ref), [`stop_rule`](@ref)): build the result as
-`FitResult(estimate, code, rule, iterations, rms, n, metadata)`.
+FitResult's (`retcode`, `stop_rule`): build the result as
+`FitResult(u, code, rule, stats, rms, n, metadata)`.
 """
 struct BundleMetadata{W <: AbstractVector{Float64}}
     weights::W

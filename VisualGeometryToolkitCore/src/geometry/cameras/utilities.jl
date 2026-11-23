@@ -357,61 +357,17 @@ lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <
 # P3P Solver with Correspondences
 # =============================================================================
 
-"""
-    p3p(model::CameraModel, correspondences) -> FixedModels{4, Extrinsics3}
-
-Solve the Perspective-3-Point (P3P) problem using correspondences.
-
-This is a thin wrapper around the core `p3p(rays, X)` solver that accepts
-correspondences directly. It extracts the 3D world points and 2D image points
-from the correspondences, backprojects the image points to rays, and calls
-the core solver.
-
-# Arguments
-- `model::CameraModel`: Camera model for backprojecting image points to rays
-- `correspondences`: Correspondence container with exactly 3 point pairs
-  (3D world → 2D image); any container satisfying the `sources`/`targets`
-  protocol (`Correspondences`, StructArray of Pairs, plain Pair vector)
-
-# Returns
-- `FixedModels{4, Extrinsics3}`: Stack-allocated container of 0–4 rigid poses.
-  Empty (`length == 0`) if no valid solution exists. Iterate with
-  `for ext in result ... end` or `collect(result)`.
-
-# Examples
-```julia
-# Setup camera
-s = sensor("Sony", "IMX174")
-sensor_bounds = Rect(s)
-f = focal_length(s, deg2rad(40.0); dimension=:horizontal)
-pp = centroid(sensor_bounds) .* px
-model = CameraModel(f, s.pitch, pp)
-
-# Create correspondences (3D world points → 2D image points)
-X3 = [Point3(100.0, 100.0, 0.0), Point3(200.0, 150.0, 0.0), Point3(150.0, 200.0, 0.0)]
-u3 = [Point2(640.0, 480.0), Point2(700.0, 500.0), Point2(680.0, 550.0)]
-cs = correspondences(X3, u3)
-
-# Solve P3P — always a FixedModels; empty (length 0) when no valid pose
-result = p3p(model, cs)
-cameras = PosedCamera.(Ref(model), collect(result))
-```
-
-# See Also
-- `p3p(rays, X)`: Core P3P solver that works with rays directly
-- `sample_p3p`: Sample valid camera poses by randomly sampling correspondences
-"""
-function p3p(model::CameraModel, correspondences)
-    length(correspondences) == 3 ||
-        throw(ArgumentError("P3P requires exactly 3 correspondences, got $(length(correspondences))"))
-
-    # Extract 3D world points and 2D image points via the protocol
-    X = sources(correspondences)
-    u = targets(correspondences)
-
-    # Backproject 2D points to normalized rays
-    rays = backproject.(Ref(model), u)
-
-    # Call original P3P solver
+# The camera form of a P3P sample: `solve(MinimalProblem(Extrinsics3, cs, idx, camera), P3P())`, the context a
+# `CameraModel` (or a `BoundedCamera` of one) that back-projects the sample's pixel targets to rays before the kernel
+# (`p3p(rays, X)`): world points => pixels, every pose of the 0–4 the sample admits (`FixedModels{4, Extrinsics3}`,
+# empty when none).
+function __solve(prob::MinimalProblem{<:Any, <:Any, <:Any, <:Union{CameraModel, BoundedCamera{<:CameraModel}}}, ::P3P{NativeSolver})
+    cs, idx = prob.f, prob.sample
+    length(idx) == 3 || throw(ArgumentError("P3P requires exactly 3 correspondences, got $(length(idx))"))
+    u = sources(cs); v = targets(cs)
+    # static Float64 triples, as the bearing form builds them: the sample allocates nothing (a BoundedCamera
+    # back-projects as its camera does)
+    X = SVector{3}(ntuple(k -> SVector{3, Float64}(@inbounds u[idx[k]]), Val(3)))
+    rays = SVector{3}(ntuple(k -> SVector{3, Float64}(backproject(prob.p, @inbounds v[idx[k]])), Val(3)))
     return p3p(rays, X)
 end

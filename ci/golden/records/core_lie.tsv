@@ -1,0 +1,9 @@
+# golden bit records, group core_lie: id	path	type	value
+exp_so3/log_uniform_1e-12_pi_10000/Float64#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [10000]	564e809c274245bb3a105306dba1227b397ac3481b37f7dc1fa345062106e340
+exp_so3/log_uniform_1e-12_pi_10000/Float64		array Base.Vector{StaticArraysCore.SMatrix{3, 3, Float64, 9}} [10000]	c2c839312ab2e39317774500d257e3ca8bfad54ecd625febd82901492c963757
+log_so3/exp_of_log_uniform_1e-12_pi_10000/Float64#fixture		array Base.Vector{StaticArraysCore.SMatrix{3, 3, Float64, 9}} [10000]	c2c839312ab2e39317774500d257e3ca8bfad54ecd625febd82901492c963757
+log_so3/exp_of_log_uniform_1e-12_pi_10000/Float64		array Base.Vector{StaticArraysCore.SVector{3, Float64}} [10000]	585e065ffc16340cc25698f4c5dd7e9f37807a4d78ec2e5190272dc7aae19531
+exp_so3/log_uniform_1e-12_pi_10000/Float32#fixture		array Base.Vector{StaticArraysCore.SVector{3, Float32}} [10000]	dda29968c9a976d653417a3bcf5141d5a6d2dda20c96be4d8e09fffc7254ad8b
+exp_so3/log_uniform_1e-12_pi_10000/Float32		array Base.Vector{StaticArraysCore.SMatrix{3, 3, Float32, 9}} [10000]	1b82a7a836d9d87a63a225b3a9b0920188e8a07889e3dcb4e1227a5a2b4d3ee6
+log_so3/exp_of_log_uniform_1e-12_pi_10000/Float32#fixture		array Base.Vector{StaticArraysCore.SMatrix{3, 3, Float32, 9}} [10000]	1b82a7a836d9d87a63a225b3a9b0920188e8a07889e3dcb4e1227a5a2b4d3ee6
+log_so3/exp_of_log_uniform_1e-12_pi_10000/Float32		array Base.Vector{StaticArraysCore.SVector{3, Float32}} [10000]	63c24a51b792df4c8c19d6db0fa1b584b41b0ab445aeeb9386a12380f36b7570

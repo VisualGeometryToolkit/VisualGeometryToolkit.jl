@@ -44,6 +44,7 @@ import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step
 using Statistics: median                      # MedianError's objective; RobustFit's prior scale
 using Distributions: Gamma, fit_mle, scale, shape   # fit_prior(::InverseGamma, ::MLE)
 using VisualGeometryToolkitCore: IGPrior
+using VisualGeometryToolkitCore: @fieldwise   # field-wise ==, isequal and hash (the spec types, ListedGrid)
 using VisualGeometryToolkitCore.Synthetic: maa_score   # unit_statistics of the mAA criterion
 using ..Stats: finite_median, lower_median, scale_bounds, scene_mean, scene_mean_median, stable_seed,
     eligible_maa                              # the mAA rule (MeanAverageAccuracy's objective)

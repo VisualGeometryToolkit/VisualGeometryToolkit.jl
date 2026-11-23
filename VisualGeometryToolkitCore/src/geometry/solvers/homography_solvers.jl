@@ -487,37 +487,6 @@ end
 # Public: N-Point DLT with Hartley Normalization
 # =============================================================================
 
-"""
-    homography_dlt(cs; mask = nothing, svd_ws = nothing) -> HomographyMat or nothing
-
-Compute a homography from N >= 4 correspondences `cs` (`u₁ => u₂` pairs; any
-[`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref) preferred)
-by the Direct Linear Transform with Hartley normalization.
-
-Per-correspondence weights are the container's `weights` column (set with
-[`withattrs`](@ref)), never a keyword: each weight multiplies its rows'
-squared algebraic residual and the Hartley normalization. When `mask` (a
-`BitVector` or an index list) is given, only those correspondences are used.
-
-# Example
-```julia
-cs = Correspondences(src_pts, dst_pts)
-H = homography_dlt(cs)
-H = homography_dlt(withattrs(cs; weights = [1.0, 0.5, 1.0, 0.8]))
-H = homography_dlt(cs; mask = inlier_mask)
-```
-"""
-function homography_dlt(
-        cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}};
-        mask = nothing, svd_ws = nothing
-    ) where {T}
-    n = length(cs)
-    A = Matrix{T}(undef, 2n, 9)
-    # the one normalization of this estimator: built here, once, from the
-    # data (and its `weights` column); the `!` form only uses it
-    return homography_dlt!(A, CorrespondenceNormalization(HomographyMat, cs; mask), cs; mask, svd_ws)
-end
-
 # One correspondence's two DLT rows in normalized homogeneous points `s`, `d`
 # (row-major vec(H)): `[sᵀ 0 −d₁sᵀ; 0 sᵀ −d₂sᵀ]`. The per-point filler of `_dlt!`.
 Base.@propagate_inbounds function _homography_dlt_rows!(A::AbstractMatrix{T}, r, s, d) where {T}
@@ -585,7 +554,7 @@ _mask_indices(mask::AbstractVector{Bool}) = (i for i in eachindex(mask) if mask[
 
 In-place N-point DLT of the correspondences `cs` using the pre-allocated
 buffer `A` (2N × 9). Weights are the container's `weights` column, as for
-[`homography_dlt`](@ref); inside an LO/IRLS loop set them per iteration with
+[`DLT`](@ref); inside an LO/IRLS loop set them per iteration with
 `withattrs(cs; weights = w)` (no allocation beyond the caller's `w`).
 
 When `mask::BitVector` is provided, only masked points are used and rows are
@@ -937,5 +906,4 @@ end
 
 # --- Correspondence (Pair) overloads ---
 
-@inline constraint_with_jacobians(H::HomographyMat, c::Pair{<:StaticVector{2}, <:StaticVector{2}}) =
-    constraint_with_jacobians(H, c.first, c.second)
+# (the Pair form: one method for H and F, solvers/fundmat.jl)

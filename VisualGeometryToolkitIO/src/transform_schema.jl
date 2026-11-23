@@ -66,13 +66,12 @@ enclosing file's envelope (`write_record` writes it from the style).
 A plain translation is an `ArgumentError` (attach its unit,
 `EuclideanMap(rotation(X), t .* m)`). The inverse is [`pose_from_json`](@ref).
 """
-pose_json(X::_AnyPose, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), X)
+pose_json(X::_AnyPose, unit::_LeafUnit = mm) = _record_in(unit, X)
 
 # The pose record on IO's style (style.jl): the minimal form, a quaternion and a translation.
 JSON.lower(s::VgioStyle, X::EuclideanMap{3}) =
     (rotation = collect(_qvec(X.R)), translation = _lengths_json(X.t, s.length_unit, "a pose's translation"))
-JSON.lower(s::VgioStyle, u::Uncertain{<:EuclideanMap{3}}) =   # the covariance in the storage it holds
-    merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _POSE_COV_DIMS),))
+# (an uncertain pose's record: an uncertain homography's method, captures_schema.jl)
 
 """
     pose_from_json(p, unit::AbstractString) -> EuclideanMap{3} | Uncertain

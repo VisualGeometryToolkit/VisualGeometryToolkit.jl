@@ -590,8 +590,7 @@ end
         K = skew(ω / θ)
         return one(SMatrix{3, 3, eltype(ω)}) + sin(θ) * K + (1 - cos(θ)) * K * K
     end
-    lift(p::StaticVector{2}) = SVector(p[1], p[2], zero(p[1]))
-    lift(p::StaticVector{3}) = SVector(p[1], p[2], p[3])
+    lift = VisualGeometryToolkitCore.Cameras._lift3   # a target point lifted to 3D, as the rig lifts it (rig.jl)
     F = 4
     R0 = [rodrigues(SVector(0.3randn(rng), 0.3randn(rng), 0.3randn(rng))) for _ in 1:F]
     t0 = [SVector(0.05randn(rng), 0.05randn(rng), 0.6 + 0.1rand(rng)) for _ in 1:F]
@@ -846,6 +845,7 @@ end
 end
 
 @testitem "target calibration: a placement — a field on the board's dimensionless chart" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "geometry_helpers.jl"))   # `column3`, `similarity_matrix`, `planar_placement`
     # RadiometricCamera's board warping: a thin-plate height field over the
     # page's chart [0, 1]² (rows down: the design's y reflected), the page a
     # square of side s with its top-left corner at (x0, ytop) in the design
@@ -881,8 +881,7 @@ end
     chart = [SVector(n[1], -n[2]) for n in rc]                     # the chart's nodes, reflected (rows down)
     zc = z ./ s                                                     # heights in chart units
     hf = HeightField(chart, zc)
-    placed(o, side) = SimilarityMap(side, one(RotMatrix{3, Float64}), SVector(o[1], o[2], 0.0))
-    P = placed(SVector(x0, ytop), s)
+    P = planar_placement(SVector(x0, ytop), s)
     bd = Board(Size2(width = s, height = s), SVector(x0, ytop - s))
     design = [SVector(x0 + s * rand(rng), ytop - s * rand(rng)) for _ in 1:40]
     t = PlanarTarget(design; calibration = hf, board = bd, placement = P)
@@ -910,7 +909,7 @@ end
         # the surface's frame is the rigid target's plane
         @test sf.frame == surface(PosedTarget(PlanarTarget(design; board = bd), X))
         # s = 1 and o = 0: the field's own points
-        t1 = PlanarTarget([SVector(0.5, -0.5)]; calibration = hf, placement = placed(SVector(0.0, 0.0), 1.0))
+        t1 = PlanarTarget([SVector(0.5, -0.5)]; calibration = hf, placement = planar_placement(SVector(0.0, 0.0), 1.0))
         @test points(t1) == points(PlanarTarget([SVector(0.5, -0.5)]; calibration = hf))
     end
 
@@ -927,7 +926,7 @@ end
         @test norm(Mc * (sysc.coeff[26:28, :] * zc)) <= 4 * cond(Kc) * eps() * norm(zc)
         # the same chart translated into [0, 1]² (origin at the page's lower-left corner): the same points
         shifted = [SVector(n[1], 1 - n[2]) for n in rc]
-        t2 = PlanarTarget(design; calibration = HeightField(shifted, zc), placement = placed(SVector(x0, ytop - s), s))
+        t2 = PlanarTarget(design; calibration = HeightField(shifted, zc), placement = planar_placement(SVector(x0, ytop - s), s))
         @test parameter_vector(calibration(t2)) == zc
         @test maximum(norm(a - b) for (a, b) in zip(points(t2), points(t))) <= 1.0e-12
     end

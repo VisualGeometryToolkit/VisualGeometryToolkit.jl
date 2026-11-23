@@ -534,21 +534,33 @@ codimension_factor(K::Type{<:AbstractLossShape}, d::Integer) =
 #
 # A loss width takes sigma as an input, and the choice of estimator is
 # the caller's: MAD, RMS, a median of norms, Qn/Sn, an IRLS-updated scale, or a
-# value carried in from calibration (`FixedScale`). `mad_scale` below is the
-# median-of-norms option, provided because it is the one that pairs with the
-# chi lift in `codimension_factor`. It is deliberately UNEXPORTED — call it
-# qualified — so that reaching for it is a
-# decision rather than a default.
+# value carried in from calibration (`FixedScale`). `MedianNormScale` below is
+# the median-of-norms option, provided because it is the one that pairs with
+# the chi lift in `codimension_factor`. It is named explicitly — no problem of
+# a `NoiseScale` declares it a default — so that reaching for it is a decision
+# rather than a default.
 
 """
-    mad_scale(residuals) -> Float64
+    NoiseScale
 
-The robust noise scale σ̂ of residual VECTORS `residuals` (`StaticVector{d}`s,
-`d` read from their type): the median of their norms over the median of `χ_d`,
-`median(‖rᵢ‖) / √quantile(Chisq(d), 0.5)` (the median of `χ²_d`, Distributions'). If `r ~ N(0, σ²I_d)` then `‖r‖/σ ~ χ_d`, so
-dividing the median norm by that distribution's median inverts to `σ`; the
-median gives it 50% breakdown, so the gross errors a loss exists to reject do
-not inflate it as they would an RMS.
+The model TAG of a noise scale σ (LINEAR: σ, not σ²) estimated from residuals:
+`EstimationProblem(NoiseScale, residuals)`, solved by [`MedianNormScale`](@ref). A tag names
+what is estimated where no model type holds it (the estimate is a plain number); it is never
+instantiated. The squared scale's tag is [`SquaredScale`](@ref).
+"""
+abstract type NoiseScale end
+
+"""
+    MedianNormScale()
+
+The robust noise scale σ̂ of residual VECTORS, a [`ClosedFormKind`](@ref):
+`solve(EstimationProblem(NoiseScale, residuals), MedianNormScale())`, `residuals` a vector of
+`StaticVector{d}`s (`d` read from their type), is the median of their norms over the median
+of `χ_d`, `median(‖rᵢ‖) / √quantile(Chisq(d), 0.5)` (the median of `χ²_d`,
+Distributions'), the result's `u` (`n` the residuals, `rms` NaN). If `r ~ N(0, σ²I_d)` then
+`‖r‖/σ ~ χ_d`, so dividing the median norm by that distribution's median inverts to `σ`; the
+median gives it 50% breakdown, so the gross errors a loss exists to reject do not inflate it
+as they would an RMS.
 
 It centres on ZERO — the model — not on the residuals' own median: residuals
 are already deviations from a fitted model, and a norm has no centre to
@@ -558,20 +570,22 @@ subtract. So it measures a BIAS AS NOISE (residuals centred at 0.9 with
 The codimension is part of the estimator: a 2-D residual's norm is Rayleigh,
 its median `1.1774σ`, a scalar residual's `0.6745σ`; reading 2-D norms as
 d = 1 returns 1.745× the true σ, and every downstream width inherits it. A
-scalar residual is a `StaticVector{1}`.
+scalar residual is a `StaticVector{1}`; plain numbers are refused (`MethodError`).
 
-There is no public norms form: a reader of `mad_scale(norms, d)` could not tell
-whether the norms are re-centred. A kernel that truly holds only the norms (an
-angle residual, a lift workspace's norms) calls the stack-internal
+There is no public norms form: a reader of a norms form could not tell whether
+the norms are re-centred. A kernel that truly holds only the norms (an angle
+residual, a lift workspace's norms) calls the stack-internal
 `_mad_scale_norms(; norms, codimension)` (the owner's ruling, 2026-11-11).
 """
-mad_scale(residuals::AbstractVector{<:StaticVector{D}}) where {D} =
-    _mad_scale_norms(; norms = (LinearAlgebra.norm(r) for r in residuals), codimension = D)
+struct MedianNormScale <: AbstractEstimationAlgorithm end
+estimator_kind(::MedianNormScale) = ClosedFormKind()
+__solve(prob::EstimationProblem{NoiseScale, <:AbstractVector{<:StaticVector{D}}, NullParameters}, ::MedianNormScale) where {D} =
+    closed_form_result(_mad_scale_norms(; norms = (LinearAlgebra.norm(r) for r in prob.f), codimension = D), length(prob.f))
 
 # STACK-INTERNAL entry point (not public; VisualGeometryToolkitEstimation calls it
-# qualified, the one sanctioned `_` name it reaches): `mad_scale` of residuals of
+# qualified, the one sanctioned `_` name it reaches): `MedianNormScale`'s scale of residuals of
 # codimension `codimension` given only their NORMS, named at the call so nothing
-# reads as re-centred. Residual vectors go through `mad_scale(residuals)`.
+# reads as re-centred; the inner loops' form. Residual vectors go through `MedianNormScale`.
 _mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(Distributions.quantile(Distributions.Chisq(codimension), 0.5))
 
 # =============================================================================
@@ -610,7 +624,7 @@ inputs.
 
 It is the CALLER's: this package does not estimate it (see `ScaleInterface` in
 robust/estimation.jl for the axis that decides how). From a linear sigma, square
-it at the call: `deploy(shape, mad_scale(residuals)^2; codim = 2)`.
+it at the call: `deploy(shape, solve(EstimationProblem(NoiseScale, residuals), MedianNormScale()).u^2; codim = 2)`.
 
 `efficiency_constant` is the width as a dimensionless multiple of the noise scale,
 defaulting to the shape's efficiency constant at `codim` and overridden by a

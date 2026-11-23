@@ -135,6 +135,7 @@ end
 # (the function this one replaces) on the same pair, MersenneTwister(21),
 # n = 40 correspondences, 4 FundMat models, scales 1/650 and 1/340.
 @testitem "pixel_residuals" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "geometry_helpers.jl"))   # `column3`, `similarity_matrix`, `planar_placement`
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools
@@ -143,7 +144,6 @@ end
 
     rng = MersenneTwister(21)
     n, K = 40, 4
-    sim(s, tx, ty) = SMatrix{3, 3, Float64, 9}(s, 0.0, 0.0, 0.0, s, 0.0, tx, ty, 1.0)
     Kc = SMatrix{3, 3, Float64, 9}(400.0, 0.0, 0.0, 0.0, 400.0, 0.0, 320.0, 240.0, 1.0)
     I3s = SMatrix{3, 3, Float64, 9}(I)
     cs = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
@@ -154,7 +154,7 @@ end
         gt_inliers = falses(n), gt_variance = NaN, source_map = T1, destination_map = T2
     )
 
-    out = pixel_residuals(mk(sim(1 / 650.0, -0.9, -0.7), sim(1 / 340.0, -0.95, -0.65)))
+    out = pixel_residuals(mk(similarity_matrix(1 / 650.0, -0.9, -0.7), similarity_matrix(1 / 340.0, -0.95, -0.65)))
     @test size(out) == (n, K) && eltype(out) == Float32
     @test out[1, :] == Float32[198.04472, 213.90952, 30.329472, 190.538]
     @test out[n, :] == Float32[516.3198, 287.9541, 181.46095, 210.06163]

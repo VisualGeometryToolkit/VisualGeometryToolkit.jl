@@ -122,6 +122,7 @@ end
 # as N0f8), a reshape of one — IS the dense memory: it goes up as it is, with no host copy, then through the one conversion
 # kernel. Bit-identical to the host's `T.(A)`; the host allocates nothing proportional to the image (two sizes compared).
 @testitem "ka_upload: a reinterpreted or reshaped dense image goes up as its memory, no host copy (CUDA availability-gated)" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test
     import KernelAbstractions as KA
     using FixedPointNumbers: N0f8
@@ -160,7 +161,7 @@ end
         # an empty image: nothing to launch
         @test size(Base.invokelatest(ka_upload, Float32, gpu, reinterpret(N0f8, UInt8[]))) == (0,)
         # the device: the host allocates the same at 0.06 and 0.96 Mpx (before: an N0f8 host copy, 1 B/px)
-        dev_allocs(W) = (Base.invokelatest(ka_upload, Float32, gpu, W); @allocated Base.invokelatest(ka_upload, Float32, gpu, W))
+        dev_allocs(W) = warm_allocated(Base.invokelatest, ka_upload, Float32, gpu, W)
         for (Ws, Wl) in zip(views(small), views(large))
             @test dev_allocs(Wl) - dev_allocs(Ws) < (length(Wl) - length(Ws)) ÷ 16
         end

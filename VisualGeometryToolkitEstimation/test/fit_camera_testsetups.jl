@@ -24,8 +24,8 @@ const EQ = typeof(Lens(Equidistant()))
 const pp = (2120.0, 1416.0)                         # a 4240 × 2832 frame's principal point
 const mdiv = CameraModel(; pp, focal = 927.0, lens = Division(-0.3302, -0.0765))   # the hallway-session camera
 const rcorner = hypot(2120.0, 1416.0)               # the farthest sensor point from pp
-disc(m, R) = Ellipse(SVector(calibration_matrix(m)[1, 3], calibration_matrix(m)[2, 3]), R, R, 0.0)
-disc_angle(m, θ) = disc(m, Float64(projected_radius(radial_part(lens(m)), θ)) * calibration_matrix(m)[1, 1])
+import VisualGeometryToolkitEstimation as VgtkEstimation
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "lens_regions.jl"))   # `disc`, `disc_angle`: shared with the golden records
 const mkb = CameraModel(; pp, focal = 600.0, lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
 const msc = CameraModel(; pp, focal = 927.0, lens = Scaramuzza(-0.3302, 0.02, -0.0765))
 const rlit = 927.0 * monotone_radius(mdiv.lens) * 0.97

@@ -99,6 +99,7 @@ end
 # ForwardDiff of the residual, ForwardDiff Duals through the whole path, and no
 # allocation.
 @testitem "sampson_conic_ellipse_rows" setup = [EllipseConstraint] begin
+    using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
@@ -134,9 +135,8 @@ end
     @test all(isfinite, ForwardDiff.gradient(d, θ₀))
     # no allocation
     rows(c, x) = sampson_residual_with_jacobian(c, x)
-    allocs(c, x) = (rows(c, x); @allocated rows(c, x))
-    @test allocs(conic(θ₀), u) == 0
-    @test allocs(E, u) == 0
+    @test warm_allocated(rows, conic(θ₀), u) == 0
+    @test warm_allocated(rows, E, u) == 0
     # a conic's centre is degenerate: the residual's Inf and a zero row
     ctr = SMatrix{2, 2}(θ₀[1], θ₀[2], θ₀[2], θ₀[3]) \ -SVector(θ₀[4], θ₀[5])
     sc, Jc = sampson_residual_with_jacobian(conic(θ₀), ctr)
@@ -147,6 +147,7 @@ end
 # whitened residual and the frozen-whitened model row under ONE factor, the
 # degeneracy rule at the point's rounding scale — what a predictive scorer reads.
 @testitem "whitened_constraint_rows" setup = [ConstraintTuples] begin
+    using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra
@@ -185,9 +186,7 @@ end
     # `whiten`: the identity by dispatch on Σ = I
     s, N = sampson_residual_with_normal(F, u, v)
     @test whiten(s, N, I) === s
-    allocs(s, N, Σ) = (whiten(s, N, Σ); @allocated whiten(s, N, Σ))
-    @test allocs(s, N, Σ) == 0 && allocs(s, N, I) == 0
+    @test warm_allocated(whiten, s, N, Σ) == 0 && warm_allocated(whiten, s, N, I) == 0
     pΣ = CDProblem([(g, G_x, G_θ)], [Σ], [ρ])
-    rows_allocs(p) = (VgtkCore.whitened_constraint_rows(p, nothing, 1); @allocated VgtkCore.whitened_constraint_rows(p, nothing, 1))
-    @test rows_allocs(pΣ) == 0
+    @test warm_allocated(VgtkCore.whitened_constraint_rows, pΣ, nothing, 1) == 0
 end

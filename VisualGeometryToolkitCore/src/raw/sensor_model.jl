@@ -40,7 +40,7 @@
 Where a sensor component's values came from, `SensorSource.T` (an isbits
 `@enum`): `SensorSource.measured` (a record of dark frames, flats or a
 photon-transfer capture), `SensorSource.estimated` (fitted by an estimator,
-[`photon_transfer`](@ref VisualGeometryToolkitCore.photon_transfer), with its standard error), `SensorSource.specified`
+[`PhotonTransfer`](@ref VisualGeometryToolkitCore.PhotonTransfer), with its standard error), `SensorSource.specified`
 (stated by a person: a datasheet, a config, TOML literals) or
 `SensorSource.file` (the RAW file's own metadata: [`FileBlack`](@ref VisualGeometryToolkitCore.FileBlack)'s).
 `string(s)` is its tag (`"measured"`, …). Each present component holds one in
@@ -168,7 +168,7 @@ slot's per-photosite form (D2: all dark information in ONE component):
   (stored in seconds);
 - `frames`, the number of frames averaged (at least 2).
 
-Made by [`master_dark`](@ref) (`SensorSource.measured`). Moved to a device by
+Made by [`MasterDark`](@ref) (`SensorSource.measured`). Moved to a device by
 `Adapt.adapt`, as [`LinearRawView`](@ref) is.
 """
 struct Dark{B <: Union{FileBlack, ChannelBlack}, M <: AbstractMatrix{Float32}} <: BlackComponent
@@ -277,7 +277,7 @@ The Poisson–Gaussian noise: `gain` K, electrons per code (positive, finite), a
 the read noise `σ` per CFA colour index, in codes, the rounding included; a
 photosite's variance about its black-subtracted mean μ (codes) is `μ/K + σ[c+1]²`.
 `std_error` is `(; gain, σ)` (a number and a 4-tuple) or `nothing`. `source` is
-measured, estimated ([`photon_transfer`](@ref)) or specified. Under it a
+measured, estimated ([`PhotonTransfer`](@ref)) or specified. Under it a
 [`LinearRaw`](@ref) image carries each value's variance (an `Uncertain` image).
 """
 struct PoissonGaussian{E <: Union{Nothing, @NamedTuple{gain::Float64, σ::NTuple{4, Float64}}}} <: NoiseComponent
@@ -369,23 +369,13 @@ Adapt.adapt_structure(to, d::DefectList) =
      DefectList{typeof(x), typeof(o)}(x, y, o, d.size, d.source))
 
 # ------------------------------------------------------------------------------
-# Equality and hashing, by every field, named (no reflection: a field added is a line added here)
+# Equality and hashing, by every field (`@fieldwise`); a component compares equal only to a component of its own type
 # ------------------------------------------------------------------------------
 
-_sensor_fields(c::FileBlack) = (c.source,)
-_sensor_fields(c::ChannelBlack) = (c.values, c.std_error, c.source)
-_sensor_fields(c::Dark) = (c.black, c.offset, c.variance, c.exposure_band, c.frames, c.source)
-_sensor_fields(c::Darks) = (c.black, c.darks, c.source)
-_sensor_fields(::NoNoise) = ()
-_sensor_fields(c::ReadNoise) = (c.σ, c.std_error, c.source)
-_sensor_fields(c::PoissonGaussian) = (c.gain, c.σ, c.std_error, c.source)
-_sensor_fields(c::RelativeNoise) = (c.σ_rel, c.source)
-_sensor_fields(::NoDefects) = ()
-_sensor_fields(c::DefectList) = (c.x, c.y, c.onset, c.size, c.source)
 const _SensorComponent = Union{BlackComponent, NoiseComponent, DefectComponent}
-Base.:(==)(a::_SensorComponent, b::_SensorComponent) = typeof(a).name === typeof(b).name && _sensor_fields(a) == _sensor_fields(b)
-Base.isequal(a::_SensorComponent, b::_SensorComponent) = typeof(a).name === typeof(b).name && isequal(_sensor_fields(a), _sensor_fields(b))
-Base.hash(c::_SensorComponent, h::UInt) = hash(_sensor_fields(c), hash(nameof(typeof(c)), h))
+for T in (FileBlack, ChannelBlack, Dark, Darks, NoNoise, ReadNoise, PoissonGaussian, RelativeNoise, NoDefects, DefectList)
+    @eval @fieldwise $T
+end
 
 # ------------------------------------------------------------------------------
 # The characterisation and the model
@@ -433,9 +423,7 @@ function SensorCharacterisation(body::DeviceIdentity; entries)
     end
     return SensorCharacterisation(body, d)
 end
-Base.:(==)(a::SensorCharacterisation, b::SensorCharacterisation) = a.body == b.body && a.entries == b.entries
-Base.isequal(a::SensorCharacterisation, b::SensorCharacterisation) = isequal(a.body, b.body) && isequal(a.entries, b.entries)
-Base.hash(c::SensorCharacterisation, h::UInt) = hash(c.entries, hash(c.body, hash(:SensorCharacterisation, h)))
+@fieldwise SensorCharacterisation
 
 """
     SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent;
@@ -468,10 +456,7 @@ end
 SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent; reason::ModelReason = Matched,
             specified_override::Bool = false) = SensorModel(black, noise, defects, reason, specified_override)
 SensorModel() = SensorModel(FileBlack(), NoNoise(), NoDefects(); reason = NoCharacterisation)
-_sensor_fields(m::SensorModel) = (m.black, m.noise, m.defects, m.reason, m.specified_override)
-Base.:(==)(a::SensorModel, b::SensorModel) = _sensor_fields(a) == _sensor_fields(b)
-Base.isequal(a::SensorModel, b::SensorModel) = isequal(_sensor_fields(a), _sensor_fields(b))
-Base.hash(m::SensorModel, h::UInt) = hash(_sensor_fields(m), hash(:SensorModel, h))
+@fieldwise SensorModel
 Adapt.adapt_structure(to, m::SensorModel) =
     SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.specified_override)
 
@@ -584,7 +569,7 @@ function _frame_black(d::Darks, t)
     return k === nothing ? d.black : d.darks[k]
 end
 # THE band rule of a Darks: the index of the one Dark whose band serves the exposure `t`, or `nothing` (read by
-# `sensor_model` and the series `photon_transfer`).
+# `sensor_model` and the series' `PhotonTransfer`).
 _serving_dark(d::Darks, t) = findfirst(x -> _serves(x, t), d.darks)
 
 # A frame's defects: the sites whose onset is at most the exposure (none: NoDefects).
@@ -599,7 +584,7 @@ end
     sensor_model(characterisation, capture::CaptureSettings, t::Integer) -> SensorModel
 
 THE resolver of frame `t`'s [`SensorModel`](@ref): a LOOKUP (owner ruling D1;
-it never estimates — [`photon_transfer`](@ref) makes an estimated entry
+it never estimates — [`PhotonTransfer`](@ref) makes an estimated entry
 offline). `characterisation` is a [`SensorCharacterisation`](@ref), a vector or
 tuple of them, or `nothing`; the frame's body is `capture.body`, its ISO and
 exposure `capture[t].exposure`.
@@ -653,7 +638,7 @@ function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSetti
 end
 
 # ------------------------------------------------------------------------------
-# What a model gives the one linearisation kernel (LinearRaw, linearview, photon_transfer)
+# What a model gives the one linearisation kernel (LinearRaw, linearview, PhotonTransfer)
 # ------------------------------------------------------------------------------
 
 # The black a photosite's code is taken from: a dark map's offset there, else its channel's constant — THE rule, read

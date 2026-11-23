@@ -368,19 +368,9 @@ using LinearAlgebra: norm
 using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2, Ellipse, CameraCalibrationMat, calibration_matrix,
     estimate, KannalaBrandt, parameter_vector, lens
 using VisualGeometryToolkitEstimation: refine_camera, fit_camera
-export AXIS_PIXEL, folding_source, axis_pixel, order_continuation_kb
-const AXIS_PIXEL = SVector(512.0, 494.0)
-# a SplineLens source of the ray field θof(r) about AXIS_PIXEL (θ scaled by 1 + ε·Δx/480: an azimuthal misfit, as a real
-# lens's decentring), its K re-gauged to the principal point (500, 500), bounded by the disc of 478 px about the axis
-function folding_source(θof; ε = 0.0)
-    c = AXIS_PIXEL
-    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r) * (1 + ε * v[1] / 480);
-              r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
-    grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
-    K0 = calibration_matrix(grid)
-    return BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
-                         Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
-end
+export AXIS_PIXEL, folding_source, theta_fold, theta_collapse, axis_pixel, order_continuation_kb
+import VisualGeometryToolkitEstimation as VgtkEstimation
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "folding_sources.jl"))   # `AXIS_PIXEL`, `folding_source`: shared with the golden records
 axis_pixel(r) = (K = calibration_matrix(estimate(r)); SVector(K[1, 3], K[2, 3]))
 # the stepwise continuation by the public verbs on KannalaBrandt{1…4}: the reference the axis is compared with
 function order_continuation_kb(src, region)
@@ -410,7 +400,7 @@ end
     using VisualGeometryToolkitEstimation: optical_axis
     import VisualGeometryToolkitEstimation as E
     f = 600.0; r0 = 350.0
-    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(25.0) * ((r - r0) / (480 - r0))^3
+    θof(r) = theta_fold(r; turn = deg2rad(25.0), f, r0)
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src)
     # the continuation: the whole region, the 1-term start folding inside it (recorded), the axis from a lower order
@@ -449,7 +439,7 @@ end
     using VisualGeometryToolkitEstimation: optical_axis
     import VisualGeometryToolkitEstimation as E
     f = 600.0; r0 = 350.0
-    θof(r) = r <= r0 ? atan(r / f) : atan(r0 / f) + (r - r0) / f + deg2rad(19.5) * ((r - r0) / (480 - r0))^3
+    θof(r) = theta_fold(r; turn = deg2rad(19.5), f, r0)
     src = folding_source(θof; ε = 0.02)
     part = VgtkCore.imaged_region(src)
     # the premise: the 4-term start folds past the region's widest angle, within the band a refit leaves out, and its
@@ -488,7 +478,7 @@ end
     using VisualGeometryToolkitEstimation: optical_axis
     import VisualGeometryToolkitEstimation as E
     f = 300.0; r0 = 420.0
-    θof(r) = r <= r0 ? r / f : r / f + 0.2 * ((r - r0) / 60)^3
+    θof(r) = theta_collapse(r; f, r0)
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
     # the direct lift: the 1-term linear start, then the 4-term refine at once

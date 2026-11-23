@@ -5,10 +5,10 @@
 # =============================================================================
 #
 # The EM iteration of the mixture alternates:
-#   E-step: soft_posterior_weights!  →  inlier_posterior = P(inlier | r),
+#   E-step: _soft_posterior_weights!  →  inlier_posterior = P(inlier | r),
 #           and the combined weight w = inlier_posterior · u_i / ŝ² (precision-scaled)
 #   M-step: update_scale!  →  ŝ² (ECM), then update_nu!  →  ν
-#           (`next_nu`, Newton MLE for ν at the new ŝ²)
+#           (`_next_nu`, Newton MLE for ν at the new ŝ²)
 #
 # The ν update uses fixed E-step weights (not recomputed), matching the paper's
 # EM derivation and guaranteeing Q-monotonicity.
@@ -31,8 +31,8 @@ the three scalar functions of it — [`inlier_posterior`](@ref),
 functions of a squared residual, callable inside a kernel as VGC's `ρ` is.
 `StudentTMixture{Float32}(m)` converts the constants for a Float32 kernel.
 
-These are THE formulas of the mixture: `soft_posterior_weights!` (the E-step
-over a buffer) and `posterior_weights!`/`posterior_inlier_probs!` (over a
+These are THE formulas of the mixture: `_soft_posterior_weights!` (the E-step
+over a buffer) and `_posterior_weights!`/`_posterior_inlier_probs!` (over a
 partition) build one of these and call the same scalar kernel.
 """
 struct StudentTMixture{T <: AbstractFloat}
@@ -176,7 +176,7 @@ Scalar and kernel-callable.
     -(m.log_mix_out + log1pexp(_log_inlier_density(m, sq_r) - m.log_odds_out))
 
 """
-    soft_posterior_weights!(w, inlier_posterior, sq_distances, ν, s_hat_sq, log_two_outlier_halfwidth, n, d_g=1[, inlier_prior=1/2])
+    _soft_posterior_weights!(w, inlier_posterior, sq_distances, ν, s_hat_sq, log_two_outlier_halfwidth, n, d_g=1[, inlier_prior=1/2])
 
 E-step: compute posterior inlier probability and combined IRLS weight.
 
@@ -193,7 +193,7 @@ The separation is critical: the ν Newton update must use fixed E-step weights
 (not recomputed from the changing ν), otherwise ν and `inlier_posterior`
 couple in a positive feedback loop that drives ν → ∞.
 """
-function soft_posterior_weights!(w::AbstractVector, inlier_posterior::AbstractVector,
+function _soft_posterior_weights!(w::AbstractVector, inlier_posterior::AbstractVector,
                                  sq_distances::AbstractVector,
                                  ν::Float64, s_hat_sq::Float64, log_two_outlier_halfwidth::Float64, n::Int,
                                  d_g::Int = 1, inlier_prior::Float64 = 0.5)
@@ -205,7 +205,7 @@ function soft_posterior_weights!(w::AbstractVector, inlier_posterior::AbstractVe
 end
 
 """
-    next_nu(ν, sq_distances, s_hat_sq, w_fixed, n; d_g=1, kwargs...) -> ν_new
+    _next_nu(ν, sq_distances, s_hat_sq, w_fixed, n; d_g=1, kwargs...) -> ν_new
 
 M-step: Newton update for ν maximizing the EM Q-function with fixed E-step weights.
 
@@ -229,7 +229,7 @@ Up to `max_newton` Newton steps from the current ν, each clamped to
 step is uphill; elsewhere the step is geometric, uphill along the gradient —
 ν ← 2ν if ∂Q/∂ν > 0, ν ← ν/2 otherwise.
 """
-function next_nu(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
+function _next_nu(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
                  w_fixed::AbstractVector, n::Int;
                  d_g::Int = 1, max_newton::Int = 5, ν_min::Float64 = 2.0, ν_max::Float64 = 1.0e4)
     for _ in 1:max_newton
@@ -243,7 +243,7 @@ end
 """
     nu_point_terms(z, ν, ψ_half_νdg, ψ_half_ν; d_g = 1) -> (dq, d2q_data)
 
-One point's terms of [`next_nu`](@ref)'s Q-derivatives at ν (its docstring
+One point's terms of `_next_nu`'s Q-derivatives at ν (its docstring
 states both): `dq` its summand of `∂Q/∂ν` and `d2q_data` the data part of its
 summand of `∂²Q/∂ν²` (the ν-only part is the sum's, `Σwᵢ` times a constant,
 added by [`next_nu_from_sums`](@ref)), at the scale-normalised squared
@@ -251,7 +251,7 @@ residual `z = r²/(ν·ŝ²)`, with `ψ_half_νdg = ψ((ν + d_g)/2)` and
 `ψ_half_ν = ψ(ν/2)` the caller's digammas. Generic in the float type and
 allocation-free: a device kernel sums `wᵢ·dq` and `wᵢ·d2q_data` over its
 points (a workgroup reduction) and hands the sums to `next_nu_from_sums`, the
-same arithmetic as the host loop of `next_nu`.
+same arithmetic as the host loop of `_next_nu`.
 """
 @inline function nu_point_terms(z::T, ν::T, ψ_half_νdg::T, ψ_half_ν::T; d_g::Integer = 1) where {T <: Real}
     dg = T(d_g)
@@ -268,7 +268,7 @@ end
 """
     next_nu_from_sums(ν, dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν; d_g = 1, ν_min = 2, ν_max = 1e4) -> (ν_new, converged)
 
-One safeguarded Newton update of [`next_nu`](@ref) from the reduced sums
+One safeguarded Newton update of `_next_nu` from the reduced sums
 `dQ = Σwᵢ·dqᵢ`, `d2Q_data = Σwᵢ·d2q_dataᵢ` ([`nu_point_terms`](@ref)) and
 `sum_w = Σwᵢ`, with `ψ1_half_νdg = ψ₁((ν + d_g)/2)` and `ψ1_half_ν = ψ₁(ν/2)`
 the caller's trigammas. `∂²Q = sum_w·(¼ψ₁((ν+d)/2) − ¼ψ₁(ν/2) + d/(2ν²)) +
@@ -288,7 +288,7 @@ Generic in the float type, allocation-free: the ν update of a device kernel.
     return clamp(ν_new, T(ν_min), T(ν_max)), abs(dQ / sum_w) < T(1.0e-8)
 end
 
-# The reduced sums of `next_nu`'s Q at ν, and the trigammas its curvature reads:
+# The reduced sums of `_next_nu`'s Q at ν, and the trigammas its curvature reads:
 # (Σwᵢdqᵢ, Σwᵢd2q_dataᵢ, Σwᵢ, ψ₁((ν+d)/2), ψ₁(ν/2)). Points with wᵢ < 1e-15 are
 # skipped, as outliers.
 function _nu_sums(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
@@ -311,7 +311,7 @@ function _nu_sums(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
     return dQ, d2Q_data, sum_w, trigamma((ν + dg) / 2.0), trigamma(ν / 2.0)
 end
 
-# (∂Q/∂ν, ∂²Q/∂ν², Σwᵢ) of `next_nu`'s Q at ν — its docstring states both.
+# (∂Q/∂ν, ∂²Q/∂ν², Σwᵢ) of `_next_nu`'s Q at ν — its docstring states both.
 function _nu_derivatives(ν::Float64, sq_distances::AbstractVector, s_hat_sq::Float64,
                          w_fixed::AbstractVector, n::Int, d_g::Int)
     dQ, d2Q_data, sum_w, ψ1_half_νdg, ψ1_half_ν = _nu_sums(ν, sq_distances, s_hat_sq, w_fixed, n, d_g)

@@ -1,46 +1,59 @@
 # The public pieces VisualGeometryToolkitFeatures' continuous DoG refinement reads (Core 0.9.5): the device LM at static
-# N and its termination record, the cubic B-spline weight derivatives, the 4 × 4 window sweep with second partials, the
+# N (StaticLevenbergMarquardt) and its termination record, the cubic B-spline weight derivatives, the 4 × 4 window sweep with second partials, the
 # truncated interpolation prefilter, and Sylvester's positive-definiteness test at static N.
 
-@testitem "static_lm: N = 3 on a bounded smooth problem; its termination record" begin
+@testitem "StaticLevenbergMarquardt: N = 3 on a bounded smooth problem; its termination record" begin
     using Test, StaticArrays, LinearAlgebra
     import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: solve, RefineProblem, StaticLevenbergMarquardt, successful_retcode
     # r(x) = A·(x − x*) + 0.1·(x − x*).^3: a root at x*, inside the box
     xs = SVector(0.3, -0.2, 0.7)
     A = SMatrix{3, 3}(2.0, 0.3, -0.1, 0.3, 1.5, 0.2, -0.1, 0.2, 1.0)
     fj = x -> (d = x - xs; (A * d + 0.1 .* d .^ 3, A + Diagonal(0.3 .* d .^ 2), :extra))
     lb = SVector(-1.0, -1.0, -1.0); ub = SVector(1.0, 1.0, 1.0); s = SVector(1.0, 1.0, 1.0)
     stops = VgtkCore.StaticLmStops(s; acceptance = 1.0e-20, max_iter = 50)
-    x, ok, J, e, rule = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, ub, stops)
-    @test ok && maximum(abs, x - xs) < 1.0e-9 && e[3] === :extra && rule isa VgtkCore.StopRule
-    @test VgtkCore.static_lm_termination(ok, rule) == (VgtkCore.ReturnCode.Success, rule)
+    lm(f, x₀, lb, ub, stops; kw...) = solve(RefineProblem(f, x₀; lb, ub), StaticLevenbergMarquardt(); stops, kw...)
+    r = lm(fj, zero(SVector{3, Float64}), lb, ub, stops)
+    x, J, e, rule = r.u, r.metadata.jacobian, r.metadata.evaluation, r.stop_rule
+    @test successful_retcode(r) && maximum(abs, x - xs) < 1.0e-9 && e[3] === :extra && rule isa VgtkCore.StopRule
+    @test r.retcode === VgtkCore.ReturnCode.Success && r.stats.nsteps > 0
+    @test J == e[2] && r.n == 3 && r.rms === VgtkCore.rms(e[1]) && r.resid === nothing
+    # the solve IS the kernel, bit for bit, its iteration count returned
+    k = VgtkCore._static_lm(fj, zero(SVector{3, Float64}), lb, ub, stops)
+    @test k[1] === x && k[3] === J && k[5] === rule && k[6] === r.stats.nsteps
+    @test VgtkCore.static_lm_termination(k[2], k[5]) == (r.retcode, r.stop_rule)
     # the root outside the box: the solve ends on the bound, unconverged — MaxIters at the cap, Stalled otherwise
-    x2, ok2, _, _, rule2 = VgtkCore.static_lm(fj, zero(SVector{3, Float64}), lb, SVector(1.0, 1.0, 0.5), stops)
-    @test !ok2 && x2[3] <= 0.5
-    code2, _ = VgtkCore.static_lm_termination(ok2, rule2)
-    @test !VgtkCore.successful_retcode(code2)
+    r2 = lm(fj, zero(SVector{3, Float64}), lb, SVector(1.0, 1.0, 0.5), stops)
+    @test !successful_retcode(r2) && r2.u[3] <= 0.5
     @test VgtkCore.static_lm_termination(false, VgtkCore.IterationCap)[1] == VgtkCore.ReturnCode.MaxIters
     @test VgtkCore.static_lm_termination(false, VgtkCore.IncrementSize)[1] == VgtkCore.ReturnCode.Stalled
+    # an unbounded side (`nothing`) is ±Inf: the same bits as the explicit infinite box
+    inf = SVector(Inf, Inf, Inf)
+    @test solve(RefineProblem(fj, zero(SVector{3, Float64})), StaticLevenbergMarquardt(); stops).u ===
+          VgtkCore._static_lm(fj, zero(SVector{3, Float64}), -inf, inf, stops)[1]
     # Float32 runs in Float32; its step tolerance is the reference's in ulps of Float32 (1e-10·eps(Float32)/eps(Float64),
     # 0.05 relative), so it stops coarser than Float64
     A32 = SMatrix{3, 3, Float32}(A); xs32 = SVector{3, Float32}(xs)
-    x32, _ = VgtkCore.static_lm(x -> (d = x - xs32; (A32 * d, A32)), zero(SVector{3, Float32}),
-        SVector{3, Float32}(lb), SVector{3, Float32}(ub), VgtkCore.StaticLmStops(SVector{3, Float32}(s); acceptance = 1.0f-10, max_iter = 50))
+    x32 = lm(x -> (d = x - xs32; (A32 * d, A32)), zero(SVector{3, Float32}),
+        SVector{3, Float32}(lb), SVector{3, Float32}(ub), VgtkCore.StaticLmStops(SVector{3, Float32}(s); acceptance = 1.0f-10, max_iter = 50)).u
     @test x32 isa SVector{3, Float32} && maximum(abs, x32 - xs) < 0.05
     # THE success rule (the host LM's): an accepted cost is not enough — a point that is not stationary fails. The
     # iteration cap after one step from a far start ends at a cost below a lax acceptance, short of the root.
     lax = VgtkCore.StaticLmStops(s; acceptance = 1.0e3, max_iter = 1)
-    x1, ok1, J1, e1, rule1 = VgtkCore.static_lm(fj, SVector(-0.9, 0.9, -0.9), lb, ub, lax)
+    r1 = lm(fj, SVector(-0.9, 0.9, -0.9), lb, ub, lax)
+    J1, e1 = r1.metadata.jacobian, r1.metadata.evaluation
     F1 = sum(abs2, e1[1]); g1 = J1' * e1[1]
     cosine = maximum(abs(g1[j]) / (norm(J1[:, j]) * sqrt(F1)) for j in 1:3)
-    @test rule1 === VgtkCore.IterationCap && F1 < lax.acceptance
-    @test ok1 == (cosine <= lax.stationarity_tol)              # accepted, and judged by the cosine (F and g far above their floors)
+    @test r1.stop_rule === VgtkCore.IterationCap && F1 < lax.acceptance && r1.stats.nsteps == 1
+    @test successful_retcode(r1) == (cosine <= lax.stationarity_tol)   # accepted, and judged by the cosine (F and g far above their floors)
     # a stationary point that is not accepted (a residual floor above the acceptance) fails too: r = (x − 0.5, 1)
-    x2b, ok2b, _, _, rule2b = VgtkCore.static_lm(x -> (SVector(x[1] - 0.5, 1.0), SMatrix{2, 1}(1.0, 0.0)), SVector(0.0),
-        SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 0.5))
-    @test x2b[1] ≈ 0.5 && !ok2b
-    @test VgtkCore.static_lm(x -> (SVector(x[1] - 0.5, 1.0), SMatrix{2, 1}(1.0, 0.0)), SVector(0.0),
-        SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 2.0))[2]   # the same point, accepted
+    f1 = x -> (SVector(x[1] - 0.5, 1.0), SMatrix{2, 1}(1.0, 0.0))
+    r2b = lm(f1, SVector(0.0), SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 0.5))
+    @test r2b.u[1] ≈ 0.5 && !successful_retcode(r2b)
+    @test successful_retcode(lm(f1, SVector(0.0), SVector(-1.0), SVector(1.0), VgtkCore.StaticLmStops(SVector(1.0); acceptance = 2.0)))   # the same point, accepted
+    # stops are required; a guess of another float type than the stops' is refused
+    @test_throws UndefKeywordError solve(RefineProblem(fj, zero(SVector{3, Float64})), StaticLevenbergMarquardt())
+    @test_throws TypeError solve(RefineProblem(fj, zero(SVector{3, Float32})), StaticLevenbergMarquardt(); stops)
 end
 
 @testitem "cubic_bspline_weight_derivatives, spline_window_sums: the derivatives of the weights and of the window" begin

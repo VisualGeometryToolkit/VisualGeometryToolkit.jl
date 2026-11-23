@@ -88,7 +88,7 @@ end
     VgtkCore.stop_rule(::StopAtIteration, ::Halve) = VgtkCore.CostDecrease
     VgtkCore.block_coordinate_result(s::HalveState, ::Halve{false}, prob, θ, reason, iter, rule) = (; θ, reason, iter, rule)
     VgtkCore.block_coordinate_result(s::HalveState, ::Halve{true}, prob, θ, reason, iter, rule) =
-        FitResult(θ, VgtkCore.retcode_from_symbol(reason, VgtkCore.CostDecrease)..., iter, sqrt(s.cost), 1, (;))
+        FitResult(θ, VgtkCore.retcode_from_symbol(reason, VgtkCore.CostDecrease)..., VgtkCore.SolveStats(; nsteps = iter), sqrt(s.cost), 1, (;))
 end
 
 @testitem "block_coordinate_descent: stopping criteria and the recorder" setup = [HalvingIteration] begin

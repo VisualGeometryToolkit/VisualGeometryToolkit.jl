@@ -1,5 +1,5 @@
 # =============================================================================
-# direct_ellipse — the ellipse-specific algebraic fit (one closed-form step)
+# The ellipse-specific algebraic fit (one closed-form step): DirectEllipse's kernel
 # =============================================================================
 #
 # Fitzgibbon, Pilu & Fisher's direct least-squares ellipse fit in the
@@ -12,24 +12,10 @@
 # The log-shape chart below is the ellipse's minimal parameterization that the
 # refinement and its covariance live in.
 
-"""
-    direct_ellipse(points) -> Ellipse{T} | nothing
-
-The ellipse through the 2-D `points` minimizing the summed squared algebraic
-residual `Σᵢ (xᵢᵀ C xᵢ)²` under the ellipse constraint `4AC − B² = 1`
-(Fitzgibbon, Pilu & Fisher 1999, in the numerically stable form of Halir &
-Flusser 1998), computed in Hartley-normalized coordinates: one closed-form step
-whose solution is always an ellipse. `nothing` when the points admit none (too
-few in general position, e.g. collinear). Throws `ArgumentError` for fewer than
-5 points.
-
-A start value: the algebraic residual weighs points by where they sit on the
-curve. VisualGeometryToolkitEstimation's `refine_ellipse` minimizes the
-orthogonal distance from it.
-"""
-function direct_ellipse(points::AbstractVector{<:StaticVector{2}})
+# Kernel of [`DirectEllipse`](@ref), whose docstring is the one copy of its documentation: `_direct_ellipse(points) -> Ellipse{T} | nothing`.
+function _direct_ellipse(points::AbstractVector{<:StaticVector{2}})
     n = length(points)
-    n >= 5 || throw(ArgumentError("direct_ellipse requires at least 5 points, got $n"))
+    n >= 5 || throw(ArgumentError("DirectEllipse requires at least 5 points, got $n"))
     T = float(eltype(eltype(points)))
     pts = [SVector{2, T}(p[1], p[2]) for p in points]
     N = AffineMap(HartleyNormalization(), pts)

@@ -42,6 +42,7 @@
 
 include(joinpath(@__DIR__, "corpus.jl"))
 using .ChainEquivalenceCorpus
+include(joinpath(@__DIR__, "..", "..", "fixtures", "bracketed.jl"))   # bracketed (core_values.jl)
 include(joinpath(@__DIR__, "core_values.jl"))
 include(joinpath(@__DIR__, "io_values.jl"))
 using StableRNGs: StableRNG

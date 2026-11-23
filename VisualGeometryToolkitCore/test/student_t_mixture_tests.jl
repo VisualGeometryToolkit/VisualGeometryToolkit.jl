@@ -1,8 +1,8 @@
 # `StudentTMixture` — the scalar E-step: one Student-t + uniform mixture, one
 # squared residual. `inlier_posterior`, `posterior_weight` and `mixture_nll` are
 # plain allocation-free functions (callable inside a KernelAbstractions kernel),
-# and every vector path — `soft_posterior_weights!`, `posterior_weights!`,
-# `posterior_inlier_probs!` — calls the same per-point kernel.
+# and every vector path — `_soft_posterior_weights!`, `_posterior_weights!`,
+# `_posterior_inlier_probs!` — calls the same per-point kernel.
 
 @testitem "student_t_mixture" setup = [ScaleOracles] begin
     using Test, Random
@@ -10,7 +10,7 @@
     using KernelAbstractions: @kernel, @index, @Const
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, mixture_nll,
-        posterior_weight_derivative, soft_posterior_weights!, GauInlier, decision_boundary,
+        posterior_weight_derivative, _soft_posterior_weights!, GauInlier, decision_boundary,
         PosteriorWeightState, JeffreysPrior, update_inlier_prior!
 
     # The mixture from its definition in probability space (Distributions' Student-t).
@@ -43,7 +43,7 @@
 
             # the vector E-step is the scalar one, bit for bit
             n = length(sq_r); w = zeros(n); p = zeros(n)
-            soft_posterior_weights!(w, p, sq_r, ν, s2, log(2 * halfwidth), n, dg, πin)
+            _soft_posterior_weights!(w, p, sq_r, ν, s2, log(2 * halfwidth), n, dg, πin)
             @test w == posterior_weight.(Ref(m), sq_r)
             @test p == inlier_posterior.(Ref(m), sq_r)
 
@@ -123,9 +123,9 @@ end
 @testitem "student_t_mixture: non-finite residuals" begin
     using Test, Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, soft_posterior_weights!,
+    using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, _soft_posterior_weights!,
         PosteriorWeightState, JeffreysPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
-        posterior_weights!, posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll
+        _posterior_weights!, _posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll
     const VGC = VisualGeometryToolkitCore
 
     mixtures = [StudentTMixture(ν, s2, log(2 * hw), dg, πin)
@@ -176,7 +176,7 @@ end
         for bad in (NaN, Inf), dg in (1, 2)
             sq = copy(base); sq[[4, 17]] .= bad
             w = fill(-1.0, n); p = fill(-1.0, n)
-            soft_posterior_weights!(w, p, sq, 6.0, 0.05, log(20.0), n, dg)
+            _soft_posterior_weights!(w, p, sq, 6.0, 0.05, log(20.0), n, dg)
             @test w[[4, 17]] == [0.0, 0.0] && p[[4, 17]] == [0.0, 0.0]
             m = StudentTMixture(6.0, 0.05, log(20.0), dg)
             keep = setdiff(1:n, [4, 17])
@@ -198,10 +198,10 @@ end
 
     # The partition mixture's weights: a datum outside the partition with a NaN
     # residual weighs 0, as an Inf one does.
-    @testset "posterior_weights!, posterior_inlier_probs!" begin
+    @testset "_posterior_weights!, _posterior_inlier_probs!" begin
         sq = [0.01, 0.04, 0.02, 0.03, 0.05, 0.015, NaN, Inf, 9.0]
         order = [1, 6, 3, 4, 2, 5, 9, 8, 7]
-        for f! in (posterior_weights!, posterior_inlier_probs!)
+        for f! in (_posterior_weights!, _posterior_inlier_probs!)
             w = f!(fill(-1.0, 9), sq, order, 6; model_dof = 2, log_two_outlier_halfwidth = log(20.0),
                    prior = JeffreysPrior())
             @test w[7] === 0.0 && w[8] === 0.0

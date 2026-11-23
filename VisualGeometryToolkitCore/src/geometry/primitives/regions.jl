@@ -57,8 +57,7 @@ struct RegionIntersection{A, B}
     b::B
 end
 # Equal parts, equal intersections (a part holding an array — a PolygonRegion — compares by value, not identity).
-Base.:(==)(s::RegionIntersection, t::RegionIntersection) = s.a == t.a && s.b == t.b
-Base.hash(s::RegionIntersection, h::UInt) = hash(s.b, hash(s.a, hash(:RegionIntersection, h)))
+@fieldwise RegionIntersection
 
 """
     WholePlane()

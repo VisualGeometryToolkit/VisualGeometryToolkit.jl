@@ -27,8 +27,9 @@ catch e
     sprint(showerror, e)
 end
 # a record as a canonical text: keys sorted, numbers by repr
-canonical(x::AbstractDict) = "{" * join([repr(String(k)) * ":" * canonical(x[k]) for k in sort(collect(keys(x)); by = String)], ",") * "}"
-canonical(x::AbstractVector) = "[" * join(canonical.(x), ",") * "]"
+# (`bracketed`: test/fixtures/bracketed.jl, included before this file)
+canonical(x::AbstractDict) = bracketed(k -> repr(String(k)) * ":" * canonical(x[k]), sort(collect(keys(x)); by = String), ","; open = "{", close = "}")
+canonical(x::AbstractVector) = bracketed(canonical, x, ",")
 canonical(x::Real) = repr(Float64(x))
 canonical(x) = repr(x)
 

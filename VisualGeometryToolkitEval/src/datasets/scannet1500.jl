@@ -52,7 +52,4 @@ function _load_scannet1500_depths(root::AbstractString, scene::AbstractString,
 end
 
 stereo_pairs(ds::ScanNet1500) = scannet1500_pairs(ds.root)
-function load_validation_data(ds::ScanNet1500, p::NamedTuple, correspondences)
-    depth_src, depth_tgt = _load_scannet1500_depths(ds.root, p.scene, p.source_name, p.target_name)
-    return (; rig = p.rig, correspondences, depth_src, depth_tgt)
-end
+_load_depths(ds::ScanNet1500, p::NamedTuple) = _load_scannet1500_depths(ds.root, p.scene, p.source_name, p.target_name)   # load_validation_data: seven_scenes.jl

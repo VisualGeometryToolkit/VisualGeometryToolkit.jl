@@ -11,7 +11,7 @@
 max_iter = 25
 
 # The stack's Levenberg–Marquardt stop settings, their ONE owner (src/robust/lm_core.jl: `LmStops`, which
-# every host fit hands to `lmsolve_chart!`, and `StaticLmStops`, the device LM `static_lm`'s). A fit overrides a
+# every host fit hands to `lmsolve_chart!`, and `StaticLmStops`, the device LM `StaticLevenbergMarquardt`'s). A fit overrides a
 # value only from its own configuration table, never with a literal.
 [lm]
 # The iteration cap: accepted iterations (NLLSsolver's outer iterations, one ACCEPTED step each; an iteration's
@@ -39,7 +39,7 @@ xtol_rel = 0.0
 # the two stall reproductions of the suite (a wrong-sign Jacobian, a NaN wall) 1.0. The value sits in the gap
 # between the last two.
 stationarity_tol = 0.05
-# The device LM's (`static_lm`) iteration cap: the spline lenses' projection and the mapped surfaces' ray hit
+# The device LM's (`StaticLevenbergMarquardt`) iteration cap: the spline lenses' projection and the mapped surfaces' ray hit
 # (the reference routine's 100).
 device_max_iter = 100
 # The device LM's acceptance, the cost a solution must be below besides being stationary: `inf` — success by the
@@ -47,7 +47,7 @@ device_max_iter = 100
 # lens inverse, a ray hit) and gives its own bound.
 device_acceptance = inf
 
-# The photon-transfer estimators' default family-wise significance (src/raw/sensor_estimators.jl: `photon_transfer`'s
+# The photon-transfer estimators' default family-wise significance (src/raw/sensor_estimators.jl: `PhotonTransfer`'s
 # `significance`): one frame's μ² test level; the series' range searches' Bonferroni family (each test at
 # significance / m). 0.001: a correct estimator is refused, or a range cut short, once in a thousand data sets.
 [photon_transfer]

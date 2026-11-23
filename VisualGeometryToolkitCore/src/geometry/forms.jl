@@ -578,7 +578,8 @@ end
     return hcat(cols...)
 end
 # On bearings the constraint reads the back-projection Jacobians per element.
-constraint_keywords(::TransferForm, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
+# (an essential matrix's too, solvers/fundmat.jl)
+constraint_keywords(::Union{TransferForm, EssentialMat}, xs::AbstractVector{<:Pair{<:StaticVector{3}, <:StaticVector{3}}}) =
     (; M₁ = _required_column(xs, :M₁), M₂ = _required_column(xs, :M₂))
 
 # -----------------------------------------------------------------------------

@@ -234,10 +234,20 @@ public tps_evaluate, tps_gradient, nodal_weights, bending_energy, bending_factor
 # Coordinate conversions
 export to_homogeneous, to_affine, to_euclidean, affine_part
 public saturation_bounds
-export FitResult, BundleMetadata
-export estimate, retcode, converged, iterations, rms, metadata, weights, dof
-public nested_metadata   # contract generic: a metadata type lists its nested metadata fields
+export FitResult, BundleMetadata, SolveStats   # the solution of every estimation problem (read by field: r.u, r.retcode, r.stats.nsteps, …) and its work counters
+export rms, weights, dof   # the rms computation; the cross-type contract quantities a result answers through its metadata
 public map_estimate   # a result with its estimate mapped, the rest as it was
+# The estimation interface (base/solve_interface.jl): SciML's problem + algorithm, CommonSolve's verbs.
+export AbstractEstimationProblem, EstimationProblem, RefineProblem, MinimalProblem, NullParameters
+export AbstractEstimationAlgorithm, ClassDefault
+export solve, init, solve!   # CommonSolve's solve/init/solve! (Core owns their methods on its problems)
+public reinit!               # a cache's reinit!: public, not exported (SciMLBase exports its own)
+public EstimationCache   # what init returns: the algorithm's cache with its problem and algorithm
+export EstimatorKind, MinimalKind, ClosedFormKind, FitKind, FindKind, RefineKind   # the kinds of estimation algorithm
+public __solve, __init   # the extension points: a package adds methods for its own algorithm types
+public estimator_kind, default_algorithm, supports_solve_rng   # the contract generics of an algorithm and a problem type
+public needs_initial_model, decides_inliers   # the kind's readings
+public check_kind, with_problem, closed_form_result   # the kind law; the front end's record of problem and algorithm; a closed form's result
 public homogeneous_w, maps_within
 
 
@@ -268,7 +278,7 @@ public free_names   # a LensSpec's free coefficients (not exported: a calibrator
 export division_bounded, undistorted_rect, valid_rect, horizon_radius, fov_radius
 export radial_homography   # a target homography seen through a projective division camera (camera_models.jl)
 public DEFAULT_MAX_FOV
-export zhang_intrinsics, RadialCamera5pt, RadialCamera  # calibration.jl
+export Zhang, RadialCamera5pt, RadialCamera  # calibration.jl
 public radial_camera_5pt   # the positional minimal kernel under RadialCamera5pt (public, not exported)
 public radial_rows   # RadialCamera's rows accessor
 # The double-sphere model (0.14): central scalar lens, closed-form inverse,
@@ -375,7 +385,8 @@ export default_spline_grid  # the reference's control grid of an area
 public direction_tangents   # a direction's tangent basis: the chart a direction control moves in
 public ControlPatchManifold   # a block of a spline lattice's controls as a Manifold: the per-tile refinement's variable
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
-public static_lm, static_lm_termination   # the one device-side (KernelAbstractions-lawful) LM at static N, and its termination record
+export LevenbergMarquardt, StaticLevenbergMarquardt   # the one host LM (NLLSsolver) and the one device-side (KernelAbstractions-lawful) LM at static N (robust/lm_core.jl)
+public static_lm_termination   # the device LM's termination record
 public cubic_bspline_weight_derivatives   # their first and second derivatives in the local coordinate (kernel-lawful)
 public cubic_bspline_prefilter_taps   # the cubic B-spline interpolation prefilter, truncated: a local filter a kernel applies
 public spline_window_sums   # the one 4 × 4 cubic B-spline window sweep: the value, its partials and second partials (kernel-lawful)
@@ -433,8 +444,8 @@ public component_sources                           # a SensorModel's provenance:
 public linear_quantum                              # one RAW code in a linear view's units, per photosite: 1/(white − black[c])
 public value_variance                              # the noise law's variance of a linear value at a photosite (a censored one's at the white level)
 public Darks, defect_mask                          # the black slot's Darks: one Dark per exposure band (0.10.3); the defect slot as a mask over the visible raw
-export photon_transfer, master_dark, defect_onsets # the estimators (raw/sensor_estimators.jl): a FitResult of a measured PoissonGaussian (one frame, scheduled for removal: an estimated one); a Dark and ReadNoise; masks into a DefectList
-public PhotonTransferMetadata                      # photon_transfer(groups, darks)'s FitResult metadata: the range fitted, the intercept, the μ² test
+export PhotonTransfer, MasterDark, defect_onsets   # the estimators (raw/sensor_estimators.jl): a FitResult of a measured PoissonGaussian (one frame, scheduled for removal: an estimated one); a Dark and ReadNoise; masks into a DefectList
+public PhotonTransferMetadata                      # the photon-transfer series' FitResult metadata: the range fitted, the intercept, the μ² test
 public NoiseEstimateFailed                         # the estimators' failure
 
 # -----------------------------------------------------------------------------
@@ -477,6 +488,10 @@ public canonical_json   # the canonical JSON of a lowered tree (sorted keys, sho
 public sha256_hex    # lower-case hex SHA-256 of a string's bytes, a byte vector or a stream (a file: `open(sha256_hex, path)`)
 public RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (base/utils.jl)
 public require_extension   # the one check for a package extension a call needs: its message, or the MethodError (base/utils.jl)
+public @fieldwise   # field-wise ==, isequal and hash of a plain value type, together (base/utils.jl)
+public opencv_lens   # OpenCV's distortion vector as its lens (cameras/lenses.jl; VisualGeometryToolkitIO's opencv_coefficients is its inverse)
+public resize_buffers!   # every buffer of a workspace resized to n (base/utils.jl)
+public checked_float   # a configuration value's held number, checked once (base/utils.jl)
 # FileCache moved to VisualGeometryToolkitFeatures
 
 # Serialization traits (DimTrait, canon_value, etc.) moved to VisualGeometryToolkitFeatures
@@ -537,13 +552,14 @@ public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, m
     residual_context, whitened_residual, observation_covariance, solver_covariance, provides_solver_covariance,
     refine!, refine_workspace
 # The robust-statistics toolkit.
-public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, fit_scale, partition_student_t, partition_rss, weighted_rss,
+export ScaleMAP, SquaredScale   # the inverse-gamma MAP of a squared scale, and its model tag (robust/scale.jl)
+public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss, weighted_rss,
     weighted_sq, square_distances!, StudentTMixture, inlier_posterior, posterior_weight,
-    posterior_weight_derivative, mixture_nll, next_nu, nu_point_terms, next_nu_from_sums, soft_posterior_weights!,
+    posterior_weight_derivative, mixture_nll, nu_point_terms, next_nu_from_sums,
     PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
-    update_inlier_prior!, mixture_ecm!, median_seeded_posterior, posterior_inlier_probs!,
-    posterior_weights!, GauInlier, truncated_log_normaliser
+    update_inlier_prior!, mixture_ecm!, median_seeded_posterior,
+    GauInlier, truncated_log_normaliser
 # The scoring contract and the baseline scorers.
 public scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
     has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
@@ -569,7 +585,7 @@ public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
 public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)
 # The contract conformance helpers (ext/VisualGeometryToolkitCoreTestExt with Test).
-public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract, test_termination_record
+public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract, test_termination_record, check_algorithm_traits
 # The MAP inlier rule on a posterior membership weight (posterior > ½), the one
 # definition every posterior decision in the stack calls.
 export is_map_inlier
@@ -608,7 +624,8 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
     ScaleInput, scale_input
 # The termination record of every fit (base/return_code.jl): the verdict, a `ReturnCode.T` (SciMLBase's
 # names and success rule, matched without the dependency), and the rule that fired, a `StopRule`.
-public ReturnCode, successful_retcode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
+export successful_retcode   # the success test of a result or a return code (SciMLBase's)
+public ReturnCode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
     ParameterChange, NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap,
     NonFinite, Callback, TrialBudget, AdaptiveCount, SeedKept, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
@@ -619,7 +636,7 @@ public LOSS_TAGS, STRATEGY_TAGS, strategy_loss, lo_loss, fixed_width, lo_width_v
     lo_tag, lo_defaults, lo_parametric, lo_admits, lo_key, lo_field, lo_field_from_toml, lo_absent, lo_validate,
     lo_construct, lo_efficiency_constant_shape, lo_has_default, lo_takes_width, @lo_registry
 public WeightKind, BinaryWeights, PosteriorWeights, IrlsWeights, weight_kind, unit_weights
-public mad_scale     # the robust noise scale of residual vectors, median(‖r‖) / √quantile(Chisq(d), 0.5), centred on the model
+export MedianNormScale, NoiseScale   # the robust noise scale σ of residual vectors, median(‖r‖) / √quantile(Chisq(d), 0.5), centred on the model, and its model tag
 # A DEPLOYED loss carries the width it runs at as `efficiency_constant` (the multiple
 # of the noise scale) and `s2` (noise VARIANCE, always supplied by the caller);
 # `AnyLoss` is either a deployed loss or an annealed one, and is what the
@@ -719,7 +736,7 @@ public check_splat, SplatViolation
 # The stack's shared test helpers (ext/VisualGeometryToolkitCoreTestExt with Test;
 # test_quality_gates in ext/VisualGeometryToolkitCoreQualityExt with Test, Aqua,
 # ExplicitImports and JET): every stack package's tests call them qualified.
-public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, test_quality_gates, sensor_fixture,
+public rows_cost, check_rows_jacobian, test_naming, test_duplication, test_splat, test_docs, thrown_message, warm_allocated, sum_first_components, test_quality_gates, sensor_fixture,
     test_recorded, RECORDED_NESTED_STATES   # a Recorded block-coordinate run is the bare run
 # The README's examples, run as a reader runs them (the same extension): every stack package's readme test.
 public ReadmeExample, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
@@ -731,23 +748,25 @@ public sqrt_weights   # its √weight buffer
 # -----------------------------------------------------------------------------
 # Solver layer (#21): the normalizations (strategies and CorrespondenceNormalization), the
 # minimal-solver protocol, registry.
-# `solve(solver, cs, idx)` (FixedModels) is THE minimal protocol; the one-step
-# solvers are called by their algorithm names (`homography_dlt(cs)`).
+# `solve(MinimalProblem(M, cs, idx), solver)` (FixedModels) is THE minimal protocol; the one-step
+# solvers are closed-form algorithms (`solve(EstimationProblem(HomographyMat, cs), DLT())`, geometry/solvers/closed_forms.jl).
 public CorrespondenceNormalization, source_map, destination_map   # a correspondence set's normalization as a value (models move by ∘ with its sides)
 export HartleyNormalization, DiagonalNormalization   # normalization strategies, applied as AffineMap(strategy, points)
 export MinimalSolver, model_type
 public sample_size
 public max_solutions
-export solve
 export Homography4pt, Homography5ptRadial, Fundamental7pt, Essential5pt, P3P
-export Rotation2pt   # the 2-point rotation of bearing pairs (kabsch on the minimal sample)
+export Rotation2pt   # the 2-point rotation of bearing pairs (Kabsch on the minimal sample)
 export Circle3pt    # the circle through three points (the circumcircle)
 export Ellipse5pt   # the ellipse through five points (the conic, when it is an ellipse)
 # Public, not exported (2026-09-15 audit): the solver registry is consumed only by tests.
 public minimal_solvers, minimal_solver, induced_models
 
+# The closed-form algorithms (geometry/solvers/closed_forms.jl): one deterministic step each
+export DLT, Kabsch, ChordalMean, SpectralAveraging, AbsoluteRotations, TotalLeastSquares, DirectEllipse, NearestPoint, Triangulation
+
 # Homography solvers
-export homography_dlt, homography_dlt!
+export homography_dlt!   # the DLT's inner-loop form on a caller's buffer and normalization
 public homography_4pt   # positional minimal kernel under Homography4pt (public, not exported)
 export RadialHomography, AbstractRadialModel
 public homography_5pt_radial   # positional minimal kernel under Homography5ptRadial
@@ -773,17 +792,13 @@ public dlt_conditioning, test_dlt_conditioning   # the DLT DESIGN matrix: its nu
 public test_sample, test_consensus, assert_unit_bearings
 
 # Fundamental matrix solvers
-export fundamental_dlt, fundamental_dlt!
+export fundamental_dlt!   # the DLT's inner-loop form on a caller's buffer and normalization
 public fundamental_7pt   # positional minimal kernel under Fundamental7pt
-export tls_line                   # the total-least-squares line with its (φ, d) covariance
-export nearest_point              # the least-squares point nearest to N lines (origin => direction pairs)
-export direct_ellipse             # the ellipse-specific algebraic fit (Halir–Flusser), one closed-form step
 public ellipse_log_shape, ellipse_from_log_shape   # the ellipse log-shape chart (cx, cy, S₁₁, S₁₂, S₂₂)
-public tls_line_statistics        # the same step's line, weighted residual sum and (φ, d) information
+public tls_line_statistics        # TotalLeastSquares' line, weighted residual sum and (φ, d) information
 export sampson_distance, sampson_residual, mahalanobis_distance   # geometric (Sampson) and noise-whitened distances
 public sampson_residual_with_normal   # the Sampson residual and its normal basis: what `whiten` takes
 public constraint   # g alone: the `<f>` of `constraint_with_jacobians` (algebraic, not a distance)
-export triangulate   # ray-domain triangulation: the point AND both ray depths (cheirality is λ > 0, not z > 0)
 public constraint_rounding_scale   # a model's rounding scales at an observation: what the Sampson degeneracy rule reads
 public sampson_residual_with_jacobian, observation_gradient_jacobian   # the Sampson residual's exact model Jacobian and the model protocol it reads
 public sampson_residuals!, whitened_residuals!, sampson_jacobian_rows!, whitened_jacobian_rows!   # over an observation set (columns: noise, keywords; unweighted): one KA kernel each
@@ -811,10 +826,10 @@ export translation_angle, angle_between, skew   # angle_between(u, v): the well-
 export exp_so3, log_so3, left_jacobian, exp_se3, log_se3
 public reproject_so3   # a drifted rotation matrix back on SO(3), by its unit quaternion (the charts' one re-anchoring)
 public SO3        # group tag: the type-argument slot of left_jacobian(SO3, ω)
-export kabsch, chordal_mean, spectral_rotation_averaging, mirror   # SO(3) projection is Rotations.nearest_rotation
+export mirror   # SO(3) projection is Rotations.nearest_rotation
 
 # PoseLib-only solvers (no native VGC implementation)
-export essential_dlt
+public essential_8pt   # the 8-point kernel under DLT(PoseLibSolver()) on an essential matrix
 public essential_5pt   # positional minimal kernel under Essential5pt
 
 # NOTE: fit_line, LineFitResult moved to VisualGeometryToolkitEstimation
@@ -933,8 +948,9 @@ include("base/types.jl")    # Loads interface.jl, defines AbstractDetection, con
 include("base/correspondence_set.jl") # Correspondences columnar container + sources/targets protocol + lift
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
 include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode_symbol/retcode_from_symbol/worst_retcode — the termination record (before FitResult, whose core holds it)
-include("base/fit_result.jl")     # FitResult{P,M} — the one iterative-fit return type
-include("base/termination_accessors.jl")  # retcode/stop_rule/converged/found_model/retcode_symbol on a FitResult (uses FitResult)
+include("base/fit_result.jl")     # FitResult, SolveStats — the solution of every estimation problem
+include("base/termination_accessors.jl")  # successful_retcode/found_model/retcode_symbol on a FitResult (uses FitResult)
+include("base/solve_interface.jl") # the estimation interface: problems, algorithms, kinds, the front end solve/init → __solve/__init (CommonSolve; the SciML mapping)
 include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
 include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
 include("base/utils.jl")    # Geometry utilities - uses types
@@ -969,8 +985,8 @@ include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol
 # the posterior-weight state), the scoring contract with the baseline scorers,
 # and the local-optimization contract.
 include("robust/problem.jl")          # AbstractConstraintProblem + data_size/codimension/mahalanobis_distances!/refine!
-include("robust/scale.jl")            # IGPrior, fit_scale, partition_student_t, partition_rss, weighted_rss
-include("robust/mixture.jl")          # StudentTMixture, the E-step, next_nu, GauInlier/decision_boundary
+include("robust/scale.jl")            # IGPrior, ScaleMAP, a partition's Student-t, partition_rss, weighted_rss
+include("robust/mixture.jl")          # StudentTMixture, the E-step, the ν update, GauInlier/decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, ScoreBuffers, score_model!
@@ -1016,9 +1032,9 @@ include("geometry/solvers/p3p_native.jl")                  # Native P3P (PoseLib
 include("geometry/solvers/essential_5pt_native.jl")        # Native 5-pt essential (PoseLib relpose_5pt.cc port)
 include("geometry/solvers/homography_solvers.jl")         # Homography solvers (public API)
 include("geometry/solvers/fundmat.jl")                     # F-matrix solvers (public API)
-include("geometry/solvers/tls_line.jl")                    # tls_line: the total-least-squares line (Line2D, Uncertain)
-include("geometry/solvers/nearest_point.jl")               # nearest_point: the least-squares point nearest to N lines
-include("geometry/solvers/direct_ellipse.jl")              # direct_ellipse: the ellipse-specific algebraic fit; the log-shape chart
+include("geometry/solvers/total_least_squares.jl")             # the total-least-squares line kernel (Line2D, Uncertain) under TotalLeastSquares
+include("geometry/solvers/point_from_lines.jl")             # the least-squares point nearest to N lines, the kernel under NearestPoint
+include("geometry/solvers/algebraic_ellipse.jl")             # the ellipse-specific algebraic fit, the kernel under DirectEllipse; the log-shape chart
 include("geometry/radial_models.jl")                # AbstractRadialModel — the plane→pencil family (see the header for the layering)
 include("geometry/solvers/homography_5pt_radial.jl")       # 5-pt one-sided radial homography (HomLib Wadenbäck 3DV'26 port)
 include("geometry/forms.jl")                       # slot-labeled epipolar forms (EpipolarForm + actions)
@@ -1039,6 +1055,7 @@ include("geometry/model_validity.jl")              # test_sample/test_model/test
 include("geometry/solvers/solver_layer.jl")                # CorrespondenceNormalization + the MinimalSolver protocol + registry (#21)
 include("geometry/solvers/circle_3pt.jl")                  # Circle3pt: the circle through three points
 include("geometry/solvers/ellipse_5pt.jl")                 # Ellipse5pt: the ellipse through five points
+include("geometry/solvers/closed_forms.jl")   # the closed-form algorithms (DLT, Kabsch, ChordalMean, SpectralAveraging, TotalLeastSquares, DirectEllipse, NearestPoint, Triangulation) over the kernels above
 
 # Core warping API - builders returning BoundedMap with image-side conventions baked in
 include("geometry/transforms/warp.jl")
@@ -1077,7 +1094,7 @@ import .Cameras: pnp_pixel_whitening
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
 include("raw/sensor_model.jl") # the sensor model: its components, SensorCharacterisation, SensorModel, sensor_model, content_digest (before LinearRaw, which reads a model)
-include("raw/sensor_estimators.jl") # photon_transfer, master_dark, defect_onsets: a characterisation's components from frames (offline)
+include("raw/sensor_estimators.jl") # PhotonTransfer, MasterDark, defect_onsets: a characterisation's components from frames (offline)
 include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 
 # Synthetic data generation — depends on fundmat.jl, homography_solvers.jl

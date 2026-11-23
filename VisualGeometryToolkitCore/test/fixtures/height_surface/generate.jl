@@ -59,6 +59,7 @@ normals = map(charts) do 𝐛
 end
 all(c -> all(0 .<= c .<= 1), charts) || error("a hit left the board")
 
+include(joinpath(@__DIR__, "..", "bracketed.jl"))         # bracketed
 include(joinpath(@__DIR__, "..", "fixture_literals.jl"))   # lit, rows
 
 open(OUT, "w") do io

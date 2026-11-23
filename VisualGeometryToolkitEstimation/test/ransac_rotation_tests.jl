@@ -5,39 +5,13 @@
 # below the kabsch start, and the recovery past 90° with outliers.
 
 @testsetup module RotationScene
-using Random: randn, rand, randperm
-using LinearAlgebra: normalize
-using StaticArrays: SA, SVector
-using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences
+import VisualGeometryToolkitEstimation as VgtkEstimation
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_scene.jl"))   # shared with the golden records
 export FISHEYE, rotation_scene
-
-# A fisheye whose field reaches 100° off axis (an equidistant-based KB lens, f = 300 px).
-const FISHEYE = CameraModel(300.0px, SA[600.0px, 600.0px]; lens = KannalaBrandt(-0.02))
-
-# n correspondences of a pure rotation R between two views of FISHEYE, each ray within
-# `θmax` of both optical axes; pixel noise σ (px), a fraction `outl` replaced by random pixels.
-function rotation_scene(rng, R, n; σ = 0.5, outl = 0.0, θmax = deg2rad(100))
-    u₁ = SVector{2, Float64}[]; u₂ = SVector{2, Float64}[]; θs = Float64[]
-    while length(u₁) < n
-        d = normalize(randn(rng, SVector{3, Float64}))
-        (acos(clamp(d[3], -1, 1)) < θmax && acos(clamp((R * d)[3], -1, 1)) < θmax) || continue
-        a = project(FISHEYE, d); b = project(FISHEYE, R * d)
-        (all(isfinite, a) && all(isfinite, b)) || continue
-        push!(u₁, a + σ * randn(rng, SVector{2, Float64})); push!(u₂, b + σ * randn(rng, SVector{2, Float64}))
-        push!(θs, acos(clamp(d[3], -1, 1)))
-    end
-    bad = randperm(rng, n)[1:round(Int, outl * n)]
-    for i in bad
-        while true
-            c = SVector(600 + 500 * (2rand(rng) - 1), 600 + 500 * (2rand(rng) - 1))
-            all(isfinite, backproject_with_jacobian(FISHEYE, c)[1]) && (u₂[i] = c; break)
-        end
-    end
-    return Correspondences(u₁, u₂), θs, bad
-end
 end
 
 @testitem "RotationProblem: minimal solver, gates, residual" setup = [RotationScene] begin
+    import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
         withattrs, sources, targets, estimate, converged, angle_between
@@ -53,8 +27,7 @@ end
     @test sol.count == 1 && norm(SMatrix{3, 3}(first(sol)) - R) < 1.0e-9   # exact on two clean pairs
     r = zeros(60); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(r) < 1.0e-5                                           # pixels
-    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
-    @test allocs(r, p, first(sol)) == 0
+    @test warm_allocated(VgtkEstimation.mahalanobis_distances!, r, p, first(sol)) == 0
     # the residual is the Sampson distance of the joint observation (Σ = I) to VGC's bearing transfer constraint, in pixels
     i = 7; Rp = RotMatrix(RotationVec(0.3, -0.5, 0.21))
     g, G_x, _ = VgtkEstimation.constraint_with_jacobians(p, Rp, i)
@@ -81,6 +54,7 @@ end
 end
 
 @testitem "RotationProblem: chart rows against ForwardDiff; the refit lowers the Sampson cost" setup = [RotationScene] begin
+    import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
@@ -109,8 +83,7 @@ end
     @test R1 isa RotMatrix
     @test cost(R1) < cost(R0)
     @test Rotations.rotation_angle(RotMatrix{3}(R1' * R)) < 3.0e-3                  # at the noise floor (1 px on 200 pairs)
-    refit_allocs(ws, p, R0, w) = (VgtkCore.refine!(ws, p, R0, w); @allocated VgtkCore.refine!(ws, p, R0, w))
-    @test refit_allocs(ws, p, R0, ones(n)) == 0   # allocation-free: the refit's buffers are the workspace's and the task's
+    @test warm_allocated(VgtkCore.refine!, ws, p, R0, ones(n)) == 0   # allocation-free: the refit's buffers are the workspace's and the task's
 end
 
 @testitem "find_rotation: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin

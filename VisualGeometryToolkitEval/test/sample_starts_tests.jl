@@ -8,7 +8,7 @@
 # another pool or inadmissible starts.
 # =============================================================================
 
-@testitem "sample_starts" begin
+@testitem "sample_starts" setup = [PoolRecordFields] begin
     using VisualGeometryToolkitCore: thrown_message
     using Test, Random
     using VisualGeometryToolkitEval
@@ -17,9 +17,8 @@
     using VisualGeometryToolkitCore: FundMat
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models
 
-    fields(p) = NamedTuple{fieldnames(typeof(p))}(Tuple(getfield(p, f) for f in fieldnames(typeof(p))))
     # the record whose model columns are `cols` of `p` (repeats allowed)
-    cols_of(p, cols) = PoolPair{FundMat{Float64}}(; fields(p)..., models = p.models[cols],
+    cols_of(p, cols) = PoolPair{FundMat{Float64}}(; record_fields(p)..., models = p.models[cols],
                                                   sample_indices = p.sample_indices[:, cols],
                                                   errors_r = p.errors_r[cols], errors_t = p.errors_t[cols])
     stamps(total) = (gt_convention = GT_CONVENTION, pool_rng = "LehmerRNG", julia_version = string(VERSION),

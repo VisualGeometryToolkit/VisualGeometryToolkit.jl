@@ -65,10 +65,6 @@ RotationMap(M::RotationMap) = M
 
 rotation(M::RotationMap) = M.R
 
-@inline relabel(::Type{Src}, ::Type{Dst}, M::RotationMap{N, T, R}) where {N, T, R, Src <: Frame{N}, Dst <: Frame{N}} =
-    RotationMap{N, T, R, Src, Dst}(M.R)
-@inline unlabel(M::RotationMap{N}) where {N} = relabel(UnlabeledFrame{N}, UnlabeledFrame{N}, M)
-
 map_frames(::RotationMap{N, T, R, Src, Dst}) where {N, T, R, Src, Dst} = (Src, Dst)
 
 (M::RotationMap)(x) = M.R * x

@@ -314,8 +314,15 @@ const _HOMOGRAPHY_PROTOTYPE = HomographyMap(HomographyMat{Float64}(one(SMatrix{3
 const _HOMOGRAPHY_COV_DIMS = ntuple(_ -> 0, 8)
 
 JSON.lower(s::VgioStyle, h::HomographyMap{3}) = _parametric_record(_HOMOGRAPHY_TAG, h, s.length_unit)
-JSON.lower(s::VgioStyle, u::Uncertain{<:HomographyMap{3}}) =
-    merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _HOMOGRAPHY_COV_DIMS),))
+# An uncertain pose or homography: its value's record and the covariance in the storage it holds, each entry's
+# length power the map's own (a pose's translation rows, none for a homography). One body; a method per map type, so
+# `JSON.lower`'s methods on an `Uncertain` stay one per value kind (as inference and JET see them).
+_uncertain_map_json(s::VgioStyle, u::Uncertain) =
+    merge(JSON.lower(s, geom(u)), (covariance = _length_cov_json(cov(u), s.length_unit, _map_cov_dims(geom(u))),))
+JSON.lower(s::VgioStyle, u::Uncertain{<:EuclideanMap{3}}) = _uncertain_map_json(s, u)
+JSON.lower(s::VgioStyle, u::Uncertain{<:HomographyMap{3}}) = _uncertain_map_json(s, u)
+_map_cov_dims(::EuclideanMap{3}) = _POSE_COV_DIMS
+_map_cov_dims(::HomographyMap{3}) = _HOMOGRAPHY_COV_DIMS
 function JSON.lift(s::VgioStyle, ::Type{HomographyMap}, x::Record)
     h = _from_parametric_record(_HOMOGRAPHY_PROTOTYPE, x, s.length_unit)
     haskey(x, :covariance) || return h

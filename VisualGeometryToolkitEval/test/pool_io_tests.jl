@@ -6,7 +6,7 @@
 # `build`; the PnP pool file round-trips.
 # =============================================================================
 
-@testitem "pool_io" begin
+@testitem "pool_io" setup = [PoolRecordFields] begin
     using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, JLD2, StaticArrays
@@ -31,8 +31,7 @@
     p2, R2 = synthetic_e_pool_pair(MersenneTwister(2); n = 12, sibling_counts = [3, 1])
     snn = rand(MersenneTwister(3), Float32, num_points(p1))
     # a record's fields by name: the keyword constructor's arguments
-    fields(p) = NamedTuple{fieldnames(typeof(p))}(Tuple(getfield(p, f) for f in fieldnames(typeof(p))))
-    p1 = PoolPair{FundMat{Float64}}(; fields(p1)..., snn)
+    p1 = PoolPair{FundMat{Float64}}(; record_fields(p1)..., snn)
     pool = ScoringPool([p1, p2], :E, "scene"; scene_names = ["scene", "other"], stamps = stamps())
     res = PoolResiduals(pool.pool_key, :tangent_sampson, [R1, R2])
     dir = mktempdir()
@@ -75,10 +74,10 @@
     @testset "pool_key: content, order and the residual indices" begin
         @test pool_key([p1, p2]) == pool.pool_key && length(pool.pool_key) == 64
         @test pool_key([p2, p1]) != pool.pool_key                       # pair order
-        q = PoolPair{FundMat{Float64}}(; fields(p2)..., sample_indices = p2.sample_indices[:, [4, 2, 3, 1]])
+        q = PoolPair{FundMat{Float64}}(; record_fields(p2)..., sample_indices = p2.sample_indices[:, [4, 2, 3, 1]])
         @test pool_key([p1, q]) != pool.pool_key                        # sample indices
         # σ̂², errors, the GT and the maps index no residual: they do not move the key
-        g = PoolPair{FundMat{Float64}}(; fields(p2)..., errors_r = p2.errors_r .+ 1, gt_variance = 2.0)
+        g = PoolPair{FundMat{Float64}}(; record_fields(p2)..., errors_r = p2.errors_r .+ 1, gt_variance = 2.0)
         @test pool_key([p1, g]) == pool.pool_key
     end
 

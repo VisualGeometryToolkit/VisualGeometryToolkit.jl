@@ -281,7 +281,8 @@ function Base.getproperty(l::Line2D, s::Symbol)
     end
 end
 
-Base.propertynames(::Line2D) = (:coeffs, :ρ, :rho, :θ, :theta, :slope, :intercept)
+const _LINE2D_PROPERTIES = (fieldnames(Hyperplane)..., :ρ, :rho, :θ, :theta, :slope, :intercept)   # the field, then the derived
+Base.propertynames(::Line2D) = _LINE2D_PROPERTIES
 
 # =============================================================================
 # Plane3D Specific Constructors

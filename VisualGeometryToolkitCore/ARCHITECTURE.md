@@ -42,8 +42,9 @@ include("base/types.jl")         # interface.jl + interface_functions.jl, Abstra
 include("base/correspondence_set.jl")    # Correspondences columnar container + sources/targets protocol
 include("base/coordinates.jl")   # to_affine / to_euclidean
 include("base/return_code.jl")   # ReturnCode, StopRule: the termination record (before FitResult, whose core holds it)
-include("base/fit_result.jl")    # FitResult{P,M} — the one iterative-fit return type
-include("base/termination_accessors.jl")  # retcode, stop_rule, converged, found_model, retcode_symbol on a FitResult
+include("base/fit_result.jl")    # FitResult, SolveStats — the solution of every estimation problem
+include("base/termination_accessors.jl")  # successful_retcode, found_model, retcode_symbol on a FitResult
+include("base/solve_interface.jl")  # the estimation interface: problems, algorithms, kinds; solve/init → __solve/__init (CommonSolve)
 include("base/utils.jl")         # geometry utilities
 include("base/config_toml.jl")   # TOML config skeleton shared by every package with a configuration of record
 include("base/device.jl")        # default_device — the family's one KA backend resolver (CUDA ext registers)
@@ -65,7 +66,7 @@ include("robust/block_coordinate_descent.jl") # block_coordinate_descent! + exte
 include("robust/rows.jl")           # the chart-rows contract (rows_provider, lift_* verbs), RowsWorkspace, task_buffers
 include("robust/lm_core.jl")        # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
 include("robust/problem.jl")          # the constraint-problem protocol (mahalanobis_distances!, refine!)
-include("robust/scale.jl")            # IGPrior, fit_scale, the consensus Student-t scale
+include("robust/scale.jl")            # IGPrior, ScaleMAP, the consensus Student-t scale
 include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
 include("robust/normaliser.jl")       # truncated_log_normaliser
@@ -88,7 +89,7 @@ include("geometry/transforms/matrices.jl")       # HomographyMat (dense algebra)
 include("geometry/transforms/euclidean_map.jl")  # EuclideanMap for poses
 include("geometry/transforms/similarity_map.jl") # SimilarityMap (x ↦ s·R·x + t)
 include("geometry/transforms/lie.jl")            # SO(3)/SE(3) exp/log
-include("geometry/transforms/rotation_fits.jl")  # Kabsch/Wahba, chordal mean
+include("geometry/transforms/rotation_fits.jl")  # the Kabsch/Wahba, chordal-mean and spectral-averaging kernels
 ```
 
 **Why before Primitives?** `matrices.jl` defines `HomographyMat` and the
@@ -121,10 +122,11 @@ include("geometry/transforms/bounded_map.jl")      # BoundedMap (output extent d
 include("geometry/solvers/solvers.jl")               # forward declarations for backend-provided solvers
 include("geometry/solvers/p3p_native.jl")            # native P3P (PoseLib port)
 include("geometry/solvers/essential_5pt_native.jl")  # native 5-pt essential
-include("geometry/solvers/homography_solvers.jl")    # homography_4pt, DLT, Hartley frames
-include("geometry/solvers/homography_jacobian.jl")   # analytic Jacobian of homography_4pt
+include("geometry/solvers/homography_solvers.jl")    # homography_4pt, the DLT kernel, Hartley frames
 include("geometry/solvers/fundmat.jl")               # F/E matrices, 7-pt, motion()
-include("geometry/solvers/tls_line.jl")              # the total-least-squares line (moved up from RVG, taxonomy v2)
+include("geometry/solvers/total_least_squares.jl")   # the total-least-squares line kernel under TotalLeastSquares
+include("geometry/solvers/point_from_lines.jl")      # the point nearest to N lines, the kernel under NearestPoint
+include("geometry/solvers/algebraic_ellipse.jl")     # the ellipse-specific algebraic fit under DirectEllipse; the log-shape chart
 include("geometry/radial_models.jl")                 # AbstractRadialModel — the plane→pencil family (BEFORE the 5-pt radial solver)
 include("geometry/solvers/homography_5pt_radial.jl") # 5-pt one-sided radial homography
 include("geometry/forms.jl")                 # slot-labeled epipolar forms; frame changes are ∘ (EpipolarMap, TransferForm ↔ HomographyMap)
@@ -140,6 +142,9 @@ include("geometry/manifolds/covariance.jl")  # implicit_covariance: the estimate
 include("geometry/confidence_regions.jl")    # confidence ellipses, epipolar bands
 include("geometry/model_validity.jl")        # test_sample/test_model/test_consensus
 include("geometry/solvers/solver_layer.jl")          # the MinimalSolver protocol + registry (the normalizations: homography_solvers.jl)
+include("geometry/solvers/circle_3pt.jl")            # Circle3pt: the circle through three points
+include("geometry/solvers/ellipse_5pt.jl")           # Ellipse5pt: the ellipse through five points
+include("geometry/solvers/closed_forms.jl")          # the closed-form algorithms (DLT, Kabsch, …, Triangulation) over the kernels above
 ```
 
 The three covariance verbs (GTSAM's vocabulary in parentheses): `propagate`
@@ -309,12 +314,23 @@ extents); the size-form is sugar over the rect-form for the common case.
 | `src/geometry/transforms/homography_map.jl` | `HomographyMap` for point/line/conic transforms |
 | `src/geometry/transforms/warp.jl` | `image_warp` adapter + `image_warp_batch_to!` batched primitive |
 | `src/base/correspondence_set.jl` | Correspondence containers (`Correspondences`, `Correspondence`, `Attributed`) |
-| `src/base/fit_result.jl` | `FitResult{P,M}`, the iterative-fit return type |
+| `src/base/fit_result.jl` | `FitResult{U,M}` and `SolveStats`, the solution of every estimation problem |
+| `src/base/solve_interface.jl` | The estimation interface: the problems, `AbstractEstimationAlgorithm`, the kinds, `solve`/`init` → `__solve`/`__init` |
+| `src/geometry/solvers/closed_forms.jl` | The closed-form algorithms (`DLT`, `Kabsch`, …, `Triangulation`) and `closed_form_result` |
 | `src/geometry/primitives/primitives.jl` | Primitives submodule entry |
 | `src/robust/losses.jl` | Robust-loss family (`AbstractLossShape`) |
 | `src/geometry/cameras/cameras.jl` | Cameras submodule entry |
 
 ## Extension Points
+
+### Adding an Estimation Algorithm
+
+An algorithm is a struct `<: AbstractEstimationAlgorithm` whose fields are its configuration. Define its
+`estimator_kind` (`MinimalKind()`, `ClosedFormKind()`, `FitKind()`, `FindKind()` or `RefineKind()`) and a `__solve`
+method on the problem it solves (or `__init` returning a cache, and `solve!` on it, when it keeps workspaces); a
+closed form returns `closed_form_result(…)`. Declare `default_algorithm` for a problem type only when the algorithm
+is that problem's one deterministic, guess-free choice. Never add a `solve` or `init` method: Core's front end checks
+the kind law and records the problem and the algorithm on the result.
 
 ### Adding a New Lens Model
 

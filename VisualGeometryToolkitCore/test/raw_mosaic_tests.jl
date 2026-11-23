@@ -77,9 +77,9 @@ end
     Base.size(x::Whole) = size(x.a)
     Base.getindex(::Whole, ::Int...) = error("an element read")
     Base.copy(x::Whole) = Whole(copy(x.a))
-    Base.:(==)(x::Whole, y::Whole) = x.a == y.a
-    Base.isequal(x::Whole, y::Whole) = isequal(x.a, y.a)
-    Base.isapprox(x::Whole, y::Whole; kw...) = isapprox(x.a, y.a; kw...)
+    for f in (:(==), :isequal, :isapprox)                                    # each compares the held arrays
+        @eval Base.$f(x::Whole, y::Whole; kw...) = $f(x.a, y.a; kw...)
+    end
     raw = UInt16[1000 + 37 * i + 11 * j for i in 1:6, j in 1:8]
     wrap(a) = RawMosaic(Whole(a), LAYOUTS.RGGB, (512.0, 500.0, 520.0, 508.0), 16383.0, (0, 0), (6, 8), (; model = "synthetic"))
     m = wrap(raw)

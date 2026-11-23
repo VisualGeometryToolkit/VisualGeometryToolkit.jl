@@ -15,19 +15,6 @@
 # `sha256_hex`, because src/cli.jl includes it, and a project's runner launcher includes src/cli.jl by path from a bare
 # `julia` before the project's environment (and so VisualGeometryToolkitCore) exists; the digests are the same SHA-256.
 
-# Test-input fixtures (owner ruling 2026-11-13: they go here). Restored in wave 113: 12ab92d0 removed them because
-# the gate, which reads the stack repositories, did not match them while CI did; the idiom cap now counts this
-# repository's definitions only, so both find them.
-[[similar]]
-functions = ["VisualGeometryToolkitCore/test/data/chain_equivalence/core_values.jl::canonical",
-             "VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::lit"]
-reason = "different output grammars: `canonical` writes the chain-equivalence record's canonical text (\",\" with no space, sorted keys, every number as a Float64), `lit` writes Julia source literals (\", \", a Float32 kept); no input gives both the same text"
-
-[[similar]]
-functions = ["VisualGeometryToolkitCore/test/fixtures/fixture_literals.jl::rows",
-             "VisualGeometryToolkitIO/test/migrate_versions_tests.jl::vec_"]
-reason = "different output grammars: `rows` writes a multi-line Julia array literal of literals, `vec_` a one-line JSON array of numbers inside a hand-written record"
-
 [[name]]
 module = "VisualGeometryToolkitEval"
 name = "_TOML_DEFAULTS"
@@ -81,11 +68,6 @@ function = "_read_struct"
 reason = "fixed arity: the values are the fields of the struct type `C` read from TOML, one per field, built positionally by `C`'s own constructor; their count is fieldcount(C), one per type"
 
 [[splat]]
-file = "VisualGeometryToolkitCore/src/base/fit_result.jl"
-function = "propertynames"
-reason = "the names are a function of the type `FitResult{P, M}` alone (its metadata's fields and the nested ones), so the tuple has one length per FitResult type, as the type's own fieldnames do; Base's propertynames contract is that tuple"
-
-[[splat]]
 file = "VisualGeometryToolkitCore/src/robust/normaliser.jl"
 function = "truncated_log_normaliser"
 reason = "QuadGK takes a split domain's breakpoints only as varargs (2.11 has no vector form); their count is ⌊log₄(r_max/c)⌋ + 3 ≤ 63, a few distinct values over the widths in use, so `quadgk` is compiled a few times, never per datum"
@@ -121,7 +103,6 @@ reason = "VisualGeometryToolkitCore's `Rig` holds its sensors as a Tuple (each s
 use = "black_subtraction"
 file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
 reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"
-
 
 [[pattern]]
 use = "sensor_component"

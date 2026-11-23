@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The scenes of refine_camera_and_poses_tests.jl (its CameraPoseScenes, SplineCameraPoseScenes, BoardScenes and
 # RotationCenterScenes setups, each of which includes this file and exports its own names) and of the golden records of
 # ci/golden/fixtures/est_camera_fits.jl: cameras, poses and their exact or noisy pixels. Data constructors only — no

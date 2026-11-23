@@ -3,6 +3,7 @@
 # `exact` point none; a correspondence's constraint covariance is
 # G₁Σ₁G₁ᵀ + G₂Σ₂G₂ᵀ.
 @testitem "observation_noise" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test
     using LinearAlgebra
     using StaticArrays
@@ -74,8 +75,7 @@
             @test norm(r[2i-1:2i]) ≈ mahalanobis_distance(H, Uncertain(b[i], CovMat(Σ₁[i])), Uncertain(u[i], CovMat(Σ₂[i]))) rtol = 1.0e-12
         end
         xs = withattrs(Correspondences(b, u); Σ₁, Σ₂)
-        allocs(r, H, xs) = (whitened_residuals!(r, H, xs); @allocated whitened_residuals!(r, H, xs))
-        @test allocs(r, H, xs) == 0
+        @test warm_allocated(whitened_residuals!, r, H, xs) == 0
     end
 
     @testset "normalization moves the noise with the points" begin

@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The plane homographies of the Zhang calibration's synthetic views (zhang_intrinsics_tests.jl, and the golden
 # records of ci/golden/fixtures/core_closed_forms.jl): a raw-pixel K about the principal point ZHANG_CENTER and six
 # fixed board poses. Data constructors only; include-once safe (functions and an isbits constant).

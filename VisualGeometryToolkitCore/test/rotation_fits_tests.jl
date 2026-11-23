@@ -11,63 +11,63 @@
     using Rotations: RotMatrix, RotationVec, RotXYZ, rotation_angle
     using VisualGeometryToolkitCore: EuclideanMap
     using FiniteDiff: FiniteDiff
-    using VisualGeometryToolkitCore: kabsch, chordal_mean, withattrs, Correspondences
+    using VisualGeometryToolkitCore: solve, EstimationProblem, Kabsch, ChordalMean, withattrs, Correspondences
 
     @testset "rotation fits" begin
         rng = MersenneTwister(20260806)
 
-        @testset "kabsch recovery (R·a ≈ b, vectors as given)" begin
+        @testset "Kabsch recovery (R·a ≈ b, vectors as given)" begin
             Rgt = rand(rng, RotMatrix{3, Float64})
             as = [normalize(randn(rng, SVector{3, Float64})) for _ in 1:40]
             bs = [Rgt * a for a in as]
             _rms(R, as, bs) = sqrt(sum(sum(abs2, b - R * a) for (a, b) in zip(as, bs)) / length(as))
             # 1e-6, not 1e-12: the trace/acos angle formula floors at ~√eps ≈ 5e-8
-            R = kabsch(as .=> bs)
+            R = solve(EstimationProblem(RotMatrix{3}, as .=> bs), Kabsch()).u
             @test R isa RotMatrix{3, Float64}
             @test rotation_angle(RotMatrix{3}(R' * Rgt)) < 1.0e-6
             @test _rms(R, as, bs) < 1.0e-12                          # noise-free pairs
-            @test kabsch(Correspondences(as, bs)) == R                        # any correspondence container
+            @test solve(EstimationProblem(RotMatrix{3}, Correspondences(as, bs)), Kabsch()).u == R                        # any correspondence container
 
             # noisy directions still recover to ~noise level
             bsn = [normalize(b + 1.0e-3 * randn(rng, SVector{3, Float64})) for b in bs]
-            Rn = kabsch(as .=> bsn)
+            Rn = solve(EstimationProblem(RotMatrix{3}, as .=> bsn), Kabsch()).u
             @test rotation_angle(RotMatrix{3}(Rn' * Rgt)) < 5.0e-3
             @test 1.0e-4 < _rms(Rn, as, bsn) < 1.0e-2
 
             # NOT centred: a common offset on both sides moves the answer
             o = SVector(3.0, -1.0, 2.0)
-            @test rotation_angle(RotMatrix{3}(kabsch((as .+ Ref(o)) .=> (bs .+ Ref(o)))' * Rgt)) > 1.0e-3
+            @test rotation_angle(RotMatrix{3}(solve(EstimationProblem(RotMatrix{3}, (as .+ Ref(o)) .=> (bs .+ Ref(o))), Kabsch()).u' * Rgt)) > 1.0e-3
 
-            @test_throws ArgumentError kabsch(as[1:1] .=> bs[1:1])
+            @test_throws ArgumentError solve(EstimationProblem(RotMatrix{3}, as[1:1] .=> bs[1:1]), Kabsch())
             # a zero weight drops its pair: fewer than 2 of positive weight is refused, not an arbitrary rotation
             w1 = zeros(40); w1[7] = 1.0
-            @test_throws ArgumentError kabsch(withattrs(Correspondences(as, bs); weights = w1))
+            @test_throws ArgumentError solve(EstimationProblem(RotMatrix{3}, withattrs(Correspondences(as, bs); weights = w1)), Kabsch())
             w2 = zeros(40); w2[7] = 1.0; w2[11] = 2.0
-            @test rotation_angle(RotMatrix{3}(kabsch(withattrs(Correspondences(as, bs); weights = w2))' * Rgt)) < 1.0e-6
-            @test_throws MethodError kabsch(as, bs)                   # correspondences only
+            @test rotation_angle(RotMatrix{3}(solve(EstimationProblem(RotMatrix{3}, withattrs(Correspondences(as, bs); weights = w2)), Kabsch()).u' * Rgt)) < 1.0e-6
+            @test_throws MethodError solve(EstimationProblem(RotMatrix{3}, as, bs), Kabsch())   # correspondences only
         end
 
-        @testset "chordal_mean" begin
+        @testset "ChordalMean" begin
             Rc = rand(rng, RotMatrix{3, Float64})
             # symmetric perturbations about Rc average back to ~Rc
             Rs = [
                 RotMatrix(RotationVec((s * 0.05 .* SVector(1.0, -0.5, 0.3))...)) * Rc
                     for s in (-2, -1, 1, 2)
             ]
-            m = chordal_mean(Rs)
+            m = solve(EstimationProblem(RotMatrix{3}, Rs), ChordalMean()).u
             @test m isa RotMatrix{3, Float64}
             @test rotation_angle(RotMatrix{3}(m' * Rc)) < 1.0e-3
-            @test chordal_mean(SMatrix{3, 3, Float64}.(Rs)) ≈ m      # plain matrices too
+            @test solve(EstimationProblem(RotMatrix{3}, SMatrix{3, 3, Float64}.(Rs)), ChordalMean()).u ≈ m      # plain matrices too
             # mean of one rotation is itself; empty set throws
-            @test norm(chordal_mean([Rc]) - Rc) < 1.0e-12
-            @test_throws ArgumentError chordal_mean(RotMatrix{3, Float64}[])
+            @test norm(solve(EstimationProblem(RotMatrix{3}, [Rc]), ChordalMean()).u - Rc) < 1.0e-12
+            @test_throws ArgumentError solve(EstimationProblem(RotMatrix{3}, RotMatrix{3, Float64}[]), ChordalMean())
         end
 
         @testset "stationarity conditions: zero at the algorithm, the objective's gradient" begin
             using VisualGeometryToolkitCore: kabsch_stationarity, chordal_mean_stationarity, exp_so3
             as = [randn(rng, SVector{3, Float64}) for _ in 1:12]
             bs = [rand(rng, RotMatrix{3, Float64}) * a + 0.1 * randn(rng, SVector{3, Float64}) for a in as]   # noisy: a nonzero residual
-            R = kabsch(as .=> bs)
+            R = solve(EstimationProblem(RotMatrix{3}, as .=> bs), Kabsch()).u
             @test norm(kabsch_stationarity(R, as .=> bs)) < 1.0e-12 * sum(norm, bs)
             # away from it: the gradient of Σ bᵀ exp([ω]×) R₁ a at ω = 0, by central differences
             R1 = rand(rng, RotMatrix{3, Float64})
@@ -76,7 +76,7 @@
             gfd = FiniteDiff.finite_difference_gradient(ω -> obj1(SVector{3}(ω)), zeros(3))   # exp_so3 takes an SVector
             @test gfd ≈ g rtol = 1.0e-6
             Rs = [RotMatrix(RotationVec((0.1 .* randn(rng, SVector{3, Float64}))...)) * R1 for _ in 1:5]
-            @test norm(chordal_mean_stationarity(chordal_mean(Rs), Rs)) < 1.0e-12
+            @test norm(chordal_mean_stationarity(solve(EstimationProblem(RotMatrix{3}, Rs), ChordalMean()).u, Rs)) < 1.0e-12
             @test norm(chordal_mean_stationarity(R1 * RotMatrix(RotationVec(0.2, 0.0, 0.0)), Rs)) > 1.0e-3
         end
     end
@@ -108,13 +108,14 @@
     end
 end
 
-# kabsch with a `weights` attribute column (Wahba's weighted problem), against
+# Kabsch with a `weights` attribute column (Wahba's weighted problem), against
 # an SVD reference: unit weights are the unweighted fit, a zero weight drops its
 # pair, invalid weights are refused.
-@testitem "kabsch: a weights column" begin
+@testitem "Kabsch: a weights column" begin
     using Test, StaticArrays, LinearAlgebra, Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: kabsch, exp_so3, mm, Correspondences, withattrs
+    using Rotations: RotMatrix
+    using VisualGeometryToolkitCore: solve, EstimationProblem, Kabsch, exp_so3, mm, Correspondences, withattrs
 
     rng = MersenneTwister(11)
     Rt = exp_so3(SVector(0.2, 0.5, -0.3))
@@ -126,16 +127,16 @@ end
     B = sum(w[i] * (bs[i] * as[i]') for i in 1:30)
     F = svd(Matrix(B))
     Rref = F.U * Diagonal([1.0, 1.0, sign(det(F.U * F.Vt))]) * F.Vt
-    @test SMatrix{3, 3}(kabsch(withattrs(cs; weights = w))) ≈ Rref atol = 1.0e-14
-    @test kabsch(withattrs(cs; weights = ones(30))) ≈ kabsch(cs) atol = 1.0e-15        # unit weights: the unweighted fit
+    @test SMatrix{3, 3}(solve(EstimationProblem(RotMatrix{3}, withattrs(cs; weights = w)), Kabsch()).u) ≈ Rref atol = 1.0e-14
+    @test solve(EstimationProblem(RotMatrix{3}, withattrs(cs; weights = ones(30))), Kabsch()).u ≈ solve(EstimationProblem(RotMatrix{3}, cs), Kabsch()).u atol = 1.0e-15        # unit weights: the unweighted fit
     # a gross outlier with zero weight is ignored
     bad = withattrs(Correspondences(vcat(as, [SVector(1.0, 0.0, 0.0)]), vcat(bs, [SVector(0.0, 0.0, -1.0)])); weights = vcat(ones(30), 0.0))
-    @test kabsch(bad) ≈ kabsch(cs) atol = 1.0e-14
-    @test !(kabsch(withattrs(bad; weights = ones(31))) ≈ kabsch(cs))
+    @test solve(EstimationProblem(RotMatrix{3}, bad), Kabsch()).u ≈ solve(EstimationProblem(RotMatrix{3}, cs), Kabsch()).u atol = 1.0e-14
+    @test !(solve(EstimationProblem(RotMatrix{3}, withattrs(bad; weights = ones(31))), Kabsch()).u ≈ solve(EstimationProblem(RotMatrix{3}, cs), Kabsch()).u)
     # invalid weights: the caller's error
-    @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(-1.0, ones(29))))
-    @test_throws ArgumentError kabsch(withattrs(cs; weights = vcat(NaN, ones(29))))
+    @test_throws ArgumentError solve(EstimationProblem(RotMatrix{3}, withattrs(cs; weights = vcat(-1.0, ones(29)))), Kabsch())
+    @test_throws ArgumentError solve(EstimationProblem(RotMatrix{3}, withattrs(cs; weights = vcat(NaN, ones(29)))), Kabsch())
     # physical pairs keep their weights
     csm = withattrs(Correspondences([a .* mm for a in as], [b .* mm for b in bs]); weights = w)
-    @test SMatrix{3, 3}(kabsch(csm)) ≈ Rref atol = 1.0e-14
+    @test SMatrix{3, 3}(solve(EstimationProblem(RotMatrix{3}, csm), Kabsch()).u) ≈ Rref atol = 1.0e-14
 end

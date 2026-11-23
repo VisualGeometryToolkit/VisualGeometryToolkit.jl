@@ -37,6 +37,18 @@ export mm, m, px, CameraModel, CameraCalibrationMat, Pinhole,
     lens_record, lens_from_record, parameters, parameter_vector
 export VisualGeometryToolkitCore, DimensionError, ConversionError
 export q0, _mkpose, qpose, mm_lengths, exact_mm, Quantity, Dimensions, FixRat32
+export example_detection, example_pose, single_target_rig
+
+using Rotations: RotXYZ
+using VisualGeometryToolkitCore: Attributed, Uncertain, PointFrame, Point2, Rig, PosedTarget
+# a point detection as a Förstner-like detector writes it: its frame (covariance Σ), label, window, F and the status of
+# its covariance
+example_detection(x, y, Σ, label, st) =
+    Attributed(Uncertain(PointFrame(x, y), Σ), (; label, window = Point2(round(x), round(y)), F = 0.31, covariance_status = st))
+# a pose in millimetres at depth z
+example_pose(z) = EuclideanMap(RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.3)), [1.0mm, 2.0mm, z])
+# a rig in frame F of the one target `t` posed by `X`, keyed `id`
+single_target_rig(F, id, t, X) = Rig{F}(Dict(id => PosedTarget(t, X)))
 
 const q0 = canonical_qvec(
     SVector(

@@ -124,7 +124,7 @@
         @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "test/lm_driver_tests.jl"))  # its own tests
     end
     # the entry points are not primitives, nor is a name that ends in one
-    for call in ("sol = lmsolve_chart!(p, LmStops())\n", "x, ok = static_lm(fj, x0, lb, ub, StaticLmStops(s; acceptance = 1.0))\n",
+    for call in ("sol = lmsolve_chart!(p, LmStops())\n", "r = solve(RefineProblem(fj, x0; lb, ub), StaticLevenbergMarquardt(); stops = StaticLmStops(s; acceptance = 1.0))\n",
                  "p = LmProblem(vars, blocks)\n", "r = locally_optimize!(L, lo, p, m)\n", "k = my_nlls_termination(b)\n")
         @test isempty(uses(call))
     end

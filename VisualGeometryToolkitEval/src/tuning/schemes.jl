@@ -153,11 +153,9 @@ struct TuningSpec
     scheme::TuningScheme
 end
 
-# Structural equality for the spec types (fields compared with `==`), so a
+# Structural equality for the spec types (fields compared with `==`, `@fieldwise`), so a
 # round trip TOML → type → TOML → type is checkable with `==`.
-const _SPEC_TYPES = Union{SpacedAxis, ListedAxis, RegisteredSceneSplit, StratifiedSampling, UniformSampling,
-                          CrossValidation, BudgetSampling, CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine,
-                          WindowedBootstrap, Factorial, TuningSpec}
-Base.:(==)(a::T, b::T) where {T<:_SPEC_TYPES} = all(getfield(a, f) == getfield(b, f) for f in fieldnames(T))
-Base.hash(x::_SPEC_TYPES, h::UInt) = foldl((acc, f) -> hash(getfield(x, f), acc), fieldnames(typeof(x));
-                                           init = hash(nameof(typeof(x)), h))
+for T in (SpacedAxis, ListedAxis, RegisteredSceneSplit, StratifiedSampling, UniformSampling, CrossValidation,
+          BudgetSampling, CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, WindowedBootstrap, Factorial, TuningSpec)
+    @eval @fieldwise $T
+end

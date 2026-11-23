@@ -269,7 +269,7 @@ The rotation-vector chart of SO(3), `RotationChart{ExpParam}`: `R(ω) = exp_so3(
 `minimal_manifold` of a rotation. Float-typed storage (`SMatrix{3, 3, T}`).
 """
 const SO3Manifold{T} = RotationChart{ExpParam, SMatrix{3, 3, T, 9}}
-SO3Manifold(R::AbstractMatrix) = (T = float(eltype(R)); SO3Manifold{T}(SMatrix{3, 3, T, 9}(R)))
+SO3Manifold(R::AbstractMatrix) = _float_anchored(SO3Manifold, R)
 
 _param(::RotationChart{P}) where {P} = P()
 

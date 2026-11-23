@@ -1,5 +1,5 @@
 # The sensor model (raw/sensor_model.jl, raw/sensor_estimators.jl) on SYNTHETIC Poisson–Gaussian RGGB mosaics: the
-# estimators (photon_transfer, master_dark, defect_onsets), the resolver's cases, the body match, THE black subtraction
+# estimators (PhotonTransfer, MasterDark, defect_onsets), the resolver's cases, the body match, THE black subtraction
 # of LinearRaw / linearview under a model (bit-identical with the absent model, CPU = GPU), the uncertain image (D11),
 # and the model's identity. Every component comes from Core's one fixture helper, `sensor_fixture` (D13).
 #
@@ -10,61 +10,24 @@
 @testsetup module SensorFixtures
     using VisualGeometryToolkitCore: RawMosaic
     using Distributions: Poisson, Normal, quantile
-    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame, scene_frame, level_of_column
-    const RGGB = UInt8[0 1; 3 2]
-    const BLACK = 512.0
-    const WHITE = 16383.0
-    const K_TRUE = 1.6                                  # electrons per code
-    const SIGMA_R = 2.5                                 # the Gaussian read noise, codes
-    const SIGMA_EFF = sqrt(SIGMA_R^2 + 1 / 12)          # with the code's rounding (uniform, variance 1/12: Sheppard)
+    export RGGB, BLACK, WHITE, K_TRUE, SIGMA_R, SIGMA_EFF, LEVELS, Z, z_over, synth_mosaic, code, ptc_frame, scene_frame, level_of_column,
+        read_noise_model
+    import VisualGeometryToolkitCore as VgtkCore
+    # the sensor's constants and frames (`synth_mosaic`, `code`, `ptc_frame`, `scene_frame`, …): the suite's fixture file,
+    # shared with the golden records
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "sensor_frames.jl"))
     z_over(N; α = 0.001) = quantile(Normal(), 1 - α / (2N))   # two-sided, α over N comparisons
     const Z = z_over(1)
-    synth_mosaic(raw; black = (BLACK, BLACK, BLACK, BLACK)) =
-        RawMosaic(Matrix{UInt16}(raw), RGGB, black, WHITE, (0, 0), size(raw), (; model = "synthetic"))
-    # One code: an offset (the black, or a photosite's own), the photo-electrons Poisson(μK)/K (`pois`, or none) and a
-    # Gaussian read noise σ, rounded and clipped to [0, white].
-    code(rng, offset, pois, σ) =
-        UInt16(clamp(round(offset + (pois === nothing ? 0.0 : rand(rng, pois) / K_TRUE) + σ * randn(rng)), 0, WHITE))
-    # 16 flat levels above black, geometric from 2 to 12000 codes: the low ones pin σ_r², the high ones K.
-    const LEVELS = [2.0 * 6000.0^((l - 1) / 15) for l in 1:16]
-    # The level of photosite column j in `ptc_frame` and `scene_frame`: LEVELS[level_of_column(j)] (16-photosite blocks, two per level).
-    level_of_column(j) = cld(cld(j, 16), 2)
-    # A photon-transfer scene: 16 × 32 blocks of the estimator's 8 × 8 cells (16 × 16 photosites), block column bj
-    # flat at LEVELS[cld(bj, 2)] — 32 blocks per level, so the estimator's 32 groups of 16 blocks hold one level each.
-    # `offset` (a per-photosite black, a DSNU) replaces the constant black.
-    function ptc_frame(rng; offset = nothing)
-        H, W = 16 * 16, 32 * 16
-        pois = [Poisson(μ * K_TRUE) for μ in LEVELS]
-        raw = Matrix{UInt16}(undef, H, W)
-        for j in 1:W, i in 1:H
-            raw[i, j] = code(rng, offset === nothing ? BLACK : offset[i, j], pois[level_of_column(j)], SIGMA_R)
-        end
-        return synth_mosaic(raw)
-    end
-    # The photon-transfer scene of `ptc_frame` at `light` times its levels, each photosite's expected electrons times its
-    # fixed response `response[i, j]` (a G1/G2 gain mismatch, a PRNU: 1 when `nothing`) and `texture[i, j]` (a scene:
-    # 1 when `nothing`) — the frames of one exposure share the response and the texture, and differ only in their noise;
-    # `black` their offset (a dark current's shift at a long exposure).
-    function scene_frame(rng; levels = LEVELS, light = 1.0, response = nothing, texture = nothing, σ = SIGMA_R, black = BLACK)
-        H, W = 16 * 16, 32 * 16
-        raw = Matrix{UInt16}(undef, H, W)
-        for j in 1:W, i in 1:H
-            μ = light * levels[level_of_column(j)] * (response === nothing ? 1.0 : response[i, j]) *
-                (texture === nothing ? 1.0 : texture[i, j])
-            raw[i, j] = code(rng, black, Poisson(μ * K_TRUE), σ)
-        end
-        return synth_mosaic(raw)
-    end
 end
 
-@testitem "sensor model: photon_transfer — an estimated PoissonGaussian within its standard errors" setup = [SensorFixtures] begin
+@testitem "sensor model: PhotonTransfer — an estimated PoissonGaussian within its standard errors" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: photon_transfer, SensorSource, NoiseEstimateFailed, sensor_fixture, parse_unit
+    using VisualGeometryToolkitCore: SensorSource, NoiseEstimateFailed, sensor_fixture, parse_unit
     using StableRNGs: StableRNG
     using Distributions: Chisq, quantile
     using Statistics: mean, var
     R = 24
-    ests = [photon_transfer(ptc_frame(StableRNG(100 + r))) for r in 1:R]
+    ests = [solve(EstimationProblem(PoissonGaussian, ptc_frame(StableRNG(100 + r))), PhotonTransfer()).u for r in 1:R]
     e = ests[1]
     @test e isa PoissonGaussian && e.source === SensorSource.estimated
     @test allequal(e.σ) && allequal(e.std_error.σ)      # the greens' read noise, stated for every colour
@@ -88,30 +51,30 @@ end
     rng = StableRNG(11)
     offset = BLACK .+ 3.0 .* randn(rng, 256, 512)
     m_dark = ptc_frame(rng; offset)
-    e0 = photon_transfer(m_dark)
+    e0 = solve(EstimationProblem(PoissonGaussian, m_dark), PhotonTransfer()).u
     @test e0.σ[1] - SIGMA_EFF > Z * e0.std_error.σ[1]
     fx = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), exposure = 0.8s,
                         dark = (; offset = Float32.(offset), variance = fill(Float32(SIGMA_EFF^2), size(offset)),
                                 exposure_band = (0.5s, 1.0s), frames = 16))
     @test fx.model.black isa Dark
-    ed = photon_transfer(m_dark; sensor_model = fx.model)
+    ed = solve(EstimationProblem(PoissonGaussian, m_dark, (; sensor_model = fx.model)), PhotonTransfer()).u
     @test abs(ed.gain - K_TRUE) <= Z * ed.std_error.gain && abs(ed.σ[1] - SIGMA_EFF) <= Z * ed.std_error.σ[1]
     # the failures: a saturated frame, a frame of one level
     for (raw, why) in ((fill(UInt16(WHITE), 64, 64), "too few usable blocks"), (fill(UInt16(1000), 256, 256), "one level"))
-        err = try photon_transfer(synth_mosaic(raw)); nothing catch x; x end
+        err = try solve(EstimationProblem(PoissonGaussian, synth_mosaic(raw)), PhotonTransfer()); nothing catch x; x end
         @test err isa NoiseEstimateFailed && occursin(why, err.reason)
     end
-    @test_throws ArgumentError photon_transfer(ptc_frame(StableRNG(1)); block = 1)
+    @test_throws ArgumentError solve(EstimationProblem(PoissonGaussian, ptc_frame(StableRNG(1))), PhotonTransfer(; block = 1))
 end
 
 # Core 0.10.1: the photon-transfer series (frames at equal exposure: per green photosite the temporal variance, which
 # cancels every fixed pattern), its intercept the darks' at each group's own exposure, its range derived from the data
 # (Bonferroni searches), returned in the stack's FitResult; and the single-frame estimator's refusal of a μ² term (a
 # G1/G2 mismatch and a PRNU on a bright flat). Every bound is Z times the estimate's own standard error (the file's rule).
-@testitem "sensor model: photon_transfer(groups, darks) — the darks' intercept per exposure, the derived range, the FitResult" setup = [SensorFixtures] begin
+@testitem "sensor model: PhotonTransfer of frame groups and darks — the darks' intercept per exposure, the derived range, the FitResult" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: photon_transfer, SensorSource, NoiseEstimateFailed, PhotonTransferMetadata, sensor_fixture,
-        parse_unit, estimate, retcode, ReturnCode
+    using VisualGeometryToolkitCore: SensorSource, NoiseEstimateFailed, PhotonTransferMetadata, sensor_fixture,
+        parse_unit, ReturnCode
     using StableRNGs: StableRNG
     refusal(f) = (try f(); nothing catch e; e end)
     s = parse_unit("s")
@@ -124,11 +87,10 @@ end
     t1, t2 = 0.01s, 0.02s
     groups = Dict(t1 => [scene_frame(StableRNG(100 + k); light = k == 2 ? 0.5025 : 0.5, response) for k in 1:4],
                   t2 => [scene_frame(StableRNG(110 + k); light = k == 2 ? 1.005 : 1.0, response, σ = sqrt(SIGMA_R^2 + σd^2)) for k in 1:4])
-    rn(σ) = sensor_fixture(; read_noise = (σ, σ, σ, σ)).model.noise
-    darks = Dict(t1 => rn(SIGMA_EFF), t2 => rn(sqrt(SIGMA_EFF^2 + σd^2)))
-    r = photon_transfer(groups, darks)
-    pg = estimate(r)
-    @test r isa FitResult && retcode(r) === ReturnCode.Success && r.metadata isa PhotonTransferMetadata
+    darks = Dict(t1 => read_noise_model(SIGMA_EFF), t2 => read_noise_model(sqrt(SIGMA_EFF^2 + σd^2)))
+    r = solve(EstimationProblem(PoissonGaussian, groups, (; darks)), PhotonTransfer())
+    pg = r.u
+    @test r isa FitResult && r.retcode === ReturnCode.Success && r.metadata isa PhotonTransferMetadata
     @test pg isa PoissonGaussian && pg.source === SensorSource.measured
     @test abs(pg.gain - K_TRUE) <= Z * pg.std_error.gain                     # unbiased: the fixed pattern cancels
     # the range, derived from the data, recorded with its Bonferroni searches: m the candidate lower ends, each at α/m
@@ -139,51 +101,54 @@ end
     @test SIGMA_EFF^2 <= md.intercept <= SIGMA_EFF^2 + σd^2                   # the fitted points' darks (their median)
     @test md.birge_ratio > 0                                                 # recorded (its rule: the Birge-ratio item)
     # the weighted line iterates its weights to a fixed point: the result says so (its stop rule and iterations)
-    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.iterations >= 1
+    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.stats.nsteps >= 1
     # σ_r's standard error is carried from the darks: none stated, none carried (0); stated, the fitted points' median
     # exposure's, se(σ₀²)/(2σ_r) with se(σ₀²) = 2σ·se/√2 over the two independent green channels (at most se/√2 when the
     # median falls between two exposures)
     @test pg.std_error.σ == (0.0, 0.0, 0.0, 0.0)
-    rse(σ, se) = sensor_fixture(; read_noise = (σ, σ, σ, σ), read_noise_std_error = (se, se, se, se)).model.noise
-    pgs = estimate(photon_transfer(groups, Dict(t1 => rse(SIGMA_EFF, 0.01), t2 => rse(sqrt(SIGMA_EFF^2 + σd^2), 0.01))))
+    pgs = solve(EstimationProblem(PoissonGaussian, groups,
+                                  (; darks = Dict(t1 => read_noise_model(SIGMA_EFF, 0.01), t2 => read_noise_model(sqrt(SIGMA_EFF^2 + σd^2), 0.01)))),
+                PhotonTransfer()).u
     @test pgs.gain == pg.gain && pgs.σ == pg.σ && allequal(pgs.std_error.σ)
     @test 0 < pgs.std_error.σ[1] <= 0.01 / sqrt(2) * (1 + 1.0e-12)
     # the intercept is each group's OWN exposure's: the longer group's darks taken as the shorter's bias K
-    wrong = photon_transfer(groups, Dict(t1 => rn(SIGMA_EFF), t2 => rn(SIGMA_EFF)))
-    @test abs(estimate(wrong).gain - K_TRUE) > Z * estimate(wrong).std_error.gain
+    wrong = solve(EstimationProblem(PoissonGaussian, groups, (; darks = Dict(t1 => read_noise_model(SIGMA_EFF), t2 => read_noise_model(SIGMA_EFF)))),
+                  PhotonTransfer())
+    @test abs(wrong.u.gain - K_TRUE) > Z * wrong.u.std_error.gain
     # an exposure without darks is refused, never interpolated or substituted
-    e = refusal(() -> photon_transfer(groups, Dict(t1 => rn(SIGMA_EFF))))
+    e = refusal(() -> solve(EstimationProblem(PoissonGaussian, groups, (; darks = Dict(t1 => read_noise_model(SIGMA_EFF)))), PhotonTransfer()))
     @test e isa ArgumentError && occursin("no darks at the exposure", e.msg)
     # pairs are the case of two frames; a larger group gives its first N frames, N the smallest group's
-    @test abs(estimate(photon_transfer(Dict(t => g[1:2] for (t, g) in groups), darks)).gain - K_TRUE) <=
-          Z * estimate(photon_transfer(Dict(t => g[1:2] for (t, g) in groups), darks)).std_error.gain
-    @test photon_transfer(Dict(t1 => groups[t1], t2 => groups[t2][1:3]), darks).estimate ==
-          photon_transfer(Dict(t1 => groups[t1][1:3], t2 => groups[t2][1:3]), darks).estimate
+    series(gs, dk) = solve(EstimationProblem(PoissonGaussian, gs, (; darks = dk)), PhotonTransfer())
+    pairs2 = series(Dict(t => g[1:2] for (t, g) in groups), darks).u
+    @test abs(pairs2.gain - K_TRUE) <= Z * pairs2.std_error.gain
+    @test series(Dict(t1 => groups[t1], t2 => groups[t2][1:3]), darks).u ==
+          series(Dict(t1 => groups[t1][1:3], t2 => groups[t2][1:3]), darks).u
     # the guards
-    @test_throws ArgumentError photon_transfer(Dict(t1 => groups[t1][1:1], t2 => groups[t2]), darks)   # a group of one frame
-    @test_throws ArgumentError photon_transfer(empty(groups), darks)                                     # no group
-    @test_throws ArgumentError photon_transfer(groups, darks; significance = 1)
-    @test_throws ArgumentError photon_transfer(Dict(t1 => groups[t1], t2 => [synth_mosaic(zeros(UInt16, 64, 64)) for _ in 1:2]), darks)
+    @test_throws ArgumentError series(Dict(t1 => groups[t1][1:1], t2 => groups[t2]), darks)   # a group of one frame
+    @test_throws ArgumentError series(empty(groups), darks)                                     # no group
+    @test_throws ArgumentError PhotonTransfer(; significance = 1)                               # refused at construction
+    @test_throws ArgumentError series(Dict(t1 => groups[t1], t2 => [synth_mosaic(zeros(UInt16, 64, 64)) for _ in 1:2]), darks)
     # one frame of the bright scene: the single-frame estimator (scheduled for removal) refuses the μ² term, naming the
     # series' method; a dim textured scene, no fixed pattern (≤ 10 % of the white level), is its design case: it accepts
-    e = refusal(() -> photon_transfer(scene_frame(StableRNG(42); response)))
-    @test e isa NoiseEstimateFailed && occursin("μ² term", e.reason) && occursin("photon_transfer(groups, darks)", e.reason)
+    e = refusal(() -> solve(EstimationProblem(PoissonGaussian, scene_frame(StableRNG(42); response)), PhotonTransfer()))
+    @test e isa NoiseEstimateFailed && occursin("μ² term", e.reason) && occursin("PhotonTransfer on frame groups", e.reason)
     texture = [1 + 0.1 * sinpi(i / 64) * cospi(j / 96) for i in 1:256, j in 1:512]
     dim = [2.0 * (1600.0 / 2)^((l - 1) / 15) for l in 1:16]
-    pd = photon_transfer(scene_frame(StableRNG(43); levels = dim, texture))
+    pd = solve(EstimationProblem(PoissonGaussian, scene_frame(StableRNG(43); levels = dim, texture)), PhotonTransfer()).u
     @test pd.source === SensorSource.estimated
     @test abs(pd.gain - K_TRUE) <= Z * pd.std_error.gain && abs(pd.σ[1] - SIGMA_EFF) <= Z * pd.std_error.σ[1]
-    @test_throws ArgumentError photon_transfer(scene_frame(StableRNG(1)); significance = 0)
+    @test_throws ArgumentError PhotonTransfer(; significance = 0)                               # refused at construction
 end
 
 # Core 0.10.4: the series against a `Darks` (Core 0.10.3's black slot of several exposure bands): each group's exposure
 # matched to the Dark whose BAND serves it (not by an exact key), each group linearised with that Dark (its offset map
 # and channel black, never one black for every exposure), its intercept that Dark's green variance, and σ_r's standard
 # error carried from the Darks' frame and photosite counts.
-@testitem "sensor model: photon_transfer(groups, darks::Darks) — each group's own Dark, matched by band" setup = [SensorFixtures] begin
+@testitem "sensor model: PhotonTransfer of frame groups and a Darks — each group's own Dark, matched by band" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, PhotonTransferMetadata, sensor_fixture, parse_unit,
-        estimate, retcode, ReturnCode, SensorSource, Darks
+    using VisualGeometryToolkitCore: NoiseEstimateFailed, PhotonTransferMetadata, sensor_fixture, parse_unit,
+        ReturnCode, SensorSource, Darks
     using StableRNGs: StableRNG
     refusal(f) = (try f(); nothing catch e; e end)
     s = parse_unit("s")
@@ -201,18 +166,19 @@ end
     @test darks isa Darks
     # the Dict method matches exposures by exact key: 1//100 s is not the Float64 0.01 s, so it refuses ...
     rn(σ²) = sensor_fixture(; read_noise = ntuple(_ -> sqrt(σ²), 4)).model.noise
-    e = refusal(() -> photon_transfer(groups, Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2]))))
+    e = refusal(() -> solve(EstimationProblem(PoissonGaussian, groups, (; darks = Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2])))),
+                            PhotonTransfer()))
     @test e isa ArgumentError && occursin("no darks at the exposure", e.msg)
     # ... the band-matched path serves each group by the Dark whose band holds its exposure
-    r = photon_transfer(groups, darks)
-    pg, md = estimate(r), r.metadata
-    @test r isa FitResult && retcode(r) === ReturnCode.Success && md isa PhotonTransferMetadata
-    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.iterations >= 1
+    r = solve(EstimationProblem(PoissonGaussian, groups, (; darks)), PhotonTransfer())
+    pg, md = r.u, r.metadata
+    @test r isa FitResult && r.retcode === ReturnCode.Success && md isa PhotonTransferMetadata
+    @test r.stop_rule === VisualGeometryToolkitCore.IncrementSize && r.stats.nsteps >= 1
     @test pg isa PoissonGaussian && pg.source === SensorSource.measured
     @test abs(pg.gain - K_TRUE) <= Z * pg.std_error.gain
     @test σ0²[1] * (1 - 1.0e-6) <= md.intercept <= σ0²[2] * (1 + 1.0e-6)     # the fitted points' Darks' green variance
     # σ_r's standard error from the Darks: se(σ₀²) = √(2/((n − 1)·N_g))·σ₀² over N_g green photosites of n frames, by
-    # first order (master_dark's rule); linear in σ₀², so the median's is the same rule at the median
+    # first order (MasterDark's rule); linear in σ₀², so the median's is the same rule at the median
     Ng = H * W ÷ 2
     @test allequal(pg.std_error.σ) && pg.std_error.σ[1] ≈ sqrt(2 / ((nd - 1) * Ng)) * sqrt(md.intercept) / 2
     # ONE black for every exposure (the shorter band's Dark, as a frame's model gives it) is not each group's own: the
@@ -220,36 +186,41 @@ end
     # which widens K's standard error) and K is off by more than Z of the per-group estimate's standard error
     one_black = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), dark = band(0.01s, BLACK, σ0²[1]), exposure = 0.01s).model
     wrong = try
-        photon_transfer(Dict(0.01s => groups[t1], 0.02s => groups[t2]), Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2]));
-                        sensor_model = one_black)
+        solve(EstimationProblem(PoissonGaussian, Dict(0.01s => groups[t1], 0.02s => groups[t2]),
+                                (; darks = Dict(0.01s => rn(σ0²[1]), 0.02s => rn(σ0²[2])), sensor_model = one_black)),
+              PhotonTransfer())
     catch x
         x
     end
     @test md.birge_ratio <= 1 + Z * sqrt(2 / (r.n - 1))                       # the per-group fit: the counts' scatter
     @test wrong isa NoiseEstimateFailed ||
-          (wrong.metadata.birge_ratio > 1 && abs(estimate(wrong).gain - K_TRUE) > Z * pg.std_error.gain)
+          (wrong.metadata.birge_ratio > 1 && abs(wrong.u.gain - K_TRUE) > Z * pg.std_error.gain)
     # the defects, cut to each group's own exposure (a site masked from its onset): every photosite masked from 15 ms
     # leaves the 10 ms group whole and the 20 ms group nothing
     every = (; x = repeat(1:W; inner = H), y = repeat(1:H; outer = W), onset = fill(0.015s, H * W), size = (H, W))
     late = sensor_fixture(; defects = (; every..., onset = fill(1.0s, H * W))).model.defects
-    @test photon_transfer(groups, darks; defects = late).estimate == pg              # no site's onset reached
-    half = photon_transfer(groups, darks; defects = sensor_fixture(; defects = every, exposure = 1.0s).model.defects)
+    @test solve(EstimationProblem(PoissonGaussian, groups, (; darks, defects = late)), PhotonTransfer()).u == pg   # no site's onset reached
+    half = solve(EstimationProblem(PoissonGaussian, groups,
+                                   (; darks, defects = sensor_fixture(; defects = every, exposure = 1.0s).model.defects)),
+                 PhotonTransfer())
     @test half.metadata.points_offered < md.points_offered && isapprox(half.metadata.intercept, σ0²[1]; rtol = 1.0e-6)
     # the guards: an exposure no band serves, maps that do not cover the frames
-    e = refusal(() -> photon_transfer(Dict(t1 => groups[t1], 0.03s => groups[t2]), darks))
+    e = refusal(() -> solve(EstimationProblem(PoissonGaussian, Dict(t1 => groups[t1], 0.03s => groups[t2]), (; darks)),
+                            PhotonTransfer()))
     @test e isa ArgumentError && occursin("no Dark", e.msg)
     small = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK),
                            darks = [(; band(0.01s, BLACK, 1.0)..., offset = fill(Float32(BLACK), 8, 8), variance = fill(1.0f0, 8, 8))])
-    @test_throws DimensionMismatch photon_transfer(Dict(t1 => groups[t1]), small.characterisation.entries[100.0].black)
-    @test_throws ArgumentError photon_transfer(groups, darks; significance = 0)
-    @test_throws ArgumentError photon_transfer(Dict(t1 => groups[t1][1:1]), darks)
+    @test_throws DimensionMismatch solve(EstimationProblem(PoissonGaussian, Dict(t1 => groups[t1]),
+                                                           (; darks = small.characterisation.entries[100.0].black)), PhotonTransfer())
+    @test_throws ArgumentError PhotonTransfer(; significance = 0)                               # refused at construction
+    @test_throws ArgumentError solve(EstimationProblem(PoissonGaussian, Dict(t1 => groups[t1][1:1]), (; darks)), PhotonTransfer())
 end
 
 # Core 0.10.4: the weighted line iterates its weights to a fixed point and says whether it reached it (a capped run is
 # not a converged one), and the single frame's μ² test, which needs 4 points, refuses a frame that gives fewer.
-@testitem "sensor model: photon_transfer — the weighted line's convergence, the single frame's μ² test" setup = [SensorFixtures] begin
+@testitem "sensor model: PhotonTransfer — the weighted line's convergence, the single frame's μ² test" setup = [SensorFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, ReturnCode
+    using VisualGeometryToolkitCore: solve, EstimationProblem, PoissonGaussian, PhotonTransfer, NoiseEstimateFailed, ReturnCode
     using StableRNGs: StableRNG
     using Distributions: Poisson
     # 4 × 6 blocks of 8 × 8 cells, six levels: 24 whole blocks give 3 points, too few for the μ² test: refused, not
@@ -257,7 +228,7 @@ end
     rng = StableRNG(5)
     lv = LEVELS[[1, 4, 7, 10, 13, 16]]
     raw = [code(rng, BLACK, Poisson(lv[cld(j, 16)] * K_TRUE), SIGMA_R) for i in 1:64, j in 1:96]
-    e = try photon_transfer(synth_mosaic(raw)); nothing catch x; x end
+    e = try solve(EstimationProblem(PoissonGaussian, synth_mosaic(raw)), PhotonTransfer()); nothing catch x; x end
     @test e isa NoiseEstimateFailed && occursin("μ² test", e.reason) && occursin("3 points", e.reason)
     xs = collect(range(500.0, 9000.0; length = 24)); ms = fill(64.0, 24); rel = 0.05; σ0 = 1.3
     line = σ0 .+ xs ./ K_TRUE
@@ -276,7 +247,7 @@ end
 # The Birge ratio (owner ruling, 0.10.1): the series' K standard error is the line's from the counts times R = √(χ²/dof)
 # of the fitted points when R > 1, unchanged when R ≤ 1 (never shrunk). Points exactly on the line (R = 0) keep the
 # counts' standard error; points scattered 3× their counts' standard deviation give the counts' times R ≈ 3.
-@testitem "sensor model: photon_transfer's K standard error and the Birge ratio" setup = [SensorFixtures] begin
+@testitem "sensor model: PhotonTransfer's K standard error and the Birge ratio" setup = [SensorFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     using StableRNGs: StableRNG
     xs = collect(range(500.0, 9000.0; length = 24)); ms = fill(64.0, 24); rel = 0.05; σ0 = 1.3
@@ -293,19 +264,25 @@ end
     @test 2 < fs.R < 4                                       # the injected 3×, at 23 degrees of freedom
 end
 
-# The single-frame estimator of 0.10.1 is 0.10.0's, bit for bit, where it accepts: the refactor onto the shared block
-# kernel (the cell rule) and the shared fit changed no arithmetic. The numbers are 0.10.0's (release 7b9bec70) on the
+# The single-frame estimator of 0.10.1 is 0.10.0's, where it accepts: the refactor onto the shared block kernel (the
+# cell rule) and the shared fit changed no arithmetic (to the LAPACK build's last bits, below). The numbers are 0.10.0's (release 7b9bec70) on the
 # file's seeded `ptc_frame`s.
-@testitem "sensor model: photon_transfer of one frame is 0.10.0's, bit for bit" setup = [SensorFixtures] begin
-    using VisualGeometryToolkitCore: photon_transfer
+@testitem "sensor model: PhotonTransfer of one frame is 0.10.0's, to the LAPACK build's rounding" setup = [SensorFixtures] begin
+    using VisualGeometryToolkitCore: solve, EstimationProblem, PoissonGaussian, PhotonTransfer
     using StableRNGs: StableRNG
     # (seed, K, σ_r, se(K), se(σ_r)) of 0.10.0, printed with repr (round-trip exact)
     for (seed, K, σ, sK, sσ) in (
             (101, 1.5827201366016779, 2.4720165752103225, 0.019932146541470762, 0.03680304426500703),
             (102, 1.6663151369327605, 2.54356250910606, 0.021150720040122115, 0.03680884658603527),
             (103, 1.5628511965896894, 2.535740224174987, 0.01972960712385458, 0.03728417731866704))
-        e = photon_transfer(ptc_frame(StableRNG(seed)))
-        @test (e.gain, e.σ[1], e.std_error.gain, e.std_error.σ[1]) === (K, σ, sK, sσ)
+        e = solve(EstimationProblem(PoissonGaussian, ptc_frame(StableRNG(seed))), PhotonTransfer()).u
+        # 0.10.0's numbers, printed by the Julia and BLAS/LAPACK build of that release: the weighted line's solve and
+        # covariance (`_ptc_line`: a LAPACK factorization and inverse) round differently in the last bits under
+        # another build, so each value within 4 ulp of its reference (decision 9, 2026-11-23); the arithmetic of the
+        # estimator itself is the same
+        for (v, ref) in zip((e.gain, e.σ[1], e.std_error.gain, e.std_error.σ[1]), (K, σ, sK, sσ))
+            @test abs(v - ref) <= 4 * eps(ref)
+        end
     end
 end
 
@@ -314,11 +291,11 @@ end
 # characterisation's read noise — on a bright flat with a fixed pattern it falls back, on a dim scene it estimates.
 @testitem "sensor model: a refusal is a NoiseEstimateFailed a caller falls back on" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: photon_transfer, NoiseEstimateFailed, sensor_fixture
+    using VisualGeometryToolkitCore: NoiseEstimateFailed, sensor_fixture
     using StableRNGs: StableRNG
     recorded = sensor_fixture(; read_noise = (SIGMA_EFF, SIGMA_EFF, SIGMA_EFF, SIGMA_EFF)).model.noise
     noise_of(frame) = try
-        (photon_transfer(frame), :estimated)
+        (solve(EstimationProblem(PoissonGaussian, frame), PhotonTransfer()).u, :estimated)
     catch e
         e isa NoiseEstimateFailed || rethrow()
         (recorded, :fallback)                               # the caller's policy, marked in its record
@@ -331,9 +308,10 @@ end
     @test how === :estimated && n isa PoissonGaussian
 end
 
-@testitem "sensor model: master_dark — a Dark, its ChannelBlack, the ReadNoise and the defects; defect_onsets" setup = [SensorFixtures] begin
+@testitem "sensor model: MasterDark — a Dark, its ChannelBlack, the ReadNoise and the defects; defect_onsets" setup = [SensorFixtures] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: master_dark, defect_onsets, photosite_colors, parse_unit, ustrip, SensorSource
+    using VisualGeometryToolkitCore: defect_onsets, photosite_colors, parse_unit, ustrip, SensorSource
     using StableRNGs: StableRNG
     s = parse_unit("s")
     rng = StableRNG(7)
@@ -352,7 +330,9 @@ end
         q <= 8 ? (offset[p] += 300) : (offset[p] = 0.0; σ[p] = 0.0)   # hot, or dead (stuck at code 0)
     end
     frames = [synth_mosaic([code(rng, offset[i, j], nothing, σ[i, j]) for i in 1:H, j in 1:W]; black) for _ in 1:n]
-    r = master_dark(frames; exposure_band = (0.5s, 1.0s))
+    res = solve(EstimationProblem(Dark, frames, (; exposure_band = (0.5s, 1.0s))), MasterDark())
+    @test res.u isa VgtkCore.model_type(res.prob) && res.n == n   # u the Dark; the rest its metadata
+    r = (; dark = res.u, res.metadata...)
     @test r.dark isa Dark && r.dark.black isa ChannelBlack && r.read_noise isa ReadNoise
     @test r.dark.source === r.dark.black.source === r.read_noise.source === SensorSource.measured
     @test size(r.dark.offset) == (H, W) && r.dark.frames == n
@@ -378,9 +358,12 @@ end
         @test abs(r.read_noise.σ[c + 1] - σeff[c + 1]) <= Z * r.read_noise.std_error[c + 1]
         @test r.read_noise.std_error[c + 1] ≈ sqrt(2 / ((n - 1) * Nc)) * r.read_noise.σ[c + 1] / 2
     end
-    @test_throws ArgumentError master_dark(frames[1:1]; exposure_band = (0.5s, 1.0s))
-    @test_throws ArgumentError master_dark([frames[1], synth_mosaic(zeros(UInt16, 4, 4))]; exposure_band = (0.5s, 1.0s))
-    @test_throws ArgumentError master_dark(frames; exposure_band = (1.0s, 0.5s))
+    @test_throws ArgumentError solve(EstimationProblem(Dark, frames[1:1], (; exposure_band = (0.5s, 1.0s))), MasterDark())
+    @test_throws ArgumentError solve(EstimationProblem(Dark, [frames[1], synth_mosaic(zeros(UInt16, 4, 4))],
+                                                       (; exposure_band = (0.5s, 1.0s))), MasterDark())
+    @test_throws ArgumentError solve(EstimationProblem(Dark, frames, (; exposure_band = (1.0s, 0.5s))), MasterDark())
+    @test_throws ArgumentError MasterDark(; false_defects = 0)                                  # refused at construction
+    @test_throws ArgumentError MasterDark(; false_defects = 1)
 
     # the onsets: each site's shortest flagging exposure, the masks in any order
     m1 = falses(4, 5); m1[2, 3] = true
@@ -864,7 +847,8 @@ end
         end
         @test components(LinearRaw(d; mode = :bin2, sensor_model = models[2]).image)[1] isa CUDA.CuArray
         f = ptc_frame(StableRNG(21))
-        @test photon_transfer(adapt(CUDA.CuArray, f)) == photon_transfer(f)
+        @test solve(EstimationProblem(PoissonGaussian, adapt(CUDA.CuArray, f)), PhotonTransfer()).u ==
+              solve(EstimationProblem(PoissonGaussian, f), PhotonTransfer()).u
         # the series' estimate (0.10.1): the frames on the device, their scales and stacks there
         gs = Dict((l * 0.01)s => [scene_frame(StableRNG(200 + 10l + k); light = l == 1 ? 1.0 : 0.5) for k in 1:3] for l in 1:2)
         gd = Dict(t => [adapt(CUDA.CuArray, f) for f in g] for (t, g) in gs)
@@ -884,8 +868,9 @@ end
         Gd = Distributions.Gamma(128, 1 / 128)                 # the block law of this fixture: p(N − 1) = 128·2 dof
         qd = Distributions.median(Gd); relc = 1 / (4 * Distributions.pdf(Gd, qd)^2 * qd^2)
         for normalize in (false, true)
-            rh, rd = photon_transfer(gs, dk; normalize), photon_transfer(gd, dk; normalize)
-            eh, ed, mh, md = rh.estimate, rd.estimate, rh.metadata, rd.metadata
+            rh = solve(EstimationProblem(PoissonGaussian, gs, (; darks = dk)), PhotonTransfer(; normalize))
+            rd = solve(EstimationProblem(PoissonGaussian, gd, (; darks = dk)), PhotonTransfer(; normalize))
+            eh, ed, mh, md = rh.u, rd.u, rh.metadata, rd.metadata
             n, m = rh.n, 2 * (16 * 32) / mh.points_offered      # the points fitted; blocks per point (2 exposures × 16 × 32)
             δ = (3 + 2 * 8^2) * eps(Float64)
             Y = 2 * δ * sqrt(n * m / relc)
@@ -897,9 +882,9 @@ end
             @test md.level_range == mh.level_range && md.intercept == mh.intercept && ed.σ == eh.σ
         end
         frames = [synth_mosaic([code(rng, BLACK, nothing, SIGMA_R) for i in 1:32, j in 1:32]) for _ in 1:4]
-        rh = master_dark(frames; exposure_band = (0.5s, 1.0s))
-        rd = master_dark([adapt(CUDA.CuArray, f) for f in frames]; exposure_band = (0.5s, 1.0s))
-        @test adapt(Array, rd.dark) == rh.dark && rd.read_noise == rh.read_noise && rd.defects == rh.defects
+        rh = solve(EstimationProblem(Dark, frames, (; exposure_band = (0.5s, 1.0s))), MasterDark())
+        rd = solve(EstimationProblem(Dark, [adapt(CUDA.CuArray, f) for f in frames], (; exposure_band = (0.5s, 1.0s))), MasterDark())
+        @test adapt(Array, rd.u) == rh.u && rd.metadata.read_noise == rh.metadata.read_noise && rd.metadata.defects == rh.metadata.defects
     else
         @test_skip CUDA.functional()                         # no functional GPU here: recorded as Broken
     end

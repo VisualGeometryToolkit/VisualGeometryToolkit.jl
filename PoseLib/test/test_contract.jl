@@ -20,45 +20,11 @@ using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_ja
     Irls, Triggs, EfficiencyConstant, LossWidth, FitResult, estimate, retcode, iterations, noise_scale, scale_source,
     ScaleGiven, ScaleUpstream, ScaleNone, efficiency_constant
 
-# The geometry of test_refine.jl, one draw per refiner (outliers from rng 99).
-function _baseline_data()
-    _nrm(Y) = SVector(Y[1] / Y[3], Y[2] / Y[3])
-    _proj(K, Y) = _nrm(K * Y)
-    rng = MersenneTwister(7)
-    n = 200; nout = n ÷ 5
-    K1 = SMatrix{3,3}(800.0, 0, 0, 0, 800.0, 0, 320.0, 240.0, 1.0)
-    K2 = SMatrix{3,3}(760.0, 0, 0, 0, 760.0, 0, 330.0, 250.0, 1.0)
-    R = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.2, normalize([0.3, 1.0, 0.1])...)))
-    t = normalize(SVector(1.0, 0.1, 0.05))
-    X = [SVector(4 * randn(rng), 3 * randn(rng), 8.0 + 4 * rand(rng)) for _ in 1:n]
-    Rs = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.01, 0.0, 1.0, 0.0))) * R
-    seed = PoseLib.Rigid3(RotMatrix{3}(Rs), Vec3{Float64}(normalize(t + SVector(0.0, 0.02, 0.0))))
-    r2 = MersenneTwister(99)
-    out2() = SVector(640 * rand(r2), 480 * rand(r2))
-    x1 = [_proj(K1, Y) for Y in X]
-    x2 = [_proj(K2, R * Y + t) for Y in X]
-    x2[1:nout] .= [out2() for _ in 1:nout]
-    rel = Correspondences(x1, x2)
-    tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)
-    F = inv(K2)' * tx * R * inv(K1)
-    F0 = F .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(r2, 9)))
-    H = K2 * (R + t * SVector(0.0, 0.0, 0.1)') * inv(K1)
-    h1 = [out2() for _ in 1:n]
-    h2 = [_proj(H, SVector(u[1], u[2], 1.0)) for u in h1]
-    h2[1:nout] .= [out2() for _ in 1:nout]
-    H0 = H .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(r2, 9)))
-    cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Pinhole())
-    cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K2)), Pinhole())
-    bm1 = backproject_with_jacobian.(Ref(cam1), x1)
-    bm2 = backproject_with_jacobian.(Ref(cam2), x2)
-    bear = withattrs(Correspondences(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))
-    f = 800.0
-    xa = [_nrm(R * Y + t) for Y in X]
-    xa[1:nout] .= [SVector(randn(r2), randn(r2)) for _ in 1:nout]
-    ua = [SVector(f * c[1] + K1[1, 3], f * c[2] + K1[2, 3]) for c in xa]
-    abs_cs = Correspondences(X, ua)
-    return (; seed, K1, K2, rel, F0, H0, hom = Correspondences(h1, h2), bear, abs_cs)
-end
+# The geometry of test_refine.jl, one draw per refiner (outliers from rng 99): the suite's fixture file, shared with the
+# golden records
+include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`, `pinhole_pixel`
+include(joinpath(@__DIR__, "fixtures", "refine_scenes.jl"))
+_baseline_data() = (d = contract_scene(MersenneTwister(99)); (; d.seed, d.K1, d.K2, d.rel, d.F0, d.H0, d.hom, d.bear, d.abs_cs))
 
 # The refined models of PoseLib 0.1.9 (VisualGeometryToolkit robust-core 3eabba46), captured with
 # the retired API (`loss = <shape or LeZachTruncation()>`, `loss_width = w`, `max_iter = 25`; w = 2 px,

@@ -34,7 +34,9 @@ Built. Read it. In short:
   algorithm; it replaces the prototype's `is_randomized`.
 - The front end:
   - `solve(prob, alg; kw...)` = `check_kind`, then `__solve(prob, alg; kw...)`, then `with_problem(result, prob, alg)`.
-  - `init(prob, alg; kw...)` = `check_kind`, then `__init(prob, alg; kw...)`.
+  - `init(prob, alg; kw...)` = `check_kind`, then `EstimationCache(__init(prob, alg; kw...), prob, alg)`: Core's
+    `solve!(::EstimationCache)` runs the owner's `solve!(cache)` and records `prob`/`alg` (`with_problem`), and its
+    `reinit!` forwards to the owner's and records the new problem — one recording place for both paths.
   - `solve(prob)` runs `default_algorithm(prob)`.
   - `reinit!(cache[, u0]; p, f)` is defined by the cache's owner.
   - `__solve` defaults to `solve!(__init(…))`.
@@ -84,14 +86,14 @@ Built.
 | `chordal_mean(Rs)` | `solve(EstimationProblem(RotMatrix{3}, Rs), ChordalMean())` |
 | `spectral_rotation_averaging(rel)` | `solve(EstimationProblem(AbsoluteRotations, rel), SpectralAveraging())`. `AbsoluteRotations` is a model TAG (abstract, never instantiated) |
 | `zhang_intrinsics(Hs[, pitch]; center)` | `solve(EstimationProblem(LogicalIntrinsics, Hs, (; center[, pitch])), Zhang())` |
-| `tls_line(points[, weights])` | `solve(EstimationProblem(Line2D, points), TotalLeastSquares())`; weighted: `EstimationProblem(Line2D, (; points, weights))` |
+| `tls_line(points[, weights])` | `solve(EstimationProblem(Line2D, points), TotalLeastSquares())`; weighted: the points' `weights` attribute column, `EstimationProblem(Line2D, withattrs(points; weights))` (as Kabsch, NearestPoint and DLT read theirs) |
 | `direct_ellipse(points)` | `solve(EstimationProblem(Ellipse, points), DirectEllipse())` |
 | `nearest_point(lines)` | `solve(EstimationProblem(Point, lines), NearestPoint())` |
 | `triangulate(pose, f₁, f₂) -> (X, λ₁, λ₂)` | `solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())`: `u = X`, `metadata.depths = (λ₁, λ₂)`. Inner loops call the private `_triangulate` |
 | `p3p(model, cs)` | `solve(MinimalProblem(Extrinsics3, cs, 1:3, model), P3P())`: the context `p` is the camera, which back-projects the pixels |
 | `solve(solver, cs, idx)` | `solve(MinimalProblem(M, cs, idx), solver)`, or `solve(MinimalProblem(M, cs, idx))` (the declared default) |
 | `photon_transfer(groups, darks; defects, block, normalize, significance)` | `solve(EstimationProblem(PoissonGaussian, groups, (; darks, defects)), PhotonTransfer(; block, normalize, significance))`; the `ReadNoise`-dict form: `p = (; darks, sensor_model)`; the single-mosaic form: `EstimationProblem(PoissonGaussian, mosaic, (; sensor_model))`, its `u` the `PoissonGaussian` |
-| `master_dark(frames; exposure_band, false_defects)` | `solve(EstimationProblem(Dark, frames, (; exposure_band)), MasterDark(; false_defects))`: `u = (; dark, read_noise, defects)` |
+| `master_dark(frames; exposure_band, false_defects)` | `solve(EstimationProblem(Dark, frames, (; exposure_band)), MasterDark(; false_defects))`: `u` the `Dark`, `metadata = (; read_noise, defects)` |
 | `fit_scale(prior, rss, dof)` | `solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior))`: `u` is ŝ². `SquaredScale` is a model TAG; inner loops call the private `_ig_map_scale` |
 | `static_lm(fj, x₀, lb, ub, stops[, bound])` | `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt(); stops, bound)`: `u = x`, `stats.nsteps` the iteration count (now returned), `metadata = (; jacobian = J, evaluation = e)`; isbits, runs in a kernel |
 
@@ -270,3 +272,115 @@ These are done in Core 0.14, each with its own commit:
   here: its producers are Estimation's bundles, whose migration decides it with `RefineMetadata.residuals`.
 - 2026-11-23 (Core agent): no `check_algorithm_traits` gate exists yet; the docstrings that named it now describe the
   contract, and Core's suite checks every Core algorithm's `estimator_kind` (solve_interface_tests.jl).
+- 2026-11-23 (Core agent, owner's rulings relayed by the lead): naming.md item 5 now reads: "`update_model!` is the
+  model-block update of an iterative algorithm, with weights and nuisance held fixed: its method of the
+  block-coordinate-descent hook (items 3 and 8), public only as that hook; the computation inside it is internal,
+  named for what it computes (its local Δ is item 6's `<method>_increment`). No identifier contains the word `step`,
+  except Manopt.jl's `step_solver!` and SciMLBase's iteration counter `nsteps`." Reason: with no `fit_*` names the
+  `<fit>_step` form has no anchor; `update_model!` is already the hook items 3 and 8 name, so no new vocabulary is
+  added. R5 follows: its `<fit>_step` exception (`_is_fit_update` and the `fits` set it read) is deleted, and
+  `nsteps` is exempt in every binding (`_SCIML_COUNTER_NAMES`, beside Manopt's `_MANOPT_CYCLE_NAMES`). Consequence
+  downstream: Estimation's `division_camera_step` (internal or not) must be renamed by what it computes.
+- 2026-11-23 (Core agent): the mechanism-token scope is written into naming.md ("Mechanism tokens name steps, never
+  estimators"). Core's `check_naming` has NO mechanism-token rule at this commit (no rule fires on `lm`/`gn`/`irls`), so
+  there was no check to scope; the rules agent that adds one implements the scope (estimators: problem and algorithm
+  types and estimator functions; contract steps exempt: `posterior_irls!`, `lmsolve_chart!`,
+  `block_coordinate_descent!`).
+- 2026-11-23 (Core agent): `mad_scale` → `solve(EstimationProblem(NoiseScale, residuals), MedianNormScale())`
+  (`ClosedFormKind`, `n` the residuals, the numerics `_mad_scale_norms` unchanged). `NoiseScale` declares NO default:
+  the old docs made reaching for this estimator "a decision rather than a default", so it stays named. The five
+  internal names are `_partition_student_t`, `_next_nu`, `_posterior_weights!`, `_posterior_inlier_probs!`,
+  `_soft_posterior_weights!` (an `_` prefix: the stack's mark of a non-public name, which the private-name gate
+  enforces across packages); all six old names are in RETIRED_NAMES.
+- 2026-11-23 (Core agent, owner's ruling on the R9/§7 collision): an algorithm's snake-case tag is its ONE tag. R9 exempts
+  a retired-name hit that equals `snake_case(T)` (the tag rule's function) of an estimation-algorithm type the scanned
+  package defines (`struct T … <: AbstractEstimationAlgorithm`, or `<: MinimalSolver{…}`, found in the parsed code: no
+  hand-written list), where a tag is spelled: anywhere on a TOML line (table, key, tag value), and in a Julia file only
+  when every hit on the line is inside a string literal (a reader of the tag's table). Reading taken: the narrow one —
+  every other R9 coverage (identifiers, comments, docstrings, docs, a string that is not an algorithm's tag) is kept, as
+  conventions/naming.md item 9 states; if the ruling meant to drop R9 from comments and strings altogether, that is a
+  one-line widening of `_algorithm_tag`.
+- 2026-11-23 (Core agent): R21, on the parsed AST (Meta.parseall, as R3–R14): it flags (a) a call of `estimate`,
+  `iterations`, `converged`, `retcode`, `metadata` or `stop_rule` with exactly one positional argument (qualified or
+  not), and any call of `nested_metadata`; (b) a definition of any of those, or of `rms`, whose positional argument is
+  annotated `::FitResult`; (c) a read `x.metadata.<f>`, `f` in `weights, dof, scale, scale_source, s2, inlier_mask`,
+  outside a method of `weights`, `dof`, `noise_scale`, `scale_source`, `s2`, `inlier_mask` or `weight_kind`. It cannot
+  see types, so two retired forms are out of its reach and stated: a call `rms(r)` on a result (the same syntax as the
+  kept `rms(residuals)`), and a dotted `r.converged`/`r.iterations` (the same syntax as a NamedTuple's field, e.g. the
+  multi-block LM's `sol.iterations`); both fail at run time anyway (no method, no field), since a FitResult forwards
+  nothing.
+- 2026-11-23 (Core agent, decision 9): the two last-bit tests compare within a stated tolerance — `inv(::Uncertain
+  {EuclideanMap})`: the rotation exactly, the translation within 4 ulp of its norm (StaticArrays' `muladd`s fused by LLVM
+  in one compiled copy and not another); PhotonTransfer of one frame vs 0.10.0's printed numbers: each within 4 ulp
+  (the weighted line's LAPACK inverse under another BLAS/LAPACK build). Nothing else loosened.
+- 2026-11-23 (Core agent, simplify review): `init` returns a Core `EstimationCache(cache, prob, alg)` (mutable, its
+  `prob` replaced by `reinit!`); `solve!` on it records the problem and algorithm through `with_problem`, as `solve`
+  does (`with_problem(x, prob, alg) = x` for a non-FitResult replaces `_record`). A package's `__init`/`solve!`/`reinit!`
+  methods stay on its own cache type.
+- 2026-11-23 (Core agent): ONE FitResult constructor, `FitResult{U}(u, code, rule, stats, rms, n, metadata; resid, prob,
+  alg, original)` (and `FitResult(u, …)` taking `U` from `u`), and ONE rebuild, `_rebuild(r, U, u, prob, alg)`
+  (`with_problem`, `map_estimate`). The device LM calls `FitResult{U}(…)` without keywords: a positional call, as a
+  kernel runs it.
+- 2026-11-23 (Core agent): context `p` is read by ONE helper, `_solve_context(p, required, optional, who)` (any key
+  order; one `ArgumentError` naming the missing and the unknown keys; `NullParameters()` holds none): Zhang
+  (`center`, optional `pitch`), MasterDark (`exposure_band`), PhotonTransfer (`darks` with `defects` or
+  `sensor_model` by the darks' type; one frame: optional `sensor_model`). Algorithms that read no context take only
+  `NullParameters` (`EstimationProblem{M, D, NullParameters}`, `_MinimalNoContext` for the minimal solvers): a stray
+  context has no method. Zhang's default is declared only for the contexts it solves (`_ZhangContext`). A Zhang
+  problem without its centre is now an `ArgumentError` (was a `MethodError`).
+- 2026-11-23 (Core agent): the kind law's two minimal refusals were NOT merged over a `Union`: the merged method is
+  ambiguous with `_check_kind(::RefineProblem, ::EstimatorKind)` and `_check_kind(::EstimationProblem, ::EstimatorKind)`
+  (the ambiguity that split them); both are one line calling `_refuse_minimal`.
+- 2026-11-23 (Core agent): the algorithm docstrings are the one copy of their documentation; the private kernels carry
+  a `# Kernel of [Algorithm]` comment (the triangulation kernel also keeps its recorded study and negative result).
+- 2026-11-23 (Core agent): `check_algorithm_traits(M)` (TestExt; public stub) is the decision-7 gate, run by Core's
+  quality item: every concrete algorithm has `estimator_kind`; every declared default is not a find, overrides no
+  `supports_solve_rng`, is a refine exactly for a `RefineProblem` and a minimal solver exactly for a `MinimalProblem`,
+  and is a closed form wherever a closed form of the module solves the same problem (from inferred results: no
+  problem is built). The no-default message is held by solve_interface_tests.jl.
+- 2026-11-23 (Core agent, decision-13 gate on the device LM): the front end is `@inline` (`solve(prob, alg; kw...)`
+  and `with_problem` on a FitResult), so a caller's `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt();
+  stops, bound)` inlines down to the kernel: the kind law and the termination record fold, and the fields a caller
+  does not read (the recorded problem, `rms`) are never built. Measured: the old `static_lm` vs the new `solve`,
+  interleaved processes, medians — the lens inverse within +0.7 % (full result) and +0.9 % (reading `u`, the record and
+  `J`); the N = 3 smooth problem within +0.6 % / +0.3 %; the old runs' A/A spread 1.1 %. Before the inlining the full
+  result cost +3–7 % (a 288-byte result materialized through a non-inlined `solve`).
+- 2026-11-23 (Core agent, code review): Core's version is 0.14.0 now: a sibling that still names a deleted function
+  fails to resolve rather than load against a broken Core, and gets its compat bump when it migrates. PoseLib's
+  `essential_dlt` → `essential_8pt` rename is the PoseLib phase's.
+- 2026-11-23 (Core agent): `reinit!(::EstimationCache, …)` builds the new problem first and refuses one of another
+  concrete type (`ArgumentError`) before the owner's `reinit!` runs, so a refusal leaves both sides as they were.
+  `reinit!` is public, not exported (SciMLBase exports its own).
+- 2026-11-23 (Core agent): Triangulation of parallel rays is recorded `(InitialFailure, NoRule)`, `n = 0`, its `u` the
+  kernel's NaN point (the one degenerate closed form whose `u` is not `nothing`: the type stays a concrete `Point3`
+  and the golden mapping of `u` holds).
+- 2026-11-23 (Core agent): `default_algorithm(::RefineProblem{<:AbstractConstraintProblem}) = LevenbergMarquardt()`
+  (declared beside `AbstractConstraintProblem`, robust/problem.jl): only a refine whose `f` is a constraint problem —
+  the chart-LM interface's implementers — has the host LM as its default; a residual closure has none, and its
+  no-default error names `StaticLevenbergMarquardt`. The refine pipeline's move into Core completes this with the LM's
+  `__solve`.
+- 2026-11-23 (Core agent): the device LM's `stats.nsteps` counts ACCEPTED steps (SolveStats' meaning, the host LM's
+  count), by a counter of its own; the loop's `iter` and its cap are unchanged.
+- 2026-11-23 (Core agent): `MasterDark`'s `u` is the `Dark`, `metadata = (; read_noise, defects)`, so
+  `r.u isa model_type(r.prob)`.
+- 2026-11-23 (Core agent): TotalLeastSquares' weights are the points' `weights` attribute column
+  (`withattrs(points; weights)`, read by `weights_column`, as Kabsch, NearestPoint and DLT read theirs; `withattrs` of a
+  plain point vector is a `PointSet`); the `(; points, weights)` form is gone.
+- 2026-11-23 (owner, dedupe agent): ONE storage-boundary policy for the frame-tagged maps (`EuclideanMap`,
+  `SimilarityMap`, `RotationMap`, `HomographyMap`), implemented once at the end of `homography_map.jl`: `convert` into a
+  fully parameterized slot of the same map type (implicit in `setindex!`, a typed field, `push!`) may LABEL an
+  unlabeled map or keep its frames, never relabel or erase one, and keeps the number type `T` — a different `T` is a
+  `MethodError`, as `EuclideanMap`'s always was (`SimilarityMap`'s used to convert it). Reason: the Float32-storage /
+  Float64-statistics boundary; a change of precision is explicit (`HomographyMap{N, T}(h)`, the maps' constructors):
+  HomographyMap's eltype-changing `convert(HomographyMap{N, T}, h)` is removed (its one user was a test, now pinning
+  the refusal); every map refuses with the same `MethodError`.
+  `relabel`/`unlabel` of the four maps, plain or `Uncertain`, are one method each. The 4-parameter `EuclideanMap{N, T,
+  R, V}` convert (a frame-preserving shim with no caller) is removed.
+- 2026-11-23 (code review before the Core 0.14 commit): no default is declared for a problem no method solves yet or
+  where a default would guess. `RefineProblem` of a constraint problem: `LevenbergMarquardt()` is declared with its
+  `__solve` by the refine pipeline's move. `MinimalProblem(RadialCamera, …)`: none, because the pencil's centre is
+  the problem's geometry and `(0, 0)` is a guess. `ScaleMAP` reads its sums through `_solve_context` (any order, one
+  naming error). `Triangulation` is declared for a plain (unitless) pose only, the kernel's domain. R9's algorithm-tag
+  exemption covers a TOML table, key or value, never a comment, and in Julia only a whole string literal, never
+  prose. The `core_lie` bits are pinned by the golden replay from the Estimation milestone on; until then the suite
+  pins nothing for them (coordinator, 2026-11-23).

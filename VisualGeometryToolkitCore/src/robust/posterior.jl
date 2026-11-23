@@ -74,7 +74,7 @@ sq_distances(pws::PosteriorWeightState) = pws.sq_distances
     s_hat_sq(pws::PosteriorWeightState) -> Float64
 
 The current squared scale estimate `ŝ²` of the Student-t inlier density (a
-SQUARE; see [`fit_scale`](@ref)).
+SQUARE; see [`ScaleMAP`](@ref)).
 """
 s_hat_sq(pws::PosteriorWeightState) = pws.s_hat_sq
 
@@ -101,7 +101,7 @@ inlier_prior(pws::PosteriorWeightState) = pws.inlier_prior
 The state seeded from a hard partition: the first `k` entries of `order` (a
 scorer's [`consensus_order`](@ref) over these same squared residuals), with no
 fresh sort. The seed is the partition's Student-t under `prior`
-([`partition_student_t`](@ref)), so it equals the scoring predictive over
+(`_partition_student_t`), so it equals the scoring predictive over
 `order[1:k]`; the E-step runs once.
 
 Precondition: `order[1:k]` is a partition of `sq_distances[1:n]` and
@@ -136,10 +136,10 @@ function seed_posterior!(pws::PosteriorWeightState, sq_distances::AbstractVector
     w, inlier_posterior, sq_r = pws.w, pws.inlier_posterior, pws.sq_distances
     _check_state_buffers(w, inlier_posterior, sq_r, n)
     _copy_sq_distances!(sq_r, sq_distances, n)
-    ν, s_hat_sq = partition_student_t(prior, _partition_rss(sq_r, order, k_prev), k_prev;
+    ν, s_hat_sq = _partition_student_t(prior, _partition_rss(sq_r, order, k_prev), k_prev;
                                       model_dof, codimension)
     # Initial soft weights from the seeded (ν, ŝ²)
-    soft_posterior_weights!(w, inlier_posterior, sq_r, ν, s_hat_sq, log_two_outlier_halfwidth, n, codimension)
+    _soft_posterior_weights!(w, inlier_posterior, sq_r, ν, s_hat_sq, log_two_outlier_halfwidth, n, codimension)
     pws.ν = ν; pws.s_hat_sq = s_hat_sq; pws.log_two_outlier_halfwidth = log_two_outlier_halfwidth
     pws.d_g = codimension; pws.prior = prior; pws.inlier_prior = 0.5
     return pws
@@ -211,14 +211,14 @@ end
 
 A `PosteriorWeightState` seeded from the MEDIAN residual, for a caller with no
 partition to seed from. Every point starts an inlier candidate at the scale
-`ŝ² = mad_scale²` — the median residual norm over the median of `χ_d`
-([`mad_scale`](@ref), on the norms `√sq`), floored at eps — at the caller's start `ν` (large for a
+`ŝ² = σ̂²`, σ̂ [`MedianNormScale`](@ref)'s — the median residual norm over the median of `χ_d`
+(its scale on the norms `√sq`), floored at eps — at the caller's start `ν` (large for a
 near-Gaussian start) under the scale prior `prior`, both required (a
 configuration's values, not this function's), and the E-step run once.
 Allocates its own buffers (`sq[1:n]` is copied). `codimension` is 1 or 2.
 A NaN residual is no inlier candidate: the median is over the others (an
 infinite residual stays in it, an outlier's large norm), and the E-step gives
-it weight 0 ([`soft_posterior_weights!`](@ref)). With every residual NaN there
+it weight 0 (`_soft_posterior_weights!`). With every residual NaN there
 is no median: ŝ² is NaN.
 """
 function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
@@ -260,11 +260,11 @@ squared residuals, and nothing else. Call after the residual block fills
 with πᵢ the inlier posteriors and rᵢ² squared NORMS. The E-step's weight is
 precision-scaled, `wᵢ = πᵢ·(ν + d_g)/(νŝ² + rᵢ²) = πᵢuᵢ/ŝ²`, so the numerator is
 `ŝ²·Σwᵢrᵢ²` at the ŝ² that E-step used, and the inverse-gamma prior enters as
-`fit_scale(prior, ŝ²·Σwᵢrᵢ², d_g·Σπᵢ)`. Returns ŝ².
+[`ScaleMAP`](@ref)`(prior)` of `(; rss = ŝ²·Σwᵢrᵢ², dof = d_g·Σπᵢ)`. Returns ŝ².
 """
 function update_scale!(pws::PosteriorWeightState, n::Int)
     sum_wr2 = weighted_rss(pws.w, pws.sq_distances, n)
-    return pws.s_hat_sq = fit_scale(
+    return pws.s_hat_sq = _ig_map_scale(
         pws.prior, pws.s_hat_sq * sum_wr2,
         pws.d_g * _sum_inlier_posterior(pws, n)
     )
@@ -273,13 +273,13 @@ end
 """
     update_nu!(pws, n)
 
-M-step, ν block: overwrite the Student-t dof ν with [`next_nu`](@ref) (the
+M-step, ν block: overwrite the Student-t dof ν with `_next_nu` (the
 safeguarded Newton MLE) from the E-step's inlier posteriors, the current
 squared residuals and the CURRENT ŝ², and nothing else. Call after
 [`update_scale!`](@ref), which it reads. Returns ν.
 """
 function update_nu!(pws::PosteriorWeightState, n::Int)
-    return pws.ν = next_nu(
+    return pws.ν = _next_nu(
         pws.ν, pws.sq_distances, pws.s_hat_sq, pws.inlier_posterior, n;
         d_g = pws.d_g
     )
@@ -330,12 +330,7 @@ the ŝ² block writes it.
 """
 struct FixedS2
     s2::Float64
-    function FixedS2(s2::Real)
-        (isfinite(s2) && s2 > 0) || throw(
-            ArgumentError("FixedS2: a held scale must be a positive finite ŝ², got $s2")
-        )
-        return new(Float64(s2))
-    end
+    FixedS2(s2::Real) = new(checked_float(s2, isfinite(s2) && s2 > 0, "FixedS2: a held scale must be a positive finite ŝ²"))
 end
 scale_s2(policy::FixedS2) = policy.s2
 
@@ -347,11 +342,8 @@ block writes it (through the E-step's one clamp, `[1e-3, 1 − 1e-3]`).
 """
 struct FixedPrior
     inlier_prior::Float64
-    function FixedPrior(inlier_prior::Real)
-        0 < inlier_prior < 1 ||
-            throw(ArgumentError("FixedPrior: the inlier prior must lie in (0, 1), got $inlier_prior"))
-        return new(Float64(inlier_prior))
-    end
+    FixedPrior(inlier_prior::Real) =
+        new(checked_float(inlier_prior, 0 < inlier_prior < 1, "FixedPrior: the inlier prior must lie in (0, 1)"))
 end
 
 """
@@ -362,10 +354,7 @@ block writes it.
 """
 struct FixedNu
     ν::Float64
-    function FixedNu(ν::Real)
-        (isfinite(ν) && ν > 0) || throw(ArgumentError("FixedNu: ν must be positive and finite, got $ν"))
-        return new(Float64(ν))
-    end
+    FixedNu(ν::Real) = new(checked_float(ν, isfinite(ν) && ν > 0, "FixedNu: ν must be positive and finite"))
 end
 
 """
@@ -373,7 +362,7 @@ end
 
 The update policy of a Student-t dof HELD at the value its consensus seed gave
 it: the posterior-predictive dof of the scorer's consensus set,
-`ν = 2α₀ + (k* − model_dof)·d_g` ([`partition_student_t`](@ref), with its
+`ν = 2α₀ + (k* − model_dof)·d_g` (`_partition_student_t`, with its
 `ν ≥ 2` floor), where `α₀` is the scale prior's shape (0 under Jeffreys). The
 seed sets it once; the ν block never moves it afterwards.
 
@@ -422,7 +411,7 @@ E-step: recompute posterior inlier probabilities and combined IRLS weights
 from current ν, ŝ², and squared residuals.
 """
 function update_weights!(pws::PosteriorWeightState, n::Int)
-    return soft_posterior_weights!(
+    return _soft_posterior_weights!(
         pws.w, pws.inlier_posterior, pws.sq_distances,
         pws.ν, pws.s_hat_sq, pws.log_two_outlier_halfwidth, n, pws.d_g, pws.inlier_prior
     )
@@ -476,14 +465,14 @@ robust_weight(pws::PosteriorWeightState) = pws.w
 # =============================================================================
 
 # The Student-t mixture of a hard partition `order[1:k]`: its posterior
-# predictive, `partition_student_t` — the SAME (ν, ŝ²) rule a
+# predictive, `_partition_student_t` — the SAME (ν, ŝ²) rule a
 # `PosteriorWeightState` seeds from. The RSS is summed in Float64 regardless of
 # the residuals' storage eltype. The inlier prior is ½.
 @inline function _partition_mixture(sq_distances::AbstractVector,
                                     order::AbstractVector{Int}, k::Int,
                                     dg::Int, model_dof::Int, log_two_outlier_halfwidth::Float64,
                                     prior::IGPrior)
-    ν, s_hat_sq = partition_student_t(
+    ν, s_hat_sq = _partition_student_t(
         prior, _partition_rss(sq_distances, order, k), k;
         model_dof, codimension = dg
     )
@@ -491,18 +480,18 @@ robust_weight(pws::PosteriorWeightState) = pws.w
 end
 
 """
-    posterior_weights!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
+    _posterior_weights!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
                        codimension = 1)
 
 Student-t posterior weights `w[i] = P(inlier | rᵢ) · uᵢ` of the hard partition
 `order[1:k]` of the squared residuals: the partition's Student-t
-([`partition_student_t`](@ref) under `prior`: `ν = (k − model_dof)·d_g + 2α₀`,
+(`_partition_student_t` under `prior`: `ν = (k − model_dof)·d_g + 2α₀`,
 at least 2, and `ŝ² = (RSS + 2β₀)/((k − model_dof)·d_g + 2α₀)`) against the
 uniform outlier support, `uᵢ = (ν + d_g)/(ν·ŝ² + r²ᵢ)`. Per point this is
 [`posterior_weight`](@ref) of that [`StudentTMixture`](@ref). Fills every
 entry of `w`.
 """
-function posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
+function _posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
                             order::AbstractVector{Int}, k::Int;
                             model_dof::Int, log_two_outlier_halfwidth::Float64,
                             prior::IGPrior, codimension::Int = 1)
@@ -514,14 +503,14 @@ function posterior_weights!(w::AbstractVector, sq_distances::AbstractVector,
 end
 
 """
-    posterior_inlier_probs!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
+    _posterior_inlier_probs!(w, sq_distances, order, k; model_dof, log_two_outlier_halfwidth, prior,
                             codimension = 1)
 
 Posterior inlier probabilities `w[i] ∈ [0, 1]` of the hard partition
 `order[1:k]`, without the IRLS weight factor — the same mixture as
-[`posterior_weights!`](@ref), so that is this times `uᵢ`.
+`_posterior_weights!`, so that is this times `uᵢ`.
 """
-function posterior_inlier_probs!(w::AbstractVector, sq_distances::AbstractVector,
+function _posterior_inlier_probs!(w::AbstractVector, sq_distances::AbstractVector,
                                  order::AbstractVector{Int}, k::Int;
                                  model_dof::Int, log_two_outlier_halfwidth::Float64,
                                  prior::IGPrior, codimension::Int = 1)

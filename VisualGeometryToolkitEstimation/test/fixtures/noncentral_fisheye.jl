@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The synthetic non-central fisheye of fit_camera_testsetups.jl's FitCameraNoncentral and of the golden records of
 # ci/golden/fixtures/est_camera_fits.jl: the central fisheye's directions on a 53 × 47 lattice and a smooth, known
 # origin field. Data constructors only; include-once safe (functions only).

@@ -35,12 +35,12 @@ const _RETIRED_PATTERNS = (
     # THE LM GATE: a direct call of an LM primitive outside the one adapter. The primitives are NLLSsolver's solver API
     # (its optimize, problem, cache and options constructors) and Core's internals of the adapter (the retired knob map
     # and its private successor, the termination decode and stop-code decoder, the engine) and of the device LM (its
-    # increment solve). The entry points are not primitives: `lmsolve_chart!`, `LmProblem` (with `LmStops`) and
-    # `static_lm` (with `StaticLmStops`) may be called anywhere. Every own file is scanned — src/, ext/, test/,
+    # increment solve). The entry points are not primitives: `lmsolve_chart!`, `LmProblem` (with `LmStops`),
+    # `StaticLevenbergMarquardt` (with `StaticLmStops`) and, inside Core, its kernel `_static_lm` may be called anywhere. Every own file is scanned — src/, ext/, test/,
     # benchmark/, scripts — the home alone excepted: lm_core.jl and the adapter's own tests.
     (:lm_primitive, Regex("\\bNLLS" * "Options\\s*\\(|\\bNLLSsolver\\.(optimize!|NLLS" * "Problem|Optimize" * "Cache)\\s*\\(|" *
             "(?<![\\p{L}\\p{N}_!])(_?nlls_" * "options|nlls_" * "termination|nlls_" * "stop_code|_lm_" * "run!|_static_lm_" * "increment)\\s*\\("),
-        "VisualGeometryToolkitCore's one LM adapter (src/robust/lm_core.jl): `lmsolve_chart!` on a chart state or an `LmProblem`, under `LmStops`; `static_lm` under `StaticLmStops` on a device",
+        "VisualGeometryToolkitCore's one LM adapter (src/robust/lm_core.jl): `lmsolve_chart!` on a chart state or an `LmProblem`, under `LmStops`; `StaticLevenbergMarquardt` under `StaticLmStops` on a device",
         ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl", "test/lm_driver_tests.jl", "test/static_lm_tests.jl"))),
     (:rotation_angle, Regex("\\ba" * "cos\\s*\\(\\s*clamp\\s*\\(\\s*\\(\\s*(LinearAlgebra\\.)?(tr|sum)\\s*\\("),
         "Rotations' `rotation_angle` (as VisualGeometryToolkitCore's stereo.jl): exact near 0 and π", ("", ())),

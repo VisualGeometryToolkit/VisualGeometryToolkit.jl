@@ -68,7 +68,10 @@ end
 
 stereo_pairs(ds::SevenScenes) =
     seven_scenes_pairs(ds.root; split = ds.split, scene = ds.scene, interval = ds.interval, stride = ds.stride)
-function load_validation_data(ds::SevenScenes, p::NamedTuple, correspondences)
-    depth_src, depth_tgt = _load_seven_scenes_depths(ds.root, p.scene, p.source_name, p.target_name)
+_load_depths(ds::SevenScenes, p::NamedTuple) = _load_seven_scenes_depths(ds.root, p.scene, p.source_name, p.target_name)
+# A depth dataset's validation data (KITTI, ScanNet-1500, 7-Scenes): the pair's rig and correspondences with the two
+# views' depth maps, each dataset reading its own (`_load_depths`).
+function load_validation_data(ds::Union{KITTI, ScanNet1500, SevenScenes}, p::NamedTuple, correspondences)
+    depth_src, depth_tgt = _load_depths(ds, p)
     return (; rig = p.rig, correspondences, depth_src, depth_tgt)
 end

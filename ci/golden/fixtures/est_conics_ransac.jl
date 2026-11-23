@@ -62,14 +62,13 @@ function cr_circle_refine_fixtures()
         "too_few_1" => (VgtkCore.Circle(VgtkCore.Point2(0.0, 0.0), 1.0), [VgtkCore.Point2(1.0, 0.0)]),
     ]
 end
-# ellipse_fitting_tests' points on an ellipse
-cr_ellipse_points(e, n; σ = 0.0, arc = 2π, rng = StableRNG(1)) =
-    [VgtkCore.Point2{Float64}(VgtkCore.boundary_point(e, φ) + σ * randn(rng, SVector{2})) for φ in range(0, arc, n + 1)[1:(end - 1)]]
+# ellipse_fitting_tests' points on an ellipse: `ellipse_boundary_points`, VisualGeometryToolkitCore's test fixture file
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "ellipse_points.jl"))
 const CR_e0 = VgtkCore.Ellipse(VgtkCore.Point2(120.0, 80.0), 30.0, 12.0, 0.6)
 function cr_ellipse_refine_fixtures()
-    p30 = cr_ellipse_points(CR_e0, 30)
-    p60 = cr_ellipse_points(CR_e0, 60; σ = 0.5)
-    p60arc = cr_ellipse_points(CR_e0, 60; σ = 0.5, arc = π)
+    p30 = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), CR_e0, 30))
+    p60 = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), CR_e0, 60; σ = 0.5))
+    p60arc = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), CR_e0, 60; σ = 0.5, arc = π))
     return [
         "perturbed_outl40_1000" => (VgtkCore.Ellipse(VgtkCore.Point2(515.0, 399.0), 303.0, 177.0, 0.62), first(ellipse_scene(Xoshiro(42), 1000))),
         "truth_clean_200" => (E₀, first(ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0))),
@@ -77,7 +76,7 @@ function cr_ellipse_refine_fixtures()
         "direct_exact_30" => (VgtkCore.direct_ellipse(p30), p30),
         "direct_noisy_60" => (VgtkCore.direct_ellipse(p60), p60),
         "direct_noisy_arc_60" => (VgtkCore.direct_ellipse(p60arc), p60arc),
-        "e0_too_few_4" => (CR_e0, cr_ellipse_points(CR_e0, 4)),
+        "e0_too_few_4" => (CR_e0, Point2{Float64}.(ellipse_boundary_points(StableRNG(1), CR_e0, 4))),
         "too_few_4" => (VgtkCore.Ellipse(VgtkCore.Point2(0.0, 0.0), 2.0, 1.0, 0.0), few_points(4)),
     ]
 end
@@ -122,41 +121,22 @@ function cr_homography_scored()
     scores = [i <= 100 ? 0.8 + 0.2 * rand(rng) : 0.1 * rand(rng) for i in eachindex(src)]
     return VgtkCore.Correspondences(src, dst; score = scores)
 end
-function cr_homography_thin()   # termination_record / ransac_homography: 5 exact pairs and 12 random ones
-    rng = StableRNG(3)
-    H = @SMatrix [1.1 0.05 3.0; -0.02 0.95 -2.0; 1.0e-4 2.0e-4 1.0]
-    ap(x) = (y = H * SVector(x[1], x[2], 1.0); SVector(y[1] / y[3], y[2] / y[3]))
-    src = [SVector(100rand(rng), 100rand(rng)) for _ in 1:5]; dst = ap.(src)
-    for _ in 1:12
-        push!(src, SVector(100rand(rng), 100rand(rng))); push!(dst, SVector(100rand(rng), 100rand(rng)))
-    end
-    return VgtkCore.correspondences(src, dst)
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "thin_homography.jl"))
+cr_homography_thin() = thin_homography_correspondences()   # termination_record / ransac_homography: 5 exact pairs and 12 random ones
 function cr_fundmat_data()
     fs = _CR_E.fundmat_scene(StableRNG(42); n_inliers = 100, n_outliers = 30, σ = 0.5)
     return VgtkCore.correspondences(fs.source, fs.target)
 end
 
 # --- the solve fixtures: per problem type, its data (the problem's constructor arguments) ---------------------------
-const CR_FISHEYE = VgtkCore.CameraModel(300.0 * VgtkCore.px, SA[600.0 * VgtkCore.px, 600.0 * VgtkCore.px]; lens = VgtkCore.KannalaBrandt(-0.02))
 cr_essential_pixels() = (sc = stereo_scene(_CR_E.ECAM; seed = 14); VgtkCore.correspondences(sc[1], sc[2]))
 function cr_bearing_pose()   # central bearings of the PnP set's points, through the pinhole
     cs = pnp_scene()
     fM = [VgtkCore.backproject_with_jacobian(PCAM, u) for u in VgtkCore.targets(cs)]
     return VgtkCore.withattrs(VgtkCore.Correspondences(collect(VgtkCore.sources(cs)), first.(fM)); M = last.(fM))
 end
-function cr_rotation_pixels()
-    rng = Xoshiro(35); R = RotMatrix(RotXYZ(0.1, -0.2, 0.3))
-    u₁ = SVector{2, Float64}[]; u₂ = SVector{2, Float64}[]
-    while length(u₁) < 120
-        d = normalize(randn(rng, SVector{3, Float64}))
-        (acos(clamp(d[3], -1, 1)) < deg2rad(100) && acos(clamp((R * d)[3], -1, 1)) < deg2rad(100)) || continue
-        a = VgtkCore.project(CR_FISHEYE, d); b = VgtkCore.project(CR_FISHEYE, R * d)
-        (all(isfinite, a) && all(isfinite, b)) || continue
-        push!(u₁, a + 0.5 * randn(rng, SVector{2, Float64})); push!(u₂, b + 0.5 * randn(rng, SVector{2, Float64}))
-    end
-    return VgtkCore.Correspondences(u₁, u₂)
-end
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "rotation_scene.jl"))   # `FISHEYE`, `rotation_scene`
+cr_rotation_pixels() = first(rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120))   # outlier-free
 cr_hand_eye_motions() = first(hand_eye_scene())
 cr_radial_homography_pairs() = first(_CR_R.radial_homography_pairs(StableRNG(17), _CR_R.radial_homography_truth(-0.25); n_in = 70, n_out = 30, σ = 0.3))
 cr_radial_board_pairs() = _CR_D.radial_board(StableRNG(7); σ = 0.2)[2]

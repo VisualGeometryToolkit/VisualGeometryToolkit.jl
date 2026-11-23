@@ -14,7 +14,7 @@
     using Test, Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: PosteriorWeightState, IGPrior, update_weights!, update_scale!, update_nu!,
-        next_nu, weighted_rss
+        _next_nu, weighted_rss
     const _t_sq = t_sq_residuals
 
     # Squared norms of d-variate Gaussian residuals, scale σ.
@@ -50,7 +50,7 @@
                     sum_wr2 += w[i] * sq[i]; sum_π += π_in[i]
                 end
                 @test pws.s_hat_sq ≈ map_scale_oracle(prior, s2_old * sum_wr2, d * sum_π) rtol = 1e-7
-                @test pws.ν === next_nu(ν_old, sq, pws.s_hat_sq, π_in, m; d_g = d)
+                @test pws.ν === _next_nu(ν_old, sq, pws.s_hat_sq, π_in, m; d_g = d)
             end
         end
 

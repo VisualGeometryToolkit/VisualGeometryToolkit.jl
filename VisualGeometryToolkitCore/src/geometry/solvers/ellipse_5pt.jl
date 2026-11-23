@@ -1,18 +1,18 @@
 # =============================================================================
 # Ellipse5pt — the ellipse through five 2D points (the minimal solver of the
-# ellipse; `solve(solver, points, idx)`)
+# ellipse; `solve(MinimalProblem(Ellipse, points, idx), Ellipse5pt())`)
 # =============================================================================
 
 """
     Ellipse5pt()
 
 Minimal 5-point ellipse solver: the conic through five 2D points
-(`solve(Ellipse5pt(), points, idx)`), `sample_size` 5, `max_solutions` 1,
+(`solve(MinimalProblem(Ellipse, points, idx), Ellipse5pt())`), `sample_size` 5, `max_solutions` 1,
 returned only when it is a real, non-degenerate ELLIPSE
 ([`is_ellipse`](@ref): a hyperbola, a parabola, a line pair or a point/imaginary
 ellipse gives `count == 0`). Its data are POINTS on the curve, an
 `AbstractVector` of `StaticVector{2}`, as for [`Circle3pt`](@ref) and
-[`direct_ellipse`](@ref). The conic is the null vector of the 4×5 design matrix
+[`DirectEllipse`](@ref). The conic is the null vector of the 4×5 design matrix
 of the other four points taken about the sample's first point (through which
 the conic has no constant term), by cofactors: closed form, allocation-free and
 frame-covariant (pixels in, an ellipse in pixels out), with no normalization.
@@ -28,8 +28,10 @@ registry answers correspondence element-type pairs.
 struct Ellipse5pt <: MinimalSolver{Ellipse{Float64}} end
 sample_size(::Ellipse5pt) = 5
 max_solutions(::Ellipse5pt) = 1
+default_algorithm(::MinimalProblem{<:Ellipse}) = Ellipse5pt()
 
-function solve(::Ellipse5pt, points::AbstractVector, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, ::Ellipse5pt)
+    points, idx = prob.f, prob.sample
     M = Ellipse{Float64}
     none = FixedModels{1, M}(0, (zero(M),))
     p₁ = SVector{2, Float64}(@inbounds points[idx[1]])

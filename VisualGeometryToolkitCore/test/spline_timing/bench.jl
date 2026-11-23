@@ -36,6 +36,8 @@ include(joinpath(@__DIR__, "..", "lo_timing", "bench_record.jl"))   # calibratio
 Threads.nthreads() == 1 || error("bench.jl: run single-threaded (julia -t 1); got $(Threads.nthreads()) threads")
 
 include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "spline_lens_golden.jl"))
+using Test   # loads VisualGeometryToolkitCore's test helpers
+using VisualGeometryToolkitCore: sum_first_components
 const G = GOLDEN
 const SRC = CameraModel(G.f * px, SA[G.pp[1] * px, G.pp[2] * px]; lens = KannalaBrandt(G.kb...))
 const CAM = CameraModel(SplineLens, SRC, Size2(G.image[1], G.image[2]); grid_size = (G.grid_size[1], G.grid_size[2]))
@@ -58,15 +60,14 @@ const CHECKER = [Float64(isodd(fld(x, 8) + fld(y, 8))) for y in 0:999, x in 0:99
 const WIN = Rect2(436.0, 436.0, 128.0, 128.0)
 const CPU = KA.CPU()
 
-sweep(f, xs) = (s = 0.0; for x in xs; s += f(x)[1]; end; s)
 const KERNELS = [
-    "backproject" => () -> sweep(u -> backproject(CAM, u), LATTICE),
+    "backproject" => () -> sum_first_components(u -> backproject(CAM, u), LATTICE),
     "backproject-batch" => () -> backproject(CAM, BPIX; device = CPU),
-    "backproject-jacobian" => () -> sweep(u -> first(backproject_with_jacobian(CAM, u)), LATTICE),
-    "project-lm" => () -> sweep(X -> project(CAM, X), RAYS),
-    "project-forward" => () -> sweep(X -> project(CAM_FWD, X), RAYS),
+    "backproject-jacobian" => () -> sum_first_components(u -> first(backproject_with_jacobian(CAM, u)), LATTICE),
+    "project-lm" => () -> sum_first_components(X -> project(CAM, X), RAYS),
+    "project-forward" => () -> sum_first_components(X -> project(CAM_FWD, X), RAYS),
     "project-batch" => () -> project(CAM, BRAYS, BSEEDS; device = CPU),
-    "noncentral-project" => () -> sweep(X -> project(NC, X), NC_X),
+    "noncentral-project" => () -> sum_first_components(X -> project(NC, X), NC_X),
     "undistort-128" => () -> undistort(CAM, CHECKER, WIN; device = CPU),
 ]
 

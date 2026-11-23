@@ -17,6 +17,26 @@
 # ambiguity filter handles that.
 # =============================================================================
 
+@testitem "quality: the estimation interface's declarations" begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    found = VgtkCore.check_algorithm_traits(VisualGeometryToolkitCore)
+    isempty(found) || foreach(println, found)
+    @test isempty(found)
+    # the gate finds what it is for: a default that is a find, an algorithm without a kind
+    @eval module _TraitsProbe
+        import VisualGeometryToolkitCore as VgtkCore
+        struct NoKind <: VgtkCore.AbstractEstimationAlgorithm end
+        struct Search <: VgtkCore.AbstractEstimationAlgorithm end
+        VgtkCore.estimator_kind(::Search) = VgtkCore.FindKind()
+        abstract type Probe end
+        VgtkCore.default_algorithm(::VgtkCore.EstimationProblem{Probe}) = Search()
+    end
+    probe = VgtkCore.check_algorithm_traits(_TraitsProbe)
+    @test any(contains("NoKind: no estimator_kind"), probe)
+    @test any(contains("a find is never a default"), probe)
+end
+
 @testitem "quality: gates" begin
     import VisualGeometryToolkitCore as VgtkCore
     # The stack's one gate skeleton (VisualGeometryToolkitCore.test_quality_gates, the

@@ -53,11 +53,14 @@ A `CircleProblem` from 2D points (`StaticVector{2}`, pixels or any plain unit:
 the residual and the threshold are in that unit), canonicalized to
 `Point2{Float64}`. Uniform sampling unless a `sampler` is supplied.
 """
-function CircleProblem(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}};
-                       sampler::Union{Nothing, AbstractSampler} = nothing)
-    smplr = _problem_sampler(points, 3, sampler)
+CircleProblem(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; sampler::Union{Nothing, AbstractSampler} = nothing) =
+    _conic_problem(VgtkCore.Circle{Float64}, Val(3), VgtkCore.Circle3pt(), points, sampler)
+# A conic's problem on its points (the circle's and the ellipse's): the points as Point2{Float64}, the minimal solver of
+# `m` points, the sampler.
+function _conic_problem(::Type{M}, ::Val{m}, solver, points, sampler) where {M, m}
+    smplr = _problem_sampler(points, m, sampler)
     pts = Point2{Float64}[Point2{Float64}(p[1], p[2]) for p in points]
-    return MinimalSolveProblem{VgtkCore.Circle{Float64}, 3}(pts, nothing, pts, nothing, VgtkCore.Circle3pt(), nothing, smplr)
+    return MinimalSolveProblem{M, m}(pts, nothing, pts, nothing, solver, nothing, smplr)
 end
 
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.Circle}}) = 1   # one point-on-circle equation per point
@@ -69,10 +72,7 @@ test_sample(p::CircleProblem, idx::AbstractVector{Int}) = test_sample(model_type
 
 # The scoring constraint — VGC's point-on-circle constraint. `mahalanobis_distances!` is
 # VGC's default through it (the Sampson distance, VGC's one degeneracy rule).
-@inline constraint_with_jacobians(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
-    @inbounds VgtkCore.constraint_with_jacobians(c, p.cs[i])
-@inline constraint_rounding_scale(p::CircleProblem, c::VgtkCore.Circle, i::Int) =
-    @inbounds VgtkCore.constraint_rounding_scale(c, p.cs[i])
+# (constraint_with_jacobians, constraint_rounding_scale: the conics' one method each, ellipse.jl)
 
 # The chart rows are the Sampson-constraint problems' one method (sampson_lm.jl):
 # VGC's CircleManifold, the default `minimal_manifold(c)`, and its

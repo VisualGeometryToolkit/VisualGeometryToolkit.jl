@@ -5,7 +5,7 @@ CurrentModule = VisualGeometryToolkitCore
 ```
 
 Camera calibration from planar targets: the 1-D radial camera and its
-minimal solver, intrinsics from homographies (`zhang_intrinsics`), and each
+minimal solver, intrinsics from homographies (the [`Zhang`](@ref) algorithm), and each
 lens's honest view-angle domain. The iterative calibration built on them —
 the radial camera's fit, the division-camera focal stack, lens-model
 regression — lives in VisualGeometryToolkitEstimation. Split from the

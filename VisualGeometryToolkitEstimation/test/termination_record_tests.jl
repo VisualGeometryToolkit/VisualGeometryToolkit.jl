@@ -40,6 +40,7 @@ end
 
 @testitem "termination record: every find_*, refine_*, ransac and locally_optimize" setup = [TerminationRecord, RadialCameraScene,
         EpipolarScenes, ConicScenes, RotationScene, TooFewData, FindScenes] begin
+    import VisualGeometryToolkitEstimation as VgtkEstimation; include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "thin_homography.jl"))   # `thin_homography_correspondences`
     using Test, Random, LinearAlgebra, StaticArrays, StructArrays
     using StableRNGs
     using Rotations: RotMatrix, RotXYZ, RotX, RotZ
@@ -124,14 +125,7 @@ end
     record!(seen, :locally_optimize, locally_optimize(p, VgtkCore.FixedModels(1, (θ, θ)); local_optimization_strategy = nothing, scoring = sc))
     # a terminal LO on a thin incumbent (m + 1 points: no residual dof): the refit did not run, its record
     # (InitialFailure, NoRule); the result keeps the search's record
-    rngt = StableRNG(3)
-    Ht = @SMatrix [1.1 0.05 3.0; -0.02 0.95 -2.0; 1.0e-4 2.0e-4 1.0]
-    apt(x) = (y = Ht * SVector(x[1], x[2], 1.0); SVector(y[1] / y[3], y[2] / y[3]))
-    srct = [SVector(100rand(rngt), 100rand(rngt)) for _ in 1:5]; dstt = apt.(srct)
-    for _ in 1:12
-        push!(srct, SVector(100rand(rngt), 100rand(rngt))); push!(dstt, SVector(100rand(rngt), 100rand(rngt)))
-    end
-    pt = HomographyProblem(correspondences(srct, dstt)); sct = MsacScoring(pt; threshold = 0.5)
+    pt = HomographyProblem(thin_homography_correspondences()); sct = MsacScoring(pt; threshold = 0.5)   # the suite's fixture file
     cfgt = RansacConfig(max_trials = 5000, min_trials = 3000)
     thin = record!(seen, :ransac, ransac(pt, sct; local_optimization_strategy = TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
                                          config = cfgt, rng = StableRNG(1)))

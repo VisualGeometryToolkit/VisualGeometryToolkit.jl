@@ -84,9 +84,9 @@ end
     lo_estimate(model, retcode::Symbol, rule::StopRule; iterations = 0, residuals_current = false)
 
 The lean result of one local-optimization refit — what
-[`locally_optimize!`](@ref) and a `block_coordinate_result` return. `estimate`
-is the refined model; its termination record (the FitResult core's
-[`retcode`](@ref) and [`stop_rule`](@ref)) is why the refit stopped. No LO ran
+[`locally_optimize!`](@ref) and a `block_coordinate_result` return. Its `u`
+is the refined model, `stats.nsteps` the refit's `iterations`; its termination
+record (`retcode` and `stop_rule`) is why the refit stopped. No LO ran
 (the strategy `nothing`): `(Success, ClosedForm)`, the seed returned as it is;
 the consensus set has no residual dof, so no LO ran: `(InitialFailure,
 NoRule)`; a refit that failed (the incumbent returned): `(Failure,
@@ -96,7 +96,7 @@ Symbol supplies it with its success rule, `retcode_from_symbol(retcode, rule)`
 `rms` is `NaN` and `n` is 0. Zero heap allocation when `M` is isbits.
 """
 lo_estimate(model::M, code::ReturnCode.T, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) where {M} =
-    FitResult{M, LoInfo}(model, code, rule, iterations, NaN, 0, LoInfo(residuals_current))
+    FitResult(model, code, rule, SolveStats(; nsteps = iterations), NaN, 0, LoInfo(residuals_current))
 lo_estimate(model, retcode::Symbol, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) =
     lo_estimate(model, retcode_from_symbol(retcode, rule)...; iterations, residuals_current)
 

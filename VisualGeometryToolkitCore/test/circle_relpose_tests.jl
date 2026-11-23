@@ -6,7 +6,7 @@
 # machinery. Everything below is what a downstream package would write:
 #
 #   1. a solver struct   `CircleRelPose <: MinimalSolver{Extrinsics3}`
-#   2. verb methods      `sample_size` / `max_solutions` / `solve`
+#   2. verb methods      `sample_size` / `max_solutions` / `__solve` (the extension point of `solve`)
 #   3. ONE registry line  `minimal_solvers(::Type{<:Ellipse}, ::Type{<:Ellipse})`
 #
 # The numeric core is the geometric-init path (cone decomposition → shared
@@ -108,9 +108,10 @@
         return (n = best.a.n, cA = best.a.c * s, cB = best.b.c * s, rB = best.b.r * s)
     end
 
-    # --- the solve verb ----------------------------------------------------------
+    # --- the solve verb: its extension point, __solve on a MinimalProblem ---------
 
-    function VgtkCore.solve(::CircleRelPose, cs, idx::AbstractVector{<:Integer})
+    function VgtkCore.__solve(prob::MinimalProblem, ::CircleRelPose)
+        cs, idx = prob.f, prob.sample
         fail = FixedModels{1, Extrinsics3}(0, (zero(Extrinsics3),))
         length(idx) == 2 || throw(ArgumentError("CircleRelPose takes a 2-circle sample"))
         u = sources(cs); v = targets(cs)
@@ -184,7 +185,7 @@
         @test model_type(s) == Extrinsics3
 
         # ---- solve honors the single verb contract
-        sols = solve(s, cs, 1:2)
+        sols = solve(MinimalProblem(Extrinsics3, cs, 1:2), s)
         @test sols isa FixedModels{1, Extrinsics3}
         @test length(sols) == 1
         pose = first(iterate(sols))
@@ -197,7 +198,7 @@
         # ---- degeneracy honors the count-0 protocol (concentric circles)
         eCd = to_ellipse(_crp_conic(n1, d1, cA1, 0.4 * r))
         eCd2 = to_ellipse(_crp_conic(n2, d2, cA2, 0.4 * r))
-        bad = solve(s, Correspondences([eA1, eCd], [eA2, eCd2]), 1:2)
+        bad = solve(MinimalProblem(Extrinsics3, Correspondences([eA1, eCd], [eA2, eCd2]), 1:2), s)
         @test bad isa FixedModels{1, Extrinsics3}
         @test length(bad) == 0
 

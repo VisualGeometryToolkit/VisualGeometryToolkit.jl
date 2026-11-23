@@ -1,5 +1,6 @@
 @testitem "contract_conformance" setup = [RadialCameraScene, HomographyScenes, EpipolarScenes, P3PScenes, PoseScenes, DivisionBoards, Contamination] begin
     import VisualGeometryToolkitCore as VgtkCore
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_pixel`
 # =============================================================================
 # The K+ contracts, checked by their owner's conformance helpers
 # (VisualGeometryToolkitCore's test extension): the scoring contract on the baseline
@@ -116,9 +117,8 @@ function relpose_bundle_scene()
     K = SMatrix{3, 3, Float64, 9}(800.0, 0.0, 0.0, 0.0, 800.0, 0.0, 320.0, 240.0, 1.0)
     R = SMatrix{3, 3, Float64, 9}(RotY(0.2)); t = normalize(SVector(0.5, -0.1, 0.2))
     Xs = [SVector(2rand(rng) - 1, 2rand(rng) - 1, 4 + 2rand(rng)) for _ in 1:60]
-    px(X) = (x = K * X; SVector(x[1] / x[3], x[2] / x[3]))
-    u1 = [px(X) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
-    u2 = [px(R * X + t) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
+    u1 = [pinhole_pixel(K, X) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
+    u2 = [pinhole_pixel(K, R * X + t) + 0.5 * randn(rng, SVector{2, Float64}) for X in Xs]
     return RelposeBundleProblem(K, K, correspondences(u1, u2)), VgtkCore.EssentialMat(R, t)
 end
 # The bearing pose problem (central bearings, a 2-component tangent residual),

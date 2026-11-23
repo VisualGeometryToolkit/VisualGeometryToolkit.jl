@@ -7,7 +7,7 @@
 #   CorrespondenceNormalization          normalization as a value: forward AND inverse maps
 #                         computed once; models move between the data frame
 #                         and the normalized frame by `∘` with its two sides
-#   MinimalSolver{M}      exactly-determined solvers — `solve(s, cs, idx)`
+#   MinimalSolver{M}      exactly-determined solvers — `solve(MinimalProblem(M, cs, idx), s)`
 #                         returns FixedModels (count = 0 on failure)
 #   minimal_solvers /     the induced-model registry: which models a
 #   induced_models        correspondence element-type pair supports
@@ -15,8 +15,8 @@
 # The positional minimal kernels (homography_4pt, fundamental_7pt, p3p,
 # essential_5pt) survive underneath as computational kernels; their
 # Union{Nothing,…} returns are an internal detail that stops at this layer.
-# The overdetermined one-step solvers are called by their algorithm names
-# (`homography_dlt(cs)`, `fundamental_dlt(cs)`): there is no estimator verb.
+# The overdetermined one-step solvers are closed-form algorithms
+# (`solve(EstimationProblem(HomographyMat, cs), DLT())`, closed_forms.jl).
 
 # NOTE: CorrespondenceNormalization lives in homography_solvers.jl
 # (they must be defined before the DLT kernels that take a `frame` kwarg).
@@ -33,9 +33,14 @@ type `M`. Each algorithm is its own singleton subtype (two solvers may
 share a model type but require different correspondence types — p3p vs.
 circle relative pose both yield poses).
 
+A minimal solver is an estimation algorithm ([`MinimalKind`](@ref)): it solves
+a [`MinimalProblem`](@ref), `solve(MinimalProblem(M, cs, idx), solver)`, and
+`solve(MinimalProblem(M, cs, idx))` runs the model type's one minimal solver
+(its [`default_algorithm`](@ref)).
+
 Interface (all required):
-- `solve(s, cs, idx) -> FixedModels{max_solutions(s), M}` — ALWAYS a
-  `FixedModels`; failure is `count == 0`, never `nothing`
+- `__solve(prob::_MinimalNoContext, s) -> FixedModels{max_solutions(s), M}` —
+  ALWAYS a `FixedModels`; failure is `count == 0`, never `nothing`
 - `sample_size(s)` — minimal sample cardinality
 - `max_solutions(s)` — solution-count bound (the `N` in `FixedModels`)
 - `model_type(s) == M`
@@ -43,7 +48,8 @@ Interface (all required):
 Solvers with pluggable numeric backends carry a
 `backend::AbstractSolverBackend` field (default `NativeSolver()`).
 """
-abstract type MinimalSolver{M} end
+abstract type MinimalSolver{M} <: AbstractEstimationAlgorithm end
+estimator_kind(::MinimalSolver) = MinimalKind()
 
 """
     model_type(s) -> Type
@@ -66,17 +72,6 @@ Upper bound on the number of candidate models one minimal sample can
 produce (the `N` of the returned `FixedModels{N,M}`).
 """
 function max_solutions end
-
-"""
-    solve(solver::MinimalSolver, cs, idx) -> FixedModels
-
-Run a minimal solver on the sample `idx` drawn from the correspondence
-container `cs` (any container satisfying the [`sources`](@ref)/
-[`targets`](@ref) protocol). ALWAYS returns `FixedModels`; a degenerate
-sample yields `count == 0`. This is the single public solve protocol —
-the positional kernels underneath are implementation detail.
-"""
-function solve end
 
 # Scalar type of the correspondence coordinates (drives model eltype).
 _coordtype(cs) =
@@ -110,8 +105,10 @@ end
 Homography4pt() = Homography4pt(NativeSolver())
 sample_size(::Homography4pt) = 4
 max_solutions(::Homography4pt) = 1
+default_algorithm(::MinimalProblem{<:HomographyMat}) = Homography4pt()   # its one minimal solver
 
-function solve(s::Homography4pt, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, s::Homography4pt)
+    cs, idx = prob.f, prob.sample
     M = HomographyMat{_coordtype(cs)}
     return _wrap1(M, _h4(s.backend, cs, idx))
 end
@@ -156,9 +153,12 @@ Homography5ptRadial(; backend::AbstractSolverBackend = NativeSolver(), extra_che
     Homography5ptRadial(backend, extra_check)
 sample_size(::Homography5ptRadial) = 5
 max_solutions(::Homography5ptRadial) = 3
+default_algorithm(::MinimalProblem{<:RadialHomography}) = Homography5ptRadial()
 
-solve(s::Homography5ptRadial, cs, idx::AbstractVector{<:Integer}) =
-    _h5r(s.backend, cs, idx, s.extra_check)
+function __solve(prob::_MinimalNoContext, s::Homography5ptRadial)
+    cs, idx = prob.f, prob.sample
+    return _h5r(s.backend, cs, idx, s.extra_check)
+end
 
 @inline function _h5r(::NativeSolver, cs, idx, extra_check::Bool)
     u = sources(cs); v = targets(cs)
@@ -183,8 +183,10 @@ end
 Fundamental7pt() = Fundamental7pt(NativeSolver())
 sample_size(::Fundamental7pt) = 7
 max_solutions(::Fundamental7pt) = 3
+default_algorithm(::MinimalProblem{<:FundMat}) = Fundamental7pt()
 
-function solve(s::Fundamental7pt, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, s::Fundamental7pt)
+    cs, idx = prob.f, prob.sample
     T = _coordtype(cs)
     M = FundMat{T}
     r = _f7(s.backend, cs, idx, T)
@@ -252,6 +254,7 @@ end
 Essential5pt() = Essential5pt(NativeSolver())
 sample_size(::Essential5pt) = 5
 max_solutions(::Essential5pt) = 10
+default_algorithm(::MinimalProblem{<:EssentialMat}) = Essential5pt()
 
 # Bearings only. There is deliberately NO `StaticVector{2}` method: the z = 1
 # lift it would perform is the affine-plane assumption the bearing form exists
@@ -259,7 +262,8 @@ max_solutions(::Essential5pt) = 10
 # MethodError here instead of being silently promoted. Do not add one back.
 @inline _bearing(p::StaticVector{3}) = SVector{3, Float64}(p)
 
-function solve(s::Essential5pt, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, s::Essential5pt)
+    cs, idx = prob.f, prob.sample
     u = sources(cs); v = targets(cs)
     x1 = SVector{5}(@inbounds ntuple(k -> _bearing(u[idx[k]]), Val(5)))
     x2 = SVector{5}(@inbounds ntuple(k -> _bearing(v[idx[k]]), Val(5)))
@@ -285,8 +289,10 @@ end
 P3P() = P3P(NativeSolver())
 sample_size(::P3P) = 3
 max_solutions(::P3P) = 4
+default_algorithm(::MinimalProblem{<:Extrinsics3}) = P3P()
 
-function solve(s::P3P, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, s::P3P)
+    cs, idx = prob.f, prob.sample
     u = sources(cs); v = targets(cs)
     X = SVector{3}(@inbounds ntuple(k -> SVector{3, Float64}(u[idx[k]]), Val(3)))
     x = SVector{3}(@inbounds ntuple(k -> SVector{3, Float64}(v[idx[k]]), Val(3)))
@@ -301,7 +307,7 @@ end
 Minimal 2-point rotation solver: the rotation `R` with `vᵢ ≈ R·uᵢ` from two
 pairs of **bearing vectors** (`StaticVector{3}`, any nonzero length — a
 direction is its unit vector) — the infinite homography of a calibrated
-camera under a pure rotation, or any two direction pairs. [`kabsch`](@ref) on
+camera under a pure rotation, or any two direction pairs. [`Kabsch`](@ref) on
 the two unit pairs (`solve` verb); `sample_size` 2, `max_solutions` 1.
 
 The rotation is exact on two consistent pairs (the two bearings of a view
@@ -318,10 +324,12 @@ the registry answers one model per element-type pair.
 struct Rotation2pt <: MinimalSolver{RotMatrix{3, Float64, 9}} end
 sample_size(::Rotation2pt) = 2
 max_solutions(::Rotation2pt) = 1
+default_algorithm(::MinimalProblem{<:RotMatrix{3}}) = Rotation2pt()
 
 const _ROTATION2PT_PARALLEL = 1.0e-12
 
-function solve(::Rotation2pt, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, ::Rotation2pt)
+    cs, idx = prob.f, prob.sample
     M = RotMatrix{3, Float64, 9}
     u = sources(cs); v = targets(cs)
     u1 = normalize(_bearing(@inbounds u[idx[1]])); u2 = normalize(_bearing(@inbounds u[idx[2]]))
@@ -329,7 +337,7 @@ function solve(::Rotation2pt, cs, idx::AbstractVector{<:Integer})
     ok = all(isfinite, u1) && all(isfinite, u2) && all(isfinite, v1) && all(isfinite, v2) &&
         norm(cross(u1, u2)) > _ROTATION2PT_PARALLEL && norm(cross(v1, v2)) > _ROTATION2PT_PARALLEL
     ok || return FixedModels{1, M}(0, (one(M),))
-    return FixedModels{1, M}(1, (M(kabsch([u1 => v1, u2 => v2])),))
+    return FixedModels{1, M}(1, (M(_kabsch(SVector(u1 => v1, u2 => v2))),))   # a static pair: no heap vector
 end
 
 # -----------------------------------------------------------------------------

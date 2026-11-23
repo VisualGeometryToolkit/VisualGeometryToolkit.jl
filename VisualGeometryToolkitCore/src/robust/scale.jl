@@ -38,51 +38,71 @@ dispatching on a name.
 JeffreysPrior() = IGPrior(0.0, 0.0)
 
 """
-    fit_scale(prior::IGPrior, rss, dof) -> s2
+    SquaredScale
 
-Fit the squared scale ŝ² as the inverse-gamma MAP, `(rss + 2β₀)/(dof + 2α₀)`.
-
-Returns ŝ², the SQUARED scale — never a linear σ̂.
-
-ŝ² is PER COMPONENT: `rss` sums squared NORMS of d_g-vector residuals, so `dof`
-counts components — `ν_data = (k − model_dof)·d_g` for a hard partition, or
-`d_g·Σπᵢ` in the IRLS M-step (`update_scale!`). The `2α₀`/`2β₀` pseudo-counts
-make a refinement inherit the scoring prior (`β₀` floors ŝ² at low inlier
-counts); `IGPrior(0, 0)` (Jeffreys) gives `rss/dof`.
-
-The first argument is THE ESTIMATOR: `IGPrior` selects the inverse-gamma MAP,
-its prior being that estimator's parameters. The residuals are TAKEN as
-inliers, no initial guess is needed, and no inlier decision is made here.
-
-The result is floored at `eps()`, so a zero `rss` under Jeffreys returns
-`eps()`, not a NaN. A caller that would rather HOLD its previous scale in that
-case must test the dof itself at the call site.
+The model TAG of a squared noise scale ŝ² estimated from a residual sum: `EstimationProblem(SquaredScale, (; rss,
+dof))`, solved by [`ScaleMAP`](@ref). A tag names what is estimated where no model type holds it (the estimate is a
+plain `Float64`); it is never instantiated.
 """
-@inline fit_scale(prior::IGPrior, rss::Real, dof::Real) =
+abstract type SquaredScale end
+
+"""
+    ScaleMAP(prior::IGPrior)
+
+The inverse-gamma MAP of the squared scale, a [`ClosedFormKind`](@ref):
+`solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior))` is ŝ² = `(rss + 2β₀)/(dof + 2α₀)`, the
+result's `u` (`rms` NaN). `n` counts the data a result was computed from; this estimator reads sufficient
+statistics (a sum and its degrees of freedom), not data, so its `n` is `0` — the degrees of freedom are its input `dof`.
+
+ŝ², the SQUARED scale — never a linear σ̂ — is PER COMPONENT: `rss` sums squared NORMS of d_g-vector residuals, so
+`dof` counts components — `ν_data = (k − model_dof)·d_g` for a hard partition, or `d_g·Σπᵢ` in the IRLS M-step
+([`update_scale!`](@ref)). The `2α₀`/`2β₀` pseudo-counts make a refinement inherit the scoring prior (`β₀` floors ŝ²
+at low inlier counts); `IGPrior(0, 0)` ([`JeffreysPrior`](@ref)) gives `rss/dof`.
+
+The prior is the algorithm's configuration: `IGPrior` selects the inverse-gamma MAP, its parameters that
+estimator's. The residuals are TAKEN as inliers, no initial guess is needed, and no inlier decision is made here.
+
+The result is floored at `eps()`, so a zero `rss` under Jeffreys returns `eps()`, not a NaN. A caller that would
+rather HOLD its previous scale in that case must test the dof itself at the call site. The default algorithm of a
+[`SquaredScale`](@ref) is `ScaleMAP(JeffreysPrior())`.
+"""
+struct ScaleMAP <: AbstractEstimationAlgorithm
+    prior::IGPrior
+end
+estimator_kind(::ScaleMAP) = ClosedFormKind()
+default_algorithm(::EstimationProblem{SquaredScale, <:NamedTuple}) = ScaleMAP(JeffreysPrior())
+function __solve(prob::EstimationProblem{SquaredScale, <:NamedTuple, NullParameters}, alg::ScaleMAP)
+    sums = _solve_context(prob.f, (:rss, :dof), (;), "ScaleMAP")   # the sums, in any order; one naming ArgumentError
+    return closed_form_result(_ig_map_scale(alg.prior, sums.rss, sums.dof), 0)
+end
+
+# THE inverse-gamma MAP of ŝ², `ScaleMAP`'s solve: the inner loops' form (the posterior's M-step, the partition's
+# Student-t seed), on the prior and the sums directly.
+@inline _ig_map_scale(prior::IGPrior, rss::Real, dof::Real) =
     max((rss + 2 * prior.beta0) / max(dof + 2 * prior.alpha0, eps()), eps())
 
 """
-    partition_student_t(prior::IGPrior, rss, k; model_dof, codimension = 1) -> (ν, ŝ²)
+    _partition_student_t(prior::IGPrior, rss, k; model_dof, codimension = 1) -> (ν, ŝ²)
 
 The Student-t of a hard partition of `k` points with residual sum of squares
 `rss`. It is the scoring marginal's posterior predictive over it under `prior`, and
 THE seed of every Student-t in the stack: counted dof
 `ν_data = (k − model_dof)·codimension`, then
 
-    ν  = max(ν_data + 2α₀, 2),     ŝ² = fit_scale(prior, rss, ν_data).
+    ν  = max(ν_data + 2α₀, 2),     ŝ² = the inverse-gamma MAP of rss over ν_data (ScaleMAP).
 
 The `ν ≥ 2` clamp keeps the seed's variance finite (a Student-t has one only for
-ν > 2) at a thin partition, and `fit_scale` floors the QUOTIENT at eps. One rule
+ν > 2) at a thin partition, and the MAP floors the QUOTIENT at eps. One rule
 for every caller: both [`PosteriorWeightState`](@ref) seeds, the partition
-mixture of [`posterior_weights!`](@ref)/[`posterior_inlier_probs!`](@ref), the
+mixture of `_posterior_weights!`/`_posterior_inlier_probs!`, the
 consensus scale [`consensus_s2`](@ref) and a RANSAC result's σ̂.
 `model_dof` is the caller's: the sweep's `minimal_sample_size` for the scoring
 marginal, one more for a local-optimization seed that also estimates the scale.
 """
-@inline function partition_student_t(prior::IGPrior, rss::Real, k::Integer;
+@inline function _partition_student_t(prior::IGPrior, rss::Real, k::Integer;
                                      model_dof::Integer, codimension::Integer = 1)
     ν_data = Float64((k - model_dof) * codimension)
-    return max(ν_data + 2 * prior.alpha0, 2.0), fit_scale(prior, rss, ν_data)
+    return max(ν_data + 2 * prior.alpha0, 2.0), _ig_map_scale(prior, rss, ν_data)
 end
 
 # Σ_{j ≤ k} f(xs[order[j]]) in Float64, left to right from 0.0 — the one partition

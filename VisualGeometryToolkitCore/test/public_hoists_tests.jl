@@ -2,12 +2,12 @@
 # each is the function its own callers in Core already use, so these pin the public contract, not new arithmetic.
 
 @testitem "normalized_point: K⁻¹𝐩, the pixel-frame half of backproject" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test
     using StaticArrays
     using LinearAlgebra: normalize
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: normalized_point, KannalaBrandt, CameraCalibrationMat, convert_eltype
-    allocs(f, args...) = (f(args...); @allocated f(args...))
 
     K = SMatrix{3, 3, Float64}(600, 0, 0, 2.5, 610, 0, 320, 240, 1)       # skew 2.5: K⁻¹ is not two divisions
     pin = CameraModel(CameraCalibrationMat(K))
@@ -23,7 +23,7 @@
     end
     # the element type follows the pixel's (a Float32 device camera)
     @test normalized_point(convert_eltype(Float32, fish).intrinsics, SVector(100.0f0, 50.0f0)) isa SVector{2, Float32}
-    @test allocs(normalized_point, fish.intrinsics, SVector(1.0, 2.0)) == 0
+    @test warm_allocated(normalized_point, fish.intrinsics, SVector(1.0, 2.0)) == 0
 end
 
 @testitem "with_parameters(::MappedSurface): the calibration rebuilt, every other member kept" begin
@@ -73,6 +73,7 @@ end
 end
 
 @testitem "intersection_at: the hit's partials at a known hit, no root" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random
     using Rotations: RotMatrix, RotXYZ
     using ForwardDiff
@@ -86,7 +87,6 @@ end
     rect = Rect2(-0.5, -0.5, 1.0, 1.0)
     rays = [(SVector(0.3randn(rng), 0.3randn(rng), 0.0), SVector(0.2randn(rng), 0.2randn(rng), 1.0)) for _ in 1:300]
     partials_of(v) = reduce(hcat, [collect(ForwardDiff.partials(c)) for c in v])
-    allocs(f, args...) = (f(args...); @allocated f(args...))
     for C in (HeightField(nodes, z), HeightField(nodes, z) ∘ (Aspect(0.01) ∘ Skew(-0.003)))
         s = MappedSurface(X, C, nothing, rect)
         H = C isa HeightField ? C : C.t1
@@ -118,7 +118,7 @@ end
         end
         @test worst_value <= 64eps() && worst_partial <= 1.0e-12 * max(scale, 1.0)
         o, d, _, x = first(h for h in hits if isfinite(h[3]))
-        @test (@inferred intersection_at(sd, o, d, x))[1] isa ForwardDiff.Dual && allocs(intersection_at, sd, o, d, x) == 0
+        @test (@inferred intersection_at(sd, o, d, x))[1] isa ForwardDiff.Dual && warm_allocated(intersection_at, sd, o, d, x) == 0
         # a miss handed over as intersection returns it
         nan = SVector(NaN, NaN, NaN)
         @test all(isnan ∘ ForwardDiff.value, intersection_at(sd, o, d, nan)[2]) && isnan(intersection_at(s, o, d, nan)[1])
@@ -134,14 +134,14 @@ end
 end
 
 @testitem "bilinear_weights: the texel block and fractions bilinear_sample reads" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random
     using VisualGeometryToolkitCore: bilinear_sample, bilinear_weights
-    allocs(f, args...) = (f(args...); @allocated f(args...))
 
     rng = Xoshiro(3)
     img = randn(rng, 4, 8)                       # H = 4 rows, W = 8 columns (the texel centres exact in binary)
-    blend(img, (i, j, fx, fy)) = (1 - fx) * (1 - fy) * img[j, i] + fx * (1 - fy) * img[j, i + 1] +
-        (1 - fx) * fy * img[j + 1, i] + fx * fy * img[j + 1, i + 1]
+    # the reference: the 2×2 texel block between the row and column interpolation weights
+    blend(img, (i, j, fx, fy)) = (SVector(1 - fy, fy)' * SMatrix{2, 2}(img[j:(j + 1), i:(i + 1)]) * SVector(1 - fx, fx))
     uvs = [SVector(rand(rng), rand(rng)) for _ in 1:500]
     append!(uvs, [SVector(-0.3, 0.5), SVector(1.4, 1.2), SVector(0.0, 0.0), SVector(1.0, 1.0), SVector(NaN, 0.4)])
     for uv in uvs
@@ -155,13 +155,13 @@ end
     @test bilinear_weights(SVector(7.5 / 8, 3.5 / 4), (8, 4)) == (7, 3, 1.0, 1.0)
     @test bilinear_weights(SVector(NaN, 0.1), (8, 4))[[1, 3]] == (1, 0.0)
     @test_throws ArgumentError bilinear_weights(SVector(0.5, 0.5), (1, 4))
-    @test allocs(bilinear_weights, SVector(0.3, 0.6), (8, 4)) == 0
+    @test warm_allocated(bilinear_weights, SVector(0.3, 0.6), (8, 4)) == 0
 end
 
 @testitem "is_inside_texel_centres: exactly where bilinear_weights does not extend the edge" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random, ForwardDiff
     using VisualGeometryToolkitCore: bilinear_weights, is_inside_texel_centres
-    allocs(f, args...) = (f(args...); @allocated f(args...))
 
     # Unclamped, the block and fractions reproduce the position's 0-based centre coordinates exactly
     # (x − x0 is exact for x ∈ [x0, x0 + 1]); clamping moves them. So the predicate must equal "reproduces".
@@ -197,7 +197,7 @@ end
     @test is_inside_texel_centres(SVector(d, 0.5), (8, 4)) && !is_inside_texel_centres(SVector(ForwardDiff.Dual(0.01, 1.0), 0.5), (8, 4))
     @test is_inside_texel_centres(SVector(0.5, 0.5), (8, 4)) isa Bool
     @test_throws ArgumentError is_inside_texel_centres(SVector(0.5, 0.5), (1, 4))
-    @test allocs(is_inside_texel_centres, SVector(0.3, 0.6), (8, 4)) == 0
+    @test warm_allocated(is_inside_texel_centres, SVector(0.3, 0.6), (8, 4)) == 0
 end
 
 @testitem "julia_blocks: a page's Julia examples" begin

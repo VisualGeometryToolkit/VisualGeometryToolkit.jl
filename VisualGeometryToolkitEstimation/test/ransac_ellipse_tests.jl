@@ -5,6 +5,7 @@
 # run and clutter), and the keyword set shared with the other `find_*` pipelines.
 
 @testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point,
@@ -22,8 +23,7 @@
         abs(sin(e.θ - E₀.θ)) < 1.0e-10
     r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, e)
     @test maximum(abs, r) < 1.0e-8                                       # pixels
-    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
-    @test allocs(r, p, e) == 0
+    @test warm_allocated(VgtkEstimation.mahalanobis_distances!, r, p, e) == 0
     # a collinear triple and a repeated point: no ellipse
     q = EllipseProblem([Point2(0.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 2.0), Point2(0.0, 3.0), Point2(3.0, 0.5), Point2(0.0, 0.0)])
     @test VgtkEstimation.solve(q, [1, 2, 3, 4, 5]).count == 0
@@ -63,8 +63,7 @@
     e₁ = VgtkCore.refine!(ws, pp, e₀, ones(100))
     @test e₁ isa Ellipse{Float64}
     @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
-    refit_allocs(ws, p, θ, w) = (VgtkCore.refine!(ws, p, θ, w); @allocated VgtkCore.refine!(ws, p, θ, w))
-    @test refit_allocs(ws, pp, e₀, ones(100)) == 0
+    @test warm_allocated(VgtkCore.refine!, ws, pp, e₀, ones(100)) == 0
 end
 
 @testitem "find_ellipse: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin

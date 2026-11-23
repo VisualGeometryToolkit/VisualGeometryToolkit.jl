@@ -46,7 +46,9 @@ struct HomographyManifold8{T} <: Manifold
     H0::SMatrix{3, 3, T, 9}
     HomographyManifold8{T}(H0) where {T} = new{T}(H0)
 end
-HomographyManifold8(H0::AbstractMatrix) = (T = float(eltype(H0)); HomographyManifold8{T}(SMatrix{3, 3, T, 9}(H0)))
+# A chart anchored at a 3×3 matrix, stored in the matrix's float type (`HomographyManifold8`, `SO3Manifold`).
+_float_anchored(::Type{C}, A::AbstractMatrix) where {C} = (T = float(eltype(A)); C{T}(SMatrix{3, 3, T, 9}(A)))
+HomographyManifold8(H0::AbstractMatrix) = _float_anchored(HomographyManifold8, H0)
 
 tangent_size(::HomographyManifold8) = 8
 

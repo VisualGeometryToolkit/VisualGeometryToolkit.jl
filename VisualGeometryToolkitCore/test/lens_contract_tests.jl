@@ -1,6 +1,7 @@
 # Lens contract: the perspective views, the rational lift family, the frame of
 # record (CameraModel(model, K′) / K ↔ frame), and the contract on rays past 90°.
 @testitem "lens_contract" begin
+    using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using LinearAlgebra: LinearAlgebra, norm, dot, cholesky, Symmetric
@@ -12,6 +13,8 @@
     using VisualGeometryToolkitCore: monotone_radius, source_map, destination_map, radial_ratio, calibration_stage, whitening_factor,
         sampson_residual_with_jacobian, observation_gradient_jacobian   # public, not exported
     using VisualGeometryToolkitCore: project_with_jacobians, radial_camera_5pt   # kernel: public, not exported
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "division_distortion.jl"))   # distort_division
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "zhang_views.jl"))           # zhang_homography
 
     @testset "monotone_radius agrees with the fold view_angle_limit reports" begin
         # A family that folds must report the fold in BOTH currencies: the
@@ -244,13 +247,11 @@
             f0, k0 = 1226.3, -6.4e-7
             K = @SMatrix [f0 0.0 0.0; 0.0 f0 0.0; 0.0 0.0 1.0]
             R = RotXYZ(0.4, -0.3, 0.2); t = SVector(30.0, -20.0, 400.0)
-            H = SMatrix{3, 3, Float64}(K * hcat(R[:, 1], R[:, 2], t))
+            H = SMatrix{3, 3, Float64}(zhang_homography(K, R, t))
             pts = Pair{SVector{2, Float64}, SVector{2, Float64}}[]
             for X in -80.0:40.0:80.0, Y in -80.0:40.0:80.0
                 P = R * SVector(X, Y, 0.0) + t
-                u = f0 * PerspectiveMap()(P)
-                ρ = hypot(u[1], u[2]); r = ρ < 1.0e-12 ? 0.0 : (1 - sqrt(1 - 4k0 * ρ^2)) / (2k0 * ρ)
-                push!(pts, SVector(X, Y) => (ρ < 1.0e-12 ? u : u * (r / ρ)))
+                push!(pts, SVector(X, Y) => distort_division(f0 * PerspectiveMap()(P), k0))
             end
             # the exact radial camera: rows 1–2 of the true homography (its fit lives in
             # VisualGeometryToolkitEstimation, `fit_radial_camera`)
@@ -318,17 +319,17 @@
             # degenerate: collinear plane points leave more than one null direction
             col = [SVector(t, 2t) => pts[1][2] .* (1 + 0.1t) for t in 1.0:5.0]
             @test radial_camera_5pt(col) === nothing
-            # the solver over the same kernel: `solve(RadialCamera5pt(; center), cs, idx)`,
+            # the solver over the same kernel: `solve(MinimalProblem(RadialCamera, cs, idx), RadialCamera5pt(; center))`,
             # the centre a property of the solver, a degenerate sample `count == 0`
             cs5 = Correspondences(first.(raw), last.(raw))
             s5 = RadialCamera5pt(; center = c)
             @test VgtkCore.sample_size(s5) == 5 && VgtkCore.max_solutions(s5) == 1
             @test VgtkCore.model_type(s5) === RadialCamera{Float64}
-            sol = solve(s5, cs5, [1, 5, 8, 21, 25])
+            sol = solve(VgtkCore.MinimalProblem(RadialCamera, cs5, [1, 5, 8, 21, 25]), s5)
             @test sol isa VgtkCore.FixedModels{1, RadialCamera{Float64}} && length(sol) == 1
             @test sol[1].P == P5r.P && sol[1].center == P5r.center
-            @test length(solve(RadialCamera5pt(), Correspondences(first.(col), last.(col)), 1:5)) == 0
-            _solve5(s, cs, idx) = solve(s, cs, idx)
+            @test length(solve(VgtkCore.MinimalProblem(RadialCamera, Correspondences(first.(col), last.(col)), 1:5), RadialCamera5pt())) == 0
+            _solve5(s, cs, idx) = solve(VgtkCore.MinimalProblem(RadialCamera, cs, idx), s)
             _solve5(s5, cs5, 1:5)
             @test (@allocated _solve5(s5, cs5, 1:5)) == 0
         end
@@ -676,15 +677,14 @@
         end
 
         @testset "allocation-free" begin
-            allocs(f, a, b) = (f(a, b); @allocated f(a, b))
             X = ray(deg2rad(100.0))
             for l in (kb, tpf, ds, rneg, Lens(Equisolid()), bc)
                 Y = l === bc ? ray(deg2rad(30.0)) : X
                 u = project(l, Y)
-                @test allocs(project, l, Y) == 0
-                @test allocs(backproject, l, u) == 0
-                @test allocs(transform_deriv, l, Y) == 0
-                @test allocs(transform_deriv_params, l, Y) == 0
+                @test warm_allocated(project, l, Y) == 0
+                @test warm_allocated(backproject, l, u) == 0
+                @test warm_allocated(transform_deriv, l, Y) == 0
+                @test warm_allocated(transform_deriv_params, l, Y) == 0
             end
         end
 

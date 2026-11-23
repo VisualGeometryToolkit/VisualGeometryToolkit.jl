@@ -184,7 +184,7 @@ end
 # The numbers' type is read off `fj`'s inferred result, not from an evaluation.
 #
 # The ITERATION IS PLAIN. Plain parts are solved by Core's one static 2-D LM
-# (`static_lm`, the SplineLens projection's, in their float type). Parts with
+# (`_static_lm`, the SplineLens projection's, in their float type). Parts with
 # ForwardDiff Duals are solved by the implicit function theorem one layer at a
 # time: the parts with the outermost layer's values (the surface's members and
 # frame, the ray) are solved first — recursively, so the LM only ever sees
@@ -207,7 +207,7 @@ end
     # resolved to rounding (cost floor 0): the stops are what T resolves of a residual of the chart's scale L, so a
     # nearly flat surface's plane-hit seed (a residual of its heights, below √eps·L for heights of 1e-8 L) is not
     # taken for its root, and the hit is a smooth function of the surface; `tol2` is only the acceptance
-    p, ok, _, (_, _, X) = static_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), StaticLmStops(SVector{2, T}(s); acceptance = tol2, residual_scale = L))
+    p, ok, _, (_, _, X) = _static_lm(fT, SVector{2, T}(x₀), SVector{2, T}(lb), SVector{2, T}(ub), StaticLmStops(SVector{2, T}(s); acceptance = tol2, residual_scale = L))
     return p, ok, X
 end
 @inline function _board_root(::Type{D}, residual::R, parts::Tuple, x₀, lb, ub, s, tol2, L) where {D <: ForwardDiff.Dual, R}

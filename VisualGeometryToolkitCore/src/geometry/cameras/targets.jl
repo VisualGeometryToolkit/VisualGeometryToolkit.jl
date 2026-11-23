@@ -111,7 +111,7 @@ struct PointTarget{P} <: AbstractTarget
 end
 
 points(t::PointTarget) = t.points
-Base.:(==)(a::PointTarget, b::PointTarget) = a.points == b.points
+@fieldwise PointTarget
 has_units(t::PointTarget) = any(has_units, points(t))
 FlexUnits.ustrip(u::Units, t::PointTarget) = PointTarget([strip_point(u, p) for p in points(t)])
 with_unit(t::PointTarget, u::Units) = PointTarget([attach_point(u, p) for p in points(t)])
@@ -682,7 +682,7 @@ is_posed(::AbstractTarget) = false   # an unposed target; `PosedTarget` (rig.jl)
 # The camera parallel (cameras.jl `_unposed_only`): an unposed target is its own
 # model, and the posed-only verbs refuse it by name.
 _pose_hint(::AbstractTarget) = ("target", "`PosedTarget(model, X)`")
-model(t::AbstractTarget) = is_posed(t) ? throw(MethodError(model, (t,))) : t
+model(x::Union{AbstractCamera, AbstractTarget}) = is_posed(x) ? throw(MethodError(model, (x,))) : x   # an unposed camera's too
 pose(t::AbstractTarget) = _unposed_only(pose, "pose", t)
 extrinsics(t::AbstractTarget) = _unposed_only(extrinsics, "extrinsics", t)
 is_resolved(t::PlanarTarget) = t.nominal !== nothing

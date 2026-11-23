@@ -99,12 +99,13 @@ end
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     noisy = Dict(e => RotMatrix(RotationVec((1.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
     weighted = Dict(e => Attributed(noisy[e], (; weight = 50.0 + e[1])) for e in edges)
-    err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_graphs.jl"))   # `max_rotation_error`
 
     spectral = fit_rotation_averaging(weighted; scale = 1.0e-3)
     tree = fit_rotation_averaging(weighted; seed = :spanning_tree, scale = 1.0e-3)
     @test converged(spectral) && converged(tree)
-    @test err(estimate(tree)) < 5.0e-3
+    @test max_rotation_error(estimate(tree), R, n) < 5.0e-3
     @test maximum(k -> norm(Matrix(estimate(tree)[k]) - Matrix(estimate(spectral)[k])), 1:n) < 1.0e-8   # same optimum
     @test estimate(tree)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12                                  # re-gauged
     # an explicit seed: the truth itself, any gauge
@@ -130,7 +131,7 @@ end
     @test estimate(res)[2] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
     # a pair given as (j, i) is accepted by the spanning-tree seed, as by the spectral one
     flipped = Dict(((j, i) => noisy[(i, j)]' for (i, j) in edges if i == 1)..., (e => noisy[e] for e in edges if e[1] != 1)...)
-    @test err(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree, scale = 1.0e-3))) < 5.0e-3
+    @test max_rotation_error(estimate(fit_rotation_averaging(flipped; seed = :spanning_tree, scale = 1.0e-3)), R, n) < 5.0e-3
     # a view in no edge is a disconnected ViewGraph
     @test_throws ArgumentError fit_rotation_averaging(ViewGraph(vcat(1:n, 99), Dict(e => noisy[e] for e in edges)); scale = 1.0e-3)
 end
@@ -201,7 +202,8 @@ end
     rel = Dict(p => RotMatrix(RotationVec((1.0e-3 .* randn(rng, 3))...)) * R[p[2]]' * R[p[1]] for p in pairs)
     rel[(4, 6)] = RotMatrix(RotationVec(0.8, -0.4, 0.3)) * rel[(4, 6)]                   # one wrong pair
     vg = ViewGraph(Dict(p => Attributed(rel[p], (; weight = 100.0)) for p in pairs))
-    err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_graphs.jl"))   # `max_rotation_error`
 
     # no filter: the plain fit on the whole graph
     plain = fit_filtered_rotation_averaging(vg; scale = 1.0e-3)
@@ -209,10 +211,10 @@ end
     # the orientation filter removes the wrong pair and refits on the rest
     o = fit_filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0), scale = 1.0e-3)
     @test !haskey(o.graph, 4, 6) && nedges(o.graph) == length(pairs) - 1
-    @test err(estimate(o.fit)) < 5.0e-3
+    @test max_rotation_error(estimate(o.fit), R, n) < 5.0e-3
     # the cycle filter removes it before averaging
     c = fit_filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), scale = 1.0e-3)
-    @test !haskey(c.graph, 4, 6) && err(estimate(c.fit)) < 5.0e-3
+    @test !haskey(c.graph, 4, 6) && max_rotation_error(estimate(c.fit), R, n) < 5.0e-3
     @test_throws ArgumentError fit_filtered_rotation_averaging(vg; cycle_tol = -1.0, scale = 1.0e-3)
     @test_throws ArgumentError fit_filtered_rotation_averaging(vg; orientation_tol = 0.0, scale = 1.0e-3)
     # the verb states the kind: the old names are gone, no aliases (retired in check_naming)
@@ -239,7 +241,8 @@ end
     rel[(4, 6)] = RotMatrix(RotationVec(0.8, -0.4, 0.3)) * rel[(4, 6)]                   # one wrong pair
     Σ = SMatrix{3, 3, Float64}(1.0e-6I)
     vg = ViewGraph(Dict(p => Attributed(Uncertain(rel[p], CovMat(Σ)), (; weight = 100.0)) for p in pairs))
-    err(Rh) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(Rh[k])' * R[k])), 1:n)
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_graphs.jl"))   # `max_rotation_error`
 
     # the residual and both filters on the Uncertain edges, and on bare Uncertain rotations
     @test rotation_loop_angle(vg[1, 2], vg[2, 3], vg[1, 3]) < 1.0e-2
@@ -251,7 +254,7 @@ end
     @test nedges(filter_by_orientation(vg, Dict(k => Uncertain(R[k], CovMat(Σ)) for k in 1:n); tol = deg2rad(2.0))) == length(pairs) - 1
     # the filtered averaging at its tolerances: the wrong pair removed, the rest fitted (no scale: the covariances carry it)
     fo = fit_filtered_rotation_averaging(vg; orientation_tol = deg2rad(2.0))
-    @test !haskey(fo.graph, 4, 6) && err(estimate(fo.fit)) < 5.0e-3
+    @test !haskey(fo.graph, 4, 6) && max_rotation_error(estimate(fo.fit), R, n) < 5.0e-3
     fc = fit_filtered_rotation_averaging(vg; cycle_tol = deg2rad(2.0), orientation_tol = deg2rad(2.0))
-    @test !haskey(fc.graph, 4, 6) && err(estimate(fc.fit)) < 5.0e-3
+    @test !haskey(fc.graph, 4, 6) && max_rotation_error(estimate(fc.fit), R, n) < 5.0e-3
 end

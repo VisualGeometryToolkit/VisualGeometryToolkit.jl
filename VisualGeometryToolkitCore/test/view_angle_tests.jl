@@ -2,6 +2,7 @@
 # regression that caps its fit domain with it (`fit_camera`) lives in
 # VisualGeometryToolkitEstimation, with its tests.
 @testitem "view_angle" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: view_angle_limit, Division, DoubleSphere, Pinhole, KannalaBrandt, projected_radius
@@ -46,7 +47,7 @@
             θn = first_nan(l)
             # the radial stage's output radius at its input where project turns NaN
             x = ray(θn)
-            ρ = norm(before(SVector(x[1] / x[3], x[2] / x[3])))
+            ρ = norm(before(pinhole_point(x)))
             @test monotone_radius(l) ≈ ρ * F(ρ^2) atol = 1.0e-6
         end
         @test monotone_radius(chain) == monotone_radius(twin)

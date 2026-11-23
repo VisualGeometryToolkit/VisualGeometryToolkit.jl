@@ -30,6 +30,7 @@
 # =============================================================================
 
 @testitem "thin_plate_spline" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_radial_basis, grid_nodes, tps_coefficients,
@@ -166,13 +167,12 @@
         w, a = tps_coefficients(tps, REF.grid_5.values)
         nodes, p = tps.nodes, SVector(0.123, -0.377)
         @test isbitstype(typeof(nodes)) && isbitstype(typeof(w)) && isbitstype(typeof(a))
-        allocations(f, args...) = (f(args...); @allocated f(args...))
-        @test allocations(tps_evaluate, nodes, w, a, p) == 0
-        @test allocations(tps_gradient, nodes, w, a, p) == 0
+        @test warm_allocated(tps_evaluate, nodes, w, a, p) == 0
+        @test warm_allocated(tps_gradient, nodes, w, a, p) == 0
         nodes32 = SVector{25}(SVector{2, Float32}.(nodes))
         w32, a32 = tps_coefficients(tps, Float32.(REF.grid_5.values))
-        @test allocations(tps_evaluate, nodes32, w32, a32, SVector{2, Float32}(p)) == 0
-        @test allocations(tps_gradient, nodes32, w32, a32, SVector{2, Float32}(p)) == 0
+        @test warm_allocated(tps_evaluate, nodes32, w32, a32, SVector{2, Float32}(p)) == 0
+        @test warm_allocated(tps_gradient, nodes32, w32, a32, SVector{2, Float32}(p)) == 0
     end
 
     @testset "runs in a KernelAbstractions kernel on the CPU backend" begin
@@ -242,6 +242,7 @@ end
 end
 
 @testitem "thin_plate_spline: nodal_weights allocates nothing, same bits" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random, ForwardDiff
     using VisualGeometryToolkitCore: ThinPlateSplineSystem, nodal_weights, tps_radial_basis
     # The heap-`Vector` loop the loop form used to be (288 B a call at 25
@@ -256,7 +257,6 @@ end
         φ[N + 1] = 1.0; φ[N + 2] = Float64(p[1]); φ[N + 3] = Float64(p[2])
         return SVector{N}(ntuple(i -> (s = c[1, i] * φ[1]; for r in 2:(N + 3); s += c[r, i] * φ[r]; end; s), N))
     end
-    allocated(tps, p) = (nodal_weights(tps, p); @allocated nodal_weights(tps, p))
     rng = Xoshiro(23)
     @testset "N = $N" for N in (4, 16, 17, 25, 100)
         tps = ThinPlateSplineSystem([SVector(10rand(rng), 10rand(rng)) for _ in 1:N])
@@ -268,9 +268,9 @@ end
         end
         p = SVector(4.2, 5.1)
         d = SVector(ForwardDiff.Dual(p[1], 1.0, 0.0), ForwardDiff.Dual(p[2], 0.0, 1.0))
-        @test allocated(tps, p) == 0
-        @test allocated(tps, Float32.(p)) == 0
-        @test allocated(tps, d) == 0
+        @test warm_allocated(nodal_weights, tps, p) == 0
+        @test warm_allocated(nodal_weights, tps, Float32.(p)) == 0
+        @test warm_allocated(nodal_weights, tps, d) == 0
         # A Dual point: the value is the Float64 weights' bits, the partials
         # the Jacobian of the weights with respect to the point.
         wd = nodal_weights(tps, d)

@@ -13,36 +13,40 @@
 
 ## Which function for which task
 
-An estimator's name states its kind: a one-step algorithm is called by its
-algorithm's name; a minimal solver runs through the `solve(solver, cs, idx)`
-protocol; iterative fits (`fit_*`), robust searches (`find_*`) and
-refinements from a guess (`refine_*`) live in VisualGeometryToolkitEstimation. Data go
-in as correspondences (`a => b` pairs, a [`Correspondences`](@ref) preferred), with
-per-correspondence weights as its `weights` column.
+Every estimator is `solve(problem, algorithm)` ([The estimation interface](@ref)):
+the problem names what is estimated from which data — [`EstimationProblem`](@ref)`(M, data[, p])` from scratch,
+[`MinimalProblem`](@ref)`(M, data, sample[, p])` for a minimal sample, [`RefineProblem`](@ref)`(f, u0)` from a guess
+— and the algorithm, a typed value, how; its [`EstimatorKind`](@ref) states how it can fail. A closed form returns
+a [`FitResult`](@ref) whose `u` is the model (`nothing` when the data are degenerate), a minimal solver every root
+(`FixedModels`). Iterative fits (`fit_*`), robust searches (`find_*`) and refinements from a guess (`refine_*`)
+live in VisualGeometryToolkitEstimation. Data go in as correspondences (`a => b` pairs, a
+[`Correspondences`](@ref) preferred), with per-correspondence weights as its `weights` column.
 
 | Task | Function | Kind | Package |
 |------|----------|------|---------|
-| Homography from ≥ 4 point correspondences | [`homography_dlt`](@ref)`(cs)` | one-step | VGC |
-| Fundamental matrix from ≥ 8 correspondences | [`fundamental_dlt`](@ref)`(cs)` | one-step | VGC |
-| Essential matrix from ≥ 8 bearing pairs | [`essential_dlt`](@ref)`(cs)` (PoseLib backend) | one-step | VGC |
-| Rotation from vector pairs (`R·a ≈ b`) | [`kabsch`](@ref)`(cs)` | one-step | VGC |
-| Mean of a set of rotations | [`chordal_mean`](@ref)`(Rs)` | one-step | VGC |
-| Focal lengths from plane homographies | [`zhang_intrinsics`](@ref)`(Hs[, pitch])` | one-step | VGC |
-| Line through 2D points, with its covariance | [`tls_line`](@ref)`(points)` | one-step | VGC |
-| The point nearest to N lines (`origin => direction` pairs) | [`nearest_point`](@ref)`(lines)` | one-step | VGC |
-| Ellipse through 2D points (algebraic, always an ellipse) | [`direct_ellipse`](@ref)`(points)` | one-step | VGC |
+| Homography from ≥ 4 point correspondences | `solve(EstimationProblem(HomographyMat, cs), `[`DLT`](@ref)`())` | closed form | VGC |
+| Fundamental matrix from ≥ 8 correspondences | `solve(EstimationProblem(FundMat, cs), DLT())` | closed form | VGC |
+| Essential matrix from ≥ 8 bearing pairs | `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))` (PoseLib backend) | closed form | VGC |
+| Rotation from vector pairs (`R·a ≈ b`) | `solve(EstimationProblem(RotMatrix{3}, cs), `[`Kabsch`](@ref)`())` | closed form | VGC |
+| Mean of a set of rotations | `solve(EstimationProblem(RotMatrix{3}, Rs), `[`ChordalMean`](@ref)`())` | closed form | VGC |
+| Absolute rotations from relative ones | `solve(EstimationProblem(`[`AbsoluteRotations`](@ref)`, rel), `[`SpectralAveraging`](@ref)`())` | closed form | VGC |
+| Focal lengths from plane homographies | `solve(EstimationProblem(LogicalIntrinsics, Hs, (; center[, pitch])), `[`Zhang`](@ref)`())` | closed form | VGC |
+| Line through 2D points, with its covariance | `solve(EstimationProblem(Line2D, points), `[`TotalLeastSquares`](@ref)`())` | closed form | VGC |
+| The point nearest to N lines (`origin => direction` pairs) | `solve(EstimationProblem(Point, lines), `[`NearestPoint`](@ref)`())` | closed form | VGC |
+| A 3D point from a bearing pair and the relative pose | `solve(EstimationProblem(Point3, f₁ => f₂, pose), `[`Triangulation`](@ref)`())` | closed form | VGC |
+| Ellipse through 2D points (algebraic, always an ellipse) | `solve(EstimationProblem(Ellipse, points), `[`DirectEllipse`](@ref)`())` | closed form | VGC |
 | A pure-bending height field through scattered heights (`point => height` pairs, the plane dropped) | [`HeightField`](@ref)`(nodes, points .=> heights; smoothing)` | one-step | VGC |
 | Normalize points for a solve (centroid, or a known centre) | `AffineMap(`[`HartleyNormalization`](@ref)`(; center), points)` | normalization | VGC |
 | Normalize a correspondence set for a model class | [`CorrespondenceNormalization`](@ref VisualGeometryToolkitCore.CorrespondenceNormalization)`(M, cs; center)` | normalization | VGC |
 | Store image points resolution-independently (pools) | `AffineMap(`[`DiagonalNormalization`](@ref)`(size))` | normalization | VGC |
-| Homography from a 4-point sample | `solve(`[`Homography4pt`](@ref)`(), cs, idx)` | minimal | VGC |
-| Radially distorted homography from 5 points | `solve(`[`Homography5ptRadial`](@ref)`(), cs, idx)` | minimal | VGC |
-| Fundamental matrix from a 7-point sample | `solve(`[`Fundamental7pt`](@ref)`(), cs, idx)` | minimal | VGC |
-| Essential matrix from 5 bearing pairs | `solve(`[`Essential5pt`](@ref)`(), cs, idx)` | minimal | VGC |
-| Absolute pose from 3 point–bearing pairs | `solve(`[`P3P`](@ref)`(), cs, idx)` | minimal | VGC |
-| Circle through 3 points | `solve(`[`Circle3pt`](@ref)`(), points, idx)` | minimal | VGC |
-| Ellipse through 5 points | `solve(`[`Ellipse5pt`](@ref)`(), points, idx)` | minimal | VGC |
-| Radial camera from 5 plane–pixel pairs | `solve(`[`RadialCamera5pt`](@ref)`(; center), cs, idx)` | minimal | VGC |
+| Homography from a 4-point sample | `solve(MinimalProblem(HomographyMat, cs, idx), `[`Homography4pt`](@ref)`())` | minimal | VGC |
+| Radially distorted homography from 5 points | `solve(MinimalProblem(RadialHomography, cs, idx), `[`Homography5ptRadial`](@ref)`())` | minimal | VGC |
+| Fundamental matrix from a 7-point sample | `solve(MinimalProblem(FundMat, cs, idx), `[`Fundamental7pt`](@ref)`())` | minimal | VGC |
+| Essential matrix from 5 bearing pairs | `solve(MinimalProblem(EssentialMat, cs, idx), `[`Essential5pt`](@ref)`())` | minimal | VGC |
+| Absolute pose from 3 point–bearing pairs | `solve(MinimalProblem(Extrinsics3, cs, idx), `[`P3P`](@ref)`())` | minimal | VGC |
+| Circle through 3 points | `solve(MinimalProblem(Circle, points, idx), `[`Circle3pt`](@ref)`())` | minimal | VGC |
+| Ellipse through 5 points | `solve(MinimalProblem(Ellipse, points, idx), `[`Ellipse5pt`](@ref)`())` | minimal | VGC |
+| Radial camera from 5 plane–pixel pairs | `solve(MinimalProblem(RadialCamera, cs, idx), `[`RadialCamera5pt`](@ref)`(; center))` | minimal | VGC |
 | A model from contaminated correspondences | `find_homography`, `find_absolute_pose`, `find_radial_camera`, `find_circle`, `find_ellipse`, … | find (RANSAC) | RVG |
 | Radial camera of one board, whitened iterations | `fit_radial_camera` | fit | RVG |
 | Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
@@ -51,7 +55,7 @@ per-correspondence weights as its `weights` column.
 | A model refined from a given one (no scorer: the caller's scale or width) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
 | Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |
 
-The kind fixes how a call can fail: an algorithm is one deterministic computation
+The kind fixes how a call can fail: a closed form is one deterministic computation
 and can only be degenerate; a fit can fail to converge; a find is randomized;
 a refine can end in a local minimum.
 
@@ -236,22 +240,23 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   what a lifted local optimizer reads of a chart problem: its whitened rows,
   their Jacobian and per-point norms. The lifts and their continuation
   schedules are LocalOptimizationDoneRight's.
-- **The one LM** (`lmsolve_chart!`, `LmStops`; `static_lm`, `StaticLmStops`) — the
-  stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping by default, `LevenbergDamping` opt-in) through ONE
+- **The one LM** ([`LevenbergMarquardt`](@ref), `lmsolve_chart!`, `LmStops`; [`StaticLevenbergMarquardt`](@ref),
+  `StaticLmStops`) — the stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping by default,
+  `LevenbergDamping` opt-in; the damping is the algorithm's field, not a stop setting) through ONE
   adapter, `lmsolve_chart!`, on a linearization state's `residual_rows!` /
   `residual_jacobian_rows!` (a `ManifoldLmWorkspace` keeps the problem and the
   solver's internal data), the same robustified per datum, or a multi-block
   `LmProblem` (the bundles: heterogeneous variables and residual blocks, each with
   its own robustifier). Its stop settings have ONE owner, `LmStops`
   (configs/default.toml `[lm]`); an `LmProblem`'s damping is the problem's own
-  (its kept cache is built for it: the default stops take it, explicit stops of
-  another damping are refused). Every solve has ONE success rule (Core 0.11.0):
+  (its kept cache is built for it), and a chart solve takes its damping as
+  `lmsolve_chart!`'s last argument. Every solve has ONE success rule (Core 0.11.0):
   a tolerance stop (`ftol`, `xtol`, `xtol_rel`) is converged, and the
   consecutive-rejection cap is judged by the stationarity postcondition at the
   returned point (`is_stationary`), a cost below the final point's rounding
   ((16ε)²·Σᵢ sᵢ² over the residuals' operand scales, floored by the data's
   `residual_resolution`²) an exact fit. A kernel's fixed-N solve is the one device
-  LM, `static_lm`, under `StaticLmStops` and its own rule (stationary and accepted). No package calls
+  LM, `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt(); stops)`, under `StaticLmStops` and its own rule (stationary and accepted). No package calls
   NLLSsolver's solver API directly: `check_duplication` fails it. The Schur
   complement (NLLSsolver pull request #60, still
   open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The

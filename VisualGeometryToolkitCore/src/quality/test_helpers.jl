@@ -80,9 +80,9 @@ function _test_gate end
 
 That a [`Recorded`](@ref) run of [`block_coordinate_descent!`](@ref) IS the bare
 run, as tests: `make()` returns a fresh `(state, likelihood, method, problem, θ₀,
-max_iter)` each call (fresh workspaces too), whose result has `estimate`,
-`retcode` and `iterations`. The recorded run returns the bare run's estimate,
-retcode and iteration count and leaves the same state; it records one iterate
+max_iter)` each call (fresh workspaces too), whose result is a [`FitResult`](@ref)
+(its `u`, `retcode` and `stats.nsteps`). The recorded run returns the bare run's
+estimate, return code and iteration count and leaves the same state; it records one iterate
 per good iteration (a `:solve_failed` run one fewer), with as many costs and
 scales; and the bare run truncated after every `k` has the recorded run's `k`-th
 cost — iterate for iterate. A state is compared by what a run moves: its
@@ -101,6 +101,22 @@ field by default (the posterior weights, the division camera's IRLS state, the
 GNC ladder); every other non-bits field of a state is a workspace it points into.
 """
 const RECORDED_NESTED_STATES = (:PosteriorWeightState, :_PositionalDivisionState, :MuLadderState)
+
+"""
+    warm_allocated(f, args...) -> Int
+
+The bytes `f(args...)` allocates once compiled: one call to compile it, then `@allocated` of a second. The stack's
+allocation tests' one spelling (`@test warm_allocated(f, x) == 0`). Implemented by VisualGeometryToolkitCoreTestExt.
+"""
+function warm_allocated end
+
+"""
+    sum_first_components(f, xs) -> Float64
+
+The sum of the first component of `f(x)` over `xs`: a timed sweep of a scalar call whose result stays live, so the
+compiler cannot elide the calls (the SplineLens benchmarks). Implemented by VisualGeometryToolkitCoreTestExt.
+"""
+function sum_first_components end
 
 """
     thrown_message(f; shown = false) -> String

@@ -7,7 +7,7 @@
 # over one lattice. Here both are `ChartSpline{3}`s over the same rectangle of the
 # K-normalized plane x = K⁻¹u, as the backward spline of a `SplineLens`: the
 # directions are a SplineLens's (`central_model(m)`), and every evaluation of
-# them, the box and presence test (`_in_backward`), the LM (`static_lm` on the
+# them, the box and presence test (`_in_backward`), the LM (`_static_lm` on the
 # area's scale-free `_spline_lm_box`) and the gauge rule (skew 0) are the lens's.
 # What is the model's own: the point spline and the tangent-plane residual of
 # its projection.
@@ -69,23 +69,25 @@ struct NoncentralSplineModel{I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: U
     directions::S
     points::S
     present::P
-    function NoncentralSplineModel{I, S, P}(intrinsics::I, directions::S, points::S, present::P) where {I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: Union{Nothing, AbstractMatrix{Bool}}}
-        _check_spline_gauge(intrinsics)
-        size(directions.controls) == size(points.controls) || throw(
-            ArgumentError(
-                "NoncentralSplineModel: the direction and point splines must have equal grids, " *
-                    "got $(size(directions.controls)) vs $(size(points.controls))"
+    # `Val(:unchecked)`: a value already validated (its device form), no check, as `SplineLens`'s.
+    function NoncentralSplineModel{I, S, P}(
+            intrinsics::I, directions::S, points::S, present::P, check::Union{Val{:checked}, Val{:unchecked}} = Val(:checked)
+        ) where {I <: LogicalIntrinsics, S <: ChartSpline{3}, P <: Union{Nothing, AbstractMatrix{Bool}}}
+        if check isa Val{:checked}
+            _check_spline_gauge(intrinsics)
+            size(directions.controls) == size(points.controls) || throw(
+                ArgumentError(
+                    "NoncentralSplineModel: the direction and point splines must have equal grids, " *
+                        "got $(size(directions.controls)) vs $(size(points.controls))"
+                )
             )
-        )
-        directions.area == points.area || throw(
-            ArgumentError("NoncentralSplineModel: the direction and point splines must share their area, got $(directions.area) vs $(points.area)")
-        )
-        _check_present(present, size(directions.controls))
+            directions.area == points.area || throw(
+                ArgumentError("NoncentralSplineModel: the direction and point splines must share their area, got $(directions.area) vs $(points.area)")
+            )
+            _check_present(present, size(directions.controls))
+        end
         return new{I, S, P}(intrinsics, directions, points, present)
     end
-    # A value already validated (its device form): no check, as `SplineLens`'s.
-    NoncentralSplineModel{I, S, P}(intrinsics::I, directions::S, points::S, present::P, ::Val{:unchecked}) where {I, S, P} =
-        new{I, S, P}(intrinsics, directions, points, present)
 end
 function NoncentralSplineModel(K::LogicalIntrinsics, directions::ChartSpline{3}, points::ChartSpline{3}; present = nothing)
     if typeof(directions) !== typeof(points)              # one spline type for both: the promoted precision
@@ -280,7 +282,7 @@ end
     return _tangent_residual(d, o, X), SMatrix{2, 2}(r1[1], r2[1], r1[2], r2[2])
 end
 
-# THE non-central projection: `static_lm` on the tangent-plane residual with its
+# THE non-central projection: `_static_lm` on the tangent-plane residual with its
 # analytic Jacobian, from the normalized point `x₀`, on the direction area's
 # scale-free box; the pixel, NaN unless it converged onto an imaged point.
 function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float64})
@@ -290,7 +292,7 @@ function _noncentral_project(m::NoncentralSplineModel, X, x₀::SVector{2, Float
     a = m.directions.area
     fj(p) = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, a, p, Xv)
     lb, ub, s = _spline_lm_box(a)
-    x, ok = static_lm(fj, x₀, lb, ub, StaticLmStops(s; acceptance = _PROJECT_TOL^2, cost_floor = _SPLINE_REFERENCE_COST_FLOOR))
+    x, ok = _static_lm(fj, x₀, lb, ub, StaticLmStops(s; acceptance = _PROJECT_TOL^2, cost_floor = _SPLINE_REFERENCE_COST_FLOOR))
     (ok && _in_backward(_direction_lens(m), x)) || return nan
     u = _pixel_affine(m.intrinsics)(x)
     return SVector{2, Float64}(u[1], u[2])
@@ -319,14 +321,13 @@ project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_di
 @inline function project(m::NoncentralSplineModel, X::StaticVector{3, D}) where {D <: ForwardDiff.Dual}
     Xv = _outer_value(D, X)
     u = project(m, Xv)
-    all(v -> isfinite(primal_value(v)), u) || return SVector{2, D}(_lift_dual(D, u[1]), _lift_dual(D, u[2]))   # not imaged: NaN, no partials
+    all(v -> isfinite(primal_value(v)), u) || return _dual_unimaged(D, u)   # not imaged: NaN, no partials (spline_lens.jl)
     p = normalized_point(m.intrinsics, u)
     d, _ = _spline_direction_and_jacobian(m.directions.controls, m.directions.area, p)
     t1, t2 = direction_tangents(d)
     _, Jp = _noncentral_residual_and_jacobian(m.directions.controls, m.points.controls, m.directions.area, p, SVector{3}(Xv[1], Xv[2], Xv[3]))
     Du = _pixel_affine(m.intrinsics).linear * (inv(Jp) * vcat(transpose(t1), transpose(t2)))
-    P = map(ForwardDiff.partials, X)
-    return SVector{2, D}(ntuple(i -> _with_value(D, u[i], Du[i, 1] * P[1] + Du[i, 2] * P[2] + Du[i, 3] * P[3]), Val(2)))
+    return _dual_pixel(D, u, Du, X)
 end
 project(m::NoncentralSplineModel, X, p₀) =
     _noncentral_project(m, X, SVector{2, Float64}(normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

@@ -70,7 +70,7 @@ function record_core_sensor_lm(cases)
         case!(cases, "photon_transfer/readnoise_series/other_size/seed$seed",
             (Dict(t1 => g[t1], t2 => [synth_mosaic(zeros(UInt16, 64, 64)) for _ in 1:2]), r.darks), ((g, d),) -> photon_transfer(g, d))
     end
-    case!(cases, "photon_transfer/readnoise_series/no_group", (Dict{typeof(0.01SEC), Vector{typeof(synth_mosaic(zeros(UInt16, 2, 2)))}}(), Dict(0.01SEC => rn(SIGMA_EFF))),
+    case!(cases, "photon_transfer/readnoise_series/no_group", (Dict{typeof(0.01SEC), Vector{typeof(synth_mosaic(zeros(UInt16, 2, 2)))}}(), Dict(0.01SEC => read_noise_model(SIGMA_EFF))),
         ((g, d),) -> photon_transfer(g, d))
     # --- photon_transfer: the series against Darks ----------------------------------------------------------------
     for seed in SEEDS

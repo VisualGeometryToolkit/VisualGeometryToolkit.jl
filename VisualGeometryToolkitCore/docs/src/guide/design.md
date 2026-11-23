@@ -43,18 +43,18 @@ p.attributes   # the depth
   VisualGeometryToolkitFeatures; the geometry and the alias live here so
   downstream packages agree on the type.
 - **Fit results do NOT use `Attributed`.** They return a
-  [`FitResult`](@ref): a fixed core (`estimate`, `retcode`, `stop_rule`,
-  `iterations`, `rms`, `n`) plus solver-specific `metadata` selected by type parameter.
-  It forwards properties into its metadata with the same `@generated`
-  mechanism described below, so `r.weights` reads like `sc.first` does —
-  `Attributed` with a fixed core, not a second paradigm.
+  [`FitResult`](@ref): SciML's solution fields (`u`, `resid`, `retcode`,
+  `stats`, `prob`, `alg`, `original`), the stack's `stop_rule`, `rms` and `n`, plus
+  solver-specific `metadata` selected by type parameter. It forwards nothing:
+  its own data are read by field (`r.u`, `r.metadata.depths`) and the cross-type
+  contract quantities by their functions (`weights(r)`), one way per quantity.
 - **Scored correspondences.** [`ScoredCorrespondence`](@ref) is
   `Attributed{Pair, Float64}` — even scalar metadata uses the same
   pattern.
 - **Per-datum weights.** A value carried between stages carries its weight
   as `Attributed(x, (; weight))` — a homography's vote in
-  [`zhang_intrinsics`](@ref), a relative rotation's in
-  [`spectral_rotation_averaging`](@ref), a view-graph edge's — and a stage
+  [`Zhang`](@ref), a relative rotation's in
+  [`SpectralAveraging`](@ref), a view-graph edge's — and a stage
   reads it with [`weight_of`](@ref VisualGeometryToolkitCore.weight_of) (1.0 for a bare value) and the value with
   [`value_of`](@ref VisualGeometryToolkitCore.value_of): never a parallel `weights` vector.
 
@@ -79,7 +79,7 @@ once at the boundary, and `u.matrix` reads the stored form. Since 0.9 the matric
 
 **Flat over deep.** No `AbstractResult → ...` hierarchy: two parametric
 types cover every case — `Attributed{V, A}` for a value with attributes,
-`FitResult{P, M}` for an estimate with a fixed diagnostic core — and
+`FitResult{U, M}` for an estimate with a fixed diagnostic core — and
 dispatch on `Attributed{ScoredCorrespondence, Float64}` or
 `FitResult{CameraModel, M}` is exactly as efficient as on a
 dedicated struct.

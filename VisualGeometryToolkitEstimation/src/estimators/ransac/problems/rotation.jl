@@ -55,13 +55,8 @@ and `solver_covariance` is whitened by `blockdiag(Σ₁ᵢ, Σ₂ᵢ)` through C
 Sampson layer: a Mahalanobis residual, so a scorer's threshold and scale are in
 whitened units. Plain pixels are unit isotropic noise, as before.
 """
-function RotationProblem(camera1, camera2, pixel_cs; kw...)
-    s, t = sources(pixel_cs), targets(pixel_cs)
-    fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, VgtkCore.geom(u)), s)
-    fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, VgtkCore.geom(u)), t)
-    cols = merge(VgtkCore.attrs_of(pixel_cs), VgtkCore.noise_columns(s, t), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
-    return RotationProblem(VgtkCore.Correspondences(first.(fm₁), first.(fm₂), cols); kw...)
-end
+RotationProblem(camera1, camera2, pixel_cs; kw...) = RotationProblem(_bearing_correspondences(
+    camera1, camera2, pixel_cs, VgtkCore.geom, VgtkCore.noise_columns(sources(pixel_cs), targets(pixel_cs))); kw...)   # correspondence.jl
 
 """
     RotationProblem(bearings::Correspondences; sampler = nothing, coincident_tol = COINCIDENT_PX)
@@ -112,10 +107,8 @@ test_sample(p::RotationProblem, idx::AbstractVector{Int}) =
 
 # The scoring constraint — VGC's bearing transfer form at H = R (the transfer
 # form's degeneracy is its Cholesky rank verdict: the exact-zero rounding default).
-@inline function constraint_with_jacobians(p::RotationProblem, R::RotMatrix, i::Int)
-    @inbounds return VgtkCore.constraint_with_jacobians(
-        VgtkCore.TransferForm(_transfer_homography(R)), sources(p.cs)[i], targets(p.cs)[i]; M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
-end
+@inline constraint_with_jacobians(p::RotationProblem, R::RotMatrix, i::Int) =
+    _on_bearing_pair(VgtkCore.constraint_with_jacobians, VgtkCore.TransferForm(_transfer_homography(R)), p.cs, i)   # correspondence.jl
 
 # The whitened residual: VGC's default (the Sampson residual of the constraint
 # above, whitened, in pixels) behind the hemisphere gate — the transferred ray

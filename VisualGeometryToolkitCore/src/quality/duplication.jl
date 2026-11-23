@@ -38,12 +38,8 @@ const _DUPLICATION_RULE_TEXT = Dict{Symbol, String}(
     :twin_name => "two names that differ only by a CPU/GPU marker: keep one, the same kernel on every backend",
 )
 
-function Base.show(io::IO, v::DuplicationViolation)
-    return print(
-        io, v.file, ":", v.line, "  [", v.check, "] ", v.text, "  ⇔  ", v.other, "  — ",
-        get(_DUPLICATION_RULE_TEXT, v.check, "")
-    )
-end
+Base.show(io::IO, v::DuplicationViolation) =
+    _print_violation(io, v.file, v.line, v.check, get(_DUPLICATION_RULE_TEXT, v.check, ""), v.text, "  ⇔  ", v.other)
 
 """
     check_duplication(M::Module; kwargs...) -> Vector{DuplicationViolation}

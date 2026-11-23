@@ -46,39 +46,21 @@ end
 
 # canonical-scale intrinsics (image-size-normalized: fx≈1, cx≈0.5) — the regime
 # the eval pipeline runs in (NOT raw pixels, which are badly LM-conditioned).
-# The bundle takes K matrices (a declared pinhole island); they are the cameras'.
-const CAM1 = CameraModel(; focal = (1.1, 1.05), pp = (0.5, 0.5))
-const CAM2 = CameraModel(; focal = (1.2, 1.15), pp = (0.48, 0.52))
-const KC1 = SMatrix{3, 3, Float64, 9}(calibration_matrix(CAM1))
-const KC2 = SMatrix{3, 3, Float64, 9}(calibration_matrix(CAM2))
+# The bundle takes K matrices (a declared pinhole island); they are the cameras'. The cameras, the two-view scene, its
+# seed and the A/B harness scene (`CAM1`, `CAM2`, `KC1`, `KC2`, `relpose_scene`, `relpose_seed`, `KP1`, `KP2`,
+# `harness_scene`): the suite's fixture file, shared with the golden records
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "relpose_scenes.jl"))
 
 # rotation and translation-direction errors, in degrees
 _pose_errs(R, t, Rgt, tgt) = rad2deg.(pose_error(R, t, Rgt, tgt))
-
-# Synthetic two-view scene, projected through the two cameras.
-function _scene(rng, N; σ = 0.0)
-    Rgt = RotMatrix(RotXYZ(0.1, -0.15, 0.08)); tgt = normalize(SVector(0.7, 0.2, 0.6))
-    u1, u2 = stereo_pixel_pairs(
-        rng, CAM1, CAM2, Rgt, tgt; n = N, σ₁ = σ, σ₂ = σ,
-        point = rng -> Point3(2randn(rng), 2randn(rng), 5 + 2rand(rng))
-    )
-    return Rgt, tgt, u1, u2
-end
-
-# The seed a refinement starts from: the truth's rotation composed with
-# RotXYZ(δ...), its translation direction moved by s·N(0, I₃).
-_seed(rng, Rgt, tgt; δ, s) = (
-    SMatrix{3, 3, Float64, 9}(Rgt * RotXYZ(δ...)),
-    Vec3{Float64}(normalize(tgt + s * SVector(randn(rng), randn(rng), randn(rng)))),
-)
 
 @testset "RelposeBundle: closed-form block Jacobian == ForwardDiff (K≠I)" begin
     # Point i's 4 × 8 block — pose columns along the chart the variable's
     # `update` steps in (VGC `recenter_pose`), then the point's — against
     # ForwardDiff of the same rows; non-unit weights.
     rng = StableRNG(2); N = 9
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.003)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.003)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
     data = _BundleData(KC1, KC2, u1, u2, sw)
     pose = EssentialManifold5(R0, t0)::_BundlePose
@@ -102,8 +84,8 @@ end
     # stops. Measured 2026-10-27 (Julia 1.13): rotation entries within 2.8e-11,
     # translation within 4.6e-11, cost 6.4e-15 relative (14 and 12 iterations).
     rng = StableRNG(11); N = 25
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
     run(; kw...) = _refine_relative_pose(R0, t0, KC1, KC2, iK1, iK2, u1, u2, sw; max_iter = 500, ftol = 1.0e-15, kw...)
@@ -131,34 +113,6 @@ mutable struct _WallData{T1, T2, TS}
     u1::T1
     u2::T2
     sqrtw::TS
-end
-
-# The A/B harness's scene (2026-10-27, nlls-schur): pixel cameras at ~800 px focal,
-# σ = 0.5 px, N points in a 8 × 6 × (6…12) box, the seed 1° (rotation) and 2°
-# (translation direction) off; the seed structure is the bundle's own ray
-# triangulation.
-const KP1 = SMatrix{3, 3, Float64, 9}(800.0, 0, 0, 0, 800.0, 0, 640, 360, 1)
-const KP2 = SMatrix{3, 3, Float64, 9}(820.0, 0, 0, 0, 815.0, 0, 630, 370, 1)
-function _harness_scene(N; seed = 1, σ = 0.5)
-    rng = StableRNG(seed)
-    Rgt = SMatrix{3, 3, Float64, 9}(RotMatrix(AngleAxis(deg2rad(8.0), normalize(SVector(0.1, 1.0, 0.05))...)))
-    tgt = normalize(SVector(-1.0, 0.05, 0.1))
-    u1 = SVector{2, Float64}[]; u2 = SVector{2, Float64}[]
-    while length(u1) < N
-        X = SVector(8 * (rand(rng) - 0.5), 6 * (rand(rng) - 0.5), 6 + 6 * rand(rng))
-        Y = Rgt * X + tgt
-        Y[3] <= 0.5 && continue
-        w1 = KP1 * X; w2 = KP2 * Y
-        p1 = SVector(w1[1], w1[2]) / w1[3]; p2 = SVector(w2[1], w2[2]) / w2[3]
-        (0 <= p1[1] <= 1280 && 0 <= p1[2] <= 720 && 0 <= p2[1] <= 1280 && 0 <= p2[2] <= 720) || continue
-        push!(u1, p1 + σ * SVector(randn(rng), randn(rng)))
-        push!(u2, p2 + σ * SVector(randn(rng), randn(rng)))
-    end
-    a = normalize(SVector(randn(rng), randn(rng), randn(rng)))
-    R0 = SMatrix{3, 3, Float64, 9}(RotMatrix(AngleAxis(deg2rad(1.0), a...))) * Rgt
-    p = normalize(cross(tgt, SVector(randn(rng), randn(rng), randn(rng))))
-    t0 = normalize(SVector{3, Float64}(RotMatrix(AngleAxis(deg2rad(2.0), p...)) * tgt))
-    return R0, t0, u1, u2
 end
 
 # NLLSsolver's per-iteration callback, recording ‖f‖² after every iteration:
@@ -224,7 +178,7 @@ end
     dirdeg(a, b) = rad2deg(atan(norm(cross(a, b)), dot(a, b)))
     iterations_to_stop = Dict{Int, Tuple{Int, Int}}()
     for N in (100, 1000, 10000)
-        R0, t0, u1, u2 = _harness_scene(N)
+        R0, t0, u1, u2 = harness_scene(N)
         b = BASELINE[N]
         seed = rigid(R0, t0)
         res = refine_relative_pose(seed, KP1, KP2, correspondences(u1, u2))
@@ -270,7 +224,7 @@ end
     # kept as the ceiling.
     ALLOCS_BOUND = 28
     counts = map((100, 1000, 10000)) do N
-        R0, t0, u1, u2 = _harness_scene(N)
+        R0, t0, u1, u2 = harness_scene(N)
         cs = correspondences(u1, u2); seed = rigid(R0, t0)
         refine_relative_pose(seed, KP1, KP2, cs)
         Base.@allocations refine_relative_pose(seed, KP1, KP2, cs)
@@ -299,7 +253,7 @@ end
     # its data — the caller's arrays are not referenced after the call.
     fetch(@async begin                          # a fresh task: empty task-local storage
         for N in (100, 120, 100, 150)
-            R0, t0, u1, u2 = _harness_scene(N)
+            R0, t0, u1, u2 = harness_scene(N)
             cs = correspondences(u1, u2)
             @test refine_relative_pose(rigid(R0, t0), KP1, KP2, cs) !== nothing
             runs = _kept_bundle_runs()
@@ -315,8 +269,8 @@ end
     # cost_` check is false for NaN; the block's cost reads a non-finite value
     # as +Inf, so the fit stops at the wall with a finite cost on every path.
     rng = StableRNG(11); N = 25
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     t0 = normalize(SVector{3, Float64}(t0))
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = ones(N)
@@ -355,8 +309,8 @@ end
 
 @testset "RelposeBundle: noiseless recovery is exact" begin
     rng = StableRNG(3); N = 30
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.0)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.0)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
     res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2); max_iter = 200)
     @test res !== nothing
     R, t = rotation(res), translation(res); Rerr, terr = _pose_errs(R, t, Rgt, tgt)
@@ -366,8 +320,8 @@ end
 
 @testset "RelposeBundle: noisy refinement beats the seed" begin
     rng = StableRNG(4); N = 60
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.05, -0.04, 0.06), s = 0.12)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.05, -0.04, 0.06), s = 0.12)
     seedR, seedt = _pose_errs(R0, t0, Rgt, tgt)
     res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2))
     R, t = rotation(res), translation(res)
@@ -378,8 +332,8 @@ end
 
 @testset "RelposeBundle: optimal triangulation ≤ DLT reprojection" begin
     rng = StableRNG(5); N = 40
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.04, -0.03, 0.05), s = 0.1)
     res = refine_relative_pose(rigid(R0, t0), KC1, KC2, correspondences(u1, u2))
     R, t = SMatrix{3, 3, Float64, 9}(rotation(res)), Vec3{Float64}(translation(res))
     # The inverses are hoisted here exactly as production hoists them:
@@ -407,11 +361,11 @@ end
     @test X[3] > 0                                   # far along the first ray, in front
 
     rng = StableRNG(6); N = 30
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
     # A point at infinity: parallel rays in the two views (up to rounding).
     d = normalize(SVector(0.1, -0.05, 1.0))
     push!(u1, SVector{2, Float64}(project(CAM1, d))); push!(u2, SVector{2, Float64}(project(CAM2, Rgt * d)))
-    R0, t0 = _seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
+    R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     for w_far in (0.0, 1.0)
         w = vcat(ones(N), w_far)
         res = refine_relative_pose(rigid(R0, t0), KC1, KC2, Correspondences(u1, u2; weights = w))
@@ -427,7 +381,7 @@ end
 
 @testset "RelposeBundle: caller input validation (RB2, RB3, RB4)" begin
     rng = StableRNG(7); N = 20
-    Rgt, tgt, u1, u2 = _scene(rng, N; σ = 0.002)
+    Rgt, tgt, u1, u2 = relpose_scene(rng, N; σ = 0.002)
     t0 = Vec3{Float64}(tgt)
     # RB2: a slightly drifted (non-orthonormal) seed, built with check = false,
     # was re-checked inside the triangulation and threw before the solver's

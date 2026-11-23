@@ -66,9 +66,10 @@ using Adapt: Adapt, adapt   # device upload of the controls and rays; the spline
 # Import from parent module (VisualGeometryToolkitCore-specific types only)
 import KernelAbstractions as KA   # the spline models' batched kernels
 using ..VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # LensSpec refuses `free` (base/utils.jl)
+using ..VisualGeometryToolkitCore: @fieldwise, checked_float   # field-wise ==, isequal, hash; a held number checked once (base/utils.jl)
 using ..VisualGeometryToolkitCore: _pixel_extent   # a size in pixels, plain or `px` (homography_solvers.jl)
-using ..VisualGeometryToolkitCore: _pushforward, _pullback   # the constant-Jacobian transport laws (propagate_framed.jl)
-using ..VisualGeometryToolkitCore: PointFrame, FeatureFrame, _as_point_frame   # an uncertain point frame through a framed affine (the FeatureFrame interface)
+using ..VisualGeometryToolkitCore: _pushforward, _pullback, _value_point, _with_value_point   # the constant-Jacobian transport laws and the value an uncertain observation moves (propagate_framed.jl)
+using ..VisualGeometryToolkitCore: FeatureFrame   # `transfer` refuses a BoundedCamera (below)
 using ..VisualGeometryToolkitCore: Point2, Point3, Vec2, Vec3
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (transforms/conversions.jl)
 using ..VisualGeometryToolkitCore: _rect_edge_samples   # the one per-edge rect walk (primitives/rectangles.jl)
@@ -123,7 +124,7 @@ using ..VisualGeometryToolkitCore: pointwise!, OnBackend   # a lens over a batch
 using ..VisualGeometryToolkitCore: default_device, on_device   # the family's one backend resolver and upload: the warps' and batched kernels' `device` (base/device.jl)
 import ..VisualGeometryToolkitCore: aspect_ratio  # Extend interface stub (shared with Primitives)
 import ..VisualGeometryToolkitCore: surface, intersection, intersection_at, chart, normal, surface_point, bounds   # a posed target's primitive (target_surfaces.jl); the MappedSurface protocol (mapped_surface.jl)
-using ..VisualGeometryToolkitCore: static_lm, StaticLmStops, _LM_AREA_UNITS, _STATIC_LM_MAX_ITER   # the one device LM and its stop settings (robust/lm_core.jl)
+using ..VisualGeometryToolkitCore: _static_lm, _unbounded_bounds, StaticLmStops, _LM_AREA_UNITS, _STATIC_LM_MAX_ITER   # the one device LM and its stop settings (robust/lm_core.jl)
 using ..VisualGeometryToolkitCore: _fma_dot, _fma_mul, _fma_tmul   # explicit fused products (base/fused_products.jl): the spline LM and the MappedSurface root
 using ..VisualGeometryToolkitCore: _plane_hit, _plane_coordinates, _masked, primal_value, primal_float, _with_value, _lift_dual, _outer_value, _map_numbers, _frame_quad   # MappedSurface's root (mapped_surface.jl)
 using ..VisualGeometryToolkitCore: Quad, Rect2, rotation, _in_rect   # _in_rect: the surface containment test, the board check's too
@@ -182,16 +183,16 @@ import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
 using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
 using ..VisualGeometryToolkitCore: rescale_radial_coeff   # the one radial-coefficient scaling law (radial_models.jl; _rescale_lens)
-using ..VisualGeometryToolkitCore: check_weights, weight_of, value_of   # a homography's weight and value (zhang_intrinsics)
+using ..VisualGeometryToolkitCore: check_weights, weight_of, value_of   # a homography's weight and value (Zhang)
 import ..VisualGeometryToolkitCore: propagate   # extended for FramedAffine (imaging_chain.jl)
 using ..VisualGeometryToolkitCore: CovMat, PrecMat, Uncertain, _junction_ok, _check_junction   # the checked statistical forms and the one frame-junction rule (base/frames.jl)
 import ..VisualGeometryToolkitCore: constraint_with_jacobians   # extended for the radial camera and the division lift (calibration.jl), the full camera (camera_models.jl)
 import ..VisualGeometryToolkitCore: observation_gradient_jacobian   # extended for the radial camera (calibration.jl): its Sampson row
 import ..VisualGeometryToolkitCore: transfer_ellipse          # extended for the lens camera (ellipse-preserving image of a plane conic)
 import ..VisualGeometryToolkitCore: PerspectiveMap  # From CoordinateTransformations (imported to extend)
-import ..VisualGeometryToolkitCore: p3p  # P3P solver from solvers.jl (imported to extend with correspondence wrapper)
-import ..VisualGeometryToolkitCore: solve, sample_size, max_solutions   # the minimal-solver protocol, extended by RadialCamera5pt (calibration.jl)
-using ..VisualGeometryToolkitCore: MinimalSolver, FixedModels
+using ..VisualGeometryToolkitCore: p3p, NativeSolver   # the P3P kernel (solvers.jl), which the camera form of a P3P sample calls
+import ..VisualGeometryToolkitCore: __solve, default_algorithm, estimator_kind, sample_size, max_solutions   # the estimation interface, extended by RadialCamera5pt, Zhang (calibration.jl) and the camera form of P3P (utilities.jl)
+using ..VisualGeometryToolkitCore: MinimalSolver, MinimalProblem, EstimationProblem, FixedModels, AbstractEstimationAlgorithm, ClosedFormKind, closed_form_result, P3P, _MinimalNoContext, _solve_context
 
 
 # Include sensor specifications
@@ -947,8 +948,8 @@ take.  Method form so wrappers (e.g. `BoundedCamera`) can delegate via
 `model(::PosedTarget)` is its target.
 """
 model(c::PosedCamera) = c.model
-# an unposed camera (a model, the inside of a BoundedCamera of one) is its own model
-model(c::AbstractCamera) = is_posed(c) ? throw(MethodError(model, (c,))) : c
+# an unposed camera (a model, the inside of a BoundedCamera of one) is its own model: `model(::AbstractTarget)`'s
+# method, targets.jl
 
 """
     intrinsics(camera::PosedCamera)
@@ -1128,7 +1129,7 @@ include("random.jl")
 
 # Include planar homography (depends on PosedCamera)
 include("homography.jl")   # camera-derived HomographyMat (moved out of geometry/ 0.29)
-include("calibration.jl")  # zhang_intrinsics — Zhang IAC regression from plane homographies
+include("calibration.jl")  # Zhang — the IAC regression from plane homographies (a closed form); RadialCamera5pt
 include("oriented_camera.jl")  # what an OrientedCamera refuses (plane verbs, rig membership), its convert_eltype (after calibration.jl: RadialCamera)
 
 # =============================================================================
@@ -1153,7 +1154,7 @@ export LogicalIntrinsics               # Pixel-based (fx, fy, cx, cy)
 export ProjectiveIntrinsics            # the principal point alone: a projective ray frame, no focal length
 export principal_point                 # a projective camera's principal point
 export CameraCalibrationMat                        # 3x3 pixel-space calibration matrix
-export zhang_intrinsics                # Zhang IAC regression from plane homographies
+export Zhang                           # the closed form of a LogicalIntrinsics from plane homographies (the IAC regression)
 
 # -----------------------------------------------------------------------------
 # 3. LENS MODELS - Projection + distortion
@@ -1165,6 +1166,7 @@ export parameter_box                      # its solver search box (public, not e
 export coordinate_scale                   # its coordinate scales (public, not exported, at the top level)
 export Pinhole                         # Ideal perspective (no distortion)
 export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens kinds and the named models
+export opencv_lens   # OpenCV's distortion vector as its lens (public, not exported, at the top level)
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified   # the parametric projections
@@ -1366,7 +1368,7 @@ MacroTools.@forward BoundedCamera.camera (
     unproject, is_in_front, backproject_with_jacobian, constraint_with_jacobians,
     imaging_transform, imaging_chain, distortion_map, has_distortion, fov_radius, horizon_radius,
     valid_rect, undistorted_rect, division_bounded, undistort,
-    p3p, transfer, radial_homography,
+    transfer, radial_homography,
 )
 # `transfer(m, f::FeatureFrame)` (ct_contravariant.jl) meets the forwarded `transfer(bc, args...)` at a BoundedCamera
 # and a frame. A camera images 3-D points, so it is no map of the plane: refused, naming the maps that are.

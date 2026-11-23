@@ -723,8 +723,7 @@ calibration with lengths, is an `ArgumentError` (attach the unit, `p .* m`). A
 `PlanarTarget` of a referenced design is written by its reference alone.
 Building blocks for a package serializing its own kind.
 """
-target_json(t::PointTarget, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), t)
-target_json(t::PlanarTarget, unit::_LeafUnit = mm) = JSON.lower(VgioStyle(; length_unit = unit), t)
+target_json(t::Union{PointTarget, PlanarTarget}, unit::_LeafUnit = mm) = _record_in(unit, t)
 
 # A target on IO's style (style.jl): its body, lengths in the style's length form.
 JSON.lower(s::VgioStyle, t::PointTarget) = merge((type = _POINT_TARGET_TAG,), _points_json("a point_target", points(t), s.length_unit))

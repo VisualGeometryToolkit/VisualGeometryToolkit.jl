@@ -74,8 +74,10 @@ function retract_jacobian(ch::EllipseManifold{T}, v::AbstractVector = zero(SVect
     )
 end
 
-function action_jacobian(ch::EllipseManifold, x::AbstractVector)
-    _, _, G_θ = constraint_with_jacobians(ch.ellipse, SVector(x[1], x[2]))
+# A conic chart's action Jacobian at a point x: the point-on-conic constraint's model gradient through the retraction
+# (a circle's chart and an ellipse's alike).
+function action_jacobian(ch::Union{CircleManifold, EllipseManifold}, x::AbstractVector)
+    _, _, G_θ = constraint_with_jacobians(model(ch), SVector(x[1], x[2]))
     return transpose(G_θ) * retract_jacobian(ch)
 end
 

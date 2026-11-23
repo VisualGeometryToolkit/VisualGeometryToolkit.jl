@@ -12,6 +12,7 @@ const OldCentral = getfield(VisualGeometryToolkitCore, Symbol("CentralGenericMod
 const OldNoncentral = getfield(VisualGeometryToolkitCore, Symbol("NoncentralGenericModel"))
 using VisualGeometryToolkitIO: load
 
+include(joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "bracketed.jl"))   # bracketed
 include(joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "golden_literals.jl"))   # lit, col
 
 # The fixture's own lattice: 17 × 17 over its calibrated area (x fastest), then 8 pixels beyond it.

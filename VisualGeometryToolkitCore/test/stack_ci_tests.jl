@@ -176,7 +176,7 @@ end
     # the workspace: no tracked Manifest, a generated codecov.yml
     root = make_workspace(; settings = rows)
     write(joinpath(root, "Manifest.toml"), "")
-    run(`git -C $root add Manifest.toml`)
+    run(`git -C $root add -f Manifest.toml`)   # tracked whatever ignore rules the developer's global git config holds (a Manifest is usually ignored)
     @test any(==("ERROR  <root>: tracked Manifests: Manifest.toml"), errors_of(root))
     root = make_workspace(; settings = rows)
     config = codecov_config(workspace_packages(root))

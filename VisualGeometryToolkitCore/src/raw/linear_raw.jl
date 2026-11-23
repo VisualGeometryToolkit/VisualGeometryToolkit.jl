@@ -108,7 +108,7 @@ refused (`ArgumentError`).
 **Reduce it in Float64**: `sum(Float64, A)`, `mean(Float64, A)`. A Float16
 accumulation overflows past 65504 (a million green cells near the white level
 sum to ≈ 8e5) and drops low bits long before. Core's estimators
-([`master_dark`](@ref), [`photon_transfer`](@ref), [`defect_onsets`](@ref))
+([`MasterDark`](@ref), [`PhotonTransfer`](@ref), [`defect_onsets`](@ref))
 read the mosaics' `UInt16` codes and accumulate in Float64, so the element type
 never reaches them.
 

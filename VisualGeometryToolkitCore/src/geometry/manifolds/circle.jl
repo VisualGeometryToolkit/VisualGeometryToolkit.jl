@@ -38,10 +38,7 @@ function retract_jacobian(ch::CircleManifold{T}, v::StaticVector = zero(SVector{
     return SMatrix{3, 3}(o, z, z, z, o, z, z, z, s)
 end
 
-function action_jacobian(ch::CircleManifold, x::AbstractVector)
-    _, _, G_θ = constraint_with_jacobians(ch.circle, SVector(x[1], x[2]))
-    return transpose(G_θ) * retract_jacobian(ch)
-end
+# (action_jacobian: the conic charts' one method, manifolds/ellipse.jl)
 
 function local_coordinates(ch::CircleManifold, c::Circle)
     o₀ = GeometryBasics.origin(ch.circle); o = GeometryBasics.origin(c)

@@ -551,7 +551,8 @@ function ThinPlateSpline(nodes::AbstractVector)
     ns, physical = _node_points(nodes)
     K = length(ns)
     system = ThinPlateSplineSystem(ns)
-    return _thin_plate_spline(system, bending_factor(system), zero(SVector{K, Float64}), zero(SVector{K, Float64}), physical)
+    still = zero(SVector{K, Float64})   # no displacement in x or y
+    return _thin_plate_spline(system, bending_factor(system), still, still, physical)
 end
 _apply(c::ThinPlateSpline, q) =
     q + SVector(tps_evaluate(c.system.nodes, c.wx, c.ax, q), tps_evaluate(c.system.nodes, c.wy, c.ay, q))

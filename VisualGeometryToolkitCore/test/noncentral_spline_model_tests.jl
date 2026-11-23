@@ -1,4 +1,5 @@
 @testitem "NoncentralSplineModel: the non-central grid on ChartSpline" setup = [SplineAxis] begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "geometry_helpers.jl"))   # `column3`, `similarity_matrix`, `planar_placement`
     using VisualGeometryToolkitCore: thrown_message
     using Test
     using StaticArrays
@@ -31,7 +32,6 @@
     pts = ChartSpline(b.area, map(d -> 0.01 * d, b.controls))
     nc = NoncentralSplineModel(cam.intrinsics, b, pts)
     pixels = [SVector(G.pixels[1, i], G.pixels[2, i]) for i in axes(G.pixels, 2)]
-    col3(A, i) = SVector(A[1, i], A[2, i], A[3, i])
 
     @testset "backproject: the golden lines, NaN where they are" begin
         worst_o, worst_d, same_nan = 0.0, 0.0, true
@@ -39,7 +39,7 @@
             far_edge_probe(G, i) && continue   # the old grid's half-open box: the far-edge item checks these
             r = backproject(nc, u)
             @test r isa Ray3{Float64}
-            o, d = col3(G.noncentral.origins, i), col3(G.central.backproject, i)
+            o, d = column3(G.noncentral.origins, i), column3(G.central.backproject, i)
             if any(isnan, o)
                 same_nan &= all(isnan, r.origin) && all(isnan, r.direction)
             else
@@ -63,7 +63,7 @@
                 same_nan &= all(isnan, f) && all(isnan, M)
             else
                 same_nan &= all(isfinite, M)
-                worst = max(worst, maximum(abs.(M - Mg)), norm(f - col3(G.central.backproject, i)))
+                worst = max(worst, maximum(abs.(M - Mg)), norm(f - column3(G.central.backproject, i)))
                 tangent = max(tangent, maximum(abs.(f' * M)))
             end
         end
@@ -75,7 +75,7 @@
     @testset "project: the tangent-plane LM, the golden pixels" begin
         worst, same_nan = 0.0, true
         for i in 1:(G.n_lattice)
-            X = col3(G.noncentral.origins, i) + 1500.0 * col3(G.central.backproject, i)
+            X = column3(G.noncentral.origins, i) + 1500.0 * column3(G.central.backproject, i)
             p = project(nc, X)
             ref = SVector(G.noncentral.project_X[1, i], G.noncentral.project_X[2, i])
             if any(isnan, ref)
@@ -121,7 +121,7 @@
         worst, same_nan = 0.0, true
         for (i, u) in enumerate(pixels)
             far_edge_probe(G, i) && continue
-            d, ref = backproject(c, u), col3(G.central.backproject, i)
+            d, ref = backproject(c, u), column3(G.central.backproject, i)
             if any(isnan, ref)
                 same_nan &= all(isnan, d)
             else
@@ -159,13 +159,13 @@
         @test all(isnan, mk.points.controls[1, 1]) && all(isnan, mk.directions.controls[1, 1])
         fin = 0
         for (i, u) in enumerate(pixels)
-            r, ref = backproject(mk, u), col3(G.masked.backproject, i)
+            r, ref = backproject(mk, u), column3(G.masked.backproject, i)
             if any(isnan, ref)
                 @test all(isnan, r.origin) && all(isnan, r.direction)
             else
                 fin += 1
                 @test norm(SVector{3}(r.direction) - ref) <= 1.0e-12
-                @test norm(SVector{3}(r.origin) - col3(G.noncentral.origins, i)) <= 1.0e-12
+                @test norm(SVector{3}(r.origin) - column3(G.noncentral.origins, i)) <= 1.0e-12
             end
         end
         @test fin >= 100

@@ -48,15 +48,15 @@ compiled PoseLib backend when `PoseLib` is loaded.
 function essential_5pt end
 
 """
-    essential_dlt(cs) -> EssentialMat{Float64} or nothing
-    essential_dlt(backend, cs)
+    essential_8pt(backend, cs) -> EssentialMat{Float64} or nothing
 
-8-point linear DLT for the essential matrix from N >= 8 correspondences
+The 8-point linear DLT kernel for the essential matrix from N >= 8 correspondences
 `cs` (`x1 => x2` bearing pairs, `StaticVector{3}` each side; any
 [`sources`](@ref)/[`targets`](@ref) container, a [`Correspondences`](@ref)
-preferred), the same correspondence currency as [`homography_dlt`](@ref)
-and [`fundamental_dlt`](@ref). Only the PoseLib backend exists; load
-`using PoseLib` to make this callable (`essential_dlt(PoseLibSolver(), cs)`,
-and the bare form routes to it).
+preferred), the same correspondence currency as the other [`DLT`](@ref)s: what
+`solve(EstimationProblem(EssentialMat, cs), DLT(backend))` runs. A minimal-solver
+backend contract generic: only the PoseLib backend exists (`using PoseLib`,
+`DLT(PoseLibSolver())`).
 """
-function essential_dlt end
+essential_8pt(backend::AbstractSolverBackend, cs) = throw(ArgumentError(
+    "the $(nameof(typeof(backend))) backend has no 8-point essential matrix: use DLT(PoseLibSolver()) with `using PoseLib`"))

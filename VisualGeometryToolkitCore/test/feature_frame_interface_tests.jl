@@ -129,6 +129,7 @@
 end
 
 @testitem "feature frames: PointFrame at no overhead (allocations, inference)" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: center, transfer
@@ -144,15 +145,14 @@ end
     k(d) = center(d)
     p = getfield(u, :value)               # the frame (not `u.value`: Attributed's property forwarding is not the verb measured)
     # measured inside a function of concrete arguments (a warm-up call first), so only the verb's own allocation counts
-    allocs(fn, args...) = (fn(args...); @allocated fn(args...))
     hp = PerspectiveMap() ∘ h               # the homography's point action
     for m in (S, h)
-        @test allocs(f, m, u) == 0
+        @test warm_allocated(f, m, u) == 0
     end
     for m in (S, hp)
-        @test allocs(g, m, p) == 0
+        @test warm_allocated(g, m, p) == 0
     end
-    @test allocs(k, d) == 0
+    @test warm_allocated(k, d) == 0
     # typed code with no Union, no boxing: concrete, inferred returns
     for (fn, args) in ((f, (S, u)), (f, (h, u)), (g, (S, p)), (g, (hp, p)), (k, (d,)))
         ci, rt = only(code_typed(fn, typeof.(args)))

@@ -56,9 +56,8 @@ end
 
 Base.:(==)(a::SpacedGrid, b::SpacedGrid) =
     a.lo === b.lo && a.hi === b.hi && a.spacing == b.spacing && a.n_lo == b.n_lo && a.n_hi == b.n_hi
-Base.:(==)(a::ListedGrid, b::ListedGrid) = a.values == b.values
 Base.hash(g::SpacedGrid, h::UInt) = hash((:SpacedGrid, g.lo, g.hi, g.spacing, g.n_lo, g.n_hi), h)
-Base.hash(g::ListedGrid, h::UInt) = hash((:ListedGrid, g.values), h)
+@fieldwise ListedGrid
 
 # One range over the extended window: the base step continued `n_lo` steps
 # below `lo` and `n_hi` above `hi` (a log spacing's step is a ratio).

@@ -724,17 +724,17 @@ Two cameras, not one, because they are genuinely independent — and because a
 single-camera convenience form would make the swap undetectable in exactly the
 tests that ought to catch it.
 """
-function EssentialProblem(camera1, camera2, pixel_cs; kw...)
-    u₁ = sources(pixel_cs); u₂ = targets(pixel_cs)
-    fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, u), u₁)
-    fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, u), u₂)
-    # The caller's attribute columns travel with the correspondences they index
-    # — above all `:score`, the PROSAC prior: dropping it silently turned a
-    # scored E into uniform sampling while H and F honoured the same column.
-    cols = merge(VgtkCore.attrs_of(pixel_cs), (M₁ = last.(fm₁), M₂ = last.(fm₂)))
-    return EssentialProblem(
-        VgtkCore.Correspondences(first.(fm₁), first.(fm₂), cols); kw...
-    )
+EssentialProblem(camera1, camera2, pixel_cs; kw...) = EssentialProblem(_bearing_correspondences(camera1, camera2, pixel_cs, identity, (;)); kw...)
+
+# Pixel correspondences as unit bearings through the two cameras' back-projection, their Jacobians the `M₁`/`M₂`
+# columns (an essential problem's, a rotation problem's): `point` reads the pixel off a detection, `extra` are further
+# columns. The caller's attribute columns travel with the correspondences they index — above all `:score`, the
+# PROSAC prior: dropping it silently turned a scored E into uniform sampling while H and F honoured the same column.
+function _bearing_correspondences(camera1, camera2, pixel_cs, point, extra::NamedTuple)
+    fm₁ = map(u -> VgtkCore.backproject_with_jacobian(camera1, point(u)), sources(pixel_cs))
+    fm₂ = map(u -> VgtkCore.backproject_with_jacobian(camera2, point(u)), targets(pixel_cs))
+    cols = merge(VgtkCore.attrs_of(pixel_cs), extra, (M₁ = last.(fm₁), M₂ = last.(fm₂)))
+    return VgtkCore.Correspondences(first.(fm₁), first.(fm₂), cols)
 end
 
 """
@@ -1000,10 +1000,12 @@ test_sample(p::MinimalSolveProblem{<:EssentialMat}, idx::AbstractVector{Int}) =
 @inline function constraint_with_jacobians(p::MinimalSolveProblem{<:EssentialMat}, model::EssentialMat, i::Int)
     @inbounds return VgtkCore.cd_pair(EssentialMat{Float64}(Tuple(model)), p.cs, i)
 end
-@inline function constraint_rounding_scale(p::MinimalSolveProblem{<:EssentialMat}, model::EssentialMat, i::Int)
-    @inbounds return VgtkCore.constraint_rounding_scale(EssentialMat{Float64}(Tuple(model)), sources(p.cs)[i], targets(p.cs)[i];
-        M₁ = p.cs.M₁[i], M₂ = p.cs.M₂[i])
-end
+@inline constraint_rounding_scale(p::MinimalSolveProblem{<:EssentialMat}, model::EssentialMat, i::Int) =
+    _on_bearing_pair(VgtkCore.constraint_rounding_scale, EssentialMat{Float64}(Tuple(model)), p.cs, i)
+
+# A VGC per-pair function `f(model, f₁, f₂; M₁, M₂)` of the `i`-th bearing pair of a set, with the pair's
+# back-projection Jacobians (the E problem's rounding scale, the rotation problem's transfer constraint).
+@inline _on_bearing_pair(f, model, cs, i::Int) = @inbounds f(model, sources(cs)[i], targets(cs)[i]; M₁ = cs.M₁[i], M₂ = cs.M₂[i])
 
 # H, F and E carry constraint rows, so predictive scoring admits them
 # (estimators/ransac/covariance.jl).

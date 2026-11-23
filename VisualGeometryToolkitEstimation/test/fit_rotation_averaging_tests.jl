@@ -12,25 +12,26 @@
     n = 8
     R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
     rel(i, j) = R[j]' * R[i]
-    err(e) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(e[k])' * R[k])), 1:n)
+    import VisualGeometryToolkitEstimation as VgtkEstimation
+    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_graphs.jl"))   # `max_rotation_error`
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     weighted(d, p) = Dict(e => Attributed(d[e], (; weight = p[e])) for e in keys(d))   # Attributed edges, weight p
     @testset "consistent edges: exact" begin
         res = fit_rotation_averaging(Dict(e => rel(e...) for e in edges); scale = 2.0e-3)
         @test converged(res)
-        @test err(estimate(res)) < 1.0e-10
+        @test max_rotation_error(estimate(res), R, n) < 1.0e-10
         @test estimate(res)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
     end
     @testset "noise and one outlier edge: down-weighted" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         res = fit_rotation_averaging(noisy; optimization_strategy = Irls{CauchyShape}(), scale = 2.0e-3)
-        @test err(estimate(res)) < 5.0e-3
+        @test max_rotation_error(estimate(res), R, n) < 5.0e-3
         @test res.weights[findfirst(==(bad), res.edges)] < 0.01
         @test res.residuals[bad] > 0.3
         # a zero edge weight drops the edge outright
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        @test err(estimate(fit_rotation_averaging(weighted(noisy, p); scale = 2.0e-3))) < 5.0e-3
+        @test max_rotation_error(estimate(fit_rotation_averaging(weighted(noisy, p); scale = 2.0e-3)), R, n) < 5.0e-3
     end
     @testset "zero weight: rms and n over the live edges, bridges and all-zero refused" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
@@ -62,7 +63,7 @@
         @test wq((7, 9)) == 0 && wq((8, 9)) == 0
         @test all(isfinite, estimate(res)[9])
         @test SMatrix{3, 3}(estimate(res)[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9
-        @test err(estimate(res)) < 1.0e-2                              # frames 1..8, at the noise level
+        @test max_rotation_error(estimate(res), R, n) < 1.0e-2                              # frames 1..8, at the noise level
         delete!(R, 9)
         # the unknowns: a leaf whose only edge weighs 0 is its own anchor, no columns
         col, nunk = _averaging_columns([1, 2, 3, 4], [(1, 2), (2, 3), (3, 4)], [1.0, 1.0, 0.0])

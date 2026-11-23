@@ -1,176 +1,109 @@
 # =============================================================================
-# FitResult — type-stable by construction (the 2026-09-02 hard requirement)
+# FitResult — the solution of every estimation problem (Core 0.14): read by field, no forwarding
 # =============================================================================
 
 @testitem "fit_result" begin
-    using VisualGeometryToolkitCore: FitResult, BundleMetadata,
-        estimate, retcode, converged, iterations, rms, metadata, weights, dof,
-        _reject_shadowing, _FITRESULT_CORE, _FITRESULT_PROPS
+    using VisualGeometryToolkitCore: FitResult, SolveStats, BundleMetadata, weights, dof, successful_retcode,
+        retcode_symbol, found_model, with_problem, ReturnCode, CostDecrease, IterationCap, NoRule
+    import VisualGeometryToolkitCore as VgtkCore
 
-    # An IRLS-style metadata (scale, ν, per-point weights), forwarded as properties.
+    # An IRLS-style metadata (a spread, ν, per-point weights): its own fields are read as `r.metadata.<field>`.
     struct _IrlsMeta
-        scale::Float64
+        spread::Float64
         ν::Float64
         weights::Vector{Float64}
     end
 
-    @testset "FitResult" begin
-        lean = FitResult(3.14, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 7, 0.21, 100, nothing)
-        @test @inferred(estimate(lean)) == 3.14
-        @test @inferred(retcode(lean)) === VisualGeometryToolkitCore.ReturnCode.Success
-        @test @inferred(converged(lean))
-        @test @inferred(iterations(lean)) == 7
-        @test @inferred(rms(lean)) == 0.21
-        @test metadata(lean) === nothing
+    @testset "the fields, by field" begin
+        lean = FitResult(3.14, ReturnCode.Success, CostDecrease, SolveStats(; nsteps = 7), 0.21, 100, nothing)
+        @test fieldnames(FitResult) ==
+              (:u, :resid, :retcode, :stats, :prob, :alg, :original, :stop_rule, :rms, :n, :metadata)
+        @test lean.u === 3.14 && lean.retcode === ReturnCode.Success && lean.stop_rule === CostDecrease
+        @test lean.stats === SolveStats(7, 0, 0, 0, 0) && lean.stats.nsteps == 7
+        @test lean.rms === 0.21 && lean.n === 100 && lean.metadata === nothing
+        # SciML's fields a solver does not set: nothing until the front end records them
+        @test lean.resid === nothing && lean.prob === nothing && lean.alg === nothing && lean.original === nothing
+        @test @inferred(successful_retcode(lean))
+        @test @inferred(retcode_symbol(lean)) === :converged
+        @test found_model(lean)
         # A lean result has no weights — an ERROR, never a silent `nothing`.
         @test_throws Exception weights(lean)
-        @test_throws Exception lean.weights
 
-        ir = FitResult([1.0, 2.0], VisualGeometryToolkitCore.ReturnCode.MaxIters, VisualGeometryToolkitCore.IterationCap, 50, 0.5, 3, _IrlsMeta(1.2, 8.0, [0.9, 1.0, 0.1]))
-        @test !converged(ir)
+        ir = FitResult([1.0, 2.0], ReturnCode.MaxIters, IterationCap, SolveStats(; nsteps = 50), 0.5, 3,
+                       _IrlsMeta(1.2, 8.0, [0.9, 1.0, 0.1]); resid = [0.1, 0.2, 3.0])
+        @test !successful_retcode(ir) && retcode_symbol(ir) === :max_iterations
         @test @inferred(weights(ir)) == [0.9, 1.0, 0.1]
-        @test ir.metadata.scale == 1.2 && ir.metadata.ν == 8.0
+        @test ir.metadata.spread == 1.2 && ir.metadata.ν == 8.0
+        @test ir.resid == [0.1, 0.2, 3.0]
 
         bu = FitResult(
-            :cal, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 12, 0.2, 500, BundleMetadata(
+            :cal, ReturnCode.Success, CostDecrease, SolveStats(; nsteps = 12), 0.2, 500, BundleMetadata(
                 [1.0], [0.4], [1, 3], 488, 1.1,
                 (rms = 0.31, median = 0.25, p90 = 0.62), (rms = 0.2, median = 0.18, p90 = 0.4);
-                scale = 0.7, scale_source = VisualGeometryToolkitCore.ScaleGiven
+                scale = 0.7, scale_source = VgtkCore.ScaleGiven
             )
         )
         # the bundle's scale record: read by noise_scale/scale_source, required (no default)
-        @test VisualGeometryToolkitCore.noise_scale(bu) === 0.7 && VisualGeometryToolkitCore.scale_source(bu) === VisualGeometryToolkitCore.ScaleGiven
-        @test_throws UndefKeywordError BundleMetadata([1.0], [0.4], [1], 1, NaN, bu.before, bu.after)
+        @test VgtkCore.noise_scale(bu) === 0.7 && VgtkCore.scale_source(bu) === VgtkCore.ScaleGiven
+        @test_throws UndefKeywordError BundleMetadata([1.0], [0.4], [1], 1, NaN, bu.metadata.before, bu.metadata.after)
         @test @inferred(dof(bu)) == 488
         @test bu.metadata.after.median == 0.18 && bu.metadata.before.p90 == 0.62
-        @test rms(bu) == bu.metadata.after.rms == 0.2
+        @test bu.rms == bu.metadata.after.rms == 0.2
         # one residual per weight — one per observation
-        @test_throws ArgumentError BundleMetadata([1.0], [0.4, 0.5], [1], 1, NaN, bu.before, bu.after;
-                                                  scale = NaN, scale_source = VisualGeometryToolkitCore.ScaleNone)
+        @test_throws ArgumentError BundleMetadata([1.0], [0.4, 0.5], [1], 1, NaN, bu.metadata.before, bu.metadata.after;
+                                                  scale = NaN, scale_source = VgtkCore.ScaleNone)
         # concrete types all the way down — no Union fields anywhere
         @test isconcretetype(typeof(ir.metadata)) && isconcretetype(typeof(bu.metadata))
         @test isconcretetype(typeof(ir)) && isconcretetype(typeof(lean))
+        # type stability of a field read
+        _u(r) = r.u; _m(r) = r.metadata.ν
+        @test @inferred(_u(ir)) == [1.0, 2.0] && @inferred(_m(ir)) == 8.0
+    end
 
-        @testset "property forwarding into metadata" begin
-            # The core fields read as properties …
-            @test ir.estimate == [1.0, 2.0] && ir.retcode === VisualGeometryToolkitCore.ReturnCode.MaxIters && ir.stop_rule === VisualGeometryToolkitCore.IterationCap
-            @test ir.iterations == 50 && ir.rms == 0.5 && ir.n == 3
-            # … the derived `converged` is a property too — uniform with the rest,
-            # computed from retcode on access, never stored …
-            _c(r) = r.converged
-            @test @inferred(_c(lean)) === true && @inferred(_c(ir)) === false && _c(bu) === true
-            @test ir.converged === converged(ir)
-            # … and so do the metadata fields, through the same `@generated`
-            # path `Attributed` uses — type-stable, resolved at compile time.
-            # (`@inferred` needs a call, so property access goes through a closure)
-            _w(r) = r.weights; _s(r) = r.scale; _ν(r) = r.ν; _d(r) = r.dof
-            @test @inferred(_w(ir)) == [0.9, 1.0, 0.1]
-            @test @inferred(_s(ir)) == 1.2
-            @test @inferred(_ν(ir)) == 8.0
-            @test @inferred(_d(bu)) == 488
-            @test bu.after.rms == 0.2 && bu.fixed_frames == [1, 3]
-            @test bu.residuals == [0.4] && bu.loss_width == 1.1
-            # The forwarded property IS the accessor — one value, two spellings.
-            @test ir.weights === weights(ir)
-            @test bu.dof === dof(bu)
-            # propertynames advertises core + metadata, in that order.
-            @test propertynames(lean) == (:estimate, :retcode, :stop_rule, :iterations, :rms, :n, :metadata, :converged)
-            @test propertynames(ir) == (
-                :estimate, :retcode, :stop_rule, :iterations, :rms, :n, :metadata, :converged,
-                :scale, :ν, :weights,
-            )
-            # An unknown name is an error on every variant — never `nothing`.
-            @test_throws Exception lean.no_such_field
-            @test_throws Exception ir.no_such_field
-            @test_throws Exception bu.inlier_mask
+    @testset "no property is forwarded into the metadata" begin
+        ir = FitResult([1.0], ReturnCode.Success, CostDecrease, SolveStats(), 0.5, 3, _IrlsMeta(1.2, 8.0, [1.0, 1.0, 1.0]))
+        @test propertynames(ir) == fieldnames(FitResult)
+        # a metadata field is not a property of the result: one way per quantity
+        @test_throws Exception ir.weights
+        @test_throws Exception ir.spread
+        @test_throws Exception ir.ν
+        # nor are the retired spellings
+        @test_throws Exception ir.estimate
+        @test_throws Exception ir.iterations
+        @test_throws Exception ir.converged
+        # a metadata field named like a result field is no clash: it is read through `r.metadata`
+        struct _NamedLikeCore
+            n::Int
         end
-
-        @testset "metadata may not shadow a core field" begin
-            # A metadata type whose field would collide with the core is refused
-            # when the result is BUILT — silently resolving `r.n` to one of two
-            # different things is exactly the ambiguity this type exists to kill.
-            struct _ShadowingMeta
-                n::Int
-                extra::Float64
-            end
-            @test_throws ErrorException FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 10, _ShadowingMeta(99, 2.0))
-            # the derived property's name is reserved just like a stored core field
-            struct _ShadowsConverged
-                converged::Bool
-            end
-            @test_throws ErrorException FitResult(1.0, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 10, _ShadowsConverged(true))
-            # and the check is a compile-time no-op for a valid metadata type
-            @test _reject_shadowing(_IrlsMeta) === nothing
-            # the core list the forwarder derives from IS the struct's field order
-            @test fieldnames(FitResult) == _FITRESULT_CORE
-            @test _FITRESULT_PROPS == (_FITRESULT_CORE..., :converged)
-        end
+        r = FitResult(1.0, ReturnCode.Success, CostDecrease, SolveStats(), 0.0, 10, _NamedLikeCore(99))
+        @test r.n == 10 && r.metadata.n == 99
     end
-end
 
-@testitem "fit_result nested metadata" begin
-    using VisualGeometryToolkitCore
-    import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: FitResult, nested_metadata, _reject_shadowing
-
-    struct _NestInner
-        b::Float64
-        c::Vector{Int}
+    @testset "SolveStats: SciML's NLStats names, immutable and isbits" begin
+        st = SolveStats(; nsteps = 3, nf = 4, njacs = 5, nfactors = 6, nsolve = 7)
+        @test fieldnames(SolveStats) == (:nsteps, :nf, :njacs, :nfactors, :nsolve)
+        @test (st.nsteps, st.nf, st.njacs, st.nfactors, st.nsolve) == (3, 4, 5, 6, 7)
+        @test SolveStats() === SolveStats(0, 0, 0, 0, 0)
+        @test isbitstype(SolveStats) && !ismutabletype(SolveStats)
     end
-    struct _NestOuter
-        a::Int
-        inner::_NestInner
-    end
-    VgtkCore.nested_metadata(::Type{_NestOuter}) = (:inner,)
 
-    struct _NestClashInner
-        a::Int
+    @testset "with_problem: the problem and the algorithm recorded, every other field as it was" begin
+        r = FitResult(2.0, ReturnCode.Success, CostDecrease, SolveStats(; nsteps = 4), 0.3, 5, (; a = 1); resid = [0.1])
+        prob = VgtkCore.EstimationProblem(Float64, [1.0, 2.0])
+        alg = VgtkCore.ChordalMean()
+        w = with_problem(r, prob, alg)
+        @test w.prob === prob && w.alg === alg
+        @test w.u === r.u && w.resid === r.resid && w.retcode === r.retcode && w.stats === r.stats &&
+              w.original === r.original && w.stop_rule === r.stop_rule && w.rms === r.rms && w.n === r.n &&
+              w.metadata === r.metadata
+        @test w isa FitResult{Float64, @NamedTuple{a::Int}}
     end
-    struct _NestClashOuter   # nested field `a` equals an outer field
-        a::Int
-        inner::_NestClashInner
+
+    @testset "an isbits result: a device solve returns it" begin
+        r = FitResult(1.0f0, ReturnCode.Success, CostDecrease, SolveStats(; nsteps = 2), 0.0, 2, (; J = 1.0f0))
+        @test isbits(r)
+        @test isbits(with_problem(r, VgtkCore.RefineProblem(abs, 1.0f0), VgtkCore.StaticLevenbergMarquardt()))
     end
-    VgtkCore.nested_metadata(::Type{_NestClashOuter}) = (:inner,)
-
-    struct _NestCoreInner
-        rms::Float64
-    end
-    struct _NestClashCore    # nested field `rms` equals a core field
-        inner::_NestCoreInner
-    end
-    VgtkCore.nested_metadata(::Type{_NestClashCore}) = (:inner,)
-
-    struct _NestTwo          # two nested fields declare `b`
-        p::_NestInner
-        q::_NestInner
-    end
-    VgtkCore.nested_metadata(::Type{_NestTwo}) = (:p, :q)
-
-    struct _NestNotField
-        a::Int
-    end
-    VgtkCore.nested_metadata(::Type{_NestNotField}) = (:nope,)
-
-    @test nested_metadata(Nothing) === ()
-    @test nested_metadata(_NestInner) === ()
-
-    m = _NestOuter(7, _NestInner(2.5, [1, 2]))
-    r = FitResult(:est, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 3, 0.1, 9, m)
-    @test r.b == 2.5 && r.c == [1, 2] && r.a == 7
-    @test r.inner === m.inner
-    @test r.estimate === :est && r.converged
-    @test :b in propertynames(r) && :c in propertynames(r) && :inner in propertynames(r)
-    _b(x) = x.b; _c(x) = x.c; _a(x) = x.a
-    @test @inferred(_b(r)) == 2.5
-    @test @inferred(_c(r)) == [1, 2]
-    @test @inferred(_a(r)) == 7
-    @test_throws Exception r.nothing_here
-
-    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestClashOuter(1, _NestClashInner(2)))
-    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestClashCore(_NestCoreInner(2.0)))
-    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestTwo(_NestInner(1.0, [1]), _NestInner(2.0, [2])))
-    @test_throws ErrorException FitResult(:e, VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease, 1, 0.0, 1, _NestNotField(1))
-    @test _reject_shadowing(_NestOuter) === nothing
 end
 
 # The one RMS computation (base/fit_result.jl): over n points, a point's stacked rows its squared norm.
@@ -183,17 +116,26 @@ end
     @test rms(rows, 2) === sqrt(sum(abs2, rows) / 2) && rms(rows, 2) ≈ sqrt((25 + 100) / 2)
 end
 
-# A RANSAC result's estimate is `Union{M, Nothing}`: `map_estimate` infers `f`'s image of `M` (not of the union, which
+# A RANSAC result's `u` is `Union{M, Nothing}`: `map_estimate` infers `f`'s image of `M` (not of the union, which
 # a generic `f` with no `nothing` method widens to `Any`), present or absent.
 @testitem "map_estimate: the union's present type mapped, inferred" begin
     using Test
-    using VisualGeometryToolkitCore: FitResult, map_estimate, estimate, ReturnCode, NoRule, CostDecrease
+    using VisualGeometryToolkitCore: FitResult, SolveStats, map_estimate, ReturnCode, NoRule, CostDecrease
     double(x::Float64) = 2x
     double(x) = Base.inferencebarrier(x)                   # a generic fallback, uninferable: what `nothing` would reach
-    present = FitResult{Union{Float64, Nothing}, Nothing}(1.5, ReturnCode.Success, CostDecrease, 3, 0.1, 10, nothing)
-    absent = FitResult{Union{Float64, Nothing}, Nothing}(nothing, ReturnCode.Failure, NoRule, 0, NaN, 10, nothing)
+    U = Union{Float64, Nothing}
+    present = FitResult{U, Nothing, Nothing, Nothing, Nothing, Nothing}(1.5, nothing, ReturnCode.Success, SolveStats(; nsteps = 3),
+        nothing, nothing, nothing, CostDecrease, 0.1, 10, nothing)
+    absent = FitResult{U, Nothing, Nothing, Nothing, Nothing, Nothing}(nothing, nothing, ReturnCode.Failure, SolveStats(),
+        nothing, nothing, nothing, NoRule, NaN, 10, nothing)
     @test map_estimate(double, present) isa FitResult{Union{Float64, Nothing}, Nothing}
-    @test estimate(map_estimate(double, present)) == 3.0
-    @test estimate(map_estimate(double, absent)) === nothing && map_estimate(double, absent) isa FitResult{Union{Float64, Nothing}}
+    @test map_estimate(double, present).u == 3.0
+    @test map_estimate(double, present).stats === present.stats
+    @test map_estimate(double, absent).u === nothing && map_estimate(double, absent) isa FitResult{Union{Float64, Nothing}}
     @test map_estimate(string, present) isa FitResult{Union{String, Nothing}, Nothing}
+    # a concrete `u` is mapped once and stays concrete
+    calls = Ref(0)
+    once(x) = (calls[] += 1; 2x)
+    c = map_estimate(once, FitResult(1.0, ReturnCode.Success, CostDecrease, SolveStats(), 0.0, 1, nothing))
+    @test c.u === 2.0 && calls[] == 1 && c isa FitResult{Float64, Nothing}
 end

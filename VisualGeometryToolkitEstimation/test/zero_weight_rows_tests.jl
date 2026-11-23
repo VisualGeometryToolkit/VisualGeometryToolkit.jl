@@ -61,7 +61,7 @@
     end
 end
 
-@testitem "zero-weight rows: PnP, bearing pose and refine_* (guards; not reachable as red)" begin
+@testitem "zero-weight rows: PnP, bearing pose and refine_* (guards; not reachable as red)" setup = [PixelPoseScenes] begin
     # These rows were finite already, so the rule changes nothing here: PnP's rows give an invalid point (a non-finite
     # e included) the finite out-of-field residual; BearingPoseProblem refuses non-finite data, and a point at the camera
     # centre or far away has a finite tangent residual (its caller `weights` column enters the row as √w·sw·e, 0 for a
@@ -76,7 +76,7 @@ end
     E₀ = EuclideanMap(RotMatrix(RotXYZ(0.33, -0.18, 0.12)), SVector(0.13, -0.08, 2.05))
     cam = CameraModel(; focal = 800.0, pp = (640.0, 480.0))
     Xs = [E.R' * (SVector(0.3sin(k), 0.3cos(2k), 2.0 + 0.5sin(3k)) - E.t) for k in 1:30]
-    perr(F) = max(maximum(abs, F.R - E.R), maximum(abs, F.t - E.t))
+    perr(F) = maximum(pose_errors(F, E))   # PixelPoseScenes' rotation and translation errors, the larger
     zero_last(n) = (w = ones(n); w[n] = 0.0; w)
     @testset "PnP: a NaN pixel at weight 0" begin
         cs = vcat([X => SVector{2, Float64}(project(cam, E.R * X + E.t)) for X in Xs], [Xs[1] => SVector(NaN, NaN)])

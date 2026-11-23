@@ -1,4 +1,4 @@
-# Tests for `fit_scale` — the inverse-gamma MAP squared scale — and the
+# Tests for `ScaleMAP` — the inverse-gamma MAP squared scale — and the
 # partition seed of the posterior-weight state built on it.
 #
 # ONE estimator, one method, per component: `(rss + 2β₀)/(dof + 2α₀)` with the
@@ -9,13 +9,13 @@
 # posterior mode found numerically from Distributions' inverse-gamma density);
 # the floors are pinned to their literal values.
 
-@testitem "fit_scale" setup = [ScaleOracles] begin
+@testitem "ScaleMAP" setup = [ScaleOracles] begin
     using Test
     using Statistics: median
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: IGPrior, JeffreysPrior, fit_scale, partition_student_t, partition_rss,
-        PosteriorWeightState, posterior_weights!, posterior_inlier_probs!, median_seeded_posterior,
-        soft_posterior_weights!, s_hat_sq, student_t_dof
+    using VisualGeometryToolkitCore: IGPrior, JeffreysPrior, ScaleMAP, SquaredScale, _partition_student_t, partition_rss,
+        PosteriorWeightState, _posterior_weights!, _posterior_inlier_probs!, median_seeded_posterior,
+        _soft_posterior_weights!, s_hat_sq, student_t_dof
     using Distributions: Chisq, quantile
 
     const _PRIORS = (IGPrior(0.0, 0.0),      # Jeffreys
@@ -24,23 +24,26 @@
                      IGPrior(0.0, 3.0),      # β₀ only — the low-count floor
                      IGPrior(4.0, 0.0))      # α₀ only
 
-    @testset "fit_scale" begin
+    # the estimator's solve: ŝ² of a residual sum `rss` over `dof` under `prior`
+    scale_map(prior, rss, dof) = solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior)).u
+
+    @testset "ScaleMAP" begin
         # The counted-dof form. `ν_data` subtracts the model dof and so cannot be
         # recovered from a weight vector — the form every partition seed uses.
-        @testset "3-arg counted-dof form is the inverse-gamma MAP" begin
+        @testset "the counted-dof form is the inverse-gamma MAP" begin
             RSS = 7.5
             for k in (4, 10, 50), model_dof in (4, 7), dg in (1, 2)
                 ν_data = Float64((k - model_dof) * dg)
                 for prior in _PRIORS
                     if ν_data + 2 * prior.alpha0 > 0            # a proper posterior
-                        @test fit_scale(prior, RSS, ν_data) ≈ map_scale_oracle(prior, RSS, ν_data) rtol = 1e-7
+                        @test scale_map(prior, RSS, ν_data) ≈ map_scale_oracle(prior, RSS, ν_data) rtol = 1e-7
                     else                                        # k ≤ model_dof: the floor
-                        @test fit_scale(prior, RSS, ν_data) >= eps()
+                        @test scale_map(prior, RSS, ν_data) >= eps()
                     end
                 end
             end
             # Integer sums are accepted and promote (the `Real` signature).
-            @test fit_scale(IGPrior(1.0, 1.0), 8, 4) === fit_scale(IGPrior(1.0, 1.0), 8.0, 4.0)
+            @test scale_map(IGPrior(1.0, 1.0), 8, 4) === scale_map(IGPrior(1.0, 1.0), 8.0, 4.0)
         end
 
         # Jeffreys (α₀ = β₀ = 0) is the reduction the docstring promises.
@@ -50,7 +53,7 @@
             @test jeffreys === JeffreysPrior()    # a function returning the value, not a type
             @test JeffreysPrior() isa IGPrior
             for (rss, dof) in ((7.5, 6.0), (0.3, 2.5), (1.0e3, 7.0))
-                @test fit_scale(jeffreys, rss, dof) === rss / dof   # no floor engaged here
+                @test scale_map(jeffreys, rss, dof) === rss / dof   # no floor engaged here
             end
         end
 
@@ -59,20 +62,20 @@
         @testset "eps() floor holds" begin
             jeffreys = IGPrior(0.0, 0.0)
             n = 3
-            z = fit_scale(jeffreys, 0.0, 0.0)
+            z = scale_map(jeffreys, 0.0, 0.0)
             @test z === eps()
             @test !isnan(z)
-            @test fit_scale(jeffreys, 0.0, Float64(n)) === eps()
-            @test fit_scale(jeffreys, 1.0e-300, 1.0) === eps()
+            @test scale_map(jeffreys, 0.0, Float64(n)) === eps()
+            @test scale_map(jeffreys, 1.0e-300, 1.0) === eps()
             # The floor engages on the QUOTIENT, so a huge dof floors too.
-            @test fit_scale(jeffreys, 1.0, 1.0e300) === eps()
+            @test scale_map(jeffreys, 1.0, 1.0e300) === eps()
             # With β₀ > 0 the prior itself lifts it off the floor.
             p = IGPrior(0.0, 3.0)
-            @test fit_scale(p, 0.0, 0.0) === 6.0 / eps()   # (0 + 2·3)/max(0, eps())
-            @test fit_scale(p, 0.0, 0.0) > eps()
+            @test scale_map(p, 0.0, 0.0) === 6.0 / eps()   # (0 + 2·3)/max(0, eps())
+            @test scale_map(p, 0.0, 0.0) > eps()
             for prior in _PRIORS
                 for (rss, dof) in ((0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0e-320, 1.0e300))
-                    s2 = fit_scale(prior, rss, dof)
+                    s2 = scale_map(prior, rss, dof)
                     @test isfinite(s2)
                     @test s2 >= eps()
                 end
@@ -81,8 +84,8 @@
     end
 
     # The partition seed: `PosteriorWeightState(sq, n, model_dof, k; order, prior, …)`
-    # is the partition's Student-t (`partition_student_t`) with the E-step run
-    # once — the same mixture `posterior_weights!`/`posterior_inlier_probs!`
+    # is the partition's Student-t (`_partition_student_t`) with the E-step run
+    # once — the same mixture `_posterior_weights!`/`_posterior_inlier_probs!`
     # weigh the partition with, and the mixture from its definition.
     @testset "the partition seed is the partition's Student-t" begin
         n = 12
@@ -100,20 +103,20 @@
                                        log_two_outlier_halfwidth, codimension = dg)
             rss = partition_rss(order, r, k)
             @test rss == sum(sq_r[order[j]] for j in 1:k)
-            ν, s2 = partition_student_t(prior, rss, k; model_dof, codimension = dg)
+            ν, s2 = _partition_student_t(prior, rss, k; model_dof, codimension = dg)
             @test student_t_dof(pws) === ν && s_hat_sq(pws) === s2
             @test ν == max((k - model_dof) * dg + 2 * prior.alpha0, 2)
             @test isfinite(s2) && s2 >= eps()
             @test pws.prior === prior
 
             w = zeros(n); p = zeros(n)
-            posterior_weights!(w, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg, prior)
-            posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg, prior)
+            _posterior_weights!(w, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg, prior)
+            _posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg, prior)
             @test p ≈ pws.inlier_posterior rtol = 1e-12
             @test w ≈ pws.w rtol = 1e-12
             # the scale prior is required (the owner's ruling (c), 2026-11-11): no Jeffreys default in code
-            @test_throws UndefKeywordError posterior_weights!(w, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
-            @test_throws UndefKeywordError posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
+            @test_throws UndefKeywordError _posterior_weights!(w, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
+            @test_throws UndefKeywordError _posterior_inlier_probs!(p, sq_r, order, k; model_dof, log_two_outlier_halfwidth, codimension = dg)
             # against the mixture from its definition, at the MAP scale
             ν_data = (k - model_dof) * dg
             s2_ref = map_scale_oracle(prior, rss, ν_data)
@@ -130,17 +133,17 @@
         end
     end
 
-    # `median_seeded_posterior` seeds at the stack's one median scale, `mad_scale`², on the
+    # `median_seeded_posterior` seeds at the stack's one median scale, `MedianNormScale`'s σ̂², on the
     # norms √sq (no private median(r²)/χ²-median copy); the state it builds must equal
     # that seed's, field for field.
-    @testset "median_seeded_posterior seeds at mad_scale²" begin
+    @testset "median_seeded_posterior seeds at MedianNormScale's σ̂²" begin
         function _rvg_copy(sq, n; outlier_halfwidth, codimension = 2, ν = 1.0e4, prior = IGPrior(0.0, 0.0))
             sq_r = Vector{Float64}(sq[1:n])
             σ = VisualGeometryToolkitCore._mad_scale_norms(; norms = sqrt.(sq_r), codimension)
             s2 = max(σ * σ, eps())
             w = Vector{Float64}(undef, n); ip = Vector{Float64}(undef, n)
             log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth))
-            soft_posterior_weights!(w, ip, sq_r, Float64(ν), s2, log_two_outlier_halfwidth, n, codimension)
+            _soft_posterior_weights!(w, ip, sq_r, Float64(ν), s2, log_two_outlier_halfwidth, n, codimension)
             PosteriorWeightState(w, ip, sq_r, Float64(ν), s2, log_two_outlier_halfwidth, codimension, prior)
         end
         sq = [0.01, 0.04, 0.02, 0.09, 0.03, 4.0, 9.0, 0.05, 16.0, 0.06, 99.0]
@@ -151,7 +154,7 @@
                 @test getfield(a, f) == getfield(b, f)
             end
             @test a.sq_distances !== sq                  # its own buffers
-            # an even count: the median of the norms, not of their squares (mad_scale's)
+            # an even count: the median of the norms, not of their squares (MedianNormScale's)
             n == 10 && @test a.s_hat_sq != median(sq[1:n]) / quantile(Chisq(dg), 0.5)
         end
         @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4, prior = IGPrior(), codimension = 3)

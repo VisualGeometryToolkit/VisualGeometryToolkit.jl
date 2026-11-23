@@ -1,9 +1,10 @@
-# The parametric lens inverse runs on Core's one static LM (`Cameras.static_lm`)
+# The parametric lens inverse runs on Core's one static LM (`_static_lm`, `StaticLevenbergMarquardt`'s kernel)
 # with the distortion's analytic Jacobian — every term's `transform_deriv` in
 # closed form — COLMAP's step clipping as the LM's step bound, and no Dual in the
 # solve loop (JuliaLang/julia#64827's pattern): a Dual argument or lens is
 # differentiated once at the root (the implicit function theorem).
 @testitem "lens inverse: Core's one LM with an analytic Jacobian, no Dual in its loop" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, LinearAlgebra
     using StaticArrays: SVector, SMatrix, StaticVector
     using ForwardDiff
@@ -68,12 +69,11 @@
     end
 
     @testset "the solve is inferred and allocation-free (a boxed Jacobian is a heap object per trip)" begin
-        allocs(f, args...) = (f(args...); @allocated f(args...))
         for lens in lenses, T in (Float64, Float32)
             l = VisualGeometryToolkitCore.convert_eltype(T, lens)
             xd = SVector{2, T}(0.45, 0.3)
             @test @inferred(backproject(l, xd)) isa StaticVector{3, T}
-            @test allocs(backproject, l, xd) == 0
+            @test warm_allocated(backproject, l, xd) == 0
             @test only(Base.return_types(C._inverse_lm, (typeof(l.distortion), SVector{2, T}, SVector{2, T}))) ==
                 Tuple{SVector{2, T}, Bool, T}
         end

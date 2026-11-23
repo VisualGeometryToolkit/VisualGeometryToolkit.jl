@@ -87,6 +87,8 @@ makedocs(;
         # moved to Core): the optimization strategies and the LO contract to
         # api/optimization_strategies.md. Split on 2026-11-14 (api/robust_statistics.html
         # measured 206 KiB with the LM damping types): the chart rows and the LM core to api/lm_core.md.
+        # Split on 2026-11-23 (api/types.html measured 201 KiB with Core 0.14's interface): the estimation interface
+        # and the FitResult to api/estimation.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
@@ -161,6 +163,7 @@ makedocs(;
             "Configuration Tags & Stack Contracts" => "api/stack_contracts.md",
             "Manifolds & Uncertainty" => "api/manifolds.md",
             "Core Types" => "api/types.md",
+            "The Estimation Interface" => "api/estimation.md",
             "Termination Record" => "api/termination.md",
             "Core" => "api/core.md",
             "Artifact Store" => "api/artifacts.md",

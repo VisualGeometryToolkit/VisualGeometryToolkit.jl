@@ -1,5 +1,11 @@
 # VisualGeometryToolkitIO changelog
 
+## Unreleased
+
+### Changed
+- `opencv_lens` is VisualGeometryToolkitCore's now (its one owner: OpenCV's distortion vector as a Core lens); this
+  package re-exports it beside its inverse `opencv_coefficients`. Bit-identical.
+
 ## 0.11.2
 
 ### Added

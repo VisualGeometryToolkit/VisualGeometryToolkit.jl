@@ -556,7 +556,7 @@ end
 # ----- solver ------------------------------------------------------------------
 
 # Five calibrated bearings, as a tuple or a static vector: the shapes the
-# solver layer (`solve(::Essential5pt, …)`) and direct callers supply.
+# solver layer (`solve(MinimalProblem(EssentialMat, cs, idx), Essential5pt())`) and direct callers supply.
 const _Bearings5 = Union{NTuple{5, <:StaticVector{3}}, StaticVector{5, <:StaticVector{3}}}
 
 # The solver's escaping scratch (the arrays its non-inlined kernels write into),
@@ -593,7 +593,7 @@ tuple or a static vector of 3-vectors.
 
 Typed to 3-vectors so a 2-vector (a point on the z = 1 plane) is a
 `MethodError` rather than a `DimensionMismatch` from inside the kernel, the
-same refusal `solve(::Essential5pt, …)` and PoseLib's backend give. The type is
+same refusal `solve(MinimalProblem(EssentialMat, cs, idx), Essential5pt())` and PoseLib's backend give. The type is
 a necessary condition, not a guarantee: a 3-vector still ON the z = 1 plane
 is accepted and, the epipolar algebra being scale-invariant per endpoint, even gives
 the right answer for rays the chart can represent. Bearings must come from the

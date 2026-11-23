@@ -1,7 +1,7 @@
 # docs_tests.jl — the docstring gates the Documenter build cannot run. Its
 # `checkdocs = :public` only sees docstrings that exist, so a public name with
 # none, a docstring detached from its definition by a blank or comment line
-# (Julia 1.12 makes it a bare string: `nearest_point` and `backproject(::CameraModel, u)`
+# (Julia 1.12 makes it a bare string: the nearest-point solver and `backproject(::CameraModel, u)`
 # lost theirs that way) and a signature line that drifted from the methods (a
 # removed keyword) all get through it. The General registration review asks for every
 # public name to be documented (#173032).

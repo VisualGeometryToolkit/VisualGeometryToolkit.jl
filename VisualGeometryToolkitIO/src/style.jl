@@ -424,3 +424,7 @@ function _controls_from_json(a, P::AbstractMatrix{Bool}, ::Val{K}, f = x -> Floa
     end
     return C
 end
+
+# A value's record on IO's style in the length unit `unit`: the one body of the public `*_json` builders (`pose_json`,
+# `target_json`).
+_record_in(unit, x) = JSON.lower(VgioStyle(; length_unit = unit), x)

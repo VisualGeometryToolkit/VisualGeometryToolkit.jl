@@ -405,10 +405,7 @@ end
 RansacResultBuffers{T}(n::Int) where {T} = RansacResultBuffers{T}(Vector{T}(undef, n), Vector{T}(undef, n))
 RansacResultBuffers(ws::RansacWorkspace{<:Any, <:Any, T}) where {T} = RansacResultBuffers{T}(length(ws.best_residuals))
 
-function _set_n!(r::RansacResultBuffers, n::Int)
-    resize!(r.residuals, n); resize!(r.weights, n)
-    return r
-end
+_set_n!(r::RansacResultBuffers, n::Int) = (VgtkCore.resize_buffers!(n, r.residuals, r.weights); r)
 
 """
     set_n!(ws::RansacWorkspace, n::Int) -> ws

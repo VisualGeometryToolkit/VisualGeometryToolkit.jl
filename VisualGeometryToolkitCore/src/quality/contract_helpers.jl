@@ -38,12 +38,13 @@ function test_local_optimization_contract end
 """
     test_termination_record(result)
 
-The termination record of one fit result, as tests: [`retcode`](@ref) a
-[`ReturnCode`](@ref) `ReturnCode.T`, [`stop_rule`](@ref) a [`StopRule`](@ref),
-[`converged`](@ref) a `Bool` and [`retcode_symbol`](@ref)`(result)` a `Symbol`,
-each inferred; `converged(result)` (and the property `result.converged`) is
-[`successful_retcode`](@ref)`(retcode(result))`, and `retcode_symbol(result)`
-is `retcode_symbol(code, rule)`. [`test_local_optimization_contract`](@ref)
+The termination record of one fit result, as tests: its field `retcode` a
+[`ReturnCode`](@ref) `ReturnCode.T`, `stop_rule` a [`StopRule`](@ref) and
+`stats` a [`SolveStats`](@ref) with non-negative counters,
+[`successful_retcode`](@ref)`(result)` a `Bool` and
+[`retcode_symbol`](@ref)`(result)` a `Symbol`, each inferred;
+`successful_retcode(result)` is `successful_retcode(result.retcode)`, and
+`retcode_symbol(result)` is `retcode_symbol(code, rule)`. [`test_local_optimization_contract`](@ref)
 runs it on the refit it checks; a producer's suite runs it on one result of
 each of its verbs and paths (VisualGeometryToolkitEstimation's and PoseLib's
 termination-record items cover every `fit_*`, `find_*` and `refine_*`).
@@ -90,3 +91,22 @@ bitwise rule held for a problem only by forbidding inlining (PnP's
 Implemented by VisualGeometryToolkitCoreTestExt.
 """
 function test_constraint_problem end
+
+"""
+    check_algorithm_traits(M::Module) -> Vector{String}
+
+The estimation interface's declarations in `M` and its submodules (decision 7 of 2026-11-23), each finding a
+string:
+
+- every concrete [`AbstractEstimationAlgorithm`](@ref) `M` defines has an [`estimator_kind`](@ref) method;
+- every [`default_algorithm`](@ref) method `M` declares returns an algorithm that is deterministic and guess-free:
+  not a [`FindKind`](@ref), no [`supports_solve_rng`](@ref) override, [`needs_initial_model`](@ref) exactly for a
+  [`RefineProblem`](@ref), a [`MinimalKind`](@ref) exactly for a [`MinimalProblem`](@ref), never
+  [`decides_inliers`](@ref), and a [`ClosedFormKind`](@ref) wherever a closed form of `M` solves the same problem
+  (a closed form over a fit).
+
+Read from the methods and their inferred results, so no problem is built. Implemented by
+VisualGeometryToolkitCoreTestExt (`using Test` loads it).
+"""
+function check_algorithm_traits end
+

@@ -151,7 +151,7 @@ end
 with_parameters(m::PosedTarget, ::AbstractVector) = _refuse_posed_protocol("with_parameters", m)
 TargetManifold(m::PosedTarget; known = ()) = _refuse_posed_protocol("TargetManifold", m)
 points(m::PosedTarget) = points(m.target)
-Base.:(==)(a::PosedTarget, b::PosedTarget) = a.target == b.target && a.pose == b.pose
+@fieldwise PosedTarget
 
 # A target model's form is its points' (a target without points takes either
 # pose; a planar target answers from its stored parts, targets.jl); a posed

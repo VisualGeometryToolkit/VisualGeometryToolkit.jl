@@ -1,4 +1,4 @@
-# `next_nu`, the ν M-step: Newton on Q(ν) = Σ wᵢ log t_d(rᵢ; ν, ŝ²).
+# `_next_nu`, the ν M-step: Newton on Q(ν) = Σ wᵢ log t_d(rᵢ; ν, ŝ²).
 #
 # Its curvature's data term was −z(ν+d+1+z)/(2ν²(1+z)²), the right derivative
 # only at d = 1: the derivative of its own gradient is −z(ν+2d+d·z)/(2ν²(1+z)²).
@@ -10,14 +10,14 @@
 # Pinned against Distributions' d-variate Student-t log-density (independent of
 # the package): the gradient and curvature by finite differences, at d = 1, 2, 6.
 
-@testitem "next_nu" setup = [ScaleOracles] begin
+@testitem "next_nu_tests: the ν M-step" setup = [ScaleOracles] begin
     using Test, Random
     using SpecialFunctions: trigamma
     using Distributions: MvTDist, logpdf
     using LinearAlgebra: I
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: next_nu, _nu_derivatives
+    using VisualGeometryToolkitCore: _next_nu, _nu_derivatives
     const _t_sq = t_sq_residuals
 
     # Q(ν) = Σ pᵢ log t_d(rᵢ; ν, ŝ²·I): the density depends on rᵢ through ‖rᵢ‖²
@@ -30,7 +30,7 @@
         end
     end
 
-    @testset "next_nu: the d-variate curvature and an ascent safeguard" begin
+    @testset "_next_nu: the d-variate curvature and an ascent safeguard" begin
         @testset "gradient and curvature == finite differences of Q (d = $d)" for d in (1, 2, 6)
             rng = MersenneTwister(7 + d)
             n = 2000
@@ -73,7 +73,7 @@
             sq = _t_sq(rng, n, d, 4.0, 1.3); p = ones(n); s2 = 1.3^2
             dQ, d2Q, _ = _nu_derivatives(10.0, sq, s2, p, n, d)
             @test d2Q > 0 && dQ < 0                          # convex, optimum below
-            ν1 = next_nu(10.0, sq, s2, p, n; d_g = d, max_newton = 1)
+            ν1 = _next_nu(10.0, sq, s2, p, n; d_g = d, max_newton = 1)
             @test ν1 == 5.0                                   # ν/2, not the downhill Newton step
             @test _Q(ν1, sq, s2, p, d) > _Q(10.0, sq, s2, p, d)
         end
@@ -83,12 +83,12 @@
             n = 20000
             sq = _t_sq(rng, n, d, 4.0, 1.3); p = ones(n); s2 = 1.3^2
             for ν0 in exp.(range(log(2.0), log(1e4); length = 40))
-                ν1 = next_nu(ν0, sq, s2, p, n; d_g = d)
+                ν1 = _next_nu(ν0, sq, s2, p, n; d_g = d)
                 @test 2.0 <= ν1 <= 1e4
                 @test _Q(ν1, sq, s2, p, d) >= _Q(ν0, sq, s2, p, d) - 1e-9 * abs(_Q(ν0, sq, s2, p, d))
             end
             # at the true scale, repeated M-steps settle on the MLE, near ν₀ = 4
-            ν = foldl((ν, _) -> next_nu(ν, sq, s2, p, n; d_g = d), 1:20; init = 30.0)
+            ν = foldl((ν, _) -> _next_nu(ν, sq, s2, p, n; d_g = d), 1:20; init = 30.0)
             dQ, d2Q, _ = _nu_derivatives(ν, sq, s2, p, n, d)
             @test abs(dQ / n) < 1e-6 && d2Q < 0              # a maximum
             @test 3.5 < ν < 4.6

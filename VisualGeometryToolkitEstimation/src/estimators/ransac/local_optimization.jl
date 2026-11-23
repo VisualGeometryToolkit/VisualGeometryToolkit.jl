@@ -50,10 +50,7 @@ converges once an iteration lowers it by no more than `tol` relative.
 """
 struct KeepModel
     tol::Float64
-    function KeepModel(tol::Real)
-        (isfinite(tol) && tol >= 0) || throw(ArgumentError("KeepModel: tol must be finite and ≥ 0, got $tol"))
-        return new(Float64(tol))
-    end
+    KeepModel(tol::Real) = new(VgtkCore.checked_float(tol, isfinite(tol) && tol >= 0, "KeepModel: tol must be finite and ≥ 0"))
 end
 (::KeepModel)(_refine_ws, _problem, θ, _weights) = θ
 
@@ -87,10 +84,8 @@ iteration is not comparable to the next. TOML tag `"parameter_change"`.
 """
 struct ParameterChangeStop
     rtol::Float64
-    function ParameterChangeStop(rtol::Real)
-        (isfinite(rtol) && rtol >= 0) || throw(ArgumentError("ParameterChangeStop: rtol must be finite and ≥ 0, got $rtol"))
-        return new(Float64(rtol))
-    end
+    ParameterChangeStop(rtol::Real) =
+        new(VgtkCore.checked_float(rtol, isfinite(rtol) && rtol >= 0, "ParameterChangeStop: rtol must be finite and ≥ 0"))
 end
 
 """

@@ -17,7 +17,7 @@
 #   _Named(ok, what)           a string `ok` accepts (a unit, a frame name, …)
 #   _RealMap                   an object of name → finite real (lens parameters,
 #                              whose NAMES the owning reader checks against VGC)
-#   _Free                      any object — `provenance` alone, never read
+#   _Free, _Bool               any object (`provenance` alone, never read), a boolean
 #   _Either(key => s, …)       one of several object shapes, told apart by a
 #                              key only that shape carries
 #   _CheckedSpec(s, f; rule, schema)   `s`, then a cross-field check `f(x)`
@@ -66,7 +66,13 @@ struct _Named <: _Spec
     what::String
 end
 struct _RealMap <: _Spec end
+# A value of one JSON type and nothing more checked: `_Free` any object (`provenance` alone, never read), `_Bool` a
+# boolean. Each states its JSON type (`_json_value_type`: the Julia type a parsed value has, the refusal, the JSON
+# Schema type); its check and its JSON Schema (json_schema.jl) are one method for both.
 struct _Free <: _Spec end
+struct _Bool <: _Spec end
+_json_value_type(::_Free) = (AbstractDict, "expected an object", "object")
+_json_value_type(::_Bool) = (Bool, "expected true or false", "boolean")
 struct _Obj <: _Spec
     required::Vector{Pair{Symbol, _Spec}}
     optional::Vector{Pair{Symbol, _Spec}}
@@ -160,7 +166,11 @@ function _validate(::_RealMap, x, file, at)
     end
     return nothing
 end
-_validate(::_Free, x, file, at) = (x isa AbstractDict || _refuse(file, at, "expected an object"); nothing)
+function _validate(s::Union{_Free, _Bool}, x, file, at)
+    T, what, _ = _json_value_type(s)
+    x isa T || _refuse(file, at, what)
+    return nothing
+end
 _validate(s::_Positional, x, file, at) = _validate(_Vec(_Real(), length(s.fields)), x, file, at)
 function _validate(s::_Either, x, file, at)
     x isa AbstractDict || _refuse(file, at, "expected an object")
@@ -385,9 +395,12 @@ function _validate(s::_OwnedSchemaTok, x, file, at)
     return nothing
 end
 # Whether the schema string `s` is `schema`'s owner and kind at its major version (any minor).
-function _is_major_of(s, schema::AbstractString)
+_is_major_of(s, schema::AbstractString) = _owned_major(==, s, schema)
+# Whether `s` names `schema`'s owner and kind at a major version `op`-related to `schema`'s (`==`: the same major,
+# `<`: an earlier one; kind_spec.jl's `_is_earlier_owned`).
+function _owned_major(op, s, schema::AbstractString)
     a, b = _split_owned(s), something(_split_owned(schema))
-    return a !== nothing && a.owner == b.owner && a.kind == b.kind && a.major == b.major
+    return a !== nothing && a.owner == b.owner && a.kind == b.kind && op(a.major, b.major)
 end
 function _validate(s::_SchemaTok, x, file, at)
     v = _split_schema(x)

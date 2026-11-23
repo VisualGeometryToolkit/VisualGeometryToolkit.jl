@@ -7,6 +7,7 @@
 # (12/12 green vs Eigen 3.4.0, 2026-08-30).
 
 @testitem "homography_5pt_radial" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "zhang_views.jl"))   # zhang_homography
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using VisualGeometryToolkitCore: max_solutions
@@ -20,18 +21,9 @@
     # Golden matrices are printed row-major; SMatrix fills column-major.
     _rowmat(a, b, c, d, e, f, g, h, i) = SMatrix{3, 3, Float64}(a, d, g, b, e, h, c, f, i)
 
-    # Predicted (undistorted) target of a source through H.
-    _transfer(H, s) = (PerspectiveMap() ∘ HomographyMap(SMatrix{3, 3, Float64}(H)))(s)
-
-    # Division-model forward distortion: the d with d/(1 + k‖d‖²) = u.
-    function _distort_div(u, k)
-        r = norm(u)
-        (abs(k) < 1.0e-14 || r < 1.0e-14) && return SVector{2, Float64}(u[1], u[2])
-        disc = 1 - 4k * r^2
-        disc <= 0 && return nothing
-        t = (1 - sqrt(disc)) / (2k * r)
-        return SVector{2, Float64}(u[1] * t / r, u[2] * t / r)
-    end
+    # Division-model forward distortion and the homography transfer (`distort_division`, `homography_transfer`): the
+    # suite's fixture file, shared with the golden records
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "division_distortion.jl"))
 
     # Max interpolation residual of a candidate over correspondences 1:n.
     # The problem is "4.5-pt" overdetermined (9 DOF vs 10 constraints): every
@@ -139,9 +131,9 @@
                 k_gt = -0.4 + 0.55 * rand(rng)
 
                 src = ntuple(_ -> SVector(rand(rng) - 0.5, rand(rng) - 0.5), Val(5))
-                dst_u = map(p -> _transfer(H0, p), src)
+                dst_u = map(p -> homography_transfer(H0, p), src)
                 any(p -> norm(p) > 1.2, dst_u) && continue
-                dst_any = map(p -> _distort_div(p, k_gt), dst_u)
+                dst_any = map(p -> distort_division(p, k_gt), dst_u)
                 any(isnothing, dst_any) && continue
                 dst = map(p -> p::SVector{2, Float64}, dst_any)
 
@@ -191,11 +183,11 @@
             @test model_type(solver) == RadialHomography
 
             cs = Correspondences(collect(s), collect(d))
-            sols = solve(solver, cs, 1:5)
+            sols = solve(MinimalProblem(RadialHomography, cs, 1:5), solver)
             @test length(sols) == 3
             @test collect(sols)[3].k ≈ -0.3 atol = 1.0e-6
 
-            sols_ec = solve(Homography5ptRadial(extra_check = true), cs, 1:5)
+            sols_ec = solve(MinimalProblem(RadialHomography, cs, 1:5), Homography5ptRadial(extra_check = true))
             @test length(sols_ec) == 1
             @test collect(sols_ec)[1].k ≈ -0.3 atol = 1.0e-6
         end
@@ -332,7 +324,7 @@
         f0 = 1400.0; c = SVector(1010.0, 520.0)                     # not the image centre, not the centroid
         R = SMatrix{3, 3}(1.0, 0.0, 0.0, 0.0, cos(0.3), sin(0.3), 0.0, -sin(0.3), cos(0.3))
         t = SVector(40.0, -30.0, 900.0)
-        Hm = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(f0, 0, 0, 0, f0, 0, c[1], c[2], 1) * hcat(R[:, 1], R[:, 2], t)))
+        Hm = zhang_homography(SMatrix{3, 3, Float64}(f0, 0, 0, 0, f0, 0, c[1], c[2], 1), R, t)
         m = RadialHomography{Float64}(Hm, -3.0e-7, Point2{Float64}(c[1], c[2]))
         Xs = [SVector(x, y) for x in -150.0:50.0:150.0 for y in -150.0:50.0:150.0]
         cs = Correspondences(Xs, [SVector{2, Float64}(radial_transfer(m, X)) for X in Xs])
@@ -350,8 +342,8 @@
         rng = Xoshiro(3); best = Inf; bestc = Inf
         for _ in 1:100
             idx = randperm(rng, length(Xs))[1:5]
-            best = min(best, err(fr, solve(Homography5ptRadial(), csn, idx)))
-            bestc = min(bestc, err(cent, solve(Homography5ptRadial(), csc, idx)))
+            best = min(best, err(fr, solve(MinimalProblem(RadialHomography, csn, idx), Homography5ptRadial())))
+            bestc = min(bestc, err(cent, solve(MinimalProblem(RadialHomography, csc, idx), Homography5ptRadial())))
         end
         @test best < 1.0e-9
         @test bestc > 0.1

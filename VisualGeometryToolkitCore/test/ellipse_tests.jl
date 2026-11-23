@@ -5,14 +5,14 @@
 
 @testitem "Ellipse5pt: exact on five points, degenerate and non-ellipse conics refused" begin
     using Test, StaticArrays, LinearAlgebra, Random
-    using VisualGeometryToolkitCore: Ellipse5pt, Ellipse, Point2, solve, sample_size, max_solutions, boundary_point
+    using VisualGeometryToolkitCore: Ellipse5pt, Ellipse, Point2, solve, MinimalProblem, sample_size, max_solutions, boundary_point
     rng = Xoshiro(7)
     @test sample_size(Ellipse5pt()) == 5 && max_solutions(Ellipse5pt()) == 1
     for _ in 1:200
         c = SVector(4000rand(rng) - 2000, 4000rand(rng) - 2000); a = 10.0^(3rand(rng)); b = a * (0.2 + 0.8rand(rng))
         e₀ = Ellipse(Point2(c...), a, b, π * rand(rng))
         pts = [boundary_point(e₀, t) for t in 2π * rand(rng) .+ (0:4) .* (2π / 5) .+ 0.3 .* rand(rng, 5)]
-        sol = solve(Ellipse5pt(), pts, 1:5)
+        sol = solve(MinimalProblem(Ellipse, pts, 1:5), Ellipse5pt())
         @test sol.count == 1
         e = first(sol)
         @test e isa Ellipse{Float64}
@@ -21,11 +21,11 @@
         @test abs(sin(e.θ - e₀.θ)) < 1.0e-7 * a / (a - b)    # the axis direction, conditioned by the eccentricity
     end
     # a hyperbola (xy = 1), a parabola (y = x²), a line pair: no ellipse
-    @test solve(Ellipse5pt(), [Point2(t, 1 / t) for t in (0.5, 1.0, 2.0, -1.0, -3.0)], 1:5).count == 0
-    @test solve(Ellipse5pt(), [Point2(t, t^2) for t in (-2.0, -1.0, 0.0, 1.0, 3.0)], 1:5).count == 0
-    @test solve(Ellipse5pt(), [Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(2.0, 0.0), Point2(0.0, 1.0), Point2(1.0, 2.0)], 1:5).count == 0
-    @test solve(Ellipse5pt(), [Point2(0.0, 0.0), Point2(NaN, 1.0), Point2(3.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 3.0)], 1:5).count == 0
-    @test solve(Ellipse5pt(), [SVector(1.0, 0.0), SVector(0.0, 1.0), SVector(-1.0, 0.0), SVector(0.0, -1.0), SVector(√0.5, √0.5)], 1:5)[1].a ≈ 1.0   # any StaticVector{2}
+    @test solve(MinimalProblem(Ellipse, [Point2(t, 1 / t) for t in (0.5, 1.0, 2.0, -1.0, -3.0)], 1:5), Ellipse5pt()).count == 0
+    @test solve(MinimalProblem(Ellipse, [Point2(t, t^2) for t in (-2.0, -1.0, 0.0, 1.0, 3.0)], 1:5), Ellipse5pt()).count == 0
+    @test solve(MinimalProblem(Ellipse, [Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(2.0, 0.0), Point2(0.0, 1.0), Point2(1.0, 2.0)], 1:5), Ellipse5pt()).count == 0
+    @test solve(MinimalProblem(Ellipse, [Point2(0.0, 0.0), Point2(NaN, 1.0), Point2(3.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 3.0)], 1:5), Ellipse5pt()).count == 0
+    @test solve(MinimalProblem(Ellipse, [SVector(1.0, 0.0), SVector(0.0, 1.0), SVector(-1.0, 0.0), SVector(0.0, -1.0), SVector(√0.5, √0.5)], 1:5), Ellipse5pt())[1].a ≈ 1.0   # any StaticVector{2}
     # the sample gate refuses a sample with a (near-)collinear triple before the
     # solve, at the homography gate's ratio (scale-free: the same verdict at any scale)
     using VisualGeometryToolkitCore: test_sample

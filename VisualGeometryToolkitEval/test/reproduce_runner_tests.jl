@@ -1448,10 +1448,10 @@ end
 # `code_trees` runs git several times per path; a driver asks before every cell. It answers once per process while
 # nothing git reads changed, and a change — an edit, an untracked or deleted file, a commit, a staging, in the project
 # or in a package it loads from a path — is seen at once.
-@testitem "code_trees: once per process while nothing changed, every change seen" begin
+@testitem "code_trees: once per process while nothing changed, every change seen" setup = [GitFixture] begin
     using Test
     using VisualGeometryToolkitEval: code_trees
-    git(dir, args...) = run(pipeline(`git -C $dir -c user.name=t -c user.email=t@t -c commit.gpgsign=false $args`; stdout = devnull, stderr = devnull))
+    git = git!   # GitFixture's throwaway-repository git
     pkg = mktempdir(); git(pkg, "init", "-q")
     mkpath(joinpath(pkg, "src")); write(joinpath(pkg, "src", "P.jl"), "module P end\n")
     write(joinpath(pkg, "Project.toml"), "name = \"P\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n")

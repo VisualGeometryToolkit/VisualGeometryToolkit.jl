@@ -199,8 +199,8 @@ Concrete subtypes:
 Carried as the `backend` field of the `MinimalSolver` verb layer (the public
 solve protocol) and dispatched on by the positional kernels:
 ```julia
-solve(Homography4pt(), cs, idx)                # default (NativeSolver)
-solve(Homography4pt(PoseLibSolver()), cs, idx) # PoseLib backend
+solve(MinimalProblem(HomographyMat, cs, idx), Homography4pt())                # default (NativeSolver)
+solve(MinimalProblem(HomographyMat, cs, idx), Homography4pt(PoseLibSolver())) # PoseLib backend
 p3p(PoseLibSolver(), rays, X)                  # kernel-level backend call
 ```
 """

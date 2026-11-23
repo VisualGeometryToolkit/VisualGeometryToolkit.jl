@@ -204,9 +204,7 @@ end
     using VisualGeometryToolkitEval.Tuning: grid_spec, tuning_hash, tuning_table
     quiet(f) = with_logger(f, NullLogger())
 
-    ax(lo, hi, sp, fine; expensive = false) = Dict{String,Any}("coarse" => Dict{String,Any}("type" => "spaced",
-        "window" => Dict{String,Any}("type" => "fixed", "lo" => lo, "hi" => hi), "spacing" => sp), "fine" => fine,
-        "expensive" => expensive)
+    ax(lo, hi, sp, fine; expensive = false) = coarse_fine_axis(lo, hi, sp, fine; expensive)
     table(inc) = merge(Dict{String,Any}("type" => "joint_coarse_fine",
         "criterion" => Dict{String,Any}("type" => "mean_average_accuracy", "max_error" => 10.0),
         "axes" => Dict{String,Any}(

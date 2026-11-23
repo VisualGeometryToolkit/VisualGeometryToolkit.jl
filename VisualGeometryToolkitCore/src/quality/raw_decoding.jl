@@ -28,12 +28,11 @@ struct RawDecodingViolation
     use::Symbol
 end
 
-function Base.show(io::IO, v::RawDecodingViolation)
-    return print(
-        io, v.file, ":", v.line, "  [", v.use, "] ", v.text, "  — RAW decoding lives in ",
-        "VisualGeometryToolkitFeatures' raw module (`load_raw`, `load_raw_mosaic`) and Core's `RawMosaic`/`LinearRaw`: go through them"
-    )
-end
+Base.show(io::IO, v::RawDecodingViolation) = _print_violation(
+    io, v.file, v.line, v.use,
+    "RAW decoding lives in VisualGeometryToolkitFeatures' raw module (`load_raw`, `load_raw_mosaic`) and Core's `RawMosaic`/`LinearRaw`: go through them",
+    v.text
+)
 
 """
     check_raw_decoding(dir; allow = ()) -> Vector{RawDecodingViolation}

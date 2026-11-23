@@ -107,6 +107,7 @@
 end
 
 @testitem "surfaces: Float32 and ForwardDiff, inferred and allocation-free" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, LinearAlgebra, Random
     using ForwardDiff
     using Rotations: RotMatrix, QuatRotation
@@ -121,20 +122,18 @@ end
     ro = o + R * SVector(0.1, 0.05, 1.5)
     d = R * normalize(SVector(-0.05, 0.1, -1.0))
 
-    allocs(f, args...) = (f(args...); @allocated f(args...))
-
     for p in (quad,)   # (a MappedSurface's: mapped_surface_tests.jl)
         t, x = @inferred intersection(p, ro, d)
-        @test isfinite(t) && allocs(intersection, p, ro, d) == 0
-        @test (@inferred normal(p, x)) isa SVector{3, Float64} && allocs(normal, p, x) == 0
-        @test (@inferred chart(p, x)) isa SVector{2, Float64} && allocs(chart, p, x) == 0
+        @test isfinite(t) && warm_allocated(intersection, p, ro, d) == 0
+        @test (@inferred normal(p, x)) isa SVector{3, Float64} && warm_allocated(normal, p, x) == 0
+        @test (@inferred chart(p, x)) isa SVector{2, Float64} && warm_allocated(chart, p, x) == 0
         @test (@inferred bounds(p)) == Rect2(-0.5, -0.5, 1.0, 1.0)
 
         # Float32: the primitive and the ray converted
         p32 = Quad{Float32}(p)
         @test isbits(p32)
         t32, x32 = @inferred intersection(p32, Float32.(ro), Float32.(d))
-        @test t32 isa Float32 && x32 isa SVector{3, Float32} && allocs(intersection, p32, Float32.(ro), Float32.(d)) == 0
+        @test t32 isa Float32 && x32 isa SVector{3, Float32} && warm_allocated(intersection, p32, Float32.(ro), Float32.(d)) == 0
         @test abs(t32 - t) < 1.0f-5 && maximum(abs, x32 - x) < 1.0f-5
         @test (@inferred normal(p32, x32)) isa SVector{3, Float32} && (@inferred chart(p32, x32)) isa SVector{2, Float32}
 
@@ -149,9 +148,9 @@ end
         @test J ≈ Jfd atol = 1.0e-7
         od = ForwardDiff.Dual.(ro, 1.0), ForwardDiff.Dual.(d, 0.5)
         td, xd = @inferred intersection(p, od...)
-        @test td isa ForwardDiff.Dual && allocs(intersection, p, od...) == 0
+        @test td isa ForwardDiff.Dual && warm_allocated(intersection, p, od...) == 0
         # a Quad's normal does not depend on the point: plain
-        @test (@inferred normal(p, xd)) isa SVector{3, Float64} && allocs(normal, p, xd) == 0
+        @test (@inferred normal(p, xd)) isa SVector{3, Float64} && warm_allocated(normal, p, xd) == 0
     end
 
 end

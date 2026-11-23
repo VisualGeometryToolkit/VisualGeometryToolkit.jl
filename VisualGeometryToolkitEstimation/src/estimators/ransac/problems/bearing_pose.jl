@@ -237,12 +237,8 @@ end
 # Degenerate samples: coincident or collinear world points, coplanar rays
 # (AbsolutePoseProblem's gate on its back-projected rays).
 function test_sample(p::BearingPoseProblem, idx::AbstractVector{Int})
-    @inbounds begin
-        X = (sources(p.cs)[idx[1]], sources(p.cs)[idx[2]], sources(p.cs)[idx[3]])
-        f = (targets(p.cs)[idx[1]], targets(p.cs)[idx[2]], targets(p.cs)[idx[3]])
-    end
-    _are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) || return false
-    thin_ratio(X[1], X[2], X[3]) > _P3P_DEGENERACY_TOL || return false
+    X, f = _sample_triples(p, idx)   # p3p.jl
+    _world_triple_ok(X) || return false
     return _ray_thin_ratio(f[1], f[2], f[3]) > _P3P_DEGENERACY_TOL
 end
 

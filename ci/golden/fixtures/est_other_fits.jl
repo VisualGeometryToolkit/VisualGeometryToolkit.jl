@@ -115,18 +115,8 @@ eof_rigid_collinear() = (line = [SVector(Float64(k), 0.0, 0.0) for k in 1:5]; Vg
 # =================================================================================================================
 # fit_robot_world_hand_eye (robot_world_hand_eye_tests.jl, fit_contract_tests.jl, units_boundary_tests.jl)
 # =================================================================================================================
-# A_i X_m = Y B_i^m: markers[m] holds A_i => B_i^m, one per frame it is seen in
-function eof_rwhe_synth(seed; N = 25, M = 4, σ_R = 0.0, σ_t = 0.0, drop = 0.0)
-    rng = StableRNG(seed)
-    (; Y, X, A) = _EOF_PS.robot_world_hand_eye_scene(rng; N, M, Y = (t_scale = 0.5,), X = (ang_max = 0.5, t_scale = 0.3), A = (t_scale = 1.0,))
-    markers = Dict(m => Pair{typeof(Y), typeof(Y)}[] for m in 1:M)
-    for i in 1:N, m in 1:M
-        rand(rng) < drop && continue
-        B = _EOF_PS.marker_pose(Y, A[i], X[m])
-        push!(markers[m], A[i] => (σ_R == 0 && σ_t == 0 ? B : _EOF_PS.perturb_pose(rng, B; σ_R, σ_t)))
-    end
-    return markers
-end
+# A_i X_m = Y B_i^m: markers[m] holds A_i => B_i^m (`rwhe_synth`, robot_world_scenes.jl, included below)
+eof_rwhe_synth(seed; kw...) = first(rwhe_synth(StableRNG(seed); kw...))
 # the rig base 10 km from the world origin
 eof_rwhe_far(seed) = Dict(m => [VgtkCore.EuclideanMap(VgtkCore.rotation(a), VgtkCore.translation(a) + SVector(1.0e4, -7.0e3, 2.5e3)) => b for (a, b) in cs]
                           for (m, cs) in eof_rwhe_synth(seed; N = 12, M = 3))
@@ -379,6 +369,8 @@ eof_mixture_classification_em() = VgtkEstimation.mixture_em_from_toml(Dict{Strin
     "nuisance" => Dict{String, Any}("scale" => "estimated", "inlier_prior" => "estimated", "nu" => "consensus_dof"),
 ); section = "classification.em")
 
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitCore", "test", "fixtures", "geometry_helpers.jl"))   # `similarity_matrix`
+
 # =================================================================================================================
 # SIMFIT++ (simfitpp_tests.jl)
 # =================================================================================================================
@@ -406,12 +398,11 @@ end
 # a pool of 12 random fundamental models over 300 pool-frame correspondences, its frames similarities of scale s
 function eof_fundmat_pool(seed; n = 300, K = 12, s = 1 / 650.0)
     rng = StableRNG(seed)
-    sim(s, tx, ty) = SMatrix{3, 3, Float64, 9}(s, 0.0, 0.0, 0.0, s, 0.0, tx, ty, 1.0)
     Kc = SMatrix{3, 3, Float64, 9}(400.0, 0.0, 0.0, 0.0, 400.0, 0.0, 320.0, 240.0, 1.0)
     I3s = SMatrix{3, 3, Float64, 9}(I)
     cs = [SVector(2rand(rng) - 1, 2rand(rng) - 1) => SVector(2rand(rng) - 1, 2rand(rng) - 1) for _ in 1:n]
     models = [VgtkCore.FundMat(Tuple(SMatrix{3, 3, Float64, 9}(randn(rng, 9)...))) for _ in 1:K]
     return VgtkCore.Pools.PoolPair(; correspondences = cs, K1 = Kc, K2 = Kc, R_gt = I3s, t_gt = SVector(1.0, 0.0, 0.0),
                                    models, sample_indices = zeros(Int, 7, K), errors_r = fill(NaN, K), errors_t = fill(NaN, K),
-                                   gt_inliers = falses(n), gt_variance = NaN, source_map = sim(s, -0.9, -0.7), destination_map = sim(s, -0.95, -0.65))
+                                   gt_inliers = falses(n), gt_variance = NaN, source_map = similarity_matrix(s, -0.9, -0.7), destination_map = similarity_matrix(s, -0.95, -0.65))
 end

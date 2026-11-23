@@ -178,7 +178,7 @@ end
 @testitem "units: feature-coordinate compute boundary" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: px, mm, Disc, Point2, Circle, intersects, bbox, overlap_area, ustrip, zhang_intrinsics, Size2, HomographyMat
+    using VisualGeometryToolkitCore: px, mm, Disc, Point2, Circle, intersects, bbox, overlap_area, ustrip, Size2, HomographyMat, LogicalIntrinsics
 
     dp = Disc(Point2(100.0px, 200.0px), 5.0px)
     dq = Disc(Point2(108.0px, 200.0px), 5.0px)
@@ -206,7 +206,7 @@ end
     # dimensionless, so 3.9μm and 3.9μm/px are the same pitch), never a count
     H = HomographyMat{Float64}(ntuple(i -> Float64(i in (1, 5, 9)), 9))
     err = try
-        zhang_intrinsics([H], Size2(width = 3.9px, height = 4.0px); center = (0.0, 0.0))
+        solve(EstimationProblem(LogicalIntrinsics, [H], (; center = (0.0, 0.0), pitch = Size2(width = 3.9px, height = 4.0px))), Zhang())
     catch e
         e
     end

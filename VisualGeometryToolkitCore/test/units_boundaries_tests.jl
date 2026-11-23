@@ -17,8 +17,8 @@
         relabel, ViewFrame, has_units, with_unit, PosedCamera, CameraModel, CameraCalibrationMat, StereoRig,
         extrinsics, pose, essential_form, EpipolarForm, EssentialMat, rectify, lookat, lookat_pose,
         transfer, Attributed, Point2, translation_angle, log_se3, minimal_manifold, RigidExpManifold6,
-        LeftRigidManifold6, triangulate, is_in_front, unproject, Point3, BoundedCamera, Size2,
-        transfer_ellipse, Circle, Ellipse, HomographyMat, Vec3, project
+        LeftRigidManifold6, is_in_front, unproject, Point3, BoundedCamera, Size2,
+        transfer_ellipse, Circle, Ellipse, HomographyMat, Vec3, project, solve, EstimationProblem, Triangulation
     using VisualGeometryToolkitCore.Synthetic: pose_error, imc_pose_error
 
     R1 = RotMatrix{3, Float64}(RotXYZ(0.01, -0.02, 0.005))
@@ -37,7 +37,7 @@
         @test_throws MethodError minimal_manifold(E1u)
         @test_throws MethodError log_se3(E1u)
         f = normalize(SVector(0.1, 0.0, 1.0))
-        @test_throws MethodError triangulate(E1u, f, f)
+        @test_throws MethodError solve(EstimationProblem(Point3, f => f, E1u), Triangulation())
         @test_throws MethodError VgtkCore.constraint_with_jacobians(E1u, SVector(0.0, 0.0, 1.0), SVector(0.0, 0.0, 1.0))
         # the plain forms are unchanged
         @test RigidExpManifold6(ustrip(m, E1u)) isa RigidExpManifold6
@@ -151,7 +151,7 @@
         end
     end
 
-    @testset "physical forms of the raw-matrix camera, the arrow projection and kabsch" begin
+    @testset "physical forms of the raw-matrix camera, the arrow projection and Kabsch" begin
         K = SMatrix{3, 3, Float64}(800, 0, 0, 0, 810, 0, 320, 240, 1)
         Cr = PosedCamera(K, SMatrix{3, 3, Float64}(R1), t1 .* m)
         @test has_units(Cr) && ustrip(m, Cr).extrinsics == ustrip(m, E1u)
@@ -162,7 +162,8 @@
         e = VgtkCore.exact(SVector(1.0, 2.0, 3.0) .* mm)       # a physical point known exactly
         @test VgtkCore.geom(e) == SVector(0.001, 0.002, 0.003) .* m && iszero(Matrix(cov(e)))
         @test_throws DimensionError VgtkCore.exact(SVector(1.0, 2.0, 3.0) .* VgtkCore.px)
-        @test VgtkCore.kabsch([x .* mm => (R2 * x) .* mm for x in Xs]) == VgtkCore.kabsch([ustrip.(m, x .* mm) => ustrip.(m, (R2 * x) .* mm) for x in Xs])
+        rotation_of(cs) = solve(EstimationProblem(RotMatrix{3}, cs), VgtkCore.Kabsch()).u
+        @test rotation_of([x .* mm => (R2 * x) .* mm for x in Xs]) == rotation_of([ustrip.(m, x .* mm) => ustrip.(m, (R2 * x) .* mm) for x in Xs])
     end
 
     @testset "pose error: translations in metres, angles out" begin

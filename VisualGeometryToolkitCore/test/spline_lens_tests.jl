@@ -395,6 +395,7 @@ end
 end
 
 @testitem "SplineLens: project's imaged mask is the same at every optimization level" begin
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "geometry_helpers.jl"))   # `column3`, `similarity_matrix`, `planar_placement`
     using Test
     using StaticArrays
     using VisualGeometryToolkitCore
@@ -428,11 +429,10 @@ end
     cam_fwd = CameraModel(K′, SplineLens(cam′.lens.backward; forward = ChartSpline(Rect2(S.area[1], S.area[2], S.area[3], S.area[4]), C)))
     b = cam.lens.backward
     nc = NoncentralSplineModel(cam.intrinsics, b, ChartSpline(b.area, map(d -> 0.01 * d, b.controls)))
-    col3(A, i) = SVector(A[1, i], A[2, i], A[3, i])
     n = G.n_lattice
-    rays64 = [col3(S.rays, i) for i in axes(S.rays, 2)]
-    lattice = [col3(G.central.backproject, i) for i in 1:n]
-    nc_X = [col3(G.noncentral.origins, i) + 1500.0 * col3(G.central.backproject, i) for i in 1:n]
+    rays64 = [column3(S.rays, i) for i in axes(S.rays, 2)]
+    lattice = [column3(G.central.backproject, i) for i in 1:n]
+    nc_X = [column3(G.noncentral.origins, i) + 1500.0 * column3(G.central.backproject, i) for i in 1:n]
     imaged_golden(ref) = count(i -> !isnan(ref[1, i]), 1:n)
     # (camera, its rays, the count it images on the first 64, on the rest; `nothing` = no golden count)
     cases = ((cam, vcat(rays64, lattice), 64, imaged_golden(G.central.project_in)),
@@ -935,7 +935,8 @@ end
     held = lattice(0.02, r -> R)                         # stretches at the rim; the outer lattice holds the rim's ray
     folded = lattice(-0.04, r -> max(R - (r - R) / 2, 0.0))   # compresses at the rim; the outer lattice folds back
     past(cam, guess) = p -> (K = calibration_matrix(cam); norm(K[1:2, 1:2] * guess(p)) > R && _in_backward(cam.lens, guess(p)))
-    pinhole(X) = SVector(X[1] / X[3], X[2] / X[3])
+    include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`
+    pinhole = pinhole_point
     chart(X) = SVector{2, Float64}(forward_chart(SplineLens)(X))
 
     # the premises: rays whose pinhole point (held) or chart point (folded) lies past the circle inside the lattice's box

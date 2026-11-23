@@ -122,6 +122,15 @@ end
 propagate(m::SimilarityMap{N}, u::Uncertain{V, <:Union{CovMat{N}, PrecMat{N}}}) where {N, V} =
     Uncertain(m(getfield(u, :value)), propagate(m, getfield(u, :attributes)))
 
+# The point an uncertain observation's value carries, and the value of the same kind at a moved point — what every
+# map's uncertain-observation law moves (the homography's below, the framed affine's): a point is its own point; a
+# PointFrame's is its centre, and it stays a PointFrame (the FeatureFrame interface: a PointFrame costs what its
+# Point2 costs).
+@inline _value_point(x) = x
+@inline _value_point(f::PointFrame) = centroid(f)
+@inline _with_value_point(_, x′) = x′
+@inline _with_value_point(::PointFrame, x′) = PointFrame(x′)
+
 # -----------------------------------------------------------------------------
 # HomographyMap — projective action, point-DEPENDENT Jacobian
 # -----------------------------------------------------------------------------
@@ -131,9 +140,9 @@ propagate(m::SimilarityMap{N}, u::Uncertain{V, <:Union{CovMat{N}, PrecMat{N}}}) 
 # Jacobian of a homography, at the point in the law's promoted number type.
 
 """
-    propagate(h::HomographyMap{3}, u::Uncertain{<:StaticVector{2}}) -> Uncertain
+    propagate(h::HomographyMap{3}, u::Uncertain{<:Union{StaticVector{2}, PointFrame}}) -> Uncertain
 
-Transport an uncertain 2D point through a framed collineation. The
+Transport an uncertain 2D point (or point frame, which stays one) through a framed collineation. The
 projective point action `x ↦ π(H·x̃)` is nonlinear, so the Jacobian is
 evaluated at the point — which is why the HomographyMap overloads take the
 observation (`Uncertain`), not a bare statistical form. Frame checking and
@@ -145,31 +154,30 @@ representation: covariance pushes forward `Σ ↦ JΣJᵀ`, precision pulls back
 function propagate(
         h::HomographyMap{3, T, M, Src, Dst},
         u::Uncertain{P, <:CovMat{2, S, <:Any, C}}
-    ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: StaticVector{2}}
+    ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: Union{StaticVector{2}, PointFrame}}
     _check_junction(C, Src, propagate, (h, u))
-    R = promote_type(T, S, eltype(P))
-    proj, x = PerspectiveMap() ∘ h, SVector{2, R}(getfield(u, :value))
+    v = getfield(u, :value)
+    p = _value_point(v)
+    R = promote_type(T, S, eltype(p))
+    proj, x = PerspectiveMap() ∘ h, SVector{2, R}(p)
     x′, J = proj(x), transform_deriv(proj, x)
     Σ = getfield(u, :attributes)
     out = J * SMatrix{2, 2, R}(Σ) * J'                     # full, whatever Σ's storage
-    return Uncertain(similar_type(P, R)(x′), CovMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
+    return Uncertain(_with_value_point(v, similar_type(typeof(p), R)(x′)), CovMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
 end
-
-# An uncertain point frame: its point observation through the point law above, the frame kept (the FeatureFrame
-# interface: a PointFrame costs what its Point2 costs).
-propagate(h::HomographyMap{3}, u::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}) = _as_point_frame(propagate(h, center(u)))
-@inline _as_point_frame(u::Uncertain) = Uncertain(PointFrame(getfield(u, :value)), getfield(u, :attributes))
 
 function propagate(
         h::HomographyMap{3, T, M, Src, Dst},
         u::Uncertain{P, <:PrecMat{2, S, <:Any, C}}
-    ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: StaticVector{2}}
+    ) where {T, M, Src <: Frame{2}, Dst <: Frame{2}, S, C <: Frame{2}, P <: Union{StaticVector{2}, PointFrame}}
     _check_junction(C, Src, propagate, (h, u))
-    R = promote_type(T, S, eltype(P))
-    proj, x = PerspectiveMap() ∘ h, SVector{2, R}(getfield(u, :value))
+    v = getfield(u, :value)
+    p = _value_point(v)
+    R = promote_type(T, S, eltype(p))
+    proj, x = PerspectiveMap() ∘ h, SVector{2, R}(p)
     x′, J = proj(x), transform_deriv(proj, x)
     Jinv = inv(J)
     Λ = getfield(u, :attributes)
     out = Jinv' * SMatrix{2, 2, R}(Λ) * Jinv
-    return Uncertain(similar_type(P, R)(x′), PrecMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
+    return Uncertain(_with_value_point(v, similar_type(typeof(p), R)(x′)), PrecMat{2, R, SMatrix{2, 2, R, 4}, Dst}(SMatrix{2, 2, R, 4}(out)))
 end

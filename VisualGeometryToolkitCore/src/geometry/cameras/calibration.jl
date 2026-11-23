@@ -37,7 +37,7 @@ end
 # each scaled by the square root of its weight `ws[i]`.
 function _iac_system(Hs, ws)
     n = length(Hs)
-    n ≥ 1 || throw(ArgumentError("zhang_intrinsics needs at least one homography"))
+    n ≥ 1 || throw(ArgumentError("Zhang needs at least one homography"))
     check_weights(ws, n)
     A = Matrix{Float64}(undef, 2n, 2)
     c = Vector{Float64}(undef, 2n)
@@ -61,22 +61,8 @@ function _iac_focal(x)
     return 1 ./ sqrt.(x)
 end
 
-"""
-    zhang_intrinsics(Hs; center) -> LogicalIntrinsics{Float64}
-
-The calibration from plane→image homographies by Zhang's IAC constraints —
-one linear least-squares step, assuming zero skew and the principal point at
-the known `center` (pixels, required). Each `H` maps its plane to the
-caller's pixels; they are read about `center` internally, and the result is
-in the caller's pixels: `K = [fx 0 cx; 0 fy cy; 0 0 1]` with `(cx, cy) =
-center`. Each homography contributes two linear equations on
-`(1/fx², 1/fy²)`; the overdetermined system is solved by (optionally
-weighted) least squares. A homography carries its weight, a non-negative vote
-strength (e.g. an inlier count), as `Attributed(H, (; weight))`, read with
-[`weight_of`](@ref); a bare `H` weighs 1. Throws `ArgumentError` when the set
-is degenerate — all views near fronto-parallel leave the IAC unobservable.
-"""
-function zhang_intrinsics(Hs::AbstractVector; center)
+# Kernel of [`Zhang`](@ref), whose docstring is the one copy of its documentation: `_zhang_intrinsics(Hs; center) -> LogicalIntrinsics{Float64}`.
+function _zhang_intrinsics(Hs::AbstractVector; center)
     A, c = _iac_system(_about_center(Hs, center), weight_of.(Hs))
     F = svd(A)
     F.S[2] > 1.0e-10 * F.S[1] || throw(
@@ -103,16 +89,8 @@ _pixel_K(fx, fy, center) =
     SMatrix{3, 3, Float64, 9}(CameraCalibrationMat((Float64(fx), Float64(fy)), SVector(Float64(center[1]), Float64(center[2])); check = false))
 pixel_intrinsics(fx, fy, center) = LogicalIntrinsics(CameraCalibrationMat((Float64(fx), Float64(fy)), SVector(Float64(center[1]), Float64(center[2]))))
 
-"""
-    zhang_intrinsics(Hs, pitch::Size2; center) -> LogicalIntrinsics{Float64}
-
-Known-sensor variant: with the pixel pitch given, the aspect ratio is fixed
-(`fy/fx = pitch.width / pitch.height`) and only a single focal length remains.
-Each homography's two constraints collapse onto one unknown `1/fx²`, solved by
-weighted least squares — this stays well-posed even for view sets that cannot
-separate `fx` from `fy`. The metric focal length is `fx * pitch.width`.
-"""
-function zhang_intrinsics(
+# Kernel of [`Zhang`](@ref), whose docstring is the one copy of its documentation: `_zhang_intrinsics(Hs, pitch::Size2; center) -> LogicalIntrinsics{Float64}`.
+function _zhang_intrinsics(
         Hs::AbstractVector, pitch::Size2;
         center
     )
@@ -128,6 +106,31 @@ function zhang_intrinsics(
     fx = only(_iac_focal(SVector(a)))
     return pixel_intrinsics(fx, τ * fx, center)
 end
+
+"""
+    Zhang()
+
+Zhang's calibration from plane→image homographies, a [`ClosedFormKind`](@ref): one linear least-squares step on
+the image of the absolute conic, zero skew, the principal point known —
+`solve(EstimationProblem(LogicalIntrinsics, Hs, (; center)), Zhang())`, `center` the principal point in pixels (the
+context, required). Each homography maps its plane to the caller's pixels and carries its non-negative vote
+strength as `Attributed(H, (; weight))` ([`weight_of`](@ref); a bare `H` weighs 1); each gives two equations on
+`(1/fx², 1/fy²)`, and `u` is `K = [fx 0 cx; 0 fy cy; 0 0 1]` in the caller's pixels. With the pixel pitch in the
+context, `(; center, pitch)` (a `Size2` length per pixel), the aspect ratio is fixed and one focal length remains —
+well-posed for view sets that cannot separate `fx` from `fy`. An `ArgumentError` when the set is degenerate (all
+views near fronto-parallel). The default algorithm of a `LogicalIntrinsics` from homographies.
+"""
+struct Zhang <: AbstractEstimationAlgorithm end
+estimator_kind(::Zhang) = ClosedFormKind()
+# the contexts Zhang solves, in either key order: the default is declared for these only
+const _ZhangContext = Union{NamedTuple{(:center,)}, NamedTuple{(:center, :pitch)}, NamedTuple{(:pitch, :center)}}
+default_algorithm(::EstimationProblem{<:LogicalIntrinsics, <:AbstractVector, <:_ZhangContext}) = Zhang()
+function __solve(prob::EstimationProblem{<:LogicalIntrinsics, <:AbstractVector}, ::Zhang)
+    c = _solve_context(prob.p, (:center,), (; pitch = nothing), "Zhang")
+    return closed_form_result(_zhang_kernel(prob.f, c.pitch, c.center), length(prob.f))
+end
+_zhang_kernel(Hs, ::Nothing, center) = _zhang_intrinsics(Hs; center)
+_zhang_kernel(Hs, pitch::Size2, center) = _zhang_intrinsics(Hs, pitch; center)
 
 # ==============================================================================
 # The 1-D radial camera (BabelCalib back-end, Lochman, Liepieshov, Chen,
@@ -460,9 +463,9 @@ end
 """
     RadialCamera5pt(; center = Point2(0, 0))
 
-Minimal 5-point radial-camera solver ([`solve`](@ref) verb over the
-[`radial_camera_5pt`](@ref) kernel) on `plane_point => raw_pixel`
-correspondences. The pencil's `center` belongs to the solver, not the data:
+Minimal 5-point radial-camera solver over the [`radial_camera_5pt`](@ref) kernel,
+`solve(MinimalProblem(RadialCamera, cs, idx), RadialCamera5pt(; center))` (the declared default of a
+`RadialCamera`'s minimal problem), on `plane_point => raw_pixel` correspondences. The pencil's `center` belongs to the solver, not the data:
 it is the problem's geometry, carried onto every returned camera.
 `sample_size` 5, `max_solutions` 1; a degenerate sample (collinear basis,
 dependent equations) gives `count == 0`.
@@ -477,8 +480,11 @@ end
 RadialCamera5pt(; center = Point2(0.0, 0.0)) = RadialCamera5pt(Point2{Float64}(center[1], center[2]))
 sample_size(::RadialCamera5pt) = 5
 max_solutions(::RadialCamera5pt) = 1
+# No default: the pencil's centre belongs to the problem's geometry, and `RadialCamera5pt()`'s `(0, 0)` is a
+# guess for pixels whose origin is a corner. The caller names the solver and its centre.
 
-function solve(s::RadialCamera5pt, cs, idx::AbstractVector{<:Integer})
+function __solve(prob::_MinimalNoContext, s::RadialCamera5pt)
+    cs, idx = prob.f, prob.sample
     u = sources(cs); v = targets(cs)
     pts = SVector{5}(ntuple(k -> (@inbounds SVector{2, Float64}(u[idx[k]]) => SVector{2, Float64}(v[idx[k]])), Val(5)))
     P = radial_camera_5pt(pts; center = s.center)

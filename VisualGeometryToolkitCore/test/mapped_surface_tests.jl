@@ -80,6 +80,7 @@
 end
 
 @testitem "board deformation: the static pure-bending coefficients" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random, LinearAlgebra
     using ForwardDiff
     using Adapt: adapt
@@ -132,10 +133,9 @@ end
     @test dot(Gv, b) ≈ dot(VisualGeometryToolkitCore.nodal_weights(sys, p), b) atol = 1.0e-12
 
     # (c) allocation-free on the CPU
-    allocs(fn, args...) = (fn(args...); @allocated fn(args...))
-    @test allocs(tps_pure_bending, sys, raw) == 0 && allocs(tps_coefficients, sys, raw) == 0
+    @test warm_allocated(tps_pure_bending, sys, raw) == 0 && warm_allocated(tps_coefficients, sys, raw) == 0
     d = ForwardDiff.Dual.(raw, 1.0)
-    @test allocs(tps_pure_bending, sys, d) == 0 && allocs(tps_coefficients, sys, d) == 0
+    @test warm_allocated(tps_pure_bending, sys, d) == 0 && warm_allocated(tps_coefficients, sys, d) == 0
 
     # (d) in a KernelAbstractions kernel, the system adapted, in Float64 and Float32
     @kernel function bending_kernel!(out, @Const(values), s)
@@ -188,6 +188,8 @@ end
 end
 
 @testitem "board deformation: MappedSurface, the surface of the chart map" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, Random, LinearAlgebra
     using ForwardDiff
     using Rotations: RotMatrix, RotXYZ
@@ -198,7 +200,6 @@ end
     using VisualGeometryToolkitCore: intersection, chart, bounds, normal, surface, surface_point, grid_nodes, convert_eltype,
         with_parameters, tps_evaluate, tps_radial_basis, ThinPlateSplineSystem, tps_coefficients
 
-    allocs(f, args...) = (f(args...); @allocated f(args...))
     rng = Xoshiro(24)
     nodes = grid_nodes(4; lo = -0.6, hi = 0.6)
     H = HeightField(nodes, 0.01 .* randn(rng, 16))
@@ -252,7 +253,7 @@ end
                 isnan(tf) || @test maximum(abs, xf - xg) <= 8eps()
             end
             o, d = rays[1]
-            @test allocs(intersection, s, o, d) == 0
+            @test warm_allocated(intersection, s, o, d) == 0
             # Float32 takes the fast path too, and it is the Float32 root to Float32 rounding
             s32 = convert_eltype(Float32, s)
             @test VisualGeometryToolkitCore.Cameras._plain_fast(typeof(s32.map), SVector{3, Float32}, SVector{3, Float32})
@@ -301,7 +302,7 @@ end
         ForwardDiff.jacobian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2], [o; d])
         ForwardDiff.hessian(od -> intersection(s, SVector{3}(od[1:3]), SVector{3}(od[4:6]))[2][3], [o; d])
         # every method instance the LM was compiled for (dispatch tuples: the concrete calls) is Dual-free
-        lm = VisualGeometryToolkitCore.Cameras.static_lm
+        lm = VgtkCore._static_lm
         calls = [mi.specTypes for m in methods(lm) for mi in Base.specializations(m) if Base.isdispatchtuple(mi.specTypes)]
         @test !isempty(calls) && !any(t -> occursin("ForwardDiff.Dual", string(t)), calls)
     end
@@ -346,7 +347,7 @@ end
         @test Hs ≈ cfd(od -> ForwardDiff.gradient(z, od), [o; d], 1.0e-5) atol = 1.0e-6
         # Dual hits are inferred and allocation-free
         od = ForwardDiff.Dual.(o, 1.0), ForwardDiff.Dual.(d, 0.5)
-        @test (@inferred intersection(s, od...))[1] isa ForwardDiff.Dual && allocs(intersection, s, od...) == 0
+        @test (@inferred intersection(s, od...))[1] isa ForwardDiff.Dual && warm_allocated(intersection, s, od...) == 0
     end
 
     @testset "Float32, inferred and allocation-free" begin
@@ -359,10 +360,10 @@ end
             isnan(t) || @test abs(t32 - t) <= 1.0f-5 * abs(t)
         end
         o, d = rays[1]
-        @test allocs(intersection, s, o, d) == 0 && allocs(intersection, s32, Float32.(o), Float32.(d)) == 0
+        @test warm_allocated(intersection, s, o, d) == 0 && warm_allocated(intersection, s32, Float32.(o), Float32.(d)) == 0
         x = surface_point(s, SVector(0.1, 0.2))
-        @test isapprox((@inferred chart(s, x)), SVector(0.1, 0.2); atol = 1.0e-13) && allocs(chart, s, x) == 0
-        @test (@inferred normal(s, x)) isa SVector{3, Float64} && allocs(normal, s, x) == 0
+        @test isapprox((@inferred chart(s, x)), SVector(0.1, 0.2); atol = 1.0e-13) && warm_allocated(chart, s, x) == 0
+        @test (@inferred normal(s, x)) isa SVector{3, Float64} && warm_allocated(normal, s, x) == 0
         @test bounds(s) == rect
     end
 
@@ -704,6 +705,7 @@ end
 end
 
 @testitem "board deformation: Dual heights take the fast hit and one implicit-function step" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test, StaticArrays, LinearAlgebra, ForwardDiff
     using KernelAbstractions
     using KernelAbstractions: @kernel, @index, @Const
@@ -741,7 +743,7 @@ end
     # no allocation
     @testset "the cost of the partials" begin
         o, d = rays[findfirst(isfinite, REF.t)]
-        @test (intersection(s, o, d); @allocated intersection(s, o, d)) == 0
+        @test warm_allocated(intersection, s, o, d) == 0
         all_rays(s) = for (o, d) in rays; intersection(s, o, d); end
         timed(s) = (t0 = time_ns(); for _ in 1:50; all_rays(s); end; time_ns() - t0)
         all_rays(s); all_rays(s0)

@@ -9,11 +9,11 @@
 #   UT   experiments/e2e_welsch_hq.jl `_anytime_replay` (392), curves_superansac_vs_e2e.jl
 #        `_replay` (85) / `_f3` (57), common.jl `_q`/`_fmt` (22-23), cross_validation.jl
 #        `tdv_tuning_spec` (31), prepare_inputs.jl `write_pixel_inputs` (42-62)
-#   LODR accv2026/src/common.jl oracle floor (60-106), scripts/paper_numbers.jl `_read_tsv`,
+#   LODR accv2026/src/common.jl oracle floor (60-106), scripts/paper_numbers.jl `_read_tsv` (its rows stated as literals),
 #        src/superansac.jl `superansac_pixel_inputs!` (200), src/protocol_folds.jl `protocol_tuning` (41)
 # =============================================================================
 
-@testitem "report_helpers" begin
+@testitem "report_helpers" setup = [PoolRecordFields] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEval as VgtkEval
     using Test, Random, JLD2, Printf, Statistics, Dates, StaticArrays
@@ -68,11 +68,6 @@
         end
         return e
     end
-    function lodr_read_tsv(path)
-        lines = filter(l -> !isempty(strip(l)) && !startswith(l, "#"), readlines(path))
-        hdr = split(lines[1], '\t')
-        return [Dict(String(h) => String(v) for (h, v) in zip(hdr, split(l, '\t'))) for l in lines[2:end]]
-    end
 
     # a recorded trace: 4 pairs; pair 2 never has an event, pair 4 fails late
     d = Dict("trace_offsets" => [1, 4, 4, 6, 9],
@@ -125,11 +120,11 @@
             p = joinpath(dir, "sub", "t.tsv")
             @test write_tsv(p, ["arm", "x", "y"], [["a", 1.5, 2], ["b", "", 3]]; comments = ["first", "second note"]) == p
             @test read(p, String) == "# first\n# second note\narm\tx\ty\na\t1.5\t2\nb\t\t3\n"
-            @test read_tsv(p) == lodr_read_tsv(p)
-            @test read_tsv(p)[1] == Dict("arm" => "a", "x" => "1.5", "y" => "2")
+            # LODR's `_read_tsv`'s rows of this file (its own output, stated)
+            @test read_tsv(p) == [Dict("arm" => "a", "x" => "1.5", "y" => "2"), Dict("arm" => "b", "x" => "", "y" => "3")]
             # a header-and-comments-only file reads as no rows
             q = write_tsv(joinpath(dir, "e.tsv"), ["a"], []; comments = ["c"])
-            @test read_tsv(q) == lodr_read_tsv(q) == Dict{String,String}[]
+            @test read_tsv(q) == Dict{String,String}[]
             # UT's report layout: header and rows joined by hand, written with `write`
             txt = join(["# c", join(["metric", "ours"], '\t'), join(["m", ut_fmt(NaN)], '\t')], '\n') * "\n"
             write(joinpath(dir, "ut.tsv"), txt)
@@ -309,8 +304,7 @@
         p1, _ = synthetic_e_pool_pair(MersenneTwister(1))
         p2, _ = synthetic_e_pool_pair(MersenneTwister(2); n = 12, sibling_counts = [3, 1])
         p3, _ = synthetic_e_pool_pair(MersenneTwister(3); n = 14, sibling_counts = [2, 2])
-        fields(p) = NamedTuple{fieldnames(typeof(p))}(Tuple(getfield(p, f) for f in fieldnames(typeof(p))))
-        withsnn(p, s) = PoolPair{FundMat{Float64}}(; fields(p)..., snn = s)
+        withsnn(p, s) = PoolPair{FundMat{Float64}}(; record_fields(p)..., snn = s)
         ps = [withsnn(p1, rand(MersenneTwister(5), Float32, VgtkCore.Pools.num_points(p1))),
               withsnn(p2, rand(MersenneTwister(6), Float32, VgtkCore.Pools.num_points(p2))),
               withsnn(p3, rand(MersenneTwister(7), Float32, VgtkCore.Pools.num_points(p3)))]

@@ -7,7 +7,7 @@
    carries one.
 2. Normalization is private conditioning owned by ONE estimator (`fit_*`,
    `find_*`, `refine_*`, or a one-step algorithm's public form such as
-   `homography_dlt(cs)`): data mapped into the normalized frame once at entry,
+   `solve(EstimationProblem(HomographyMat, cs), DLT())`): data mapped into the normalized frame once at entry,
    models composed back and covariances propagated back once at exit. The
    strategy is chosen in one place, `CorrespondenceNormalization(M, cs; center)`, by
    model class.
@@ -36,16 +36,18 @@
 | Layer | Examples | Normalizes |
 |---|---|---|
 | task verb | `find_boards`, `track_boards` | never; forwards pixels |
-| estimator, one-step public form | `find_homography`, `fit_division_camera`, `homography_dlt(cs)` | once in, once out |
+| estimator, one-step public form | `find_homography`, `fit_division_camera`, `solve(EstimationProblem(HomographyMat, cs), DLT())` | once in, once out |
 | inner loop | [`homography_dlt!`](@ref), `division_camera_step`, `refine!(ws, problem, θ, w)`, [`test_model`](@ref) | never; takes the estimator's |
-| minimal kernel | [`homography_4pt`](@ref), [`essential_5pt`](@ref), `solve(solver, cs, idx)` | never |
+| minimal kernel | [`homography_4pt`](@ref), [`essential_5pt`](@ref), `solve(MinimalProblem(M, cs, idx), solver)` | never |
 | pool | [`PoolPair`](@ref VisualGeometryToolkitCore.Pools.PoolPair) (VGC `Pools`), VisualGeometryToolkitEstimation's pool-frame problems, VisualGeometryToolkitEval's pool IO, RANSACScoringDoneRight's pool scorers | stored in [`NormalizedImageFrame`](@ref), declared |
 
 ```julia
-function homography_dlt(cs)                       # pixels in
+function __solve(prob::EstimationProblem{<:HomographyMat}, ::DLT)   # pixels in
+    cs = prob.f
     N = CorrespondenceNormalization(HomographyMat, cs)    # the one strategy, private
-    return homography_dlt!(A, N, cs)              # inner loop: uses N, never builds one
-end                                               # H back in pixels
+    H = homography_dlt!(A, N, cs)                 # inner loop: uses N, never builds one
+    return closed_form_result(H, length(cs))      # H back in pixels
+end
 τ_n = similarity_scale(destination_map(N)) * τ_px # a pixel tolerance, inside
 ```
 

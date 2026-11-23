@@ -51,6 +51,10 @@ function _test_gate(mode::Symbol, what::AbstractString, findings)
     return found
 end
 
+warm_allocated(f, args...) = (f(args...); @allocated f(args...))
+
+sum_first_components(f, xs) = (s = 0.0; for x in xs; s += f(x)[1]; end; s)
+
 function thrown_message(f; shown::Bool = false)
     try
         f()
@@ -71,7 +75,7 @@ _snap(x::Attributed{<:Any, @NamedTuple{cost::Float64}}, nested) = (_snap(x.value
 _snap(x, nested) = isbits(x) ? x : nameof(typeof(x)) in nested ?
     Tuple(_snap(getfield(x, i), nested) for i in 1:fieldcount(typeof(x))) : :skipped
 _snap_state(st, nested) = Tuple(_snap(getfield(st, i), nested) for i in 1:fieldcount(typeof(st)))
-_fingerprint(res, nested) = (_snap(estimate(res), nested), retcode(res), iterations(res))
+_fingerprint(res, nested) = (_snap(res.u, nested), res.retcode, res.stats.nsteps)
 
 function test_recorded(make; nested = RECORDED_NESTED_STATES)
     # the full run, bare and recorded
@@ -83,7 +87,7 @@ function test_recorded(make; nested = RECORDED_NESTED_STATES)
     Test.@test isequal(_fingerprint(block_coordinate_descent!(rec, lh2, m2, p2, θ₀2; max_iter), nested), _fingerprint(bare, nested))
     Test.@test isequal(_snap_state(st2, nested), bare_state)
     Test.@test rec.reason[] !== :continue   # the reason the run ended (its record is the result's, compared above)
-    k_run = iterations(bare)
+    k_run = bare.stats.nsteps
     k_rec = length(rec.iterates)
     Test.@test k_rec == (rec.reason[] === :solve_failed ? k_run - 1 : k_run)
     Test.@test length(rec.cost) == length(rec.s2) == k_rec
@@ -92,7 +96,7 @@ function test_recorded(make; nested = RECORDED_NESTED_STATES)
         stk, lhk, mk, pk, θk, _ = make()
         resk = block_coordinate_descent!(stk, lhk, mk, pk, θk; max_iter = k)
         Test.@test isequal(current_cost(stk), rec.cost[k])
-        Test.@test iterations(resk) == k
+        Test.@test resk.stats.nsteps == k
         k == k_rec && Test.@test isequal(_snap_state(stk, nested), bare_state)
     end
     return k_rec

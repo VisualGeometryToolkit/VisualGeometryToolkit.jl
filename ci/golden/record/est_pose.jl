@@ -45,37 +45,8 @@ function po_find_cases!(cases, family, name, fx, find, problem, thr; full = true
     return cases
 end
 
-# The refine_* settings from each seed's find (its model and its search's scale), and from the raw incumbent.
-function po_refine_cases!(cases, family, name, fx, find, refine; full = true, problem = nothing)
-    for seed in SEEDS
-        r = find(fx; rng = StableRNG(seed))
-        θ = estimate(r)
-        θ === nothing && continue
-        case!(cases, "$family/$name/scale_upstream/seed$seed", (fx, θ, r), ((fx, θ, r),) -> refine(fx, θ; scale = r))
-        case!(cases, "$family/$name/ls/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; optimization_strategy = nothing))
-        case!(cases, "$family/$name/scale1/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; scale = 1.0))
-        full || continue
-        case!(cases, "$family/$name/width2/seed$seed", (fx, θ), ((fx, θ),) -> refine(fx, θ; width = 2.0))
-        case!(cases, "$family/$name/triggs_cauchy_ec2.5_upstream/seed$seed", (fx, θ, r),
-            ((fx, θ, r),) -> refine(fx, θ; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = r))
-        case!(cases, "$family/$name/triggs_tls_width3/seed$seed", (fx, θ),
-            ((fx, θ),) -> refine(fx, θ; optimization_strategy = Triggs{TLSShape}(), width = 3.0))
-        case!(cases, "$family/$name/triggs_huber_scale1/seed$seed", (fx, θ),
-            ((fx, θ),) -> refine(fx, θ; optimization_strategy = Triggs{HuberShape}(), scale = 1.0))
-        problem === nothing || case!(cases, "$family/$name/workspace_scale1/seed$seed", (fx, θ),
-            ((fx, θ),) -> (p = problem(fx); refine(fx, θ; scale = 1.0, workspace = RansacWorkspace(typeof(p), data_size(p)))))
-        raw_r = find(fx; local_optimization_strategy = nothing, rng = StableRNG(seed))
-        raw = estimate(raw_r)
-        raw === nothing && continue
-        case!(cases, "$family/$name/from_raw_upstream/seed$seed", (fx, raw, raw_r), ((fx, θ, r),) -> refine(fx, θ; scale = r))
-        case!(cases, "$family/$name/from_raw_cauchy_ec2.5/seed$seed", (fx, raw, raw_r),
-            ((fx, θ, r),) -> refine(fx, θ; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = r))
-    end
-    return cases
-end
-
-# The shared refusals (`refusal_cases!`): the record side's one copy
-Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "refusal_cases.jl"))
+# The case matrices this group shares with est_epipolar (`refusal_cases!`, `refine_cases!`)
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "fixtures", "shared_cases.jl"))
 
 function record_est_pose(cases)
     # ---------------------------------------------------------------- the absolute pose, pixel form
@@ -85,18 +56,16 @@ function record_est_pose(cases)
     for (name, fx) in po_abspose_scenes()
         if name == "pnp_120+60"
             po_find_cases!(cases, "abspose_find", name, fx, afind, aprob, fx -> 8.0)
-            po_refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; problem = aprob)
+            refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; workspace = fx -> (p = aprob(fx); RansacWorkspace(typeof(p), data_size(p))))
         elseif name in ("division2", "opencv5")   # pnp_lens_tests: MSAC at 5 px, two strategies
             for (lbl, lo) in ("irls_tls" => Irls{TLSShape}(), "irls_welsch_ec1.5" => Irls{WelschShape}(efficiency_constant = 1.5)), seed in SEEDS
                 case!(cases, "abspose_find/$name/msac5_$lbl/seed$seed", fx,
                     fx -> afind(fx; scoring = MsacScoring(AbsolutePoseProblem; threshold = 5.0), local_optimization_strategy = lo, rng = StableRNG(seed)))
             end
-            po_refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; full = false)
+            refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; full = false)
         else
             po_find_cases!(cases, "abspose_find", name, fx, afind, aprob, fx -> 8.0; full = false)
-            name == "units_80_pairs" && po_refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; full = false)
-            name == "units_80_metres" && po_refine_cases!(cases, "abspose_refine", name, fx, afind,
-                (fx, θ; kw...) -> arefine(fx, θ; kw...); full = false)
+            name in ("units_80_pairs", "units_80_metres") && refine_cases!(cases, "abspose_refine", name, fx, afind, arefine; full = false)
         end
     end
     X, u = po_units_pnp()
@@ -151,10 +120,10 @@ function record_est_pose(cases)
         physical = occursin("metres", name) || occursin("millimetres", name)
         if name == "find_scene_30"
             po_find_cases!(cases, "handeye_find", name, cs, hfind, hprob, cs -> 0.01 * hprob(cs).char_length)
-            po_refine_cases!(cases, "handeye_refine", name, cs, hfind, hrefine; problem = hprob)
+            refine_cases!(cases, "handeye_refine", name, cs, hfind, hrefine; workspace = fx -> (p = hprob(fx); RansacWorkspace(typeof(p), data_size(p))))
         else
             po_find_cases!(cases, "handeye_find", name, cs, hfind, hprob, nothing; full = false)
-            name in ("outliers_120+15", "units_40_metres") && po_refine_cases!(cases, "handeye_refine", name, cs, hfind, hrefine; full = false)
+            name in ("outliers_120+15", "units_40_metres") && refine_cases!(cases, "handeye_refine", name, cs, hfind, hrefine; full = false)
         end
         if name in ("allpairs_20", "find_scene_30")
             for seed in SEEDS
@@ -206,7 +175,7 @@ function record_est_pose(cases)
     for (name, fx) in po_radial_homography_scenes()
         if name == "find_scene_70+30"
             po_find_cases!(cases, "radialh_find", name, fx, rhfind, rhprob, fx -> 3.0)
-            po_refine_cases!(cases, "radialh_refine", name, fx, rhfind, rhrefine; problem = rhprob)
+            refine_cases!(cases, "radialh_refine", name, fx, rhfind, rhrefine; workspace = fx -> (p = rhprob(fx); RansacWorkspace(typeof(p), data_size(p))))
         else
             po_find_cases!(cases, "radialh_find", name, fx, rhfind, rhprob, nothing; full = false)
         end
@@ -268,14 +237,14 @@ function record_est_pose(cases)
     for (k, (name, fx)) in enumerate(po_radial_camera_scenes())
         if k == 1
             po_find_cases!(cases, "radialcam_find", name, fx, rcfind, rcprob, fx -> 3.0)
-            po_refine_cases!(cases, "radialcam_refine", name, fx, rcfind, rcrefine; problem = rcprob)
+            refine_cases!(cases, "radialcam_refine", name, fx, rcfind, rcrefine; workspace = fx -> (p = rcprob(fx); RansacWorkspace(typeof(p), data_size(p))))
         else
             po_find_cases!(cases, "radialcam_find", name, fx, rcfind, rcprob, nothing; full = false)
             for seed in SEEDS
                 case!(cases, "radialcam_find/$name/msac5/seed$seed", fx,
                     fx -> rcfind(fx; scoring = MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(seed)))
             end
-            k == 2 && po_refine_cases!(cases, "radialcam_refine", name, fx, rcfind, rcrefine; full = false)
+            k == 2 && refine_cases!(cases, "radialcam_refine", name, fx, rcfind, rcrefine; full = false)
         end
     end
     for seed in SEEDS   # an extent over the board's plane

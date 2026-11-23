@@ -695,8 +695,7 @@ function propagate(m::FramedAffine{Src, Dst, T}, Λ::PrecMat{2, S, L, C}) where 
     return _pullback(inv(SMatrix{2, 2, promote_type(T, S)}(m.A)), Λ, Dst)
 end
 propagate(m::FramedAffine, u::Uncertain{V, <:Union{CovMat{2}, PrecMat{2}}}) where {V} =
-    Uncertain(m(getfield(u, :value)), propagate(m, getfield(u, :attributes)))
-propagate(m::FramedAffine, u::Uncertain{<:PointFrame, <:Union{CovMat{2}, PrecMat{2}}}) = _as_point_frame(propagate(m, center(u)))
+    Uncertain((v = getfield(u, :value); _with_value_point(v, m(_value_point(v)))), propagate(m, getfield(u, :attributes)))
 
 """
     similarity_scale(m::FramedAffine) -> Real

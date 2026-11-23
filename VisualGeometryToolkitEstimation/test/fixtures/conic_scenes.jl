@@ -1,3 +1,8 @@
+# GOLDEN-SHARED FIXTURE: ci/golden's fixtures include this file, and the recorder runs it against the pre-migration
+# checkout (3d8a06da), in that checkout's environment. So: data constructors only, written against the API both
+# sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
+# recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
+# `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The circle and the ellipse of the RANSAC conic tests (scenes_testsetups.jl's ConicScenes, which includes this file, and
 # the golden records of ci/golden/fixtures/{core_minimal,est_conics_ransac}.jl): n points on the curve with isotropic
 # noise σ, then a fraction `outl` replaced, half by a straight run (a floor edge), half by uniform clutter. Data

@@ -4,12 +4,15 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-Projective solver kernels (homography, fundamental, essential, P3P),
-model-validity tests, the zero-allocation SVD workspace, and the
-total-least-squares line. The slot-labeled epipolar forms have their own page,
-the [Epipolar Forms API](epipolar_forms.md). The `solve` protocol and the
-solver registry are documented with the [Correspondence API](matching.md); see the
-[Epipolar Forms](../guide/forms.md) guide.
+The closed-form algorithms (the DLT, Kabsch, the chordal mean, spectral rotation
+averaging, the total-least-squares line, the direct ellipse, the point nearest to
+lines, two-view triangulation), the projective solver kernels (homography,
+fundamental, essential, P3P), model-validity tests and the zero-allocation SVD
+workspace. The slot-labeled epipolar forms have their own page, the
+[Epipolar Forms API](epipolar_forms.md). The estimation interface (`solve`, the
+problems, the kinds) is on [The Estimation Interface](estimation.md) page; the minimal-solver
+layer and the solver registry are documented with the
+[Correspondence API](matching.md); see the [Epipolar Forms](../guide/forms.md) guide.
 
 ## Normalization
 
@@ -34,6 +37,18 @@ with `normalize` and the side accessors, whose composition moves a model
 estimator normalizes once at its entry and returns results in its inputs'
 frame; the DLT kernels take the enclosing normalization as `normalization`.
 
+## Closed-Form Algorithms
+
+One deterministic step each ([`ClosedFormKind`](@ref)):
+`solve(EstimationProblem(M, data[, p]), Algorithm())` returns a [`FitResult`](@ref)
+whose `u` is the model, `nothing` on a degenerate configuration.
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
+Private = false
+Pages = ["geometry/solvers/closed_forms.jl"]
+```
+
 ## Homography Solvers
 
 ```@autodocs
@@ -55,7 +70,7 @@ Pages = ["geometry/solvers/fundmat.jl", "geometry/solvers/solvers.jl", "geometry
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["geometry/solvers/tls_line.jl", "geometry/solvers/nearest_point.jl"]
+Pages = ["geometry/solvers/total_least_squares.jl", "geometry/solvers/point_from_lines.jl"]
 ```
 
 ## Circles
@@ -71,7 +86,7 @@ Pages = ["geometry/solvers/circle_3pt.jl"]
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["geometry/solvers/ellipse_5pt.jl", "geometry/solvers/direct_ellipse.jl"]
+Pages = ["geometry/solvers/ellipse_5pt.jl", "geometry/solvers/algebraic_ellipse.jl"]
 ```
 
 ## Model Validity

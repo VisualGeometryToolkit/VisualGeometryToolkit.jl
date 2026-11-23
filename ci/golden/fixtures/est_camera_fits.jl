@@ -21,8 +21,7 @@ const _ECF_DB = VgtkEstimation.synthetic_scenes().DivisionBoards
 # ---------------------------------------------------------------------------------------------------------------
 # FitCameraLensCases: name => (target family, source, region)
 # ---------------------------------------------------------------------------------------------------------------
-ecf_disc(m, R) = Ellipse(SVector(calibration_matrix(m)[1, 3], calibration_matrix(m)[2, 3]), R, R, 0.0)
-ecf_disc_angle(m, θ) = ecf_disc(m, Float64(projected_radius(radial_part(lens(m)), θ)) * calibration_matrix(m)[1, 1])
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "lens_regions.jl"))   # `disc`, `disc_angle`
 const ECF_KB4 = KannalaBrandt{4}
 const ECF_SC3 = Scaramuzza{3}
 const ECF_DSL = typeof(Lens(DoubleSphere(0.5, 0.5)))
@@ -39,7 +38,6 @@ function ecf_lens_cases()
     msc = CameraModel(; pp, focal = 927.0, lens = Scaramuzza(-0.3302, 0.02, -0.0765))
     rlit = 927.0 * monotone_radius(mdiv.lens) * 0.97
     cam900 = CameraModel(; pp, focal = 900.0, lens = Division(-0.2, -0.08))
-    disc, disc_angle = ecf_disc, ecf_disc_angle
     return [
         "KB4_mkb" => (ECF_KB4, mkb, disc_angle(mkb, view_angle_limit(radial_part(mkb.lens)))),
         "KB4_mdiv" => (ECF_KB4, mdiv, disc(mdiv, rcorner)),
@@ -128,23 +126,11 @@ function ecf_siemens()
 end
 
 # FoldingSources: a SplineLens ray field θof(r) about (512, 494), K re-gauged to (500, 500), bounded by a 478 px disc
-const ECF_AXIS_PIXEL = SVector(512.0, 494.0)
-function ecf_folding_source(θof; ε = 0.0)
-    c = ECF_AXIS_PIXEL
-    ray(u) = (v = SVector(u[1], u[2]) - c; r = norm(v); θ = θof(r) * (1 + ε * v[1] / 480);
-              r == 0 ? SVector(0.0, 0.0, 1.0) : SVector(sin(θ) * v[1] / r, sin(θ) * v[2] / r, cos(θ)))
-    grid = CameraModel(SplineLens, ray, Size2(1000, 1000); grid_size = (30, 30), init = :quasi_interpolate)
-    K0 = calibration_matrix(grid)
-    return BoundedCamera(CameraModel(grid, CameraCalibrationMat(SMatrix{3, 3, Float64}(K0[1, 1], 0, 0, 0, K0[2, 2], 0, 500.0, 500.0, 1))),
-                         Size2(1000, 1000); lens_coverage = Ellipse(c, 478.0, 478.0, 0.0))
-end
-ecf_theta_fold25(r) = r <= 350.0 ? atan(r / 600.0) : atan(350.0 / 600.0) + (r - 350.0) / 600.0 + deg2rad(25.0) * ((r - 350.0) / 130.0)^3
-ecf_theta_fold195(r) = r <= 350.0 ? atan(r / 600.0) : atan(350.0 / 600.0) + (r - 350.0) / 600.0 + deg2rad(19.5) * ((r - 350.0) / 130.0)^3
-ecf_theta_collapse(r) = r <= 420.0 ? r / 300.0 : r / 300.0 + 0.2 * ((r - 420.0) / 60)^3
+Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "folding_sources.jl"))   # `folding_source`
 ecf_folding_sources() = [
-    "fold25" => ecf_folding_source(ecf_theta_fold25),
-    "fold19.5_eps0.02" => ecf_folding_source(ecf_theta_fold195; ε = 0.02),
-    "slope_collapse" => ecf_folding_source(ecf_theta_collapse),
+    "fold25" => folding_source(r -> theta_fold(r; turn = deg2rad(25.0))),
+    "fold19.5_eps0.02" => folding_source(r -> theta_fold(r; turn = deg2rad(19.5)); ε = 0.02),
+    "slope_collapse" => folding_source(theta_collapse),
     "plain_pinhole" => BoundedCamera(CameraModel(SplineLens, CameraModel(; pp = (512.0, 494.0), focal = 600.0), Size2(1000, 1000); grid_size = (30, 30)),
                                      Size2(1000, 1000)),
 ]

@@ -46,7 +46,10 @@ linearises bit for bit as the RAW alone. [`LinearRaw`](@ref)`(mosaic; mode,
 sensor_model)` is THE one black subtraction; under a [`PoissonGaussian`](@ref)
 or [`RelativeNoise`](@ref) its image carries each value's variance. The
 estimators build a characterisation's components from frames, offline:
-[`photon_transfer`](@ref), [`master_dark`](@ref), [`defect_onsets`](@ref).
+[`PhotonTransfer`](@ref) and [`MasterDark`](@ref), the algorithms of
+`solve(EstimationProblem(PoissonGaussian, groups, (; darks)), PhotonTransfer())` and
+`solve(EstimationProblem(Dark, frames, (; exposure_band)), MasterDark())`, and
+[`defect_onsets`](@ref).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

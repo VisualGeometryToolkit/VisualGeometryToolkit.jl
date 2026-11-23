@@ -8,7 +8,7 @@
 @testsetup module TuningFixtures
     using VisualGeometryToolkitEval.Tuning: tuning_spec
 
-    export fixture_spec, with_cross_validation
+    export fixture_spec, with_cross_validation, coarse_fine_axis
 
     const FIXTURE_CROSS_VALIDATION = Dict{String,Any}(
         "scene_split" => Dict{String,Any}("type" => "registered", "name" => "phototourism"))
@@ -21,4 +21,12 @@
     "The spec `[tuning.<name>]` = `table` (with the fixture cross-validation)."
     fixture_spec(table::AbstractDict; name::AbstractString = "t") =
         tuning_spec(Dict{String,Any}("tuning" => Dict{String,Any}(name => with_cross_validation(table))), name)
+
+    "A joint coarse-fine axis table: a spaced coarse grid on the fixed window [lo, hi], its fine rule, and (given) its `expensive` flag."
+    function coarse_fine_axis(lo, hi, spacing, fine; expensive = nothing)
+        ax = Dict{String,Any}("coarse" => Dict{String,Any}("type" => "spaced",
+            "window" => Dict{String,Any}("type" => "fixed", "lo" => lo, "hi" => hi), "spacing" => spacing), "fine" => fine)
+        expensive === nothing || (ax["expensive"] = expensive)
+        return ax
+    end
 end

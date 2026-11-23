@@ -156,14 +156,14 @@ function record_core_closed_forms(cases)
     end
     # --- direct_ellipse -----------------------------------------------------------------------------------------
     e0 = ELLIPSE_E0
-    case!(cases, "direct_ellipse/exact_40/plain", ellipse_points(e0, 40), p -> direct_ellipse(p))
-    case!(cases, "direct_ellipse/exact_5/minimum", ellipse_points(e0, 5), p -> direct_ellipse(p))
-    case!(cases, "direct_ellipse/quarter_arc_30/plain", ellipse_points(e0, 30; arc = π / 2), p -> direct_ellipse(p))
-    case!(cases, "direct_ellipse/circle_20/plain", ellipse_points(Ellipse(Point2(-3.0, 7.0), 4.0, 4.0, 0.0), 20), p -> direct_ellipse(p))
+    case!(cases, "direct_ellipse/exact_40/plain", ellipse_boundary_points(StableRNG(1), e0, 40), p -> direct_ellipse(p))
+    case!(cases, "direct_ellipse/exact_5/minimum", ellipse_boundary_points(StableRNG(1), e0, 5), p -> direct_ellipse(p))
+    case!(cases, "direct_ellipse/quarter_arc_30/plain", ellipse_boundary_points(StableRNG(1), e0, 30; arc = π / 2), p -> direct_ellipse(p))
+    case!(cases, "direct_ellipse/circle_20/plain", ellipse_boundary_points(StableRNG(1), Ellipse(Point2(-3.0, 7.0), 4.0, 4.0, 0.0), 20), p -> direct_ellipse(p))
     case!(cases, "direct_ellipse/four_points/too_few", [SVector(Float64(i), 0.0) for i in 1:4], p -> direct_ellipse(p))
     case!(cases, "direct_ellipse/collinear_10/none", [SVector(Float64(i), 2.0i) for i in 1:10], p -> direct_ellipse(p))
     for seed in SEEDS
-        case!(cases, "direct_ellipse/noisy_60/sigma0.5/seed$seed", ellipse_points(e0, 60; σ = 0.5, rng = StableRNG(seed)), p -> direct_ellipse(p))
+        case!(cases, "direct_ellipse/noisy_60/sigma0.5/seed$seed", ellipse_boundary_points(StableRNG(seed), e0, 60; σ = 0.5), p -> direct_ellipse(p))
     end
     # --- nearest_point ------------------------------------------------------------------------------------------
     case!(cases, "nearest_point/two_lines/correspondences", nearest_point_two(), l -> nearest_point(l))

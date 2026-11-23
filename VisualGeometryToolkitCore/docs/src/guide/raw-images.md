@@ -198,7 +198,7 @@ an `ArgumentError`.
 Reduce a Float16 image in Float64: `sum(Float64, A)` and `mean(Float64, A)`.
 A Float16 accumulation overflows past 65504 (a million green cells near the
 white level sum to about 8e5) and drops low bits long before. The sensor
-estimators ([`master_dark`](@ref), [`photon_transfer`](@ref),
+estimators ([`MasterDark`](@ref), [`PhotonTransfer`](@ref),
 [`defect_onsets`](@ref)) read the mosaics' codes and accumulate in Float64,
 so the element type never reaches them. [`linear_quantum`](@ref) of a Float16
 view is the coarser of one code and the value's Float16 step, the resolution

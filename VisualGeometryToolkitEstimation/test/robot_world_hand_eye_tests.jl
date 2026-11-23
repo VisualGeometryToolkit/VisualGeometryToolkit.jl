@@ -19,18 +19,8 @@ import VisualGeometryToolkitCore as VgtkCore
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
 
-# A_i X_m = Y B_i^m  ⇒  B = Y⁻¹ ∘ A ∘ X. `markers[m]` holds marker m's
-# correspondences A_i => B_i^m, one per frame it is seen in (frame order).
-function _synth(rng; N = 25, M = 4, σ_R = 0.0, σ_t = 0.0, drop = 0.0)
-    (; Y, X, A) = robot_world_hand_eye_scene(rng; N, M, Y = (t_scale = 0.5,), X = (ang_max = 0.5, t_scale = 0.3), A = (t_scale = 1.0,))
-    markers = Dict(m => Pair{typeof(Y), typeof(Y)}[] for m in 1:M)
-    for i in 1:N, m in 1:M
-        rand(rng) < drop && continue
-        B = marker_pose(Y, A[i], X[m])
-        push!(markers[m], A[i] => (σ_R == 0 && σ_t == 0 ? B : perturb_pose(rng, B; σ_R, σ_t)))
-    end
-    return markers, Y, X
-end
+# The markers of A_i X_m = Y B_i^m (`rwhe_synth`): the suite's fixture file, shared with the golden records
+include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "robot_world_scenes.jl"))
 _nobs(markers) = sum(length, values(markers))
 
 
@@ -38,7 +28,7 @@ _nobs(markers) = sum(length, values(markers))
 
     @testset "noiseless recovery is exact" begin
         rng = StableRNG(1)
-        markers, Ygt, Xgt = _synth(rng; N = 12, M = 3)
+        markers, Ygt, Xgt = rwhe_synth(rng; N = 12, M = 3)
         est = fit_robot_world_hand_eye(markers)
         @test estimate(est) isa RobotWorldHandEyeCalibration{Int}
         @test estimate(est).ids == [1, 2, 3]
@@ -56,7 +46,7 @@ _nobs(markers) = sum(length, values(markers))
         # translation solve runs about each side's centroid at one Hartley scale, so the
         # offset leaves the recovery at the noiseless test's tolerance.
         rng = StableRNG(1)
-        markers, Ygt, Xgt = _synth(rng; N = 12, M = 3)
+        markers, Ygt, Xgt = rwhe_synth(rng; N = 12, M = 3)
         off = SVector(1.0e4, -7.0e3, 2.5e3)
         far = Dict(m => [EuclideanMap(rotation(a), translation(a) + off) => b for (a, b) in cs] for (m, cs) in markers)
         est = fit_robot_world_hand_eye(far)
@@ -69,7 +59,7 @@ _nobs(markers) = sum(length, values(markers))
 
     @testset "moderate noise (1 mrad / 1 mm)" begin
         rng = StableRNG(2)
-        markers, Ygt, Xgt = _synth(rng; N = 40, M = 5, σ_R = 1.0e-3, σ_t = 1.0e-3, drop = 0.2)
+        markers, Ygt, Xgt = rwhe_synth(rng; N = 40, M = 5, σ_R = 1.0e-3, σ_t = 1.0e-3, drop = 0.2)
         est = fit_robot_world_hand_eye(markers)
         @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 0.01            # < 0.6°
         @test norm(translation(estimate(est).Y) - translation(Ygt)) < 0.01
@@ -91,7 +81,7 @@ _nobs(markers) = sum(length, values(markers))
         _δ(gt, h) = local_coordinates(RigidExpManifold6(h), gt)   # (log(R_gt·R̂ᵀ), t_gt − t̂): the reported chart
         M = 3
         trial(block) = function (rng)
-            markers, Ygt, Xgt = _synth(rng; N = 15, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
+            markers, Ygt, Xgt = rwhe_synth(rng; N = 15, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
             est = fit_robot_world_hand_eye(markers)
             cal = estimate(est)
             δs = vcat([_δ(Ygt, cal.Y)], [_δ(Xgt[m], cal.X[m]) for m in 1:M])
@@ -116,7 +106,7 @@ _nobs(markers) = sum(length, values(markers))
         @test is_calibrated(rJ) && rJ.nfail == 0
         # More poses: the regime where the Gauss–Newton miss grew (1.48 at N = 40).
         trial40 = function (rng)
-            markers, Ygt, Xgt = _synth(rng; N = 40, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
+            markers, Ygt, Xgt = rwhe_synth(rng; N = 40, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
             est = fit_robot_world_hand_eye(markers)
             return Vector(_δ(Ygt, estimate(est).Y)), Matrix(est.cov)[1:6, 1:6]
         end
@@ -140,7 +130,7 @@ _nobs(markers) = sum(length, values(markers))
         est = fit_robot_world_hand_eye(markers; σ_rot = 1.0, σ_trans = 1.0)
         λmin = est.min_eigval
         # healthy geometry for comparison
-        markersh, _, _ = _synth(StableRNG(6); N = 12, M = 2)
+        markersh, _, _ = rwhe_synth(StableRNG(6); N = 12, M = 2)
         esth = fit_robot_world_hand_eye(markersh; σ_rot = 1.0, σ_trans = 1.0)
         @test λmin < 1.0e-8 * esth.min_eigval    # collapsed vs healthy
         # The null space is 2-D, so `min_eigvec` is an ARBITRARY unit vector in
@@ -190,7 +180,7 @@ _nobs(markers) = sum(length, values(markers))
 
     @testset "argument validation" begin
         rng = StableRNG(7)
-        markers, _, _ = _synth(rng; N = 6, M = 2)
+        markers, _, _ = rwhe_synth(rng; N = 6, M = 2)
         @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1][1:2], 2 => markers[2][1:1]))   # underdetermined
         @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1], 2 => empty(markers[2])))      # a marker with no observations
         # Marker ids are the caller's own keys (here Strings), X is keyed by them,

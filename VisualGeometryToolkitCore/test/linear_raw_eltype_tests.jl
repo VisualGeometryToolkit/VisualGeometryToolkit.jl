@@ -92,7 +92,7 @@ end
     using Statistics: mean, var, std
     using StableRNGs: StableRNG
     using Distributions: Normal, quantile
-    # The statistics Core's master_dark and photon_transfer estimate (they read the mosaics' UInt16 codes, so Float16
+    # The statistics Core's MasterDark and PhotonTransfer estimate (they read the mosaics' UInt16 codes, so Float16
     # storage cannot move them) computed by a consumer from the STORED green cells, accumulated in Float64: per cell its
     # temporal mean and variance over n frames, the black and σ_r from darks, K from the variance against the mean.
     # The bounds, per cell of n samples x_k stored as x̂_k = x_k + e_k, |e_k| ≤ δ_k = δ(x_k):
@@ -115,7 +115,7 @@ end
     end
     span = WHITE - BLACK
     n = 16
-    # darks: the black and the read noise (master_dark's statistics)
+    # darks: the black and the read noise (MasterDark's statistics)
     rng = StableRNG(41)
     darks = [synth_mosaic([code(rng, BLACK, nothing, SIGMA_R) for i in 1:64, j in 1:64]) for _ in 1:n]
     X64, X16 = cells(Float64, darks), cells(Float16, darks)

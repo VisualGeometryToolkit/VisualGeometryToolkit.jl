@@ -259,10 +259,7 @@ function read_kind(path::AbstractString, kind::KindSpec)
     return d
 end
 # Whether `s` names an earlier major version of the kind `schema` names.
-function _is_earlier_owned(s, schema::AbstractString)
-    a, b = _split_owned(s), something(_split_owned(schema))
-    return a !== nothing && a.owner == b.owner && a.kind == b.kind && a.major < b.major
-end
+_is_earlier_owned(s, schema::AbstractString) = _owned_major(<, s, schema)
 function _refuse_owned_schema(path, kind::KindSpec, s)
     _is_earlier_owned(s, kind.schema) && throw(ArgumentError(
         "$(path) is a retired $(s) file, which no migration reads ($(kind.package) reads $(join(schema_versions(kind), ", "))): " *

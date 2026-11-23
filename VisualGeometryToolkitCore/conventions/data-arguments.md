@@ -23,9 +23,11 @@
   a stage reads the weight with `weight_of` (1.0 for a bare value) and the
   value with `value_of`, never from a parallel `weights` vector or keyword.
   `Attributed` is for the data, not for wrapping results.
-- A fit returns a `FitResult`; its extras go in its metadata. Several fits
+- An estimator returns a `FitResult`; its extras go in its metadata, read by
+  field (`r.metadata.depths`), and a cross-type contract quantity is read by its
+  function (`weights(r)`), never by a forwarded property. Several fits
   come back keyed by what was fitted (a `Dict`). Per-datum outputs are
   index-aligned in the metadata, and callers attach them to their data with
   `withattrs`.
 - Minimal-solver kernels stay positional internals (public, not exported);
-  the public entry is `solve(solver, cs, idx)`.
+  the public entry is `solve(MinimalProblem(M, cs, idx), solver)`.

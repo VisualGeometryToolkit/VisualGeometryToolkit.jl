@@ -240,10 +240,7 @@ check_fresh(cs::ConsensusSet, buf::ScoreBuffers) = check_fresh(cs, buf.epoch)
 is_fresh(cs::ConsensusSet, buf::ScoreBuffers) = is_fresh(cs, buf.epoch)
 
 # Trim every buffer to `n` (a shared workspace sized for a larger problem).
-function Base.resize!(buf::ScoreBuffers, n::Integer)
-    resize!(buf.residuals, n); resize!(buf.scores, n); resize!(buf.mask, n)
-    return buf
-end
+Base.resize!(buf::ScoreBuffers, n::Integer) = (resize_buffers!(n, buf.residuals, buf.scores, buf.mask); buf)
 
 # =============================================================================
 # DERIVED — one statement each
@@ -253,7 +250,7 @@ end
     consensus_s2(scoring, residuals, order, k; model_dof, d_g) -> Float64
 
 The Student-t scale ŝ² of the consensus set `order[1:k]` under the scorer's
-[`scale_prior`](@ref): [`partition_student_t`](@ref) of its RSS
+[`scale_prior`](@ref): `_partition_student_t` of its RSS
 ([`partition_rss`](@ref), from the plain `residuals`). `model_dof` is the
 caller's — `m + 1` for a local optimizer's consensus set (the scale's extra
 dof), `m` for a result's σ̂.
@@ -261,7 +258,7 @@ dof), `m` for a result's σ̂.
 consensus_s2(scoring, residuals::AbstractVector, order::AbstractVector{Int}, k::Int;
              model_dof::Integer, d_g::Integer) =
     last(
-    partition_student_t(
+    _partition_student_t(
         scale_prior(scoring), partition_rss(order, residuals, k), k;
         model_dof, codimension = d_g
     )
@@ -288,7 +285,7 @@ end
 Per-point inlier probabilities of the consensus set `order[1:k]`: under a
 scorer with an outlier model ([`outlier_halfwidth`](@ref) a number) the
 Student-t + uniform posterior of the set's Student-t
-([`posterior_inlier_probs!`](@ref) on the squared per-point `scores`, under the
+(`_posterior_inlier_probs!` on the squared per-point `scores`, under the
 scorer's prior); otherwise 0/1 membership of `order[1:k]`.
 """
 inlier_probabilities!(w::AbstractVector, scoring, scores::AbstractVector, order::AbstractVector{Int}, k::Int;
@@ -296,7 +293,7 @@ inlier_probabilities!(w::AbstractVector, scoring, scores::AbstractVector, order:
     _inlier_probabilities!(outlier_halfwidth(scoring), w, scoring, scores, order, k, model_dof, d_g)
 
 _inlier_probabilities!(a::Float64, w, scoring, scores, order, k, model_dof, d_g) =
-    posterior_inlier_probs!(
+    _posterior_inlier_probs!(
     w, scores, order, k; model_dof = Int(model_dof), log_two_outlier_halfwidth = log(2 * a),
     codimension = Int(d_g), prior = scale_prior(scoring)
 )

@@ -2,6 +2,7 @@
 # kind of lens, in Float64 and Float32 — the property that makes the per-point
 # functions the batch kernels (pointwise!) on a CPU and on a GPU.
 @testitem "lens_stability" begin
+    using VisualGeometryToolkitCore: warm_allocated
     using Test
     using StaticArrays: SVector
     using VisualGeometryToolkitCore
@@ -20,7 +21,6 @@
         Lens(DoubleSphere(-0.2, 0.59)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),
         Lens(Unified(0.7), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, 0.0))),
     )
-    allocs(f, a, b) = (f(a, b); @allocated f(a, b))
     for T in (Float64, Float32), lens0 in lenses
         lens = _precision(T, lens0)
         X = SVector{3, T}(0.3, -0.2, 1.0)
@@ -29,7 +29,7 @@
         for (f, a) in ((project, X), (backproject, u), (distort_normalized, x), (undistort_normalized, u),
                 (transform_deriv, X), (transform_deriv_params, X), (project_with_jacobians, X))
             @test (@inferred f(lens, a); true)
-            @test allocs(f, lens, a) == 0
+            @test warm_allocated(f, lens, a) == 0
         end
         @test eltype(project(lens, X)) === T && eltype(backproject(lens, u)) === T
     end

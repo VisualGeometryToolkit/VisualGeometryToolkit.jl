@@ -50,12 +50,8 @@ An `EllipseProblem` from 2D points (`StaticVector{2}`, pixels or any plain unit:
 the residual and the threshold are in that unit), canonicalized to
 `Point2{Float64}`. Uniform sampling unless a `sampler` is supplied.
 """
-function EllipseProblem(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}};
-                        sampler::Union{Nothing, AbstractSampler} = nothing)
-    smplr = _problem_sampler(points, 5, sampler)
-    pts = Point2{Float64}[Point2{Float64}(p[1], p[2]) for p in points]
-    return MinimalSolveProblem{VgtkCore.Ellipse{Float64}, 5}(pts, nothing, pts, nothing, VgtkCore.Ellipse5pt(), nothing, smplr)
-end
+EllipseProblem(points::AbstractVector{<:StaticArrays.StaticVector{2, <:Real}}; sampler::Union{Nothing, AbstractSampler} = nothing) =
+    _conic_problem(VgtkCore.Ellipse{Float64}, Val(5), VgtkCore.Ellipse5pt(), points, sampler)   # circle.jl
 
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.Ellipse}}) = 1   # one point-on-ellipse equation per point
 chart_dof(::Type{<:EllipseProblem}) = 5
@@ -66,10 +62,11 @@ test_sample(p::EllipseProblem, idx::AbstractVector{Int}) = test_sample(model_typ
 
 # The scoring constraint — VGC's point-on-ellipse constraint. `mahalanobis_distances!` is
 # VGC's default through it (the Sampson distance, VGC's one degeneracy rule).
-@inline constraint_with_jacobians(p::EllipseProblem, e::VgtkCore.Ellipse, i::Int) =
-    @inbounds VgtkCore.constraint_with_jacobians(e, p.cs[i])
-@inline constraint_rounding_scale(p::EllipseProblem, e::VgtkCore.Ellipse, i::Int) =
-    @inbounds VgtkCore.constraint_rounding_scale(e, p.cs[i])
+# (a circle's too: one method for both conics)
+@inline constraint_with_jacobians(p::Union{CircleProblem, EllipseProblem}, c::Union{VgtkCore.Circle, VgtkCore.Ellipse}, i::Int) =
+    @inbounds VgtkCore.constraint_with_jacobians(c, p.cs[i])
+@inline constraint_rounding_scale(p::Union{CircleProblem, EllipseProblem}, c::Union{VgtkCore.Circle, VgtkCore.Ellipse}, i::Int) =
+    @inbounds VgtkCore.constraint_rounding_scale(c, p.cs[i])
 # The one model covariance (covariance.jl) on those rows: an ellipse's
 # covariance on its inliers, in its ambient coordinates (c, Q₁₁, Q₁₂, Q₂₂), and
 # predictive scoring.

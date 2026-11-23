@@ -6,7 +6,7 @@
 # adapter over NLLSsolver, `lmsolve_chart!`, under ONE owner of the stop settings,
 # `LmStops` (configs/default.toml [lm]), with ONE success rule (a tolerance stop
 # is converged; the stationarity postcondition at the returned point judges the
-# rejection cap; Core 0.11.0); and ONE device LM, `static_lm` (a KernelAbstractions kernel's fixed-N solve,
+# rejection cap; Core 0.11.0); and ONE device LM, `StaticLevenbergMarquardt` (a KernelAbstractions kernel's fixed-N solve,
 # which NLLSsolver's heap problems cannot be), under `StaticLmStops`, owned with the
 # host's and judged by its own rule (stationary and accepted, a validity gate: a device tolerance stop is not
 # converged by itself). No package calls NLLSsolver's solver API or the
@@ -78,8 +78,9 @@ const _STATIC_LM_ACCEPTANCE = toml_default(_CORE_DEFAULTS, "lm", "device_accepta
     MarquardtDamping()
     LevenbergDamping()
 
-The damping of the host Levenberg–Marquardt step, a strategy TYPE of [`LmStops`](@ref) and [`LmProblem`](@ref)
-(dispatch, not a flag), each NLLSsolver's own public iterator:
+The damping of the host Levenberg–Marquardt step, a strategy TYPE (dispatch, not a flag): the `damping` field of
+[`LevenbergMarquardt`](@ref), of an [`LmProblem`](@ref) and the damping argument of [`lmsolve_chart!`](@ref)'s chart
+forms, each NLLSsolver's own public iterator:
 
 - `MarquardtDamping()` (the default): λ·DᵀD, DᵀD the running maximum of diag(JᵀJ) floored at 1e-8 of its largest
   entry — NLLSsolver's `:levenbergmarquardt_dtd`; Core 0.10's damping, bit for bit;
@@ -100,7 +101,7 @@ _nlls_iterator(::MarquardtDamping) = NLLSsolver.static(:levenbergmarquardt_dtd)
 _nlls_iterator(::LevenbergDamping) = NLLSsolver.static(:levenbergmarquardt)
 
 """
-    LmStops(; max_iter, ftol, xtol, xtol_rel, stationarity_tol, max_time = nothing, damping = MarquardtDamping(), residual_resolution = 0)
+    LmStops(; max_iter, ftol, xtol, xtol_rel, stationarity_tol, max_time = nothing, residual_resolution = 0)
 
 THE stop settings of every host Levenberg–Marquardt fit of the stack — the one owner of its knobs, which
 [`lmsolve_chart!`](@ref) maps onto NLLSsolver's options in one place. Every keyword defaults to Core's
@@ -115,35 +116,53 @@ configuration of record (configs/default.toml `[lm]`); a fit overrides one only 
 | `stationarity_tol` | the stationarity postcondition's column cosine (`[lm]` 0.05). Read by [`is_stationary`](@ref), and by the host verdict only at a stop of no tolerance: the rejection cap (unreachable through NLLSsolver 5.3's LM) and the stop one iteration after a cost disagreement (NLLSsolver's bit 10 alone, Core 0.11.1); a tolerance stop is converged without it (0.11.0) | — (the stack's own test, [`is_stationary`](@ref)) |
 | `max_time` | wall-clock cap in seconds; `nothing` (the default) or `Inf`: none | `maxtime` |
 | `residual_resolution` | read by [`is_stationary`](@ref), and by the host verdict only where `stationarity_tol` is; the residual-vector NORM the DATA resolve (`0`, the default: the final point's rounding alone; √m·q over m residuals of a per-sample `linear_quantum` q). The success rule's exact-fit test reads it, `F < max(rounding floor, residual_resolution²)` — a cost below its square is zero to what the data resolve, where the rows' rounding points in no direction and the cosine says nothing — and nothing else: the iteration's stops are unchanged. A caller states it DERIVED (the data's noise in the residual's units), never tuned | — (the stack's own test; [`StaticLmStops`](@ref)' `residual_resolution`) |
-| `damping` | the step's damping, a strategy type: [`MarquardtDamping`](@ref) (the default, λ·DᵀD) or [`LevenbergDamping`](@ref) (λ·I) | `iterator`: `:levenbergmarquardt_dtd` / `:levenbergmarquardt` |
 | — | absolute cost decrease | `absdcost = 0`: the stack has no such knob |
 | — | consecutive failed iterations | `maxfails = 3`, NLLSsolver's default |
 
-The initial λ is NLLSsolver's (`1e-6`), not a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
+The step's damping is not a stop setting: it is the algorithm's ([`LevenbergMarquardt`](@ref)'s `damping`, an
+[`LmProblem`](@ref)'s; NLLSsolver's `iterator`). The initial λ is NLLSsolver's (`1e-6`), not a knob. Single-threaded (`numthreads = 1`): a fit runs inside the caller's threads. There is no gradient
 tolerance: a tolerance stop is converged, and the stationarity postcondition judges the rejection cap and the stop after a cost
 disagreement ([`lmsolve_chart!`](@ref)).
 """
-struct LmStops{D <: LmDamping}
+struct LmStops
     max_iter::Int
     ftol::Float64
     xtol::Float64
     xtol_rel::Float64
     stationarity_tol::Float64
     max_time::Float64
-    damping::D
     residual_resolution::Float64
 end
 function LmStops(; max_iter::Integer = _LM_MAX_ITER, ftol::Real = _LM_FTOL, xtol::Real = _LM_XTOL, xtol_rel::Real = _LM_XTOL_REL,
-        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing, damping::LmDamping = MarquardtDamping(),
-        residual_resolution::Real = 0)
+        stationarity_tol::Real = _LM_STATIONARITY_TOL, max_time::Union{Nothing, Real} = nothing, residual_resolution::Real = 0)
     max_iter >= 0 || throw(ArgumentError("LmStops: max_iter is a count of accepted iterations, ≥ 0; got $max_iter"))
     (ftol >= 0 && xtol >= 0 && xtol_rel >= 0) ||
         throw(ArgumentError("LmStops: ftol, xtol and xtol_rel are tolerances, ≥ 0; got ftol = $ftol, xtol = $xtol, xtol_rel = $xtol_rel"))
     0 < stationarity_tol <= 1 || throw(ArgumentError("LmStops: stationarity_tol is a cosine in (0, 1]; got $stationarity_tol"))
     residual_resolution >= 0 || throw(ArgumentError("LmStops: residual_resolution is a residual norm, ≥ 0; got $residual_resolution"))
-    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(xtol_rel), Float64(stationarity_tol), _time_cap(max_time), damping,
+    return LmStops(Int(max_iter), Float64(ftol), Float64(xtol), Float64(xtol_rel), Float64(stationarity_tol), _time_cap(max_time),
         Float64(residual_resolution))
 end
+"""
+    LevenbergMarquardt(; optimization_strategy = ClassDefault(), damping = MarquardtDamping())
+
+The stack's ONE host Levenberg–Marquardt, a [`RefineKind`](@ref): it solves a [`RefineProblem`](@ref) (the
+default algorithm of a constraint problem's), generically over the chart-LM interface of the problem's `f`, by NLLSsolver
+([`lmsolve_chart!`](@ref)). Its configuration is its fields: `optimization_strategy` the robust strategy of the
+refine (a loss-parametric strategy, `nothing` for plain least squares, or [`ClassDefault`](@ref)`()`: the problem
+class's default of record) and `damping` the step's damping ([`MarquardtDamping`](@ref), λ·DᵀD, or
+[`LevenbergDamping`](@ref), λ·I). Its stops are the solve keyword `stops = `[`LmStops`](@ref)`(…)`. The device LM is
+[`StaticLevenbergMarquardt`](@ref).
+"""
+struct LevenbergMarquardt{S, D <: LmDamping} <: AbstractEstimationAlgorithm
+    optimization_strategy::S
+    damping::D
+end
+LevenbergMarquardt(; optimization_strategy = ClassDefault(), damping::LmDamping = MarquardtDamping()) =
+    LevenbergMarquardt(optimization_strategy, damping)
+estimator_kind(::LevenbergMarquardt) = RefineKind()
+# (`default_algorithm` of a refine: robust/problem.jl, beside AbstractConstraintProblem.)
+
 # `max_time` in seconds: `nothing` or `Inf` (or anything past the no-cap value) is
 # no cap; a negative or NaN cap is no cap anyone meant.
 _time_cap(::Nothing) = _NLLS_NO_TIME_CAP
@@ -151,15 +170,15 @@ function _time_cap(t::Real)
     (isnan(t) || t < 0) && throw(ArgumentError("LmStops: max_time is a time in seconds, ≥ 0 (Inf or nothing: no cap); got $t"))
     return min(Float64(t), _NLLS_NO_TIME_CAP)
 end
-# The map onto NLLSsolver's options, on the damping's static iterator (`_nlls_iterator`, by dispatch on its type), so
-# the options are inferred and allocate nothing (a runtime Symbol made `static(iterator)` a dynamic call, three
-# allocations per refit).
-@inline _nlls_options(s::LmStops) =
+# The map of the stops and the damping onto NLLSsolver's options, on the damping's static iterator (`_nlls_iterator`,
+# by dispatch on its type), so the options are inferred and allocate nothing (a runtime Symbol made
+# `static(iterator)` a dynamic call, three allocations per refit).
+@inline _nlls_options(s::LmStops, damping::LmDamping) =
     NLLSsolver.NLLSOptions(
         s.ftol, 0.0, s.xtol, _NLLS_MAXFAILS, s.max_iter, UInt64(round(s.max_time * 1.0e9)),
-        _nlls_iterator(s.damping), NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
+        _nlls_iterator(damping), NLLSsolver.static(1), NLLSsolver.static(false)   # NLLSsolver ≥ 5.3: no callback of ours changes the problem's state
     )
-_nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 0.0, 1.0, _NLLS_NO_TIME_CAP, d, 0.0)))
+_nlls_options_type(d::LmDamping) = typeof(_nlls_options(LmStops(1, 1.0, 1.0, 0.0, 1.0, _NLLS_NO_TIME_CAP, 0.0), d))
 
 # THE relative step stop (Core 0.10.11, `LmStops`' `xtol_rel`): Ceres' parameter tolerance, ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel),
 # which NLLSsolver (its `dstep` absolute) has no option for. It runs in NLLSsolver's callback slot, after the caller's callback
@@ -479,11 +498,10 @@ columns only. `nothing` (the default) holds none, the problem as without the key
 `variables`, or every variable held, is an `ArgumentError`.
 
 `damping` ([`MarquardtDamping`](@ref), the default, or [`LevenbergDamping`](@ref)) is THE problem's damping (its one
-owner, Core 0.10.4: `p.damping`), the one its kept NLLSsolver cache is built for: [`lmsolve_chart!`](@ref)'s default
-stops take it, and an explicitly supplied stops of another damping is refused (`ArgumentError`, naming both), the
-problem left as it was.
+owner: `p.damping`, a type parameter), the one its kept NLLSsolver cache is built for and every
+[`lmsolve_chart!`](@ref) of it runs (the stops carry none, Core 0.14).
 """
-struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
+struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U, D <: LmDamping}
     problem::P
     cache::C
     blocks::B
@@ -495,7 +513,7 @@ struct LmProblem{P <: NLLSsolver.NLLSProblem, C, B <: AbstractVector, U}
     g::Vector{Float64}
     w::Vector{Float64}
     free::BitVector
-    damping::LmDamping    # THE damping (Core 0.10.4: its one owner): the kept cache is built for it
+    damping::D            # THE damping (its one owner): the kept cache is built for it
 end
 function LmProblem(variables::AbstractVector, blocks::AbstractVector; fixed = nothing, damping::LmDamping = MarquardtDamping())
     isempty(variables) && throw(ArgumentError("LmProblem: no variables"))
@@ -531,19 +549,20 @@ _element_union(xs::AbstractVector) = isconcretetype(eltype(xs)) ? eltype(xs) : U
 function _lm_problem(problem, blocks, unfixed, damping::LmDamping)
     free = unfixed === nothing ? trues(length(problem.variables)) : BitVector(unfixed)
     offsets = _free_offsets(problem.variables, free)
-    return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), unfixed), blocks, unfixed,
+    return LmProblem(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(), damping), unfixed), blocks, unfixed,
         offsets, zeros(offsets[end]), zeros(offsets[end]), free, damping)
 end
 # A chart LM's run, of its concrete type `R` (the typed cache converted to the inferred cache type, as `_kept_run` asserts)
 _chart_lm_problem(::Type{R}, problem, blocks, damping::LmDamping) where {R} =
-    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(; damping)), 1), blocks, 1, Int[], Float64[], Float64[], falses(0), damping)
+    R(problem, NLLSsolver.OptimizeCache(problem, _nlls_options(LmStops(), damping), 1), blocks, 1, Int[], Float64[], Float64[], falses(0), damping)
 Base.getproperty(p::LmProblem, s::Symbol) = s === :variables ? getfield(p, :problem).variables : getfield(p, s)
-Base.propertynames(::LmProblem) = (:problem, :cache, :blocks, :unfixed, :offsets, :g, :w, :free, :damping, :variables)
+const _LM_PROBLEM_PROPERTIES = (fieldnames(LmProblem)..., :variables)   # the fields, then the problem's variables
+Base.propertynames(::LmProblem) = _LM_PROBLEM_PROPERTIES
 
-# The concrete LmProblem of a problem type `P` with blocks `B` and one free variable — the chart LMs' runs, whose
-# typed cache's type is the constructor's inferred return type (a constant of the types).
-_chart_problem_type(::Type{P}, ::Type{B}, d::LmDamping) where {P, B} =
-    LmProblem{P, Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{P, _nlls_options_type(d), Int}), Vector{B}, Int}
+# The concrete LmProblem of a problem type `P` with blocks `B`, one free variable and the damping `d` — the chart LMs'
+# runs, whose typed cache's type is the constructor's inferred return type (a constant of the types).
+_chart_problem_type(::Type{P}, ::Type{B}, d::D) where {P, B, D <: LmDamping} =
+    LmProblem{P, Core.Compiler.return_type(NLLSsolver.OptimizeCache, Tuple{P, _nlls_options_type(d), Int}), Vector{B}, Int, D}
 
 # THE one caching path of the chart LMs, plain and robust: the workspace's kept run when it is of type `R`, else a new
 # one (`build()`) kept in its place — a workspace serves one run type at a time (the LO's never changes type).
@@ -566,20 +585,20 @@ end
 # `_LM_STALLED`. `nlls_termination` is the one decider: it reads the postcondition (lazily) only where it decides, and the
 # stop code follows its record.
 @inline function _lm_run!(p::LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
-    result = NLLSsolver.optimize!(p.problem, _nlls_options(stops), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
+    result = NLLSsolver.optimize!(p.problem, _nlls_options(stops, p.damping), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
     record = nlls_termination(result, () -> postcondition(_FinalRounding(stops.residual_resolution))::Bool)
     code = record[1] === ReturnCode.Stalled ? _LM_STALLED : nlls_stop_code(result.termination)
     return result, code, record
 end
 
-# THE exact-fit threshold (Core 0.10.4) — of the host LM's success rule and of `static_lm`'s, one derivation:
+# THE exact-fit threshold (Core 0.10.4) — of the host LM's success rule and of `_static_lm`'s, one derivation:
 # a residual evaluated from operands of magnitude s carries a rounding error |δr| ≤ c·ε·s, with c = 16: Higham's
 # γₙ ≈ n·u (u = ε/2, the unit roundoff) over the n ≤ 32 rounded operations one residual's evaluation chains between
 # its operands and its value. At an exact fit the residuals ARE that rounding, so the cost F = Σᵢ rᵢ² is zero to
 # Σᵢ (c·ε·sᵢ)² = (c·ε·S)², S² = Σᵢ sᵢ² over the residuals' operand scales: a cost below it points in no particular
 # direction, and the column cosine says nothing there. S is the FINAL point's — the start says nothing of where a run
 # ends: until 0.10.3 the threshold was m·ε·F₀, which a restart at a minimum (F₀ itself rounding) lay below and a large
-# start (m = 10⁶ residuals from F₀ = 10¹⁸: 2·10⁸) put above a cost the run had merely stalled at. `static_lm`'s caller
+# start (m = 10⁶ residuals from F₀ = 10¹⁸: 2·10⁸) put above a cost the run had merely stalled at. `_static_lm`'s caller
 # states S, its `residual_scale` fs; the host LM estimates it at the returned point (`_operand_unit`).
 @inline _rounding_floor(S::T) where {T <: AbstractFloat} = (16 * eps(T) * S)^2
 # … floored by the DATA's own resolution `resolution`, a residual-vector NORM (√m·q over m residuals of a per-sample
@@ -796,15 +815,17 @@ at a finite step (`1`, `2`) is converged without the test (Core 0.11.0).
 const _LM_STALLED = -2
 
 """
-    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, stops::LmStops = LmStops())
+    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, stops::LmStops = LmStops(), damping::LmDamping = MarquardtDamping())
         -> (x::SVector{N}, F, converged, iterations, (code, rule))
-    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}, stops::LmStops = LmStops())
+    lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}, stops::LmStops = LmStops(),
+                   damping::LmDamping = MarquardtDamping())
         -> (x::SVector{N}, F, converged, iterations, (code, rule))
-    lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(; damping = p.damping); callback = nothing)
+    lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
         -> (; code::ReturnCode.T, rule::StopRule, iterations::Int, cost::Float64)
 
-THE stack's host Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping) under the stop settings `stops`
-([`LmStops`](@ref), the one owner of the knobs), on a kept problem and NLLSsolver cache, with ONE success rule.
+THE stack's host Levenberg–Marquardt: NLLSsolver under the stop settings `stops` ([`LmStops`](@ref), the one owner
+of the knobs) and the step's `damping` ([`LmDamping`](@ref): the chart forms' argument, an [`LmProblem`](@ref)'s own
+`p.damping`; [`LevenbergMarquardt`](@ref)'s field), on a kept problem and NLLSsolver cache, with ONE success rule.
 
 1. THE CHART LM minimizes `‖r(x)‖²`, `r` the [`residual_rows!`](@ref) of the linearization state `lm` (its Jacobian
    [`residual_jacobian_rows!`](@ref), both read through the state's two reductions), from the chart origin `x = 0`.
@@ -842,14 +863,14 @@ cost-decrease stop, never this test). Otherwise stationary means every column of
 the Jacobian is numerically orthogonal to the residual, `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`
 (√ρ′-weighted per datum or block when robust: [`is_stationary`](@ref)).
 """
-function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm::L, stops::LmStops = LmStops()) where {N, L}
-    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}, _ChartRows{N, L}, stops.damping)
+function lmsolve_chart!(ews::ManifoldLmWorkspace{N}, lm::L, stops::LmStops = LmStops(), damping::LmDamping = MarquardtDamping()) where {N, L}
+    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, _ChartRows{N, L}}, _ChartRows{N, L}, damping)
     run = _kept_run(ews, R) do
         problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, _ChartRows{N, L})
         NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
         blocks = [_ChartRows{N, L}(_ChartState{L}(lm), ews.r, ews.J)]
         NLLSsolver.addcost!(problem, blocks[1])
-        _chart_lm_problem(R, problem, blocks, stops.damping)
+        _chart_lm_problem(R, problem, blocks, damping)
     end
     run.blocks[1].state.lm = lm
     run.variables[1] = zero(SVector{N, Float64})
@@ -921,20 +942,21 @@ function NLLSsolver.computeresjac(_varflags, d::_DatumRows{N, C}, x) where {N, C
 end
 
 function lmsolve_chart!(
-        ews::ManifoldLmWorkspace{N}, lm::L, robustifier::K, ::Val{C}, stops::LmStops = LmStops()
+        ews::ManifoldLmWorkspace{N}, lm::L, robustifier::K, ::Val{C}, stops::LmStops = LmStops(),
+        damping::LmDamping = MarquardtDamping()
     ) where {N, L, K, C}
     rows = length(ews.r)
     rows % C == 0 || throw(ArgumentError("lmsolve_chart!: $rows rows are not a whole number of $C-row data"))
     S = _RobustChartState{N, L, K}
     B = _DatumRows{N, C, S}
-    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, B}, B, stops.damping)
+    R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, B}, B, damping)
     run = _kept_run(ews, R) do
         state = S(lm, robustifier, zero(SVector{N, Float64}), false, false, ews.r, ews.J)
         problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, B)
         NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
         blocks = [B(state, i) for i in 1:(rows ÷ C)]
         foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
-        _chart_lm_problem(R, problem, blocks, stops.damping)
+        _chart_lm_problem(R, problem, blocks, damping)
     end
     state = run.blocks[1].state
     state.lm = lm; state.kernel = robustifier; state.rows = false; state.jac = false
@@ -951,11 +973,7 @@ _operand_unit(::_DatumRows, v, k) = 1.0   # its chart vector, centred at the lin
 _free_norm(::NLLSsolver.NLLSProblem{SVector{N, Float64}, <:Union{_ChartRows, _DatumRows}}, free) where {N} = sqrt(Float64(N))
 const _CHART_OFFSETS = (0,)   # its columns start at 1
 
-function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(; damping = p.damping); callback = nothing)
-    p.damping === stops.damping || throw(ArgumentError(
-        "lmsolve_chart!: the problem was built for $(nameof(typeof(p.damping)))() (its kept cache) and the stops say " *
-        "$(nameof(typeof(stops.damping)))(): solve it with LmStops(; damping = $(nameof(typeof(p.damping)))()), or build " *
-        "the problem with LmProblem(…; damping = $(nameof(typeof(stops.damping)))())"))
+function lmsolve_chart!(p::LmProblem, stops::LmStops = LmStops(); callback = nothing)
     cb = callback === nothing ? NLLSsolver.nullcallback : callback
     out = try
         _lm_run!(p, stops, cb, exact -> _lm_problem_stationary!(p, stops.stationarity_tol, exact))
@@ -1278,7 +1296,7 @@ end
 const _LM_AREA_UNITS = 1000
 
 # =============================================================================
-# THE device LM — `static_lm`, at static N inside a KernelAbstractions kernel
+# THE device LM — `_static_lm` (`StaticLevenbergMarquardt`), at static N inside a KernelAbstractions kernel
 # =============================================================================
 #
 # THE two-unknown LM of the spline models: `fj(p) -> (r, ∂r/∂p)`, the residual and
@@ -1339,7 +1357,7 @@ const _LM_AREA_UNITS = 1000
 """
     StaticLmStops(scale::SVector{N, T}; acceptance = Inf, residual_scale = 1, cost_floor = 0, residual_resolution = 0, max_iter, stationarity_tol)
 
-THE stop settings of the device LM [`static_lm`](@ref) (isbits: a kernel takes it as an argument), owned with the
+THE stop settings of the device LM [`StaticLevenbergMarquardt`](@ref), its solve keyword `stops` (isbits: a kernel takes it as an argument), owned with the
 host LM's ([`LmStops`](@ref)): every keyword has a default of record — `max_iter` configs/default.toml
 `[lm] device_max_iter`, `acceptance` `[lm] device_acceptance`, `stationarity_tol` `[lm] stationarity_tol` (the
 stationarity postcondition's cosine, the host's), and the floors' neutral values.
@@ -1374,28 +1392,56 @@ end
     StaticLmStops{N, T}(scale, T(acceptance), T(residual_scale), T(cost_floor), T(residual_resolution), T(stationarity_tol), Int(max_iter))
 
 """
-    static_lm(fj, x₀::SVector{N, T}, lb, ub, stops::StaticLmStops{N, T}[, bound]) -> (x, converged, J, e, rule::StopRule)
+    StaticLevenbergMarquardt()
 
-The stack's ONE device-side Levenberg–Marquardt (the spline lenses' inverse at
-N = 2, any static N): Marquardt-scaled, bounded to the box `[lb, ub]` (a step is
-clipped to it), with an unrolled Cholesky-type solve and explicit fused products,
-so it allocates nothing, never throws, and runs inside a KernelAbstractions kernel
-with the same bits in every compiled copy. `fj(x)` returns `(r, J, …)` (the residual
-`SVector`, its `SMatrix` Jacobian, anything else returned with them as `e`); `stops`
-its stop settings ([`StaticLmStops`](@ref)); `bound` a relative step radius (`nothing`: none).
-`converged` is the device LM's success rule — the point is STATIONARY (unlike the host LM's tolerance stops, which
-Core 0.11.0 converges without the test): zero to what
-the stops resolve (the cost below the exact-fit floor, the gradient below its floor, or the
-undamped Gauss–Newton step from the point below the step tolerance: the device form of the
-host's exact-fit test), or `max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`, the host
-LM's cosine; on the box the gradient of a coordinate a bound holds (its descent leaves the box)
-is dropped, the bounded problem's stationarity — and its cost is below `stops.acceptance`.
-`rule` is the stop that fired: `ExactFit` (the cost floor),
-`ToleranceMet` (the gradient floor), `IncrementSize` (the step), `CostDecrease`
-(the relative cost decrease) or `IterationCap`; [`static_lm_termination`](@ref)
-gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's LM.
+The stack's ONE device-side Levenberg–Marquardt, a [`RefineKind`](@ref) (the spline lenses' inverse at N = 2, any
+static N): `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt(); stops, bound = nothing)`.
+Marquardt-scaled, bounded to the box `[lb, ub]` (`SVector`s like `x₀::SVector{N, T}`; `nothing`, the default, is
+unbounded on that side: `∓Inf`; a step is clipped to the box), with an unrolled Cholesky-type solve and explicit
+fused products, so it allocates nothing, never throws, and runs inside a KernelAbstractions kernel with the same
+bits in every compiled copy: its result is isbits for an isbits `fj`. `fj(x)` returns `(r, J, …)` (the residual
+`SVector`, its `SMatrix` Jacobian, anything else returned with them); `stops` its stop settings
+([`StaticLmStops`](@ref), required: its `scale` is the problem's); `bound` a relative step radius (`nothing`: none).
+
+The result's `u` is the solution `x`, `stats.nsteps` the ACCEPTED steps (the host LM's count: a rejected trial, whose
+damping grew, is not one; `0` when the start already stopped it; no other counter is kept), `rms` and `n` over the residual `r` at `x`, `resid` nothing, and `metadata` is
+`(; jacobian = J, evaluation = e)`: the Jacobian at `x` and the evaluation `fj(x)` itself. The record
+([`static_lm_termination`](@ref)) is `ReturnCode.Success` when it converged — the device LM's success rule: the
+point is STATIONARY (unlike the host LM's tolerance stops, which Core 0.11.0 converges without the test): zero to
+what the stops resolve (the cost below the exact-fit floor, the gradient below its floor, or the undamped
+Gauss–Newton step from the point below the step tolerance: the device form of the host's exact-fit test), or
+`max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ stops.stationarity_tol`, the host LM's cosine; on the box the gradient of a coordinate
+a bound holds (its descent leaves the box) is dropped, the bounded problem's stationarity — and its cost is below
+`stops.acceptance`. The stop rule is the stop that fired: `ExactFit` (the cost floor), `ToleranceMet` (the
+gradient floor), `IncrementSize` (the step), `CostDecrease` (the relative cost decrease) or `IterationCap`.
+[`LevenbergMarquardt`](@ref) (NLLSsolver, [`lmsolve_chart!`](@ref)) is every host fit's LM.
 """
-@inline function static_lm(
+struct StaticLevenbergMarquardt <: AbstractEstimationAlgorithm end
+estimator_kind(::StaticLevenbergMarquardt) = RefineKind()
+
+@inline function __solve(prob::RefineProblem{<:Any, SVector{N, T}}, ::StaticLevenbergMarquardt;
+        stops::StaticLmStops{N, T}, bound::Union{Nothing, T} = nothing) where {N, T <: AbstractFloat}
+    lb, ub = _unbounded_bounds(prob.u0)
+    x, converged, J, e, rule, nsteps, F = _static_lm(prob.f, prob.u0, _box_side(prob.lb, lb), _box_side(prob.ub, ub), stops, bound)
+    code, rule = static_lm_termination(converged, rule)
+    m = length(first(e))
+    # no keyword in the call: the positional form, as a kernel runs it; `rms` is rms(r)'s value from the kernel's own
+    # F = Σrᵢ² at x (no second reduction)
+    return FitResult{SVector{N, T}}(x, code, rule, SolveStats(nsteps, 0, 0, 0, 0), sqrt(F / m), m,
+                                    (; jacobian = J, evaluation = e))
+end
+# A side of the device LM's box: the problem's bound, or unbounded for `nothing`.
+@inline _box_side(::Nothing, unbounded) = unbounded
+@inline _box_side(b, unbounded) = b
+
+# THE one spelling of "every coordinate unbounded" for a parameter vector `θ`: (−Inf, +Inf) of its eltype (the
+# device LM's box without bounds, a model's default `parameter_bounds`).
+@inline _unbounded_bounds(θ) = (T = eltype(θ); (zero(θ) .- T(Inf), zero(θ) .+ T(Inf)))
+
+# THE device LM's kernel, `_static_lm(fj, x₀, lb, ub, stops[, bound]) -> (x, converged, J, e, rule, nsteps, F)` (`nsteps` the accepted steps):
+# `StaticLevenbergMarquardt`'s solve, called directly by the hot device loops (the spline lenses' and the parametric
+# lens's inverses, the mapped surfaces' ray root, the non-central projection), which read its first values only.
+@inline function _static_lm(
         fj::FJ, x₀::SVector{N, T}, lb::SVector{N, T}, ub::SVector{N, T}, stops::StaticLmStops{N, T}, bound::B = nothing
     ) where {FJ, N, T <: AbstractFloat, B <: Union{Nothing, T}}
     s, fs, cost_floor, maxiter = stops.scale, stops.residual_scale, stops.cost_floor, stops.max_iter
@@ -1410,13 +1456,14 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     ex = fj(x)
     f, Jx = ex[1], ex[2]
     F = sum(abs2, f)
-    F < ϵF && return x, F < stops.acceptance, Jx, ex, ExactFit
+    F < ϵF && return x, F < stops.acceptance, Jx, ex, ExactFit, 0, F
     g = _fma_tmul(Jx, f)
-    norm(g, Inf) < ϵG && return x, F < stops.acceptance, Jx, ex, ToleranceMet
+    norm(g, Inf) < ϵG && return x, F < stops.acceptance, Jx, ex, ToleranceMet, 0, F
     JtJ = _fma_tmul(Jx, Jx)
     DtD = clamp.(LinearAlgebra.diag(JtJ), T(1.0e-12) .* s .^ 2, T(Inf))
     DtD_max = T(1.0e16) .* s .^ 2
     iter = 0
+    nsteps = 0      # the ACCEPTED steps (SolveStats' `nsteps`, the host LM's count); the cap counts `iter`, each cycle
     rule = IterationCap
     while iter < maxiter
         iter += 1
@@ -1455,12 +1502,14 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
             if all(>(0), (@. abs(p) < ϵx * (ϵx + abs(x))))
                 if accepted
                     x, f, F, Jx, ex = xk, fk, Fk, Jk, ek
+                    nsteps += 1
                 end
                 rule = IncrementSize
                 break
             end
         end
         if accepted
+            nsteps += 1
             x = xk
             f = fk
             Fold = F
@@ -1498,14 +1547,14 @@ gives the §14 record. NLLSsolver ([`lmsolve_chart!`](@ref)) is every host fit's
     pgn, info = _static_lm_increment(JtJ, zero(T), LinearAlgebra.diag(JtJ), g)
     resolved = info == 0 && all(>(0), (@. abs(pgn) < ϵx * (ϵx + abs(x))))
     stationary = F < max(cost_floor, _exact_fit_threshold(fs, stops.residual_resolution)) || norm(g, Inf) < ϵG || resolved || _column_cosine(g, LinearAlgebra.diag(JtJ), sqrt(F)) <= stops.stationarity_tol
-    return x, stationary & (F < stops.acceptance), Jx, ex, rule
+    return x, stationary & (F < stops.acceptance), Jx, ex, rule, nsteps, F
 end
 
 
 """
     static_lm_termination(converged::Bool, rule::StopRule) -> (ReturnCode.T, StopRule)
 
-The §14 termination record of a [`static_lm`](@ref) solve: `ReturnCode.Success`
+The §14 termination record of a [`StaticLevenbergMarquardt`](@ref) solve (its result's `retcode` and `stop_rule`): `ReturnCode.Success`
 when it converged; otherwise `ReturnCode.MaxIters` at the iteration cap and
 `ReturnCode.Stalled` at any other stop (a step, cost or gradient stop short of
 the tolerance).

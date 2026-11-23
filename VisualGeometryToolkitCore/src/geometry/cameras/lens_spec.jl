@@ -273,8 +273,7 @@ function toml_value(spec::LensSpec)
     return d
 end
 
-Base.:(==)(a::LensSpec, b::LensSpec) = a.family == b.family && a.structure == b.structure && a.fixed == b.fixed && a.record == b.record
-Base.hash(s::LensSpec, h::UInt) = hash((s.family, s.structure, s.fixed, s.record), hash(:LensSpec, h))
+@fieldwise LensSpec
 
 function Base.show(io::IO, spec::LensSpec)
     if spec.record === nothing
@@ -441,8 +440,7 @@ function toml_value(spec::CameraModelSpec{LogicalIntrinsics, SplineLensSpec})
     return d
 end
 
-Base.:(==)(a::SplineLensSpec, b::SplineLensSpec) = a.grid_size == b.grid_size && a.calib_area == b.calib_area
-Base.hash(g::SplineLensSpec, h::UInt) = hash((g.grid_size, g.calib_area), hash(:SplineLensSpec, h))
+@fieldwise SplineLensSpec
 Base.:(==)(a::CameraModelSpec{I}, b::CameraModelSpec{J}) where {I, J} = I === J && a.model == b.model
 Base.hash(s::CameraModelSpec{I}, h::UInt) where {I} = hash((I, s.model), hash(:CameraModelSpec, h))
 

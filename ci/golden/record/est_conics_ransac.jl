@@ -379,7 +379,7 @@ function record_est_conics_ransac(cases)
         "essential" => (edata, d -> EssentialProblem(_CR_E.ECAM, _CR_E.ECAM, d)),
         "absolute_pose" => (pnp_scene(), d -> AbsolutePoseProblem(PCAM, d)),
         "bearing_pose" => (cr_bearing_pose(), BearingPoseProblem),
-        "rotation" => (cr_rotation_pixels(), d -> RotationProblem(CR_FISHEYE, CR_FISHEYE, d)),
+        "rotation" => (cr_rotation_pixels(), d -> RotationProblem(FISHEYE, FISHEYE, d)),
         "radial_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc)),
         "radial_homography_extra_check" => (rh, d -> RadialHomographyProblem(d; center = rhc, extra_check = true)),
         "radial_homography_minimal_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc, minimal = :homography)),

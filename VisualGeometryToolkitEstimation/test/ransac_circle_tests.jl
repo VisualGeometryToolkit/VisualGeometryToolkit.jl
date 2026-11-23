@@ -5,6 +5,7 @@
 # keyword set shared with the other `find_*` pipelines.
 
 @testitem "CircleProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays
     import ForwardDiff
@@ -20,8 +21,7 @@
     @test sol.count == 1 && norm(centre(first(sol)) - C₀) < 1.0e-9 && abs(first(sol).r - R₀) < 1.0e-9
     r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(abs, r) < 1.0e-9                                       # pixels
-    allocs(r, p, θ) = (VgtkEstimation.mahalanobis_distances!(r, p, θ); @allocated VgtkEstimation.mahalanobis_distances!(r, p, θ))
-    @test allocs(r, p, first(sol)) == 0
+    @test warm_allocated(VgtkEstimation.mahalanobis_distances!, r, p, first(sol)) == 0
     # collinear and repeated points: no circle
     q = CircleProblem([Point2(0.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 2.0), Point2(0.0, 0.0)])
     @test VgtkEstimation.solve(q, [1, 2, 3]).count == 0 && VgtkEstimation.solve(q, [1, 2, 4]).count == 0
@@ -51,8 +51,7 @@
     c₁ = VgtkCore.refine!(ws, pp, c₀, ones(100))
     @test c₁ isa Circle{Float64}
     @test norm(centre(c₁) - C₀) < 0.3 && abs(c₁.r - R₀) < 0.3            # σ = 1 px on 100 points: σ/√50 ≈ 0.14 px
-    refit_allocs(ws, p, θ, w) = (VgtkCore.refine!(ws, p, θ, w); @allocated VgtkCore.refine!(ws, p, θ, w))
-    @test refit_allocs(ws, pp, c₀, ones(100)) == 0
+    @test warm_allocated(VgtkCore.refine!, ws, pp, c₀, ones(100)) == 0
 end
 
 @testitem "find_circle: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin

@@ -2,11 +2,11 @@
 # The sensor estimators — a characterisation's components from frames, offline (D1)
 # =============================================================================
 #
-#   photon_transfer   the ONE estimator of the gain K: the photon-transfer series (frames at equal exposure: per
+#   PhotonTransfer    the ONE estimator of the gain K: the photon-transfer series (frames at equal exposure: per
 #                     green photosite their temporal variance, the intercept the darks' at each exposure), a
 #                     measured PoissonGaussian in the stack's FitResult; and, scheduled for removal in the next
 #                     breaking wave, one frame's green pairs (an estimated PoissonGaussian); one block kernel, one fit
-#   master_dark       the ONE dark-frame estimator: a Dark (its ChannelBlack, the
+#   MasterDark        the ONE dark-frame estimator: a Dark (its ChannelBlack, the
 #                     per-photosite offset and variance), the ReadNoise, the defects
 #   defect_onsets     per-exposure defect masks into ONE DefectList (each site's
 #                     shortest exposure at which it is flagged)
@@ -22,7 +22,7 @@
 """
     NoiseEstimateFailed(reason)
 
-The exception [`photon_transfer`](@ref) and [`master_dark`](@ref) throw when
+The exception [`PhotonTransfer`](@ref) and [`MasterDark`](@ref) throw when
 the data cannot give the estimate (too few usable samples, a degenerate fit),
 `reason` a sentence. The resolver [`sensor_model`](@ref) never runs an
 estimator (a lookup): a characterisation without the estimate lacks the
@@ -37,7 +37,7 @@ Base.showerror(io::IO, e::NoiseEstimateFailed) = print(io, "NoiseEstimateFailed:
 const _PTC_BLOCKS_PER_POINT = 8
 # The weighted line's cap on its reweighting iterations (`_ptc_line`).
 const _PTC_LINE_MAX_ITER = 100
-# The default family-wise significance of the μ² and rollover tests (configs/default.toml, [photon_transfer]).
+# The default family-wise significance of the μ² and rollover tests (configs/default.toml: PhotonTransfer's table).
 const _PTC_SIGNIFICANCE = toml_default(_CORE_DEFAULTS, "photon_transfer", "significance")::Float64
 
 # Per block of `B × B` 2×2 cells, one work item each: the count of usable samples and the sums Σm, Σd and Σq the fit
@@ -105,7 +105,7 @@ end
     return ok ? (1, μ, q) : (0, 0.0, 0.0)
 end
 
-# THE temporal moments of one photosite of stacked frames (H × W × n), read by master_dark's kernel and the series' cell
+# THE temporal moments of one photosite of stacked frames (H × W × n), read by MasterDark's kernel and the series' cell
 # rule alike: the mean over the frames of its codes less `b`, each frame's times its scale (`nothing`: 1), and the sum
 # of squares about that mean; `(false, 0, 0)` when a frame's code is at the white level `white` (`nothing`: none is),
 # tested in the same read of the frames as the sum.
@@ -152,9 +152,8 @@ end
 """
     PhotonTransferMetadata
 
-The [`FitResult`](@ref) metadata of [`photon_transfer`](@ref)`(groups, darks)`
-(its estimate a [`PoissonGaussian`](@ref)), read through the result's forwarded
-properties:
+The [`FitResult`](@ref) metadata of the photon-transfer series ([`PhotonTransfer`](@ref) on frame groups; its `u`
+a [`PoissonGaussian`](@ref)), read as `r.metadata.<field>`:
 
 - `level_range::NTuple{2, Float64}` — the fit's lowest and highest point (block
   means, codes above black); `level_fraction` the same as fractions of the white
@@ -190,24 +189,27 @@ struct PhotonTransferMetadata
 end
 
 """
-    photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}}, darks::Darks;
-                    defects::DefectComponent = NoDefects(), block = 8, normalize = true, significance = 0.001)
-        -> FitResult{PoissonGaussian, PhotonTransferMetadata}
-    photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}},
-                    darks::AbstractDict{<:Quantity, <:ReadNoise}; sensor_model::SensorModel = SensorModel(),
-                    block = 8, normalize = true, significance = 0.001) -> FitResult{PoissonGaussian, PhotonTransferMetadata}
-    photon_transfer(mosaic::RawMosaic; sensor_model::SensorModel = SensorModel(), block = 8, significance = 0.001)
-        -> PoissonGaussian
+    PhotonTransfer(; block = 8, normalize = true, significance = 0.001)
+
+    solve(EstimationProblem(PoissonGaussian, groups, (; darks::Darks[, defects::DefectComponent])), PhotonTransfer(…))
+        -> FitResult{<:PoissonGaussian, PhotonTransferMetadata}
+    solve(EstimationProblem(PoissonGaussian, groups, (; darks::AbstractDict{<:Quantity, <:ReadNoise}[, sensor_model])),
+          PhotonTransfer(…)) -> FitResult{<:PoissonGaussian, PhotonTransferMetadata}
+    solve(EstimationProblem(PoissonGaussian, mosaic::RawMosaic[, (; sensor_model)]), PhotonTransfer(…))
+        -> FitResult{<:PoissonGaussian, Nothing}
 
 THE estimator of a sensor's Poisson–Gaussian noise for a characterisation's
-entry, built offline (owner ruling D1: the resolver [`sensor_model`](@ref)
-never estimates): the conversion gain K (electrons per code), by a
-photon-transfer fit of variance against mean, `v = σ₀² + μ/K`.
+entry, a [`FitKind`](@ref) (the default algorithm of a [`PoissonGaussian`](@ref)'s problem), built offline (owner
+ruling D1: the resolver [`sensor_model`](@ref) never estimates): the conversion gain K (electrons per code), by a
+photon-transfer fit of variance against mean, `v = σ₀² + μ/K`. The context `p` holds the darks and what is
+subtracted and left out (`defects` defaults to `NoDefects()`, `sensor_model` to `SensorModel()`; any other key is
+an `ArgumentError`); the algorithm's fields the block size, the series' frame normalization (`normalize`, unread by
+the one-frame form) and the tests' `significance`, which must lie in (0, 1) (`ArgumentError`).
 
 **The photon-transfer series** (`groups`, exposure `=>` the frames at that
 exposure, at least 2 each, of one body at one ISO), a MEASURED
 [`PoissonGaussian`](@ref) (`SensorSource.measured`, a dedicated capture) in a
-[`FitResult`](@ref) (its [`estimate`](@ref)), its metadata a
+[`FitResult`](@ref) (its `u`), its metadata a
 [`PhotonTransferMetadata`](@ref): per green photosite its TEMPORAL variance over
 the group's frames, which cancels the scene and every fixed pattern, about its
 mean μ. Pairs are the case of 2 frames. With `normalize` (the default) each frame
@@ -218,7 +220,7 @@ photosites' means and their pooled variance give a point, `v̂/v` following
 every group gives its first `N` frames, `N` the smallest group's, so every block
 follows that one law. The darks come in two forms:
 
-- a [`Darks`](@ref) (Core 0.10.4; [`master_dark`](@ref)'s Darks, one per
+- a [`Darks`](@ref) (Core 0.10.4; [`MasterDark`](@ref)'s Darks, one per
   exposure band): each group is served by THE Dark whose band holds its exposure
   (the Darks' own rule, as [`sensor_model`](@ref) resolves a frame: an exposure
   of any number type, `10 * ms` and `0.01 s` alike). Each group is linearised
@@ -226,10 +228,10 @@ follows that one law. The darks come in two forms:
   its intercept `σ₀²(t)` is that Dark's mean green variance over the photosites
   `defects` leaves (cut to the group's exposure: a site is masked from its
   onset); σ_r's standard error is carried from the Dark's frame and photosite
-  counts, `√(2/((n − 1)N))·σ₀²` (master_dark's rule). A group whose exposure no
+  counts, `√(2/((n − 1)N))·σ₀²` (MasterDark's rule). A group whose exposure no
   band serves is an `ArgumentError`: never the shared black, never another
   band's Dark;
-- a `Dict` of [`ReadNoise`](@ref) (exposure `=>` master_dark's ReadNoise over
+- a `Dict` of [`ReadNoise`](@ref) (exposure `=>` MasterDark's ReadNoise over
   the darks of that exposure; scheduled for removal in the next breaking wave,
   use the `Darks` form): every group linearised with `sensor_model`'s black and
   defects (ONE model for every exposure), its intercept the greens'
@@ -255,13 +257,14 @@ follows that one law. The darks come in two forms:
 - The result's σ_r is `√σ₀²` of the fitted points' darks (their median), its
   standard error the darks' at that median (the mean of the two middle points'
   when it falls between two exposures), by first order; a characterisation
-  states σ_r per colour from `master_dark`'s `ReadNoise`.
+  states σ_r per colour from `MasterDark`'s `ReadNoise`.
 - The result's return code and stop rule are the weighted line's: `Success` and
-  `IncrementSize` when its weights reached their fixed point (`iterations` the
+  `IncrementSize` when its weights reached their fixed point (`stats.nsteps` the
   reweightings), `MaxIters` and `IterationCap` when they did not.
 
 **One frame** (`mosaic`), in the line of Foi et al. (2008), an ESTIMATED
-`PoissonGaussian` (`SensorSource.estimated`): unreliable on flats, scheduled for
+`PoissonGaussian` (`SensorSource.estimated`) in a `FitResult` with no metadata (`Success` and `IncrementSize`,
+`stats.nsteps` the reweightings, `n` the points, `rms` NaN): unreliable on flats, scheduled for
 removal in the next breaking wave; use the multi-frame method. A single flat
 frame cannot certify its own K (its brightness range gives the μ² test little
 power); for flat fields use the multi-frame photon-transfer method. Each 2×2
@@ -297,7 +300,7 @@ same weights, and `c` significant when `|ĉ / se(ĉ)|` exceeds the two-sided nor
 quantile at the test's level (one frame: `significance`, 3.29 at the default
 0.001, over every point; the series: the lower end's search). It never returns a
 K biased by a μ² term it detects. The default `significance` is
-`configs/default.toml`'s `[photon_transfer] significance`.
+`configs/default.toml`'s PhotonTransfer table (`significance`).
 
 `sensor_model` gives what is subtracted and left out, as it does for
 [`LinearRaw`](@ref): its black slot's per-colour black (a [`Dark`](@ref)'s
@@ -312,12 +315,40 @@ group of fewer than 2 frames, frames of another size, pattern or white level, or
 a group's exposure without darks, is an `ArgumentError`; dark maps that do not
 cover the frames a `DimensionMismatch`.
 """
-function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel(), block::Integer = 8,
-                         significance::Real = _PTC_SIGNIFICANCE)
-    _check_significance(significance)
+struct PhotonTransfer <: AbstractEstimationAlgorithm
+    block::Int
+    normalize::Bool
+    significance::Float64
+    # the one owner of the configuration's validation: the kernels take its fields as they are
+    function PhotonTransfer(block::Integer, normalize::Bool, significance::Real)
+        0 < significance < 1 || throw(ArgumentError("PhotonTransfer: significance is in (0, 1), got $significance"))
+        return new(Int(block), normalize, Float64(significance))
+    end
+end
+PhotonTransfer(; block::Integer = 8, normalize::Bool = true, significance::Real = _PTC_SIGNIFICANCE) =
+    PhotonTransfer(block, normalize, significance)
+estimator_kind(::PhotonTransfer) = FitKind()
+
+const _PtcGroups = AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}}
+default_algorithm(::EstimationProblem{<:PoissonGaussian, <:Union{RawMosaic, _PtcGroups}}) = PhotonTransfer()
+# ONE solve: the data's context (`_ptc_context`, the keys each form reads, by dispatch) and its kernel.
+__solve(prob::EstimationProblem{<:PoissonGaussian, <:Union{RawMosaic, _PtcGroups}}, alg::PhotonTransfer) =
+    _photon_transfer(prob.f, _ptc_context(prob.f, prob.p), alg)
+_ptc_context(::RawMosaic, p) = _solve_context(p, (), (; sensor_model = SensorModel()), "PhotonTransfer of a frame")
+_ptc_context(g::_PtcGroups, ::NullParameters) = _ptc_context(g, (;))
+_ptc_context(::_PtcGroups, p::NamedTuple) =
+    _solve_context(p, (:darks,), haskey(p, :darks) ? _ptc_optional(p.darks) : (;), "PhotonTransfer of frame groups")
+_ptc_optional(::Darks) = (; defects = NoDefects())                                     # each group its band's Dark
+_ptc_optional(::AbstractDict{<:Quantity, <:ReadNoise}) = (; sensor_model = SensorModel())   # one model for every group
+_ptc_optional(_) = (;)
+
+# The kernels: the one-frame form, the series forms below.
+function _photon_transfer(m::RawMosaic, c::NamedTuple, alg::PhotonTransfer)
+    (; block, significance) = alg
+    sensor_model = c.sensor_model
     raw = parent(m)
     backend = KA.get_backend(raw)
-    g = _green_sites(m, block, "photon_transfer")
+    g = _green_sites(m, block, "PhotonTransfer")
     black = _green_black(g, _channel_black(sensor_model.black, m))
     n, sm, sd, sd2 = _block_moments(_GreenPair(raw, g.s1, g.s2), m, _offset_map(sensor_model.black, m, backend),
                                     defect_mask(sensor_model.defects, m; backend), black, g, block)
@@ -329,7 +360,7 @@ function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel()
     np >= 4 || throw(NoiseEstimateFailed(
         "the frame gives $(np) points ($(length(keep)) whole blocks, at least $(_PTC_BLOCKS_PER_POINT) per point): the μ² test " *
         "needs at least 4 (the line's slope and intercept, the μ² term and one degree of freedom), and one frame's K is never " *
-        "returned untested: a larger frame, a smaller block, or photon_transfer(groups, darks) on frames at equal exposure"
+        "returned untested: a larger frame, a smaller block, or PhotonTransfer on frame groups at equal exposure"
     ))
     A = hcat(p.xs, ones(np))
     l = _ptc_line(A, p.ys, p.os, p.ms, p.rel)
@@ -339,7 +370,7 @@ function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel()
     abs(t) > z && throw(NoiseEstimateFailed(
         "the photon-transfer points carry a μ² term (c = $(c) per code, t = $(round(t; sigdigits = 4)), |t| > $(round(z; sigdigits = 4)) " *
         "at significance $(significance)): a fixed pattern the single-frame green difference does not cancel (a bright flat field): " *
-        "a single flat frame cannot certify its own K; use photon_transfer(groups, darks) on frames at equal exposure"
+        "a single flat frame cannot certify its own K; use PhotonTransfer on frame groups at equal exposure"
     ))
     slope, intercept = β
     (slope > 0 && intercept > 0) || throw(NoiseEstimateFailed(
@@ -349,30 +380,33 @@ function photon_transfer(m::RawMosaic; sensor_model::SensorModel = SensorModel()
         "the weighted photon-transfer line did not converge: its weights reached no fixed point in $(l.iterations) iterations"
     ))
     σr = sqrt(intercept)
-    return PoissonGaussian(1 / slope, ntuple(_ -> σr, Val(4)),
-                           (gain = sqrt(C[1, 1]) / slope^2, σ = ntuple(_ -> sqrt(C[2, 2]) / (2σr), Val(4)));
-                           source = SensorSource.estimated)
+    noise = PoissonGaussian(1 / slope, ntuple(_ -> σr, Val(4)),
+                            (gain = sqrt(C[1, 1]) / slope^2, σ = ntuple(_ -> sqrt(C[2, 2]) / (2σr), Val(4)));
+                            source = SensorSource.estimated)
+    return FitResult(noise, ReturnCode.Success, IncrementSize, SolveStats(; nsteps = l.iterations), NaN, np, nothing)
 end
 
-function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}}, darks::Darks;
-                         defects::DefectComponent = NoDefects(), block::Integer = 8, normalize::Bool = true,
-                         significance::Real = _PTC_SIGNIFICANCE)
-    _check_significance(significance)
+# The series: its darks (a Darks, each group its band's Dark, beside the defects; or a Dict of ReadNoise, beside one
+# sensor model) by dispatch on the context's `darks`.
+_photon_transfer(groups::_PtcGroups, c::NamedTuple, alg::PhotonTransfer) = _photon_transfer(groups, c.darks, c, alg)
+function _photon_transfer(groups::_PtcGroups, darks::Darks, c::NamedTuple, alg::PhotonTransfer)
+    (; block, normalize, significance) = alg
+    defects = c.defects
     exposures, frames_of, m = _ptc_groups(groups)
-    g = _green_sites(m, block, "photon_transfer")
+    g = _green_sites(m, block, "PhotonTransfer")
     backend = KA.get_backend(parent(m))
     # each group's Dark: the one whose band serves its exposure (the Darks' own rule), never the shared black
     times = [Cameras._positive_quantity(t, _SECOND, :exposure) for t in exposures]
     which = map(times) do t
         k = _serving_dark(darks, t)
         k === nothing && throw(ArgumentError(
-            "photon_transfer: no Dark of the darks serves the exposure $(ustrip(_SECOND, t)) s (their bands: " *
+            "PhotonTransfer: no Dark of the darks serves the exposure $(ustrip(_SECOND, t)) s (their bands: " *
             "$(join((map(b -> ustrip(_SECOND, b), d.exposure_band) for d in darks.darks), ", ")) s): every group is " *
             "linearised with, and its intercept is, the Dark of its own exposure, never the shared black or another band's"))
         k
     end
     sz = size(first(darks.darks).offset)
-    _check_covers(sz, m, "photon_transfer: the darks' maps")
+    _check_covers(sz, m, "PhotonTransfer: the darks' maps")
     # the maps, uploaded ONCE each into one stack on the frames' device: the used Darks' offsets, the groups' masks
     used = unique(which)
     slot = Dict(k => s for (s, k) in enumerate(used))
@@ -398,12 +432,11 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     return _ptc_series(frames_of, levels, m, g, block, normalize, significance)
 end
 
-function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:RawMosaic}}, darks::AbstractDict{<:Quantity, <:ReadNoise};
-                         sensor_model::SensorModel = SensorModel(), block::Integer = 8, normalize::Bool = true,
-                         significance::Real = _PTC_SIGNIFICANCE)
-    _check_significance(significance)
+function _photon_transfer(groups::_PtcGroups, darks::AbstractDict{<:Quantity, <:ReadNoise}, c::NamedTuple, alg::PhotonTransfer)
+    (; block, normalize, significance) = alg
+    sensor_model = c.sensor_model
     exposures, frames_of, m = _ptc_groups(groups)
-    g = _green_sites(m, block, "photon_transfer")
+    g = _green_sites(m, block, "PhotonTransfer")
     backend = KA.get_backend(parent(m))
     # ONE model for every group: its black, offset map and mask uploaded once
     black = _green_black(g, _channel_black(sensor_model.black, m))
@@ -414,7 +447,7 @@ function photon_transfer(groups::AbstractDict{<:Quantity, <:AbstractVector{<:Raw
     levels = map(exposures) do t
         rn = get(dark_at, ustrip(_SECOND, t), nothing)
         rn === nothing && throw(ArgumentError(
-            "photon_transfer: no darks at the exposure $(ustrip(_SECOND, t)) s (darks at $(sort!(collect(keys(dark_at)))) s): " *
+            "PhotonTransfer: no darks at the exposure $(ustrip(_SECOND, t)) s (darks at $(sort!(collect(keys(dark_at)))) s): " *
             "every group's intercept is its own exposure's dark noise, never interpolated or substituted; a Darks matches by band"))
         σ0, σ0_se = _read_noise_intercept(rn, g)
         (; black, dark, mask, σ0, σ0_se)
@@ -424,15 +457,15 @@ end
 
 # The series' groups in increasing exposure, their frames, and the first frame (every frame of one sensor).
 function _ptc_groups(groups)
-    isempty(groups) && throw(ArgumentError("photon_transfer: no group of frames"))
+    isempty(groups) && throw(ArgumentError("PhotonTransfer: no group of frames"))
     exposures = sort!(collect(keys(groups)); by = t -> ustrip(_SECOND, t))
     frames_of = [groups[t] for t in exposures]
     all(gr -> length(gr) >= 2, frames_of) ||
-        throw(ArgumentError("photon_transfer: a group's temporal variance needs at least 2 frames, got $(map(length, frames_of))"))
+        throw(ArgumentError("PhotonTransfer: a group's temporal variance needs at least 2 frames, got $(map(length, frames_of))"))
     m = first(first(frames_of))
     for gr in frames_of, f in gr
         (size(f) == size(m) && f.pattern == m.pattern && f.white == m.white && f.window_origin == m.window_origin) ||
-            throw(ArgumentError("photon_transfer: every frame is of one sensor (size, pattern, white level and window)"))
+            throw(ArgumentError("PhotonTransfer: every frame is of one sensor (size, pattern, white level and window)"))
     end
     return exposures, frames_of, m
 end
@@ -463,7 +496,7 @@ end
 
 # σ₀² of a Dark (its mean variance `v`, on the host, over the mosaic's green photosites that `mask`, on the host, leaves)
 # and its standard error by first order from its frame count `frames` and photosite count, √(2/((n − 1)N))·σ₀²
-# (master_dark's rule).
+# (MasterDark's rule).
 function _dark_intercept(v::Array, frames::Integer, mask, m::RawMosaic, g)
     o = m.window_origin
     H2, W2 = size(m, 1) ÷ 2, size(m, 2) ÷ 2
@@ -520,7 +553,7 @@ function _ptc_series(frames_of, levels, m::RawMosaic, g, block::Integer, normali
     span = m.white - sum(levels[1].black) / 2
     meta = PhotonTransferMetadata((q.xs[1], q.xs[end]), (q.xs[1] / span, q.xs[end] / span), σ0f, f.c, f.t,
                                   r.tests, r.level, r.rollover_tests, r.rollover_level, f.R, length(p.xs))
-    return FitResult(noise, f.retcode, f.rule, f.iterations, f.rms, length(q.xs), meta)
+    return FitResult(noise, f.retcode, f.rule, SolveStats(; nsteps = f.iterations), f.rms, length(q.xs), meta)
 end
 
 # The standard error of the median of `os` from each value's own `ses`: the middle value's, or the mean of the two
@@ -546,8 +579,6 @@ function _series_slope(q; max_iter::Integer = _PTC_LINE_MAX_ITER)
     return (; gain = 1 / β[1], gain_se = sqrt(C[1, 1]) / β[1]^2 * max(R, 1.0), c, t, R, rms = _birge_ratio(pred, q, 0),
             retcode, rule, iterations = l.iterations)
 end
-
-_check_significance(α) = 0 < α < 1 || throw(ArgumentError("photon_transfer: significance is in (0, 1), got $α"))
 
 # The greens' cell sites and colour indices of a mosaic (its greens' LibRaw indices, computed once here), and the block
 # count.
@@ -588,7 +619,6 @@ function _flicker_scale(frames, g, black)
     all(>(0), means) || throw(NoiseEstimateFailed("a frame of a group holds no light above the black level: no scale to its group"))
     return Statistics.mean(means) ./ means
 end
-
 
 # The fit's points (host; a few thousand blocks): the whole blocks' means `μ`, variances `v` (each `v̂/v ~ χ²_dof/dof`)
 # and intercepts `o` (zeros when fitted; one exposure's, the series'), sorted by μ into
@@ -698,12 +728,15 @@ end
 end
 
 """
-    master_dark(frames::AbstractVector{<:RawMosaic}; exposure_band, false_defects = 0.01)
-        -> (; dark::Dark, read_noise::ReadNoise, defects::BitMatrix)
+    MasterDark(; false_defects = 0.01)
 
-THE dark-frame estimator: the lens-capped frames of one body at one ISO and one
-exposure band (whole mosaics of one size, at least 2) into the components of a
-characterisation's entry, all `SensorSource.measured`:
+    solve(EstimationProblem(Dark, frames::AbstractVector{<:RawMosaic}, (; exposure_band)), MasterDark(…))
+        -> FitResult: u the Dark, metadata (; read_noise::ReadNoise, defects::BitMatrix)
+
+THE dark-frame estimator, a [`ClosedFormKind`](@ref) (the default algorithm of a [`Dark`](@ref) from frames): the
+lens-capped frames of one body at one ISO and one exposure band (whole mosaics of one size, at least 2) into the
+components of a characterisation's entry, all `SensorSource.measured` — the result's `u` the `dark`, its
+`metadata` the `read_noise` and the `defects`, its `n` the frames:
 
 - `dark` — the [`Dark`](@ref): per photosite the temporal mean (the offset:
   black, DSNU and dark current) and sample variance, one KernelAbstractions work
@@ -718,7 +751,7 @@ characterisation's entry, all `SensorSource.measured`:
   first order);
 - `defects` — a `BitMatrix`, the photosites whose offset leaves their
   channel's median by more than `z` robust standard deviations (the median
-  absolute deviation over the normal's, [`mad_scale`](@ref)'s rule for
+  absolute deviation over the normal's, [`MedianNormScale`](@ref)'s rule for
   codimension 1, about the channel's median), `z` the normal quantile at which
   `false_defects` defect-free photosites are expected to be flagged over the
   whole sensor of `N` photosites (`1 − false_defects / (2N)`, two-sided, for
@@ -728,17 +761,32 @@ characterisation's entry, all `SensorSource.measured`:
 A colour index the pattern lacks (a pattern with one green index) has black
 and read noise `0` (no photosite reads it).
 
-`exposure_band` is `(shortest, longest)`, time quantities, the exposures the
-dark serves. A frame of another size, or fewer than 2, is an
+`exposure_band`, the context, is `(shortest, longest)`, time quantities, the exposures the
+dark serves; `false_defects`, the algorithm's field, lies in (0, 1) (`ArgumentError`). A frame of another size, or fewer than 2, is an
 `ArgumentError`; a channel without a usable photosite throws
 [`NoiseEstimateFailed`](@ref).
 """
-function master_dark(frames::AbstractVector{<:RawMosaic}; exposure_band, false_defects::Real = 0.01)
-    length(frames) >= 2 || throw(ArgumentError("master_dark: a temporal variance needs at least 2 frames, got $(length(frames))"))
+struct MasterDark <: AbstractEstimationAlgorithm
+    false_defects::Float64
+    # the one owner of the configuration's validation
+    MasterDark(false_defects::Real) =
+        new(checked_float(false_defects, 0 < false_defects < 1, "MasterDark: false_defects is in (0, 1)"))
+end
+MasterDark(; false_defects::Real = 0.01) = MasterDark(false_defects)
+estimator_kind(::MasterDark) = ClosedFormKind()
+default_algorithm(::EstimationProblem{<:Dark, <:AbstractVector{<:RawMosaic}}) = MasterDark()
+function __solve(prob::EstimationProblem{<:Dark, <:AbstractVector{<:RawMosaic}}, alg::MasterDark)
+    (; dark, read_noise, defects) = _master_dark(prob.f, _solve_context(prob.p, (:exposure_band,), (;), "MasterDark").exposure_band, alg)
+    return closed_form_result(dark, length(prob.f); metadata = (; read_noise, defects))
+end
+
+# MasterDark's kernel.
+function _master_dark(frames::AbstractVector{<:RawMosaic}, exposure_band, alg::MasterDark)
+    false_defects = alg.false_defects
+    length(frames) >= 2 || throw(ArgumentError("MasterDark: a temporal variance needs at least 2 frames, got $(length(frames))"))
     sz = size(first(frames))
     all(f -> size(f) == sz && f.window_origin == (0, 0), frames) ||
-        throw(ArgumentError("master_dark: the frames are whole mosaics of one size ($(sz))"))
-    0 < false_defects < 1 || throw(ArgumentError("master_dark: false_defects is in (0, 1), got $false_defects"))
+        throw(ArgumentError("MasterDark: the frames are whole mosaics of one size ($(sz))"))
     raw1 = parent(first(frames))
     backend = KA.get_backend(raw1)
     stack = _stack_frames!(_frame_stack(frames, length(frames)), frames)
@@ -758,11 +806,11 @@ function master_dark(frames::AbstractVector{<:RawMosaic}; exposure_band, false_d
         isempty(sel) && continue
         o = Float64.(off[sel])
         med = Statistics.median(o)
-        s = _mad_scale_norms(; norms = abs.(o .- med), codimension = 1)   # mad_scale's rule, about the channel's median
+        s = _mad_scale_norms(; norms = abs.(o .- med), codimension = 1)   # MedianNormScale's rule, about the channel's median
         bad = s > 0 ? abs.(o .- med) .> z * s : falses(length(o))
         defects[sel[bad]] .= true
         good = sel[.!bad]
-        isempty(good) && throw(NoiseEstimateFailed("master_dark: every photosite of colour index $(c) is a defect"))
+        isempty(good) && throw(NoiseEstimateFailed("MasterDark: every photosite of colour index $(c) is a defect"))
         og = Float64.(off[good]); vg = Float64.(var[good])
         black[c + 1] = Statistics.mean(og)
         black_se[c + 1] = length(og) > 1 ? Statistics.std(og) / sqrt(length(og)) : 0.0
@@ -780,7 +828,7 @@ end
 
 ONE [`DefectList`](@ref) from per-exposure defect masks: `masks` is a vector of
 `exposure => mask` (a time quantity and a `Bool` matrix over the visible raw,
-[`master_dark`](@ref)'s `defects` with the shortest exposure of its band, say),
+[`MasterDark`](@ref)'s `defects` with the shortest exposure of its band, say),
 all masks of one size. Each photosite flagged in any mask is listed once, its
 onset the shortest exposure whose mask flags it (the resolver masks it at
 every exposure from there on: a site flagged at a short exposure and missed at

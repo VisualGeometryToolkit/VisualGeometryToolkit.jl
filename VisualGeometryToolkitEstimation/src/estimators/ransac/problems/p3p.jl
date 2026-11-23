@@ -146,15 +146,17 @@ its coincidence check sat inoperative while `_not_collinear` caught duplicates
 incidentally.
 """
 function test_sample(p::AbsolutePoseProblem, idx::AbstractVector{Int})
-    @inbounds begin
-        X = (sources(p.cs)[idx[1]], sources(p.cs)[idx[2]], sources(p.cs)[idx[3]])
-        u = (targets(p.cs)[idx[1]], targets(p.cs)[idx[2]], targets(p.cs)[idx[3]])
-    end
-    _are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) || return false
+    X, u = _sample_triples(p, idx)
+    _world_triple_ok(X) || return false
     _are_points_distinct(u; tol_px = _P3P_COINCIDENT_IMAGE) || return false
-    thin_ratio(X[1], X[2], X[3]) > _P3P_DEGENERACY_TOL || return false
     return _image_thin_ratio(lens(p.context.model), p, u, idx) > _P3P_DEGENERACY_TOL
 end
+# A P3P sample's three world points and their three observations (pixels, or bearings: BearingPoseProblem's too).
+@inline _sample_triples(p, idx) = @inbounds (
+    (sources(p.cs)[idx[1]], sources(p.cs)[idx[2]], sources(p.cs)[idx[3]]),
+    (targets(p.cs)[idx[1]], targets(p.cs)[idx[2]], targets(p.cs)[idx[3]]))
+# The world triple's gate: distinct points, not collinear.
+_world_triple_ok(X) = _are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) && thin_ratio(X[1], X[2], X[3]) > _P3P_DEGENERACY_TOL
 
 # The image triple's thinness, by the lens: a pinhole's pixels are a projective
 # image of the rays, so their triangle is the test; any other lens bends lines,

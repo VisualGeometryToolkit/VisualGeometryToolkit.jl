@@ -11,7 +11,13 @@
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EuclideanMap, CameraModel, LogicalIntrinsics,
         CameraCalibrationMat, Pinhole, backproject,
-        triangulate, test_cheirality, cheiral_pose_fast
+        test_cheirality, cheiral_pose_fast, ReturnCode, ClosedForm
+
+    # the Triangulation closed form: the point (its FitResult's `u`) and both ray depths (its metadata)
+    function triangulated(pose, f₁, f₂)
+        r = solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())
+        return r.u, r.metadata.depths...
+    end
 
     R = RotMatrix(RotXYZ(0.03, -0.05, 0.02)); Rm = SMatrix{3, 3}(R)
     t = SVector(0.8, 0.05, -0.02)
@@ -25,13 +31,20 @@
             X2[3] > 0.2 || continue
             f₁ = normalize(X)
             f₂ = normalize(X2)
-            Xh, λ₁, λ₂ = triangulate(pose, f₁, f₂)
+            Xh, λ₁, λ₂ = triangulated(pose, f₁, f₂)
             @test norm(SVector(Xh[1], Xh[2], Xh[3]) - X) / norm(X) < 1.0e-12
             # the depths are the ray parameters, so they are the distances
             @test λ₁ ≈ norm(X) rtol = 1.0e-12
             @test λ₂ ≈ norm(X2) rtol = 1.0e-12
             @test test_cheirality(pose, f₁, f₂)
         end
+        # the result record: one closed-form step over one bearing pair
+        X = SVector(0.5, -0.3, 5.0)
+        f₁ = normalize(X); f₂ = normalize(Rm * X + t)
+        r = solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())
+        @test (r.u, r.metadata.depths...) == triangulated(pose, f₁, f₂)
+        @test r.retcode === ReturnCode.Success && r.stop_rule === ClosedForm
+        @test r.stats.nsteps == 0 && isnan(r.rms) && r.n == 1
     end
 
     @testset "cheirality is a RAY test, not a z test" begin
@@ -42,7 +55,7 @@
         X = SVector(0.3, 0.1, -3.0)            # behind view 1
         X2 = Rm * X + t
         f₁ = normalize(X); f₂ = normalize(X2)
-        _, λ₁, _ = triangulate(pose, f₁, f₂)
+        _, λ₁, _ = triangulated(pose, f₁, f₂)
         @test λ₁ > 0                            # the BEARING points at it, so its own depth is positive
         # …but the bearing of the opposite ray must fail cheirality:
         @test !test_cheirality(pose, -f₁, f₂)
@@ -54,7 +67,7 @@
         # plausible-looking point.
         f = normalize(SVector(0.1, -0.05, 1.0))
         pure_translation_along_ray = EuclideanMap(RotMatrix{3, Float64}(SMatrix{3, 3, Float64}(I)), 0.5 * f)
-        Xh, λ₁, λ₂ = triangulate(pure_translation_along_ray, f, f)
+        Xh, λ₁, λ₂ = triangulated(pure_translation_along_ray, f, f)
         @test isnan(λ₁) && isnan(λ₂)
         @test all(isnan, (Xh[1], Xh[2], Xh[3]))
         @test !test_cheirality(pure_translation_along_ray, f, f)
@@ -78,7 +91,7 @@
         X = 5.0 * SVector(f₁[1], f₁[2], f₁[3])
         X2 = Rm * X + t
         f₂ = normalize(X2)
-        Xh, λ₁, λ₂ = triangulate(pose, SVector(f₁[1], f₁[2], f₁[3]), f₂)
+        Xh, λ₁, λ₂ = triangulated(pose, SVector(f₁[1], f₁[2], f₁[3]), f₂)
         @test norm(SVector(Xh[1], Xh[2], Xh[3]) - X) / norm(X) < 1.0e-10
         @test λ₁ > 0 && λ₂ > 0
         @test test_cheirality(pose, SVector(f₁[1], f₁[2], f₁[3]), f₂)

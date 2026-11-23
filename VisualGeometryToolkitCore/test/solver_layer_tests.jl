@@ -13,11 +13,10 @@
     using StaticArrays, LinearAlgebra, Random
     using Rotations: RotMatrix
     using StructArrays: StructArray
+    include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "two_view_scene.jl"))   # `two_view_scene`
 
     # Apply a 3×3 homography matrix to a 2D point.
     _apply_h(H, p) = Point2{Float64}((PerspectiveMap() ∘ HomographyMap(H))(p))
-
-    _rand_rot(rng) = SMatrix{3, 3, Float64}(rand(rng, RotMatrix{3, Float64}))   # Haar-uniform
 
     @testset "solver layer (#21)" begin
         rng = MersenneTwister(2026)
@@ -228,34 +227,29 @@
             @test sample_size(s) == 4
             @test max_solutions(s) == 1
 
-            sols = solve(s, cs, 1:4)
+            sols = solve(MinimalProblem(HomographyMat, cs, 1:4), s)
             @test sols isa FixedModels{1, HomographyMat{Float64}}
             @test length(sols) == 1
             Hs = first(iterate(sols))
             @test all(norm(_apply_h(Hs, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
 
             # protocol interop: same solve on the legacy StructArray container
-            sols_legacy = solve(s, correspondences(src, dst), 1:4)
+            sols_legacy = solve(MinimalProblem(HomographyMat, correspondences(src, dst), 1:4), s)
             @test first(iterate(sols_legacy)) ≈ Hs
 
             # degenerate (repeated point) → count-0 FixedModels, NOT nothing
             src_d = [src[1], src[1], src[3], src[4]]
             dst_d = [dst[1], dst[1], dst[3], dst[4]]
-            bad = solve(s, Correspondences(src_d, dst_d), 1:4)
+            bad = solve(MinimalProblem(HomographyMat, Correspondences(src_d, dst_d), 1:4), s)
             @test bad isa FixedModels{1, HomographyMat{Float64}}
             @test length(bad) == 0
             @test isempty(collect(bad))
         end
 
-        # Shared two-view epipolar scene (also used by fit — FundamentalDlt)
-        R = _rand_rot(rng)
-        t = SVector(0.4, -0.2, 0.1)
+        # Shared two-view epipolar scene (also used by fit — FundamentalDlt): the suite's fixture file, shared with the
+        # golden records
+        (; R, t, x1b, x2b, u1, u2) = two_view_scene(rng)
         E_true = skew(t) * R
-        X3 = [SVector(2randn(rng), 2randn(rng), 6.0 + 2rand(rng)) for _ in 1:20]
-        x1b = [normalize(Xi) for Xi in X3]                    # bearings, cam1 at origin
-        x2b = [normalize(R * Xi + t) for Xi in X3]            # bearings, cam2
-        u1 = [Point2{Float64}(PerspectiveMap()(Xi)) for Xi in X3]
-        u2 = [Point2{Float64}((R * Xi + t)[1] / (R * Xi + t)[3], (R * Xi + t)[2] / (R * Xi + t)[3]) for Xi in X3]
         F_true = E_true  # normalized cameras: F == E
 
         _epi(F, a, b) = abs(dot(SVector(b[1], b[2], 1.0), SMatrix{3, 3, Float64}(F) * SVector(a[1], a[2], 1.0)))
@@ -265,7 +259,7 @@
             s = Fundamental7pt()
             @test sample_size(s) == 7 && max_solutions(s) == 3
 
-            sols = solve(s, cs, 1:7)
+            sols = solve(MinimalProblem(FundMat, cs, 1:7), s)
             @test sols isa FixedModels{3, FundMat{Float64}}
             @test 1 <= length(sols) <= 3
             # every returned model satisfies the sample's epipolar constraints
@@ -281,7 +275,7 @@
             @test best < 1.0e-6
 
             # degenerate sample (all identical) → count-0, not nothing
-            bad = solve(s, Correspondences(fill(u1[1], 7), fill(u2[1], 7)), 1:7)
+            bad = solve(MinimalProblem(FundMat, Correspondences(fill(u1[1], 7), fill(u2[1], 7)), 1:7), s)
             @test bad isa FixedModels{3, FundMat{Float64}}
             @test length(bad) == 0
         end
@@ -296,9 +290,9 @@
             # every fisheye and omnidirectional camera while still returning a
             # plausible EssentialMat. The refusal is by TYPE, so it cannot be
             # re-introduced by a caller's convention.
-            @test_throws MethodError solve(s, Correspondences(u1, u2), 1:5)
+            @test_throws MethodError solve(MinimalProblem(EssentialMat, Correspondences(u1, u2), 1:5), s)
             for cs in (Correspondences(x1b, x2b),)
-                sols = solve(s, cs, 1:5)
+                sols = solve(MinimalProblem(EssentialMat, cs, 1:5), s)
                 @test sols isa FixedModels{10, EssentialMat{Float64}}
                 @test length(sols) >= 1
                 Et = SMatrix{3, 3, Float64}(E_true) / norm(E_true)
@@ -315,13 +309,13 @@
             @test sample_size(s) == 3 && max_solutions(s) == 4
             @test model_type(s) == Extrinsics3
 
-            Rp = _rand_rot(rng)
+            Rp = haar_rotation(rng)
             tp = SVector(0.3, -0.5, 4.0)
             Xw = [SVector{3, Float64}(2randn(rng, 3)...) for _ in 1:3]
             xs = [SVector{3, Float64}(normalize(Rp * Xi + tp)) for Xi in Xw]
             cs = Correspondences(Xw, xs)
 
-            sols = solve(s, cs, 1:3)
+            sols = solve(MinimalProblem(Extrinsics3, cs, 1:3), s)
             @test sols isa FixedModels{4, Extrinsics3}
             @test length(sols) >= 1
             err = minimum(norm(SMatrix{3, 3, Float64}(p.R) - Rp) + norm(p.t - tp) for p in sols)
@@ -342,25 +336,29 @@
             @test_throws ArgumentError p3p(NativeSolver(), xs[1:2], Xw[1:2])
         end
 
-        @testset "DLT kernels — homography_dlt / fundamental_dlt on correspondences" begin
+        @testset "DLT — homographies and fundamental matrices on correspondences" begin
             cs = Correspondences(src, dst)
-            Hf = homography_dlt(cs)
+            rH = solve(EstimationProblem(HomographyMat, cs), DLT())
+            Hf = rH.u
             @test Hf isa HomographyMat{Float64}
+            @test rH.retcode === VgtkCore.ReturnCode.Success && rH.stop_rule === VgtkCore.ClosedForm && rH.n == 20
             @test all(norm(_apply_h(Hf, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
-            # a mask (Bool, or an index list with a frame) selects the correspondences
+            # a subset (a Bool mask, or an index list) selects the correspondences
             mask = BitVector(isodd(i) for i in 1:20)
-            @test all(norm(_apply_h(homography_dlt(cs; mask), src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
-            @test all(norm(_apply_h(homography_dlt(cs; mask = findall(mask)), src[i]) - dst[i]) < 1.0e-6 for i in 1:20)   # an index mask
-            @test homography_dlt(cs; mask = findall(mask)) == homography_dlt(cs; mask)
-            @test_throws MethodError homography_dlt(cs; normalization = CorrespondenceNormalization(HomographyMat, cs))   # public forms take none
+            @test all(norm(_apply_h(solve(EstimationProblem(HomographyMat, cs[mask]), DLT()).u, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)
+            @test all(norm(_apply_h(solve(EstimationProblem(HomographyMat, cs[findall(mask)]), DLT()).u, src[i]) - dst[i]) < 1.0e-6 for i in 1:20)   # an index mask
+            @test solve(EstimationProblem(HomographyMat, cs[findall(mask)]), DLT()).u == solve(EstimationProblem(HomographyMat, cs[mask]), DLT()).u
+            @test_throws MethodError solve(EstimationProblem(HomographyMat, cs), DLT();
+                                           normalization = CorrespondenceNormalization(HomographyMat, cs))   # public forms take none
             # degenerate-but-finite data still yields a (garbage) model — validity
             # gating is the consumer's job (test_model); only non-finite rows are
-            # refused, with `nothing`
-            @test homography_dlt(Correspondences(fill(src[1], 8), fill(dst[1], 8))) isa HomographyMat{Float64}
+            # refused, with `u === nothing`
+            @test solve(EstimationProblem(HomographyMat, Correspondences(fill(src[1], 8), fill(dst[1], 8))), DLT()).u isa HomographyMat{Float64}
             src_nan = [[Point2{Float64}(NaN, NaN)]; src[2:8]]
-            @test homography_dlt(Correspondences(src_nan, dst[1:8])) === nothing
+            rnan = solve(EstimationProblem(HomographyMat, Correspondences(src_nan, dst[1:8])), DLT())
+            @test rnan.u === nothing && rnan.retcode === VgtkCore.ReturnCode.InitialFailure && rnan.n == 0
 
-            Ff = fundamental_dlt(Correspondences(u1, u2))
+            Ff = solve(EstimationProblem(FundMat, Correspondences(u1, u2)), DLT()).u
             @test Ff isa FundMat{Float64}
             @test all(_epi(Ff, u1[i], u2[i]) < 1.0e-8 for i in 1:20)
         end
@@ -375,24 +373,26 @@
             u2n = [p + Point2{Float64}(1.0e-3randn(nrng), 1.0e-3randn(nrng)) for p in u2]
             w = [i == 1 ? 3.0 : 1.0 for i in 1:20]
             _same(A, B) = norm(SMatrix{3, 3, Float64}(A) - SMatrix{3, 3, Float64}(B)) < 1.0e-9
+            dltH(c) = solve(EstimationProblem(HomographyMat, c), DLT()).u
+            dltF(c) = solve(EstimationProblem(FundMat, c), DLT()).u
             csH = Correspondences(src, dn); csF = Correspondences(u1, u2n)
-            Hw = homography_dlt(withattrs(csH; weights = w))
-            @test _same(Hw, homography_dlt(Correspondences([fill(src[1], 2); src], [fill(dn[1], 2); dn])))
-            @test !_same(Hw, homography_dlt(csH))                        # the weight moved the estimate
-            Fw = fundamental_dlt(withattrs(csF; weights = w))
-            @test _same(Fw, fundamental_dlt(Correspondences([fill(u1[1], 2); u1], [fill(u2n[1], 2); u2n])))
-            @test !_same(Fw, fundamental_dlt(csF))
+            Hw = dltH(withattrs(csH; weights = w))
+            @test _same(Hw, dltH(Correspondences([fill(src[1], 2); src], [fill(dn[1], 2); dn])))
+            @test !_same(Hw, dltH(csH))                        # the weight moved the estimate
+            Fw = dltF(withattrs(csF; weights = w))
+            @test _same(Fw, dltF(Correspondences([fill(u1[1], 2); u1], [fill(u2n[1], 2); u2n])))
+            @test !_same(Fw, dltF(csF))
             keep = BitVector(i > 3 for i in 1:20); z = Float64.(keep)
-            @test _same(homography_dlt(withattrs(csH; weights = z)), homography_dlt(csH; mask = keep))
-            @test _same(fundamental_dlt(withattrs(csF; weights = z)), fundamental_dlt(csF; mask = keep))
+            @test _same(dltH(withattrs(csH; weights = z)), dltH(csH[keep]))
+            @test _same(dltF(withattrs(csF; weights = z)), dltF(csF[keep]))
             # a plain Pair vector carries no column: unweighted, the same kernel
-            @test homography_dlt(collect(csH)) == homography_dlt(csH)
-            @test fundamental_dlt(collect(csF)) == fundamental_dlt(csF)
+            @test dltH(collect(csH)) == dltH(csH)
+            @test dltF(collect(csF)) == dltF(csF)
             # weights are never a keyword, and there is no parallel-array form
-            @test_throws MethodError homography_dlt(csH; weights = w)
-            @test_throws MethodError fundamental_dlt(csF; weights = w)
-            @test_throws MethodError homography_dlt(src, dn)
-            @test_throws MethodError fundamental_dlt(u1, u2n)
+            @test_throws MethodError solve(EstimationProblem(HomographyMat, csH), DLT(); weights = w)
+            @test_throws MethodError solve(EstimationProblem(FundMat, csF), DLT(); weights = w)
+            @test_throws MethodError solve(EstimationProblem(HomographyMat, src, dn), DLT())
+            @test_throws MethodError solve(EstimationProblem(FundMat, u1, u2n), DLT())
             # the LO/IRLS hot path: re-weighting per iteration through the column
             # allocates nothing in the homography kernel beyond the caller's buffers
             A = Matrix{Float64}(undef, 40, 9)
@@ -419,14 +419,17 @@
             @test (@inferred cs[3]) isa Any
             @test (@inferred (c -> c.score)(cs)) isa Any
 
-            @test (@inferred solve(Homography4pt(), cs, collect(1:4))) isa Any
-            @test (@inferred solve(Fundamental7pt(), cs, collect(1:7))) isa Any
-            @test (@inferred solve(Essential5pt(), Correspondences(x1b, x2b), collect(1:5))) isa Any
+            @test (@inferred solve(MinimalProblem(HomographyMat, cs, collect(1:4)), Homography4pt())) isa Any
+            @test (@inferred solve(MinimalProblem(FundMat, cs, collect(1:7)), Fundamental7pt())) isa Any
+            @test (@inferred solve(MinimalProblem(EssentialMat, Correspondences(x1b, x2b), collect(1:5)), Essential5pt())) isa Any
             Xw3 = [SVector(1.0, 0.0, 5.0), SVector(-1.0, 1.0, 6.0), SVector(0.5, -1.0, 4.0)]
             xs3 = [normalize(SVector(0.1, 0.05, 1.0)), normalize(SVector(-0.2, 0.1, 1.0)), normalize(SVector(0.0, -0.15, 1.0))]
-            @test (@inferred solve(P3P(), Correspondences(Xw3, xs3), collect(1:3))) isa Any
-            @test (@inferred Union{Nothing, FundMat{Float64}} fundamental_dlt(Correspondences(u1, u2))) isa Any
-            @test (@inferred Union{Nothing, HomographyMat{Float64}} homography_dlt(withattrs(cs; weights = ones(20)))) isa Any   # the kernel returns `nothing` on non-finite rows
+            @test (@inferred solve(MinimalProblem(Extrinsics3, Correspondences(Xw3, xs3), collect(1:3)), P3P())) isa Any
+            # a DLT's result infers concretely; its `u` is `Union{Nothing, …}` (the kernel returns `nothing` on non-finite rows)
+            rF = @inferred solve(EstimationProblem(FundMat, Correspondences(u1, u2)), DLT())
+            @test rF isa FitResult{Union{Nothing, FundMat{Float64}}}
+            rHw = @inferred solve(EstimationProblem(HomographyMat, withattrs(cs; weights = ones(20))), DLT())
+            @test rHw isa FitResult{Union{Nothing, HomographyMat{Float64}}}
 
             f = CorrespondenceNormalization(HomographyMat, cs)
             @test (@inferred CorrespondenceNormalization(HomographyMat, cs)) isa Any

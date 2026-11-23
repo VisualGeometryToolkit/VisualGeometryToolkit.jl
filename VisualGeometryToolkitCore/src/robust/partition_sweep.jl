@@ -454,10 +454,7 @@ struct _SweepLaunch
 end
 _SweepLaunch(n::Int) = _SweepLaunch(Array{Float64, 3}(undef, 1, 1, 1), zeros(Int32, 1, 1, 1), Int64[0], Int32[0],
                                     Int32[1], [NaN], Vector{Float64}(undef, n), Vector{Float64}(undef, n))
-function _resize_launch!(L::_SweepLaunch, n::Int)
-    resize!(L.sorted, n); resize!(L.sorted_penalties, n)
-    return L
-end
+_resize_launch!(L::_SweepLaunch, n::Int) = (resize_buffers!(n, L.sorted, L.sorted_penalties); L)
 
 # =============================================================================
 # ScoringWorkspace — Pre-allocated buffers for Algorithm 1 sweep

@@ -81,6 +81,31 @@
     @test isempty(check_duplication(mine; stack = [many]))
     @test :similar in checks(check_duplication(repo("src/n.jl" => body("my_misfit", "p", "q"), "src/o.jl" => body("their_misfit", "r", "s")); stack = [many]))
 
+    # THE INFORMATIVE-SHINGLE RULE (Core 0.14's audit): the similarity is over the shingles that are no idiom, the
+    # intersection AND both totals. A copy wrapped in boilerplate the repository repeats past the cap is still a copy;
+    # a definition made of that boilerplate alone is not; and growing the corpus with more of the boilerplate does
+    # not lower a copy's score (counting idioms in the totals only made the gate blinder as the stack grew).
+    boiler(k) = """
+        rng = Random.Xoshiro(17)
+        xs = [SVector(randn(rng), randn(rng)) for _ in 1:200]
+        ys = [SVector(randn(rng), randn(rng)) for _ in 1:200]
+        ws = fill(1.0, length(xs))
+        """
+    wrapped(f, a, b) = "function $f()\n" * boiler(0) * "    " * replace(body("inner", a, b), "\n" => "\n    ") * "    return inner(xs, ys)\nend\n"
+    plain(k) = "function setup_$(k)()\n" * boiler(k) * "    return (xs, ys, ws)\nend\n"
+    corpus(n) = ("test/s$(k).jl" => plain(k) for k in 1:n)
+    score(found) = [parse(Float64, match(r"Jaccard ([0-9.]+)", v.text).captures[1]) for v in found if v.check == :similar]
+    # A copy, boilerplate and all: below the cap every shingle is evidence, past it the boilerplate is no evidence
+    # either way, so the copy scores 1.0 in both corpora. (Idioms counted in the totals only scored it about
+    # core/(core + 2·boilerplate) once the boilerplate crossed the cap, under 0.6: not found.)
+    small = repo("src/a.jl" => wrapped("scene_a", "x", "y"), "src/b.jl" => wrapped("scene_b", "x", "y"), corpus(3)...)
+    large = repo("src/a.jl" => wrapped("scene_a", "x", "y"), "src/b.jl" => wrapped("scene_b", "x", "y"), corpus(4 * ext._MAX_POSTINGS)...)
+    found_small = filter(v -> occursin("scene_", v.text), check_duplication(small; stack = String[]))
+    found_large = filter(v -> occursin("scene_", v.text), check_duplication(large; stack = String[]))
+    @test !isempty(found_small) && !isempty(found_large)          # the copy in heavy idiom context is found
+    @test score(found_small) == score(found_large) == [1.0]       # and more boilerplate does not lower its score
+    @test !any(v -> occursin("setup_", v.text), check_duplication(large; stack = String[]))   # pure boilerplate is no copy
+
     # the retired patterns, each outside its owner, and not in a comment or docstring
     nl = "NLLS" * "Options("; ac = "a" * "cos(clamp((tr("; sr = "0.00" * "31308"; nc = "\\\\" * "new" * "command"
     uses(src; name = "Consumer", file = "src/a.jl") =

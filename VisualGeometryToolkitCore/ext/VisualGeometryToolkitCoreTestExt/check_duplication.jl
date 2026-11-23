@@ -23,6 +23,9 @@ const _DEFAULT_SIMILARITY = ((0.6, 60), (0.85, 25))
 # `S{T}(x::X) = S{T, X}(x)`) is an idiom for a downstream package's single use of it too (PanoramaStitching 0.7), with no
 # per-repository exception file. An own pair still reads the own count, so CI and the gate find the same own pairs.
 const _MAX_POSTINGS = 40
+# The informative shingles (no idiom) a definition must hold before its similarity to another counts: a definition
+# made of idioms alone (a one-line `==` or wrapper constructor) is never a copy, whatever its score.
+const _MIN_INFORMATIVE = 10
 
 # --- the retired patterns ----------------------------------------------------
 
@@ -465,6 +468,17 @@ function _similar_pairs(defs, similarity)
         by_repo[k] = get(by_repo, k, 0) + 1
         in_any[h] = max(get(in_any, h, 0), by_repo[k])
     end
+    # The INFORMATIVE shingles of each definition: those that are no idiom, counted for an own pair (the repository's
+    # idiom count) and for a cross-repository pair (an idiom in any repository too). The similarity is taken over these
+    # alone, the intersection AND both totals: an idiom is no evidence either way, so a copy keeps its score however
+    # common its boilerplate grows. (Counting idioms in the totals but not in the intersection made a copy's score
+    # fall as the corpus grew, and the gate went blind to copies wrapped in common test boilerplate: Core 0.14's audit.)
+    n_own = zeros(Int, length(defs)); n_any = zeros(Int, length(defs))
+    for i in keep, h in defs[i].shingles
+        get(in_repo, h, 0) > _MAX_POSTINGS && continue
+        n_own[i] += 1
+        get(in_any, h, 0) > _MAX_POSTINGS || (n_any[i] += 1)
+    end
     pairs = Tuple{Int, Int, Float64}[]
     count = zeros(Int, length(defs))
     touched = Int[]
@@ -486,7 +500,10 @@ function _similar_pairs(defs, similarity)
             A, B = defs[a], defs[b]
             c = count[b]; count[b] = 0
             A.file == B.file && continue
-            j = c / (length(A.shingles) + length(B.shingles) - c)
+            cross = match(_EXTERNAL_ID, B.file) !== nothing
+            nA, nB = cross ? (n_any[a], n_any[b]) : (n_own[a], n_own[b])
+            min(nA, nB) >= _MIN_INFORMATIVE || continue   # a definition of idioms only is no evidence of a copy
+            j = c / (nA + nB - c)
             n = min(A.ntokens, B.ntokens)
             any(((jmin, nmin),) -> j >= jmin && n >= nmin, similarity) && push!(pairs, (a, b, j))
         end

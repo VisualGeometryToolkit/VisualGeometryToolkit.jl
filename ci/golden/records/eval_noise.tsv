@@ -1,0 +1,148 @@
+# golden bit records, group eval_noise: id	path	type	value
+scale_prior/six_heavy_tail/jeffreys#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/jeffreys		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/jeffreys	alpha0	Float64	0000000000000000
+scale_prior/six_heavy_tail/jeffreys	beta0	Float64	0000000000000000
+scale_prior/six_heavy_tail/ig_robust_alpha1#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/ig_robust_alpha1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/ig_robust_alpha1	alpha0	Float64	000000000000f03f
+scale_prior/six_heavy_tail/ig_robust_alpha1	beta0	Float64	d3fbc6d79e59323f
+scale_prior/six_heavy_tail/ig_robust_alpha2.5#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/ig_robust_alpha2.5		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/ig_robust_alpha2.5	alpha0	Float64	0000000000000440
+scale_prior/six_heavy_tail/ig_robust_alpha2.5	beta0	Float64	c8bab88d06f0463f
+scale_prior/six_heavy_tail/ig_mle#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/ig_mle		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/ig_mle	alpha0	Float64	4d062261988add3f
+scale_prior/six_heavy_tail/ig_mle	beta0	Float64	ed183142323e083f
+scale_prior/six_tail_moved/jeffreys#fixture		array Base.Vector{Float64} [6]	791585bb6618e8628c803920c841816ad215c514e1eef8f3b11fdf9dfbcc57f3
+scale_prior/six_tail_moved/jeffreys		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_tail_moved/jeffreys	alpha0	Float64	0000000000000000
+scale_prior/six_tail_moved/jeffreys	beta0	Float64	0000000000000000
+scale_prior/six_tail_moved/ig_robust_alpha1#fixture		array Base.Vector{Float64} [6]	791585bb6618e8628c803920c841816ad215c514e1eef8f3b11fdf9dfbcc57f3
+scale_prior/six_tail_moved/ig_robust_alpha1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_tail_moved/ig_robust_alpha1	alpha0	Float64	000000000000f03f
+scale_prior/six_tail_moved/ig_robust_alpha1	beta0	Float64	d3fbc6d79e59323f
+scale_prior/six_tail_moved/ig_robust_alpha2.5#fixture		array Base.Vector{Float64} [6]	791585bb6618e8628c803920c841816ad215c514e1eef8f3b11fdf9dfbcc57f3
+scale_prior/six_tail_moved/ig_robust_alpha2.5		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_tail_moved/ig_robust_alpha2.5	alpha0	Float64	0000000000000440
+scale_prior/six_tail_moved/ig_robust_alpha2.5	beta0	Float64	c8bab88d06f0463f
+scale_prior/six_tail_moved/ig_mle#fixture		array Base.Vector{Float64} [6]	791585bb6618e8628c803920c841816ad215c514e1eef8f3b11fdf9dfbcc57f3
+scale_prior/six_tail_moved/ig_mle		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_tail_moved/ig_mle	alpha0	Float64	2a3d676c3c73cd3f
+scale_prior/six_tail_moved/ig_mle	beta0	Float64	86a204cb782ef83e
+scale_prior/single/jeffreys#fixture		array Base.Vector{Float64} [1]	f6e8cf62955f17afd21fb0a656a828d14ada19d3ea7c92b85a63953f974e36b7
+scale_prior/single/jeffreys		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/single/jeffreys	alpha0	Float64	0000000000000000
+scale_prior/single/jeffreys	beta0	Float64	0000000000000000
+scale_prior/single/ig_robust_alpha1#fixture		array Base.Vector{Float64} [1]	f6e8cf62955f17afd21fb0a656a828d14ada19d3ea7c92b85a63953f974e36b7
+scale_prior/single/ig_robust_alpha1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/single/ig_robust_alpha1	alpha0	Float64	000000000000f03f
+scale_prior/single/ig_robust_alpha1	beta0	Float64	2d431cebe2361a3f
+scale_prior/single/ig_robust_alpha2.5#fixture		array Base.Vector{Float64} [1]	f6e8cf62955f17afd21fb0a656a828d14ada19d3ea7c92b85a63953f974e36b7
+scale_prior/single/ig_robust_alpha2.5		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/single/ig_robust_alpha2.5	alpha0	Float64	0000000000000440
+scale_prior/single/ig_robust_alpha2.5	beta0	Float64	fca9f1d24d62303f
+scale_prior/single/ig_mle#fixture		array Base.Vector{Float64} [1]	f6e8cf62955f17afd21fb0a656a828d14ada19d3ea7c92b85a63953f974e36b7
+scale_prior/single/ig_mle		Nothing	nothing
+scale_prior/empty/jeffreys#fixture		array Base.Vector{Float64} [0]	353f204ff1b83eb636c147be008c0762c1bdc8755d1b2046333499e32a1a25c6
+scale_prior/empty/jeffreys		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/empty/jeffreys	alpha0	Float64	0000000000000000
+scale_prior/empty/jeffreys	beta0	Float64	0000000000000000
+scale_prior/empty/ig_robust_alpha1#fixture		array Base.Vector{Float64} [0]	353f204ff1b83eb636c147be008c0762c1bdc8755d1b2046333499e32a1a25c6
+scale_prior/empty/ig_robust_alpha1		Nothing	nothing
+scale_prior/empty/ig_robust_alpha2.5#fixture		array Base.Vector{Float64} [0]	353f204ff1b83eb636c147be008c0762c1bdc8755d1b2046333499e32a1a25c6
+scale_prior/empty/ig_robust_alpha2.5		Nothing	nothing
+scale_prior/empty/ig_mle#fixture		array Base.Vector{Float64} [0]	353f204ff1b83eb636c147be008c0762c1bdc8755d1b2046333499e32a1a25c6
+scale_prior/empty/ig_mle		Nothing	nothing
+scale_prior/ig3_2e-3_200k/jeffreys#fixture		array Base.Vector{Float64} [200000]	aea78f541b0f0ebc10ea17169264135792a67deab0c629c64df115da27074f08
+scale_prior/ig3_2e-3_200k/jeffreys		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k/jeffreys	alpha0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k/jeffreys	beta0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k/ig_robust_alpha1#fixture		array Base.Vector{Float64} [200000]	aea78f541b0f0ebc10ea17169264135792a67deab0c629c64df115da27074f08
+scale_prior/ig3_2e-3_200k/ig_robust_alpha1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k/ig_robust_alpha1	alpha0	Float64	000000000000f03f
+scale_prior/ig3_2e-3_200k/ig_robust_alpha1	beta0	Float64	301e565cc06c483f
+scale_prior/ig3_2e-3_200k/ig_robust_alpha2.5#fixture		array Base.Vector{Float64} [200000]	aea78f541b0f0ebc10ea17169264135792a67deab0c629c64df115da27074f08
+scale_prior/ig3_2e-3_200k/ig_robust_alpha2.5		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k/ig_robust_alpha2.5	alpha0	Float64	0000000000000440
+scale_prior/ig3_2e-3_200k/ig_robust_alpha2.5	beta0	Float64	bca56b73f0875e3f
+scale_prior/ig3_2e-3_200k/ig_mle#fixture		array Base.Vector{Float64} [200000]	aea78f541b0f0ebc10ea17169264135792a67deab0c629c64df115da27074f08
+scale_prior/ig3_2e-3_200k/ig_mle		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k/ig_mle	alpha0	Float64	dc7310dc0f1b0840
+scale_prior/ig3_2e-3_200k/ig_mle	beta0	Float64	ef472df2606c603f
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed1#fixture		array Base.Vector{Float64} [200000]	7c2474bec0c22a7462c7196ebb426b76cd093384d3f518fdf0a99d620a3cef50
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed1	alpha0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed1	beta0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed1#fixture		array Base.Vector{Float64} [200000]	7c2474bec0c22a7462c7196ebb426b76cd093384d3f518fdf0a99d620a3cef50
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed1	alpha0	Float64	000000000000f03f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed1	beta0	Float64	0004695da473483f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed1#fixture		array Base.Vector{Float64} [200000]	7c2474bec0c22a7462c7196ebb426b76cd093384d3f518fdf0a99d620a3cef50
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed1	alpha0	Float64	0000000000000440
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed1	beta0	Float64	0045c3748d905e3f
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed1#fixture		array Base.Vector{Float64} [200000]	7c2474bec0c22a7462c7196ebb426b76cd093384d3f518fdf0a99d620a3cef50
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed1		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed1	alpha0	Float64	a55c3a2ee4ff0740
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed1	beta0	Float64	60484647a35d603f
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed2#fixture		array Base.Vector{Float64} [200000]	7d53c88e41c3c447157a34f755037a91741fc5eaf1d1fef1c4537ea5e1d43c23
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed2		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed2	alpha0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed2	beta0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed2#fixture		array Base.Vector{Float64} [200000]	7d53c88e41c3c447157a34f755037a91741fc5eaf1d1fef1c4537ea5e1d43c23
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed2		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed2	alpha0	Float64	000000000000f03f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed2	beta0	Float64	5850ba2c5977483f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed2#fixture		array Base.Vector{Float64} [200000]	7d53c88e41c3c447157a34f755037a91741fc5eaf1d1fef1c4537ea5e1d43c23
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed2		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed2	alpha0	Float64	0000000000000440
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed2	beta0	Float64	6ee4e8772f955e3f
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed2#fixture		array Base.Vector{Float64} [200000]	7d53c88e41c3c447157a34f755037a91741fc5eaf1d1fef1c4537ea5e1d43c23
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed2		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed2	alpha0	Float64	e22135d1872a0840
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed2	beta0	Float64	9133de8a8f80603f
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed3#fixture		array Base.Vector{Float64} [200000]	9e6e578771fcf21c2ad218e9a0b87a3c9cc9a2263a22ab814e30cf3a73d5026f
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed3		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed3	alpha0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/jeffreys/seed3	beta0	Float64	0000000000000000
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed3#fixture		array Base.Vector{Float64} [200000]	9e6e578771fcf21c2ad218e9a0b87a3c9cc9a2263a22ab814e30cf3a73d5026f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed3		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed3	alpha0	Float64	000000000000f03f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha1/seed3	beta0	Float64	071f1d9bc996483f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed3#fixture		array Base.Vector{Float64} [200000]	9e6e578771fcf21c2ad218e9a0b87a3c9cc9a2263a22ab814e30cf3a73d5026f
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed3		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed3	alpha0	Float64	0000000000000440
+scale_prior/ig3_2e-3_200k_noise/ig_robust_alpha2.5/seed3	beta0	Float64	c966e4017cbc5e3f
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed3#fixture		array Base.Vector{Float64} [200000]	9e6e578771fcf21c2ad218e9a0b87a3c9cc9a2263a22ab814e30cf3a73d5026f
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed3		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed3	alpha0	Float64	d58a5507ea080840
+scale_prior/ig3_2e-3_200k_noise/ig_mle/seed3	beta0	Float64	714d0e3f4375603f
+scale_prior/no_data/jeffreys_family_form#fixture		Nothing	nothing
+scale_prior/no_data/jeffreys_family_form		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/no_data/jeffreys_family_form	alpha0	Float64	0000000000000000
+scale_prior/no_data/jeffreys_family_form	beta0	Float64	0000000000000000
+scale_prior/six_heavy_tail/ig_mle_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/ig_mle_family_form		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/ig_mle_family_form	alpha0	Float64	4d062261988add3f
+scale_prior/six_heavy_tail/ig_mle_family_form	beta0	Float64	ed183142323e083f
+scale_prior/six_heavy_tail/ig_robust_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/six_heavy_tail/ig_robust_family_form		struct	VisualGeometryToolkitCore.IGPrior
+scale_prior/six_heavy_tail/ig_robust_family_form	alpha0	Float64	0000000000000440
+scale_prior/six_heavy_tail/ig_robust_family_form	beta0	Float64	c8bab88d06f0463f
+scale_prior/refused/jeffreys_mle#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/refused/jeffreys_mle	exception	type	ErrorException
+scale_prior/refused/jeffreys_mle	exception.msg	String	Jeffreys family is parameterless; got fitting=MLE. Use Unfitted().
+scale_prior/refused/jeffreys_robust#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/refused/jeffreys_robust	exception	type	ErrorException
+scale_prior/refused/jeffreys_robust	exception.msg	String	Jeffreys family is parameterless; got fitting=RobustFit. Use Unfitted().
+scale_prior/refused/ig_unfitted#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/refused/ig_unfitted	exception	type	ErrorException
+scale_prior/refused/ig_unfitted	exception.msg	String	InverseGamma family requires a non-trivial fitting (RobustFit or MLE).
+scale_prior/refused/jeffreys_mle_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/refused/jeffreys_mle_family_form	exception	type	ErrorException
+scale_prior/refused/jeffreys_mle_family_form	exception.msg	String	Jeffreys family is parameterless; got fitting=MLE. Use Unfitted().
+scale_prior/refused/ig_unfitted_family_form#fixture		array Base.Vector{Float64} [6]	7695397415ce877dd903c17fe28bd1e1e0ff8b2d4f0d4ab9009a900d2f4531f7
+scale_prior/refused/ig_unfitted_family_form	exception	type	ErrorException
+scale_prior/refused/ig_unfitted_family_form	exception.msg	String	InverseGamma family requires a non-trivial fitting (RobustFit or MLE).

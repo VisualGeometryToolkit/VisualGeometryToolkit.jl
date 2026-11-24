@@ -81,7 +81,7 @@ extent_trait(::AbstractRansacProblem) = NoExtent()
 #         - WithExtent +
 #           HomographyMat  → VGC.is_orientation_preserving(H, extent)
 #         - WithExtent +
-#           Extrinsics3          → extent visibility + convex-quadrilateral check
+#           `CameraExtrinsics`          → extent visibility + convex-quadrilateral check
 #                            (added when needed)
 
 @inline _check_extent(::NoExtent, _p, _model, _mask) = true
@@ -93,7 +93,7 @@ extent_trait(::AbstractRansacProblem) = NoExtent()
 ) =
     is_orientation_preserving(H, et.extent)
 
-# Extrinsics3 + rectangular extent: project the 4 board-rectangle corners (lifted to
+# `CameraExtrinsics` + rectangular extent: project the 4 board-rectangle corners (lifted to
 # z=0 world points) through the pose + the problem's camera, then require
 #   (a) cheirality — every corner in front of the camera (camera-frame Z>0).
 #       The per-correspondence cheirality in `mahalanobis_distances!` only guarantees the

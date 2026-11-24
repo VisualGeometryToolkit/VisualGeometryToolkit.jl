@@ -253,9 +253,10 @@ end
 
 @testset "LevenbergMarquardt refine: the keywords of the refine contract" begin
     # the run settings are the solve keywords — the scale input and the stops; the strategy is the algorithm's field
-    m = only(methods(VgtkCore.__solve, (RefineProblem{<:HomographyProblem, <:Any, VgtkCore.NullParameters}, LevenbergMarquardt)))
+    m = only(methods(VgtkCore.__solve, (RefineProblem{<:HomographyProblem, <:Any, VgtkCore.NullParameters},
+                                        LevenbergMarquardt{VgtkCore.NativeSolver})))
     @test Set(Base.kwarg_decl(m)) == Set([:scale, :width, :stops])
-    @test fieldnames(LevenbergMarquardt) == (:optimization_strategy, :damping)
+    @test fieldnames(LevenbergMarquardt) == (:optimization_strategy, :damping, :backend)
     # the class default of record: Triggs{Welsch}, no width of its own ([refine.<class>])
     for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
                   :radial_homography, :radial_camera, :hand_eye)

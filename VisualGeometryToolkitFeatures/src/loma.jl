@@ -8,7 +8,7 @@
 # runs them; the README's Citing section has both BibTeX entries.
 #
 # The descriptor returns a StructArray{DescribedFeature}; the matcher returns
-# the stack's match type, Vector{NNMatch}, so `correspondences(fa, fb, matches)` and
+# the stack's matches (a `Vector` of `Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(…))`), so `correspondences(fa, fb, matches)` and
 # everything downstream of `match` take LoMa output unchanged.
 #
 # ONNXRunTime.jl reverses dims at the boundary, so a Julia array's size IS the
@@ -272,7 +272,7 @@ function LoMaMatcher(variant::Symbol = :b128; bf16::Bool = false, execution_prov
 end
 
 """
-    (matcher::LoMaMatcher)(features_a, features_b, size_a, size_b; min_score = 0) -> Vector{NNMatch}
+    (matcher::LoMaMatcher)(features_a, features_b, size_a, size_b; min_score = 0) -> Vector{<:Attributed{<:Correspondence, NNMatchMeta}}
 
 Match two sets of [`LoMaDescriptor`](@ref) features, whose descriptor dimension
 must be the matcher's (`ArgumentError` otherwise). `size_a`/`size_b` are the
@@ -308,10 +308,10 @@ end
 
 # m0[i] is the 0-based index into b matched to a's i-th feature, -1 for none
 function _loma_matches(m0, mscores0, min_score)
-    matches = NNMatch[]
+    matches = Attributed{Correspondence{Int, Int}, NNMatchMeta}[]
     for (i, (j, s)) in enumerate(zip(m0, mscores0))   # ORT outputs index Cartesian
         (j < 0 || s < min_score) && continue
-        push!(matches, NNMatch(i, Int(j) + 1, Float32(s), Inf32))
+        push!(matches, Attributed(Correspondence{Int, Int}(i, Int(j) + 1), NNMatchMeta(Float32(s), Inf32)))
     end
     return sort!(matches; by = m -> m.score, rev = true)
 end

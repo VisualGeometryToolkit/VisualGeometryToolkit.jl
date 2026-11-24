@@ -22,13 +22,13 @@ back in metres; the extent of a physical problem is a physical rectangle.
 
 ## Result Types
 
-**Model type** — [`Extrinsics3`](@extref VisualGeometryToolkitCore.Extrinsics3),
+**Model type** — [`CameraExtrinsics`](@extref VisualGeometryToolkitCore.CameraExtrinsics),
 VisualGeometryToolkitCore's world→camera rigid pose (import it from
-VisualGeometryToolkitCore). Do not confuse it with [`Rigid3`](@ref), the
-*unlabeled* alias the hand-eye problem uses — a different type.
+VisualGeometryToolkitCore). Do not confuse it with the *unlabeled* plain map the hand-eye problem uses — a
+different type.
 
-`model_type(::AbsolutePoseProblem) = Extrinsics3` and its `sample_models` returns
-`FixedModels{4, Extrinsics3}` (up to 4 P3P solutions).
+`model_type(::AbsolutePoseProblem) = `CameraExtrinsics`` and its `sample_models` returns
+`FixedModels{4, `CameraExtrinsics`}` (up to 4 P3P solutions).
 
 ## Local Optimization
 
@@ -41,7 +41,7 @@ chart among them. The per-iteration M-step for
 chart about the current pose (VGC's `LeftRigidManifold6`: `R = exp(δω)·R₀`,
 `t = exp(δω)·t₀ + δt`): it minimizes
 the weighted calibrated reprojection error from
-`constraint_with_jacobians(::Extrinsics3, X, ray)` in VisualGeometryToolkitCore (the
+`constraint_with_jacobians(::`CameraExtrinsics`, X, ray)` in VisualGeometryToolkitCore (the
 raw-pixel error for a distorting lens) with an analytic Jacobian (the chart's
 closed-form `action_jacobian`), running VisualGeometryToolkitCore's chart LM
 (NLLSsolver, through `lmsolve_chart!`) on a `ManifoldLmWorkspace{6}`.

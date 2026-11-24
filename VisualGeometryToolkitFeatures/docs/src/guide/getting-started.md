@@ -108,7 +108,7 @@ julia> all(perm[m.second] == m.first for m in matches)
 true
 ```
 
-Each match is an [`NNMatch`](@ref): `m.first` indexes the rows of `D1`,
+Each match is an `Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))`: `m.first` indexes the rows of `D1`,
 `m.second` those of `D2`, and `m.score` and `m.ratio` are the similarity and
 Lowe's ratio. [Matching](matching.md) covers the other strategies and metrics,
 the GPU and the learned LoMa matchers.

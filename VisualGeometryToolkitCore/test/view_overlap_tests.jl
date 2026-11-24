@@ -124,12 +124,12 @@ end
 @testitem "view_overlap: perspective footprints are great-circle quadrilaterals" setup = [ViewOverlapSetup] begin
     using Test, LinearAlgebra, Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Pinhole
+    using VisualGeometryToolkitCore: Lens, Perspective
     using Rotations: RotMatrix, AngleAxis
     # a perspective camera maps geodesics to lines: the rings' corners are exact
     # and every chord is the footprint's edge, so the overlap is exact at any n
     # — also where frame j's ring runs behind frame i (a relative turn up to 2.2 rad)
-    cam = camera(700.0, 900.0, 500.0, Pinhole(), 1600, 1100)    # off-centre principal point
+    cam = camera(700.0, 900.0, 500.0, Lens(Perspective()), 1600, 1100)    # off-centre principal point
     rng = MersenneTwister(1)
     pairs = map(1:200) do _
         Ra = rand(rng, RotMatrix{3, Float64})
@@ -147,7 +147,7 @@ end
 @testitem "view_overlap: against pixel counting through image_warp" setup = [ViewOverlapSetup] begin
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, Lens, Perspective, Equidistant, Pinhole, Additive, Radial, Tangential,
+    using VisualGeometryToolkitCore: KannalaBrandt, Lens, Perspective, Equidistant, Additive, Radial, Tangential,
         Backprojection, image_warp, image_warp!, backproject_with_jacobian, pixel_mask
     using CoordinateTransformations: CoordinateTransformations, LinearMap
     using Rotations: RotMatrix, RotXYZ
@@ -197,7 +197,7 @@ end
     @test row.solid_angle ≈ shared rtol = 2.0e-3
     # a fisheye that sees behind a narrow perspective frame (its footprint holds
     # that frame's backward axis): different cameras, in either order
-    pin = camera(300.0, 320.0, 240.0, Pinhole(), 640, 480)
+    pin = camera(300.0, 320.0, 240.0, Lens(Perspective()), 640, 480)
     wide = camera(300.0, 550.0, 550.0, Lens(Equidistant()), 1100, 1100)
     c190 = Circle(Point2(550.0, 550.0), 300 * deg2rad(95))
     Rp = RotMatrix(RotXYZ(0.0, 2.0, 0.0))
@@ -213,10 +213,10 @@ end
 @testitem "view_overlap: coincident, disjoint, the widest fields and refusals" setup = [ViewOverlapSetup] begin
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Pinhole, Lens, Equidistant, KannalaBrandt
+    using VisualGeometryToolkitCore: Lens, Perspective, Equidistant, KannalaBrandt
     using Rotations: RotMatrix, RotY
     R(ψ) = RotMatrix(RotY(ψ))
-    pin = camera(1000.0, 960.0, 540.0, Pinhole(), 1920, 1080)
+    pin = camera(1000.0, 960.0, 540.0, Lens(Perspective()), 1920, 1080)
     # two frames with the same rotation: each footprint clipped by itself, exactly
     rows = view_overlap(frames(pin, [R(0.3), R(0.3), R(0.3 + π / 2)]))
     @test rows[1].fraction_i ≈ 1 atol = 1.0e-12
@@ -273,7 +273,7 @@ end
 @testitem "RotationMap and OrientedCamera" begin
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: Pinhole, KannalaBrandt, convert_eltype, to_homogeneous, rotation, transfer_ellipse,
+    using VisualGeometryToolkitCore: Lens, Perspective, KannalaBrandt, convert_eltype, to_homogeneous, rotation, transfer_ellipse,
         has_units, with_unit, mm, m, RadialCamera, Rig, HomographyMat, HomographyMap
     using CoordinateTransformations: transform_deriv
     using Rotations: RotMatrix, RotY, RotX, QuatRotation, Angle2d
@@ -323,7 +323,7 @@ end
 
     # an oriented camera: a PosedCamera of a RotationMap
     K = @SMatrix [500.0 0 320; 0 500.0 240; 0 0 1]
-    cm = CameraModel(CameraCalibrationMat(K); lens = Pinhole())
+    cm = CameraModel(CameraCalibrationMat(K); lens = Lens(Perspective()))
     c = PosedCamera(cm, P)                       # a camera → world orientation, stored as its inverse
     @test c isa OrientedCamera && !(PosedCamera(cm, E) isa OrientedCamera)
     # a camera turns in three dimensions: a planar rotation does not pose one

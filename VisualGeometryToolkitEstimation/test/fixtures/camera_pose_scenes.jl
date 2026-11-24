@@ -12,11 +12,11 @@ using LinearAlgebra: normalize, norm
 using Random: Xoshiro, randn, rand
 using StableRNGs: StableRNG
 using Rotations: RotMatrix, RotXYZ
-using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project, rotation, translation, CameraModel, Pinhole, KannalaBrandt,
+using VisualGeometryToolkitCore: EuclideanMap, exp_so3, project, rotation, translation, CameraModel, Lens, Perspective, KannalaBrandt,
     SplineLens, ChartSpline, Size2
 
 # --- CameraPoseScenes: a pinhole and a Kannala–Brandt fisheye, V poses, their spiralling scene points ------------------
-pinhole_camera() = CameraModel(; focal = 800.0, pp = (640.0, 480.0), lens = Pinhole())
+pinhole_camera() = CameraModel(; focal = 800.0, pp = (640.0, 480.0), lens = Lens(Perspective()))
 fisheye_camera() = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
 truth_poses(V) = [EuclideanMap(RotMatrix(RotXYZ(0.3 - 0.1v, -0.2 + 0.07v, 0.1v)), SVector(0.1 - 0.05v, -0.05, 2.0 + 0.1v)) for v in 1:V]
 # the truth moved by ≈ 0.05 rad and ≈ 0.08 in translation, differently per view

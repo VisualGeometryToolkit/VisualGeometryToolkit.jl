@@ -135,8 +135,8 @@
             @test_throws ArgumentError restrict(ch, (:k9,))
             @test_throws ArgumentError local_coordinates(ch, KannalaBrandt(0.0, 0.0, 0.0, 0.0))
             # a parameterless family: the manifold of nothing
-            @test tangent_size(LensManifold(Pinhole())) == 0
-            @test size(action_jacobian(LensManifold(Pinhole()), P)) == (2, 0)
+            @test tangent_size(LensManifold(Lens(Perspective()))) == 0
+            @test size(action_jacobian(LensManifold(Lens(Perspective())), P)) == (2, 0)
         end
 
         @testset "lens manifold: DoubleSphere's ξ through a log, α ∈ [0, 1] mirrored at its ends" begin

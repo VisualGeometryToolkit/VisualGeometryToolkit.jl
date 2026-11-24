@@ -64,10 +64,10 @@
     using Statistics
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialMat, CameraModel, LogicalIntrinsics,
-        CameraCalibrationMat, Pinhole, backproject, project,
+        CameraCalibrationMat, Lens, Perspective, backproject, project,
         backproject_with_jacobian, constraint_with_jacobians, sampson_distance
 
-    cam_of(fx, fy, cx, cy, lens = Pinhole()) = CameraModel(
+    cam_of(fx, fy, cx, cy, lens = Lens(Perspective())) = CameraModel(
         LogicalIntrinsics(
             CameraCalibrationMat(SMatrix{3, 3, Float64}(fx, 0, 0, 0, fy, 0, cx, cy, 1))
         ), lens,

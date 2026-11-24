@@ -323,7 +323,7 @@ end
 _seed_run!(c::RansacCache, models::FixedModels) =
     _select_then_optimize!(c.ws, c.problem, c.scoring, c.lo, models; result = c.result)
 # The seed through the problem's `guess_model` (the refine contract's one reading of a guess: the workspace model type
-# may be a labeled alias, `Extrinsics3`, while a caller hands in an unlabeled seed or a physical one).
+# may be a labeled alias, `CameraExtrinsics`, while a caller hands in an unlabeled seed or a physical one).
 _seed_run!(c::RansacCache, θ₀) = _locally_optimize_seed!(c.ws, c.problem, c.scoring, c.lo,
     _seed_model(c.problem, θ₀); score_guard = c.alg.score_guard, result = c.result)
 

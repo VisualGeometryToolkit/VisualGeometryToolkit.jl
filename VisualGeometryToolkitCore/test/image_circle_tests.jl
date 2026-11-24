@@ -7,7 +7,7 @@
 @testitem "valid_domain and image_circle" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: view_angle_limit, projected_radius, Pinhole, KannalaBrandt, Division,
+    using VisualGeometryToolkitCore: view_angle_limit, projected_radius, Lens, Perspective, KannalaBrandt, Division,
         RegionIntersection, WholePlane, PolygonRegion, AbstractLensModel, boundary_point
     using FlexUnits: DimensionError
     using StaticArrays
@@ -71,7 +71,7 @@
     end
 
     @testset "no limit of its own: the whole plane" begin
-        for l in (Pinhole(), Lens(Equidistant()), Lens(Perspective(), Radial((0.05,))), Division(-0.3), KannalaBrandt(0.01))
+        for l in (Lens(Perspective()), Lens(Equidistant()), Lens(Perspective(), Radial((0.05,))), Division(-0.3), KannalaBrandt(0.01))
             @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, l)) === WholePlane()
         end
         @test valid_domain(mk(800.0, 800.0, 640.0, 480.0, MonotoneLens())) === WholePlane()
@@ -94,8 +94,8 @@
         @test qu.outer ≈ 800 * sqrt(10 / 3) * (2 / 3) rtol = 1.0e-5
         # the whole plane restricts nothing
         r = Rect(0, 0, 1280, 960)
-        @test (r ∩ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Pinhole()))) === r
-        @test r ∈ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Pinhole()))
+        @test (r ∩ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Lens(Perspective())))) === r
+        @test r ∈ valid_domain(mk(800.0, 800.0, 640.0, 480.0, Lens(Perspective())))
     end
 
     @testset "not radially symmetric: the star polygon through each azimuth's fold" begin

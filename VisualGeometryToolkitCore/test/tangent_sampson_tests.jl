@@ -11,7 +11,7 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialMat, CameraModel, LogicalIntrinsics,
-        CameraCalibrationMat, Pinhole, backproject,
+        CameraCalibrationMat, Lens, Perspective, backproject,
         backproject_with_jacobian, constraint_with_jacobians, sampson_distance, sampson_residual_with_normal, whiten
 
     R = RotMatrix(RotXYZ(0.04, -0.07, 0.02)); Rm = SMatrix{3, 3}(R)
@@ -19,7 +19,7 @@
     E = EssentialMat(Rm, t)
     f = 800.0; c = 320.0
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c, c, 1))
-    cam = CameraModel(LogicalIntrinsics(K), Pinhole())
+    cam = CameraModel(LogicalIntrinsics(K), Lens(Perspective()))
 
     rng = Xoshiro(17)
     pix1 = [SVector(120 + 400rand(rng), 120 + 400rand(rng)) for _ in 1:12]

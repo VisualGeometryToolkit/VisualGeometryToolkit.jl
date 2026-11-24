@@ -201,7 +201,7 @@ Base.inv(p::FramedLensProjection) = throw(MethodError(inv, (p,)))
 
 # Is the lens's distortion the identity IN ITS DEFINING FRAME? (Drives the
 # frame-collapse rule.) A forward lens with no distortion is the identity in
-# its projection's frame — `Pinhole` and the pure fisheye projections alike,
+# its projection's frame — `Lens(Perspective())` and the pure fisheye projections alike,
 # even though their gnomonic-frame callables (and hence `has_distortion`) are
 # nontrivial; a lift never is.
 _identity_in_frame(l::Lens) = l.distortion === nothing
@@ -280,7 +280,7 @@ Mint the framed forward-distortion stage of `lens`,
 tag read from [`distortion_frame`](@ref). For COLMAP's thin-prism fisheye the stage's
 math is its additive bundle, read in the equidistant frame (the equidistant
 half is the stage-1 ray projection, not distortion). Errors for lenses with no distortion stage:
-identity-in-frame models (`Pinhole`, a pure `Lens(Equidistant())` — the chain
+identity-in-frame models (`Lens(Perspective())`, a pure `Lens(Equidistant())` — the chain
 collapses instead, see [`DistortedFrame`](@ref)) and scoped-out models
 (a parametric projection, which has no frame split).
 """
@@ -461,7 +461,7 @@ frame's domain (gnomonic: `Z ≤ 0`; equidistant: the exact backward ray)
 map to NaN — see [`RayMap`](@ref).
 
 For lenses whose distortion is the identity in their defining frame
-(`Pinhole`, a pure `Lens(Equidistant())`), `D` is the identity map — still
+(`Lens(Perspective())`, a pure `Lens(Equidistant())`), `D` is the identity map — still
 framed, still returning the unit representative. For COLMAP's thin-prism fisheye
 the conjugation runs through its equidistant frame, where its distortion is
 the additive bundle.
@@ -848,7 +848,7 @@ junction is checked at construction:
 Stage 1 is [`FramedPerspective`](@ref) for perspective-plane lenses and
 [`FramedEquidistantProjection`](@ref) for equidistant-frame
 (omnidirectional) lenses — see [`distortion_frame`](@ref). When the lens is the identity in its
-defining frame (`Pinhole`; a pure `Lens(Equidistant())`), the distortion stage
+defining frame (`Lens(Perspective())`; a pure `Lens(Equidistant())`), the distortion stage
 is omitted and `K` consumes the ray frame directly (frame collapse — see
 [`DistortedFrame`](@ref)). A lens with a parametric projection is served by
 one fused [`FramedLensProjection`](@ref) onto `DistortedFrame{id}`.

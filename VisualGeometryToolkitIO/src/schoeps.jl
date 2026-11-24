@@ -24,9 +24,9 @@
 # of the top-left pixel, so the centre of pixel (i, j) is (i + ½, j + ½):
 # that IS `PixelFrame{:colmap}` (pixel-origins.md), the identity
 # `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:colmap})` — no half pixel is
-# added anywhere. `SCHOEPS_PIXEL_FRAME` names it once: the spline models are
+# added anywhere. ``PixelFrame{:colmap}`` names it once: the spline models are
 # defined in it (VGC's own types are COLMAP-frame by construction), and the
-# detections come back typed in it (`TargetObservations{SCHOEPS_PIXEL_FRAME}`),
+# detections come back typed in it (`TargetObservations{`PixelFrame{:colmap}`}`),
 # so moving them to another convention is `convert_frame`, explicitly.
 #
 # What the files do NOT declare is the reader's argument, as for the OpenCV and
@@ -39,15 +39,8 @@
 #               1-based point index of a `TargetObservations` set (`index = id + 1`).
 # =============================================================================
 
-"""
-    SCHOEPS_PIXEL_FRAME
-
-The pixel frame of Schöps et al.'s camera_calibration files: origin at the
-top-left corner of the top-left pixel, so pixel `(i, j)`'s centre is
-`(i + ½, j + ½)` — `PixelFrame{:colmap}` exactly (the identity
-`EuclideanMap(PixelFrame{:colmap}, PixelFrame{:colmap})`).
-"""
-const SCHOEPS_PIXEL_FRAME = PixelFrame{:colmap}
+# The pixel frame of Schöps et al.'s camera_calibration files is `PixelFrame{:colmap}` exactly: origin at the top-left
+# corner of the top-left pixel, so pixel `(i, j)`'s centre is `(i + ½, j + ½)`.
 
 # The form of a file, by its content: `:json` (a vgio file), `:calib_data` (a
 # Schöps dataset.bin) or `:yaml` (anything else: a Schöps intrinsics YAML). A
@@ -411,7 +404,7 @@ function _load_schoeps_dataset(path::AbstractString, target::Symbol)
         # the detections'; they are not read.
     end
     try
-        return TargetObservations{SCHOEPS_PIXEL_FRAME}(frames; images)
+        return TargetObservations{PixelFrame{:colmap}}(frames; images)
     catch e
         e isa ArgumentError && throw(ArgumentError("$(path): $(e.msg)"))
         rethrow()

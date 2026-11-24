@@ -7,7 +7,7 @@
 # M-step and the chart rows alike. A board imaged by a strong
 # division fisheye out to its rim, with noise and gross outliers, must be
 # recovered from the RAW pixels — no undistortion anywhere — and the rim
-# points must be inliers. The Pinhole path is untouched.
+# points must be inliers. The pinhole lens path is untouched.
 # =============================================================================
 using Test, Random, LinearAlgebra, StaticArrays, StructArrays
 using StableRNGs

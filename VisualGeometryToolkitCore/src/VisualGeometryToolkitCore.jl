@@ -10,7 +10,7 @@ BlobBoards build on it.
   `OrientedDisc`, `EllipticFrame`, `AffineFrame`), hyperplanes (`Line2D`,
   `Plane3D`), 3-D conics (`Ellipse3D`, `Circle3D`) and `Paraboloid3D`.
 - `Cameras`: sensors (`CMOS_SENSORS`), intrinsics, lens models (`Lens`,
-  `LiftLens`, `Pinhole`, `KannalaBrandt`, `Division`, …), `PosedCamera`, `CameraModel`,
+  `LiftLens`, `Lens(Perspective())`, `KannalaBrandt`, `Division`, …), `PosedCamera`, `CameraModel`,
   `Rig`, projection, calibration fits and P3P.
 - `Synthetic`: ground-truth generators and metrics for benchmarking estimators.
 
@@ -159,7 +159,7 @@ public intersection, intersection_at, chart, bounds, surface, surface_point
 # -----------------------------------------------------------------------------
 # Primary API: Maps operate on primitives (a conic maps to a conic; see HomographyMap)
 export AbstractMatrixMap         # parent for matrix-backed Maps (BoundedMap is a sibling)
-export HomographyMap, EuclideanMap, CameraPose, CameraExtrinsics, Extrinsics3
+export HomographyMap, EuclideanMap, CameraPose, CameraExtrinsics
 export SimilarityMap             # x ↦ s·R·x + t: the similarity class (circles stay circles), exact under ∘ and inv
 public PlainEuclideanMap, UnitfulEuclideanMap   # the inner loop's map and the physical one
 public rotation, translation   # EuclideanMap/SimilarityMap accessors (x ↦ R·x + t); qualified or imported by name
@@ -260,7 +260,7 @@ public is_posed   # whether a camera or target carries a pose (the rig members' 
 export extent
 public BoundsTrait, HasBounds, NoBounds, bounds_trait
 export LogicalIntrinsics, ProjectiveIntrinsics, AbstractIntrinsics, principal_point
-export Pinhole, Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, LiftLens
+export Division, KannalaBrandt, Scaramuzza, AbstractLensModel, Lens, LiftLens
 export AbstractProjection, Perspective, Equidistant, Stereographic, Equisolid, Orthographic
 export DoubleSphere, Unified, ExtendedUnified
 export Equirectangular   # the latitude/longitude projection of directions (not a lens)
@@ -349,7 +349,6 @@ public PlanarCalibration   # the planar kinds as one type
 public TargetManifold                     # a calibratable target's Manifold (minimal_manifold(target))
 export Trajectory, TargetPoses, TargetHomographies   # per-frame values of a capture (captures.jl)
 export TargetObservations, FrameStamps   # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
-export UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # a capture's camera settings per frame, its hardware's identity (captures.jl)
 public is_constant   # every frame of a CaptureSettings exposed alike (not exported: a common word)
 export convert_frame   # the one way to change the pixel frame of pixel data
@@ -396,6 +395,8 @@ public model_chart, chart_rows, chart_model, chart_size, guess_model, solution_m
 public chart_refit, triggs_refit, lm_workspace   # the one chart refit, its robustified form, the chart LM's workspace reuse policy
 public bundle_loss, recorded_scale, scale_record   # a refine's robust loss from its strategy and scale input; the scale it records, and the whole record (scale, source, width)
 public AbstractBlockProblem, block_refit, with_robustifier, default_stops, block_lm   # the block contract of a bundle refine, its stops of record, the one bundle LM
+public default_damping   # the damping a LevenbergMarquardt backend runs by default (a backend contract generic: PoseLib states its own)
+public lm_backend_refine   # a solver backend's LevenbergMarquardt refine of raw data (a backend contract generic: PoseLib implements it)
 public normalized_loss_weight, loss_weights, weighted_support, weighted_support_rms   # the loss weight ρ′(s)/ρ′(0); a refine's weights; THE support and rms of a weighted result
 public cubic_bspline_weight_derivatives   # their first and second derivatives in the local coordinate (kernel-lawful)
 public cubic_bspline_prefilter_taps   # the cubic B-spline interpolation prefilter, truncated: a local filter a kernel applies

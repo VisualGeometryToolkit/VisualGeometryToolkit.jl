@@ -24,7 +24,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     CameraModel, EssentialMat, EuclideanMap,
     FixedModels, FundMat, HomographyMap, HomographyMat,
     HyperRectangle, Line2D, NativeSolver, Point2, Point3,
-    Extrinsics3, UnlabeledFrame, unlabel, relabel, Vec2, Vec3,
+    CameraExtrinsics, UnlabeledFrame, unlabel, relabel, Vec2, Vec3,
     Uncertain, CovMat,
     # Slot-labeled epipolar forms + per-view frame tags (VGC 0.9): the
     # observation-frame bookkeeping of the 2D-2D RANSAC problems is
@@ -330,12 +330,10 @@ public with_residual_unit
 # PUBLIC, not exported — the machinery
 # -----------------------------------------------------------------------------
 public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it; its normalization is Core's penalty_scale, mean_positive_eigenvalue)
-# Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
-# unlabeled EuclideanMap alias a hand-eye find returns (generic enough to collide:
-# PoseLib has its own). The LO refit an extender implements, `refine!`, is
+# Problem plumbing and RVG's own RANSAC-interface verbs. The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
 public AbstractRansacProblem, AbstractCorrespondenceProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
-    BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
+    BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait,
     sample_models, sample_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
 # measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).

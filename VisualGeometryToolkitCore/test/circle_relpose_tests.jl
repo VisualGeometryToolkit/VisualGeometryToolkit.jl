@@ -5,7 +5,7 @@
 # Correspondences / the sources-targets protocol / the solve verb / the registry
 # machinery. Everything below is what a downstream package would write:
 #
-#   1. a solver struct   `CircleRelPose <: MinimalSolver{Extrinsics3}`
+#   1. a solver struct   `CircleRelPose <: MinimalSolver{`CameraExtrinsics`}`
 #   2. verb methods      `sample_size` / `max_solutions` / `__solve` (the extension point of `solve`)
 #   3. ONE registry line  `minimal_solvers(::Type{<:Ellipse}, ::Type{<:Ellipse})`
 #
@@ -38,7 +38,7 @@
     # The additive solver
     # =============================================================================
 
-    struct CircleRelPose <: MinimalSolver{Extrinsics3} end
+    struct CircleRelPose <: MinimalSolver{model_type(P3P())} end
     VgtkCore.sample_size(::CircleRelPose) = 2
     VgtkCore.max_solutions(::CircleRelPose) = 1
 
@@ -112,7 +112,7 @@
 
     function VgtkCore.__solve(prob::MinimalProblem, ::CircleRelPose)
         cs, idx = prob.f, prob.sample
-        fail = FixedModels{1, Extrinsics3}(0, (zero(Extrinsics3),))
+        fail = FixedModels{1, model_type(P3P())}(0, (zero(model_type(P3P())),))
         length(idx) == 2 || throw(ArgumentError("CircleRelPose takes a 2-circle sample"))
         u = sources(cs); v = targets(cs)
         @inbounds v1 = _crp_view(u[idx[1]], u[idx[2]])
@@ -132,7 +132,7 @@
         norm(v2.cB - (R * v1.cB + t)) < 1.0e-6 || return fail
         abs(v1.rB - v2.rB) < 1.0e-6 || return fail
         pose = EuclideanMap(RotMatrix{3, Float64}(R), Vec3{Float64}(t))
-        return FixedModels{1, Extrinsics3}(1, (pose,))
+        return FixedModels{1, model_type(P3P())}(1, (pose,))
     end
 
     # --- the ONE registry line ---------------------------------------------------
@@ -176,17 +176,17 @@
         @test cs isa AbstractVector{<:Correspondence{Ellipse{Float64}, Ellipse{Float64}}}
 
         # ---- registry: one method made the family discoverable
-        @test induced_models(Ellipse{Float64}, Ellipse{Float64}) == (Extrinsics3,)
-        @test induced_models(cs) == (Extrinsics3,)
-        s = minimal_solver(Extrinsics3, Ellipse{Float64}, Ellipse{Float64})
+        @test induced_models(Ellipse{Float64}, Ellipse{Float64}) == (model_type(P3P()),)
+        @test induced_models(cs) == (model_type(P3P()),)
+        s = minimal_solver(model_type(P3P()), Ellipse{Float64}, Ellipse{Float64})
         @test s isa CircleRelPose
         @test sample_size(s) == 2
         @test max_solutions(s) == 1
-        @test model_type(s) == Extrinsics3
+        @test model_type(s) == model_type(P3P())
 
         # ---- solve honors the single verb contract
-        sols = solve(MinimalProblem(Extrinsics3, cs, 1:2), s)
-        @test sols isa FixedModels{1, Extrinsics3}
+        sols = solve(MinimalProblem(CameraExtrinsics, cs, 1:2), s)
+        @test sols isa FixedModels{1, model_type(P3P())}
         @test length(sols) == 1
         pose = first(iterate(sols))
 
@@ -198,8 +198,8 @@
         # ---- degeneracy honors the count-0 protocol (concentric circles)
         eCd = to_ellipse(_crp_conic(n1, d1, cA1, 0.4 * r))
         eCd2 = to_ellipse(_crp_conic(n2, d2, cA2, 0.4 * r))
-        bad = solve(MinimalProblem(Extrinsics3, Correspondences([eA1, eCd], [eA2, eCd2]), 1:2), s)
-        @test bad isa FixedModels{1, Extrinsics3}
+        bad = solve(MinimalProblem(CameraExtrinsics, Correspondences([eA1, eCd], [eA2, eCd2]), 1:2), s)
+        @test bad isa FixedModels{1, model_type(P3P())}
         @test length(bad) == 0
 
         # ---- attribute columns ride along like any other family

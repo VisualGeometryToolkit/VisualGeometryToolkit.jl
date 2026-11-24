@@ -8,7 +8,7 @@ using Rotations: AngleAxis, RotMatrix
 using VisualGeometryToolkitCore
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, s2_tangent_basis, CameraModel,
-    LogicalIntrinsics, CameraCalibrationMat, Pinhole, Vec3, Point3, PosedCamera
+    LogicalIntrinsics, CameraCalibrationMat, Lens, Perspective, Vec3, Point3, PosedCamera
 using PoseLib
 
 # `refine_geometry`, `contract_scene` (and `pinhole_point`, `pinhole_pixel`): PoseLib's test fixture file
@@ -60,8 +60,8 @@ function poselib_refine_scene()
     u1 = [pinhole_pixel(K1, Y) for Y in X]
     u2 = [pinhole_pixel(Kb2, R * Y + t) for Y in X]
     u2[1:nout] .= [SVector(660 * rand(rngb), 500 * rand(rngb)) for _ in 1:nout]
-    cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Pinhole())
-    cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kb2)), Pinhole())
+    cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Lens(Perspective()))
+    cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kb2)), Lens(Perspective()))
     bm1 = backproject_with_jacobian.(Ref(cam1), u1)
     bm2 = backproject_with_jacobian.(Ref(cam2), u2)
     f1 = first.(bm1); M₁ = last.(bm1)
@@ -84,7 +84,7 @@ function poselib_refine_scene()
     g1 = [normalize(Y) for Y in Xs]
     g2 = [jitter(normalize(Rg * Y + tg), deg2rad(0.02)) for Y in Xs]
     Rsg = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.02, 0.0, 1.0, 0.0))) * Rg
-    seedf = PoseLib.Rigid3(RotMatrix{3}(Rsg), Vec3{Float64}(normalize(tg + SVector(0.0, 0.03, 0.0))))
+    seedf = VgtkCore.EuclideanMap(RotMatrix{3}(Rsg), Vec3{Float64}(normalize(tg + SVector(0.0, 0.03, 0.0))))
     past90 = (; seed = seedf, cs = withattrs(Correspondences(g1, g2); M₁ = tb.(g1), M₂ = tb.(g2)),
               chart = Correspondences([SVector(f[1] / f[3], f[2] / f[3]) for f in g1], [SVector(f[1] / f[3], f[2] / f[3]) for f in g2]))
     # camera-aware absolute pose, pixels (rng 104)

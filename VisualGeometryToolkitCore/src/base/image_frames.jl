@@ -338,7 +338,7 @@ typed chain of `imaging_chain` reads
                   ─ framed K-affine      → ImageFrame{id}
 
 with every junction frame-checked. When a lens's distortion is the identity
-in its defining frame (`has_distortion == false`, e.g. `Pinhole`; also the
+in its defining frame (`has_distortion == false`, e.g. `Lens(Perspective())`; also the
 pure `Lens(Equidistant())` on its equidistant frame), the distortion stage is
 omitted and the ray frame meets `K` directly — the two frames COLLAPSE
 rather than being separated by a manufactured identity stage.

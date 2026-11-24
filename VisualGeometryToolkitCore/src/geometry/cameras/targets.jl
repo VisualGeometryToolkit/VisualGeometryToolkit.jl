@@ -153,10 +153,9 @@ function _check_placement(S::SimilarityMap{3})
 end
 # The stored placement's one concrete type (plain Float64, unlabeled frames), so a
 # placed target's points and surface are inferred.
-const _Placement = SimilarityMap{3, Float64, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}
 _stored_placement(::Nothing) = nothing
 _stored_placement(S::SimilarityMap{3}) =
-    (_check_placement(S); _Placement(Float64(S.s), RotMatrix{3, Float64}(SMatrix{3, 3}(S.R)), SVector{3, Float64}(S.t)))
+    (_check_placement(S); SimilarityMap(Float64(S.s), RotMatrix{3, Float64}(SMatrix{3, 3}(S.R)), SVector{3, Float64}(S.t); check = false))
 # the placement's in-plane part S₂ (in the placement's element type, unchecked:
 # a device path), and the identity placement of an unplaced target's chart map
 _placement_origin(S::SimilarityMap{3}) = (t = S.t; SVector(t[1], t[2]))
@@ -267,7 +266,7 @@ struct PlanarTarget{C <: TargetCalibration, N <: Union{Nothing, Vector{<:SVector
     calibration::S
     board::Union{Nothing, Board}
     canvas::Union{Nothing, Canvas}
-    placement::Union{Nothing, _Placement}
+    placement::Union{Nothing, SimilarityMap{3, Float64, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}
     layout::Union{Nothing, AbstractTargetLayout}
     # The private `_UnitMove()` route skips the board containment check: the
     # points are known to lie on the board — a unit move of a target that held

@@ -111,6 +111,37 @@ end
         @test rules("src/a.jl" => "struct Mine{T} <: AbstractEstimationAlgorithm end\nconst Yours{T} = Mine{T}\n") == [:R20]
         # a constant of another kind, and a type alias of a result, are not aliases of an algorithm
         @test quiet("src/a.jl" => "const N = 3\nconst R{M} = FitResult{M}\nconst G = sqrt\n")
+        # one concrete instantiation of a stack type is a second name for one type (owner, 2026-11-24): the package's
+        # own type and a loaded stack type alike, bare or applied to all its free parameters
+        @test rules("src/a.jl" => "struct Pt{T}\n    x::T\nend\nconst PtF = Pt{Float64}\n") == [:R20]
+        @test rules("src/a.jl" => "struct Plain\nend\nconst Other = Plain\n") == [:R20]
+        @test rules("src/a.jl" => "const Rigid = VgtkCore.EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}, " *
+                    "UnlabeledFrame{3}, UnlabeledFrame{3}}\n") == [:R20]
+        @test rules("src/a.jl" => "const Ext = CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}\n") == [:R20]
+        # a parametric alias with free variables, a bounded or `where` form, a partial application and a type of
+        # another package stay
+        @test quiet("src/a.jl" => "struct Pt{T}\n    x::T\nend\nconst PtLine{T} = Pt{T}\nconst PtAny = Pt{<:Real}\n" *
+                    "const PtW = Pt{T} where {T}\nconst Partial = VgtkCore.EuclideanMap{3, Float64}\nconst E = Float64\n")
+        # a UnionAll application (an alias whose body keeps free variables) and an abstract type are no concrete type
+        @test quiet("src/a.jl" => "const P = PlainEuclideanMap{3, Float64}\nconst Q = VgtkCore.PlainEuclideanMap{2, Float64}\n" *
+                    "abstract type Abs{T} end\nconst AbsF = Abs{Float64}\nconst AM = VgtkCore.AbstractMatrixMap\n")
+        # at run time, a computed alias (`typeof(…)`) of a concrete stack type; a value, a type of another package and a
+        # type's own name stay
+        M = Module(:R20Probe)
+        Core.eval(M, :(import VisualGeometryToolkitCore as VgtkCore))
+        Core.eval(M, :(const Bad = typeof(VgtkCore.Lens(VgtkCore.Equidistant()))))
+        Core.eval(M, :(const Value = VgtkCore.Lens(VgtkCore.Equidistant())))
+        Core.eval(M, :(const Foreign = typeof(1.0)))
+        Core.eval(M, :(struct Own end))
+        Core.eval(M, :(const Partial = VgtkCore.EuclideanMap{3, Float64}))
+        found = NC._concrete_type_bindings(M)
+        @test length(found) == 1 && startswith(found[1].text, "Bad = ") && found[1].rule === :R20
+        # a concrete instantiation bound under the type's own name is one too (it is not the type itself)
+        M2 = Module(:R20Own)
+        Core.eval(M2, :(import VisualGeometryToolkitCore as VgtkCore))
+        Core.eval(M2, :(const Lens = typeof(VgtkCore.Lens(VgtkCore.Equidistant()))))
+        own = NC._concrete_type_bindings(M2)
+        @test length(own) == 1 && startswith(own[1].text, "Lens = ")
     end
 
     @testset "R9: a call form ending in `(` matches with its argument" begin

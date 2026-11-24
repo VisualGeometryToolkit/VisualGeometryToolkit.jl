@@ -26,7 +26,7 @@ const REFUSAL_MAP = FieldMap(; ignored = ["exception.msg"])
 """
 function prefixed(m::FieldMap, pre::AbstractString)
     j(p) = isempty(p) ? pre : string(pre, ".", p)
-    return FieldMap([j(a) => j(b) for (a, b) in m.renames], j.(m.new_only), [""; j.(m.retyped)], m.ignored)   # the tuple holding it is retyped too
+    return FieldMap([j(a) => j(b) for (a, b) in m.renames], j.(m.new_only), [""; j.(m.retyped)], m.ignored, m.aliases)   # the tuple holding it is retyped too
 end
 
 # The old find_* keywords as the new solve: the algorithm's configuration (`Ransac`'s fields; `max_trials`/`min_trials`
@@ -118,4 +118,4 @@ end
 `m` for a case that throws, whose message names a type or entry the migration renamed (the exception's type is still
 compared).
 """
-message_free(m::FieldMap) = FieldMap(m.renames, m.new_only, m.retyped, ["exception.msg"])
+message_free(m::FieldMap) = FieldMap(m.renames, m.new_only, m.retyped, ["exception.msg"], m.aliases)

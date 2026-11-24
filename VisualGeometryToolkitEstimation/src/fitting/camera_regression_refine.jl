@@ -514,7 +514,7 @@ end
 # last finite camera is). Returns the highest order's refine that holds (`_axis_fit_valid`; `nothing` when none does), the
 # linear start, and that order.
 function _axis_continuation(src::CameraModel, part, device)
-    start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image,
+    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, :image,
                                  (_AXIS_FIXED..., _axis_held(_AXIS_START_TERMS)...), device)
     r, guess, fitted = nothing, start, 0
     for m in _AXIS_START_TERMS:_AXIS_TERMS
@@ -535,7 +535,7 @@ _axis_held(m::Int) = ntuple(i -> Symbol(:k, m + i), _AXIS_TERMS - m)
 # folding before the region's widest angle, or just past it, refitted inside the fold. Returns the last refine, the start's
 # fold when it folds inside the region (`nothing` otherwise), and whether the fit holds.
 function _axis_fold_refits(src::CameraModel, part, device)
-    start = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, part, :image, _AXIS_FIXED, device)
+    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, :image, _AXIS_FIXED, device)
     r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
     # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
     # are capped there, and it can stall with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). Such a
@@ -551,7 +551,7 @@ function _axis_fold_refits(src::CameraModel, part, device)
     near = _INSIDE_FOLD * fold < r.metadata.family.θ_max
     while near && !_axis_fit_valid(r) && refits < _FOLD_REFITS
         inner = part ∩ _inside_fold(s, min(θ, r.metadata.family.θ_max))
-        s = _approximation_start(_linear_form(_AXIS_FAMILY), _AXIS_FAMILY, src, inner, :image, _AXIS_FIXED, device)
+        s = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, inner, :image, _AXIS_FIXED, device)
         r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
         θ = _fold_angle(s)
         refits += 1
@@ -586,10 +586,8 @@ _optical_axis(camera::VgtkCore.AbstractCamera, region = nothing; kwargs...) = th
 # beside the key) fitted, its decentering held at zero (`_AXIS_FIXED`: the tangential and thin-prism groups; the
 # focal, aspect, principal point, radial coefficients and the axis free).
 const _AXIS_TERMS = _dflt("optical_axis", "radial_terms")::Int
-const _AXIS_FAMILY = typeof(
-    VgtkCore.Lens(VgtkCore.Equidistant(), VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘
-                  VgtkCore.Radial(ntuple(_ -> 0.0, _AXIS_TERMS)))
-)
+const _AXIS_LENS = VgtkCore.Lens(VgtkCore.Equidistant(),
+    VgtkCore.Additive(VgtkCore.Tangential(0.0, 0.0), VgtkCore.ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ VgtkCore.Radial(ntuple(_ -> 0.0, _AXIS_TERMS)))
 # The order continuation's first order (`[optical_axis] start_radial_terms`, configs/default.toml, read once; the
 # derivation is beside the key), in 1:_AXIS_TERMS.
 const _AXIS_START_TERMS = let m = _dflt("optical_axis", "start_radial_terms")::Int

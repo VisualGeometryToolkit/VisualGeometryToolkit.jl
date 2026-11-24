@@ -7,7 +7,7 @@
 # the caller back-projects and hands over `X => f`, world points and the
 # camera-frame unit bearings observing them, optionally with each ray's origin
 # (a GENERALIZED, non-central camera) and its back-projection Jacobian (pixel
-# whitening). The `MinimalSolveProblem{Extrinsics3}` instance whose context is
+# whitening). The `MinimalSolveProblem{`CameraExtrinsics`}` instance whose context is
 # a `BearingPoseContext` (AbsolutePoseProblem's is a `PoseContext`). Restored
 # 2026-10-29 from the bearing form of the absolute-pose refine (hoisted from
 # RadiometricCamera 2026-10-27) as a problem of the refine interface: its rows
@@ -73,7 +73,7 @@ The absolute-pose problem on unit BEARINGS: `cs` pairs world points with the
 camera-frame unit bearings observing them, `X => f` (a `Correspondences`, a
 `StructArray` or a Pair vector), for a camera the caller back-projects itself.
 The model is the camera extrinsics (world → camera, `x_c = R·X + t`, the
-`Extrinsics3` of [`AbsolutePoseProblem`](@ref)); the residual is the tangent-
+`CameraExtrinsics` of [`AbsolutePoseProblem`](@ref)); the residual is the tangent-
 plane logarithm map of the sphere at `f` of the predicted bearing
 `normalize(R·X + t − o)`, its norm the angle between the rays.
 
@@ -92,7 +92,7 @@ non-finite point, origin or bearing. The public estimator is the bearing form
 a LevenbergMarquardt refine: `solve(RefineProblem(BearingPoseProblem(cs), pose), LevenbergMarquardt(); scale | width)`.
 """
 const BearingPoseProblem = MinimalSolveProblem{
-    Extrinsics3, 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:BearingPoseContext,
+    VgtkCore.model_type(VgtkCore.P3P()), 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:BearingPoseContext,
 }
 
 BearingPoseProblem(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
@@ -132,7 +132,7 @@ function _bearing_pose_problem(cs, sampler, unit)
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
     ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing, unit)
     data = VgtkCore.Correspondences(Xs, fs)
-    return MinimalSolveProblem{Extrinsics3, 3}(data, nothing, data, nothing, VgtkCore.P3P(), ctx, smplr)
+    return MinimalSolveProblem{VgtkCore.model_type(VgtkCore.P3P()), 3}(data, nothing, data, nothing, VgtkCore.P3P(), ctx, smplr)
 end
 
 # The structural unit-norm margin of a bearing (as `EssentialProblem`'s): a
@@ -257,9 +257,12 @@ test_model(::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, ::Abstract
 # The pose rows are in chart coordinates (as AbsolutePoseProblem's).
 _model_directions(::BearingPoseProblem, _θ) = nothing
 
-# The chart: AbsolutePoseProblem's.
+# The chart, the absolute pose's and the bearing pose's: LeftRigidManifold6 re-anchored at zero coordinates — the
+# nearest proper rotation, since minimal-solver seeds (VGC P3P backends) are unvalidated and can carry ~1e-7 of
+# orthonormality drift. At the model type: every entry hands θ through `_as_model` (interface.jl).
 chart_dof(::Type{<:BearingPoseProblem}) = 6
-_chart(::BearingPoseProblem, pose::Extrinsics3) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
+_chart(::Union{AbsolutePoseProblem, BearingPoseProblem}, pose::VgtkCore.model_type(VgtkCore.P3P())) =
+    _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
 
 # √w-weighted rows in the chart at `δ` (VGC's `residual_rows!`): the LO's √w
 # per row times the caller's fixed √weight per correspondence. The Jacobian is

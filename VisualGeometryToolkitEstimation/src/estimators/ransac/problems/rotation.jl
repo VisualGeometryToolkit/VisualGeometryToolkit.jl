@@ -76,8 +76,9 @@ function RotationProblem(bearings::VgtkCore.Correspondences; sampler::Union{Noth
     (eltype(sources(bearings)) <: StaticArrays.StaticVector{3} && eltype(targets(bearings)) <: StaticArrays.StaticVector{3}) ||
         throw(ArgumentError("RotationProblem takes unit BEARINGS (3-vectors), got $(eltype(sources(bearings))) => " *
                             "$(eltype(targets(bearings))); use `backproject_with_jacobian(camera, u)`"))
-    _assert_unit_bearings(sources(bearings), "source", "RotationProblem")
-    _assert_unit_bearings(targets(bearings), "target", "RotationProblem")
+    remedy = "Back-project with the camera: `RotationProblem(camera1, camera2, pixel_cs)`."
+    VgtkCore.assert_unit_bearings(sources(bearings), "source", "RotationProblem"; remedy)
+    VgtkCore.assert_unit_bearings(targets(bearings), "target", "RotationProblem"; remedy)
     (VgtkCore.hasattr(bearings, :M₁) && VgtkCore.hasattr(bearings, :M₂)) || throw(ArgumentError(
         "RotationProblem requires the back-projection Jacobians as attribute columns: `withattrs(cs; M₁ = ..., M₂ = ...)`, " *
             "from `backproject_with_jacobian(camera, u)` — they put the residual and the threshold in PIXELS"))
@@ -187,10 +188,10 @@ function uncertain_rotation(problem::RotationProblem, result::RansacEstimate; sc
     Σ9 = solver_covariance(problem, Rm, findall(VgtkCore.inlier_mask(result)))
     Σ9 === nothing && throw(ArgumentError("uncertain_rotation: the inliers do not determine the rotation (a singular covariance)"))
     Σ = _rotation_chart_covariance(SMatrix{9, 9, Float64, 81}(Σ9), SMatrix{3, 3, Float64, 9}(Rm))
-    return VgtkCore.Uncertain(Rm, VgtkCore.CovMat(Float64(σ)^2 * Σ))::_UncertainRotation
+    # the edge's concrete type, asserted (Core's CovMat constructor is not inferred through): the call is inferable
+    return VgtkCore.Uncertain(Rm, VgtkCore.CovMat(Float64(σ)^2 * Σ))::VgtkCore.Uncertain{RotMatrix{3, Float64, 9},
+        VgtkCore.CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, VgtkCore.UnlabeledFrame{3}}}
 end
-# The edge's concrete type (Core's CovMat constructor is not inferred through): the assertion makes the call inferable.
-const _UncertainRotation = typeof(VgtkCore.Uncertain(one(RotMatrix{3, Float64, 9}), VgtkCore.CovMat(SMatrix{3, 3, Float64, 9}(LinearAlgebra.I))))
 
 # The sub-detector half-width refusal is the bearing problems' (essential.jl
 # `_check_scoring` on `_BearingProblem`), in the same pixel unit.

@@ -12,7 +12,8 @@
         RadialCamera, radial_rows, Point2, calibration_matrix
     using VisualGeometryToolkitCore: Correspondences, CorrespondenceNormalization, center
     using VisualGeometryToolkitEstimation: DivisionCameraError, DivisionCameraState, division_coeffs, board_sq_residuals
-    using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
+    using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel, EuclideanMap, UnlabeledFrame
+    using Rotations: RotMatrix
     import VisualGeometryToolkitEstimation
 
     # Keyed inputs (the views' identity is the key; here the board index): the
@@ -251,7 +252,7 @@
     end
 
     @testset "DivisionCameraState: focal_length, division_coeffs, board_sq_residuals" begin
-        st = DivisionCameraState{Int}(800.0, [-0.1, 0.01], Point2(1.0, 2.0), Dict{Int, VgtkEstimation._BoardPose}(), Dict(1 => [1.0, 2.0]), [1])
+        st = DivisionCameraState{Int}(800.0, [-0.1, 0.01], Point2(1.0, 2.0), Dict{Int, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}(), Dict(1 => [1.0, 2.0]), [1])
         @test focal_length(st) == (800.0, 800.0)
         @test division_coeffs(st) == [-0.1, 0.01]
         @test board_sq_residuals(st) == Dict(1 => [1.0, 2.0])

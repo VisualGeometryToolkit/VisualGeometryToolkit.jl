@@ -31,13 +31,13 @@
     using Random
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: CameraModel, LogicalIntrinsics, CameraCalibrationMat,
-        Pinhole, backproject, project, tangent_size, model,
+        Lens, Perspective, backproject, project, tangent_size, model,
         constraint_jacobians, constraint_with_jacobians
     using VisualGeometryToolkitCore.Synthetic: essential_trial, epipolar_band_trial
 
     cam(f, cx, cy) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, cx, cy, 1))),
-        Pinhole(),
+        Lens(Perspective()),
     )
     CAM1 = cam(1200.0, 640.0, 480.0)
     CAM2 = cam(600.0, 320.0, 240.0)          # DIFFERENT focal — see the header

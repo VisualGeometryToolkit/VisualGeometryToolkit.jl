@@ -107,7 +107,7 @@ function opencv_camera(file_frame::Type{<:PixelFrame}, K::AbstractMatrix{<:Real}
     size(K) == (3, 3) || throw(ArgumentError("opencv_camera: K is 3 × 3; got $(size(K))"))
     (iszero(K[1, 2]) && iszero(K[2, 1]) && iszero(K[3, 1]) && iszero(K[3, 2]) && isone(K[3, 3])) ||
         throw(ArgumentError("opencv_camera: OpenCV's camera matrix is [fx 0 cx; 0 fy cy; 0 0 1]; got $(K)"))
-    K′ = VgtkCore.Cameras.reframed_calibration(file_frame, CANONICAL_PIXEL_FRAME, CameraCalibrationMat(SMatrix{3, 3, Float64}(K)))
+    K′ = VgtkCore.Cameras.reframed_calibration(file_frame, PixelFrame{:colmap}, CameraCalibrationMat(SMatrix{3, 3, Float64}(K)))
     return CameraModel(LogicalIntrinsics(K′), opencv_lens(dist))
 end
 
@@ -126,7 +126,7 @@ function opencv_parameters(to_frame::Type{<:PixelFrame}, camera::CameraModel)
         throw(ArgumentError("opencv_parameters: a camera with a calibration matrix (LogicalIntrinsics); got $(typeof(camera.intrinsics))"))
     K = SMatrix{3, 3, Float64}(camera.intrinsics.K)
     iszero(K[1, 2]) || throw(ArgumentError("opencv_parameters: OpenCV's camera matrix has no skew; the camera's K carries skew = $(K[1, 2])"))
-    R = VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, to_frame, camera.intrinsics.K)
+    R = VgtkCore.Cameras.reframed_calibration(PixelFrame{:colmap}, to_frame, camera.intrinsics.K)
     return (; K = SMatrix{3, 3, Float64}(R[1, 1], 0, 0, 0, R[2, 2], 0, R[1, 3], R[2, 3], 1), dist = opencv_coefficients(VgtkCore.lens(camera)))
 end
 
@@ -137,7 +137,7 @@ end
 #   pinhole [fu, fv, pu, pv] + radtan [k1, k2, r1, r2]   OpenCV's 4-coefficient model
 #                            + equidistant [k1…k4]       KannalaBrandt
 #                            + fov [w]                   FieldOfView(w)
-#                            + none []                   Pinhole()
+#                            + none []                   Lens(Perspective())
 #   omni [ξ, fu, fv, pu, pv] + radtan / none             Lens(Unified(ξ), Additive(Radial((k1, k2)), Tangential(r1, r2)))
 #   ds   [ξ, α, fu, fv, pu, pv] + none                   Lens(DoubleSphere(ξ, α))
 #   eucm [α, β, fu, fv, pu, pv] + none                   Lens(ExtendedUnified(α, β))

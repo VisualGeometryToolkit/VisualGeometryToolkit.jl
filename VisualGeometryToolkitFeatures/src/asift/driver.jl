@@ -1341,7 +1341,7 @@ function _drop_singular_covs!(fh, ch, n)
 end
 
 _no_features(::Nothing) = ImasFeatureKA[]
-_no_features(::FeatureCovariance) = (features = ImasFeatureKA[], cov = _FrameCov[])
+_no_features(::FeatureCovariance) = (features = ImasFeatureKA[], cov = CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}[])
 
 # The IFT tables (once per plan) and the pool's covariance buffers at its capacity.
 function _ensure_cov!(plan::AsiftPlan)

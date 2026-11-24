@@ -16,7 +16,7 @@ const OLD = (BC = _old("Brown", "Conrady"), RR = _old("Rational", "Radial"), EF 
 # Each case: (name, old lens, the lens as a v3 record).
 bc(; kw...) = OLD.BC(; kw...)
 const CASES = Any[
-    ("pinhole", Pinhole(), Dict("perspective" => Float64[])),
+    ("pinhole", Lens(Perspective()), Dict("perspective" => Float64[])),
     ("equidistant", OLD.EF(), Dict("equidistant" => Float64[])),
     ("stereographic", OLD.SF(), Dict("stereographic" => Float64[])),
     ("equisolid", OLD.QF(), Dict("equisolid" => Float64[])),

@@ -92,9 +92,9 @@ struct VgioStyle{U, F <: PixelFrame, C <: UnitContract} <: JSON.JSONStyle
     contract::C             # the file's units declaration: the length unit (its `world` role), further roles, the density
     charts::Tuple{Vararg{Symbol}}   # the CHART roles: length roles whose numbers are a chart's, plain ("chart" in the units object)
 end
-VgioStyle(contract::UnitContract; pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME, charts::Tuple{Vararg{Symbol}} = ()) =
+VgioStyle(contract::UnitContract; pixel_frame::Type{<:PixelFrame} = PixelFrame{:colmap}, charts::Tuple{Vararg{Symbol}} = ()) =
     VgioStyle{typeof(role_unit(contract)), pixel_frame, typeof(contract)}(role_unit(contract), contract, _chart_roles(contract, charts))
-function VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME, density::Units = dpi,
+function VgioStyle(; length_unit = mm, pixel_frame::Type{<:PixelFrame} = PixelFrame{:colmap}, density::Units = dpi,
                    length_roles::NamedTuple = (;))
     charts = Tuple(r for (r, u) in pairs(length_roles) if u === :chart)
     units = NamedTuple(r => u for (r, u) in pairs(length_roles) if u !== :chart)
@@ -184,12 +184,8 @@ access. Another package's lifts of its own kinds (BlobBoards') take it too.
 """
 const Record = Union{JSON.Object, NamedTuple}
 
-# `CANONICAL_PIXEL_FRAME` is the single thing VGIo must state: which frame a
-# `CameraModel`'s stored K is in. VGC guarantees it — every `CameraModel`
-# constructor converts its `pixel_frame` argument to this frame on the way in
-# — but exposes no accessor for it, so it is named here ONCE rather than as a
-# `:colmap` literal in every writer and reader.
-const CANONICAL_PIXEL_FRAME = PixelFrame{:colmap}
+# A `CameraModel`'s stored K is in `PixelFrame{:colmap}`: every `CameraModel` constructor converts its `pixel_frame`
+# argument to this frame on the way in (VisualGeometryToolkitCore), so every writer and reader states that type.
 
 # -----------------------------------------------------------------------------
 # The parametric record
@@ -230,7 +226,7 @@ _from_parametric_record(proto, x, u) =
 # The principal point always goes through the frame conversion, the canonical
 # frame's identity included: its `+ 0.0` writes a stored `-0.0` as `0.0`, as
 # the camera bodies always have.
-_k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame}) = _k_five(VgtkCore.Cameras.reframed_calibration(CANONICAL_PIXEL_FRAME, frame, K))
+_k_record(K::CameraCalibrationMat, frame::Type{<:PixelFrame}) = _k_five(VgtkCore.Cameras.reframed_calibration(PixelFrame{:colmap}, frame, K))
 _k_five(K) = (fx = Float64(K[1, 1]), fy = Float64(K[2, 2]), cx = Float64(K[1, 3]), cy = Float64(K[2, 3]), skew = Float64(K[1, 2]))
 _k_from_record(k) = CameraCalibrationMat(
     SMatrix{3, 3, Float64}(
@@ -238,7 +234,7 @@ _k_from_record(k) = CameraCalibrationMat(
     )
 )
 # …and the K a record states in `frame`, in the canonical frame.
-_k_from_record(k, frame::Type{<:PixelFrame}) = VgtkCore.Cameras.reframed_calibration(frame, CANONICAL_PIXEL_FRAME, _k_from_record(k))
+_k_from_record(k, frame::Type{<:PixelFrame}) = VgtkCore.Cameras.reframed_calibration(frame, PixelFrame{:colmap}, _k_from_record(k))
 # the five numbers as an array, as stored (an old grid record's nominal pinhole,
 # the identity's intrinsics: no frame conversion, so a `-0.0` stays), and back
 _k_values(K::CameraCalibrationMat) = collect(Float64, _k_five(K))

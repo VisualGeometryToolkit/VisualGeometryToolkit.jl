@@ -210,7 +210,7 @@ Defined in VisualGeometryToolkitCore (import it from there). Supports `iterate`,
 Used as the return type of every `sample_models` method:
 - `HomographyProblem` → `FixedModels{1, HomographyMat{T}}`
 - `FundMatProblem` → `FixedModels{3, FundMat{T}}`
-- `AbsolutePoseProblem` → `FixedModels{4, Extrinsics3}`
+- `AbsolutePoseProblem` → `FixedModels{4, `CameraExtrinsics`}`
 
 ## Benchmark pools
 

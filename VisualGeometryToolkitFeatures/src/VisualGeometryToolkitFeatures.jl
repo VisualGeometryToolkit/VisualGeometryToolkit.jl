@@ -129,7 +129,7 @@ include("cache.jl")
 # =============================================================================
 
 """
-    nn_match(desc1, desc2, strategy = MutualNN(); device = default_device(), kw...) -> Vector{NNMatch}
+    nn_match(desc1, desc2, strategy = MutualNN(); device = default_device(), kw...) -> Vector{<:Attributed{<:Correspondence, NNMatchMeta}}
 
 [`match`](@ref) on `device`, any KernelAbstractions backend
 (VisualGeometryToolkitCore's `default_device()` when none is supplied: an
@@ -199,14 +199,14 @@ export detect_image_circle    # a lens's coverage measured from photographs: the
 # -----------------------------------------------------------------------------
 export NNStrategy, NN, MutualNN, KnnMatch
 export DescriptorMetric, DescriptorSimilarity, DescriptorDistance, CosineSimilarity, L2
-export NNMatchMeta, NNMatch
+export NNMatchMeta
 export nn_match, pairwise_matrix
 # `match` is public, not exported: exported, it clashed with Base.match, so an
 # unqualified match(r"...", s) was ambiguous in every `using VisualGeometryToolkitFeatures` module.
 public match
 export resolve_one_to_one, resolve_one_to_one!
 export StackedDescriptorIndex, nn_match_stacked
-# Correspondence, correspondences: VGC's pair alias and builder (the NNMatch method is added here), exported by VGC only (0.8.0)
+# Correspondence, correspondences: VGC's pair alias and builder (the method for matches is added here), exported by VGC only (0.8.0)
 export CorrespondenceSet                # N-way correspondence
 
 # -----------------------------------------------------------------------------

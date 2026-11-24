@@ -149,9 +149,9 @@ NLLSsolver.varindices(r::_BoardViewResidual) = r.varind
     i = 1
     cam = F[1] ? (vars[r.varind[i]]::M,) : ()
     i += F[1]
-    view = F[2] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
+    view = F[2] ? (vars[r.varind[i]]::LeftRigidManifold6{Float64},) : ()
     i += F[2]
-    board = F[3] ? (vars[r.varind[i]]::_CameraPosePose,) : ()
+    board = F[3] ? (vars[r.varind[i]]::LeftRigidManifold6{Float64},) : ()
     return (cam..., view..., board...)
 end
 Base.eltype(::_BoardViewResidual) = Float64
@@ -414,13 +414,12 @@ end
 _refine_camera_and_poses(camera::_RefinedCamera, poses::AbstractVector, views::AbstractVector; kwargs...) =
     _refine_camera_and_poses(VgtkCore.Cameras.IntrinsicsRole(_camera_model(camera).lens), camera, poses, views; kwargs...)
 
-const _CameraPosePose = LeftRigidManifold6{Float64}
 
 # The refine's input contract, both routes: the poses as pose charts (VGC's
 # `LeftRigidManifold6`), a correspondence `X => u` as finite static vectors (an
 # `ArgumentError` naming view `v`, correspondence `j` otherwise), and a pose chart's
 # model as a plain map.
-_pose_charts(poses) = _CameraPosePose[LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(p)), SVector{3, Float64}(translation(p))) for p in poses]
+_pose_charts(poses) = LeftRigidManifold6{Float64}[LeftRigidManifold6(SMatrix{3, 3, Float64, 9}(rotation(p)), SVector{3, Float64}(translation(p))) for p in poses]
 function _correspondence(v::Integer, j::Integer, c)
     X = SVector{3, Float64}(first(c)[1], first(c)[2], first(c)[3]); u = SVector{2, Float64}(last(c)[1], last(c)[2])
     (all(isfinite, X) && all(isfinite, u)) || throw(ArgumentError("CameraPosesProblem: view $v, correspondence $j: non-finite point or pixel"))
@@ -525,7 +524,7 @@ function _refine_bundle(
     2n > p || throw(ArgumentError("CameraPosesProblem: underdetermined: $n correspondences ($(2n) rows) for $p unknowns"))
     o > 0 || throw(ArgumentError("CameraPosesProblem: nothing to refine (the camera, every view and every board held)"))
 
-    VT = chc === nothing ? _CameraPosePose : Union{typeof(chc), _CameraPosePose}
+    VT = chc === nothing ? LeftRigidManifold6{Float64} : Union{typeof(chc), LeftRigidManifold6{Float64}}
     vars0 = VT[]
     chc === nothing || push!(vars0, chc)
     foreach(v -> held_views[v] || push!(vars0, view_charts[v]), 1:V)
@@ -533,7 +532,7 @@ function _refine_bundle(
     sol = _block_lm(blocks, vars0, p, kw)
     variables = sol.variables
     camera_out = chc === nothing ? camera : model(variables[1])
-    pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(variables[var[i]]::_CameraPosePose)
+    pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(variables[var[i]]::LeftRigidManifold6{Float64})
     poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in 1:V]
     boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in 1:B]
     all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||

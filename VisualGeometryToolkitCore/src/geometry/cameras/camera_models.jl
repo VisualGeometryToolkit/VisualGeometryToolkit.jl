@@ -16,21 +16,21 @@ for the inverse directions.
 
 # Fields
 - `intrinsics::I`: Camera intrinsics (LogicalIntrinsics)
-- `lens::L`: Lens model (`Pinhole`, a `Lens`, a `LiftLens`, …)
+- `lens::L`: Lens model (`Lens(Perspective())`, a `Lens`, a `LiftLens`, …)
 
 # Examples
 ```julia
 # Logical camera with pinhole lens
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])
 logical = LogicalIntrinsics(K)
-model = CameraModel(logical, Pinhole())
+model = CameraModel(logical, Lens(Perspective()))
 
 # Physical camera with pinhole lens
 f = 16.0mm
 pitch = Size2(width=5.86μm/px, height=5.86μm/px)
 pp = [320.0px, 240.0px]
 physical = LogicalIntrinsics(f, pitch, pp)
-model = CameraModel(physical, Pinhole())
+model = CameraModel(physical, Lens(Perspective()))
 
 # With Brown-Conrady distortion
 model = CameraModel(logical, Lens(Perspective(), Radial((-0.1, 0.01))))
@@ -51,11 +51,11 @@ end
 # ============================================================================
 
 # Convenience constructor with default pinhole lens
-CameraModel(intrinsics::AbstractIntrinsics; lens = Pinhole()) =
+CameraModel(intrinsics::AbstractIntrinsics; lens = Lens(Perspective())) =
     CameraModel(intrinsics, lens)
 
 """
-    CameraModel(f::Quantity, pitch::Size2{<:Quantity}, pp::AbstractVector{<:Quantity}; lens=Pinhole()) -> CameraModel
+    CameraModel(f::Quantity, pitch::Size2{<:Quantity}, pp::AbstractVector{<:Quantity}; lens=Lens(Perspective())) -> CameraModel
 
 Convenience constructor to build a complete physical camera model from parameters.
 
@@ -66,12 +66,12 @@ camera = CameraModel(16.0mm, Size2(width=5.86μm/px, height=5.86μm/px), [320.0p
 """
 CameraModel(
     f::Quantity, pitch::Size2{<:Quantity}, pp::AbstractVector{<:Quantity};
-    lens = Pinhole()
+    lens = Lens(Perspective())
 ) =
     CameraModel(LogicalIntrinsics(f, pitch, pp), lens)
 
 """
-    CameraModel(f::Quantity, pp::AbstractVector{<:Quantity}; lens=Pinhole()) -> CameraModel
+    CameraModel(f::Quantity, pp::AbstractVector{<:Quantity}; lens=Lens(Perspective())) -> CameraModel
 
 Convenience constructor to build a logical camera model from focal length and principal point (both in pixels).
 
@@ -82,12 +82,12 @@ camera = CameraModel(800.0px, [320.0px, 240.0px])
 """
 CameraModel(
     f::Quantity, pp::AbstractVector{<:Quantity};
-    lens = Pinhole()
+    lens = Lens(Perspective())
 ) =
     CameraModel(LogicalIntrinsics(f, pp), lens)
 
 """
-    CameraModel(f::Tuple{T,T}, pp::AbstractVector{<:Quantity}; lens=Pinhole()) where T<:Quantity -> CameraModel
+    CameraModel(f::Tuple{T,T}, pp::AbstractVector{<:Quantity}; lens=Lens(Perspective())) where T<:Quantity -> CameraModel
 
 Convenience constructor to build a logical camera model with anisotropic focal lengths (fx ≠ fy).
 
@@ -98,12 +98,12 @@ camera = CameraModel((800.0px, 805.0px), [320.0px, 240.0px])
 """
 CameraModel(
     f::Tuple{T, T}, pp::AbstractVector{<:Quantity};
-    lens = Pinhole()
+    lens = Lens(Perspective())
 ) where {T <: Quantity} =
     CameraModel(LogicalIntrinsics(f, pp), lens)
 
 """
-    CameraModel(map::AffineMap; lens=Pinhole()) -> CameraModel
+    CameraModel(map::AffineMap; lens=Lens(Perspective())) -> CameraModel
 
 Construct a logical camera model from a `CoordinateTransformations.AffineMap`.
 
@@ -115,13 +115,13 @@ K = CameraCalibrationMat(M)
 model = CameraModel(EuclideanMap(PixelFrame{:opencv}, PixelFrame{:colmap}) ∘ affine_part(K); lens=lens)
 ```
 """
-function CameraModel(map::AffineMap; lens::AbstractLensModel = Pinhole())
+function CameraModel(map::AffineMap; lens::AbstractLensModel = Lens(Perspective()))
     K = _calibration_from_affine(Float64, map.linear, map.translation)
     return CameraModel(LogicalIntrinsics(K), lens)
 end
 
 """
-    CameraModel(K::CameraCalibrationMat; lens=Pinhole(), pixel_frame=:colmap) -> CameraModel
+    CameraModel(K::CameraCalibrationMat; lens=Lens(Perspective()), pixel_frame=:colmap) -> CameraModel
 
 Convenience constructor from a calibration matrix K directly.
 
@@ -141,7 +141,7 @@ model = CameraModel(K_cv; lens=lens, pixel_frame=:opencv)
 ```
 """
 function CameraModel(
-        K::CameraCalibrationMat; lens::AbstractLensModel = Pinhole(),
+        K::CameraCalibrationMat; lens::AbstractLensModel = Lens(Perspective()),
         pixel_frame::Symbol = :colmap
     )
     return if pixel_frame != :colmap
@@ -183,19 +183,19 @@ reframed_calibration(from::Type{<:PixelFrame}, to::Type{<:PixelFrame}, K::Camera
     reframed_calibration(SimilarityMap(EuclideanMap(from, to)), K)
 
 """
-    CameraModel(K::SMatrix{3,3,<:Real}; lens=Pinhole(), pixel_frame=:colmap) -> CameraModel
+    CameraModel(K::SMatrix{3,3,<:Real}; lens=Lens(Perspective()), pixel_frame=:colmap) -> CameraModel
 
 A camera model from a plain static 3×3 calibration matrix, as dataset readers
 and pool records store it: `K` is validated and wrapped as a
 [`CameraCalibrationMat`](@ref), then built by the method above. With the
-default `Pinhole()` lens this is the pinhole camera of `K`. (A plain `Matrix`
+default `Lens(Perspective())` lens this is the pinhole camera of `K`. (A plain `Matrix`
 goes through `CameraCalibrationMat(K)` first.)
 """
-CameraModel(K::SMatrix{3, 3, <:Real}; lens::AbstractLensModel = Pinhole(), pixel_frame::Symbol = :colmap) =
+CameraModel(K::SMatrix{3, 3, <:Real}; lens::AbstractLensModel = Lens(Perspective()), pixel_frame::Symbol = :colmap) =
     CameraModel(CameraCalibrationMat(K); lens, pixel_frame)
 
 """
-    CameraModel(; focal, pp, lens=Pinhole()) -> CameraModel
+    CameraModel(; focal, pp, lens=Lens(Perspective())) -> CameraModel
 
 Unitless convenience constructor for a logical camera model.
 
@@ -205,7 +205,7 @@ generation and quick prototyping.
 # Arguments
 - `focal`: Focal length in pixels — scalar `Real` for isotropic, or `Tuple{Real,Real}` for anisotropic
 - `pp::Tuple{Real,Real}`: Principal point (cx, cy) in pixels
-- `lens::AbstractLensModel=Pinhole()`: Lens model
+- `lens::AbstractLensModel=Lens(Perspective())`: Lens model
 
 # Examples
 ```julia
@@ -215,7 +215,7 @@ model = CameraModel(; focal=(800.0, 805.0), pp=(320.0, 240.0))  # anisotropic
 """
 function CameraModel(;
         focal, pp::Tuple{Real, Real},
-        lens::AbstractLensModel = Pinhole()
+        lens::AbstractLensModel = Lens(Perspective())
     )
     # The calibration matrix's own `(f, pp)` constructor, in Float64
     fx, fy = focal isa Tuple ? (Float64(focal[1]), Float64(focal[2])) :
@@ -525,16 +525,16 @@ end
 # =============================================================================
 
 """
-    pinhole(model::CameraModel) -> CameraModel{I, Pinhole}
+    pinhole(model::CameraModel) -> CameraModel{I, Lens{Perspective, Nothing}}
     imaging_transform(model::CameraModel)
 
 The lens-stripped pinhole twin (downstream packages hand-rolled
-`CameraModel(x.intrinsics, Pinhole())` in three places) and the composed
+`CameraModel(x.intrinsics, Lens(Perspective()))` in three places) and the composed
 camera-space → pixel map as a value. `intrinsics`/`lens`
 accessors live in cameras.jl. For a [`SplineLens`](@ref) camera the twin is the
 gauge pinhole at the optical-axis pixel (the pixel imaging ẑ).
 """
-pinhole(model::CameraModel) = CameraModel(model.intrinsics, Pinhole())
+pinhole(model::CameraModel) = CameraModel(model.intrinsics, Lens(Perspective()))
 imaging_transform(model::CameraModel) =
     imaging_transform(model.intrinsics, model.lens)
 
@@ -558,7 +558,7 @@ through the lens's ray-domain hook `project(lens, X)` — the same map the
 residual goes through. One residual currency — the pixels
 the detector measured — for every lens family, so a Student-t scale, a
 Welsch cutoff or an inlier gate mean the same thing at the rim of a
-fisheye as at its centre. For a `Pinhole` this is exactly `A · g` of the
+fisheye as at its centre. For a `Lens(Perspective())` this is exactly `A · g` of the
 calibrated form. Directions the lens does not image (for a gnomonic-frame
 lens, every `X_cam[3] ≤ 0`) project to non-finite pixels; callers mask on
 `isfinite`, as with `project`.
@@ -973,7 +973,7 @@ end
 undistort(::Nothing, img::AbstractMatrix; device::KA.Backend = default_device()) = img
 
 # No-op for distortion-free lenses and missing camera
-undistort(::CameraModel{<:AbstractIntrinsics, Pinhole}, img::AbstractMatrix; device::KA.Backend = default_device()) = img
+undistort(::CameraModel{<:AbstractIntrinsics, Lens{Perspective, Nothing}}, img::AbstractMatrix; device::KA.Backend = default_device()) = img
 """
     undistort!(dst, [T = Float64], model, src; fillvalue = zero(eltype(dst))) -> dst
 
@@ -1305,18 +1305,18 @@ valid_rect(m::RadialHomography, sz; margin::Real = HORIZON_MARGIN) =
     pnp_pixel_whitening(proj) -> SMatrix{2,2,Float64,4}
 
 The frozen pixel whitening of the PnP lift: the constant 2×2 calibration
-block `A = K[1:2,1:2]` of a Pinhole imaging transform (`affine_part(K) ∘
-Pinhole()`), so that `A·g` (with `g` the calibrated constraint of
+block `A = K[1:2,1:2]` of a pinhole imaging transform (`affine_part(K) ∘
+Lens(Perspective())`), so that `A·g` (with `g` the calibrated constraint of
 `constraint_with_jacobians`) is exactly the pixel reprojection residual the
 scoring pipeline measures. Errors for non-affine (distortion-lens) imaging
 transforms — the lift's one-currency contract requires an affine pixel map.
 Downstream (VisualGeometryToolkitEstimation) adds the problem-level accessor method.
 """
-pnp_pixel_whitening(proj::CoordinateTransformations.ComposedTransformation{<:AffineMap, Pinhole}) =
+pnp_pixel_whitening(proj::CoordinateTransformations.ComposedTransformation{<:AffineMap, Lens{Perspective, Nothing}}) =
     SMatrix{2, 2, Float64, 4}(proj.t1.linear)
 pnp_pixel_whitening(proj) = error(
-    "The PnP loss lift requires a Pinhole camera (affine pixel map " *
-        "affine_part(K) ∘ Pinhole()); got $(typeof(proj)). Undistort the " *
+    "The PnP loss lift requires a pinhole camera (affine pixel map " *
+        "affine_part(K) ∘ Lens(Perspective())); got $(typeof(proj)). Undistort the " *
         "observations to a pinhole model, or use an IRLS local optimization."
 )
 

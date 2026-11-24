@@ -1,6 +1,14 @@
 # VisualGeometryToolkitIO changelog
 
-## Unreleased
+## 0.12.0 (unreleased)
+
+Breaking: two public names are removed. `[compat]` on VisualGeometryToolkitCore stays `"0.13"` until this package's own
+Core 0.14 migration (it does not load against Core 0.14 yet). The fixtures a writer reproduces byte for byte name their
+generator 0.12.0.
+
+### Changed (breaking)
+- `SCHOEPS_PIXEL_FRAME` and `CANONICAL_PIXEL_FRAME` (check_naming R20: a `const` naming one concrete type, owner
+  2026-11-24): both are `PixelFrame{:colmap}`, written as that type. In RETIRED_NAMES.
 
 ### Changed
 - `opencv_lens` is VisualGeometryToolkitCore's now (its one owner: OpenCV's distortion vector as a Core lens); this

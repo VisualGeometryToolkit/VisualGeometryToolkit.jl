@@ -365,6 +365,8 @@ end
 
 @testitem "stacked multi-gallery matcher ≡ per-pair match" setup = [Fixtures] begin
     import VisualGeometryToolkitFeatures as VgtkFeatures
+    using VisualGeometryToolkitCore: Attributed, Correspondence
+    using VisualGeometryToolkitFeatures: NNMatchMeta
     # Hoisted from BlobBoards: per gallery, nn_match_stacked must reproduce
     # `match(gallery, features, strategy)` exactly — it is the same matcher with
     # the galleries as blocks of its rows: MutualNN reverse checks are
@@ -465,8 +467,8 @@ end
 
     # "Best" follows the metric: the lowest score wins for a distance. It sorted
     # by descending score regardless, so L2 kept each point's worst candidate.
-    near = NNMatch(1, 2, 0.1f0, Inf32)
-    far = NNMatch(1, 1, 0.9f0, Inf32)
+    near = Attributed(Correspondence{Int, Int}(1, 2), NNMatchMeta(0.1f0, Inf32))
+    far = Attributed(Correspondence{Int, Int}(1, 1), NNMatchMeta(0.9f0, Inf32))
     endpoints = r -> [(m.first, m.second) for m in r]
     @test endpoints(resolve_one_to_one([far, near], 1, 2; metric = L2())) == [(1, 2)]
     @test endpoints(resolve_one_to_one([far, near], 1, 2)) == [(1, 1)]

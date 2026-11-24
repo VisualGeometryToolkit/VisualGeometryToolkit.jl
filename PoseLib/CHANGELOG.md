@@ -1,5 +1,62 @@
 # PoseLib changelog
 
+## 0.4.0 (unreleased)
+
+The breaking minor on VisualGeometryToolkitCore 0.14 (`[compat]` VisualGeometryToolkitCore `"0.14"`): every
+estimator is `solve(problem, algorithm)` on the stack's own types (VisualGeometryToolkitCore's SciML-style interface).
+No refined number changes: the golden records of 3d8a06da replay bit for bit (`ci/golden`, groups `poselib`,
+`core_closed_forms`, `core_minimal`, in package-image and `--pkgimages=no` modes).
+
+### Breaking
+
+- **The four refiners are Core's Levenberg–Marquardt with PoseLib's backend, on Core's `RefineProblem` of the
+  correspondences and a guess.** `refine_homography`, `refine_fundamental`, `refine_relpose` and
+  `refine_absolute_pose` are deleted, with no aliases; the guess's type and the data select PoseLib's residual:
+
+  | 0.3 | 0.4 |
+  |---|---|
+  | `refine_homography(H, cs; max_iter, optimization_strategy, scale \| width)` | `solve(RefineProblem(cs, HomographyMat(H)), LevenbergMarquardt(PoseLibSolver(); optimization_strategy); stops = LmStops(; max_iter), scale \| width)` |
+  | `refine_fundamental(F, cs; …)` | `solve(RefineProblem(cs, FundMat(F)), …)` |
+  | `refine_relpose(pose, K1, K2, cs; …)` | `solve(RefineProblem(cs, pose, (; K1, K2)), …)` |
+  | `refine_relpose(pose, bearings; …)` | `solve(RefineProblem(bearings, pose), …)` |
+  | `refine_absolute_pose(pose, K, cs; …)` | `solve(RefineProblem(cs, pose, (; K)), …)` (a physical pose and points too) |
+
+  VisualGeometryToolkitCore's `solve` forwards a refine of raw data to its backend contract generic
+  `lm_backend_refine(backend, u0, data, p, alg; stops, scale, width)`; PoseLib implements it for `PoseLibSolver` (and
+  adds no `__solve`, check_naming R16). The algorithm's strategy is its field, PoseLib's λ·I damping its default
+  (`LevenbergDamping()`; any other is refused); the solve keywords are `stops` — Core's `LmStops`, of which PoseLib
+  applies `max_iter` (1000 by default) and REFUSES every other field that is not `===` to `LmStops()`'s, naming it —
+  and the scale input `scale`/`width`. The strategy is still required (no class default: `ClassDefault()` is refused
+  naming the strategies). A guess matrix that is not 3×3 is refused where the `HomographyMat`/`FundMat` is built (a
+  `DimensionMismatch`, was the refiner's `ArgumentError`). A context the refine does not read, another model, or a
+  keyword the solve does not take is a `MethodError`; the retired `loss`, `loss_width` and `local_optimization` are now
+  such keywords (a `MethodError`, was an `ArgumentError` naming them). A box (`lb`/`ub`) is an `ArgumentError`.
+- **`Rigid3` is deleted**: a pose guess is any plain `EuclideanMap{3}` (a labeled one is read unlabeled), and a pose
+  refine returns the unlabeled `EuclideanMap{3}` with a `RotMatrix{3, Float64}` rotation and a `Vec3{Float64}`
+  translation (`EuclideanMap(RotMatrix{3}(R), Vec3(t))` builds one).
+- **The result** is read by field: `r.u` (was `estimate(r)`), `r.retcode`, `r.stop_rule`, `r.stats.nsteps` (was
+  `iterations(r)`), `r.metadata.width`; `r.original` is new: the C wrapper's raw output (PoseLib's iteration count
+  and its output buffers), `nothing` below the minimal sample (no call). `r.prob` and `r.alg` record the solve. A
+  refine on too few data and one that ran infer to a small `Union` of two `FitResult`s (their `original` types).
+- **The eight-point essential matrix** is `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))` (a
+  `FitResult`, `u` the matrix or `nothing`); `essential_dlt(cs)` and `essential_dlt(PoseLibSolver(), cs)` are
+  deleted. PoseLib implements VisualGeometryToolkitCore's contract generic `essential_8pt(::PoseLibSolver, cs)`;
+  data that are not bearings are its `MethodError`, as before.
+- **The minimal solvers** are `solve(MinimalProblem(M, cs, idx), Solver(PoseLibSolver()))` (Core 0.14); the
+  `PoseLibSolver` kernels are unchanged. P3P's model type is the concrete `CameraExtrinsics` (Core retired
+  `Extrinsics3`).
+
+### Added
+
+- `VisualGeometryToolkitCore.default_damping(::PoseLibSolver) = LevenbergDamping()` and
+  `VisualGeometryToolkitCore.lm_backend_refine(::PoseLibSolver, …)` (the refines).
+
+### Changed
+
+- The unit-bearing gate of the bearing refine is VisualGeometryToolkitCore's `assert_unit_bearings` (this package's
+  copy is deleted; the same messages). The refines hand PoseLib their 3×3 guesses, translations and cameras as static
+  values and read its output the same way (no per-call heap buffer for them); the bits are unchanged.
+
 ## 0.3.3
 
 A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the

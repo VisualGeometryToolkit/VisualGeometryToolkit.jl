@@ -26,7 +26,7 @@
 
     const _K = CameraCalibrationMat(950.0px, [2120.0px, 1416.0px])
     const _CAMS = (
-        "pinhole" => CameraModel(LogicalIntrinsics(_K), Pinhole()),
+        "pinhole" => CameraModel(LogicalIntrinsics(_K), Lens(Perspective())),
         "division2" => CameraModel(LogicalIntrinsics(_K), Division(-0.3, -0.08)),
         "brown_conrady" => CameraModel(LogicalIntrinsics(_K), Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001)))),
         "kannala_brandt" => CameraModel(LogicalIntrinsics(_K), KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001)),
@@ -70,7 +70,7 @@
             end
             Gn = FiniteDiff.finite_difference_jacobian(e_of, zeros(SVector{6, Float64}), Val(:central))
             @test size(Gθ) == (2, 6) && maximum(abs.(Gθ - Gn)) < 1.0e-4 * max(1.0, maximum(abs.(Gn)))
-            if cam.lens isa Pinhole
+            if cam.lens isa Lens{Perspective, Nothing}
                 # exactly the calibrated form scaled by the pixel block A = K[1:2,1:2]
                 g, _, G = constraint_with_jacobians(_POSE, X, SVector{3, Float64}(backproject(cam, u)))
                 A = SMatrix{2, 2, Float64, 4}(950.0, 0.0, 0.0, 950.0)
@@ -115,7 +115,7 @@
                     worst = max(worst, abs(sqrt(d' * Σi * d) - 1.0))
                 end
                 @test worst < 0.02
-                if cam.lens isa Pinhole
+                if cam.lens isa Lens{Perspective, Nothing}
                     @test out == transfer_ellipse(HomographyMap(camera), shape)
                 else
                     Hp = HomographyMap(PosedCamera(pinhole(cam), _POSE))

@@ -29,7 +29,7 @@
 # to the SAME function.
 
 """
-    p3p(rays, points_3d) -> FixedModels{4, Extrinsics3}
+    p3p(rays, points_3d) -> FixedModels{4, model_type(P3P())}
 
 Perspective-3-Point solver.  The bare form routes to `NativeSolver` (see
 `p3p_native.jl`, a port of PoseLib's `p3p.cc`); `p3p(PoseLibSolver(), …)`

@@ -6,7 +6,7 @@
 #     solve(RefineProblem(AbsolutePoseProblem(camera, X .=> u), pose), LevenbergMarquardt(…); scale | width)
 #     solve(RefineProblem(BearingPoseProblem(X .=> f), pose), LevenbergMarquardt(…); scale | width)
 #
-# The problems are the inner loop's (plain metres or the caller's unit, unlabelled `Extrinsics3`). What the caller
+# The problems are the inner loop's (plain metres or the caller's unit, unlabelled `CameraExtrinsics`). What the caller
 # handed in is restored once, at the solve's exit: the guess's frame labels (`solution_model`) and, for a physical
 # problem (lengths: the constructor stripped them in metres and recorded it), the metre — a find's pose through
 # `_with_units` (units.jl), a refine's through `solution_model`. A refine's guess is physical exactly when its
@@ -17,7 +17,7 @@ const _PoseProblem = Union{AbsolutePoseProblem, BearingPoseProblem}
 _problem_unit(p::_PoseProblem) = p.context.unit
 
 # The guess as the inner loop's model: unlabelled, plain (stripped in metres when the problem is physical) and typed
-# `Extrinsics3` (`convert` labels it). The bearing form refuses a guess at which a ray origin coincides with its point —
+# `CameraExtrinsics` (`convert` labels it). The bearing form refuses a guess at which a ray origin coincides with its point —
 # a guard of the LM's rows, so not on fewer data than a minimal sample, where no LM runs and the refine hands the guess
 # back (`InitialFailure`).
 guess_model(p::_PoseProblem, pose::EuclideanMap{3}) = _pose_guess(p, _plain_guess(_problem_unit(p), pose))

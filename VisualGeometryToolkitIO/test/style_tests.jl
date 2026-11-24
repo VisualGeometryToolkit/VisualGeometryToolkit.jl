@@ -6,7 +6,7 @@
     using VisualGeometryToolkitCore: BoundedCamera
     import VisualGeometryToolkitIO as VgtkIO
     K =CameraCalibrationMat(SMatrix{3, 3, Float64}(500.0, 0, 0, 0, 500.0, 0, -0.0, -0.0, 1))
-    r = @inferred VgtkIO._k_record(K, VgtkIO.CANONICAL_PIXEL_FRAME)       # type-stable
+    r = @inferred VgtkIO._k_record(K, PixelFrame{:colmap})       # type-stable
     @test r.cx === 0.0 && r.cy === 0.0
     @test VgtkIO._k_values(K)[3] === -0.0          # the nominal pinhole and the identity read K as stored
     mktempdir() do dir
@@ -21,7 +21,7 @@ end
     import VisualGeometryToolkitIO as VgtkIO
     K =CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 900.0, 0, 640.0, 480.0, 1))
     cm = CameraModel(K)
-    back, ext = VgtkIO.camera_from_json(VgtkIO.camera_json(cm, Size2(1280, 960)), VgtkIO.CANONICAL_PIXEL_FRAME)
+    back, ext = VgtkIO.camera_from_json(VgtkIO.camera_json(cm, Size2(1280, 960)), PixelFrame{:colmap})
     @test back == cm && ext == Size2(1280, 960)
     X = _mkpose()
     pj = VgtkIO.pose_json(X, mm)

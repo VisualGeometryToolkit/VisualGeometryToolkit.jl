@@ -106,7 +106,7 @@ through the full camera model (including lens distortion) onto the image plane.
 
 # Arguments
 - `ax`: Makie `Axis` (2D)
-- `pose`: `EuclideanMap{3}` (e.g. [`Extrinsics3`](@ref)) — world-to-camera rigid transform
+- `pose`: `EuclideanMap{3}` (e.g. [`CameraExtrinsics`](@ref)) — world-to-camera rigid transform
 - `camera_model`: `CameraModel` — full camera model (intrinsics + lens)
 
 # Keyword Arguments

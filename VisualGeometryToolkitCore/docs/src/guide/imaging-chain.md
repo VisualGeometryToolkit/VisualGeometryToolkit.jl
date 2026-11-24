@@ -89,7 +89,7 @@ what the frame tags check, view identity or not.
 
 ## The collapse rule
 
-When a lens's distortion is the identity in its defining frame (`Pinhole`
+When a lens's distortion is the identity in its defining frame (`Lens(Perspective())`
 on the gnomonic `GnomonicFrame`; the pure-projection fisheyes on theirs),
 there is no distortion stage: the chain *collapses* the ray frame onto the
 calibration stage — `K` consumes the ray frame directly — rather than

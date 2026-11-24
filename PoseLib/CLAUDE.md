@@ -2,11 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-PoseLib.jl: Julia bindings to the PoseLib C++ library: the `PoseLibSolver`
-backends of VisualGeometryToolkitCore's minimal solvers (homography 4-pt, fundamental
-7-pt, P3P, essential 5-pt / 8-pt) and PoseLib's truncated-loss refiners
-(`refine_relpose`, `refine_fundamental`, `refine_homography`,
-`refine_absolute_pose`).
+PoseLib.jl: Julia bindings to the PoseLib C++ library, as the `PoseLibSolver`
+backend of VisualGeometryToolkitCore's `solve(problem, algorithm)` interface:
+the minimal solvers' kernels (homography 4-pt, fundamental 7-pt, P3P, essential
+5-pt), the eight-point essential matrix (`DLT(PoseLibSolver())`, the kernel
+`essential_8pt`), and PoseLib's robust refines,
+`solve(RefineProblem(cs, guess[, p]), LevenbergMarquardt(PoseLibSolver(); optimization_strategy); stops = LmStops(; max_iter), scale | width)`
+with the guess a `HomographyMat`, a `FundMat` or an `EuclideanMap{3}` and the context `p` the
+intrinsics where PoseLib needs them (`(; K1, K2)`, `(; K)`). Core's `solve` forwards it to the backend
+contract generic `lm_backend_refine`, which PoseLib implements for `PoseLibSolver`: PoseLib adds no `__solve`.
+
+PoseLib adds methods to Core's functions only where Core lists them in
+`CONTRACT_GENERICS` (the backend kernels, `lm_backend_refine`, `default_damping`), always on
+`PoseLibSolver`; `check_algorithm_traits` (R16) holds in the quality test.
+Rebuilding the C wrapper (`wrapper/`) is in `docs/src/developer.md`.
 
 ## Testing
 
@@ -56,7 +65,7 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 ### Frames here
 
 The bindings take caller-frame data and return results in that frame; a
-`loss_width` is in the unit of the data handed over. Any conditioning inside the
+`width` is in the unit of the data handed over. Any conditioning inside the
 C++ is private to it. A binding that needs a camera takes it (not a pre-divided
 loss width), and says which camera model it hands to C++. The loss is a
 VisualGeometryToolkitCore loss shape (or `LeZach()`), mapped to PoseLib's

@@ -182,7 +182,6 @@ end
 # block per marker point, depending on Y and its own X_m. NLLSsolver
 # accumulates each point's 12 × 12 block of JᵀJ into the (M + 1) × (M + 1)
 # block normal equations; nothing is static in M.
-const _RwPose = RigidExpManifold6{Float64}
 
 # A robust refine robustifies the block's squared norm by `robust` (Triggs: Core's `loss_robustifier`; `NoRobust()`
 # otherwise), and its stationarity and covariance rows scale the block by `sqrt_weight` (√ρ′ at the estimate; 1
@@ -205,7 +204,7 @@ NLLSsolver.robustkernel(r::_RwPointResidual) = r.robust
 NLLSsolver.ndeps(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.nres(::_RwPointResidual) = NLLSsolver.static(2)
 NLLSsolver.varindices(r::_RwPointResidual) = r.varind
-NLLSsolver.getvars(r::_RwPointResidual, vars::Vector) = (vars[r.varind[1]]::_RwPose, vars[r.varind[2]]::_RwPose)
+NLLSsolver.getvars(r::_RwPointResidual, vars::Vector) = (vars[r.varind[1]]::RigidExpManifold6{Float64}, vars[r.varind[2]]::RigidExpManifold6{Float64})
 Base.eltype(::_RwPointResidual) = Float64
 
 # The point's residual at the charts' origins, and its 2 × 12 Jacobian in
@@ -215,13 +214,13 @@ _rw_residual(r::_RwPointResidual, chY, chX) =
 _rw_jacobian(r::_RwPointResidual, chY, chX) = r.sqrt_weight * ForwardDiff.jacobian(
     z -> _rw_point_residual(z, chY, chX, r.RA, r.tA, r.X, r.u, r.camera), zero(SVector{12, Float64})
 )
-NLLSsolver.computeresidual(r::_RwPointResidual, Y::_RwPose, X::_RwPose) = _rw_residual(r, Y, X)
+NLLSsolver.computeresidual(r::_RwPointResidual, Y::RigidExpManifold6{Float64}, X::RigidExpManifold6{Float64}) = _rw_residual(r, Y, X)
 # The block's cost as the LM reads it: non-finite is +Inf (`finite_cost`).
-NLLSsolver.computecost(vars::Vector{_RwPose}, r::_RwPointResidual) =
+NLLSsolver.computecost(vars::Vector{RigidExpManifold6{Float64}}, r::_RwPointResidual) =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # Every pose is free in this refinement (`optimize!` over all variables), so
 # NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
-function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::_RwPose, X::_RwPose)
+function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::RigidExpManifold6{Float64}, X::RigidExpManifold6{Float64})
     varflags == 3 || throw(ArgumentError("RobotWorldHandEyeProblem: every pose is free (varflags = $varflags)"))
     return _rw_residual(r, Y, X), _rw_jacobian(r, Y, X)
 end
@@ -233,7 +232,7 @@ function _robot_world_hand_eye_bundle(
     lo = strategy
     n = length(us)
     costs = [_RwPointResidual{C}(SVector(1, mk[k] + 1), RA[fr[k]], tA[fr[k]], Xs[k], us[k], camera) for k in 1:n]
-    poses0 = _RwPose[RigidExpManifold6(guess.Y); [RigidExpManifold6(guess.X[id]) for id in guess.ids]]
+    poses0 = RigidExpManifold6{Float64}[RigidExpManifold6(guess.Y); [RigidExpManifold6(guess.X[id]) for id in guess.ids]]
     # Every point must project at the guess: NaN is the lens's answer for a
     # ray it does not image (behind the camera, outside its domain), and one
     # NaN row would silently stall the LM.

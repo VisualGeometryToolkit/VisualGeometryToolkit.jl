@@ -44,8 +44,8 @@
 # (`_robot_world_hand_eye_manifold`): the residual below, the stage conditions, the
 # reported covariance and the reprojection refine all retract through it.
 #
-# Frames: inputs are `unlabel`ed at the boundary and the algebra runs on the
-# unlabeled `Rigid3` alias (see problems/hand_eye.jl) — honest labels await
+# Frames: inputs are `unlabel`ed at the boundary and the algebra runs on unlabeled
+# `PlainEuclideanMap{3, Float64}`s (`_plain_motion`, problems/hand_eye.jl) — honest labels await
 # VGC 0.8 view-identity frames (per-instance rig/marker frames).
 # =============================================================================
 
@@ -59,7 +59,8 @@ transform `Y = T_WC`, the per-marker rig-mount transforms `X[id] = T_RP(id)`
 keyed by the caller's marker ids, and `ids`, those keys sorted — the block
 order of the covariance on the result's metadata. The constructor derives `ids`
 from `X`'s keys and stores the transforms unlabeled, all of one form `P`: plain
-(`Rigid3`), or physical — translations in metres — when `Y` and `X` are
+(an unlabeled `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3` translation),
+or physical — translations in metres — when `Y` and `X` are
 (a mix is a `MethodError`).
 
 Robot-world/hand-eye calibration is the literature's name for `AX = YB`
@@ -76,18 +77,21 @@ struct RobotWorldHandEyeCalibration{K, P <: EuclideanMap{3}}
 end
 function RobotWorldHandEyeCalibration(Y::PlainEuclideanMap{3}, X::AbstractDict{K, <:PlainEuclideanMap{3}}) where {K}
     ids = block_order(X)
-    return RobotWorldHandEyeCalibration{K, Rigid3}(
-        convert(Rigid3, unlabel(Y)), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(X[id])) for id in ids), ids
-    )
+    Yp = _plain_motion(unlabel(Y))
+    P = typeof(Yp)
+    return RobotWorldHandEyeCalibration{K, P}(Yp, Dict{K, P}(id => _plain_motion(unlabel(X[id])) for id in ids), ids)
 end
 RobotWorldHandEyeCalibration(Y::_PhysicalPose3, X::AbstractDict{K, <:_PhysicalPose3}) where {K} =
-    _attach_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict{K, Rigid3}(id => convert(Rigid3, unlabel(_plain_metres(T))) for (id, T) in X)))
+    _attach_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict(id => _plain_metres(T) for (id, T) in X)))
 
 # A calibration's two forms, through its poses: the plain one in metres, and a
 # plain one read as metres (the boundary of the robot-world fit and refine).
-_plain_metres(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K} =
-    RobotWorldHandEyeCalibration{K, Rigid3}(_plain_metres(cal.Y), Dict{K, Rigid3}(id => _plain_metres(T) for (id, T) in cal.X), cal.ids)
-function _attach_metres(cal::RobotWorldHandEyeCalibration{K, Rigid3}) where {K}
+function _plain_metres(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K}
+    Yp = _plain_motion(_plain_metres(cal.Y))
+    P = typeof(Yp)
+    return RobotWorldHandEyeCalibration{K, P}(Yp, Dict{K, P}(id => _plain_motion(_plain_metres(T)) for (id, T) in cal.X), cal.ids)
+end
+function _attach_metres(cal::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3, Float64}}) where {K}
     Y = _attach_metres(cal.Y)
     return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _attach_metres(T) for (id, T) in cal.X), cal.ids)
 end
@@ -99,7 +103,7 @@ _robot_world_hand_eye_manifold(cal::RobotWorldHandEyeCalibration, ::Val{B}) wher
     ProductManifold(ntuple(b -> RigidExpManifold6(b == 1 ? cal.Y : cal.X[cal.ids[b - 1]]), Val(B))...)
 # ... and back: the calibration from the poses (Y, X₁, …, X_M) in that order.
 _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
-    RobotWorldHandEyeCalibration(first(poses), Dict{K, Rigid3}(id => poses[m + 1] for (m, id) in enumerate(ids)))
+    RobotWorldHandEyeCalibration(first(poses), Dict{K, PlainEuclideanMap{3, Float64}}(id => poses[m + 1] for (m, id) in enumerate(ids)))
 
 """
     RobotWorldHandEyeMetadata{K, S, L, W}

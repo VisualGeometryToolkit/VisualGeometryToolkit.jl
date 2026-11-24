@@ -42,7 +42,7 @@ linear problem runs its one-step algorithm under the weights and ignores θ).
 The noise-model estimators (VGC's [`ScaleMAP`](@ref), VisualGeometryToolkitEval's
 prior fit) are outside this rule.
 
-**The estimation interface's rules, enforced by `check_naming` (R15–R20).**
+**The estimation interface's rules, enforced by `check_naming` (R15–R21).**
 - R15: `fit_`, `find_` and `refine_` name kinds, never functions: no function a
   package's own code (`src/`, `ext/`) defines, exports or declares public begins
   with one, except a task verb listed in `TASK_VERBS` with its reason
@@ -58,6 +58,19 @@ prior fit) are outside this rule.
   is `update_<block>!`).
 - R20: no `const` aliases an algorithm type or a solve verb, and none holds an
   algorithm value: one name per thing, an algorithm's configuration its fields.
+  Nor does a `const` name ONE concrete instantiation of a stack type (`const X =
+  EuclideanMap{3, Float64, …}` with every parameter given, `const X = typeof(…)`):
+  spell the type, or write a parametric alias with free variables (`const
+  Line2D{T} = Hyperplane{2, 3, T}`), which stays allowed. The parsed rule sees a
+  type applied to all its free parameters; the module form, `check_naming(M)`
+  (every package's quality test), sees the loaded bindings, a computed one
+  included. A type of a package outside the stack is not a stack type.
+- R21: a [`FitResult`](@ref) is read by field (`r.u`, `r.retcode`,
+  `r.stats.nsteps`, `r.stop_rule`, `r.rms`, `r.metadata`) and
+  `successful_retcode(r)`, its cross-type quantities only by their functions
+  (`weights(r)`, `dof(r)`, `noise_scale(r)`, `scale_source(r)`,
+  `inlier_mask(r)`); no retired accessor and no `r.metadata.<contract field>`
+  outside the contract method.
 
 **Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `lmsolve_chart!`, `block_coordinate_descent!`.
 

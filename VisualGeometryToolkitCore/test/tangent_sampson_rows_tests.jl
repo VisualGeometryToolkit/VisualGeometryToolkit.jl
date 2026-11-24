@@ -32,14 +32,14 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialMat, EssentialManifold6, retract, retract_jacobian,
-        CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
+        CameraModel, LogicalIntrinsics, CameraCalibrationMat, Lens, Perspective,
         backproject, project, backproject_with_jacobian, sampson_distance,
         sampson_residuals!, sampson_jacobian_rows!, sampson_residual, observation_gradient_jacobian, constraint_with_jacobians,
         Correspondences, withattrs
 
     cam(f, c) = CameraModel(
         LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c[1], c[2], 1))),
-        Pinhole(),
+        Lens(Perspective()),
     )
     C1 = cam(1200.0, (640.0, 480.0))
     C2 = cam(600.0, (640.0, 480.0))          # DIFFERENT focal — see the swap canary

@@ -14,7 +14,7 @@
     # for BOTH matrix-backed Maps), typed inv round-trip, unlabel/relabel escape
     # hatches, dimension mismatch as a type error, CameraPose/CameraExtrinsics
     # alias behavior (both PosedCamera construction routes), lookat/lookat_pose
-    # labeled returns, the labeled Extrinsics3 solver currency (p3p end-to-end),
+    # labeled returns, the labeled `CameraExtrinsics` solver currency (p3p end-to-end),
     # the labeled Mat → Map homography lift, and the PixelFrame origin-conversion
     # frame maps that replaced the ImageOrigin value API in 0.7.
 
@@ -179,18 +179,18 @@
             @test E_mm isa CameraExtrinsics
         end
 
-        @testset "Extrinsics3 labeled solver currency" begin
+        @testset "the labeled solver currency, a concrete CameraExtrinsics" begin
             # the concrete alias IS a labeled CameraExtrinsics (Pose3 is gone)
-            @test Extrinsics3 <: EuclideanMap
-            @test Extrinsics3 <: CameraExtrinsics
-            @test isbitstype(Extrinsics3)
+            @test model_type(P3P()) <: EuclideanMap
+            @test model_type(P3P()) <: CameraExtrinsics
+            @test isbitstype(model_type(P3P()))
             @test !(@isdefined Pose3)
-            z = zero(Extrinsics3)
-            @test z isa Extrinsics3
+            z = zero(model_type(P3P()))
+            @test z isa model_type(P3P())
             @test z isa EuclideanMap{3, Float64, <:Any, <:Any, WorldFrame, CameraFrame}
             # direct construction through the concrete alias (solver hot path)
-            pz = Extrinsics3(Ra, GeometryBasics.Vec{3, Float64}(ta))
-            @test pz isa Extrinsics3
+            pz = model_type(P3P())(Ra, GeometryBasics.Vec{3, Float64}(ta))
+            @test pz isa model_type(P3P())
             @test pz.R == Ra
             # typed algebra applies: inv of the solver model is a CameraPose,
             # and a matched labeled junction composes
@@ -199,21 +199,21 @@
                 EuclideanMap{3, <:Any, <:Any, <:Any, CameraFrame, CameraFrame}
             # a mismatched labeled junction throws (extrinsics ∘ extrinsics)
             @test_throws MethodError CameraExtrinsics(m_a) ∘ pz
-            # p3p returns FixedModels{4, Extrinsics3} — labeled end-to-end — and
+            # p3p returns FixedModels{4, `CameraExtrinsics`} — labeled end-to-end — and
             # the ground-truth model reprojects through the labeled type
             X = (
                 SVector(0.0, 0.0, 0.0), SVector(1.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0),
             )
-            gt = Extrinsics3(
+            gt = model_type(P3P())(
                 RotMatrix{3, Float64}(RotXYZ(0.1, -0.2, 0.15)),
                 GeometryBasics.Vec{3, Float64}(0.1, -0.2, 4.0)
             )
             rays = map(Xi -> SVector{3, Float64}(normalize(gt(Xi))), X)
             sols = p3p(SVector(rays...), SVector(map(SVector{3, Float64}, X)...))
-            @test sols isa FixedModels{4, Extrinsics3}
+            @test sols isa FixedModels{4, model_type(P3P())}
             @test length(sols) >= 1
             @test any(sols) do s
-                s isa Extrinsics3 || return false
+                s isa model_type(P3P()) || return false
                 all(zip(rays, X)) do (r, Xi)
                     v = s(SVector{3, Float64}(Xi))
                     isapprox(normalize(v), r; atol = 1.0e-6)

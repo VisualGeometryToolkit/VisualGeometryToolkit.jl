@@ -14,7 +14,7 @@ A camera is assembled from three components:
 1. **Intrinsics** — the calibration matrix `K`
    ([`LogicalIntrinsics`](@ref); pixel units)
 2. **Lens model** — a map between rays and normalized image points
-   ([`Pinhole`](@ref), any [`Lens`](@ref) or [`LiftLens`](@ref); see
+   (`Lens(Perspective())`, any [`Lens`](@ref) or [`LiftLens`](@ref); see
    [Lens Families](lenses.md))
 3. **Extrinsics** — the camera pose in world coordinates, as a
    frame-labeled [`EuclideanMap`](@ref) (see
@@ -124,7 +124,7 @@ There are two kinds of lens, built from a handful of parts — see
   followed by a distortion in that frame ([`Radial`](@ref),
   [`Tangential`](@ref), [`ThinPrism`](@ref), [`Tilt`](@ref),
   [`FieldOfView`](@ref), combined by [`Additive`](@ref) and CoordinateTransformations' `∘`).
-  [`Pinhole`](@ref) and [`KannalaBrandt`](@ref) are named instances.
+  `Lens(Perspective())` and [`KannalaBrandt`](@ref) are named instances.
 - [`LiftLens`](@ref)`(radial)` — the image point lifts to its ray in closed
   form: [`Division`](@ref), BabelCalib's rational model,
   [`Scaramuzza`](@ref).
@@ -177,14 +177,14 @@ pose(camera)                              # CameraPose (X_WC)
 # 3D world points and 2D image points
 csp = correspondences(X, u)               # StructArray of Pt3-to-Pt2 correspondences
 
-result = solve(MinimalProblem(Extrinsics3, csp, 1:3, model), P3P())   # FixedModels{4, Extrinsics3}, empty when no solution
-for ext in result                 # 0–4 Extrinsics3 solutions
+result = solve(MinimalProblem(CameraExtrinsics, csp, 1:3, model), P3P())   # FixedModels{4, `CameraExtrinsics`}, empty when no solution
+for ext in result                 # 0–4 `CameraExtrinsics` solutions
     camera_i = PosedCamera(model, ext)
     # score by reprojection error ...
 end
 ```
 
-The solver currency is the labeled [`Extrinsics3`](@ref) alias
+The solver currency is the labeled [`CameraExtrinsics`](@ref) alias
 (world-to-camera, a dispatch fact). [`sample_p3p`](@ref) draws minimal
 samples; the `P3P` solver type plugs into the
 [solver layer](../api/matching.md).

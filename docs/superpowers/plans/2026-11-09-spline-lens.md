@@ -243,7 +243,7 @@ Consolidate in the same task. The report names what was grepped and what was del
   - **Horizon from the grid (owner, 2026-11-09):** `monotone_radius(::SplineLens)` is the largest normalized radius about x = 0 whose disc lies inside the backward area ∩ the present nodes' support (where the grid is defined and one-to-one). `horizon_radius = f·monotone_radius` then needs no change. This matches the parametric lenses, whose `monotone_radius` reads their first radial piece and documents that decentering terms do not enter.
   - **`RadialCamera(::PosedCamera{<:CameraModel})` refuses (owner, 2026-11-09)** a SplineLens AND any `Lens` whose distortion holds a decentering piece (`Tangential`, `ThinPrism`, `Tilt`, alone or inside an `Additive`/`∘` composition). It throws `ArgumentError`, because the radial camera is exact only for a radially symmetric lens. One type-level check over the distortion pieces, using the existing stage walk (`_stages`), not a new one. This closes a gap: such lenses used to be silently accepted. Breaking; note it in the CHANGELOG.
   - **Re-gauge:** `CameraModel(::CameraModel, K′)` uses Task 1's `_rescale_lens`. Done there.
-  - **Unreachable** (Division/Pinhole/Projective-only): no change.
+  - **Unreachable** (Division/pinhole lens/Projective-only): no change.
   - `_default_nominal` was deleted in Task 4.
 - [ ] **Step 1: Write the failing tests:**
   - `parameter_names(cam)` lists only lens controls (no `:f`, `:cx`);

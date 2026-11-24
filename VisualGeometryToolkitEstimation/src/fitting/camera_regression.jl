@@ -56,7 +56,6 @@
 
 # The rotation every fit reports, from the source's camera frame to the fitted camera's (`_source_to_fitted`): one
 # concrete type, so a fit's metadata is the same type whatever its source's K.
-const _FrameRotation = VgtkCore.RotationMap{3, Float64, RotMatrix{3, Float64, 9}, VgtkCore.ViewFrame{:source}, VgtkCore.ViewFrame{:fitted}}
 
 # Core's lazy all-ones weights of an L2 result (`unit_weights`): one concrete type.
 const _UnitWeights = typeof(VgtkCore.unit_weights(Float64, 0))
@@ -132,7 +131,7 @@ struct CameraFitMetadata{R, F <: NamedTuple} <: AbstractFitMetadata{Nothing}
     max_px::Float64
     max_px_edge::Float64
     family::F
-    rotation::_FrameRotation
+    rotation::VgtkCore.RotationMap{3, Float64, RotMatrix{3, Float64, 9}, VgtkCore.ViewFrame{:source}, VgtkCore.ViewFrame{:fitted}}
     symmetry_residual::Float64
     residuals::Vector{Float64}
     weights::_UnitWeights

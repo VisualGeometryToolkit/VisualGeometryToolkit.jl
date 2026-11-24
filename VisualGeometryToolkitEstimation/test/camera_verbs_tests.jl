@@ -94,12 +94,12 @@ end
     using VisualGeometryToolkitCore: Lens, Perspective, Equidistant, Tilt, FieldOfView, Radial, Unified, ExtendedUnified, DoubleSphere
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    for L in (DSL, typeof(Lens(Unified(0.0))), typeof(Lens(ExtendedUnified(0.0, 0.0))), typeof(Lens(Perspective(), FieldOfView(0.0))),
+    for L in (typeof(Lens(DoubleSphere(0.5, 0.5))), typeof(Lens(Unified(0.0))), typeof(Lens(ExtendedUnified(0.0, 0.0))), typeof(Lens(Perspective(), FieldOfView(0.0))),
               typeof(Lens(Perspective(), Tilt(0.0, 0.0) ∘ Radial((0.0, 0.0)))))
         @test_throws r"RefineProblem\(CameraRegressionProblem" solve(EstimationProblem(CameraRegressionProblem(L, mdiv, disc(mdiv, 1500.0))), CameraRegression())
         @test_throws r"the family's anchor" solve(EstimationProblem(CameraRegressionProblem(L, mdiv, disc(mdiv, 1500.0))), CameraRegression())
     end
-    r = fit_then_refine(DSL, mdiv, disc(mdiv, 1500.0))
+    r = fit_then_refine(typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, 1500.0))
     @test retcode_symbol(r) === :converged
     # the refine's keywords: L2 only, no scale input
     g = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, 1500.0))), CameraRegression()).u

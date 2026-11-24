@@ -4,7 +4,7 @@
 # recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
 # `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
 # The geometry of PoseLib's refiner tests (test_refine.jl, test_contract.jl) and of the golden records of
-# ci/golden/fixtures/poselib.jl: two pinhole cameras, a relative pose, 200 points (MersenneTwister(7)), a seed pose;
+# ci/golden/fixtures/poselib.jl: two pinhole cameras, a relative pose, 200 points (MersenneTwister(7)), a seed pose (the guess; `seed` is the golden records' field name);
 # and test_contract.jl's scene of every refiner. Data constructors only — no refiner is called; include-once safe
 # (functions only). Its includer first includes VisualGeometryToolkitCore's test/fixtures/pinhole_points.jl
 # (`pinhole_point`, `pinhole_pixel`).
@@ -15,7 +15,7 @@ using StaticArrays: SVector, SMatrix
 import PoseLib
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
-    CameraCalibrationMat, Pinhole, Vec3
+    CameraCalibrationMat, Lens, Perspective, Vec3
 
 # The shared geometry of test_refine.jl and test_contract.jl (rng MersenneTwister(7)).
 function refine_geometry()
@@ -27,7 +27,7 @@ function refine_geometry()
     t = normalize(SVector(1.0, 0.1, 0.05))
     X = [SVector(4 * randn(rng), 3 * randn(rng), 8.0 + 4 * rand(rng)) for _ in 1:n]
     Rs = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.01, 0.0, 1.0, 0.0))) * R
-    seed = PoseLib.Rigid3(RotMatrix{3}(Rs), Vec3{Float64}(normalize(t + SVector(0.0, 0.02, 0.0))))
+    seed = VgtkCore.EuclideanMap(RotMatrix{3}(Rs), Vec3{Float64}(normalize(t + SVector(0.0, 0.02, 0.0))))
     tx = SMatrix{3,3}(0.0, t[3], -t[2], -t[3], 0.0, t[1], t[2], -t[1], 0.0)
     return (; n, nout, K1, K2, R, t, X, seed, tx)
 end
@@ -48,8 +48,8 @@ function contract_scene(r2)
     h2 = [pinhole_pixel(H, SVector(u[1], u[2], 1.0)) for u in h1]
     h2[1:nout] .= [out2() for _ in 1:nout]
     H0 = H .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(r2, 9)))
-    cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Pinhole())
-    cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K2)), Pinhole())
+    cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Lens(Perspective()))
+    cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K2)), Lens(Perspective()))
     bm1 = backproject_with_jacobian.(Ref(cam1), x1)
     bm2 = backproject_with_jacobian.(Ref(cam2), x2)
     bear = withattrs(Correspondences(first.(bm1), first.(bm2)); M₁ = last.(bm1), M₂ = last.(bm2))

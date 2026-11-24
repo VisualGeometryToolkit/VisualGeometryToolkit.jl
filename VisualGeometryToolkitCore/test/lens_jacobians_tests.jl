@@ -7,11 +7,11 @@
     using FiniteDiff: FiniteDiff
     using StaticArrays: SVector, SMatrix
     using CoordinateTransformations: AffineMap, Translation
-    using VisualGeometryToolkitCore: Pinhole, Division, Scaramuzza, InverseLens, undistort_normalized,
+    using VisualGeometryToolkitCore: Lens, Perspective, Division, Scaramuzza, InverseLens, undistort_normalized,
         distort_normalized, transform_deriv
 
     const _LENSES = [
-        ("pinhole", Pinhole()),
+        ("pinhole", Lens(Perspective())),
         ("division-1", Division(-0.1667)),
         ("division-2", Division(-0.1667, 0.0291)),
         ("brown-conrady", Lens(Perspective(), Additive(Radial((-0.157, 0.046)), Tangential(-3.5e-4, 8.4e-4)))),
@@ -21,7 +21,7 @@
 
     @testset "inv(lens) is the back-projection as a map ($name)" for (name, lens) in _LENSES
         U = inv(lens)
-        @test inv(U) === lens || (lens isa Pinhole && U isa Pinhole)
+        @test inv(U) === lens || (lens isa Lens{Perspective, Nothing} && U isa Lens{Perspective, Nothing})
         for xd in (SVector(0.0, 0.0), SVector(0.05, -0.02), SVector(-0.4, 0.3), SVector(0.7, 0.55), SVector(0.0, 0.85))
             @test U(xd) ≈ undistort_normalized(lens, xd) atol = 1.0e-15
             J = transform_deriv(U, xd)

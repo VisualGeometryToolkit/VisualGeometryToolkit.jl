@@ -9,11 +9,11 @@ using Random: Random
 using StableRNGs
 using StaticArrays: SVector
 using Rotations: RotMatrix, RotationVec
-using VisualGeometryToolkitCore: EuclideanMap, log_so3
-# Rigid3 — RVG's unlabeled rigid-motion alias (hand-eye currency; the chains
-# `marker_pose(Ygt, A[i], Xgt)` below need frame-free composition).
+using VisualGeometryToolkitCore: EuclideanMap, log_so3, Vec3
+# Unlabeled rigid motions (the hand-eye currency; the chains `marker_pose(Ygt, A[i], Xgt)` below need frame-free
+# composition).
 using VisualGeometryToolkitCore: rotation, translation
-using VisualGeometryToolkitEstimation: HandEyeProblem, Rigid3
+using VisualGeometryToolkitEstimation: HandEyeProblem
 
 # Synthesize an AX=YB dataset: a robot-world scene (Y*, one X*, N rig poses
 # A_i), its observations B_i = Y⁻¹ A_i X, then return (A, B). Optionally
@@ -91,7 +91,7 @@ end
         Xgt, Ygt, A = only(sc.X), sc.Y, sc.A
         for _ in 2:30
             ax = randn(r7, 3); ax ./= norm(ax)
-            Δ = Rigid3(RotMatrix{3, Float64}(RotMatrix(RotationVec((deg2rad(3) .* ax)...))), SVector{3, Float64}((0.2 .* randn(r7, 3))...))
+            Δ = EuclideanMap(RotMatrix{3, Float64}(RotMatrix(RotationVec((deg2rad(3) .* ax)...))), Vec3{Float64}((0.2 .* randn(r7, 3))...))
             push!(A, A[end] ∘ Δ)
         end
         B = [marker_pose(Ygt, a, Xgt) for a in A]
@@ -113,7 +113,7 @@ end
         # estimate scaled by 1000. (As an absolute value it kept 3 of 79
         # motions in mm.)
         A, B, Xgt, _, _ = _synth_dataset(StableRNG(252); N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 8)
-        mm(p) = Rigid3(rotation(p), SVector{3, Float64}((1000 .* translation(p))...))
+        mm(p) = EuclideanMap(RotMatrix{3, Float64}(rotation(p)), Vec3{Float64}((1000 .* translation(p))...))
         r_m = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(253))
         r_mm = solve(EstimationProblem(HandEyeProblem(mm.(A) .=> mm.(B))), Ransac(); rng = StableRNG(253))
         @test sum(inlier_mask(r_m)) >= 50

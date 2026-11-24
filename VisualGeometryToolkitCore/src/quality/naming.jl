@@ -46,9 +46,17 @@ Base.show(io::IO, v::NamingViolation) = _print_violation(io, v.file, v.line, v.r
 
 """
     check_naming(pkgdir) -> Vector{NamingViolation}
+    check_naming(M::Module) -> Vector{NamingViolation}
 
-The stack's naming rules, checked over a package directory. Implemented by the
-VisualGeometryToolkitCoreTestExt extension: `using Test` loads it.
+The stack's naming rules (R3–R21, `conventions/naming.md`), checked over a
+package directory: its source, tests, scripts and docs, parsed. The module form
+checks the module's package directory and adds the rules read from the loaded
+module: R20's run-time check, a module-level `const` whose value is one concrete
+instantiation of a stack type under another name, or under the type's own name
+when it is not the type itself (a computed one, `typeof(…)`, included; a partial
+application, a `UnionAll`, is not one; a type of a package outside the stack is
+not checked). Implemented by the VisualGeometryToolkitCoreTestExt extension:
+`using Test` loads it.
 """
 function check_naming end
 

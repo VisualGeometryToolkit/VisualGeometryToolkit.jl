@@ -15,7 +15,7 @@
 
     opencv = Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
     lenses = Any[
-        Pinhole(),
+        Lens(Perspective()),
         Division(-0.1667, 0.0291),
         LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))),
         opencv,
@@ -62,8 +62,8 @@
         @test parameter_names(Lens(Unified(0.7), Additive(Radial((-0.1,)), Tangential(0.0, 0.0)))) == (:xi, :k1, :p1, :p2)
         @test parameter_names(Scaramuzza(0.1, 0.0, 0.2)) == (:d1, :d2, :d3)
         @test parameter_names(Lens(Perspective(), FieldOfView(0.9))) == (:omega,)
-        @test parameter_names(Pinhole()) == ()
-        @test parameter_vector(Pinhole()) === SVector{0, Float64}()
+        @test parameter_names(Lens(Perspective())) == ()
+        @test parameter_vector(Lens(Perspective())) === SVector{0, Float64}()
         @test parameters(opencv).d3 == 0.001 && parameters(opencv).sy2 == -1.2e-3
         # names must be unique within a lens: two radial factors in one chain are refused
         @test_throws ArgumentError Lens(Perspective(), (Radial((0.2,)) ∘ Radial((0.1,))))
@@ -79,7 +79,7 @@
         @test Scaramuzza(0.1, 0.2) isa Scaramuzza{2, Float64}
         # an alias with its number type free is still a subtype of its kind
         @test Division{2} <: LiftLens && Scaramuzza{3} <: LiftLens && KannalaBrandt{4} <: Lens{Equidistant}
-        @test Pinhole() === Lens(Perspective())
+        @test Lens(Perspective()) === Lens(Perspective())
         @test with_parameters(LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))), Float32.([1, 2, 3, 4, 5])) isa LiftLens{Radial{Even, 2, 3, Float32}}
     end
 
@@ -90,7 +90,7 @@
         end
         @test zero(KannalaBrandt{4}) === KannalaBrandt(0.0, 0.0, 0.0, 0.0)
         @test zero(Division{2}) === Division(0.0, 0.0)
-        @test zero(Pinhole) === Pinhole()
+        @test zero(Lens{Perspective, Nothing}) === Lens(Perspective())
         @test_throws ArgumentError zero(Division)
         @test_throws ArgumentError zero(KannalaBrandt)
     end
@@ -115,7 +115,7 @@
 
     @testset "lens record" begin
         # one canonical form per lens: keys are leaf tags, arities are array lengths
-        @test lens_record(Pinhole()) == Dict("perspective" => Float64[])
+        @test lens_record(Lens(Perspective())) == Dict("perspective" => Float64[])
         @test lens_record(KannalaBrandt(-0.043, 0.011)) == Dict("equidistant" => Float64[], "radial" => Any[[-0.043, 0.011], Float64[]])
         @test lens_record(Division(-0.31, 0.024)) == Dict("lift" => Dict("radial" => Any[Float64[], [-0.31, 0.024]]))
         @test lens_record(Scaramuzza(-0.17)) == Dict("lift" => Dict("radial_full" => Any[Float64[], [-0.17]]))
@@ -180,7 +180,7 @@ end
         @test parameter_names(opencv) == (:k1, :k2, :k3, :d1, :d2, :d3, :p1, :p2, :sx1, :sx2, :sy1, :sy2)
         @test parameter_vector(Lens(DoubleSphere(-0.2, 0.6))) === SVector(-0.2, 0.6)
         @test eltype(parameter_vector(with_parameters(Division(-0.1, 0.02), Float32[-0.1, 0.02]))) === Float32
-        @test parameter_vector(Pinhole()) === SVector{0, Float64}()
+        @test parameter_vector(Lens(Perspective())) === SVector{0, Float64}()
         t = PlanarTarget([SVector(0.0, 0.0), SVector(1.0, 0.0)])
         @test parameter_vector(t) === SVector{0, Float64}() && parameter_vector(Rigid()) === SVector{0, Float64}()
         @test parameter_names(t) === () && parameter_names(Rigid()) === ()
@@ -197,7 +197,7 @@ end
         @test parameter_bounds(KannalaBrandt(-0.02, 0.003)) == (SVector(-Inf, -Inf), SVector(Inf, Inf))
         lo32, hi32 = parameter_bounds(Lens(DoubleSphere(0.1f0, 0.5f0)))
         @test eltype(lo32) === Float32 && hi32[2] === 1.0f0
-        @test parameter_bounds(Pinhole()) == (SVector{0, Float64}(), SVector{0, Float64}())
+        @test parameter_bounds(Lens(Perspective())) == (SVector{0, Float64}(), SVector{0, Float64}())
         t = PlanarTarget([SVector(0.0, 0.0)])
         @test parameter_bounds(t) == (SVector{0, Float64}(), SVector{0, Float64}())
         K = LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 1.5, 1000.0, 0, 320.0, 240.0, 1)))
@@ -373,7 +373,7 @@ end
     @test all(f -> f in CONTRACT_GENERICS, (parameter_vector, parameter_names, parameter_bounds, with_parameters))
     opencv = Lens(Perspective(), Additive(Radial((-0.2, 0.05, -0.01), (0.03, -0.004, 0.001)), Tangential(0.002, -0.001), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3))))
     lenses = Any[
-        Pinhole(), Division(-0.1667, 0.0291), LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))), opencv,
+        Lens(Perspective()), Division(-0.1667, 0.0291), LiftLens(Radial((0.05, -0.01), (-0.2, 0.04, 0.003))), opencv,
         KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
         Lens(Equidistant(), (Additive(Tangential(0.0003, -0.0002), ThinPrism((0.001,), (-0.0005,))) ∘ Radial((0.1, -0.02, 0.003)))),
         Lens(DoubleSphere(-0.2, 0.6)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),

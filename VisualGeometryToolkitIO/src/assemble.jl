@@ -70,7 +70,7 @@ rigid_transform(im::ColmapImage, contract::Union{UnitContract, UnknownScale}) =
 # the COLMAP model whose structure contains the lens's, padding with zeros.
 # Exact or refused: a lens no COLMAP model computes is never approximated.
 #
-#   SIMPLE_PINHOLE, PINHOLE        Pinhole()
+#   SIMPLE_PINHOLE, PINHOLE        Lens(Perspective())
 #   SIMPLE_RADIAL, RADIAL          Lens(Perspective(), Radial((k,)) | Radial((k1, k2)))
 #   OPENCV                         Lens(Perspective(), Additive(Radial((k1, k2)), Tangential(p1, p2)))
 #   FULL_OPENCV                    … Radial((k1, k2, k3), (k4, k5, k6)) …
@@ -177,8 +177,8 @@ _colmap_intrinsics(::Val{M}, p) where {M} =
 
 _colmap_lens(::Val{M}, p, ::Type{T}) where {M, T} = _colmap_lens_of(Val(M), T.(p[(_colmap_nfocal(M) + 3):end]))
 _colmap_nfocal(M) = M in (:SIMPLE_PINHOLE, :SIMPLE_RADIAL, :RADIAL, :SIMPLE_RADIAL_FISHEYE, :RADIAL_FISHEYE, :SIMPLE_DIVISION, :SIMPLE_FISHEYE) ? 1 : 2
-_colmap_lens_of(::Val{:SIMPLE_PINHOLE}, e) = Pinhole()
-_colmap_lens_of(::Val{:PINHOLE}, e) = Pinhole()
+_colmap_lens_of(::Val{:SIMPLE_PINHOLE}, e) = Lens(Perspective())
+_colmap_lens_of(::Val{:PINHOLE}, e) = Lens(Perspective())
 _colmap_lens_of(::Val{:SIMPLE_RADIAL}, e) = Lens(Perspective(), Radial((e[1],)))
 _colmap_lens_of(::Val{:RADIAL}, e) = Lens(Perspective(), Radial((e[1], e[2])))
 _colmap_lens_of(::Val{:OPENCV}, e) = Lens(Perspective(), Additive(Radial((e[1], e[2])), Tangential(e[3], e[4])))

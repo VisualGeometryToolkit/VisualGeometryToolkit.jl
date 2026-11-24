@@ -110,7 +110,23 @@ end
     # a residual closure has no default: the device LM is named, and the error lists it
     closure_msg = thrown_message(() -> solve(RefineProblem(abs, SVector(1.0))))
     @test occursin("has no default algorithm", closure_msg) && occursin("StaticLevenbergMarquardt", closure_msg)
-    @test LevenbergMarquardt() === LevenbergMarquardt(ClassDefault(), VgtkCore.MarquardtDamping())
+    @test LevenbergMarquardt() === LevenbergMarquardt(ClassDefault(), VgtkCore.MarquardtDamping(), VgtkCore.NativeSolver())
+    # the backend: native by default, its damping the backend's (`default_damping`); a backend whose package is not
+    # loaded states none, and Core's refines run the native backend only
+    @test LevenbergMarquardt(VgtkCore.NativeSolver()) === LevenbergMarquardt()
+    @test VgtkCore.default_damping(VgtkCore.NativeSolver()) === VgtkCore.MarquardtDamping()
+    @test LevenbergMarquardt(VgtkCore.PoseLibSolver(); damping = VgtkCore.LevenbergDamping()).backend === VgtkCore.PoseLibSolver()
+    @test_throws MethodError solve(RefineProblem(_Family(), 1.0),
+                                   LevenbergMarquardt(VgtkCore.PoseLibSolver(); damping = VgtkCore.LevenbergDamping()))
+    # a backend whose package implements no LM: one ArgumentError, from the constructor's default damping and from a
+    # raw-data refine alike, naming the backend and the contract generics its package implements
+    struct _NoLmBackend <: VgtkCore.AbstractSolverBackend end
+    nolm = thrown_message(() -> LevenbergMarquardt(_NoLmBackend()))
+    @test_throws ArgumentError LevenbergMarquardt(_NoLmBackend())
+    @test occursin("_NoLmBackend backend has no Levenberg–Marquardt", nolm) && occursin("lm_backend_refine", nolm)
+    H₀ = solve(EstimationProblem(HomographyMat, cs), DLT()).u
+    @test thrown_message(() -> solve(RefineProblem(cs, H₀),
+                                     LevenbergMarquardt(ClassDefault(), VgtkCore.MarquardtDamping(), _NoLmBackend()))) == nolm
     @test default_algorithm(MinimalProblem(HomographyMat, cs, 1:4)) === Homography4pt()
     @test default_algorithm(MinimalProblem(FundMat, cs, 1:7)) === Fundamental7pt()
     @test default_algorithm(MinimalProblem(RotMatrix{3}, v3, 1:2)) === Rotation2pt()

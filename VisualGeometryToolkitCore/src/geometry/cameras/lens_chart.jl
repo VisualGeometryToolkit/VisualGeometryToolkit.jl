@@ -735,7 +735,7 @@ term): `Lens(DoubleSphere(ξ, α))` is `"double_sphere"`, an OpenCV-14 lens
 `"perspective_tilt_radial_tangential_thin_prism"`. A label, never read back:
 [`lens_from_record`](@ref) reads the record.
 """
-lens_label(::Pinhole) = "pinhole"
+lens_label(::Lens{Perspective, Nothing}) = "pinhole"
 lens_label(::KannalaBrandt) = "kannala_brandt"
 lens_label(::Division) = "division"
 lens_label(::Scaramuzza) = "scaramuzza"

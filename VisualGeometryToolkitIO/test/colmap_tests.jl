@@ -20,7 +20,7 @@ end
 @testitem "camera assembly" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitCore as VgtkCore
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(2461.4, 0, 0, 0, 2460.6, 0, 2140.2, 1400.3, 1))
-    pin = CameraModel(K; lens = Pinhole(), pixel_frame = :colmap)
+    pin = CameraModel(K; lens = Lens(Perspective()), pixel_frame = :colmap)
     c = colmap_camera(pin, 1, 4240, 2832)
     @test c.model === :PINHOLE
     @test camera_model(c).intrinsics.K ≈ pin.intrinsics.K
@@ -73,7 +73,7 @@ end
 
     # skew has no COLMAP parameter either: refused, not silently dropped
     Ks = CameraCalibrationMat(SMatrix{3, 3, Float64}(2461.4, 0, 0, 1.5, 2460.6, 0, 2140.2, 1400.3, 1))
-    @test_throws ArgumentError colmap_camera(CameraModel(Ks; lens = Pinhole(), pixel_frame = :colmap), 5, 4240, 2832)
+    @test_throws ArgumentError colmap_camera(CameraModel(Ks; lens = Lens(Perspective()), pixel_frame = :colmap), 5, 4240, 2832)
 end
 
 @testitem "THIN_PRISM_FISHEYE (every ETH3D DSLR camera) assembles and round-trips" setup = [VGIoFixtures] begin
@@ -187,7 +187,7 @@ end
     # silently, in the text format only. Interior runs of spaces must survive
     # too, which is why the third case is double-spaced.
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 0, 800.0, 0, 320.5, 240.5, 1))
-    cam = colmap_camera(CameraModel(K; lens = Pinhole(), pixel_frame = :colmap), 1, 640, 480)
+    cam = colmap_camera(CameraModel(K; lens = Lens(Perspective()), pixel_frame = :colmap), 1, 640, 480)
     for nm in ("plain.jpg", "sub dir/img 01.jpg", "a  b.jpg")
         model = ColmapModel(
             [cam], [colmap_image(_mkpose(), 1, 1, nm)],
@@ -208,7 +208,7 @@ end
     # is read as such only when someone SAYS so, its translations stay
     # plain numbers, and every metric assembly refuses.
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(800.0, 0, 0, 0, 800.0, 0, 320.5, 240.5, 1))
-    cam = colmap_camera(CameraModel(K; lens = Pinhole(), pixel_frame = :colmap), 1, 640, 480)
+    cam = colmap_camera(CameraModel(K; lens = Lens(Perspective()), pixel_frame = :colmap), 1, 640, 480)
     im = ColmapImage(1, q0, SVector(0.25, -1.5, 3.0), 1, "a.jpg")
     pt = VgtkIO.ColmapPoint3D(1, SVector(1.0, 2.0, 3.0), SVector{3, UInt8}(0, 0, 0), 0.1, Tuple{Int32, Int32}[])
     mktempdir() do dir

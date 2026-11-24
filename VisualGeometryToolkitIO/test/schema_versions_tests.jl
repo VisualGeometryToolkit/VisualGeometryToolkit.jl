@@ -139,7 +139,7 @@ end
     xd = SVector(0.31, -0.17)
     ρ = norm(xd)
     ray(L) = (v = VgtkCore.backproject(L, xd); v[1:2] ./ v[3])
-    @test v1_lens("Pinhole", ()) == Pinhole()
+    @test v1_lens("Pinhole", ()) == Lens(Perspective())
     # v1's model names, retired VGC 0.x type names, as the reader spells them
     BC, RR, EQ = VgtkIO._V1_BROWN_CONRADY, VgtkIO._V1_RATIONAL_RADIAL, VgtkIO._V1_EQUIDISTANT
     # VGC 0.x's equidistant fisheye: r_d = θ

@@ -269,7 +269,7 @@ end
 
 # The covariances (a host (6,·) copy `ch`) of the same features.
 function _pool_covs(ch::AbstractMatrix{Float32}, n::Int, flags, on)
-    out = _FrameCov[]
+    out = CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}[]
     sizehint!(out, n)
     for i in 1:n
         flags[i] == on || continue

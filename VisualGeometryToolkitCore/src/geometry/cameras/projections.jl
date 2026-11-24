@@ -20,7 +20,7 @@ The composed camera-space → pixel-space map as a value:
 `affine_part(K) ∘ lens`, the lens applied to the ray (its functor is
 [`project`](@ref) on 3-vectors). It is `project(model, X)` for every lens and
 every ray — past 90° for a lens that images there, NaN where the lens does not
-(for a `Pinhole`, every `Z ≤ 0`). Its derivative is the chain rule through
+(for a `Lens(Perspective())`, every `Z ≤ 0`). Its derivative is the chain rule through
 `transform_deriv(lens, X)`. The fully-typed, junction-checked counterpart is
 [`imaging_chain`](@ref), which mints the framed composite
 `{ViewFrame{id} → ImageFrame{id}}` through the frame chain documented at
@@ -41,7 +41,7 @@ The back-projection of a lens as a first-class map: `inv(lens)` returns one,
 its `transform_deriv` is ForwardDiff through that map (lens_rays.jl).
 Composes like any transformation, so the pixel-domain
 undistortion of a camera is `inv(distortion_map(model))` with the chain rule
-for its derivative. A `Pinhole` is its own inverse.
+for its derivative. A `Lens(Perspective())` is its own inverse.
 """
 struct InverseLens{L <: AbstractLensModel} <: CoordinateTransformations.Transformation
     lens::L
@@ -63,7 +63,7 @@ ray frame directly (see the collapse rule at `DistortedFrame` and
 `distortion_frame`). Every frame here assumes a single center of projection.
 """
 has_distortion(::AbstractLensModel) = true
-has_distortion(::Pinhole) = false
+has_distortion(::Lens{Perspective, Nothing}) = false
 
 # =============================================================================
 # Pupil trait — exit-pupil geometry of a lens model
@@ -319,7 +319,7 @@ function _bisected_domain_radius(lens::AbstractLensModel)
     return r
 end
 
-Base.inv(::Pinhole) = Pinhole()
+Base.inv(::Lens{Perspective, Nothing}) = Lens(Perspective())
 
 # The perspective division's Jacobian, ∂[x/z, y/z]/∂[x, y, z] — the one leaf
 # CoordinateTransformations leaves undefined. With it the chain rule it

@@ -11,7 +11,7 @@
 # THE perspective division of the stack is CoordinateTransformations'
 # `PerspectiveMap()` (`pop(v) * inv(v[end])` on a StaticVector: static type
 # kept, Dual-safe). Every dehomogenization in VGC calls it — `to_euclidean`,
-# `project(Pinhole(), X)`, `undistort_normalized`, the transfer residual — never
+# `project(Lens(Perspective()), X)`, `undistort_normalized`, the transfer residual — never
 # a hand-written `v[1]/v[3]`, which differs from it by an ulp.
 
 """

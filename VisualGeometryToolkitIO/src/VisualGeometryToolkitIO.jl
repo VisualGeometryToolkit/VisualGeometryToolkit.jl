@@ -108,7 +108,7 @@ using TOML: TOML
 using FlexUnits: Units, Quantity, ustrip, dimension, uscale, quantity
 using CoordinateTransformations: ComposedTransformation   # a target calibration's composition
 using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, px, dpi, has_units,
-    CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, LiftLens, Pinhole, Division, KannalaBrandt, Scaramuzza,
+    CameraModel, CameraCalibrationMat, AbstractLensModel, Lens, LiftLens, Division, KannalaBrandt, Scaramuzza,
     Perspective, Equidistant, DoubleSphere, Unified, ExtendedUnified,
     Radial, Tangential, ThinPrism, Tilt, FieldOfView, Additive, Even,
     lens_record, lens_from_record, sha256_hex,
@@ -268,7 +268,6 @@ public Record, snap_integer, MATRIX_LAYOUT   # what a lift reads; a file number 
 public write_record, read_record      # the vgio file boundary for a record of another package's kind (validate.jl)
 public nested_roundtrip, edited_copy  # a kind's tests: its body nested in another record; a record edited to be refused (kind_test_helpers.jl)
 public with_provenance, metres        # a record body with the writer's provenance; a file length as plain metres (a kind of another package's)
-public SCHOEPS_PIXEL_FRAME            # the pixel frame of Schöps' camera_calibration files (COLMAP's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)

@@ -104,10 +104,10 @@ function _replay_ecf_lens!(cases)
     rp!(cases, "lensfit/Division1_mdiv/linear", md, ((m, r),) -> fitcam(Division{1}, m, r))
     rp!(cases, "lensfit/LiftLens_mdiv/refused_no_arity", md, ((m, r),) -> fitcam(LiftLens, m, r))
     rp!(cases, "lensfit/KannalaBrandt_mdiv/refused_no_arity", md, ((m, r),) -> fitcam(KannalaBrandt, m, r))
-    rp!(cases, "lensfit/DECENTERED_mdiv1000/linear", (mdiv, disc(mdiv, 1000.0)), ((m, r),) -> fitcam(ECF_DECENTERED, m, r))
+    rp!(cases, "lensfit/DECENTERED_mdiv1000/linear", (mdiv, disc(mdiv, 1000.0)), ((m, r),) -> fitcam(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), m, r))
     synth = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)),
         Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3)))))
-    rp!(cases, "lensfit/OPENCV3_decentred_source/stripped", (synth, disc(synth, 500.0)), ((m, r),) -> fitcam(ECF_OPENCV3, m, r))
+    rp!(cases, "lensfit/OPENCV3_decentred_source/stripped", (synth, disc(synth, 500.0)), ((m, r),) -> fitcam(Lens{Perspective, Radial{Even, 3, 0, Float64}}, m, r))
     frame = Rect(0, 0, 4240, 2832)
     rp!(cases, "lensfit/KB4_mdiv_frame/linear", (mdiv, frame), ((m, r),) -> fitcam(ECF_KB4, m, r))
     rp!(cases, "lensfit/KB4_mdiv/refused_off_pp_region", (mdiv, Rect(0, 0, 100, 100)), ((m, r),) -> fitcam(ECF_KB4, m, r))
@@ -119,11 +119,11 @@ function _replay_ecf_lens!(cases)
 
     # camera_verbs: the icra2026 fisheye
     ic = ecf_icra()
-    rp!(cases, "lensfit/RATTP_icra84/linear", (ic.kb, ic.region), ((m, r),) -> fitcam(ECF_RAT_TP, m, r))
-    rp!(cases, "lensfit/RATTP_icra_wide/refused_view_angle", (ic.kb, ic.wide), ((m, r),) -> fitcam(ECF_RAT_TP, m, r))
-    rp!(cases, "lensapprox/RATTP_icra_wide/refused_view_angle", (ic.kb, ic.wide), ((m, r),) -> approx(ECF_RAT_TP, m, r))
+    rp!(cases, "lensfit/RATTP_icra84/linear", (ic.kb, ic.region), ((m, r),) -> fitcam(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))))), m, r))
+    rp!(cases, "lensfit/RATTP_icra_wide/refused_view_angle", (ic.kb, ic.wide), ((m, r),) -> fitcam(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))))), m, r))
+    rp!(cases, "lensapprox/RATTP_icra_wide/refused_view_angle", (ic.kb, ic.wide), ((m, r),) -> approx(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))))), m, r))
     rp!(cases, "lensfit/KB4_icra_wide/linear", (ic.kb, ic.wide), ((m, r),) -> fitcam(ECF_KB4, m, r))
-    rp!(cases, "lensapprox/RATTP_icra84/default", (ic.kb, ic.region), ((m, r),) -> approx(ECF_RAT_TP, m, r))
+    rp!(cases, "lensapprox/RATTP_icra84/default", (ic.kb, ic.region), ((m, r),) -> approx(typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))))), m, r))
 
     # the linear residual and its refine (camera_verbs: KB4, SC3, Division{2} over the 2000 px disc)
     for (lbl, L) in (("KB4", ECF_KB4), ("SC3", ECF_SC3), ("Division2", Division{2}))
@@ -132,7 +132,7 @@ function _replay_ecf_lens!(cases)
         rp!(cases, "lensrefine/$(lbl)_mdiv2000/from_linear", (g, mdiv, region), ((g, m, r),) -> refcam(g, m, r))
     end
     # the families with no linear form: refused by fit_camera, started from their anchor by approximate_camera
-    nolin = ["DSL" => ECF_DSL, "Unified" => typeof(Lens(Unified(0.0))), "ExtendedUnified" => typeof(Lens(ExtendedUnified(0.0, 0.0))),
+    nolin = ["DSL" => typeof(Lens(DoubleSphere(0.5, 0.5))), "Unified" => typeof(Lens(Unified(0.0))), "ExtendedUnified" => typeof(Lens(ExtendedUnified(0.0, 0.0))),
              "FieldOfView" => typeof(Lens(Perspective(), FieldOfView(0.0))), "TiltRadial" => typeof(Lens(Perspective(), Tilt(0.0, 0.0) ∘ Radial((0.0, 0.0))))]
     d1500 = (mdiv, disc(mdiv, 1500.0))
     for (lbl, L) in nolin

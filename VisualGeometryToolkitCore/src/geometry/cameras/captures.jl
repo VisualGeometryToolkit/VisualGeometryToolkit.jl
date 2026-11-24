@@ -384,25 +384,6 @@ Base.:(==)(a::TargetHomographies{F}, b::TargetHomographies{G}) where {F, G} =
 # The stored point forms of TargetObservations
 # ------------------------------------------------------------------------------
 
-"""
-    UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
-
-A measured pixel with its 2×2 covariance (px²), in the full form. A
-[`TargetObservations`](@ref) set keeps the storage its points' covariances hold
-(isotropic, diagonal or full; a set of mixed storage in the coarser one), so a
-detector's isotropic noise stays one number per point; a container typed with
-this alias converts a structured covariance to the full form on the way in.
-"""
-const UncertainPixel = Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}
-
-"""
-    UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}}
-
-A measured plain 3D point with its 3×3 covariance (in the point's units
-squared), the full form. A physical one holds metres, its covariance in m² —
-stored as given, never rescaled from the unit the point was written in.
-"""
-const UncertainPoint3 = Uncertain{SVector{3, Float64}, CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}}
 
 # the covariance in Float64 and the storage it holds (full, diagonal or isotropic), unlabeled
 _pixel(xy::Uncertain) = Uncertain(SVector{2, Float64}(geom(xy)), CovMat{2, Float64}(parent(Statistics.cov(xy))))
@@ -486,7 +467,7 @@ per-detection attribute columns ([`withattrs`](@ref VisualGeometryToolkitCore.wi
 bundle's weights), per the data-arguments convention.
 
 The dimension is the frame's: `F <: PixelFrame` holds pixels in that pixel
-frame (plain `SVector{2, Float64}` or [`UncertainPixel`](@ref), covariances in
+frame (plain `SVector{2, Float64}` or an [`Uncertain`](@ref) pixel, covariances in
 px²; [`convert_frame`](@ref) moves them), a named `F <: Frame{3}` 3D points in
 it (`WorldFrame` for a tracker's room; `UnlabeledFrame` is refused) — plain
 `Float64`, or lengths in metres, an `Uncertain` one's covariance in m², stored

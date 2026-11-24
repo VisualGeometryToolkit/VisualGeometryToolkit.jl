@@ -282,7 +282,7 @@ function _nn_select(
     return Array(top_idx), Array(top_sc), rev === nothing ? nothing : Array(rev.idx)
 end
 
-# A selected score back in the metric's own sense, as the NNMatch stores it.
+# A selected score back in the metric's own sense, as a match stores it.
 _score(v, ::DescriptorSimilarity) = Float32(v)
 _score(v, ::DescriptorDistance) = Float32(-v)
 
@@ -302,7 +302,7 @@ function _block_matches(
         strategy::Union{NN, MutualNN}, metric, top_idx, top_sc, rev_idx, b::Int, o::Int, M::Int,
         N_feat::Int; ratio_threshold = nothing, min_similarity = nothing, max_distance = nothing
     )
-    ms = NNMatch[]
+    ms = Attributed{Correspondence{Int, Int}, NNMatchMeta}[]
     for i in 1:M
         g = o + i
         j = Int(top_idx[g, 1])
@@ -312,7 +312,7 @@ function _block_matches(
         _keep(s, metric, min_similarity, max_distance) || continue
         ratio = N_feat >= 2 ? _ratio(s, _score(top_sc[g, 2], metric), metric) : Inf32
         (ratio_threshold === nothing || ratio < ratio_threshold) || continue
-        push!(ms, NNMatch(i, j, s, ratio))
+        push!(ms, Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(s, ratio)))
     end
     return sort!(ms; by = m -> m.score, rev = _sort_rev(metric))
 end
@@ -324,7 +324,7 @@ function _block_matches(
         N_feat::Int; ratio_threshold = nothing, min_similarity = nothing, max_distance = nothing
     )
     k = min(strategy.k, N_feat)
-    ms = NNMatch[]
+    ms = Attributed{Correspondence{Int, Int}, NNMatchMeta}[]
     for i in 1:M
         g = o + i
         s1 = _score(top_sc[g, 1], metric)
@@ -333,7 +333,7 @@ function _block_matches(
         for r in 1:k
             s = _score(top_sc[g, r], metric)
             _keep(s, metric, min_similarity, max_distance) || continue
-            push!(ms, NNMatch(i, Int(top_idx[g, r]), s, ratio))
+            push!(ms, Attributed(Correspondence{Int, Int}(i, Int(top_idx[g, r])), NNMatchMeta(s, ratio)))
         end
     end
     return sort!(ms; by = m -> m.score, rev = _sort_rev(metric))
@@ -348,7 +348,7 @@ function _match(
     N1, D1 = size(desc1)
     N2, D2 = size(desc2)
     D1 == D2 || throw(DimensionMismatch("Descriptor dimensions must match: $D1 ≠ $D2"))
-    (N1 < 1 || N2 < 1) && return NNMatch[]
+    (N1 < 1 || N2 < 1) && return Attributed{Correspondence{Int, Int}, NNMatchMeta}[]
     top_idx, top_sc, rev_idx = if dm === nothing
         T = _score_eltype((desc1, desc2))
         _nn_select(

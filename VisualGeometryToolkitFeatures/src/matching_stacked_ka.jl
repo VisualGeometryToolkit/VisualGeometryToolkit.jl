@@ -61,7 +61,7 @@ end
 """
     nn_match_stacked(strategy, galleries::AbstractDict, features;
                      backend, index = nothing, min_similarity = 0.6, chunk_bytes = 0)
-        -> Dict{K, Vector{NNMatch}}
+        -> Dict{K, <:Vector{<:Attributed{<:Correspondence, NNMatchMeta}}}
 
 Match `features` against every gallery in `galleries` with one stacked
 GEMM. Per gallery the result is identical to matching that gallery alone
@@ -99,7 +99,7 @@ function nn_match_stacked(
         gal = idx.d_all, feat = ka_upload(T, backend, fd), chunk_bytes
     )
     N_feat = size(fd, 1)
-    match_dict = Dict{K, Vector{NNMatch}}()
+    match_dict = Dict{K, Vector{Attributed{Correspondence{Int, Int}, NNMatchMeta}}}()
     for (b, key) in enumerate(idx.keys)
         match_dict[key] = _block_matches(
             strategy, metric, top_idx, top_sc, rev_idx, b, idx.offsets[b], idx.sizes[b], N_feat;

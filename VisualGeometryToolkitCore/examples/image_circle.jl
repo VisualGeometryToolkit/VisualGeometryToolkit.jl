@@ -8,7 +8,7 @@
 #   julia --project=. examples/image_circle.jl
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
+using VisualGeometryToolkitCore: Lens, Perspective, KannalaBrandt
 
 # ── 1. A circular fisheye bounded by its physical sensor (2448 × 2048 @ 3.45 μm).
 # Kannala–Brandt r = θ(1 + k θ²) folds at θ = 1/√(−3k): k below puts the fold at
@@ -32,7 +32,7 @@ println("fisheye lights the whole sensor: ", Rect(extent(cam)) ∈ q)
 println("fisheye angle of view: ", rad2deg(angle_of_view(cam)), "° horizontal, ", rad2deg(angle_of_view(cam; dimension = :diagonal)), "° diagonal")
 
 # ── 5. A rectilinear lens has no limit of its own: its valid domain is the whole plane
-rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Pinhole()), s)
+rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Lens(Perspective())), s)
 println("rectilinear valid domain: ", valid_domain(rcam))
 println("rectilinear angle of view: ", rad2deg(angle_of_view(rcam)), "° horizontal, ", rad2deg(angle_of_view(rcam; dimension = :diagonal)), "° diagonal")
 

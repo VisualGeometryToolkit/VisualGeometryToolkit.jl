@@ -38,7 +38,7 @@ and friends), which deliberately have no `inv`. So
 [`InverseRayMap`](@ref) = `lift ∘ undistort ∘ section` is a genuine
 inverse, minted by `inv` and inverting back.
 
-For identity-in-frame lenses (`Pinhole`, the pure fisheye projections), `D`
+For identity-in-frame lenses (`Lens(Perspective())`, the pure fisheye projections), `D`
 is the identity — still framed, still returning the unit representative.
 `D` exists only for **central** lenses (every VisualGeometryToolkitCore lens model):
 a finite or thick pupil has no sphere self-map, because its rays do not

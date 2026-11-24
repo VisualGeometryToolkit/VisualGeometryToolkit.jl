@@ -15,7 +15,7 @@
 
     K = CameraCalibrationMat(SMatrix{3, 3, Float64}(900.0, 0, 0, 0, 905.0, 0, 320.5, 240.25, 1))
     lenses = [
-        Pinhole(), Lens(Equidistant()),
+        Lens(Perspective()), Lens(Equidistant()),
         Lens(Perspective(), Additive(Radial((-0.15, 0.045)), Tangential(-3.5e-4, 8.4e-4))),
         opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4, 0.01, 0.0, 0.0, 0.002]),
         KannalaBrandt(0.1, -0.02, 0.003, -0.0004), Scaramuzza(-0.1664, -0.0063, 0.035),

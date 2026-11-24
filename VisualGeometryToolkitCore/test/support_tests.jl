@@ -6,7 +6,7 @@
 @testitem "support" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, WholePlane, RegionIntersection, lens_coverage, with_lens_coverage, SupportTrait,
+    using VisualGeometryToolkitCore: KannalaBrandt, Lens, Perspective, WholePlane, RegionIntersection, lens_coverage, with_lens_coverage, SupportTrait,
         GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint, CONTRACT_GENERICS,
         Division, AbstractLensModel, SplineLens, NoncentralSplineModel, spline_window
     using VisualGeometryToolkitCore: normalized_point
@@ -22,7 +22,7 @@
         R = imaged_region(bc)
         @test R isa RegionIntersection && lens_coverage(bc) == lit
         @test Point2(640.0, 480.0) ∈ R && Point2(5.0, 5.0) ∉ R
-        @test imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960))) == Rect(0, 0, 1280, 960)
+        @test imaged_region(BoundedCamera(cam(800.0, Lens(Perspective())), Size2(1280, 960))) == Rect(0, 0, 1280, 960)
     end
 
     @testset "imaged_region of a Circle: the Ellipse's region (Rect ∩ Circle once threw on Base's iterate)" begin
@@ -56,7 +56,7 @@
 
     @testset "the trait and its contract" begin
         @test support_trait(fold) === GlobalSupport() && support_trait(typeof(fold)) === GlobalSupport()
-        @test support_trait(cam(800.0, Pinhole())) === GlobalSupport()
+        @test support_trait(cam(800.0, Lens(Perspective()))) === GlobalSupport()
         @test support_trait(CameraModel(SplineLens, cam(250.0, fold), Size2(1280, 960); grid_size = (8, 6))) === LocalSupport()
         @test support_trait(NoncentralSplineModel) === LocalSupport()
         @test all(f -> any(g -> g === f, CONTRACT_GENERICS), (support_trait, nodes, support, node_position))
@@ -94,8 +94,8 @@
         gn = NoncentralSplineModel(cam(250.0, fold), Size2(1280, 960); grid_size = (20, 16))
         @test node_mask(gn, R) == m
         # a rectilinear lens images the whole extent: no node is frozen
-        gr = CameraModel(SplineLens, cam(800.0, Pinhole()), Size2(1280, 960); grid_size = (20, 16))
-        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Pinhole()), Size2(1280, 960)))))
+        gr = CameraModel(SplineLens, cam(800.0, Lens(Perspective())), Size2(1280, 960); grid_size = (20, 16))
+        @test all(node_mask(gr, imaged_region(BoundedCamera(cam(800.0, Lens(Perspective())), Size2(1280, 960)))))
     end
 
     @testset "the sampler clamps nodes inside the lens model's valid domain" begin
@@ -168,7 +168,7 @@ end
 @testitem "support: the boundary rule — dependent nodes outside the imaged region" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes,
+    using VisualGeometryToolkitCore: KannalaBrandt, Lens, Perspective, BoundaryRule, extend_controls, boundary_rule_jacobian, nodes,
         SplineLens, ChartSpline, spline_window
     using VisualGeometryToolkitCore: normalized_point
     using StaticArrays, ForwardDiff

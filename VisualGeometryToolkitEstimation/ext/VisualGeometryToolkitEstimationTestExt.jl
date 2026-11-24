@@ -86,7 +86,7 @@ module TestScenes
     using LinearAlgebra: normalize
     using StaticArrays: SA, SMatrix, SVector
     using Rotations: RotXYZ, RotY, RotZ
-    using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, Pinhole, Point2, TLSShape, calibration_matrix, cost,
+    using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, Lens, Perspective, Point2, TLSShape, calibration_matrix, cost,
         correspondences, project, px, sampson_residual
     using VisualGeometryToolkitEstimation: EssentialProblem
 
@@ -147,11 +147,11 @@ module TestScenes
             X = box_point(rng)
             Y = R * X + t
             Y[3] <= 0 && continue
-            push!(u₁, Point2{Float64}(project(Pinhole(), X)))
+            push!(u₁, Point2{Float64}(project(Lens(Perspective()), X)))
             if outlier_every > 0 && k % outlier_every == 0
                 push!(u₂, Point2{Float64}(0.8 * (rand(rng) - 0.5), 0.8 * (rand(rng) - 0.5)))
             else
-                push!(u₂, Point2{Float64}(project(Pinhole(), Y) + σ * SA[randn(rng), randn(rng)]))
+                push!(u₂, Point2{Float64}(project(Lens(Perspective()), Y) + σ * SA[randn(rng), randn(rng)]))
             end
         end
         return u₁, u₂
@@ -589,7 +589,7 @@ module TestScenes
     # -----------------------------------------------------------------------------
     module Cameras
     using StaticArrays: SA
-    using VisualGeometryToolkitCore: CameraModel, Pinhole, Point2, backproject, project, px
+    using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, Point2, backproject, project, px
 
     export IDCAM, calibrated_point
 
@@ -598,7 +598,7 @@ module TestScenes
     const IDCAM = CameraModel(1.0px, SA[0.0px, 0.0px])
 
     # A camera's pixel as a calibrated point: its bearing on the z = 1 plane.
-    calibrated_point(camera, u) = Point2{Float64}(project(Pinhole(), backproject(camera, u)))
+    calibrated_point(camera, u) = Point2{Float64}(project(Lens(Perspective()), backproject(camera, u)))
     end
 
 end # module TestScenes

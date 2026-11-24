@@ -194,7 +194,7 @@ end
     # a gauge K (the off-axis spline over its disc): the regression state built as the camera-regression refine builds it, its samples
     # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    src = model(b); region = imaged_region(b); L = VE._AXIS_FAMILY; fixed = VE._AXIS_FIXED
+    src = model(b); region = imaged_region(b); L = typeof(VE._AXIS_LENS); fixed = VE._AXIS_FIXED
     role = VC.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VE._offset_matrix(K0)
     guess = VE._approximation_start(VE._linear_form(L), L, src, region, :image, fixed, cpu)
     gl = lens(guess); moving = free_parameter_names(guess, fixed)
@@ -316,7 +316,7 @@ end
     @test n == 4
     # the order continuation's first order: the 1-term linear fit and refine, then 2, 3 and 4 terms, each from the last
     @test VE._dflt("optical_axis", "start_radial_terms") == 1
-    @test VE._AXIS_FAMILY === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
+    @test typeof(VE._AXIS_LENS) === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
     names = parameter_names(lens(solve(EstimationProblem(CameraRegressionProblem(with_lens_coverage(OFF_BOUNDED, DISC))), OpticalAxis()).u))
     @test :k4 in names && !(:k5 in names)
 end
@@ -448,7 +448,7 @@ end
     # the premise: the 4-term start folds past the region's widest angle, within the band a refit leaves out, and its
     # refine does not find the axis: it stalls (Core ≤ 0.10.11), or (a tolerance stop converged, Core 0.11) ends ~12 px off
     # with its lens folding outside the region, where no fold gate sees it
-    start = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, VgtkCore.model(src), part, :image, E._AXIS_FIXED,
+    start = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), VgtkCore.model(src), part, :image, E._AXIS_FIXED,
                                    VgtkCore.default_device())
     plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
     θfold, θmax = Float64(view_angle_limit(lens(start))), plain.metadata.family.θ_max
@@ -485,7 +485,7 @@ end
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
     # the direct lift: the 1-term linear start, then the 4-term refine at once
-    s1 = E._approximation_start(E._linear_form(E._AXIS_FAMILY), E._AXIS_FAMILY, m, part, :image, (E._AXIS_FIXED..., E._axis_held(1)...),
+    s1 = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), m, part, :image, (E._AXIS_FIXED..., E._axis_held(1)...),
                                 VgtkCore.default_device())
     direct = E._refine_camera(s1, m, part; fixed = E._AXIS_FIXED)
     @test norm(axis_pixel(direct) - AXIS_PIXEL) > 1.0

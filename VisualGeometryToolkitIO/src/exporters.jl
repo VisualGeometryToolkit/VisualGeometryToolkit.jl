@@ -106,7 +106,7 @@ function save_bop_scene(
         Dict{Symbol, Int}(Symbol(k) => Int(v) for (k, v) in obj_ids)
     unmapped = [id for id in all_ids if !haskey(ids, id)]
     isempty(unmapped) || throw(ArgumentError("save_bop_scene: no obj_id for target(s) $(unmapped)"))
-    shift = EuclideanMap(CANONICAL_PIXEL_FRAME, to_frame).t
+    shift = EuclideanMap(PixelFrame{:colmap}, to_frame).t
     ts = sort!(collect(keys(tp.frames)))
     gt = Dict{String, Any}()
     cam = Dict{String, Any}()
@@ -114,7 +114,7 @@ function save_bop_scene(
         name = Symbol(tp.sensors[t])
         haskey(cameras, name) || throw(ArgumentError("save_bop_scene: frame $(t)'s sensor $(repr(tp.sensors[t])) is not among the cameras"))
         cm = model(value_of(cameras[name]))
-        (cm.lens isa Pinhole || undistorted) || throw(
+        (cm.lens isa Lens{Perspective, Nothing} || undistorted) || throw(
             ArgumentError(
                 "save_bop_scene: camera $(name) has a lens; BOP's K is a pinhole — state `undistorted = true` " *
                     "if the poses were measured on images undistorted to its pinhole twin"

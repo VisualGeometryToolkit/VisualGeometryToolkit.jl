@@ -50,7 +50,7 @@ transform is `X_{V₂V₁}` (`Src = ViewFrame{id₁}`, `Dst = ViewFrame{id₂}`)
 The typed algebra follows: `inv` swaps the frame tags (`X_AB⁻¹ = X_BA`),
 so `inv(::CameraPose)` *is* a `CameraExtrinsics` — the frame-pair aliases
 [`CameraPose`](@ref), [`CameraExtrinsics`](@ref), and the concrete solver
-currency [`Extrinsics3`](@ref) are plain `EuclideanMap`s under labeled
+currency [`CameraExtrinsics`](@ref) are plain `EuclideanMap`s under labeled
 frames, not wrappers.
 
 ## The wildcard truth table

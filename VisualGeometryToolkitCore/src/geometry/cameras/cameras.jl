@@ -16,7 +16,7 @@ Provides complete camera modeling including:
 - `PosedCamera`, `PosedPinholeCamera`
 - `CameraModel`
 - `LogicalIntrinsics`
-- `Lens`, `LiftLens`, `Pinhole`, `KannalaBrandt`, `Division`
+- `Lens`, `LiftLens`, `Lens(Perspective())`, `KannalaBrandt`, `Division`
 - `Sensor`, `CMOS_SENSORS`
 - `StereoRig`
 
@@ -142,7 +142,7 @@ using Base: ImmutableDict
 using ..VisualGeometryToolkitCore: Size2, Quantity, BaseQuantity, base_quantity, strip_or_bare, px, mm, μm, m
 using ..VisualGeometryToolkitCore: _check_pixels, strip_pixels   # pixel-sized values: refuse a length (base/units.jl)
 using ..VisualGeometryToolkitCore: SimilarityMap   # similarity_scale of a similarity (imaging_chain.jl)
-using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, CameraExtrinsics, to_affine, to_homogeneous, image_warp, image_warp!
+using ..VisualGeometryToolkitCore: EuclideanMap, CameraPose, to_affine, to_homogeneous, image_warp, image_warp!
 using ..VisualGeometryToolkitCore: RotationMap, WorldFrame, CameraFrame, _mapped_origin   # an oriented camera's pose (transforms/rotation_map.jl)
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
@@ -179,7 +179,7 @@ import ..VisualGeometryToolkitCore: points         # extended: a target rig's wo
 import ..VisualGeometryToolkitCore: EpipolarForm  # Import (not using) to extend with the rig mint
 import ..VisualGeometryToolkitCore: HomographyMat  # Import to extend constructor
 using ..VisualGeometryToolkitCore: sign_normalize   # a homography's canonical parameters (captures.jl)
-import ..VisualGeometryToolkitCore: Extrinsics3   # Import to extend constructor: the planar-target pose from a homography (homography.jl)
+import ..VisualGeometryToolkitCore: CameraExtrinsics   # Import to extend constructor: the planar-target pose from a homography (homography.jl)
 using ..VisualGeometryToolkitCore: _cross2d   # the 2-D cross product (base/coordinates.jl): radial_camera_5pt
 using ..VisualGeometryToolkitCore: _AffinePlanarMap   # the affine-class maps RadialCamera's ∘ accepts (calibration.jl)
 using ..VisualGeometryToolkitCore: rescale_radial_coeff   # the one radial-coefficient scaling law (radial_models.jl; _rescale_lens)
@@ -232,7 +232,7 @@ A camera in 3D space, consisting of a camera model (intrinsics + lens) and extri
 
 Dispatch on the lens through the model parameter:
 `PosedCamera{<:CameraModel{<:Any, <:MyLens}}` (the [`PosedPinholeCamera`](@ref) alias
-is that form for `Pinhole`).
+is that form for `Lens(Perspective())`).
 
 Use `project(camera, X)` to map a 3D world point to 2D pixel coordinates,
 and `backproject(camera, u)` / `unproject(camera, u, depth)` for the
@@ -260,7 +260,7 @@ extrinsics = EuclideanMap(RotMatrix(I), [0.0, 0.0, 0.0])
 camera = PosedCamera(model, extrinsics)
 
 # Dispatch on lens (via the model parameter; PosedPinholeCamera is the
-# ready-made alias for the Pinhole case)
+# ready-made alias for the pinhole lens case)
 foo(::PosedPinholeCamera) = "pinhole path"
 foo(::PosedCamera{<:CameraModel{<:AbstractIntrinsics, <:KannalaBrandt}}) = "fisheye path"
 
@@ -314,12 +314,12 @@ PosedCamera(model::AbstractCamera, p::RotationMap{3, T, R, CameraFrame, WorldFra
 """
     PosedPinholeCamera
 
-Cameras whose lens is exactly `Pinhole` — the alias for lens dispatch now
+Cameras whose lens is exactly `Lens(Perspective())` — the alias for lens dispatch now
 that `PosedCamera` carries only `{M, Rt}` (the former `{I, L, Rt, M}` repeated
 what `M` already determines).  Consumed by the induced-homography
 constructors in geometry/cameras/homography.jl.
 """
-const PosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}}
+const PosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Lens{Perspective, Nothing}}}
 
 # THE camera shape projection (a z = 0 plane circle/ellipse, a 3D circle): a
 # pinhole images the conic exactly through the plane homography — an `Ellipse`
@@ -332,8 +332,8 @@ function _camera_project_conic(camera::PosedCamera, shape, n::Int = 64)
     return _camera_project_world_points(camera, _world_boundary(shape, n))
 end
 # The exact image conic through the plane-induced homography — pinhole only.
-_plane_conic(camera::PosedCamera, shape::Union{Circle, Ellipse}, ::Pinhole) = HomographyMap(HomographyMat(camera))(shape)
-_plane_conic(camera::PosedCamera, c::Circle3D, ::Pinhole) =
+_plane_conic(camera::PosedCamera, shape::Union{Circle, Ellipse}, ::Lens{Perspective, Nothing}) = HomographyMap(HomographyMat(camera))(shape)
+_plane_conic(camera::PosedCamera, c::Circle3D, ::Lens{Perspective, Nothing}) =
     HomographyMap(HomographyMat(camera, c.center, c.u, c.v))(Circle(Point2(0.0, 0.0), c.radius))   # the circle's local (u, v) frame
 _plane_conic(::PosedCamera, _, ::AbstractLensModel) = nothing
 # The world boundary samples: a plane shape on z = 0, a 3D circle as is.
@@ -394,7 +394,7 @@ plain form is `ustrip(m, camera)`.
 plane_map(camera::PosedCamera) = _Projection(camera.model) ∘ camera.extrinsics ∘ _PLANE_LIFT
 function plane_map(camera::PosedCamera{<:CameraModel})
     m = camera.model
-    m.lens isa Pinhole && return PerspectiveMap() ∘ HomographyMap(PosedCamera(m, camera.extrinsics))
+    m.lens isa Lens{Perspective, Nothing} && return PerspectiveMap() ∘ HomographyMap(PosedCamera(m, camera.extrinsics))
     return _lens_pixel_map(m) ∘ (PerspectiveMap() ∘ HomographyMap(PosedCamera(pinhole(m), camera.extrinsics)))
 end
 
@@ -538,7 +538,7 @@ the bound and the region.
 
 # Example
 ```julia
-inner = PosedCamera(CameraModel(K; lens=Pinhole()), pose)
+inner = PosedCamera(CameraModel(K; lens=Lens(Perspective())), pose)
 bc    = BoundedCamera(inner, Size2(6048, 4032))
 intrinsics(bc)     # forwarded → CameraCalibrationMat
 extent(bc)         # Size2(6048, 4032)
@@ -579,7 +579,7 @@ BoundedCamera(camera::AbstractCamera, bound::Union{Size2, Sensor}; lens_coverage
     (b = _bound(bound); BoundedCamera(camera, b, _lens_coverage(lens_coverage, _extent(b))))
 
 """
-    BoundedCamera(f::Quantity, sensor::Sensor; lens = Pinhole(), lens_coverage = nothing) -> BoundedCamera
+    BoundedCamera(f::Quantity, sensor::Sensor; lens = Lens(Perspective()), lens_coverage = nothing) -> BoundedCamera
 
 A lens of focal length `f` (a length, `8mm`) on `sensor`: the camera model of focal length `f / pitch` pixels with its principal
 point at the sensor's centre (`centroid(Rect(sensor))`), bounded by the sensor, so its pitch stays with it
@@ -591,7 +591,7 @@ sensor = Sensor(Size2(320, 240), 20μm)
 camera = BoundedCamera(8mm, sensor; lens = Lens(DoubleSphere(0.25, 0.4)))   # 400 px, principal point (160, 120)
 ```
 """
-BoundedCamera(f::FlexUnits.Quantity, sensor::Sensor; lens = Pinhole(), lens_coverage = nothing) =
+BoundedCamera(f::FlexUnits.Quantity, sensor::Sensor; lens = Lens(Perspective()), lens_coverage = nothing) =
     BoundedCamera(CameraModel(f, sensor.pitch, centroid(Rect(sensor)) .* px; lens), sensor; lens_coverage)
 
 """
@@ -916,7 +916,7 @@ Get focal length from camera's intrinsics: the `(fx, fy)` tuple in pixels.
 # Examples
 ```julia
 K = CameraCalibrationMat(800.0px, [320.0px, 240.0px])
-model = CameraModel(LogicalIntrinsics(K), Pinhole())
+model = CameraModel(LogicalIntrinsics(K), Lens(Perspective()))
 camera = PosedCamera(model, extrinsics)
 fx, fy = focal_length(camera)  # Returns (800.0, 800.0)
 ```
@@ -968,7 +968,7 @@ intrinsics(model::CameraModel) = model.intrinsics
     lens(camera::PosedCamera)
     lens(model::CameraModel)
 
-Return the camera's lens model (e.g. `Pinhole`, a `Lens`, or any
+Return the camera's lens model (e.g. `Lens(Perspective())`, a `Lens`, or any
 user-defined `<: AbstractLensModel`).  Use this in dispatch when a downstream
 package wants to specialize on lens type without reaching into
 `camera.model.lens`.
@@ -1164,7 +1164,6 @@ export ParameterManifold, LensManifold    # a parametric model's Manifold (insid
 export parameter_offsets                  # a model's chart coordinates on a ParameterManifold (public, not exported, at the top level)
 export parameter_box                      # its solver search box (public, not exported, at the top level)
 export coordinate_scale                   # its coordinate scales (public, not exported, at the top level)
-export Pinhole                         # Ideal perspective (no distortion)
 export Lens, LiftLens, Division, KannalaBrandt, radial_ratio   # the two lens kinds and the named models
 export opencv_lens   # OpenCV's distortion vector as its lens (public, not exported, at the top level)
 export Scaramuzza                      # Scaramuzza's omnidirectional polynomial lift (MATLAB fisheyeIntrinsics)
@@ -1250,7 +1249,6 @@ export iwasawa_parameters, iwasawa_parameters_with_jacobian   # an affine's Iwas
 export regularizer, TargetManifold      # the calibratable-target protocol
 export Trajectory, TargetPoses, TargetHomographies   # per-frame values of a capture (captures.jl)
 export TargetObservations, FrameStamps      # per frame, per target, index => detection; a capture's per-frame stamps (captures.jl)
-export UncertainPixel, UncertainPoint3
 export DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings, is_constant   # a capture's camera settings per frame, its hardware's identity (captures.jl; is_constant public, not exported, at the top level)
 export convert_frame                      # the one way to change the pixel frame of pixel data
 export rectify                            # stereo rectification: rectified pinhole rig + FramedImage pair

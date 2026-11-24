@@ -17,7 +17,6 @@ using KernelAbstractions: @kernel, @index, @Const
 const _SFOP_SCALE_RATIO = 3
 
 # One row of `detect_sfop`'s result: a disc (the selected integration scale σ, input pixels) with its precision.
-const _SfopDetection = Attributed{Disc{Float64}, @NamedTuple{precision::Float64}}
 
 """
     detect_sfop(img; device = default_device(), noise_sigma = 2.0, significance_level = 0.999,
@@ -187,10 +186,10 @@ function _sfop_detections(device, space, raw, ends, W, H, min_precision; gate = 
         feats, W, H; device, mode = :ellipse, cutoff = 1 / sqrt(2), band_octaves = 1.0, band_reach = 1
     )
     rows = [
-        _SfopDetection(Disc(Point2{Float64}(f.x + 0.5, f.y + 0.5), Float64(f.σ)), (; precision = precision[(f.x, f.y, f.σ, f.warp_idx)]))
+        Attributed{Disc{Float64}, @NamedTuple{precision::Float64}}(Disc(Point2{Float64}(f.x + 0.5, f.y + 0.5), Float64(f.σ)), (; precision = precision[(f.x, f.y, f.σ, f.warp_idx)]))
             for f in kept
     ]
-    return StructArray(collect(_SfopDetection, rows); unwrap = T -> T <: NamedTuple)
+    return StructArray(collect(Attributed{Disc{Float64}, @NamedTuple{precision::Float64}}, rows); unwrap = T -> T <: NamedTuple)
 end
 
 # The precision cube of octave o, (W_o, H_o, S + 3, 1): −1/w at every level (its maxima are w's), −∞ where λ₂ fails

@@ -251,8 +251,8 @@ end
 @testitem "downstream_hoists: equidistant_chart, pixel_centre, distortion_map(RadialHomography), lens_label, shape_matrix(Disc)" begin
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: equidistant_chart, pixel_centre, distortion_map, RadialHomography, HomographyMat, project,
-        lens_label, KannalaBrandt, Division, Lens, DoubleSphere, Pinhole, Disc, OrientedDisc, Point2, shape_matrix, Equidistant,
-        Perspective, Tilt, Tangential, Radial, Even, Additive
+        lens_label, KannalaBrandt, Division, Lens, DoubleSphere, Perspective, Disc, OrientedDisc, Point2, shape_matrix, Equidistant,
+        Tilt, Tangential, Radial, Even, Additive
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize, norm, I, dot
     # the chart: a ray at angle θ from the axis lands at radius θ; the axis at the origin; right-handed
@@ -277,7 +277,7 @@ end
         @test inv(Dm)(Dm(u)) ≈ u rtol = 1.0e-12
     end
     # display names by the tag rule (RadiometricCamera's table spelled Division{2} "rational")
-    @test lens_label(Pinhole()) == "pinhole" && lens_label(KannalaBrandt(0.1, 0.0, 0.0, 0.0)) == "kannala_brandt"
+    @test lens_label(Lens(Perspective())) == "pinhole" && lens_label(KannalaBrandt(0.1, 0.0, 0.0, 0.0)) == "kannala_brandt"
     @test lens_label(Division(0.1, 0.2)) == "division" && lens_label(Lens(DoubleSphere(0.1, 0.5))) == "double_sphere"
     @test lens_label(Lens(Perspective(), Tilt(0.01, 0.0) ∘ Additive(Radial{Even}((0.1,), ()), Tangential(0.0, 0.0)))) ==
         "perspective_tilt_radial_tangential"

@@ -26,7 +26,7 @@
 The invariance errors of rigidly mounted targets. `poses[u][m]` is target
 `m`'s estimated pose in unit `u` (a value with fields `R`, the rotation, and
 `t`, the translation: target → camera, `x_cam = R·X + t`, e.g. an
-`Extrinsics3`); a target absent from `poses[u]` was not observed there.
+`CameraExtrinsics`); a target absent from `poses[u]` was not observed there.
 `targets` lists every target that could be observed; `pairs` are its sorted
 pairs `(m, n)`, `m < n`.
 

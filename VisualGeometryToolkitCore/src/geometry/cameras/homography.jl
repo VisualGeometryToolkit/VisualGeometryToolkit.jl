@@ -32,12 +32,12 @@ H_inv = inv(H)  # For warping: image → board
 """
 HomographyMat(camera::PosedPinholeCamera) = _induced_plane_homography(camera)
 # a physical pinhole: the plane coordinates have no unit — refused, naming the fix
-const _UnitfulPosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}, <:UnitfulEuclideanMap{3}}
+const _UnitfulPosedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Lens{Perspective, Nothing}}, <:UnitfulEuclideanMap{3}}
 HomographyMat(::_UnitfulPosedPinholeCamera, ::AbstractVector, ::AbstractVector, ::AbstractVector) =
     _refuse_physical_camera("HomographyMat(camera, origin, u, v)")
 
 """
-    Extrinsics3(H::HomographyMat, intrinsics::AbstractIntrinsics) -> Extrinsics3
+    CameraExtrinsics(H::HomographyMat, intrinsics::AbstractIntrinsics) -> CameraExtrinsics
 
 The pose of a PLANAR target from its plane → image homography — the inverse of
 [`HomographyMat`](@ref)`(camera)`: `H ∝ K·[r₁ r₂ t]` maps the target's `z = 0`
@@ -51,7 +51,7 @@ nearest (Frobenius) to `[r₁ r₂ r₁×r₂]`. An IDENTITY for an exact `H` �
 correspondences, no refinement; for an estimated `H` it is the closed-form
 pose its planar model implies ([Zhang2000](@citet), §3.1).
 """
-function Extrinsics3(H::HomographyMat, intrinsics::AbstractIntrinsics)
+function (::Type{CameraExtrinsics})(H::HomographyMat, intrinsics::AbstractIntrinsics)
     K = SMatrix{3, 3, Float64, 9}(intrinsics.K)
     B = K \ SMatrix{3, 3, Float64, 9}(H)
     λ = 2 / (norm(B[:, 1]) + norm(B[:, 2]))
@@ -60,13 +60,13 @@ function Extrinsics3(H::HomographyMat, intrinsics::AbstractIntrinsics)
     F = svd(hcat(r1, r2, cross(r1, r2)))
     R = F.U * F.Vt
     det(R) < 0 && (R = F.U * SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, 1, 0, 0, 0, -1) * F.Vt)
-    return Extrinsics3(RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(R)), Vec3{Float64}(t))
+    return CameraExtrinsics(EuclideanMap(RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(R)), Vec3{Float64}(t); check = false))
 end
 
 # H = K·[r₁ r₂ t] for ANY parametric camera, lens ignored.
 #
 # For a PINHOLE camera this IS the plane → image map, which is why the public
-# constructor above is Pinhole-only: the plane map of a distorted camera is not
+# constructor above is pinhole-only: the plane map of a distorted camera is not
 # a homography, and offering one would be a lie about the geometry. The other
 # caller is `RadialCamera(::PosedCamera)` (geometry/cameras/calibration.jl), where
 # the lens genuinely drops out — rows 1–2 of this matrix about the principal
@@ -167,10 +167,10 @@ HomographyMap(
 # =============================================================================
 #
 # Dispatch on lens model:
-#   Pinhole          → exact via induced homography H = K[r₁ r₂ t]
+#   pinhole               → exact via induced homography H = K[r₁ r₂ t]
 #   AbstractLensModel → approximate via point sampling through full model
 #
-# Pinhole preserves conics exactly (projective geometry). Distorting lenses
+# A pinhole preserves conics exactly (projective geometry). Distorting lenses
 # (distorted, fisheye) have no closed-form conic image, so we sample
 # boundary points and project each through the full camera model.
 # =============================================================================

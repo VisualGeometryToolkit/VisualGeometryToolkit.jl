@@ -113,7 +113,7 @@
         K = SMatrix{3, 3, Float64}(600.0, 0, 0, 0, 610.0, 0, 320.0, 240.0, 1.0)
         @test CameraModel(K) == CameraModel(CameraCalibrationMat(K))
         @test calibration_matrix(CameraModel(K)) == K
-        @test lens(CameraModel(K)) isa Pinhole
+        @test lens(CameraModel(K)) isa Lens{Perspective, Nothing}
         @test CameraModel(SMatrix{3, 3, Int}(600, 0, 0, 0, 600, 0, 320, 240, 1)) ==
             CameraModel(CameraCalibrationMat(SMatrix{3, 3, Float64}(600, 0, 0, 0, 600, 0, 320, 240, 1)))
         @test_throws ArgumentError CameraModel(SMatrix{3, 3, Float64}(K'))   # validated: the transpose is named

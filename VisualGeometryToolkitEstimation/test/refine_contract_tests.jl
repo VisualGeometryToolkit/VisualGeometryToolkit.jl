@@ -164,7 +164,7 @@ end
     using Test, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
     using StableRNGs: StableRNG
-    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat, EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, EuclideanMap, MsacScoring, WelschShape, ScaleGiven, ScaleNone, scale_source, weight_kind, IrlsWeights, BinaryWeights
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat, EssentialMat, RadialHomography, RadialCamera, CameraExtrinsics, Vec3, EuclideanMap, MsacScoring, WelschShape, ScaleGiven, ScaleNone, scale_source, weight_kind, IrlsWeights, BinaryWeights
     using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem, RotationProblem, CircleProblem,
         EllipseProblem, RadialHomographyProblem, RadialCameraProblem, AbsolutePoseProblem, BearingPoseProblem, HandEyeProblem
     using VisualGeometryToolkitCore: Triggs, Irls, solve, RefineProblem, LevenbergMarquardt
@@ -177,7 +177,7 @@ end
     c = Point2(500.0, 400.0)
     Xs = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
     us = [SA[400.0, 300.0], SA[500.0, 350.0]]
-    pose = Extrinsics3(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0))
+    pose = CameraExtrinsics(EuclideanMap(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0)))
     rigid(R, t) = EuclideanMap(RotMatrix{3, Float64}(R), SVector{3, Float64}(t))
     A = [rigid(RotXYZ(0.3i, -0.2i, 0.1i^2), SVector(0.1i, -0.05i, 0.02i)) for i in 1:3]
     Xhe = rigid(RotXYZ(0.1, 0.2, -0.3), SVector(0.05, 0.0, 0.1))

@@ -341,7 +341,6 @@ Base.showerror(io::IO, e::DivisionCameraError) = print(io, "DivisionCameraError:
 
 # A board's pose: the rigid map from the board plane (z = 0) into the camera —
 # rotation from the radial camera's branch, translation (t₁₂, t₃).
-const _BoardPose = EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}
 
 # One iteration's state in POSITIONAL form — the views in a fixed order (`ids`): the state the
 # stacked solve and the IRLS iterate on, before it is keyed. `poses[i] === nothing`
@@ -350,7 +349,7 @@ struct _PositionalDivisionState
     f::Float64
     k::Vector{Float64}
     center::Point2{Float64}
-    poses::Vector{Union{Nothing, _BoardPose}}
+    poses::Vector{Union{Nothing, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}}
     sq_distances::Vector{Vector{Float64}}
 end
 
@@ -373,21 +372,21 @@ struct DivisionCameraState{K}
     f::Float64
     k::Vector{Float64}
     center::Point2{Float64}
-    poses::Dict{K, _BoardPose}
+    poses::Dict{K, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}
     sq_distances::Dict{K, Vector{Float64}}
     ids::Vector{K}
 end
 
 # positional ⇄ keyed at the boundary
 function _keyed(p::_PositionalDivisionState, ids::Vector{K}) where {K}
-    poses = Dict{K, _BoardPose}(ids[i] => p.poses[i] for i in eachindex(ids) if p.poses[i] !== nothing)
+    poses = Dict{K, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}(ids[i] => p.poses[i] for i in eachindex(ids) if p.poses[i] !== nothing)
     sq = Dict{K, Vector{Float64}}(ids[i] => p.sq_distances[i] for i in eachindex(ids))
     return DivisionCameraState{K}(p.f, p.k, p.center, poses, sq, ids)
 end
 _positional(w::Union{Nothing, Real}, _ids) = w      # a seed focal, or none: no views to order
 _positional(st::DivisionCameraState, ids) = _PositionalDivisionState(
     st.f, st.k, st.center,
-    Union{Nothing, _BoardPose}[get(st.poses, id, nothing) for id in ids],
+    Union{Nothing, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}[get(st.poses, id, nothing) for id in ids],
     [get(st.sq_distances, id, Float64[]) for id in ids]
 )
 
@@ -720,7 +719,7 @@ function _division_camera_solve(
     fpx = x[1] / σ
     kn′, kpx = _solved_coeffs(k, kn, x, σ)
     λn = ntuple(p -> kn′[p] * x[1], N)                            # λₚ' = kₚ'·f' in normalized units
-    poses = Vector{Union{Nothing, _BoardPose}}(nothing, nb)
+    poses = Vector{Union{Nothing, EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, SVector{3, Float64}, UnlabeledFrame{3}, UnlabeledFrame{3}}}}(nothing, nb)
     sq = [fill(NaN, length(boards[i])) for i in 1:nb]
     for (col, (i, R, t12)) in enumerate(chosen)
         live[col] || continue                                         # no pose this iteration

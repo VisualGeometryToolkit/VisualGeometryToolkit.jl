@@ -16,7 +16,7 @@ using ForwardDiff: ForwardDiff
 using Rotations: QuatRotation, RotMatrix, RotXYZ
 import VisualGeometryToolkitCore as VgtkCore
 using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialManifold6, EuclideanManifold, EuclideanMap,
-    FundMatManifold7, HomographyManifold8, LeftRigidManifold6, Lens, LensManifold, Pinhole, PlanarTarget,
+    FundMatManifold7, HomographyManifold8, LeftRigidManifold6, Lens, LensManifold, Perspective, PlanarTarget,
     ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
     local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
     tangent_size
@@ -68,7 +68,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         (HomographyManifold8(R0), 8), (FundMatManifold7(R0 + 0.1I), 7),
         (EssentialManifold5(R0, t0 / norm(t0)), 5), (EssentialManifold6(R0, t0 / norm(t0)), 6),
         (SphereManifold(SVector(0.0, 0.6, 0.8)), 2), (EuclideanManifold(t0), 3),
-        (LensManifold(Lens(DoubleSphere(-0.2, 0.6))), 2), (LensManifold(Pinhole()), 0),
+        (LensManifold(Lens(DoubleSphere(-0.2, 0.6))), 2), (LensManifold(Lens(Perspective())), 0),
         (TargetManifold(PlanarTarget(:board)), 0),
         (ProductManifold(ch, EuclideanManifold(t0)), 9),
         (restrict(ch, SVector(true, true, true, false, false, true)), 4),

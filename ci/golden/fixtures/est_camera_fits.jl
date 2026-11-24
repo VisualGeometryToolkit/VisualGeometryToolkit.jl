@@ -11,7 +11,7 @@ import VisualGeometryToolkitCore as VgtkCore
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore: CameraModel, Division, Lens, LiftLens, Radial, Tangential, Additive, ThinPrism, Perspective,
     Equidistant, Stereographic, Orthographic, Unified, ExtendedUnified, FieldOfView, Tilt, Even, KannalaBrandt, DoubleSphere,
-    Scaramuzza, Pinhole, Ellipse, Rect, projected_radius, radial_part, view_angle_limit, monotone_radius, calibration_matrix,
+    Scaramuzza, Ellipse, Rect, projected_radius, radial_part, view_angle_limit, monotone_radius, calibration_matrix,
     lens, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, Size2, px, backproject, project, LogicalIntrinsics,
     CameraCalibrationMat, EuclideanMap, exp_so3, rotation, translation, with_parameters, parameter_vector, with_directions,
     with_present, with_lens_coverage, imaged_region, valid_domain, RadialCamera, Correspondences, radial_rows, Vec3
@@ -24,10 +24,6 @@ const _ECF_DB = VgtkEstimation.synthetic_scenes().DivisionBoards
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "lens_regions.jl"))   # `disc`, `disc_angle`
 const ECF_KB4 = KannalaBrandt{4}
 const ECF_SC3 = Scaramuzza{3}
-const ECF_DSL = typeof(Lens(DoubleSphere(0.5, 0.5)))
-const ECF_OPENCV3 = Lens{Perspective, Radial{Even, 3, 0, Float64}}
-const ECF_EQ = typeof(Lens(Equidistant()))
-const ECF_DECENTERED = typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0))))
 const ECF_PP = (2120.0, 1416.0)
 ecf_mdiv() = CameraModel(; pp = ECF_PP, focal = 927.0, lens = Division(-0.3302, -0.0765))
 const ECF_RCORNER = hypot(2120.0, 1416.0)
@@ -43,12 +39,12 @@ function ecf_lens_cases()
         "KB4_mdiv" => (ECF_KB4, mdiv, disc(mdiv, rcorner)),
         "SC3_mdiv" => (ECF_SC3, mdiv, disc(mdiv, rcorner)),
         "KB4_msc" => (ECF_KB4, msc, disc(msc, rcorner)),
-        "DSL_rlit" => (ECF_DSL, mdiv, disc(mdiv, rlit)),
-        "DSL_rcorner" => (ECF_DSL, mdiv, disc(mdiv, rcorner)),
-        "OPENCV3" => (ECF_OPENCV3, mdiv, disc(mdiv, rcorner)),
-        "OPENCV_decentered" => (ECF_DECENTERED, mdiv, disc(mdiv, rcorner)),
-        "Pinhole_30deg" => (Pinhole, mdiv, disc_angle(mdiv, deg2rad(30))),
-        "EQ" => (ECF_EQ, mdiv, disc(mdiv, rcorner)),
+        "DSL_rlit" => (typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, rlit)),
+        "DSL_rcorner" => (typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, rcorner)),
+        "OPENCV3" => (Lens{Perspective, Radial{Even, 3, 0, Float64}}, mdiv, disc(mdiv, rcorner)),
+        "OPENCV_decentered" => (typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, disc(mdiv, rcorner)),
+        "Pinhole_30deg" => (Lens{Perspective, Nothing}, mdiv, disc_angle(mdiv, deg2rad(30))),
+        "EQ" => (typeof(Lens(Equidistant())), mdiv, disc(mdiv, rcorner)),
         "Division2" => (Division{2}, mdiv, disc(mdiv, rcorner)),
         "LiftLens_1_2" => (LiftLens{Radial{Even, 1, 2, Float64}}, mdiv, disc(mdiv, rcorner)),
         "Division3" => (Division{3}, mdiv, disc(mdiv, rcorner)),
@@ -66,7 +62,6 @@ function ecf_icra()
         lens = KannalaBrandt(-0.03371588391401308, 0.0013137235024557887, -0.0019529571546981683, 0.0001827493332399132))
     return (; kb, region = Rect(0, 0, 4256, 2848) ∩ Ellipse(c, 1250.0, 1250.0, 0.0), wide = Rect(0, 0, 4256, 2848) ∩ Ellipse(c, 1400.0, 1400.0, 0.0))
 end
-const ECF_RAT_TP = typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0)))))
 const ECF_RAT = Lens{Perspective, Radial{Even, 3, 3, Float64}}
 const ECF_POLY = Lens{Perspective, Radial{Even, 3, 0, Float64}}
 

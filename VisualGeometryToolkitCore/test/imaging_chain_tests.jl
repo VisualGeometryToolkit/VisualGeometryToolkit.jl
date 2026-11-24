@@ -29,7 +29,7 @@
     @testset "Framed imaging chain (0.10)" begin
         # --- Fixtures ------------------------------------------------------------
         K_model(lens) = CameraModel(; focal = (620.0, 610.0), pp = (321.5, 242.5), lens)
-        pin = K_model(Pinhole())
+        pin = K_model(Lens(Perspective()))
         bc_lens = Lens(Perspective(), Additive(Radial((-0.28, 0.07, -0.006)), Tangential(0.0009, -0.0004)))
         bc = K_model(bc_lens)
         kb_lens = KannalaBrandt(-0.043, 0.011, -0.0083, 0.0015)
@@ -58,7 +58,7 @@
             # math is the lens contract's Bearing frame projection — bit-identical
             # to the pinhole's `project`, and CT's PerspectiveMap to rounding
             for X in rays
-                @test p(X) == project(Pinhole(), X)
+                @test p(X) == project(Lens(Perspective()), X)
                 @test p(X) ≈ PerspectiveMap()(X) atol = 1.0e-15
             end
             # inv is absent by design: 3D → 2D fiber collapse has no inverse
@@ -91,7 +91,7 @@
         end
 
         @testset "distortion_frame — honest per-model tags" begin
-            @test distortion_frame(Pinhole()) === GnomonicFrame
+            @test distortion_frame(Lens(Perspective())) === GnomonicFrame
             @test distortion_frame(bc_lens) === GnomonicFrame
             @test distortion_frame(Lens(Perspective(), Tangential(0.001, 0.002))) === GnomonicFrame
             @test distortion_frame(Division(-0.2)) === GnomonicFrame
@@ -138,7 +138,7 @@
             @test inv(dtp)(dtp(uv)) ≈ uv atol = 1.0e-8
 
             # no distortion stage for identity-in-frame lenses (collapse instead)
-            @test_throws ArgumentError distort_stage(Pinhole())
+            @test_throws ArgumentError distort_stage(Lens(Perspective()))
             @test_throws ArgumentError distort_stage(Lens(Equidistant()))
             # a parametric projection has no frame split
             @test_throws ArgumentError distort_stage(Lens(DoubleSphere(0.3, 0.6)))
@@ -170,7 +170,7 @@
             @test_throws ArgumentError FramedChain(persp, u)
         end
 
-        @testset "imaging_chain — Pinhole (frame collapse, bit-identical)" begin
+        @testset "imaging_chain — the pinhole lens (frame collapse, bit-identical)" begin
             c = imaging_chain(pin)
             @test c isa FramedChain{ViewFrame{:_}, ImageFrame{:_}}
             # collapse: NO distortion stage, no DistortedFrame anywhere — K
@@ -334,7 +334,7 @@
     # equidistant-frame lens (KannalaBrandt); azimuth preservation for radial
     # models; the θ-profile of KannalaBrandt's D equal to its defining
     # polynomial θ_d(θ); the honest inv (round-trip on the sphere); identity
-    # for identity-in-frame lenses (Pinhole, Lens(Equidistant())); unit-norm
+    # for identity-in-frame lenses (pinhole lens, Lens(Equidistant())); unit-norm
     # output and input-norm irrelevance (D acts on rays); frame typing (id
     # threading, :_ default, junction MethodError); frame-domain honesty
     # (NaN outside the defining frame); and the scoped-out parametric
@@ -447,8 +447,8 @@
         end
 
         @testset "identity-in-frame lenses — D is the identity (still framed)" begin
-            Dp = ray_map(Pinhole())
-            @test Dp isa RayMap{ViewFrame{:_}, GnomonicFrame{:_}, Pinhole}
+            Dp = ray_map(Lens(Perspective()))
+            @test Dp isa RayMap{ViewFrame{:_}, GnomonicFrame{:_}, Lens{Perspective, Nothing}}
             for X in rays_fwd
                 @test Dp(X) ≈ normalize(X) atol = 1.0e-15
             end
@@ -465,7 +465,7 @@
             # gnomonic frame: forward hemisphere only (Z > 0)
             @test all(isnan, ray_map(bc_lens)(SVector(0.1, 0.0, 0.0)))
             @test all(isnan, ray_map(bc_lens)(SVector(0.1, -0.2, -1.0)))
-            @test all(isnan, ray_map(Pinhole())(SVector(0.0, 0.0, -1.0)))
+            @test all(isnan, ray_map(Lens(Perspective()))(SVector(0.0, 0.0, -1.0)))
             @test all(isnan, inv(ray_map(bc_lens))(SVector(0.1, 0.0, -1.0)))
             # equidistant frame: θ ∈ [0, π) — only the exact backward ray is out
             @test all(isnan, ray_map(kb_lens)(SVector(0.0, 0.0, -1.0)))
@@ -476,7 +476,7 @@
             @test all(isnan, ray_map(kb_lens)(SVector(1.0e-9, 0.0, -1.0)))
             # the NaN carries NaN derivatives, as the lens contract's does
             @test all(isnan, ForwardDiff.jacobian(x -> FramedPerspective()(SVector{3}(x)), [0.0, 0.0, -1.0]))
-            @test all(isnan, ForwardDiff.jacobian(x -> ray_map(Pinhole())(SVector{3}(x)), [0.1, 0.0, -1.0]))
+            @test all(isnan, ForwardDiff.jacobian(x -> ray_map(Lens(Perspective()))(SVector{3}(x)), [0.1, 0.0, -1.0]))
         end
     end
 end

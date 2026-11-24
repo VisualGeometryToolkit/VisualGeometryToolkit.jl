@@ -8,6 +8,22 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- **check_naming R20 refuses a concrete-type alias** (owner, 2026-11-24): a `const` whose name takes no parameters and
+  whose right side names ONE concrete instantiation of a stack type (every free parameter given, none bounded, no
+  `where`) is a second name for one type; a parametric alias with free variables stays. It also runs on the loaded
+  module: `check_naming(M::Module)` (`test_naming(M)`) adds every module-level `const` whose value is a concrete type of a
+  stack package under another name, a computed `const X = typeof(…)` included. Every hit in the monorepo is removed
+  (below).
+- **`LevenbergMarquardt(backend; optimization_strategy, damping)`**: the one host LM carries a solver backend, as `DLT`
+  and the minimal solvers do (`LevenbergMarquardt{B, S, D}`, the backend `B <: AbstractSolverBackend` first, default
+  `NativeSolver()`, so a method on one backend reads `LevenbergMarquardt{NativeSolver}`). Core's refines of a problem
+  run the native backend only (another backend on them has no method). A refine of raw data, `solve(RefineProblem(data,
+  u0[, p]), LevenbergMarquardt(backend; …); stops, scale | width)`, is Core's one `__solve` for it, which refuses a box
+  and forwards to the new backend contract generic **`lm_backend_refine(backend, u0, data, p, alg; stops, scale,
+  width)`** (public; `stops` defaults to `LmStops()`), which a backend's package implements (PoseLib.jl for
+  `PoseLibSolver()`), as the minimal solvers' kernels and `essential_8pt` are. The damping defaults to the backend's
+  (`default_damping(backend)`, a contract generic: `MarquardtDamping()` natively, so `LevenbergMarquardt()` is unchanged
+  bit for bit). A backend whose package is not loaded is one `ArgumentError`, from either generic, naming the backend.
 - **Versioned configurations** (`base/config_toml.jl`): `ConfigVersions(package, ConfigMigration(; tables, renames)…)`,
   `migrate_config(d, versions)`, `current_config_version`, `CONFIG_VERSION_KEY`, and `parse_defaults(path; versions)`.
   A package's `configs/default.toml` states `config_version`; a stored file of an earlier version is read at the
@@ -121,6 +137,12 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   Mechanism tokens (`lm`, `gn`, `irls`) may name contract steps, never estimators.
 
 ### Removed
+- **The concrete-type aliases** (check_naming R20, owner 2026-11-24), each in RETIRED_NAMES: `Pinhole` →
+  `Lens(Perspective())`, the type `Lens{Perspective, Nothing}`; `Extrinsics3` → `CameraExtrinsics` (concrete:
+  `CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}`; P3P's model type, `MinimalProblem(CameraExtrinsics,
+  cs, idx)`), and the planar-target pose `Extrinsics3(H, intrinsics)` → `CameraExtrinsics(H, intrinsics)`;
+  `UncertainPixel`, `UncertainPoint3` → `Uncertain{SVector{N, Float64}, CovMat{N, Float64, SMatrix{N, N, Float64, N²},
+  UnlabeledFrame{N}}}`. The types and every number are unchanged; a printed type no longer shows the alias.
 - The local-optimization hooks with a reserved kind prefix are renamed: `refine_external!` → `external_refit!`,
   `refine_workspace` → `refit_workspace`, `refine_width` → `refit_width`.
 - **No public `mask`** (owner, 2026-11-24: selection is indexing, influence a weight): `CorrespondenceNormalization(M,

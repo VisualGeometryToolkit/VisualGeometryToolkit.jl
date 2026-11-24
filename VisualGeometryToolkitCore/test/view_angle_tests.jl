@@ -5,13 +5,13 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: view_angle_limit, Division, DoubleSphere, Pinhole, KannalaBrandt, projected_radius
+    using VisualGeometryToolkitCore: view_angle_limit, Division, DoubleSphere, Lens, Perspective, KannalaBrandt, projected_radius
     using VisualGeometryToolkitCore: monotone_radius   # public, not exported
     using StaticArrays: SVector
     using LinearAlgebra: norm
 
     @testset "view_angle_limit — honest domains" begin
-        @test view_angle_limit(Pinhole()) < π / 2
+        @test view_angle_limit(Lens(Perspective())) < π / 2
         @test view_angle_limit(Division(-0.3302, -0.0765)) > π / 2        # the division lift sees past 90°
         @test view_angle_limit(Lens(DoubleSphere(0.6, 0.55))) > π / 2
         @test view_angle_limit(Lens(Perspective(), Radial((-0.2,)))) <= π / 2

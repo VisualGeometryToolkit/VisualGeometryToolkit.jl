@@ -14,10 +14,6 @@ using KernelAbstractions: @kernel, @index, @Const
 
 # One row of `detect_foerstner`'s result: a point frame with its 2×2
 # covariance, labelled, with its window centre and the classification statistic.
-const _FoerstnerDetection = Attributed{
-    Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}},
-    @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_status::Symbol},
-}
 
 """
     detect_foerstner([T = Float32], img; device = default_device(),
@@ -713,9 +709,9 @@ function _foerstner_points(found, classes, undouble; covariances = nothing, cova
         end
         label = class == 1 ? :corner : class == -1 ? :circular : :unknown
         status = class == 0 ? :unclassified : covariance_status
-        _FoerstnerDetection(frame, (; label, window, F = e[7] / e[14], covariance_status = status))
+        Attributed{Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}, @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_status::Symbol}}(frame, (; label, window, F = e[7] / e[14], covariance_status = status))
     end
-    return StructArray(collect(_FoerstnerDetection, rows); unwrap = T -> T <: NamedTuple)   # never `[rows...]`: a splat per point count
+    return StructArray(collect(Attributed{Uncertain{PointFrame{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}, @NamedTuple{label::Symbol, window::Point2{Float64}, F::Float64, covariance_status::Symbol}}, rows); unwrap = T -> T <: NamedTuple)   # never `[rows...]`: a splat per point count
 end
 
 # ----- the propagated covariance: the exact first-order propagation of the pixel noise -----------------------

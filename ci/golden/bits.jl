@@ -182,9 +182,34 @@ struct FieldMap
     new_only::Vector{String}
     retyped::Vector{String}
     ignored::Vector{String}
+    aliases::Vector{Pair{String, String}}
 end
-FieldMap(; renames = Pair{String, String}[], new_only = String[], retyped = String[], ignored = String[]) =
-    FieldMap(collect(renames), collect(new_only), collect(retyped), collect(ignored))
+FieldMap(renames, new_only, retyped, ignored) = FieldMap(renames, new_only, retyped, ignored, RETIRED_ALIAS_PRINTS)
+FieldMap(; renames = Pair{String, String}[], new_only = String[], retyped = String[], ignored = String[],
+         aliases = RETIRED_ALIAS_PRINTS) =
+    FieldMap(collect(renames), collect(new_only), collect(retyped), collect(ignored), collect(aliases))
+
+# The type aliases the Core 0.14 migration retired (check_naming R20, owner 2026-11-24): a `const` that named one concrete
+# type. A recorded type printed through one names the IDENTICAL type that now prints without it, so a FieldMap's
+# `aliases` (this table by default) rewrite each recorded print `old => new`, exactly, in a leaf's TYPE text (a
+# struct's, a singleton's, a type value's, an array's element type) before it is compared; values (bits, digests,
+# strings) are never rewritten. Each entry is the alias's exact recorded print and the exact print of its type now.
+const RETIRED_ALIAS_PRINTS = Pair{String, String}[
+    "VisualGeometryToolkitCore.Cameras.Pinhole" =>
+        "VisualGeometryToolkitCore.Cameras.Lens{VisualGeometryToolkitCore.Cameras.Perspective, Nothing}",
+    # `UncertainPixel`/`UncertainPoint3` retired: Julia printed their `Attributed{…}` type through no alias while two applied,
+    # and prints it through `Uncertain` now that one does (`Uncertain{V, M} = Attributed{V, M}`, the same type)
+    "VisualGeometryToolkitCore.Attributed{StaticArraysCore.SVector{2, Float64}, VisualGeometryToolkitCore.FullCovMat{2, Float64, VisualGeometryToolkitCore.UnlabeledFrame{2}, StaticArraysCore.SMatrix{2, 2, Float64, 4}}}" =>
+        "VisualGeometryToolkitCore.Uncertain{StaticArraysCore.SVector{2, Float64}, VisualGeometryToolkitCore.FullCovMat{2, Float64, VisualGeometryToolkitCore.UnlabeledFrame{2}, StaticArraysCore.SMatrix{2, 2, Float64, 4}}}",
+    "VisualGeometryToolkitCore.Attributed{StaticArraysCore.SVector{3, Float64}, VisualGeometryToolkitCore.FullCovMat{3, Float64, VisualGeometryToolkitCore.UnlabeledFrame{3}, StaticArraysCore.SMatrix{3, 3, Float64, 9}}}" =>
+        "VisualGeometryToolkitCore.Uncertain{StaticArraysCore.SVector{3, Float64}, VisualGeometryToolkitCore.FullCovMat{3, Float64, VisualGeometryToolkitCore.UnlabeledFrame{3}, StaticArraysCore.SMatrix{3, 3, Float64, 9}}}",
+]
+_unalias(m::FieldMap, s::AbstractString) = foldl((x, (o, n)) -> replace(x, o => n), m.aliases; init = String(s))
+function _unalias(m::FieldMap, t::AbstractString, v::AbstractString)
+    isempty(m.aliases) && return (t, v)
+    typed = t in ("struct", "singleton", "cycle", "type")
+    return (_unalias(m, t), typed ? _unalias(m, v) : String(v))
+end
 const IDENTITY_MAP = FieldMap()
 
 _has_prefix(path, pre) = path == pre || startswith(path, pre * ".") || startswith(path, pre * "[")
@@ -212,7 +237,7 @@ nor declared `new_only`, and every leaf whose type or bits differ. Empty means b
 """
 function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP, intended = Dict{String, Any}(), used = Set{String}())
     diffs = String[]
-    want = Dict(p => (t, v) for (p, t, v) in old)
+    want = Dict(p => _unalias(map, t, v) for (p, t, v) in old)
     got = Dict{String, Tuple{String, String}}()
     for (p, t, v) in new_record
         q = _map_path(map, p)

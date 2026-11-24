@@ -3,10 +3,12 @@ using Test
 using LinearAlgebra: norm, normalize
 using PoseLib
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: HomographyMat, EssentialMat, FundMat, Extrinsics3, FixedModels,
+using VisualGeometryToolkitCore: HomographyMat, EssentialMat, FundMat, CameraExtrinsics, FixedModels,
                           PoseLibSolver, Vec3, Point3, Essential5pt
 using StaticArrays: SVector, SMatrix
 using Rotations: RotMatrix
+
+include("refine_shim.jl")   # poselib_refine, shared with the golden replay
 
 @testset "PoseLib" begin
 
@@ -28,7 +30,7 @@ using Rotations: RotMatrix
         X = [Point3(1.0, 0.5, 5.0), Point3(-0.5, 1.0, 4.0), Point3(0.0, -0.5, 6.0)]
         rays = [Vec3(x ./ norm(x)) for x in X]
         result = VgtkCore.p3p(PoseLibSolver(), rays, X)
-        @test result isa FixedModels{4, Extrinsics3}
+        @test result isa FixedModels{4, VgtkCore.model_type(VgtkCore.P3P())}
         @test length(result) >= 1
 
         # essential_5pt returns FixedModels{10, EssentialMat}
@@ -49,7 +51,7 @@ using Rotations: RotMatrix
     include("test_p3p.jl")
     include("test_p3p_poselib.jl")
 
-    # Truncated-loss refinement wrappers + essential_dlt: Correspondence input.
+    # The refines (LevenbergMarquardt(PoseLibSolver())) and the eight-point E (DLT(PoseLibSolver())): Correspondence input.
     include("test_refine.jl")
 
     # The robust-estimation contract (optimization_strategy, scale/width, FitResult) and the bit-identical baselines.

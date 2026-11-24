@@ -14735,3 +14735,107 @@ old    = { type = "array Base.Vector{VisualGeometryToolkitCore.FitResult{Union{N
 new    = { type = "array Base.Vector{Tuple{Any, VisualGeometryToolkitCore.ReturnCode.T, VisualGeometryToolkitCore.StopRule, Int64, Float64, Int64, Tuple{Base.Vector{Float32}, Base.Vector{Float32}, Float64, Float64, VisualGeometryToolkitCore.ScaleSource, Int64, Float64, VisualGeometryToolkitCore.ReturnCode.T, VisualGeometryToolkitCore.StopRule, Bool}}} [5]", value = "e2447cdb940fe0a4f1453cf62cb6b1bde46f4993f19201c3b73376d383d32b6c" }
 size   = "max relative difference 8.71e-08 (536870912 ulp) over 1102 float leaves"
 reason = "the fixture's upstream finds, a vector of FitResults: its element type is Core 0.14's FitResult (the solve interface's result record, a new type string) and its values moved with the find's local optimization, whose the Sampson Jacobian's products are explicit `fma` chains now (Core base/sampson.jl `_jacobian_terms`, base/fused_products.jl `_fma_mul`/`_fma_tmul`; owner 2026-11-24): the old `muladd` chains rounded differently per compiled copy (a package image or the JIT), the new ones identically in every copy (max relative difference 8.71e-08 (536870912 ulp) over 1102 float leaves)"
+
+[[change]]
+group  = "poselib"
+case   = "relpose_pixels_refine/refused/retired_loss"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "relpose_pixels_refine/refused/retired_loss_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "relpose_bearings_refine/refused/retired_loss"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "relpose_bearings_refine/refused/retired_loss_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "fundamental_refine/refused/retired_loss"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "fundamental_refine/refused/retired_loss_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "homography_refine/refused/retired_loss"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "homography_refine/refused/retired_loss_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "absolute_pose_refine/refused/retired_loss"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "absolute_pose_refine/refused/retired_loss_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "homography_refine/refused/retired_local_optimization"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "PoseLib 0.4: the retired keywords `loss`, `loss_width` and `local_optimization` (refused by name through `RetiredKeyword`, an ArgumentError) belonged to the deleted refine_relpose/refine_fundamental/refine_homography/refine_absolute_pose. Under the solve interface a keyword is a run setting declared on the `__solve` method (PoseLib's: `stops`, `scale`, `width`) and an unknown one is a MethodError (design record D5, owner-accepted 2026-11-23; the same change as Estimation's refines); the strategy is LevenbergMarquardt(PoseLibSolver())'s field, so the retired spellings have no place left to be refused by name."
+
+[[change]]
+group  = "poselib"
+case   = "homography_refine/refused/seed_2x2"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "Base.DimensionMismatch" }
+reason = "PoseLib 0.4 (owner, 2026-11-24, approved): the refine's guess is a typed model on Core's RefineProblem (`RefineProblem(cs, HomographyMat(H))`), so a 2×2 seed is refused where the HomographyMat is built (DimensionMismatch), no longer by the deleted refiner's own 3×3 check (an ArgumentError). No number changes."
+
+[[change]]
+group  = "poselib"
+case   = "fundamental_refine/refused/seed_2x3"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "Base.DimensionMismatch" }
+reason = "PoseLib 0.4 (owner, 2026-11-24, approved): the refine's guess is a typed model on Core's RefineProblem (`RefineProblem(cs, FundMat(F))`), so a 2×3 seed is refused where the FundMat is built (DimensionMismatch), no longer by the deleted refiner's own 3×3 check (an ArgumentError). No number changes."

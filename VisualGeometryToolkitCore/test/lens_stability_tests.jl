@@ -9,7 +9,7 @@
     using VisualGeometryToolkitCore: _precision, project_with_jacobians, transform_deriv_params
 
     lenses = (
-        Pinhole(), Lens(Equidistant()), Lens(Stereographic()), Lens(Equisolid()), Lens(Orthographic()),
+        Lens(Perspective()), Lens(Equidistant()), Lens(Stereographic()), Lens(Equisolid()), Lens(Orthographic()),
         Lens(Perspective(), Radial((-0.12, 0.03))),
         Lens(Perspective(), Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4), ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3)))),
         Lens(Perspective(), (Tilt(0.01, -0.02) ∘ Additive(Radial((-0.12, 0.03)), Tangential(1.0e-3, -5.0e-4)))),

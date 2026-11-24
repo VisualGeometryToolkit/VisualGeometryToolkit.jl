@@ -292,7 +292,7 @@ read about `K`'s principal point.
 
 An IDENTITY, not a fit — no correspondences, no least squares, the pose taken
 exactly as it stands. That is what makes this the safe way to hand a calibrated
-arm's `Extrinsics3` to VisualGeometryToolkitEstimation's `DivisionCameraFit's focal stack`: re-estimating a radial camera
+arm's `CameraExtrinsics` to VisualGeometryToolkitEstimation's `DivisionCameraFit's focal stack`: re-estimating a radial camera
 from the same board's correspondences re-runs the metric upgrade's sign decision
 on a slightly different matrix, and can flip the board's pose.
 
@@ -301,7 +301,7 @@ distortion about that same principal point moves an image point along its own
 ray from the centre, so it cannot change the ray — and the ray is all this
 model claims (see [`RadialCamera`](@ref)). That invariance is why a camera with
 ANY radially symmetric lens is admissible here, while
-`HomographyMat(::PosedPinholeCamera)` stays Pinhole-only: the plane map of a
+`HomographyMat(::PosedPinholeCamera)` stays pinhole-only: the plane map of a
 distorted camera is not a homography, but its radial camera is exact.
 
 A lens that is NOT radially symmetric is an `ArgumentError`: a decentering

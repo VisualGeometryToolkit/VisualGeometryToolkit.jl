@@ -26,7 +26,7 @@ end
     using VisualGeometryToolkitCore: dof, s2
     using VisualGeometryToolkitCore: retcode_symbol
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: CameraModel, Pinhole, parameter_vector, parameter_names, with_parameters
+    using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, parameter_vector, parameter_names, with_parameters
     using VisualGeometryToolkitEstimation: CameraPosesProblem
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     cam = pinhole_camera(); Es = truth_poses(5)
@@ -748,6 +748,7 @@ end
     using VisualGeometryToolkitEstimation: CameraPosesProblem, RotationCenterViews
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    using VisualGeometryToolkitCore: SO3Manifold
     # a camera whose back-projection Jacobian is zero at one pixel (the singular-Jacobian testset)
     struct SingularAt{C}
         camera::C
@@ -854,12 +855,12 @@ end
         ids = sort(collect(keys(t.R)))
         blocks, without = VE._rotation_center_bearing_blocks(cam, ids, exact)
         @test length(blocks) == 5 * 63 && isempty(without)
-        vars = Union{SVector{3, Float64}, VE._ViewRotationChart}[start.center, start.offset]
-        foreach(k -> push!(vars, VE._ViewRotationChart(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)
+        vars = Union{SVector{3, Float64}, SO3Manifold{Float64}}[start.center, start.offset]
+        foreach(k -> push!(vars, SO3Manifold{Float64}(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)
         h = 1.0e-6
         for b in blocks[1:9:end]
             vs = NLLSsolver.getvars(b, vars)
-            @test (@inferred NLLSsolver.getvars(b, vars)) isa Tuple{VE._ViewRotationChart, SVector{3, Float64}, SVector{3, Float64}}
+            @test (@inferred NLLSsolver.getvars(b, vars)) isa Tuple{SO3Manifold{Float64}, SVector{3, Float64}, SVector{3, Float64}}
             @test (@inferred NLLSsolver.computeresidual(b, vs...)) isa SVector{2, Float64}
             res, J = @inferred NLLSsolver.computeresjac(NLLSsolver.static(7), b, vs...)
             @test res ≈ NLLSsolver.computeresidual(b, vs...) && size(J) == (2, 9)

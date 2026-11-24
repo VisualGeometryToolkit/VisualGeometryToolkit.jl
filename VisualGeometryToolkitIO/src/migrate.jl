@@ -928,7 +928,7 @@ function _lens_v2_to_v3(l::AbstractDict)
         throw(ArgumentError("a v2 $(tag) lens takes the parameters ($(join(names, ", "))); the record has ($(join(sort!(have), ", ")))"))
     v = Float64[Float64(p[n]) for n in names]
     nnum = count(startswith("num"), names)
-    lens = tag == "pinhole" ? Pinhole() :
+    lens = tag == "pinhole" ? Lens(Perspective()) :
         tag == "equidistant_fisheye" ? Lens(Equidistant()) :
         tag == "brown_conrady" ? _brown_conrady_lens(v) :
         tag == "kannala_brandt" ? KannalaBrandt(v...) :       # θ_d = θ(1 + k₁θ² + … + k₄θ⁸), VGC 0.x's and VGC's alike
@@ -983,7 +983,7 @@ function _cameras_v1_to_v2(old)
     get(old, "cameras", nothing) isa AbstractVector || throw(ArgumentError("a vgio/cameras/v1 store holds its `cameras`, an array"))
     foreach(_check_v1_camera, old["cameras"])
     charts = unique(String[c["pixel_chart"] for c in old["cameras"]])
-    frame = length(charts) == 1 ? pixel_frame_from_name(only(charts)) : CANONICAL_PIXEL_FRAME
+    frame = length(charts) == 1 ? pixel_frame_from_name(only(charts)) : PixelFrame{:colmap}
     t = Dict{String, Any}(
         "schema" => "vgio/cameras/v2", "pixel_frame" => pixel_frame_name(frame),
         "cameras" => Any[_camera_v1_to_v2(c, frame) for c in old["cameras"]],
@@ -1298,7 +1298,7 @@ _old_grid_extras(b::AbstractDict) = merge(
 function _central_grid_body(b::AbstractDict)
     cam = _old_grid_camera(b)
     body = Dict{String, Any}(
-        "image_size" => _size_v010(Any[b["width"], b["height"]]), "K" => _lower(_k_record(cam.intrinsics.K, CANONICAL_PIXEL_FRAME)),
+        "image_size" => _size_v010(Any[b["width"], b["height"]]), "K" => _lower(_k_record(cam.intrinsics.K, PixelFrame{:colmap})),
         "lens" => _lower(_lens_json(cam.lens)),
     )
     return merge(body, _old_grid_extras(b))
@@ -1352,13 +1352,13 @@ _current_grid_body(b::AbstractDict) = b["type"] == _OLD_CENTRAL_TYPE ? _central_
 # A camera body as the camera readers read it, with the style to read it in: an old grid body EMBEDDED in a
 # record that is no old grid file (RadiometricCamera's rc/calibration_state/v1 camera) becomes the body it
 # migrates to (`_current_grid_body`, the conversion an old grid file and an old rig sensor take too), parsed
-# as a reader meets a body. It is read in the colmap pixel frame (CANONICAL_PIXEL_FRAME), whatever frame the
+# as a reader meets a body. It is read in the colmap pixel frame (`PixelFrame{:colmap}`), whatever frame the
 # enclosing record declares — the frame the old grid code reads every old grid body's numbers in — and a
 # non-central one's line points in the enclosing record's length unit. Any other body is read as it stands.
 function _current_camera_body(s::VgioStyle, b)
     if _is_old_grid_body(b)
         body = _parse_vgio_text(JSON.json(_current_grid_body(_lower(b))), "an old grid body")
-        return _with_pixel_frame(s, CANONICAL_PIXEL_FRAME), body
+        return _with_pixel_frame(s, PixelFrame{:colmap}), body
     end
     (b isa AbstractDict && haskey(b, :width)) || return s, b      # a current body
     return s, _parse_vgio_text(JSON.json(_camera_body_v010(_lower(b))), "an IO 0.9 camera body")
@@ -1647,7 +1647,7 @@ _v4_mm_points(v, u) = Any[Any[_v4_mm(c, u) for c in p] for p in v]
 function _rig_v4_id_mm(value, old::AbstractDict)
     rec = _rig_record_v09(value, (x, n) -> x, false)
     merge!(rec, Dict{String, Any}("length_unit" => "mm", "rotation_encoding" => _ROTATION_ENCODING, "transform_convention" => _TRANSFORM_CONVENTION))
-    haskey(rec, "sensors") && (rec["pixel_frame"] = pixel_frame_name(CANONICAL_PIXEL_FRAME))
+    haskey(rec, "sensors") && (rec["pixel_frame"] = pixel_frame_name(PixelFrame{:colmap}))
     rec = _rig_v6_to_v4(rec, old)
     u = parse_unit(old["length_unit"]::String)
     s = _v4_mm(1.0, u)                                                    # mm per unit, as v4 scaled a covariance

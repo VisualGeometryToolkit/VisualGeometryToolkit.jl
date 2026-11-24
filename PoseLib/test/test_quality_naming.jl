@@ -20,6 +20,9 @@ end
     dirs = filter(isdir, [joinpath(root, "src"), joinpath(root, "ext")])
     @test isempty(reduce(vcat, [VgtkCore.private_name_violations(d, "PoseLib") for d in dirs]))
     @test isempty(VgtkCore.contract_generic_violations(PoseLib))
+    # the estimation interface's run-time rules (R16–R18): PoseLib adds no `solve`/`__solve` method (its refines are
+    # Core's `lm_backend_refine` contract generic for `PoseLibSolver`)
+    @test isempty(VgtkCore.check_algorithm_traits(PoseLib))
     # the strategy registry (LeZach's): the tag rule, and no tag table outside a TagRegistry
     @test last.(VgtkCore.tag_registries(PoseLib)) == [PoseLib.POSELIB_STRATEGY_TAGS]
     @test isempty([v for (_, r) in VgtkCore.tag_registries(PoseLib) for v in VgtkCore.tag_rule_violations(r)])

@@ -6,7 +6,7 @@ using VisualGeometryToolkitCore: Circle3pt, Ellipse5pt, Rotation2pt, Fundamental
     RadialCamera5pt, Homography4pt, NativeSolver, PoseLibSolver, MinimalProblem, model_type, solve
 
 const _MIN_POSELIB = try
-    Base.require(Base.PkgId(Base.UUID("fe2c2836-a0c1-4fd4-bc39-a8c8a2bbd5e8"), "PoseLib")); true
+    Base.require(Base.PkgId(Base.UUID("a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"), "PoseLib")); true
 catch err
     err isa InterruptException && rethrow()
     false

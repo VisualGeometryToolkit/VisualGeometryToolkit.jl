@@ -165,8 +165,9 @@ const CONTRACT_GENERICS = (
     # implements, its class's strategy of record, and the block contract of a bundle
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
     block_refit, with_robustifier, default_stops,
-    # the minimal-solver backends PoseLib.jl implements (geometry/solvers/)
-    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p,
+    # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
+    # and refine of raw data (robust/lm_core.jl, robust/refine.jl)
+    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine,
     # the per-datum weights, residual dof and variance a metadata answers otherwise (base/fit_result.jl)
     weights, dof, s2,
     # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):
@@ -234,7 +235,8 @@ VisualGeometryToolkitCore's, by group:
 - the estimation interface's extension points (`__solve`, `__init`, `reinit!`;
   CommonSolve's `solve!` is no Core function) and an algorithm's or a problem type's declarations
   (`estimator_kind`, `default_algorithm`, `supports_solve_rng`);
-- the minimal-solver backends PoseLib.jl implements (`essential_8pt` among them);
+- the minimal-solver backends PoseLib.jl implements (`essential_8pt` among them) and a Levenberg–Marquardt
+  backend's `default_damping` and `lm_backend_refine`;
 - the per-datum `weights` a metadata answers otherwise, and the TOML config hooks;
 - the geometry and camera accessors other packages implement for their own
   types (`centroid`, `intrinsics`, `lens`, `model`, `division_coeffs`, …);

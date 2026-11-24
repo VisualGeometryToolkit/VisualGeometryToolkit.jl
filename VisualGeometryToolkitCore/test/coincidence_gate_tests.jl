@@ -192,12 +192,12 @@
         # rejected after that round trip, and that a genuinely distinct pair
         # (1 px) still is not.
         using VisualGeometryToolkitCore: CameraModel, LogicalIntrinsics, CameraCalibrationMat,
-            Pinhole, KannalaBrandt, backproject_with_jacobian, Correspondences, withattrs,
+            Lens, Perspective, KannalaBrandt, backproject_with_jacobian, Correspondences, withattrs,
             EssentialMat, test_sample
         f = 800.0; c = 320.0
         K = CameraCalibrationMat(SMatrix{3, 3, Float64}(f, 0, 0, 0, f, 0, c, c, 1))
         rng = Xoshiro(21)
-        for cam in (CameraModel(LogicalIntrinsics(K), Pinhole()),
+        for cam in (CameraModel(LogicalIntrinsics(K), Lens(Perspective())),
                 CameraModel(LogicalIntrinsics(K), KannalaBrandt(-0.02)))
             for (offset, expect_admit) in ((DUP, false), (FAR, true))
                 admits = 0

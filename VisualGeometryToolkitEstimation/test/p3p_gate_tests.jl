@@ -99,7 +99,7 @@
         u2 = VgtkCore.Point2{Float64}(VgtkCore.project(cam, X2)...)
         spread = VgtkEstimation.AbsolutePoseProblem(cam, [VgtkCore.Point3(Xs[1]) => u[1], VgtkCore.Point3(X2) => u2, VgtkCore.Point3(Xs[3]) => u[3]])
         @test VgtkEstimation.test_sample(spread, [1, 2, 3])
-        # a Pinhole keeps the pixel test, bit for bit (collinear pixels ⟺ coplanar rays)
+        # a pinhole lens keeps the pixel test, bit for bit (collinear pixels ⟺ coplanar rays)
         @test VgtkEstimation.test_sample(p3p_sample(world_sep = 2.0e-3, img_sep = 0.8), [1, 2, 3])
     end
 

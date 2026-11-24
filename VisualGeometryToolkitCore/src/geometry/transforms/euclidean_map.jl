@@ -234,8 +234,8 @@ in. The translation's eltype is independent of the rotation's: a Float32 or
 ForwardDiff `Dual` translation beside a Float64 rotation stays what it is
 (an integer translation becomes its float type).
 
-If a typed container (e.g. `MVector{4, Extrinsics3}` or
-`FixedModels{4, Extrinsics3}`) needs a specific translation type, the
+If a typed container (e.g. an `MVector` or a `FixedModels` of P3P's
+`model_type(P3P())`) needs a specific translation type, the
 implicit `Base.convert` defined below performs the (zero-cost) bitcast at
 the storage boundary.
 """
@@ -519,7 +519,7 @@ end
 # unlabeled world-to-camera EuclideanMap alias under a pose name — made a
 # one-letter-apart `Pose3D` with the opposite convention a worse footgun than
 # the one being fixed. That misnomer is retired in 0.7: the concrete solver
-# currency is now the labeled `Extrinsics3` alias below.
+# currency is now the labeled `CameraExtrinsics` alias below.
 
 """
     CameraPose
@@ -731,33 +731,6 @@ function translation_angle(t1::AbstractVector, t2::AbstractVector)
     return angle_between(SVector{3}(t1[1], t1[2], t1[3]), SVector{3}(t2[1], t2[2], t2[3]))
 end
 
-# =============================================================================
-# Extrinsics3 — Concrete labeled solver-currency alias (world-to-camera)
-# =============================================================================
-
-"""
-    Extrinsics3
-
-Concrete LABELED [`CameraExtrinsics`](@ref) alias:
-`CameraExtrinsics{Float64, RotMatrix{3,Float64,9}, Vec{3,Float64}}`, i.e.
-`EuclideanMap{3, Float64, …, Src = WorldFrame, Dst = CameraFrame}`
-(monogram `X_CW`, applies as `x_cam = R·X_world + t`).
-
-The model currency of the absolute-pose solvers: `p3p` returns
-`FixedModels{4, Extrinsics3}` and `P3P <: MinimalSolver{Extrinsics3}`.
-`isbitstype(Extrinsics3) == true` — stored inline in `FixedModels` and
-`RansacWorkspace`, zero heap allocation on update.
-
-Replaces the deprecated `Pose3` alias (removed in 0.7): same layout and
-element types, but the world-to-camera direction is now a dispatch fact
-instead of a docstring caveat — an `Extrinsics3` IS a `CameraExtrinsics`,
-so `inv` yields a `CameraPose` and labeled composition is frame-checked.
-Solver code that composes models against other labeled maps must have the
-junction frames agree (or [`unlabel`](@ref) explicitly).
-"""
-const Extrinsics3 = CameraExtrinsics{
-    Float64, RotMatrix{3, Float64, 9}, GeometryBasics.Vec{3, Float64},
-}
 
 # `zero` for any fully-concrete Float64/RotMatrix EuclideanMap type — the
 # FixedModels/RansacWorkspace padding element (identity rotation, zero
@@ -810,7 +783,7 @@ Returns:
     `Z ≤ 0` at all. That is correct for a PINHOLE camera and wrong for a
     fisheye or omnidirectional one, whose rays routinely go past 90°.
 
-    It is legitimate where it is used — VisualGeometryToolkitEstimation's Pinhole PnP LM
+    It is legitimate where it is used — VisualGeometryToolkitEstimation's pinhole PnP LM
     — and must not become the general path. The camera-general route is the
     ray-domain pixel residual (`constraint_with_jacobians(model, pose, X, u)`
     in cameras/camera_models.jl), which projects through the camera's own lens

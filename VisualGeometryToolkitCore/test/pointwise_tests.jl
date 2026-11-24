@@ -35,7 +35,7 @@
     # OpenCV's full model: rational radial, tangential and thin prism, then the sensor tilt
     OCV = Lens(Perspective(), (Tilt(0.01, -0.02) ∘ Additive(Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)), Tangential(1.0e-3, -5.0e-4),
         ThinPrism((-5.5e-3, 7.0e-4), (2.2e-3, -1.2e-3)))))
-    lenses = (Pinhole(), BC, KB, TPF, Division(-0.31, 0.024), Scaramuzza(-0.17, -0.006, 0.035), Lens(DoubleSphere(-0.2, 0.59)),
+    lenses = (Lens(Perspective()), BC, KB, TPF, Division(-0.31, 0.024), Scaramuzza(-0.17, -0.006, 0.035), Lens(DoubleSphere(-0.2, 0.59)),
         Lens(Equidistant()), Lens(Perspective(), Tangential(1.0e-3, -5.0e-4)), OCV)
 
     @testset "perspective views: round trip at both precisions" begin

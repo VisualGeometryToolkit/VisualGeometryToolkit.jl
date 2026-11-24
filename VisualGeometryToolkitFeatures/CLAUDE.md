@@ -46,4 +46,4 @@ pinned by a test. `raw = true` output is OpenCV-convention (0.5 less) and is
 documented as such. The NN matchers work in descriptor space and never touch
 coordinates. LoMa (`src/loma.jl`) takes detections too: it maps COLMAP pixels
 into the network's [-1, 1] chart privately, and returns index matches
-(`Vector{NNMatch}`), never coordinates.
+(a `Vector` of matches), never coordinates.

@@ -349,7 +349,7 @@ end
 # Core's action of the map from one pixel frame to another, on any region.
 _pixel_region_map(from, to) = SimilarityMap(EuclideanMap(from, to))
 # The record of a region (in Core's canonical frame) in the style's pixel frame, and its tagged form in place.
-_region_json(s::VgioStyle, r) = _region_record(s, _pixel_region_map(CANONICAL_PIXEL_FRAME, _pixel_frame(s))(r))
+_region_json(s::VgioStyle, r) = _region_record(s, _pixel_region_map(PixelFrame{:colmap}, _pixel_frame(s))(r))
 _region_record(s::VgioStyle, r::_RegionLeaf) = NamedTuple{(_region_tag(r),)}((JSON.lower(s, r),))
 _region_record(s::VgioStyle, r::RegionIntersection) = (intersection = Any[_region_record(s, r.a), _region_record(s, r.b)],)
 _region_record(::VgioStyle, P::PolygonRegion) =
@@ -416,7 +416,7 @@ JSON.lower(s::VgioStyle, r::Union{PolygonRegion, RegionIntersection, WholePlane}
 JSON.lower(s::VgioStyle, r::_RegionValue, tags::NamedTuple) = get(tags, :region, false) === true ? _region_json(s, r) : JSON.lower(s, r)
 function JSON.lift(s::VgioStyle, ::Type{T}, x::_ParsedObject, tags::NamedTuple = (;)) where {T <: _RegionValue}
     x isa AbstractDict && _validate(_REGION, x, "a region", "")
-    r = _pixel_region_map(_pixel_frame(s), CANONICAL_PIXEL_FRAME)(_region_from(s, x))
+    r = _pixel_region_map(_pixel_frame(s), PixelFrame{:colmap})(_region_from(s, x))
     r isa T || throw(ArgumentError("a region read as $(T): the record holds $(typeof(r))"))
     return r
 end

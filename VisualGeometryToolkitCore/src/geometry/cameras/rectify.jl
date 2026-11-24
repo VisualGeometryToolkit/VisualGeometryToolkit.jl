@@ -99,7 +99,7 @@ function rectify(rig::StereoRig; K = nothing)
     # Rectified relative pose: x₂ᵣ = x₁ᵣ + Q₂t, and Q₂t = -Q₁b₁ = ∓B·e₁ᵣ —
     # a pure x-translation by construction.
     t_r = SMatrix{3, 3, Float64, 9}(Q2) * t
-    model_r = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kr)), Pinhole())
+    model_r = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kr)), Lens(Perspective()))
     cam1r = PosedCamera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64})))
     cam2r = PosedCamera(model_r, EuclideanMap(one(RotMatrix{3, Float64}), Vec3{Float64}(t_r)))
     a, b = ids(rig)

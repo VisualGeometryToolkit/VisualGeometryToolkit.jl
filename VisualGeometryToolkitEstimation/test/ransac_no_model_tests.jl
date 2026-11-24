@@ -109,7 +109,7 @@ end
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat, EssentialMat, RadialHomography, RadialCamera, Extrinsics3, Vec3, m
+    using VisualGeometryToolkitCore: Point2, Circle, Ellipse, CameraModel, Correspondences, correspondences, HomographyMat, FundMat, EssentialMat, RadialHomography, RadialCamera, CameraExtrinsics, Vec3, m, EuclideanMap
     using VisualGeometryToolkitEstimation: RansacEstimate, RansacWorkspace, CircleProblem
 
     # a refine_* on too few data: the guess back unrefined, its result type a refine's (the refine contract)
@@ -161,7 +161,7 @@ end
 
     X = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
     u = [SA[400.0, 300.0], SA[500.0, 350.0]]
-    pose = Extrinsics3(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0))
+    pose = CameraExtrinsics(EuclideanMap(RotMatrix{3, Float64}(I3), Vec3{Float64}(0.0, 0.0, 0.0)))
     too_few(solve(EstimationProblem(AbsolutePoseProblem(cam, X .=> u)), Ransac()), 2)
     too_few(solve(EstimationProblem(AbsolutePoseProblem(cam, [x .* m for x in X] .=> u)), Ransac()), 2)
     too_few_refine(solve(RefineProblem(AbsolutePoseProblem(cam, X .=> u), pose), LevenbergMarquardt(); scale = 1.0), pose, 2)
@@ -183,7 +183,7 @@ end
     # raises the same error below the minimal sample as above it, never a :no_model.
     using Test, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
-    using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Correspondences, correspondences, HomographyMat, Extrinsics3, Vec3, TLSShape
+    using VisualGeometryToolkitCore: Point2, Circle, CameraModel, Correspondences, correspondences, HomographyMat, CameraExtrinsics, Vec3, TLSShape, EuclideanMap
     
     using VisualGeometryToolkitCore: Irls, solve, RefineProblem, LevenbergMarquardt
     using VisualGeometryToolkitEstimation: Ransac, HomographyProblem, CircleProblem, AbsolutePoseProblem, BearingPoseProblem
@@ -197,7 +197,7 @@ end
     cam = CameraModel(; focal = 800.0, pp = (480.0, 360.0))
     Xs(n) = [SA[0.1i, 0.2 - 0.05i^2, 2.0 + 0.1i] for i in 1:n]
     us(n) = [SA[400.0 + 20i, 300.0 + 3i^2] for i in 1:n]
-    pose = Extrinsics3(RotMatrix{3, Float64}(I), Vec3{Float64}(0.0, 0.0, 0.0))
+    pose = CameraExtrinsics(EuclideanMap(RotMatrix{3, Float64}(I), Vec3{Float64}(0.0, 0.0, 0.0)))
     lo = Irls{TLSShape}()
 
     # a find's configuration is its algorithm's, refused at construction whatever the data

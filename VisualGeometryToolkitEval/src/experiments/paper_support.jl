@@ -33,8 +33,6 @@ The marker-mount record beside a hand-eye record `file`: `<stem>_board_rig<ext>`
 """
 hand_eye_mount_file(file::AbstractString) = string(splitext(file)[1], "_board_rig", splitext(file)[2])
 
-const _CAMERA_RIG = BodyFrame{:camera_rig}
-const _BOARD_RIG = BodyFrame{:board_rig}
 
 """
     save_hand_eye(file, X, Y; provenance = (;)) -> (file, mount_file)
@@ -48,8 +46,8 @@ covariance); `provenance` goes on the transforms record.
 """
 function save_hand_eye(file::AbstractString, X, Y::AbstractDict; provenance::NamedTuple = (;))
     mount = hand_eye_mount_file(file)
-    VgtkIO.save(file, [with_unit(relabel(_CAMERA_RIG, CameraFrame, unlabel(X)), mm)]; provenance)
-    rig = Rig{_BOARD_RIG}(Dict(Symbol(id) => PosedTarget(PlanarTarget(Symbol(id)), with_unit(T, mm)) for (id, T) in Y))
+    VgtkIO.save(file, [with_unit(relabel(BodyFrame{:camera_rig}, CameraFrame, unlabel(X)), mm)]; provenance)
+    rig = Rig{BodyFrame{:board_rig}}(Dict(Symbol(id) => PosedTarget(PlanarTarget(Symbol(id)), with_unit(T, mm)) for (id, T) in Y))
     VgtkIO.save(mount, rig; provenance = (hand_eye = basename(file),))
     return file, mount
 end
@@ -70,11 +68,11 @@ writes the pair.
 """
 function load_hand_eye(file::AbstractString)
     poses = VgtkIO.load(Vector{EuclideanMap}, file)
-    ix = findfirst(p -> geom(p) isa EuclideanMap{3, <:Any, <:Any, <:Any, _CAMERA_RIG, CameraFrame}, poses)
+    ix = findfirst(p -> geom(p) isa EuclideanMap{3, <:Any, <:Any, <:Any, BodyFrame{:camera_rig}, CameraFrame}, poses)
     ix === nothing && error("no body:camera_rig -> camera_optical record in $file")
-    X = relabel(_CAMERA_RIG, ViewFrame{:optical}, ustrip(mm, poses[ix]))
+    X = relabel(BodyFrame{:camera_rig}, ViewFrame{:optical}, ustrip(mm, poses[ix]))
     mount = isfile(hand_eye_mount_file(file)) ? ustrip(mm, VgtkIO.load(Rig, hand_eye_mount_file(file))) : _mount_of(poses, file)
-    mount isa Rig{_BOARD_RIG} || error("$(hand_eye_mount_file(file)): the marker mount is posed in body:board_rig, got $(typeof(mount))")
+    mount isa Rig{BodyFrame{:board_rig}} || error("$(hand_eye_mount_file(file)): the marker mount is posed in body:board_rig, got $(typeof(mount))")
     return X, mount
 end
 
@@ -84,11 +82,11 @@ function _mount_of(poses, file)
     targets = Dict{Symbol, Any}()
     for p in poses
         g = geom(p)
-        g isa EuclideanMap{3, <:Any, <:Any, <:Any, <:TargetFrame, _BOARD_RIG} || continue
+        g isa EuclideanMap{3, <:Any, <:Any, <:Any, <:TargetFrame, BodyFrame{:board_rig}} || continue
         id = _target_id(g)
         targets[id] = PosedTarget(PlanarTarget(id), with_unit(unlabel(ustrip(mm, p)), mm))
     end
     isempty(targets) && error("no $(hand_eye_mount_file(file)) and no target:<id> -> body:board_rig record in $file: the record has no marker mount")
-    return ustrip(mm, Rig{_BOARD_RIG}(targets))
+    return ustrip(mm, Rig{BodyFrame{:board_rig}}(targets))
 end
 _target_id(::EuclideanMap{3, <:Any, <:Any, <:Any, TargetFrame{id}}) where {id} = id

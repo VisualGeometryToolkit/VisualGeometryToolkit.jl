@@ -2,7 +2,7 @@
 # RANSAC P3P Problem — absolute pose from 3D-2D correspondences
 # =============================================================================
 #
-# `AbsolutePoseProblem` is the `MinimalSolveProblem{Extrinsics3}` alias (its
+# `AbsolutePoseProblem` is the `MinimalSolveProblem{`CameraExtrinsics`}` alias (its
 # construction and the minimal solve — VGC's `P3P` verb over the world→ray
 # `cs_solve` view — are the family's, correspondence.jl; rays + imaging transform travel
 # in `PoseContext`). This file keeps the pose-specific residual, gates, the
@@ -14,9 +14,9 @@
 
 # Pose arguments below are annotated `PlainEuclideanMap{3, Float64}` (plain
 # numbers: the inner loop; a physical pose is a `MethodError`), not the
-# labeled `Extrinsics3` model alias: the LO/IRLS loop's in-flight iterates are
+# labeled `CameraExtrinsics` model alias: the LO/IRLS loop's in-flight iterates are
 # rebuilt as UNLABELED maps (left-retraction recentering), while workspace
-# models carry the Extrinsics3 labels — both must dispatch here. Labels
+# models carry the `CameraExtrinsics` labels — both must dispatch here. Labels
 # attach at the storage boundary (`convert` into the workspace slot).
 # The scoring residual, Jacobian-free: the RAW-pixel reprojection distance
 # ‖project(model, R·X + t) − u‖ through the full camera — `project` answers on
@@ -90,7 +90,7 @@ collinearity in each of the two spaces:
   Collinear control points ⇒ no unique P3P solution; this one earns its place.
 - **image**: the 3 image points distinct (`_P3P_COINCIDENT_IMAGE`, pixels) and
   their RAYS not coplanar (thinness > `_P3P_DEGENERACY_TOL`). P3P degenerates
-  when the three rays lie in one plane through the centre. For a `Pinhole`
+  when the three rays lie in one plane through the centre. For a `Lens(Perspective())`
   that is exactly collinear pixels (the pixel plane is an affine image of the
   z = 1 chart), so the test is `thin_ratio` on the pixels, as it always was.
   For a DISTORTING lens it is not: a line of rays images as a curve, so pixel
@@ -161,7 +161,7 @@ _world_triple_ok(X) = _are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) &&
 # The image triple's thinness, by the lens: a pinhole's pixels are a projective
 # image of the rays, so their triangle is the test; any other lens bends lines,
 # and the RAYS are tested instead (`_ray_thin_ratio`).
-_image_thin_ratio(::VgtkCore.Pinhole, ::AbsolutePoseProblem, u, _idx) = thin_ratio(u[1], u[2], u[3])
+_image_thin_ratio(::VgtkCore.Lens{VgtkCore.Perspective, Nothing}, ::AbsolutePoseProblem, u, _idx) = thin_ratio(u[1], u[2], u[3])
 function _image_thin_ratio(_lens, p::AbsolutePoseProblem, _u, idx)
     rays = p.context.rays
     return @inbounds _ray_thin_ratio(rays[idx[1]], rays[idx[2]], rays[idx[3]])
@@ -229,7 +229,7 @@ provides_solver_covariance(::Type{<:AbsolutePoseProblem}) = true   # predictive 
 end
 
 # The row a local optimization runs on, by lens. A distorting lens: the raw-
-# pixel row. A Pinhole: the CALIBRATED constraint against the precomputed ray,
+# pixel row. A pinhole lens: the CALIBRATED constraint against the precomputed ray,
 # g = π(R·X + t) − π(ray), whitened by `A` (the lift's frozen pixel block
 # K[1:2,1:2], which makes A·g EXACTLY the pixel residual; `nothing` for the
 # chart LM's calibrated rows), participating iff the point lies along its own
@@ -239,7 +239,7 @@ end
     e, _, G_θ, valid = _pnp_pixel_row(p, pose, i)
     return (e, G_θ, valid)
 end
-@inline function _pnp_row(::VgtkCore.Pinhole, p::AbsolutePoseProblem, pose::EuclideanMap{3}, i::Int, A)
+@inline function _pnp_row(::VgtkCore.Lens{VgtkCore.Perspective, Nothing}, p::AbsolutePoseProblem, pose::EuclideanMap{3}, i::Int, A)
     X = @inbounds sources(p.cs)[i]; ray = @inbounds p.context.rays[i]
     g, G_x, G_θ = VgtkCore.constraint_with_jacobians(pose, X, ray)
     valid = dot(rotation(pose) * X + translation(pose), ray) > 0.0
@@ -271,14 +271,14 @@ end
 # applies a STATIC robust loss on the accumulator side, whereas the lift is the
 # genuine joint-(θ,z) loss lift. POSE ONLY (the camera is given).
 #
-# RESIDUAL CURRENCY — pixels: for a Pinhole, the calibrated row against the
+# RESIDUAL CURRENCY — pixels: for a pinhole lens, the calibrated row against the
 # precomputed ray (`_pnp_row`) is whitened by the lift's frozen pixel block
 # A = K[1:2,1:2] (A·g is EXACTLY the pixel reprojection residual); a distorting
 # lens's raw-pixel row already is pixels. So ‖rᵢ‖ is the scoring residual and
-# `lift_cost`/ŝ/c live in one currency. (The refit's Pinhole rows are the
+# `lift_cost`/ŝ/c live in one currency. (The refit's pinhole lens rows are the
 # calibrated ones, `A = nothing`: its weights come from the scoring.)
 #
-# PARTICIPATION — a point the lens cannot place (or, for a Pinhole, one not
+# PARTICIPATION — a point the lens cannot place (or, for a pinhole lens, one not
 # along its own bearing) is OUT OF FIELD: both of its rows carry VGC's one
 # out-of-field residual `OUT_OF_FIELD_RESIDUAL` (the rule VGC's radial rows
 # follow), weighted, with zero Jacobian rows — so a step that pushes a weighted
@@ -292,14 +292,10 @@ end
 
 chart_dof(::Type{<:AbsolutePoseProblem}) = 6
 
-# The chart at a pose: LeftRigidManifold6 re-anchored at zero coordinates —
-# the nearest proper rotation, since minimal-solver seeds (VGC P3P backends)
-# are unvalidated and can carry ~1e-7 of orthonormality drift. At the model
-# type: every entry hands θ through `_as_model` (interface.jl).
-_chart(::AbsolutePoseProblem, pose::Extrinsics3) = _reanchored(LeftRigidManifold6(rotation(pose), translation(pose)))
+# The chart at a pose (`_chart`): the bearing pose's file states it once for both pose problems (bearing_pose.jl).
 
 # The rows' extra: the pixel block of `_pnp_row` (`nothing` in the refit: its
-# calibrated Pinhole rows) and the participation mask the rows write (the lift's
+# calibrated pinhole lens rows) and the participation mask the rows write (the lift's
 # `lws.valid`; `nothing` in the refit).
 struct _PnPAux{TA, TV}
     A::TA
@@ -368,9 +364,9 @@ function residual_jacobian_rows!(J, lm::ChartLm{<:LeftRigidManifold6, <:Absolute
     return J
 end
 
-# The lift's pixel block `A` of `_pnp_row`: for a Pinhole, VGC's frozen pixel
+# The lift's pixel block `A` of `_pnp_row`: for a pinhole lens, VGC's frozen pixel
 # whitening of the imaging transform (`A = K[1:2,1:2]`, so A·g is the pixel
 # residual); `nothing` for a distorting lens, whose raw-pixel row already IS
 # pixels.
-_lift_pixel_block(::VgtkCore.Pinhole, p::AbsolutePoseProblem) = pnp_pixel_whitening(p.context.proj)
+_lift_pixel_block(::VgtkCore.Lens{VgtkCore.Perspective, Nothing}, p::AbsolutePoseProblem) = pnp_pixel_whitening(p.context.proj)
 _lift_pixel_block(::VgtkCore.AbstractLensModel, ::AbsolutePoseProblem) = nothing

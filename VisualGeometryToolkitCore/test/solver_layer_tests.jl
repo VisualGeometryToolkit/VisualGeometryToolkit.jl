@@ -309,7 +309,7 @@
         @testset "solve — P3P" begin
             s = P3P()
             @test sample_size(s) == 3 && max_solutions(s) == 4
-            @test model_type(s) == Extrinsics3
+            @test model_type(s) == CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}
 
             Rp = haar_rotation(rng)
             tp = SVector(0.3, -0.5, 4.0)
@@ -317,18 +317,18 @@
             xs = [SVector{3, Float64}(normalize(Rp * Xi + tp)) for Xi in Xw]
             cs = Correspondences(Xw, xs)
 
-            sols = solve(MinimalProblem(Extrinsics3, cs, 1:3), s)
-            @test sols isa FixedModels{4, Extrinsics3}
+            sols = solve(MinimalProblem(CameraExtrinsics, cs, 1:3), s)
+            @test sols isa FixedModels{4, model_type(P3P())}
             @test length(sols) >= 1
             err = minimum(norm(SMatrix{3, 3, Float64}(p.R) - Rp) + norm(p.t - tp) for p in sols)
             @test err < 1.0e-6
 
             # map: the per-model transform, count kept, padding never touched
             m = map(identity, sols)
-            @test m isa FixedModels{4, Extrinsics3}
+            @test m isa FixedModels{4, model_type(P3P())}
             @test length(m) == length(sols)
             @test all(m[i] == sols[i] for i in 1:length(sols))
-            @test all(m.data[i] == zero(Extrinsics3) for i in (length(sols) + 1):4)
+            @test all(m.data[i] == zero(model_type(P3P())) for i in (length(sols) + 1):4)
             fm = FixedModels{3, SVector{2, Float64}}(2, (SVector(1.0, 2.0), SVector(3.0, 4.0), SVector(NaN, NaN)))
             mf = map(v -> SVector{2, Float32}(v), fm)
             @test mf isa FixedModels{3, SVector{2, Float32}}
@@ -426,7 +426,7 @@
             @test (@inferred solve(MinimalProblem(EssentialMat, Correspondences(x1b, x2b), collect(1:5)), Essential5pt())) isa Any
             Xw3 = [SVector(1.0, 0.0, 5.0), SVector(-1.0, 1.0, 6.0), SVector(0.5, -1.0, 4.0)]
             xs3 = [normalize(SVector(0.1, 0.05, 1.0)), normalize(SVector(-0.2, 0.1, 1.0)), normalize(SVector(0.0, -0.15, 1.0))]
-            @test (@inferred solve(MinimalProblem(Extrinsics3, Correspondences(Xw3, xs3), collect(1:3)), P3P())) isa Any
+            @test (@inferred solve(MinimalProblem(CameraExtrinsics, Correspondences(Xw3, xs3), collect(1:3)), P3P())) isa Any
             # a DLT's result infers concretely; its `u` is `Union{Nothing, …}` (the kernel returns `nothing` on non-finite rows)
             rF = @inferred solve(EstimationProblem(FundMat, Correspondences(u1, u2)), DLT())
             @test rF isa FitResult{Union{Nothing, FundMat{Float64}}}
@@ -461,15 +461,15 @@
             # (3D, 3D) is genuinely ambiguous — P3P's source is a world POINT,
             # E's endpoints are BEARINGS, and a bare SVector{3} is both. The
             # registry reports both rather than choosing one silently.
-            @test induced_models(V3, V3) == (Extrinsics3, EssentialMat)
+            @test induced_models(V3, V3) == (model_type(P3P()), EssentialMat)
 
             # …and the by-model lookup is exact despite that ambiguity, which is
             # what makes reporting it safe.
             @test minimal_solver(HomographyMat, P2, P2) isa Homography4pt
             @test minimal_solver(FundMat, P2, P2) isa Fundamental7pt
-            @test minimal_solver(Extrinsics3, V3, V3) isa P3P
+            @test minimal_solver(model_type(P3P()), V3, V3) isa P3P
             @test minimal_solver(EssentialMat, V3, V3) isa Essential5pt
-            @test_throws ArgumentError minimal_solver(Extrinsics3, P2, P2)
+            @test_throws ArgumentError minimal_solver(model_type(P3P()), P2, P2)
             @test_throws ArgumentError minimal_solver(EssentialMat, P2, P2)
         end
     end

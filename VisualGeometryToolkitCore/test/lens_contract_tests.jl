@@ -41,7 +41,7 @@
             @test R ≈ norm(project(l, SVector(sin(θ), 0.0, cos(θ)))) rtol = 1.0e-4
         end
         # A family with no fold still says so.
-        @test monotone_radius(Pinhole()) == Inf
+        @test monotone_radius(Lens(Perspective())) == Inf
         @test monotone_radius(Lens(Equidistant())) == Inf
     end
 
@@ -49,7 +49,7 @@
         @testset "the functor is sugar for distort_normalized" begin
             x = SVector(0.3, -0.2)
             for lens in (
-                    Pinhole(), Lens(Equidistant()), Lens(Stereographic()), Division(-0.4),
+                    Lens(Perspective()), Lens(Equidistant()), Lens(Stereographic()), Division(-0.4),
                     Lens(DoubleSphere(0.3, 0.6)), KannalaBrandt(0.05),
                 )
                 @test lens(x) == distort_normalized(lens, x) == project(lens, SVector(x[1], x[2], 1.0))
@@ -105,7 +105,7 @@
             @test !(g(1.05R) > g(R)) || !isfinite(g(1.05R))     # … not past the monotone radius
             @test monotone_radius(Division(-0.4)) ≈ 1 / sqrt(0.4)
             @test monotone_radius(Division(0.25)) ≈ 2.0
-            @test monotone_radius(Pinhole()) == Inf
+            @test monotone_radius(Lens(Perspective())) == Inf
             @test monotone_radius(Division(0.0)) == Inf
             @test lens isa Division{2, Float64}
             @test Division(-0.4) === LiftLens(Radial((), (-0.4,)))
@@ -155,7 +155,7 @@
             for lens in (
                     Division(-0.3), Division(0.15), Lens(Perspective(), Radial((-0.3,))),
                     Lens(Perspective(), Additive(Radial((-0.159, 0.048)), Tangential(0.006, -0.001))),
-                    KannalaBrandt(-0.3, 0.0, 0.0, 0.0), Scaramuzza(-0.3), Pinhole(),
+                    KannalaBrandt(-0.3, 0.0, 0.0, 0.0), Scaramuzza(-0.3), Lens(Perspective()),
                 )
                 cam = cam_of(lens)
                 outer = undistorted_rect(cam, sz)
@@ -167,7 +167,7 @@
                 @test all(inner.origin .+ inner.widths .<= outer.origin .+ outer.widths .+ 1.0e-6)
             end
             # A distortion-free lens rectifies to itself.
-            pin = undistorted_rect(cam_of(Pinhole()), sz)
+            pin = undistorted_rect(cam_of(Lens(Perspective())), sz)
             @test pin.origin ≈ [0.0, 0.0] atol = 1.0e-9
             @test pin.widths ≈ [1280.0, 960.0] atol = 1.0e-9
         end
@@ -450,7 +450,7 @@
             (bct, thinprism, 45.0),
             (sct, nothing, 60.0),
             (scf, nothing, 175.0),
-            (Pinhole(), PerspectiveMap(), 60.0),
+            (Lens(Perspective()), PerspectiveMap(), 60.0),
         )
         angles = (0.0, 5.0, 30.0, 60.0, 89.999, 90.0, 95.0, 110.0, 140.0, 175.0)
 
@@ -591,7 +591,7 @@
 
         @testset "outside the lens's domain: NaN, never a throw" begin
             @test all(isnan, project(Lens(Stereographic()), SVector(0.0, 0.0, -1.0)))    # the backward axis images a circle
-            @test all(isnan, project(Pinhole(), SVector(0.1, 0.0, -1.0)))                 # a perspective lens ends at 90°
+            @test all(isnan, project(Lens(Perspective()), SVector(0.1, 0.0, -1.0)))                 # a perspective lens ends at 90°
             @test all(isnan, project(ds, ray(deg2rad(150.0))))                            # past the double-sphere field of view
             @test all(isnan, transform_deriv(ds, ray(deg2rad(150.0))))
             @test all(isnan, transform_deriv_params(ds, ray(deg2rad(150.0))))
@@ -751,7 +751,7 @@ end
     VgtkCore.project(p::ProjectOnly, X::StaticVector{3}) = project(p.lens, X)
 
     lenses = (
-        Pinhole(), Division(-0.1667, 0.0291), KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
+        Lens(Perspective()), Division(-0.1667, 0.0291), KannalaBrandt(-0.02, 0.003, -0.0004, 0.0001),
         Lens(Perspective(), Additive(Radial((-0.2, 0.05)), Tangential(0.002, -0.001))),
         Lens(Equidistant(), Additive(Radial((-0.02, 0.004)), Tangential(0.0006, -0.0004))),
         Lens(DoubleSphere(-0.2, 0.6)), Lens(DoubleSphere(-0.6, 0.6)), Lens(Unified(0.8)), Lens(ExtendedUnified(0.6, 1.1)),

@@ -5,7 +5,7 @@
 @testitem "spline windows and quasi-interpolation" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: KannalaBrandt, Pinhole, SplineLens, ChartSpline, NoncentralSplineModel, window,
+    using VisualGeometryToolkitCore: KannalaBrandt, Lens, Perspective, SplineLens, ChartSpline, NoncentralSplineModel, window,
         spline_window, spline_value, quasi_interpolant, convert_eltype, LogicalIntrinsics, CameraCalibrationMat, calibration_matrix,
         window_offset, directions, grid_size
     using VisualGeometryToolkitCore: normalized_point
@@ -35,7 +35,7 @@
         @test r.lens.backward.controls == G
         nc = NoncentralSplineModel(K, ChartSpline(area, G), ChartSpline(area, P))
         @test nc.directions.controls == G && nc.points.controls == P
-        @test all(v -> abs(norm(v) - 1) < 1e-12, CameraModel(SplineLens, cam(300.0, Pinhole()), Size2(W, H); grid_size = (gw, gh)).lens.backward.controls)
+        @test all(v -> abs(norm(v) - 1) < 1e-12, CameraModel(SplineLens, cam(300.0, Lens(Perspective())), Size2(W, H); grid_size = (gw, gh)).lens.backward.controls)
         # inside the area the raw spline normalized IS backproject
         @test all(p -> (d = raw(r, p); d / norm(d) == backproject(r, p)), inside)
         # a conversion converts the controls; it does not re-normalize them
@@ -137,7 +137,7 @@
     end
 
     @testset "init = :quasi_interpolate and its border rule" begin
-        pin = cam(300.0, Pinhole())
+        pin = cam(300.0, Lens(Perspective()))
         q = CameraModel(SplineLens, pin, Size2(W, H); grid_size = (gw, gh), init = :quasi_interpolate)
         Q = q.lens.backward.controls
         @test Q != map(normalize, Q)                                               # controls kept off the sphere by default

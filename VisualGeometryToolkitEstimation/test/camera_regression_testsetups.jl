@@ -12,15 +12,12 @@
 @testsetup module FitCameraLensCases
 using StaticArrays: SVector, SMatrix
 using VisualGeometryToolkitCore: CameraModel, Division, Lens, LiftLens, Radial, Tangential, Additive, Perspective, Equidistant,
-    Even, KannalaBrandt, DoubleSphere, Scaramuzza, Pinhole, Ellipse, projected_radius, radial_part, view_angle_limit,
+    Even, KannalaBrandt, DoubleSphere, Scaramuzza, Ellipse, projected_radius, radial_part, view_angle_limit,
     monotone_radius, calibration_matrix, lens
-export KB4, SC3, DSL, OPENCV3, EQ, DECENTERED, mdiv, rcorner, disc, LENS_CASES, RECORDED, MOVED, agrees, agrees_px
+export KB4, SC3, mdiv, rcorner, disc, LENS_CASES, RECORDED, MOVED, agrees, agrees_px
 
 const KB4 = KannalaBrandt{4}
 const SC3 = Scaramuzza{3}
-const DSL = typeof(Lens(DoubleSphere(0.5, 0.5)))
-const OPENCV3 = Lens{Perspective, Radial{Even, 3, 0, Float64}}
-const EQ = typeof(Lens(Equidistant()))
 const pp = (2120.0, 1416.0)                         # a 4240 × 2832 frame's principal point
 const mdiv = CameraModel(; pp, focal = 927.0, lens = Division(-0.3302, -0.0765))   # the hallway-session camera
 const rcorner = hypot(2120.0, 1416.0)               # the farthest sensor point from pp
@@ -30,19 +27,18 @@ const mkb = CameraModel(; pp, focal = 600.0, lens = KannalaBrandt(-0.02, 0.004, 
 const msc = CameraModel(; pp, focal = 927.0, lens = Scaramuzza(-0.3302, 0.02, -0.0765))
 const rlit = 927.0 * monotone_radius(mdiv.lens) * 0.97
 const cam900 = CameraModel(; pp, focal = 900.0, lens = Division(-0.2, -0.08))
-const DECENTERED = typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0))))
 # name => (target, source, the predecessor's domain keywords, the region)
 const LENS_CASES = [
     "KB4 mkb" => (KB4, mkb, (;), disc_angle(mkb, view_angle_limit(radial_part(mkb.lens)))),
     "KB4 mdiv" => (KB4, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
     "SC3 mdiv" => (SC3, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
     "KB4 msc" => (KB4, msc, (; max_radius_px = rcorner), disc(msc, rcorner)),
-    "DSL rlit" => (DSL, mdiv, (; max_radius_px = rlit), disc(mdiv, rlit)),
-    "DSL rcorner" => (DSL, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
-    "OPENCV3" => (OPENCV3, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
-    "OPENCV decentered" => (DECENTERED, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
-    "Pinhole 30°" => (Pinhole, mdiv, (; max_view_angle = deg2rad(30)), disc_angle(mdiv, deg2rad(30))),
-    "EQ" => (EQ, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
+    "DSL rlit" => (typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, (; max_radius_px = rlit), disc(mdiv, rlit)),
+    "DSL rcorner" => (typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
+    "OPENCV3" => (Lens{Perspective, Radial{Even, 3, 0, Float64}}, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
+    "OPENCV decentered" => (typeof(Lens(Perspective(), Additive(Radial((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)), Tangential(0.0, 0.0)))), mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
+    "pinhole 30°" => (Lens{Perspective, Nothing}, mdiv, (; max_view_angle = deg2rad(30)), disc_angle(mdiv, deg2rad(30))),
+    "EQ" => (typeof(Lens(Equidistant())), mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
     "Division{2}" => (Division{2}, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
     "LiftLens 1,2" => (LiftLens{Radial{Even, 1, 2, Float64}}, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
     "Division{3}" => (Division{3}, mdiv, (; max_radius_px = rcorner), disc(mdiv, rcorner)),
@@ -63,7 +59,7 @@ const RECORDED = Dict(
     "DSL rcorner" => ((0.8811332875618199, 0.6346864061026177), 1.6368194451496931, 84.45536223088573),
     "OPENCV3" => ((0.0, 0.0, 0.0), 1.0, 925672.3450883676),
     "OPENCV decentered" => ((0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 1.0, 925672.3450883676),
-    "Pinhole 30°" => ((), 0.9360598974446428, 16.994581496565733),
+    "pinhole 30°" => ((), 0.9360598974446428, 16.994581496565733),
     "EQ" => ((), 0.9404146696930101, 192.42342970532528),
     "Division{2}" => ((-0.3302000000000001, -0.07650000000000004), 1.0000000000000002, 4.1167069753100805e-13),
     "LiftLens 1,2" => ((2.3474209565048993e-16, -0.330199999999999, -0.07650000000000017), 0.9999999999999997, 8.233413950620161e-13),

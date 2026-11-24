@@ -57,7 +57,7 @@ is a central projection (single center of projection); finite-aperture models
 are downstream.
 
 Subtyping `CoordinateTransformations.Transformation` makes every imaging
-chain a `ComposedTransformation` regardless of lens (the Pinhole and
+chain a `ComposedTransformation` regardless of lens (the pinhole and
 distorted paths used to produce DIFFERENT composition types, breaking
 structural pattern-matches like `pnp_pixel_whitening`).
 """
@@ -396,9 +396,6 @@ end
 # `Division{1}` is a UnionAll over EVERY T, so not a subtype of `LiftLens`, and
 # a method on `Type{<:LiftLens}` never sees it.
 
-"The ideal perspective lens, `Lens(Perspective())`."
-const Pinhole = Lens{Perspective, Nothing}
-Pinhole() = Lens(Perspective())
 
 """
     KannalaBrandt(k₁, …, k_N)

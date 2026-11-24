@@ -8,10 +8,13 @@
 Julia bindings to [PoseLib](https://github.com/PoseLib/PoseLib), the C++
 library of minimal solvers and robust refiners for camera pose estimation by
 Viktor Larsson and contributors. Loading PoseLib.jl adds a PoseLib backend,
-`PoseLibSolver()`, to the minimal solvers of
-[VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/),
-and exports PoseLib's robust Levenberg–Marquardt refiners for homographies,
-fundamental matrices, relative poses and absolute poses.
+`PoseLibSolver()`, to the `solve(problem, algorithm)` interface of
+[VisualGeometryToolkitCore](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitCore/stable/):
+its minimal solvers, its eight-point essential matrix (`DLT(PoseLibSolver())`),
+and PoseLib's robust Levenberg–Marquardt refines of homographies, fundamental
+matrices, relative poses and absolute poses
+(`LevenbergMarquardt(PoseLibSolver())` on a `RefineProblem` of the correspondences and
+a guess).
 
 ## Installation
 
@@ -27,7 +30,7 @@ compiler is needed.
 
 The example estimates a camera's pose from three points with PoseLib's P3P
 solver, then refines it on all the points with PoseLib's absolute-pose
-refiner.
+refine.
 
 ```julia
 using PoseLib, VisualGeometryToolkitCore
@@ -41,19 +44,20 @@ u = pixel.(X)
 
 # PoseLib's P3P solver on three of the points and their bearings (unit rays).
 f = [Vec3(x / sqrt(sum(abs2, x))) for x in X]
-poses = solve(P3P(PoseLibSolver()), Correspondences(X, f), [1, 13, 25])
+poses = solve(MinimalProblem(CameraExtrinsics, Correspondences(X, f), [1, 13, 25]), P3P(PoseLibSolver()))
 
-# Keep the solution that reprojects all 25 points best, then refine it.
+# Keep the solution that reprojects all 25 points best, then refine it on all of
+# them: PoseLib's Levenberg–Marquardt, the truncated loss at a width of 2 pixels.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-result = refine_absolute_pose(unlabel(best), K, Correspondences(X, u); max_iter = 50,
-                              optimization_strategy = Irls{TLSShape}(), width = 2.0)
-pose = estimate(result)
+problem = RefineProblem(Correspondences(X, u), unlabel(best), (; K))
+result = solve(problem, LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}()); width = 2.0)
+pose = result.u
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 
 [Getting started](https://visualgeometrytoolkit.github.io/PoseLib/stable/guide/getting-started/)
-continues with the relative-pose and homography refiners.
+continues with the relative-pose and homography refines.
 
 ## Documentation
 

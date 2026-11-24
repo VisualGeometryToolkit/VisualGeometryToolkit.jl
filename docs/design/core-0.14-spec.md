@@ -137,9 +137,11 @@ The algorithm docstrings carry the old functions' documentation. The kernels kee
 
 ## 6. PoseLib, Eval, Features, IO
 
-- **PoseLib:** `PoseLibLM(; max_iter, optimization_strategy)` on
-  `RefineProblem(XProblem-equivalent f, θ₀, (; K1, K2…))`. The backend kernels implement Core's contract generics,
-  incl. `essential_8pt`. The raw C++ result goes in `original`.
+- **PoseLib:** `LevenbergMarquardt(PoseLibSolver(); optimization_strategy)` (Core's one host LM with PoseLib's
+  backend; coordinator's and owner's rulings, §9) on Core's `RefineProblem(cs, guess[, (; K1, K2) | (; K)])`, the guess a
+  `HomographyMat`, `FundMat` or `EuclideanMap{3}`, its budget the solve keyword `stops = LmStops(; max_iter)`; Core
+  forwards it to the backend contract generic `lm_backend_refine`, which PoseLib implements. The backend kernels
+  implement Core's contract generics, incl. `essential_8pt`. The raw C++ result goes in `original`.
 - **Eval:** `fit_prior(spec, σ²s)` → `solve(EstimationProblem(IGPrior, σ²s), spec)`. `PriorSpec` is the algorithm
   (`ClosedFormKind`).
 - **Features:** the internal callers migrate. `detect_image_circle` keeps its name (a task verb). Its internals call
@@ -567,3 +569,135 @@ These are done in Core 0.14, each with its own commit:
   carrying the last-bit change to a different solution). ACCEPTED (owner, 2026-11-24): the fma pin and its 683 listed
   records, not re-recorded; the unfused form and every per-product mix were tested and reproduce fewer (the recorded JIT
   copy fused per lane); paper projects rerun within their documented tolerance (migration plan §5).
+- 2026-11-24 (PoseLib agent, coordinator's naming ruling): NO `PoseLibLM`. PoseLib's refines are Core's one host LM with
+  a backend type parameter, `LevenbergMarquardt{B <: AbstractSolverBackend, S, D}` (backend first: the review round), constructed
+  `LevenbergMarquardt([backend = NativeSolver()]; optimization_strategy, damping = default_damping(backend))` — the
+  design of `DLT(PoseLibSolver())`. `LevenbergMarquardt()` is unchanged (`NativeSolver()`, `MarquardtDamping()`), so
+  every native refine's bits are too. Core's two refines of a problem (chart and block contract) take
+  `LevenbergMarquardt{NativeSolver}` only (another backend on them has no method); the type is spelled
+  in each signature, never aliased (R20).
+- 2026-11-24 (PoseLib agent): `default_damping(backend)` is a Core contract generic (public, `CONTRACT_GENERICS`):
+  `MarquardtDamping()` for `NativeSolver()`, `LevenbergDamping()` for `PoseLibSolver()` (PoseLib's method; its LM damps by
+  λ·I, `BundleOptions`' `LEVENBERG`); a backend whose package is not loaded is an `ArgumentError` (one message,
+  `_no_backend_lm`, shared with `lm_backend_refine`'s fallback; the review round, below). PoseLib refuses any other damping (`ArgumentError`).
+- 2026-11-24 (owner, "Or our core types" / "We have types for all of these"; route (a) of the R16 finding): PoseLib's
+  refines use NO new type. The problem is Core's `RefineProblem(data, guess[, p])` with the stack's model types —
+  `RefineProblem(cs, HomographyMat(H))`, `RefineProblem(cs, FundMat(F))`, `RefineProblem(cs, pose::EuclideanMap{3}, (;
+  K1, K2))`, `RefineProblem(bearings, pose)`, `RefineProblem(X => u, pose, (; K))` — the guess's type and the data's
+  shape select PoseLib's residual. Dispatch follows the stack's backend pattern exactly: Core owns ONE `__solve(prob::
+  RefineProblem{<:AbstractVector}, alg::LevenbergMarquardt; scale, width,
+  stops = LmStops())`, which refuses a box and forwards to the new backend contract generic
+  `lm_backend_refine(backend, u0, data, p, alg; stops, scale, width)` (public, `CONTRACT_GENERICS`, an `ArgumentError`
+  fallback naming the backend, the `essential_8pt` pattern); PoseLib implements `lm_backend_refine(::PoseLibSolver, …)`
+  and adds NO `__solve`, so `check_algorithm_traits(PoseLib)` (R16, now in PoseLib's quality test) holds. Reason: R16
+  refused the earlier PoseLib `__solve` methods (11 violations measured: a package adds `__solve` only for algorithm types
+  it owns, and `LevenbergMarquardt` is Core's); the minimal-solver kernels were sanctioned only by `CONTRACT_GENERICS`.
+  A refine of raw data by the native backend is the fallback's `ArgumentError`. PoseLib's own methods refuse a stray
+  context or another model with the tuple's `MethodError` (a PoseLib fallback, so Core's message never claims PoseLib
+  lacks a refine). `PoseLibProblem` and `PoseLibStops` were never released: deleted, no RETIRED_NAMES entry.
+- 2026-11-24 (owner): PoseLib's stops are Core's `LmStops`. PoseLib applies `max_iter` (default 1000, `LmStops()`'s) and
+  REFUSES every other field that is "set": a field is set when it is not `===` to the same field of `LmStops()` (the
+  defaults of record, read once into a module constant); the `ArgumentError` names it (`ftol`, `xtol`, `xtol_rel`,
+  `stationarity_tol`, `max_time`, `residual_resolution`). A caller who passes a default explicitly is not told apart
+  (it is the default). `max_iter` must fit a C int.
+- 2026-11-24 (owner, approved intended entries): the refine's guess is typed, so a non-3×3 seed is refused where the
+  `HomographyMat`/`FundMat` is built (`DimensionMismatch`): `poselib` `homography_refine/refused/seed_2x2` and
+  `fundamental_refine/refused/seed_2x3` (were the refiner's `ArgumentError`).
+- 2026-11-24 (PoseLib agent): `original` is the C wrapper's raw output: `(; iterations::Cint, H | F)` or
+  `(; iterations, R, t)`, the return value (PoseLib's `BundleStats.iterations`) and the output buffers as written
+  (`SVector`s, column-major). The wrapper returns no more of `BundleStats`; widening it needs a `PoseLib_jll` rebuild,
+  not done. Below the minimal sample no C call is made and `original` is `nothing`, so a solve infers to a two-member
+  `Union` of `FitResult`s (never `Any`); the suite's `@inferred FitResult` holds it. A pose refine returns the unlabeled
+  `EuclideanMap(RotMatrix{3, Float64}(R), Vec3{Float64}(t); check = false)` (the C buffers' bits, unchecked as before).
+- 2026-11-24 (PoseLib agent): `essential_8pt(::PoseLibSolver, cs)` is PoseLib's method for bearing correspondences
+  only; any other data (calibrated 2-vectors) is the pair's `MethodError`, thrown by a PoseLib fallback method — the
+  recorded `MethodError` replays. Its too-few message names `DLT(PoseLibSolver())`.
+- 2026-11-24 (owner, R20 scope): check_naming R20 also refuses a `const` whose name takes no parameters and whose right
+  side names ONE concrete instantiation of a stack type: the type applied to as many parameters as it has free (every
+  free variable of an alias's body counted, so `PlainEuclideanMap{3, Float64}`, whose `R` and `V` stay free, is a
+  UnionAll and no hit), none bounded (`<:`) and no `where`. Parametric aliases with free variables stay
+  (`Line2D{T}`, `PlainEuclideanMap{N, T}`, `CameraExtrinsics{T, R, V}`, `HomographyProblem`, …). The stack types are the
+  scanned package's own declarations (parsed) and every type of a loaded stack package. Regression tests in Core's
+  `quality_naming_tests.jl`. Every hit is fixed, with no allow-list: public `Pinhole` (→ `Lens(Perspective())`, type
+  `Lens{Perspective, Nothing}`), `Extrinsics3` (→ `CameraExtrinsics`, concrete `CameraExtrinsics{Float64, RotMatrix{3,
+  Float64, 9}, Vec3{Float64}}`; the planar-target pose is `CameraExtrinsics(H, intrinsics)`), `UncertainPixel`,
+  `UncertainPoint3` (Core), `Rigid3` (Estimation; PoseLib's went with the redesign), `NNMatch` (Features: built
+  `Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))`), `SCHOEPS_PIXEL_FRAME`,
+  `CANONICAL_PIXEL_FRAME` (IO: `PixelFrame{:colmap}`) — each in RETIRED_NAMES with its replacement ("Pinhole" also a
+  stored-format token: IO's version-1 lens model name); private `_Placement`, `_BundleOwnedData`, `_CameraPosePose`,
+  `_FrameRotation`, `_BoardPose`, `_RwPose`, `_ViewRotationChart`, `_FrameCov`, `_FoerstnerDetection`, `_SfopDetection`,
+  `_CAMERA_RIG`, `_BOARD_RIG`, and test constants (`OPENCV3`, IO's `colmap`, the golden fixture's `ECF_OPENCV3`) inlined.
+  `CircleProblem`, `EllipseProblem`, `RotationProblem` and `RadialCameraProblem` are NOT hits (their type keeps free
+  parameters). OPEN (rule limit, for the owner): a type computed by a call, `const X = typeof(…)`, is not seen statically —
+  `_AXIS_FAMILY`, `_UncertainRotation`, `_BundlePose`, `_UnitWeights`, `_Metres` (Estimation), `_PoolCorrespondences`
+  (Core), the tests' `DSL`/`EQ`/`DECENTERED`, and `BaseQuantity` (FlexUnits' base form, which conventions/units.md names
+  as a computed constant) — the same kind of name for one concrete type.
+- 2026-11-24 (owner, Rigid3 storage): the hand-eye problem stores its motions as `HandEyeProblem{S, U, E}`
+  (`motions::Vector{Tuple{E, E}}`, `model_type` `E`, `FixedModels{1, E}`), the robot-world calibration as
+  `RobotWorldHandEyeCalibration{K, P}` with `P` the concrete type built (its constructor's dictionaries are built
+  with the inferred concrete type of the motions they hold). The hand-eye methods on a model read `X::E`, `E` bounded to the UNLABELED plain maps
+  (`EuclideanMap{3, Float64, <:Any, <:Any, UnlabeledFrame{3}, UnlabeledFrame{3}}`): a bound of
+  `PlainEuclideanMap{3, Float64}` alone also admits the labeled `CameraExtrinsics`, which widened inference of
+  `sample_hypothesis(::Any, θ, idx)` for the pose problems (seen as a container's element type in the golden
+  replay, bits unchanged) — the old `X::Rigid3` admitted the unlabeled form only. Writing `CameraExtrinsics`' concrete
+  type out made the absolute and bearing pose problems' two `_chart` bodies long enough for the duplication gate: one
+  method on `Union{AbsolutePoseProblem, BearingPoseProblem}` now (bearing_pose.jl). The one conversion into the stored form is the private `_plain_motion(x) =
+  EuclideanMap(RotMatrix{3, Float64}(rotation(x)), Vec3{Float64}(translation(x)); check = false)` (Estimation, one
+  definition for both files: the `convert(Rigid3, x)` it replaces, bit for bit) — no type alias and no public name.
+- 2026-11-24 (golden framework): a recorded type printed through a retired alias names the identical type: a FieldMap's
+  `aliases` (default `RETIRED_ALIAS_PRINTS`, `ci/golden/bits.jl`: each alias's exact recorded print `=>` its type's
+  exact print now) rewrite the TYPE text of a recorded leaf (a struct's, a singleton's, a type value's, an array's
+  element type) before comparison; values (bits, digests, strings) are never rewritten.
+- 2026-11-24 (PoseLib agent): `check_naming` retires `refine_relpose` and `refine_fundamental` and accepts
+  `refine_homography`, `refine_fundamental`, `refine_relpose` as PoseLib's C++ functions in a C source
+  (`FOREIGN_FORMAT_TOKENS`, `:c_source`, as `bundle_adjust`). PoseLib's internal `_refine_width`/`_refine_result` are
+  `_deployed_width`/`_poselib_result`.
+- 2026-11-24 (PoseLib agent): PoseLib 0.4.0's compat is Core 0.14 only; it has no Estimation dependency (none is
+  needed). The replay environment is Estimation's test project with the workspace root on the load path (its `[deps]`
+  hold PoseLib), as for every group; `replay/core_minimal.jl` and `replay/core_closed_forms.jl` named PoseLib by a wrong
+  UUID, so their PoseLib cases could not run until now.
+- 2026-11-24 (PoseLib agent, gates of this milestone): golden replay 4905/4905 `===` in package-image and
+  `--pkgimages=no` modes over poselib, core_closed_forms, core_minimal, core_sensor_lm, core_lie, homography,
+  noise_scales and every Estimation group, with 13 poselib intended entries (the 11 retired-keyword `MethodError`s, D5,
+  and the 2 approved seed refusals) and the alias prints of `RETIRED_ALIAS_PRINTS`. The est_camera_fits record and replay
+  name `Lens{Perspective, Radial{Even, 3, 0, Float64}}` where the fixture constant was (same type, same bits).
+  VisualGeometryToolkitIO, -Features and -Eval do not load against Core 0.14 yet (their own migrations): their alias
+  removals are source edits the static checks cover (check_naming finds no R20 hit and no retired alias in them), not
+  run by a suite.
+- 2026-11-24 (owner, the computed aliases; supersedes the OPEN note above): R20 also runs on the loaded module.
+  `check_naming(M::Module)` (and so `test_naming(M)`, every stack package's quality test) adds
+  `_concrete_type_bindings(M)`: a module-level `const` of `M` or a submodule whose value is a concrete `DataType` of a
+  stack package (its root module a key of `stack_dependencies()`) under a name that is not the type's own — a computed
+  `const X = typeof(…)` included. Regression test in Core's `quality_naming_tests.jl`. Fixed: Estimation's `_AXIS_FAMILY`
+  (now the value `_AXIS_LENS`, its type `typeof(_AXIS_LENS)` where it is read), `_UncertainRotation` (the assertion spells
+  `Uncertain{RotMatrix{3, Float64, 9}, CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}}`), `_BundlePose`
+  (`EssentialManifold{S2TangentT{Float64}, Float64}`), and the test constants `DSL`, `EQ`, `DECENTERED` and the golden
+  fixture's `ECF_DSL`, `ECF_EQ`, `ECF_DECENTERED`, `ECF_RAT_TP` (inlined, in the fixture, its record and its replay).
+  Not hits, by the rule's stack-type criterion and with no special case: `BaseQuantity` (FlexUnits'
+  `Quantity{Float64, Dimensions{FixRat32}}`), `_Metres` (FlexUnits' `Units`), `_UnitWeights` (FillArrays' `Fill`),
+  `_PoolCorrespondences` (a StructArrays `StructVector`) — names for one concrete type of a package outside the stack.
+  PENDING the owner: whether R20 extends to foreign types (then these four are spelled out; `BaseQuantity` is the stored
+  field type of ~20 Core sites, IO, Eval and VRTK's IO, and conventions/units.md names it).
+- 2026-11-24 (PoseLib agent, the milestone's review round; code-review and simplify findings applied):
+  - `LevenbergMarquardt{B, S, D}`: the backend parameter first, so a method on one backend is
+    `LevenbergMarquardt{NativeSolver}` (Core's two refines of a problem, `_refine_spec`); Core's forwarder of a raw-data
+    refine takes `alg::LevenbergMarquardt` and defaults `stops = LmStops()`; PoseLib types `alg::LevenbergMarquardt` (the
+    backend is dispatched on positionally). No record prints the type: the replay is unchanged.
+  - A backend whose package is not loaded is ONE `ArgumentError` (`_no_backend_lm`, naming the backend and the two
+    contract generics its package implements, no downstream package named) from `default_damping`'s new fallback and
+    `lm_backend_refine`'s; `LevenbergMarquardt(PoseLibSolver())` without `using PoseLib` raises it.
+  - `init` on a raw-data refine is the `MethodError` of `__init` (left as it is, as for the native LM, which has no
+    `__init` either).
+  - R20, parsed: the arity table is keyed by `(root package, type name)` and holds only types whose full application is
+    concrete (a loaded struct, or an alias whose body is a non-abstract struct, its count every free variable of the
+    body; the scanned package's own `struct`s); an abstract type, a `Union` and the package's own parametric aliases
+    are left to the run-time check. R20, run time: also a concrete instantiation bound under the type's own name
+    (`v !== v.name.wrapper`). Not seen (a limit): a partial application, a `UnionAll` such as `const X =
+    EuclideanMap{3, Float64}`.
+  - One unit-bearing gate: Estimation's `_assert_unit_bearings` (EssentialProblem, RotationProblem) and PoseLib's copy
+    are deleted for Core's `assert_unit_bearings(fs, which, who; remedy)`. PoseLib's recorded messages are identical;
+    Estimation's finite-bearing message loses its trailing " before building the problem" (no record holds it).
+  - Estimation's hand-eye bound is the parametric alias `_UnlabeledMap3{R, V}` (free variables: no R20 hit).
+  - Features 0.10.0 and IO 0.12.0 (public names removed: `NNMatch`; `SCHOEPS_PIXEL_FRAME`, `CANONICAL_PIXEL_FRAME`);
+    their Core compat stays until their own migrations (neither loads against Core 0.14); IO's writer fixtures name
+    their generator 0.12.0. Eval removes no public name: unchanged. `ci/Project.toml`'s Core compat is "0.14".

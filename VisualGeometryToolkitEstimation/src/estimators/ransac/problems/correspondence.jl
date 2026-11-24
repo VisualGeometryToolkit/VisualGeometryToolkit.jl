@@ -141,10 +141,10 @@ const HomographyProblem = MinimalSolveProblem{HomographyMat{T}, 4, T} where {T <
 const FundMatProblem = MinimalSolveProblem{FundMat{T}, 7, T} where {T <: AbstractFloat}
 const EssentialProblem = MinimalSolveProblem{EssentialMat{T}, 5, T} where {T <: AbstractFloat}
 # The absolute pose takes a camera model: its context is a `PoseContext`. (The
-# `Extrinsics3` problem on caller-supplied bearings, `BearingPoseProblem`, is
+# `CameraExtrinsics` problem on caller-supplied bearings, `BearingPoseProblem`, is
 # the same struct with a `BearingPoseContext`, bearing_pose.jl.)
 const AbsolutePoseProblem = MinimalSolveProblem{
-    Extrinsics3, 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:PoseContext,
+    VgtkCore.model_type(VgtkCore.P3P()), 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:PoseContext,
 }
 
 """
@@ -193,7 +193,7 @@ model_type(::Type{<:MinimalSolveProblem{M}}) where {M} = M
 # the eltype) both match.
 codimension(::Type{<:MinimalSolveProblem{<:HomographyMat}}) = 2    # two constraint equations from v̄ × Hū
 codimension(::Type{<:MinimalSolveProblem{<:AbstractFundMat}}) = 1  # scalar epipolar constraint (F and E)
-codimension(::Type{<:MinimalSolveProblem{Extrinsics3}}) = 2        # two reprojection equations per point
+codimension(::Type{<:MinimalSolveProblem{<:CameraExtrinsics}}) = 2        # two reprojection equations per point
 
 # Per-model DLT solver dispatch (only two methods, no consolidation needed).
 _dlt_fn(::MinimalSolveProblem{<:HomographyMat}) = homography_dlt!
@@ -667,33 +667,6 @@ function EssentialProblem(
     ))
 end
 
-function _assert_unit_bearings(fs, which::AbstractString, who::AbstractString = "EssentialProblem")
-    worst = 0.0; at = 0
-    @inbounds for i in eachindex(fs)
-        f = fs[i]
-        # FINITE first: `NaN > worst` is false, so a NaN bearing (a pixel the
-        # camera cannot back-project, e.g. past a fisheye's fold) sailed through
-        # the norm test below and poisoned every LO it entered.
-        all(isfinite, f) || throw(ArgumentError(
-            "$who needs finite bearings; the $which at index $i is " *
-                "$(Tuple(f)). A camera returns NaN for a pixel it cannot " *
-                "back-project (e.g. past a fisheye's fold) — drop that " *
-                "correspondence before building the problem."
-        ))
-        d = abs(norm(f) - 1)
-        d > worst && (worst = d; at = i)
-    end
-    worst <= 1.0e-6 || throw(ArgumentError(
-        "$who needs UNIT bearings; the $which at index $at has norm " *
-            "$(round(norm(fs[at]), digits = 6)). A z = 1 chart point satisfies the " *
-            "3-vector signature but is not a bearing — its norm is 1 only on the " *
-            "optical axis, ~1.41 at 45° off it, and it does not exist at all at " *
-            "90°. Back-project with the camera: " *
-            "`$who(camera1, camera2, pixel_cs)`."
-    ))
-    return nothing
-end
-
 # The back-projection Jacobians carry every tolerance into pixels, so a
 # non-finite one is as poisonous as a non-finite bearing.
 function _assert_finite_jacobians(Ms, name::AbstractString, who::AbstractString = "EssentialProblem")
@@ -801,8 +774,9 @@ function EssentialProblem(bearings::VgtkCore.Correspondences; kw...)
     # identical anyway. So the margin is enormous everywhere it matters, and the
     # check catches precisely the case the `StaticVector{3}` signature cannot:
     # the chart wearing 3-vector clothing.
-    _assert_unit_bearings(sources(bearings), "source")
-    _assert_unit_bearings(targets(bearings), "target")
+    remedy = "Back-project with the camera: `EssentialProblem(camera1, camera2, pixel_cs)`."
+    VgtkCore.assert_unit_bearings(sources(bearings), "source", "EssentialProblem"; remedy)
+    VgtkCore.assert_unit_bearings(targets(bearings), "target", "EssentialProblem"; remedy)
     (VgtkCore.hasattr(bearings, :M₁) && VgtkCore.hasattr(bearings, :M₂)) ||
         throw(ArgumentError(
         "EssentialProblem requires the back-projection Jacobians as attribute " *
@@ -834,7 +808,7 @@ The residual currency is the RAW pixel of `model` for every lens: scoring
 projects through the intrinsics AND the lens (`mahalanobis_distances!`), and both local
 optimizations refine the same reprojection — the Student-t M-step and the
 Welsch lift run on VGC's full-camera `constraint_with_jacobians(model, pose,
-X, u)`. A `Pinhole` model keeps the classic calibrated kernels
+X, u)`. A `Lens(Perspective())` model keeps the classic calibrated kernels
 (bit-identical to before). Nothing is undistorted: supply the detections as
 measured and the camera as calibrated.
 
@@ -865,7 +839,7 @@ function _absolute_pose_problem(model::CameraModel, pairs, backend::AbstractSolv
     ctx = PoseContext(rays, proj, model, unit)
     slv = VgtkCore.P3P(backend)
     cs_solve = VgtkCore.Correspondences(src, rays)
-    return MinimalSolveProblem{Extrinsics3, 3}(cs, nothing, cs_solve, nothing, slv, ctx, smplr)
+    return MinimalSolveProblem{VgtkCore.model_type(VgtkCore.P3P()), 3}(cs, nothing, cs_solve, nothing, slv, ctx, smplr)
 end
 
 # =============================================================================

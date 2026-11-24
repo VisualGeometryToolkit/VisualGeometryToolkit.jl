@@ -1,7 +1,8 @@
-# The robust-estimation contract on PoseLib's refiners (owner rulings, 2026-11-11):
-# the strategy is `optimization_strategy` (Core's `Irls{K}`, PoseLib's `LeZach()`,
-# `nothing` for least squares), the width `scale` or `width`, the result a
-# `FitResult` carrying PoseLib's `retcode`/`iterations` and the scale record.
+# The robust-estimation contract on PoseLib's refines (owner rulings, 2026-11-11; PoseLib 0.4's solve interface):
+# the strategy is `LevenbergMarquardt(PoseLibSolver())`'s `optimization_strategy` (Core's `Irls{K}`, PoseLib's
+# `LeZach()`, `nothing` for least squares), the width the solve keyword `scale` or `width`, the result a `FitResult`
+# carrying PoseLib's termination record and iteration count (`stats.nsteps`), the scale record and the C wrapper's raw
+# output (`original`).
 # The renaming changes no number: every PoseLib baseline arm of the stack
 # (LocalOptimizationDoneRight's PoseLibLm/PoseLibLZ/PoseLibLmAdaptLossWidth
 # arms, accv2026's least-squares polish) refines bit-identically.
@@ -16,18 +17,19 @@ using StaticArrays: SVector, SMatrix
 using PoseLib
 using PoseLib: LeZach, PoseLibRefineMetadata
 using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, CameraModel, LogicalIntrinsics,
-    CameraCalibrationMat, Pinhole, Vec3, TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape,
-    Irls, Triggs, EfficiencyConstant, LossWidth, FitResult, estimate, retcode, iterations, noise_scale, scale_source,
-    ScaleGiven, ScaleUpstream, ScaleNone, efficiency_constant
+    CameraCalibrationMat, Lens, Perspective, Vec3, TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape,
+    Irls, Triggs, EfficiencyConstant, LossWidth, FitResult, noise_scale, scale_source,
+    ScaleGiven, ScaleUpstream, ScaleNone, efficiency_constant, HomographyMat, FundMat, PoseLibSolver, LevenbergMarquardt,
+    RefineProblem, MarquardtDamping, LevenbergDamping, LmStops, EuclideanMap, PlainEuclideanMap, solve
 
 # The geometry of test_refine.jl, one draw per refiner (outliers from rng 99): the suite's fixture file, shared with the
 # golden records
 include(joinpath(pkgdir(VgtkCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`, `pinhole_pixel`
 include(joinpath(@__DIR__, "fixtures", "refine_scenes.jl"))
-_baseline_data() = (d = contract_scene(MersenneTwister(99)); (; d.seed, d.K1, d.K2, d.rel, d.F0, d.H0, d.hom, d.bear, d.abs_cs))
+_baseline_data() = (d = contract_scene(MersenneTwister(99)); (; guess = d.seed, d.K1, d.K2, d.rel, d.F0, d.H0, d.hom, d.bear, d.abs_cs))
 
 # The refined models of PoseLib 0.1.9 (VisualGeometryToolkit robust-core 3eabba46), captured with
-# the retired API (`loss = <shape or LeZachTruncation()>`, `loss_width = w`, `max_iter = 25`; w = 2 px,
+# the retired API (`loss = <shape or the retired Le–Zach truncation>`, `loss_width = w`, `max_iter = 25`; w = 2 px,
 # 40 px for the absolute pose; `loss = GaussianShape()` for least squares) on `_baseline_data()`:
 # `vec(R)` then `t` for a pose, `vec(M)` for a matrix. Every value round-trips exactly; a refine
 # matches them to 1e-12 relative, not bit for bit: the last ulps move with the Julia version and
@@ -59,21 +61,21 @@ const _BASELINES = Dict(
     (:absolute_pose, :lezach) => [0.9816974767936978, 0.02437881038618295, -0.18888022040711885, -0.013506020027091243, 0.9981878670991879, 0.05863931615393979, 0.18996750111509883, -0.05501504866969066, 0.9802477711986681, 0.9938071951999562, 0.0993812761929912, 0.049691716876411385],
     (:absolute_pose, :gaussian) => [0.9241528253275649, 0.040279496004520056, -0.37989356093608806, 0.05021472403928005, 0.9729899140302033, 0.22532001394717827, 0.37870837979735583, -0.22730637781883622, 0.8971687542899286, -1.1063231160196145, 2.082008799807366, 3.9140833736434804],
 )
-_flat(m::PoseLib.Rigid3) = vcat(vec(Matrix(m.R)), collect(m.t))
+_flat(m::PlainEuclideanMap{3}) = vcat(vec(Matrix(m.R)), collect(m.t))
 _flat(m) = vec(Matrix(m))
 
 _baseline_calls(d) = (
-    relpose_cam = kw -> refine_relpose(d.seed, d.K1, d.K2, d.rel; max_iter = 25, kw...),
-    relpose_bearing = kw -> refine_relpose(d.seed, d.bear; max_iter = 25, kw...),
-    fundamental = kw -> refine_fundamental(d.F0, d.rel; max_iter = 25, kw...),
-    homography = kw -> refine_homography(d.H0, d.hom; max_iter = 25, kw...),
-    absolute_pose = kw -> refine_absolute_pose(d.seed, d.K1, d.abs_cs; max_iter = 25, kw...),
+    relpose_cam = kw -> poselib_refine(d.rel, d.guess, (; K1 = d.K1, K2 = d.K2); max_iter = 25, kw...),
+    relpose_bearing = kw -> poselib_refine(d.bear, d.guess; max_iter = 25, kw...),
+    fundamental = kw -> poselib_refine(d.rel, FundMat(d.F0); max_iter = 25, kw...),
+    homography = kw -> poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, kw...),
+    absolute_pose = kw -> poselib_refine(d.abs_cs, d.guess, (; K = d.K1); max_iter = 25, kw...),
 )
 const _STRATEGIES = (tls = Irls{TLSShape}(), huber = Irls{HuberShape}(), cauchy = Irls{CauchyShape}(),
                      lezach = LeZach(), gaussian = nothing)
 const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homography = 2, absolute_pose = 2)
 
-@testset "the robust-estimation contract on PoseLib's refiners" begin
+@testset "the robust-estimation contract on PoseLib's refines" begin
     d = _baseline_data()
     calls = _baseline_calls(d)
 
@@ -81,106 +83,132 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         lo = _STRATEGIES[l]
         w = name === :absolute_pose ? 40.0 : 2.0
         r = lo === nothing ? calls[name]((; optimization_strategy = lo)) : calls[name]((; optimization_strategy = lo, width = w))
-        @test _flat(estimate(r)) ≈ _BASELINES[(name, l)] rtol = 1.0e-12
+        @test _flat(r.u) ≈ _BASELINES[(name, l)] rtol = 1.0e-12
         # `scale = σ` runs at efficiency_constant(shape, d)·σ: the same refinement as that width
         if lo isa Irls{<:Union{HuberShape, CauchyShape}}
             σ = 0.75
             c = efficiency_constant(lo isa Irls{HuberShape} ? HuberShape() : CauchyShape(), _CODIM[name])
             rs = calls[name]((; optimization_strategy = lo, scale = σ))
             rw = calls[name]((; optimization_strategy = lo, width = c * σ))
-            @test estimate(rs) == estimate(rw)
-            @test noise_scale(rs) === σ && scale_source(rs) == ScaleGiven && rs.width === c * σ
+            @test rs.u == rw.u
+            @test noise_scale(rs) === σ && scale_source(rs) == ScaleGiven && rs.metadata.width === c * σ
             # the strategy's own efficiency constant replaces the shape's
             r3 = calls[name]((; optimization_strategy = Irls{typeof(lo).parameters[1]}(25, EfficiencyConstant(3.0)), scale = σ))
-            @test estimate(r3) == estimate(calls[name]((; optimization_strategy = lo, width = 3.0 * σ)))
+            @test r3.u == (calls[name]((; optimization_strategy = lo, width = 3.0 * σ))).u
         end
     end
 
     H = calls.homography
-    @testset "the result: FitResult with retcode, iterations and the scale record" begin
+    @testset "the result: FitResult with its termination record, iteration count, scale record and raw output" begin
         r = H((; optimization_strategy = Irls{TLSShape}(), width = 2.0))
         @test r isa FitResult{VgtkCore.HomographyMat{Float64}, PoseLibRefineMetadata}
-        @test retcode(r) == VgtkCore.ReturnCode.Success && VgtkCore.stop_rule(r) == VgtkCore.NoRule && 0 < iterations(r) < 25
-        @test r.n == length(d.hom) && isnan(r.rms)            # PoseLib reports no residual summary
-        @test isnan(r.scale) && scale_source(r) == ScaleNone && r.width === 2.0
+        @test r.retcode == VgtkCore.ReturnCode.Success && r.stop_rule == VgtkCore.NoRule && 0 < r.stats.nsteps < 25
+        @test r.n == length(d.hom) && isnan(r.rms) && r.resid === nothing   # PoseLib reports no residuals
+        @test scale_source(r) == ScaleNone && r.metadata.width === 2.0
+        # the problem and algorithm are recorded; `original` is the C wrapper's output: its return value (PoseLib's
+        # iteration count) and the column-major buffer it wrote
+        @test r.prob isa RefineProblem && r.alg === LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}())
+        @test r.original.iterations == r.stats.nsteps && r.original.H == vec(Matrix(r.u))
+        @test r.alg.damping === LevenbergDamping()           # PoseLib's λ·I, its backend's default
         @test_throws ArgumentError noise_scale(r)             # a width is never backed out into a scale
         # the budget used up is :max_iterations
         r1 = H((; optimization_strategy = nothing))
-        @test retcode(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing)) == VgtkCore.ReturnCode.MaxIters
-        @test scale_source(r1) == ScaleNone && isnan(r1.width)
+        @test (poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 1, optimization_strategy = nothing)).retcode == VgtkCore.ReturnCode.MaxIters
+        @test scale_source(r1) == ScaleNone && isnan(r1.metadata.width)
         # an upstream result's scale is handed on (ScaleUpstream)
         rg = H((; optimization_strategy = Irls{HuberShape}(), scale = 0.5))
         ru = H((; optimization_strategy = Irls{HuberShape}(), scale = rg))
-        @test noise_scale(ru) === 0.5 && scale_source(ru) == ScaleUpstream && estimate(ru) == estimate(rg)
+        @test noise_scale(ru) === 0.5 && scale_source(ru) == ScaleUpstream && ru.u == rg.u
         # the physical absolute pose keeps the plain refinement's record
         Xm = [Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)]
-        seedm = VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m)
-        rp = refine_absolute_pose(seedm, d.K1, Correspondences(Xm, VgtkCore.targets(d.abs_cs)); max_iter = 25,
+        guessm = VgtkCore.EuclideanMap(d.guess.R, d.guess.t .* VgtkCore.m)
+        rp = poselib_refine(Correspondences(Xm, VgtkCore.targets(d.abs_cs)), guessm, (; K = d.K1); max_iter = 25,
                                   optimization_strategy = Irls{TLSShape}(), width = 40.0)
         ra = calls.absolute_pose((; optimization_strategy = Irls{TLSShape}(), width = 40.0))
-        @test VgtkCore.ustrip(VgtkCore.m, estimate(rp)).R == estimate(ra).R
-        @test (retcode(rp), iterations(rp), rp.width) == (retcode(ra), iterations(ra), ra.width)
+        @test VgtkCore.ustrip(VgtkCore.m, rp.u).R == ra.u.R
+        @test (rp.retcode, rp.stats.nsteps, rp.metadata.width, rp.original) == (ra.retcode, ra.stats.nsteps, ra.metadata.width, ra.original)
     end
 
-    # Below the minimal sample there is nothing to refine: the seed back, unrefined, InitialFailure after 0
+    # Below the minimal sample there is nothing to refine: the guess back, unrefined, InitialFailure after 0
     # iterations and `n = 0` (as VisualGeometryToolkitEstimation's refines; until 0.2.1 `(Success, NoRule)`)
-    @testset "below the minimal sample: InitialFailure, the seed, n = 0" begin
-        few = (relpose_cam = (d.seed, () -> refine_relpose(d.seed, d.K1, d.K2, d.rel[1:4]; max_iter = 25, optimization_strategy = nothing)),
-               relpose_bearing = (d.seed, () -> refine_relpose(d.seed, d.bear[1:4]; max_iter = 25, optimization_strategy = nothing)),
-               fundamental = (d.F0, () -> refine_fundamental(d.F0, d.rel[1:6]; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)),
-               homography = (d.H0, () -> refine_homography(d.H0, d.hom[1:3]; max_iter = 25, optimization_strategy = nothing)),
-               absolute_pose = (d.seed, () -> refine_absolute_pose(d.seed, d.K1, d.abs_cs[1:2]; max_iter = 25, optimization_strategy = nothing)))
-        for (seed, call) in values(few)
+    @testset "below the minimal sample: InitialFailure, the guess, n = 0" begin
+        few = (relpose_cam = (d.guess, () -> poselib_refine(d.rel[1:4], d.guess, (; K1 = d.K1, K2 = d.K2); max_iter = 25, optimization_strategy = nothing)),
+               relpose_bearing = (d.guess, () -> poselib_refine(d.bear[1:4], d.guess; max_iter = 25, optimization_strategy = nothing)),
+               fundamental = (d.F0, () -> poselib_refine(d.rel[1:6], FundMat(d.F0); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)),
+               homography = (d.H0, () -> poselib_refine(d.hom[1:3], HomographyMat(d.H0); max_iter = 25, optimization_strategy = nothing)),
+               absolute_pose = (d.guess, () -> poselib_refine(d.abs_cs[1:2], d.guess, (; K = d.K1); max_iter = 25, optimization_strategy = nothing)))
+        for (guess, call) in values(few)
             r = call()
-            @test retcode(r) == VgtkCore.ReturnCode.InitialFailure && VgtkCore.stop_rule(r) == VgtkCore.NoRule
-            @test iterations(r) == 0 && r.n == 0 && estimate(r) == seed
+            @test r.retcode == VgtkCore.ReturnCode.InitialFailure && r.stop_rule == VgtkCore.NoRule
+            @test r.stats.nsteps == 0 && r.n == 0 && r.u == guess
             VgtkCore.test_termination_record(r)
         end
-        @test retcode(refine_homography(d.H0, d.hom[1:0]; max_iter = 25, optimization_strategy = nothing)) == VgtkCore.ReturnCode.InitialFailure
+        @test (poselib_refine(d.hom[1:0], HomographyMat(d.H0); max_iter = 25, optimization_strategy = nothing)).retcode == VgtkCore.ReturnCode.InitialFailure
         # at the minimal sample it runs
-        @test retcode(refine_homography(d.H0, d.hom[1:4]; max_iter = 25, optimization_strategy = nothing)) != VgtkCore.ReturnCode.InitialFailure
+        @test (poselib_refine(d.hom[1:4], HomographyMat(d.H0); max_iter = 25, optimization_strategy = nothing)).retcode != VgtkCore.ReturnCode.InitialFailure
     end
 
-    @testset "every refiner records its termination (converged == successful_retcode)" begin
+    @testset "every refine records its termination" begin
         for (name, call) in pairs(calls), lo in (nothing, Irls{TLSShape}())
             w = name === :absolute_pose ? 40.0 : 2.0
             r = call(lo === nothing ? (; optimization_strategy = nothing) : (; optimization_strategy = lo, width = w))
             VgtkCore.test_termination_record(r)
         end
-        VgtkCore.test_termination_record(refine_homography(d.H0, d.hom; max_iter = 1, optimization_strategy = nothing))
-        rp = refine_absolute_pose(VgtkCore.EuclideanMap(d.seed.R, d.seed.t .* VgtkCore.m), d.K1,
-                                  Correspondences([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)); max_iter = 25,
+        VgtkCore.test_termination_record(poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 1, optimization_strategy = nothing))
+        rp = poselib_refine(Correspondences([Y .* VgtkCore.m for Y in VgtkCore.sources(d.abs_cs)], VgtkCore.targets(d.abs_cs)), VgtkCore.EuclideanMap(d.guess.R, d.guess.t .* VgtkCore.m), (; K = d.K1); max_iter = 25,
                                   optimization_strategy = nothing)
         VgtkCore.test_termination_record(rp)
     end
 
-    @testset "type-stable" begin
+    # Inferred: a FitResult (a refine on too few data returns the guess with no C call, its `original` `nothing`, so a
+    # solve infers to the small Union of the two results, never Any)
+    @testset "inferred" begin
         for lo in (Irls{TLSShape}(), Irls{HuberShape}(), LeZach(), nothing)
             kw = lo === nothing ? (;) : (; width = 2.0)
-            @test (@inferred refine_homography(d.H0, d.hom; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
-            @test (@inferred refine_fundamental(d.F0, d.rel; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
-            @test (@inferred refine_relpose(d.seed, d.K1, d.K2, d.rel; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
-            @test (@inferred refine_relpose(d.seed, d.bear; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
-            @test (@inferred refine_absolute_pose(d.seed, d.K1, d.abs_cs; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
+            @test (@inferred FitResult poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
+            @test (@inferred FitResult poselib_refine(d.rel, FundMat(d.F0); max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
+            @test (@inferred FitResult poselib_refine(d.rel, d.guess, (; K1 = d.K1, K2 = d.K2); max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
+            @test (@inferred FitResult poselib_refine(d.bear, d.guess; max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
+            @test (@inferred FitResult poselib_refine(d.abs_cs, d.guess, (; K = d.K1); max_iter = 25, optimization_strategy = lo, kw...)) isa FitResult
         end
-        @test (@inferred refine_homography(d.H0, d.hom; max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0)) isa FitResult
-        @test (@inferred noise_scale(refine_homography(d.H0, d.hom; max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0))) === 1.0
+        @test (@inferred FitResult poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0)) isa FitResult
+        @test (@inferred noise_scale(poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0))) === 1.0
         @test (@inferred PoseLibRefineMetadata(1.0, ScaleGiven, 2.0)) isa PoseLibRefineMetadata
     end
 
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     @testset "refusals" begin
-        # the retired keywords, by name
-        # the retired keywords, by name: Core's one refusal (`refuse_retired_keyword`)
         for call in values(calls)
-            @test_throws ArgumentError("the keyword `loss` is retired: give `optimization_strategy`") call((; loss = TLSShape(), loss_width = 2.0))
-            @test_throws ArgumentError("the keyword `loss_width` is retired: give `width`") call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))
-            # the strategy is required, like max_iter
+            # a keyword the solve does not take (the retired `loss`, `loss_width`) is Julia's own error
+            @test_throws MethodError call((; loss = TLSShape(), loss_width = 2.0))
+            @test_throws MethodError call((; optimization_strategy = Irls{TLSShape}(), loss_width = 2.0))
+            # the strategy is required: PoseLib's refines have no class default
             @test occursin("needs `optimization_strategy`", msg(() -> call((; width = 2.0))))
         end
-        @test_throws ArgumentError("the keyword `local_optimization` is retired: give `optimization_strategy`") H((; local_optimization = Irls{TLSShape}(), width = 2.0))
-        # a keyword the refiners never had is Julia's own error
+        @test_throws MethodError H((; local_optimization = Irls{TLSShape}(), width = 2.0))
         @test_throws MethodError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
+        # the stops are Core's LmStops: PoseLib applies `max_iter` (default 1000) and refuses any other stop setting it
+        # cannot apply, naming it; PoseLib's LM damps by λ·I, so another damping is refused
+        lsq = LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing)
+        hom = (d.hom, HomographyMat(d.H0))
+        @test solve(RefineProblem(hom...), lsq).stats.nsteps == solve(RefineProblem(hom...), lsq; stops = LmStops(; max_iter = 1000)).stats.nsteps
+        @test solve(RefineProblem(hom...), lsq; stops = LmStops(; max_iter = 1)).retcode == VgtkCore.ReturnCode.MaxIters
+        for (name, stops) in (("ftol", LmStops(; ftol = 1.0e-3)), ("xtol", LmStops(; xtol = 1.0e-3)), ("xtol_rel", LmStops(; xtol_rel = 1.0e-3)),
+                              ("stationarity_tol", LmStops(; stationarity_tol = 0.5)), ("max_time", LmStops(; max_time = 1.0)),
+                              ("residual_resolution", LmStops(; residual_resolution = 1.0)))
+            @test occursin("`$name = ", msg(() -> solve(RefineProblem(hom...), lsq; stops)))
+        end
+        @test occursin("λ·I", msg(() -> solve(RefineProblem(hom...),
+            LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing, damping = MarquardtDamping()))))
+        # a box is refused (the host LM is unbounded); a stray context, another model or a native LM has no method
+        @test_throws ArgumentError solve(RefineProblem(d.hom, HomographyMat(d.H0); lb = zeros(9), ub = ones(9)), lsq)
+        @test_throws MethodError solve(RefineProblem(d.hom, HomographyMat(d.H0), (; K = d.K1)), lsq)
+        @test_throws MethodError solve(RefineProblem(d.bear, VgtkCore.EssentialMat{Float64}(Tuple(d.F0))), lsq)
+        @test_throws ArgumentError solve(RefineProblem(d.hom, HomographyMat(d.H0)), LevenbergMarquardt(; optimization_strategy = nothing))
+        # a guess that is no 3×3 matrix is refused where it is built
+        @test_throws DimensionMismatch HomographyMat(Matrix(d.H0)[1:2, 1:2])
+        # no default algorithm: a refine needs its strategy stated
+        @test_throws ArgumentError solve(RefineProblem(d.hom, HomographyMat(d.H0)))
         # exactly one of scale and width for a robust strategy; neither for least squares
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}()))
         @test_throws ArgumentError H((; optimization_strategy = Irls{HuberShape}(), scale = 1.0, width = 2.0))
@@ -230,7 +258,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test back == Dict("type" => "le_zach")
         lo = tags[back["type"]]()
         @test lo === LeZach()
-        @test _flat(estimate(H((; optimization_strategy = lo, width = 2.0)))) == _BASELINES[(:homography, :lezach)]
+        @test _flat((H((; optimization_strategy = lo, width = 2.0))).u) == _BASELINES[(:homography, :lezach)]
         # a retired or unknown tag is refused by the registry
         @test_throws ArgumentError tags["le_zach_truncation"]
     end

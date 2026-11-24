@@ -42,7 +42,7 @@
         @test td != TargetObservations{PixelFrame{:opencv}}(Dict(1 => Dict(:b => withattrs(cs; weights = [1.0, 1.0]))); sensors = "cam", images = Dict(1 => "a.png"), targets = ["ab"])
 
         tu = TargetObservations{PixelFrame{:colmap}}(Dict(3 => Dict(:b => pix([2], [Uncertain(SVector(1.0, 2.0), Σ2)]))))
-        @test tu[3][:b][1].second isa UncertainPixel && cov(tu[3][:b][1].second) == Σ2
+        @test tu[3][:b][1].second isa Uncertain{SVector{2, Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}} && cov(tu[3][:b][1].second) == Σ2
         @test cov(convert_frame(PixelFrame{:opencv}, tu)[3][:b][1].second) == Σ2   # a translation keeps the covariance
         @test_throws MethodError ustrip(mm, td)                               # pixels are not lengths
     end

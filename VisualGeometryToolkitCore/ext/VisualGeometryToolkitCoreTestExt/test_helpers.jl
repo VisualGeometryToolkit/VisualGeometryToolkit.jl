@@ -28,7 +28,7 @@ function _test_none(found)
     return found
 end
 
-test_naming(M::Module) = _test_none(check_naming(pkgdir(M)))
+test_naming(M::Module) = _test_none(check_naming(M))   # the parsed rules and R20's run-time check
 test_duplication(M::Module; kwargs...) = _test_none(check_duplication(M; kwargs...))
 test_splat(M::Module; mode::Symbol = :enforce, kwargs...) =
     _test_gate(mode, "splat of a data-length collection", () -> check_splat(M; kwargs...))

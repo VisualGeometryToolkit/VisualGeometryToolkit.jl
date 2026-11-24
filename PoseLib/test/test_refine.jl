@@ -1,17 +1,17 @@
-# Robust-loss refinement wrappers and essential_dlt: correspondences in as
-# one Correspondence vector (model first). Synthetic two-view / 2D-3D data with 20 %
-# gross outliers; every wrapper must pull a perturbed seed back to the truth,
-# and every Correspondence container (Correspondences, Vector{Pair}) must give the same model.
+# PoseLib's robust refines (LevenbergMarquardt(PoseLibSolver()) on raw correspondences) and its eight-point essential
+# matrix (DLT(PoseLibSolver())): correspondences in as one Correspondence vector. Synthetic two-view / 2D-3D data with
+# 20 % gross outliers; every refine must pull a perturbed guess back to the truth, and every Correspondence container
+# (Correspondences, Vector{Pair}) must give the same model.
 
 import VisualGeometryToolkitCore as VgtkCore
 using Random: MersenneTwister
 using LinearAlgebra: normalize, norm, dot
 using Rotations: AngleAxis, RotMatrix, rotation_angle
 using VisualGeometryToolkitCore: Correspondences, withattrs, backproject_with_jacobian, s2_tangent_basis,
-                          CameraModel, LogicalIntrinsics, CameraCalibrationMat, Pinhole,
+                          CameraModel, LogicalIntrinsics, CameraCalibrationMat, Lens, Perspective,
                           TLSShape, HuberShape, CauchyShape, GaussianShape, WelschShape, Irls, Triggs,
-                          EfficiencyConstant, LossWidth, FitResult, estimate, retcode, iterations, noise_scale,
-                          scale_source, ScaleGiven, ScaleUpstream, ScaleNone
+                          EfficiencyConstant, LossWidth, FitResult, noise_scale,
+                          scale_source, ScaleGiven, ScaleUpstream, ScaleNone, EstimationProblem, MinimalProblem, DLT, solve
 
 _rot_err_deg(Ra, Rb) = rad2deg(rotation_angle(RotMatrix{3}(SMatrix{3,3}(Ra)' * SMatrix{3,3}(Rb))))   # the angle of Raᵀ·Rb
 # `refine_geometry`, `contract_scene`, `pinhole_point`, `pinhole_pixel`: the suite's fixture file, shared with the golden
@@ -22,10 +22,10 @@ include(joinpath(@__DIR__, "fixtures", "refine_scenes.jl"))
 _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / norm(Matrix(B));
                     min(norm(a - b), norm(a + b)))
 
-@testset "refine_* and essential_dlt take correspondences" begin
-    # SIMPLE_PINHOLE intrinsics (fx = fy): the camera-aware wrapper hands
+@testset "the refines and the eight-point E take correspondences" begin
+    # SIMPLE_PINHOLE intrinsics (fx = fy): the camera-aware refine hands
     # PoseLib one focal per view, (fx + fy) / 2. The geometry (`refine_geometry`, rng 7) is the suite's fixture file.
-    (; n, nout, K1, K2, R, t, X, seed, tx) = refine_geometry()
+    (; n, nout, K1, K2, R, t, X, tx) = g = refine_geometry(); guess = g.seed
     # Each testset draws from its OWN rng: with a shared one, adding or
     # removing a draw in any testset silently retunes every testset after it.
     outlier2(r) = SVector(640 * rand(r), 480 * rand(r))
@@ -34,27 +34,27 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     # containers. The point of a throw rather than a deleted method is the
     # message: a bare MethodError would tell a caller that some argument is
     # wrong, not which of the two live forms to move to.
-    @testset "refine_relpose refuses the z = 1 chart" begin
+    @testset "a relative pose refuses the z = 1 chart" begin
         x1 = pinhole_point.(X)
         x2 = [pinhole_point(R * Y + t) for Y in X]
-        @test_throws ArgumentError refine_relpose(seed, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
-        @test_throws ArgumentError refine_relpose(seed, x1 .=> x2; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
+        @test_throws ArgumentError poselib_refine(Correspondences(x1, x2), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
+        @test_throws ArgumentError poselib_refine(x1 .=> x2, guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
         msg = try
-            refine_relpose(seed, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
+            poselib_refine(Correspondences(x1, x2), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 3e-3)
         catch e
             sprint(showerror, e)
         end
         # Names both replacements and the producer, not just the complaint.
         @test occursin("M₁", msg) && occursin("backproject_with_jacobian", msg)
-        @test occursin("refine_relpose(pose, K1, K2, cs; max_iter, optimization_strategy, width)", msg)
+        @test occursin("RefineProblem(cs, pose, (; K1, K2))", msg)
     end
 
-    @testset "refine_relpose (camera-aware, pixels)" begin
+    @testset "relative pose (camera-aware, pixels)" begin
         rngc = MersenneTwister(101)
         x1 = [pinhole_pixel(K1, Y) for Y in X]
         x2 = [pinhole_pixel(K2, R * Y + t) for Y in X]
         x2[1:nout] .= [outlier2(rngc) for _ in 1:nout]
-        ref = estimate(refine_relpose(seed, K1, K2, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
+        ref = (poselib_refine(Correspondences(x1, x2), guess, (; K1, K2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)).u
         @test _rot_err_deg(ref.R, R) < 1e-3
         @test dot(normalize(ref.t), t) > 1 - 1e-8
         # calibrated_loss_width: PoseLib's rule, ½(1/f₁ + 1/f₂) with f = (fx + fy)/2 — LocalOptimizationDoneRight's
@@ -74,56 +74,55 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         p2 = [pinhole_pixel(K1, R * Y + t) for Y in X]
         n2[1:nout] .= [pinhole_point(inv(K1) * SVector(u[1], u[2], 1.0)) for u in x2[1:nout]]
         p2[1:nout] .= x2[1:nout]
-        pix = estimate(refine_relpose(seed, K1, K1, Correspondences(x1, p2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
-        cal = estimate(refine_relpose(seed, I3, I3, Correspondences(n1, n2); max_iter = 25, optimization_strategy = Irls{TLSShape}(),
-                             width = PoseLib.calibrated_loss_width(K1, K1, 2.0)))
+        pix = (poselib_refine(Correspondences(x1, p2), guess, (; K1, K2 = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)).u
+        cal = (poselib_refine(Correspondences(n1, n2), guess, (; K1 = I3, K2 = I3); max_iter = 25, optimization_strategy = Irls{TLSShape}(),
+                             width = PoseLib.calibrated_loss_width(K1, K1, 2.0))).u
         @test maximum(abs.(SMatrix{3,3}(cal.R) .- SMatrix{3,3}(pix.R))) < 1e-9 && norm(normalize(cal.t) - normalize(pix.t)) < 1e-9
     end
 
-    @testset "refine_fundamental" begin
+    @testset "fundamental matrix" begin
         rngf = MersenneTwister(102)
         F = inv(K2)' * tx * R * inv(K1)
         x1 = [pinhole_pixel(K1, Y) for Y in X]
         x2 = [pinhole_pixel(K2, R * Y + t) for Y in X]
         x2[1:nout] .= [outlier2(rngf) for _ in 1:nout]
         F0 = F .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(rngf, 9)))
-        Fr = estimate(refine_fundamental(F0, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
+        Fr = (poselib_refine(Correspondences(x1, x2), FundMat(F0); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)).u
         @test Fr isa FundMat{Float64}
         @test _proj_dist(Fr, F) < 1e-6 < _proj_dist(F0, F)
-        @test_throws ArgumentError("F must be 3×3, got 2×3") refine_fundamental(
-            Matrix(F0)[1:2, :], Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)
+        # a guess that is no 3×3 matrix is refused where the FundMat is built
+        @test_throws DimensionMismatch FundMat(Matrix(F0)[1:2, :])
     end
 
-    @testset "refine_homography" begin
+    @testset "homography" begin
         rngh = MersenneTwister(103)
         H = K2 * (R + t * SVector(0.0, 0.0, 0.1)') * inv(K1)
         x1 = [outlier2(rngh) for _ in 1:n]
         x2 = [pinhole_pixel(H, SVector(u[1], u[2], 1.0)) for u in x1]
         x2[1:nout] .= [outlier2(rngh) for _ in 1:nout]
         H0 = H .* (1 .+ 1e-3 .* SMatrix{3,3}(randn(rngh, 9)))
-        Hr = estimate(refine_homography(H0, Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0))
+        Hr = (poselib_refine(Correspondences(x1, x2), HomographyMat(H0); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)).u
         @test Hr isa HomographyMat{Float64}
         @test _proj_dist(Hr, H) < 1e-6 < _proj_dist(H0, H)
-        @test_throws ArgumentError("H must be 3×3, got 2×2") refine_homography(
-            Matrix(H0)[1:2, 1:2], Correspondences(x1, x2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0)
+        @test_throws DimensionMismatch HomographyMat(Matrix(H0)[1:2, 1:2])
     end
 
-    @testset "refine_absolute_pose refuses the z = 1 chart" begin
+    @testset "an absolute pose refuses the z = 1 chart" begin
         x = [pinhole_point(R * Y + t) for Y in X]
-        @test_throws ArgumentError refine_absolute_pose(seed, Correspondences(X, x); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
+        @test_throws ArgumentError poselib_refine(Correspondences(X, x), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
         msg = try
-            refine_absolute_pose(seed, Correspondences(X, x); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
+            poselib_refine(Correspondences(X, x), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 0.05)
         catch e
             sprint(showerror, e)
         end
-        @test occursin("refine_absolute_pose(pose, K, cs; max_iter, optimization_strategy, width)", msg)
+        @test occursin("RefineProblem(cs, pose, (; K))", msg)
         # One name for the refinement: PoseLib's upstream name is no second binding.
         @test !isdefined(PoseLib, Symbol("bundle" * "_adjust"))
     end
 
     # -------------------------------------------------------------------------
-    # The BEARING refiner (poselib::refine_relpose(d1, d2, M1, M2, …),
-    # bundle.cc:228). The camera-aware pixel wrapper above REDUCES to it: with
+    # The BEARING refine (PoseLib's C++ relative-pose refinement on bearings and their Jacobians,
+    # bundle.cc:228). The camera-aware pixel refine above REDUCES to it: with
     # the intrinsics fixed, PoseLib calls camera.unproject_with_jac() and hands
     # (d, M) to this same FixCameraRelativePoseRefiner. So feeding it the same
     # (d, M) from VGC's backproject_with_jacobian must reproduce that wrapper's
@@ -141,14 +140,14 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     # with f₁ = 800 and f₂ = 1100 the two M's differ in scale, which is what
     # makes the swap visible at all. Local rng so the outlier draw does not
     # depend on where this testset sits in the file.
-    @testset "refine_relpose (bearings, tangent Sampson)" begin
+    @testset "relative pose (bearings, tangent Sampson)" begin
         rngb = MersenneTwister(31)
         Kb2 = SMatrix{3,3}(1100.0, 0, 0, 0, 1100.0, 0, 330.0, 250.0, 1.0)
         u1 = [pinhole_pixel(K1, Y) for Y in X]
         u2 = [pinhole_pixel(Kb2, R * Y + t) for Y in X]
         u2[1:nout] .= [SVector(660 * rand(rngb), 500 * rand(rngb)) for _ in 1:nout]
-        cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Pinhole())
-        cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kb2)), Pinhole())
+        cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(K1)), Lens(Perspective()))
+        cam2 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(Kb2)), Lens(Perspective()))
         bm1 = backproject_with_jacobian.(Ref(cam1), u1)
         bm2 = backproject_with_jacobian.(Ref(cam2), u2)
         f1 = first.(bm1); M₁ = last.(bm1)
@@ -156,61 +155,59 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         cs = withattrs(Correspondences(f1, f2); M₁, M₂)
 
         loss_width = 2.0                         # PIXELS: M = ∂f/∂u carries the unit
-        pix = estimate(refine_relpose(seed, K1, Kb2, Correspondences(u1, u2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width))
-        bear = estimate(refine_relpose(seed, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width))
-        @test _rot_err_deg(bear.R, R) < 0.05 < _rot_err_deg(seed.R, R)
+        pix = (poselib_refine(Correspondences(u1, u2), guess, (; K1, K2 = Kb2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)).u
+        bear = (poselib_refine(cs, guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)).u
+        @test _rot_err_deg(bear.R, R) < 0.05 < _rot_err_deg(guess.R, R)
         @test dot(normalize(bear.t), t) > 1 - 1e-5
         @test maximum(abs.(SMatrix{3,3}(bear.R) .- SMatrix{3,3}(pix.R))) < 1e-12
         @test norm(bear.t - pix.t) < 1e-12
 
         # The Jacobians are not optional: they, and nothing else, set the loss width's unit.
-        @test_throws ArgumentError refine_relpose(seed, Correspondences(f1, f2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
+        @test_throws ArgumentError poselib_refine(Correspondences(f1, f2), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
 
         # THE CHART IN 3-VECTOR CLOTHING — the case the StaticVector{3}
         # signature cannot see. Lift each bearing to z = 1 and it stays a
         # 3-vector and keeps the same DIRECTION, so the refiner still answers
         # plausibly: measured by calling the C shim with the guard bypassed, the
         # lifted set returns a finite pose 0.0086° from truth against the honest
-        # 0.0067°, from a 0.573° seed — it refines, it looks right, and it is
+        # 0.0067°, from a 0.573° guess — it refines, it looks right, and it is
         # 2.1e-4 from the correct answer. Nothing downstream would flag it, and
         # the exclusion of rays past 90° has quietly survived. Only the norm
         # betrays it (1.41 at 45° off axis here), which is why the guard is a
         # norm check and why it lives at this boundary rather than in a loop.
         chart1 = [SVector(f[1] / f[3], f[2] / f[3], 1.0) for f in f1]
         @test maximum(norm, chart1) > 1.05          # a real chart, not the axis
-        @test_throws ArgumentError refine_relpose(
-            seed, withattrs(Correspondences(chart1, f2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
+        @test_throws ArgumentError poselib_refine(withattrs(Correspondences(chart1, f2); M₁, M₂), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
         gmsg = try
-            refine_relpose(seed, withattrs(Correspondences(chart1, f2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
+            poselib_refine(withattrs(Correspondences(chart1, f2); M₁, M₂), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
         catch e
             sprint(showerror, e)
         end
         @test occursin("source", gmsg) && occursin("backproject_with_jacobian", gmsg)
         # Targets are checked too, not just sources.
         chart2 = [SVector(f[1] / f[3], f[2] / f[3], 1.0) for f in f2]
-        @test_throws ArgumentError refine_relpose(
-            seed, withattrs(Correspondences(f1, chart2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
+        @test_throws ArgumentError poselib_refine(withattrs(Correspondences(f1, chart2); M₁, M₂), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
         # A NaN bearing (a pixel past a fisheye's fold) is refused by name: `NaN > worst` would get through the norm test.
         nan1 = copy(f1); nan1[3] = SVector(NaN, NaN, NaN)
         nmsg = try
-            refine_relpose(seed, withattrs(Correspondences(nan1, f2); M₁, M₂); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
+            poselib_refine(withattrs(Correspondences(nan1, f2); M₁, M₂), guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)
         catch e
             sprint(showerror, e)
         end
         @test occursin("finite bearings", nmsg) && occursin("index 3", nmsg)
         # Genuine bearings succeed: the tolerance does not reject its own producer.
-        @test estimate(refine_relpose(seed, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)).R == bear.R
+        @test (poselib_refine(cs, guess; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = loss_width)).u.R == bear.R
     end
 
     # The reason this entry point exists. The z = 1 chart cannot NAME a ray at
     # 90°: its coordinate there is (Inf, NaN). Point 1 below is exactly such a
     # ray, and 77 of the 150 bearings lie behind the camera (up to 173.6° off
-    # axis). The bearing refiner pulls the seed from 1.146° to <0.05° through
+    # axis). The bearing refiner pulls the guess from 1.146° to <0.05° through
     # it; handed the same geometry in the chart, the 2-vector sibling returns
     # the SEED UNTOUCHED — the NaN poisons the cost and LM never steps. That is
     # the failure an implementation which routed bearings through the chart
     # would have, and it is silent: the pose it returns is finite.
-    @testset "refine_relpose (bearings) past 90°" begin
+    @testset "relative pose (bearings) past 90°" begin
         rngf = MersenneTwister(11); rngn = MersenneTwister(13)
         m = 150
         Xs = [(v = normalize(SVector(randn(rngf), randn(rngf), randn(rngf)));
@@ -234,19 +231,19 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         @test count(f -> f[3] <= 0, g1) > m ÷ 4            # the data really leaves the hemisphere
 
         Rs = SMatrix{3,3,Float64,9}(RotMatrix(AngleAxis(0.02, 0.0, 1.0, 0.0))) * Rg
-        seedf = PoseLib.Rigid3(RotMatrix{3}(Rs), Vec3{Float64}(normalize(tg + SVector(0.0, 0.03, 0.0))))
-        ref = estimate(refine_relpose(seedf, cs; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = deg2rad(0.5)))
-        @test _rot_err_deg(ref.R, Rg) < 0.05 < _rot_err_deg(seedf.R, Rg)
+        guessf = EuclideanMap(RotMatrix{3}(Rs), Vec3{Float64}(normalize(tg + SVector(0.0, 0.03, 0.0))))
+        ref = (poselib_refine(cs, guessf; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = deg2rad(0.5))).u
+        @test _rot_err_deg(ref.R, Rg) < 0.05 < _rot_err_deg(guessf.R, Rg)
         @test dot(normalize(ref.t), tg) > 1 - 1e-6
 
         # The same geometry in the chart is now REFUSED rather than silently
         # mis-answered. Measured before the refusal landed, on exactly this
-        # data: it returned a FINITE pose that was the seed to <1e-12 — the NaN
+        # data: it returned a FINITE pose that was the guess to <1e-12 — the NaN
         # poisoned the cost and LM never took a step, so a caller saw a
         # plausible pose and no error at all. That is what the throw replaces.
         c1 = [SVector(f[1] / f[3], f[2] / f[3]) for f in g1]
         c2 = [SVector(f[1] / f[3], f[2] / f[3]) for f in g2]
-        @test_throws ArgumentError refine_relpose(seedf, Correspondences(c1, c2); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = deg2rad(0.5))
+        @test_throws ArgumentError poselib_refine(Correspondences(c1, c2), guessf; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = deg2rad(0.5))
     end
 
     # Camera-aware absolute pose: PIXEL points + K, loss width in PIXELS. The
@@ -258,11 +255,11 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     # It is pinned by the two controls rather than by comparing against the
     # withdrawn method: a width handed over in CALIBRATED units under-truncates by
     # 900×, zero-weighting everything, and a K with its principal point dropped
-    # mis-projects every point. Both leave the refiner standing on the seed, so
+    # mis-projects every point. Both leave the refiner standing on the guess, so
     # `< 1e-6` against the truth separates the right call from either mistake by
     # 4 orders. Without them, `loss_width` could be in any unit at all and the
     # accuracy assertion alone would still succeed.
-    @testset "refine_absolute_pose (camera-aware, pixels)" begin
+    @testset "absolute pose (camera-aware, pixels)" begin
         rnga = MersenneTwister(104)
         f = (K1[1,1] + K1[2,2]) / 2
         xcal = [pinhole_point(R * Y + t) for Y in X]
@@ -270,42 +267,41 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         upix = [SVector(f * c[1] + K1[1,3], f * c[2] + K1[2,3]) for c in xcal]
         calibrated_loss_width = 0.05
 
-        pix = estimate(refine_absolute_pose(seed, K1, Correspondences(X, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width))
+        pix = (poselib_refine(Correspondences(X, upix), guess, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)).u
         @test _rot_err_deg(pix.R, R) < 1e-3
-        @test_throws ArgumentError("K must be 3×3, got 3×4") refine_absolute_pose(
-            seed, hcat(Matrix(K1), zeros(3)), Correspondences(X, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)
+        @test_throws ArgumentError("K must be 3×3, got 3×4") poselib_refine(Correspondences(X, upix), guess, (; K = hcat(Matrix(K1), zeros(3))); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)
         @test norm(pix.t - t) < 1e-6
 
-        wrong_unit = estimate(refine_absolute_pose(seed, K1, Correspondences(X, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = calibrated_loss_width))
+        wrong_unit = (poselib_refine(Correspondences(X, upix), guess, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = calibrated_loss_width)).u
         @test norm(wrong_unit.t - t) > 1e-3          # stalls: the width is 900× too small
         Kbad = SMatrix{3,3}(f, 0, 0, 0, f, 0, 0.0, 0.0, 1.0)
-        wrong_pp = estimate(refine_absolute_pose(seed, Kbad, Correspondences(X, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width))
+        wrong_pp = (poselib_refine(Correspondences(X, upix), guess, (; K = Kbad); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)).u
         @test norm(wrong_pp.t - t) > 1e-3            # principal point is load-bearing
 
-        # Physical seed and world points (FlexUnits lengths): stripped in metres
+        # Physical guess and world points (FlexUnits lengths): stripped in metres
         # once, the same plain refinement, the pose read back in metres — equal
         # bit for bit to the plain call on the inputs' plain metres.
         Xm = [Y .* VgtkCore.m for Y in X]
-        seedm = VgtkCore.EuclideanMap(seed.R, seed.t .* VgtkCore.m)
-        phys = estimate(refine_absolute_pose(seedm, K1, Correspondences(Xm, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width))
+        guessm = VgtkCore.EuclideanMap(guess.R, guess.t .* VgtkCore.m)
+        phys = (poselib_refine(Correspondences(Xm, upix), guessm, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)).u
         @test VgtkCore.has_units(phys)
         plainm = VgtkCore.ustrip(VgtkCore.m, phys)
         @test plainm.R == pix.R && plainm.t == pix.t
         @test [Y .* VgtkCore.m for Y in X] == Xm                      # the inputs are not touched
-        # a labeled physical seed — what `estimate(find_absolute_pose(cam, X .* m .=> u))`
+        # a labeled physical guess — what VisualGeometryToolkitEstimation's absolute-pose find on `X .* m .=> u`
         # returns, a CameraExtrinsics (world → camera) — is read unlabeled
-        labeled = VgtkCore.CameraExtrinsics(seedm)
+        labeled = VgtkCore.CameraExtrinsics(guessm)
         @test labeled isa VgtkCore.CameraExtrinsics && VgtkCore.has_units(labeled)
-        physl = estimate(refine_absolute_pose(labeled, K1, Correspondences(Xm, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width))
+        physl = (poselib_refine(Correspondences(Xm, upix), labeled, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = f * calibrated_loss_width)).u
         @test VgtkCore.ustrip(VgtkCore.m, physl).R == pix.R && VgtkCore.ustrip(VgtkCore.m, physl).t == pix.t
         # mixed forms are refused, naming the fix
-        @test_throws ArgumentError refine_absolute_pose(seedm, K1, Correspondences(X, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 1.0)
-        @test_throws ArgumentError refine_absolute_pose(seed, K1, Correspondences(Xm, upix); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 1.0)
+        @test_throws ArgumentError poselib_refine(Correspondences(X, upix), guessm, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 1.0)
+        @test_throws ArgumentError poselib_refine(Correspondences(Xm, upix), guess, (; K = K1); max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 1.0)
     end
 
-    @testset "refine_relpose refuses a physical seed: a relative pose is up to scale" begin
-        seedm = VgtkCore.EuclideanMap(seed.R, seed.t .* VgtkCore.m)
-        err = try refine_relpose(seedm, K1, K2, Correspondences([SVector(0.0, 0.0)], [SVector(0.0, 0.0)]); max_iter = 1, optimization_strategy = Irls{TLSShape}(), width = 1.0) catch e; e end
+    @testset "a relative pose refuses a physical guess: it is up to scale" begin
+        guessm = VgtkCore.EuclideanMap(guess.R, guess.t .* VgtkCore.m)
+        err = try poselib_refine(Correspondences([SVector(0.0, 0.0)], [SVector(0.0, 0.0)]), guessm, (; K1, K2); max_iter = 1, optimization_strategy = Irls{TLSShape}(), width = 1.0) catch e; e end
         @test err isa ArgumentError && occursin("up to scale", err.msg)
     end
 
@@ -314,19 +310,21 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
     b1 = [normalize(Y) for Y in X]
     b2 = [normalize(R * Y + t) for Y in X]
 
-    @testset "essential_dlt(cs)" begin
-        E = VgtkCore.essential_dlt(Correspondences(b1[1:20], b2[1:20]))
-        @test E isa EssentialMat{Float64}
+    @testset "DLT(PoseLibSolver()): the eight-point E" begin
+        edlt(cs) = solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))
+        r = edlt(Correspondences(b1[1:20], b2[1:20]))
+        E = r.u
+        @test E isa EssentialMat{Float64} && r.n == 20 && r.retcode == VgtkCore.ReturnCode.Success
         @test _proj_dist(E, tx * R) < 1e-8
-        @test VgtkCore.essential_dlt(PoseLibSolver(), b1[1:20] .=> b2[1:20]) == E
+        @test edlt(b1[1:20] .=> b2[1:20]).u == E == VgtkCore.essential_8pt(PoseLibSolver(), b1[1:20] .=> b2[1:20])
         # Fewer than eight is an ArgumentError naming the count, before the ccall.
-        @test_throws ArgumentError("essential_dlt needs at least 8 correspondences, got 7") VgtkCore.essential_dlt(
+        @test_throws ArgumentError("DLT(PoseLibSolver()) of an essential matrix needs at least 8 correspondences, got 7") edlt(
             Correspondences(b1[1:7], b2[1:7]))
     end
 
-    # The PoseLib backend of VGC's `Essential5pt`. VGC's `solve` hands the
+    # The PoseLib backend of VGC's `Essential5pt`. VGC's solve of a `MinimalProblem` hands the
     # kernel two `SVector{5}` of bearings; until this binding accepted that,
-    # `solve(Essential5pt(PoseLibSolver()), cs, idx)` was a MethodError, and
+    # the solve was a MethodError, and
     # `essential_5pt(PoseLibSolver(), cs, idx)` read a `.first` column a plain
     # `Vector{Pair}` does not have. Every route must give the same models, and
     # the true E must be among them.
@@ -337,8 +335,8 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
                   ntuple(k -> b1[idx[k]], Val(5)), ntuple(k -> b2[idx[k]], Val(5)))
         @test length(ref) >= 1
         @test minimum(E -> _proj_dist(E, tx * R), ref) < 1e-8
-        for got in (VgtkCore.solve(Essential5pt(PoseLibSolver()), csv, idx),
-                    VgtkCore.solve(Essential5pt(PoseLibSolver()), Correspondences(b1, b2), idx),
+        for got in (solve(MinimalProblem(EssentialMat, csv, idx), Essential5pt(PoseLibSolver())),
+                    solve(MinimalProblem(EssentialMat, Correspondences(b1, b2), idx), Essential5pt(PoseLibSolver())),
                     VgtkCore.essential_5pt(PoseLibSolver(), csv, idx),
                     VgtkCore.essential_5pt(PoseLibSolver(), Correspondences(b1, b2), idx))
             @test length(got) == length(ref) && all(collect(got) .== collect(ref))
@@ -354,13 +352,14 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         c2 = [pinhole_point(R * Y + t) for Y in X]
         @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), c1 .=> c2, 1:5)
         @test_throws MethodError VgtkCore.essential_5pt(PoseLibSolver(), Correspondences(c1, c2), 1:5)
-        @test_throws MethodError VgtkCore.solve(Essential5pt(PoseLibSolver()), c1 .=> c2, 1:5)
-        @test_throws MethodError VgtkCore.essential_dlt(PoseLibSolver(), Correspondences(c1, c2))
+        @test_throws MethodError solve(MinimalProblem(EssentialMat, c1 .=> c2, 1:5), Essential5pt(PoseLibSolver()))
+        @test_throws MethodError VgtkCore.essential_8pt(PoseLibSolver(), Correspondences(c1, c2))
+        @test_throws MethodError solve(EstimationProblem(EssentialMat, Correspondences(c1, c2)), DLT(PoseLibSolver()))
         @test_throws MethodError VgtkCore.p3p(PoseLibSolver(), c1[1:3], X[1:3])
     end
     # -------------------------------------------------------------------------
     # The typed loss and its width. PoseLib builds every loss from one scalar
-    # `loss_scale` (robust/robust_loss.h); the binding hands `loss_width` over
+    # `loss_scale` (robust/robust_loss.h); the binding hands the width over
     # through UNCHANGED because, read off the C++, that scalar is exactly the
     # width w of VisualGeometryToolkitCore's closed forms: TruncatedLoss
     # ρ = min(r², w²), Huber's elbow at r = w, Cauchy w²·log1p(r²/w²). These
@@ -386,13 +385,13 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
         offset = SVector(3.0, 0.0)
         with_outliers = copy(exact); with_outliers[1:mout] .+= Ref(offset)
         cs_out = Correspondences(y1, with_outliers)
-        fit(cs, optimization_strategy, w) = estimate(refine_homography(H0, cs; max_iter = 100, optimization_strategy, width = w))
+        fit(cs, optimization_strategy, w) = (poselib_refine(cs, HomographyMat(H0); max_iter = 100, optimization_strategy, width = w)).u
 
         # Irls{TLSShape}: a truncation at w.
         @test _proj_dist(fit(cs_out, Irls{TLSShape}(), 2.5), He) < 1e-8
         @test _proj_dist(fit(cs_out, Irls{TLSShape}(), 3.5), He) > 1e-5
         # Le–Zach optimizes the same truncation: the same width decides. (At
-        # w = 2.5 its TR-IRLS returns the seed on this data, a property of the
+        # w = 2.5 its TR-IRLS returns the guess on this data, a property of the
         # scheme rather than of the width, so it is checked at w = 1, which
         # also rejects the 3 px outliers, and at w = 3.5, which keeps them
         # where a width of w/2 would not.)
@@ -401,10 +400,10 @@ _proj_dist(A, B) = (a = vec(Matrix(A)) / norm(Matrix(A)); b = vec(Matrix(B)) / n
 
         # Irls{HuberShape}: the elbow at w.
         noisy = [x + (1.2 + 0.3 * rand(rngw)) * (a = 2π * rand(rngw); SVector(cos(a), sin(a))) for x in exact]
-        l2 = estimate(refine_homography(H0, Correspondences(y1, noisy); max_iter = 100, optimization_strategy = nothing))
+        l2 = (poselib_refine(Correspondences(y1, noisy), HomographyMat(H0); max_iter = 100, optimization_strategy = nothing)).u
         @test _proj_dist(fit(Correspondences(y1, noisy), Irls{HuberShape}(), 2.0), l2) < 1e-12
         noisy_out = copy(noisy); noisy_out[1:mout] .+= Ref(offset)
-        l2_out = estimate(refine_homography(H0, Correspondences(y1, noisy_out); max_iter = 100, optimization_strategy = nothing))
+        l2_out = (poselib_refine(Correspondences(y1, noisy_out), HomographyMat(H0); max_iter = 100, optimization_strategy = nothing)).u
         @test _proj_dist(fit(Correspondences(y1, noisy_out), Irls{HuberShape}(), 2.0), l2_out) > 1e-6
         @test _proj_dist(fit(Correspondences(y1, noisy_out), Irls{HuberShape}(), 6.0), l2_out) < 1e-12
 

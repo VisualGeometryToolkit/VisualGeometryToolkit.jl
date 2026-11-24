@@ -144,22 +144,45 @@ function LmStops(; max_iter::Integer = _LM_MAX_ITER, ftol::Real = _LM_FTOL, xtol
         Float64(residual_resolution))
 end
 """
-    LevenbergMarquardt(; optimization_strategy = ClassDefault(), damping = MarquardtDamping())
+    LevenbergMarquardt([backend = NativeSolver()]; optimization_strategy = ClassDefault(), damping = default_damping(backend))
 
 The stack's ONE host Levenberg–Marquardt, a [`RefineKind`](@ref): it solves a [`RefineProblem`](@ref) (the
 default algorithm of a constraint problem's), generically over the chart-LM interface of the problem's `f`, by NLLSsolver
 ([`lmsolve_chart!`](@ref)). Its configuration is its fields: `optimization_strategy` the robust strategy of the
 refine (a loss-parametric strategy, `nothing` for plain least squares, or [`ClassDefault`](@ref)`()`: the problem
-class's default of record) and `damping` the step's damping ([`MarquardtDamping`](@ref), λ·DᵀD, or
-[`LevenbergDamping`](@ref), λ·I). Its stops are the solve keyword `stops = `[`LmStops`](@ref)`(…)`. The device LM is
+class's default of record), `damping` the step's damping ([`MarquardtDamping`](@ref), λ·DᵀD, or
+[`LevenbergDamping`](@ref), λ·I) and `backend` the implementation that runs it, as for [`DLT`](@ref) and the minimal
+solvers: `NativeSolver()` (NLLSsolver, the default), or a backend whose package implements the refine of raw data,
+[`lm_backend_refine`](@ref) (PoseLib.jl: `solve(RefineProblem(cs, H₀), LevenbergMarquardt(PoseLibSolver(); …))`).
+Core's refines of a problem run the native backend only; another backend on them has no method. `damping` defaults to the backend's own
+([`default_damping`](@ref)). Its stops are the solve keyword `stops = `[`LmStops`](@ref)`(…)`. The device LM is
 [`StaticLevenbergMarquardt`](@ref).
 """
-struct LevenbergMarquardt{S, D <: LmDamping} <: AbstractEstimationAlgorithm
+struct LevenbergMarquardt{B <: AbstractSolverBackend, S, D <: LmDamping} <: AbstractEstimationAlgorithm
     optimization_strategy::S
     damping::D
+    backend::B
 end
-LevenbergMarquardt(; optimization_strategy = ClassDefault(), damping::LmDamping = MarquardtDamping()) =
-    LevenbergMarquardt(optimization_strategy, damping)
+LevenbergMarquardt(backend::AbstractSolverBackend = NativeSolver(); optimization_strategy = ClassDefault(),
+                   damping::LmDamping = default_damping(backend)) =
+    LevenbergMarquardt(optimization_strategy, damping, backend)
+
+"""
+    default_damping(backend::AbstractSolverBackend) -> LmDamping
+
+The damping a [`LevenbergMarquardt`](@ref) on `backend` runs when its constructor names none: the backend's own.
+`MarquardtDamping()` for `NativeSolver()` (Core's host LM). A contract generic: a backend's package states its
+library's damping (PoseLib.jl: `LevenbergDamping()`, PoseLib's λ·I); a backend whose package is not loaded is an
+`ArgumentError` (load the package that implements the backend).
+"""
+default_damping(::NativeSolver) = MarquardtDamping()
+default_damping(backend::AbstractSolverBackend) = throw(_no_backend_lm(backend))
+
+# A backend without a Levenberg–Marquardt: its package is not loaded, or implements none. One message for
+# `default_damping` and `lm_backend_refine` (robust/refine.jl).
+_no_backend_lm(backend::AbstractSolverBackend) = ArgumentError(string("the ", nameof(typeof(backend)),
+    " backend has no Levenberg–Marquardt here: its package implements `default_damping` and `lm_backend_refine` ",
+    "for it; load that package, or refine a problem with LevenbergMarquardt() (the native backend)"))
 estimator_kind(::LevenbergMarquardt) = RefineKind()
 # (`default_algorithm` of a refine: robust/problem.jl, beside AbstractConstraintProblem.)
 

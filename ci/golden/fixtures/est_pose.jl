@@ -80,7 +80,7 @@ function po_pixel_refine_fixtures()
     push!(out, "pinhole12_labeled" => (VgtkCore.relabel(VgtkCore.WorldFrame, VgtkCore.CameraFrame, perturbed(E)), PO_PIN, cs))
     push!(out, "pinhole12_metres" => (VgtkCore.EuclideanMap(perturbed(E).R, perturbed(E).t .* po_m), PO_PIN, [X .* po_m => u for (X, u) in cs]))
     push!(out, "pinhole12_too_few_2" => (E, PO_PIN, cs[1:2]))
-    push!(out, "too_few_2_metres" => (VgtkCore.with_unit(VgtkCore.Extrinsics3(one(RotMatrix{3, Float64}), VgtkCore.Vec3{Float64}(0.0, 0.0, 0.0)), po_m),
+    push!(out, "too_few_2_metres" => (VgtkCore.with_unit(VgtkCore.CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, VgtkCore.Vec3{Float64}}(one(RotMatrix{3, Float64}), VgtkCore.Vec3{Float64}(0.0, 0.0, 0.0)), po_m),
         PCAM, [SA[0.1, 0.2, 2.0] .* po_m, SA[-0.3, 0.1, 2.5] .* po_m] .=> [SA[400.0, 300.0], SA[500.0, 350.0]]))
     return out
 end
@@ -147,7 +147,7 @@ function po_bearing_refine_fixtures()
     push!(out, "centre_point_weight0" => (E₀, VgtkCore.withattrs(VgtkCore.Correspondences(vcat(Xs, [Xc]), vcat(fs, [SVector(0.0, 0.0, 1.0)])); weights = w)))
     # refine_contract / ransac_no_model too few: plain and metres
     X2 = [SA[0.1, 0.2, 2.0], SA[-0.3, 0.1, 2.5]]
-    pose = VgtkCore.Extrinsics3(one(RotMatrix{3, Float64}), VgtkCore.Vec3{Float64}(0.0, 0.0, 0.0))
+    pose = VgtkCore.CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, VgtkCore.Vec3{Float64}}(one(RotMatrix{3, Float64}), VgtkCore.Vec3{Float64}(0.0, 0.0, 0.0))
     push!(out, "contract_too_few_2" => (pose, VgtkCore.Correspondences(X2, [normalize(x) for x in X2])))
     push!(out, "contract_too_few_2_metres" => (VgtkCore.with_unit(pose, po_m), VgtkCore.Correspondences([x .* po_m for x in X2], [normalize(x) for x in X2])))
     return out
@@ -173,7 +173,7 @@ function po_slow_rotation_set()   # hand_eye_tests: every consecutive motion tur
     Xgt, Ygt, A = only(sc.X), sc.Y, sc.A
     for _ in 2:30
         ax = randn(r7, 3); ax ./= norm(ax)
-        Δ = VgtkEstimation.Rigid3(RotMatrix{3, Float64}(RotMatrix(RotationVec((deg2rad(3) .* ax)...))), SVector{3, Float64}((0.2 .* randn(r7, 3))...))
+        Δ = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(RotMatrix(RotationVec((deg2rad(3) .* ax)...))), VgtkCore.Vec3{Float64}((0.2 .* randn(r7, 3))...))
         push!(A, A[end] ∘ Δ)
     end
     return A .=> [_PO_P.marker_pose(Ygt, a, Xgt) for a in A]
@@ -193,7 +193,7 @@ function po_hand_eye_scenes()
     outliers = po_synth_dataset(rng; N = 120, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 15)
     allpairs = po_synth_dataset(rng; N = 20, σ_R = 1.0e-3, σ_t = 1.0e-3)
     mmset = po_synth_dataset(StableRNG(252); N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 8)
-    tomm(p) = VgtkEstimation.Rigid3(VgtkCore.rotation(p), SVector{3, Float64}((1000 .* VgtkCore.translation(p))...))
+    tomm(p) = VgtkCore.EuclideanMap(RotMatrix{3, Float64}(VgtkCore.rotation(p)), VgtkCore.Vec3{Float64}((1000 .* VgtkCore.translation(p))...))
     A, B = po_units_hand_eye()
     Amm = po_phys.([VgtkCore.EuclideanMap(VgtkCore.rotation(a), 1000 .* VgtkCore.translation(a)) for a in A], Ref(po_mm))
     Bmm = po_phys.([VgtkCore.EuclideanMap(VgtkCore.rotation(b), 1000 .* VgtkCore.translation(b)) for b in B], Ref(po_mm))

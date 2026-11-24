@@ -38,7 +38,7 @@ end
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    # OPENCV3 over a 155° field: the recorded LM never left its zero start (925 672 px at the edge). A perspective
+    # Lens{Perspective, Radial{Even, 3, 0, Float64}} over a 155° field: the recorded LM never left its zero start (925 672 px at the edge). A perspective
     # gnomonic family applies its distortion on the perspective plane, which ends at 90°: the linear fit, and so the
     # approximation, refuse the field, naming the plane and the region's extent, instead of fitting a clipped field
     for name in MOVED
@@ -72,7 +72,7 @@ end
 @testitem "CameraRegression: the profile regression's pieces" setup = [FitCameraLensCases] begin
     using Test
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: lens, parameters, Lens, LiftLens, KannalaBrandt, Division, Orthographic, Equidistant, Perspective, Radial, Additive, Tangential, ThinPrism, Pinhole, radial_part, view_angle_limit, CameraModel
+    using VisualGeometryToolkitCore: lens, parameters, Lens, LiftLens, KannalaBrandt, Division, Orthographic, Equidistant, Perspective, Radial, Even, DoubleSphere, Additive, Tangential, ThinPrism, radial_part, view_angle_limit, CameraModel
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
@@ -83,20 +83,20 @@ end
         @test sum(q .* θ .^ 5) ≈ 1.3^6 / 6 rtol = 1.0e-8
     end
     @testset "the family limits are VGC's own view-angle limits" begin
-        @test VgtkEstimation._family_limit(Pinhole) == view_angle_limit(Pinhole()) == π / 2 - 1.0e-3
+        @test VgtkEstimation._family_limit(Lens{Perspective, Nothing}) == view_angle_limit(Lens(Perspective())) == π / 2 - 1.0e-3
         @test VgtkEstimation._family_limit(KB4) == view_angle_limit(Lens(Equidistant())) == π - 1.0e-3
         @test VgtkEstimation._family_limit(typeof(Lens(Orthographic()))) == view_angle_limit(Lens(Orthographic()))
-        @test VgtkEstimation._family_limit(DSL) == π - 1.0e-3
+        @test VgtkEstimation._family_limit(typeof(Lens(DoubleSphere(0.5, 0.5)))) == π - 1.0e-3
     end
     @testset "a region past the target family's view-angle limit is refused" begin
         # refused: the perspective plane ends at 90° (changed on purpose, 2026-11-11: it was fitted over the clipped
         # field with a warning)
-        @test_throws r"perspective plane \(θ < 90°\), but the region reaches 154.9°" solve(EstimationProblem(CameraRegressionProblem(OPENCV3, mdiv, disc(mdiv, rcorner))), CameraRegression())
+        @test_throws r"perspective plane \(θ < 90°\), but the region reaches 154.9°" solve(EstimationProblem(CameraRegressionProblem(Lens{Perspective, Radial{Even, 3, 0, Float64}}, mdiv, disc(mdiv, rcorner))), CameraRegression())
         @test_throws r"its view-angle limit" solve(EstimationProblem(CameraRegressionProblem(typeof(Lens(Orthographic())), mdiv, disc(mdiv, rcorner))), CameraRegression())
         # a typed refusal: its fields carry the measured angle and the family's limit (radians), read without the text
-        e = try solve(EstimationProblem(CameraRegressionProblem(OPENCV3, mdiv, disc(mdiv, rcorner))), CameraRegression()); nothing catch err; err end
-        @test e isa VgtkEstimation.ViewAngleLimitError && e.family === OPENCV3
-        @test e.limit == view_angle_limit(Pinhole()) && round(rad2deg(e.field_angle); digits = 1) == 154.9
+        e = try solve(EstimationProblem(CameraRegressionProblem(Lens{Perspective, Radial{Even, 3, 0, Float64}}, mdiv, disc(mdiv, rcorner))), CameraRegression()); nothing catch err; err end
+        @test e isa VgtkEstimation.ViewAngleLimitError && e.family === Lens{Perspective, Radial{Even, 3, 0, Float64}}
+        @test e.limit == view_angle_limit(Lens(Perspective())) && round(rad2deg(e.field_angle); digits = 1) == 154.9
         @test e.field_angle > e.limit
     end
     @testset "decentering: a target holds it at zero, a source's is stripped and warned" begin
@@ -107,7 +107,7 @@ end
         @test VgtkEstimation._decentering(VgtkEstimation.VgtkCore.Cameras.RadialSymmetry(synthetic), synthetic) ≈ hypot(1.0e-3, -5.0e-4, -5.5e-3, 7.0e-4, 2.2e-3, -1.2e-3)
         @test radial_part(synthetic) === Lens(Perspective(), Radial((-0.12, 0.03, 0.004), (0.02, -0.001, 0.0003)))
         src = CameraModel(; pp = (960.0, 540.0), focal = 900.0, lens = synthetic)
-        @test_logs (:warn, r"non-radial terms") match_mode = :any solve(EstimationProblem(CameraRegressionProblem(OPENCV3, src, disc(src, 500.0))), CameraRegression())
+        @test_logs (:warn, r"non-radial terms") match_mode = :any solve(EstimationProblem(CameraRegressionProblem(Lens{Perspective, Radial{Even, 3, 0, Float64}}, src, disc(src, 500.0))), CameraRegression())
     end
     @testset "Division alone is the one-coefficient model; a type without its arities is refused" begin
         @test lens(solve(EstimationProblem(CameraRegressionProblem(Division, mdiv, disc(mdiv, rcorner))), CameraRegression()).u) == lens(solve(EstimationProblem(CameraRegressionProblem(Division{1}, mdiv, disc(mdiv, rcorner))), CameraRegression()).u)

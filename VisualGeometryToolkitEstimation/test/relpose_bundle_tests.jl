@@ -17,7 +17,7 @@ using StableRNGs
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RelativePoseProblem, _refine_relative_pose, _BundleData, _BundleRows,
-    _BundlePoint, _BundlePose, _triangulate_optimal, _reprojection_error, _POSE_DOF, _inv3
+    _BundlePoint, _triangulate_optimal, _reprojection_error, _POSE_DOF, _inv3
 using VisualGeometryToolkitCore: EssentialManifold5, recenter_pose
 import NLLSsolver
 using ForwardDiff: ForwardDiff
@@ -67,7 +67,7 @@ _pose_errs(R, t, Rgt, tgt) = rad2deg.(pose_error(R, t, Rgt, tgt))
     R0, t0 = relpose_seed(rng, Rgt, tgt; δ = (0.03, -0.02, 0.04), s = 0.08)
     sw = sqrt.(0.5 .+ 0.5 .* rand(rng, N))
     data = _BundleData(KC1, KC2, u1, u2, sw)
-    pose = EssentialManifold5(R0, t0)::_BundlePose
+    pose = EssentialManifold5(R0, t0)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
     for i in 1:N
         X = SVector{3, Float64}(_dlt_reference_triangulation(u1[i], u2[i], KC1, KC2, R0, t0)) + 0.01 * randn(rng, SVector{3, Float64})
         rows = _BundleRows{true, typeof(data)}(data, i, SVector(1, i + 1))
@@ -283,7 +283,7 @@ end
         data = _WallData(SMatrix{3, 3, Float64, 9}(KC1), _WallK(SMatrix{3, 3, Float64, 9}(KC2), wall, s), u1, u2, sw)
         run = VisualGeometryToolkitEstimation._BundleRun{E}(N, data)
         p = run.lm
-        p.variables[1] = EssentialManifold5(SMatrix{3, 3, Float64, 9}(R0), t0)::_BundlePose
+        p.variables[1] = EssentialManifold5(SMatrix{3, 3, Float64, 9}(R0), t0)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
         for i in 1:N
             X = _triangulate_rays(iK1, iK2, u1[i], u2[i], R0, t0)
             p.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
@@ -294,7 +294,7 @@ end
         pose = p.variables[1]
         bad = _BundlePoint{E}(SVector(s * (wall + 1.0), 0.0, 5.0))
         rows = _BundleRows{E, typeof(data)}(data, 1, SVector(1, 2))
-        @test NLLSsolver.computecost(Union{_BundlePose, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)), bad], rows) == Inf
+        @test NLLSsolver.computecost(Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)), bad], rows) == Inf
         return res, e0, (extent(p, 1.0), extent(p, -1.0))
     end
     # the free fit (no wall): which side of camera 2 its optimum moves out on

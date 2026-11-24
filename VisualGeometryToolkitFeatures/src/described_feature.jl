@@ -11,8 +11,8 @@
 #
 # =============================================================================
 
-# match, NNMatch, NNStrategy and MutualNN come from nn_match.jl; correspondences is
-# VisualGeometryToolkitCore's (matching.jl imports it, nn_match.jl adds the NNMatch method)
+# match, the match type (`Attributed{…, NNMatchMeta}`), NNStrategy and MutualNN come from nn_match.jl; correspondences is
+# VisualGeometryToolkitCore's (matching.jl imports it, nn_match.jl adds the method for matches)
 
 """
     DescribedFeature{D<:Detection, N}
@@ -117,7 +117,7 @@ end
 
 """
     match(f1::StructArray{<:DescribedFeature}, f2::StructArray{<:DescribedFeature},
-          strategy; kwargs...) -> Vector{NNMatch}
+          strategy; kwargs...) -> Vector{<:Attributed{<:Correspondence, NNMatchMeta}}
 
 Match described features by their descriptors. Extracts descriptor matrices
 and delegates to the matrix-based `match`.

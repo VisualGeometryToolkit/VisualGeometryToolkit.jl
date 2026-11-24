@@ -20,7 +20,7 @@
     bc = Lens(Perspective(), Additive(Radial((-0.15680625941667098, 0.04565665542192153)), Tangential(-0.0003527415347489064, 0.0008423616851487834)))
     tpf = Lens(Equidistant(), Additive(Radial((0.1, -0.02, 0.003, -0.0004)), Tangential(1.0e-4, -2.0e-4), ThinPrism((2.0e-4,), (-1.0e-4,))))
     every_lens = [
-        Pinhole(), Lens(Equidistant()), bc,
+        Lens(Perspective()), Lens(Equidistant()), bc,
         opencv_lens([-0.1, 0.05, 1.0e-4, -2.0e-4, 0.01, 0.0, 0.0, 0.002, -5.5e-4, 7.0e-6, -2.2e-3, 1.2e-4, 1.0e-3, -2.0e-3]),
         KannalaBrandt(0.1, -0.02, 0.003, -0.0004),
         Scaramuzza(-0.1664, -0.0063, 0.035),
@@ -121,12 +121,12 @@
         end
 
         # ...and a stored camera has NO frame of its own to contradict the
-        # model with: K is in CANONICAL_PIXEL_FRAME by construction.
+        # model with: K is in `PixelFrame{:colmap}` by construction.
         @test !hasproperty(BoundedCamera(m, Size2(4240, 2832)), :pixel_frame)
 
         # The registered set lives in VGC, not here: this package asks rather
         # than keeping a list, so the refusal quotes VGC's own valid options.
-        @test VgtkIO.pixel_frame_name(VgtkIO.CANONICAL_PIXEL_FRAME) == "colmap"
+        @test VgtkIO.pixel_frame_name(PixelFrame{:colmap}) == "colmap"
         @test VgtkIO.pixel_frame_from_name("opencv") === PixelFrame{:opencv}
         @test VgtkIO.pixel_origin(PixelFrame{:julia}) === :julia
         err = try
@@ -238,7 +238,7 @@
         # computes survives exactly — written as that model, read back as the same
         # lens — and anything else throws rather than being approximated.
         expressible = [
-            Pinhole() => :PINHOLE, bc => :OPENCV, every_lens[4] => nothing,
+            Lens(Perspective()) => :PINHOLE, bc => :OPENCV, every_lens[4] => nothing,
             Lens(Perspective(), Additive(Radial((-0.1, 0.02, 0.003), (0.01, 0.0, 0.0)), Tangential(1.0e-4, 2.0e-4))) => :FULL_OPENCV,
             KannalaBrandt(0.1, -0.02, 0.003, -4.0e-4) => :OPENCV_FISHEYE, tpf => :THIN_PRISM_FISHEYE,
             Lens(Equidistant()) => :FISHEYE, Division(-0.3) => :DIVISION,

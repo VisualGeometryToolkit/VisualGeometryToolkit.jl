@@ -631,6 +631,17 @@ const RETIRED_NAMES = String[
     "fit_residual" * "_mixture",             # `solve(EstimationProblem(PosteriorWeightState, distances, (; model_dof)), ResidualMixture(; weighting))`
     "refine_relative" * "_pose",             # `solve(RefineProblem(RelativePoseProblem(K1, K2, cs), pose), LevenbergMarquardt())` (a FitResult)
     "fit" * "_line",                         # internal: `_heteroscedastic_line` (the uncertain points' weighted line)
+    # PoseLib.jl 0.4: its refiners are LevenbergMarquardt(PoseLibSolver()) on its own problem (its homography and
+    # absolute-pose refiners share the names retired above, with Estimation's)
+    "refine" * "_relpose",                   # `solve(RefineProblem(cs, pose[, (; K1, K2)]), LevenbergMarquardt(PoseLibSolver(); optimization_strategy); stops = LmStops(; max_iter), scale | width)`
+    "refine" * "_fundamental",               # `solve(RefineProblem(cs, FundMat(F)), LevenbergMarquardt(PoseLibSolver(); optimization_strategy); stops, scale | width)`
+    # check_naming R20, a `const` naming one concrete instantiation of a stack type (owner, 2026-11-24): the type is spelled
+    "Rig" * "id3",                           # Estimation's and PoseLib's: an unlabeled `EuclideanMap{3}` (built as `EuclideanMap(RotMatrix{3}(R), Vec3(t))`; a stored type is a type parameter, else `PlainEuclideanMap{3, Float64}`)
+    "Extrin" * "sics3",                      # `CameraExtrinsics` (concrete: `CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}`); the planar-target pose `CameraExtrinsics(H, intrinsics)`
+    "Pin" * "hole",                          # `Lens(Perspective())` (the type `Lens{Perspective, Nothing}`)
+    "Uncertain" * "Pixel", "Uncertain" * "Point3",   # `Uncertain{SVector{N, Float64}, CovMat{N, Float64, SMatrix{N, N, Float64, N²}, UnlabeledFrame{N}}}`
+    "NN" * "Match",                          # VisualGeometryToolkitFeatures: `Attributed{Correspondence{Int, Int}, NNMatchMeta}`, built `Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))`
+    "SCHOEPS" * "_PIXEL_FRAME", "CANONICAL" * "_PIXEL_FRAME",   # VisualGeometryToolkitIO: `PixelFrame{:colmap}`
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -659,6 +670,10 @@ const FOREIGN_FORMAT_TOKENS = [
     "image" * "_origin" => (; owner = "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
         accepted_in = :format_literal),
     "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
+    "Pin" * "hole" => (; owner = "the lens model name of VisualGeometryToolkitIO's version-1 camera records (and of Schöps' and COLMAP's model names), read by its migration", accepted_in = :format_literal),
+    # PoseLib's C++ refiners keep their upstream names: the C wrapper calls them (PoseLib.jl's own refiners are retired)
+    [name => (; owner = "PoseLib's C++ refinement of the same name (bundle.cc), called by PoseLib.jl's C wrapper", accepted_in = :c_source)
+      for name in ("refine" * "_homography", "refine" * "_fundamental", "refine" * "_relpose")]...,
     "inlier" * "_threshold" => (; owner = "RansacLib's and SupeRANSAC's settings field (C++ and pysuperansac), set by name in a string",
         accepted_in = :format_literal),
     "cs" * "ponds" => (; owner = "the key of the published correspondence records (the stored pool and dataset files, " *
@@ -1741,12 +1756,13 @@ a name beginning `_` is an internal step and exempt. R19: no binding begins `sol
 estimation verb; an iterative algorithm's block update is `update_<block>!`); a quoted symbol is a value and
 stands. R20: no `const` aliases an estimation-algorithm type (the package's own or any loaded) or a solve verb
 (`solve`, `init`, `solve!`, `__solve`, `__init`), and none holds an algorithm value (`const X = DLT()`): one name
-per thing, and an algorithm's configuration is its fields. Rules R16–R18 read the loaded methods and are
+per thing, and an algorithm's configuration is its fields; nor names one concrete instantiation of a stack type
+(parsed here; `check_naming(M::Module)` adds the loaded bindings, a computed `typeof(…)` included). Rules R16–R18 read the loaded methods and are
 `check_algorithm_traits`' (no `CommonSolve.solve`/`init` method outside Core; a `__solve`/`__init` method's
 algorithm type owned by its module; an `rng` keyword only where the pair `supports_solve_rng`); R17 (every
 algorithm has an `estimator_kind`) is too.
 """
-function check_naming(pkgdir::AbstractString)
+function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
     (; files) = naming_scope(pkgdir)
     sources = Dict(f => read(joinpath(pkgdir, f), String) for f in files)
     jl = filter(f -> endswith(f, ".jl"), files)
@@ -1859,12 +1875,12 @@ function check_naming(pkgdir::AbstractString)
     end
     # rule 20: no alias of an estimation algorithm or of the solve verbs, and no algorithm value held in a constant
     algorithms = union(Set(t for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes)), _loaded_algorithm_names())
+    arities = _stack_type_arities(parsed, jl, Symbol(pkg), stack_roots)
     for f in jl
         _alias_rules!(out, f, parsed[f], algorithms)
+        _concrete_alias_rules!(out, f, parsed[f], arities)
     end
-    unique!(v -> (v.file, v.line, v.text, v.rule), out)
-    sort!(out; by = v -> (v.file, v.line, v.rule))
-    return out
+    return _sorted_unique!(out)
 end
 
 # -----------------------------------------------------------------------------
@@ -2273,11 +2289,15 @@ _last_name(x::Symbol) = x
 _last_name(x::QuoteNode) = x.value isa Symbol ? x.value : nothing
 _last_name(x::Expr) = x.head === :. && length(x.args) == 2 ? _last_name(x.args[2]) : x.head === :curly ? _last_name(x.args[1]) : nothing
 _last_name(_) = nothing
+# `const lhs = rhs` as `(lhs, rhs)`, else `nothing`.
+_const_assignment(x::Expr) =
+    x.head === :const && length(x.args) == 1 && x.args[1] isa Expr && x.args[1].head === :(=) ? (x.args[1].args[1], x.args[1].args[2]) : nothing
 function _alias_rules!(out, f, ex, algorithms)
     line = Ref(0)
     _visit_lines(ex, line) do x
-        x.head === :const && length(x.args) == 1 && x.args[1] isa Expr && x.args[1].head === :(=) || return
-        rhs = x.args[1].args[2]
+        a = _const_assignment(x)
+        a === nothing && return
+        rhs = a[2]
         n = rhs isa Expr && rhs.head === :call ? _last_name(rhs.args[1]) : _last_name(rhs)
         n === nothing && return
         called = rhs isa Expr && rhs.head === :call
@@ -2286,6 +2306,100 @@ function _alias_rules!(out, f, ex, algorithms)
         end
     end
     return out
+end
+
+# R20, the alias of a concrete type (owner, 2026-11-24): a `const` whose name takes no parameters and whose right side
+# names ONE concrete instantiation of a stack type is a second name for one type (`const X = EuclideanMap{3, Float64, …}`
+# with every parameter given): spell the type, or a parametric alias with free variables, which stays allowed (`const
+# Line2D{T} = Hyperplane{2, 3, T}`). Parsed, a right side is flagged when it applies a concrete stack type to exactly as
+# many parameters as the type has free, none of them bounded (`<:`) or a `where`. The table is keyed by the
+# module-qualified name `(root package, type name)` and holds only types whose full application is a concrete type: a
+# loaded stack type's struct or alias whose body is a non-abstract struct, its count every free variable of the
+# alias's body (`PlainEuclideanMap{N, T}` has four, `R` and `V` included, so `PlainEuclideanMap{3, Float64}` is a
+# UnionAll and not flagged), and the scanned package's own `struct`s. An abstract type, a `Union` and the package's
+# own parametric aliases are not in it: what a parsed alias body leaves free is the run-time check's to see
+# (`_concrete_type_bindings`). Limits: a type of a package that is neither loaded nor the scanned one is not seen.
+const _PACKAGE_ALIASES = Dict(:VgtkCore => :VisualGeometryToolkitCore, :VgtkIO => :VisualGeometryToolkitIO,
+    :VgtkFeatures => :VisualGeometryToolkitFeatures, :VgtkEval => :VisualGeometryToolkitEval,
+    :VgtkEstimation => :VisualGeometryToolkitEstimation)
+# The root module names of the stack's packages (the keys of `stack_dependencies()`).
+_stack_roots() = Set(Symbol.(keys(VisualGeometryToolkitCore.stack_dependencies())))
+# Every module-level binding of `M` and its submodules, as `(module, name, value)`.
+_module_bindings(M::Module) = ((N, n, getfield(N, n)) for N in VisualGeometryToolkitCore._module_tree(M)
+                               for n in names(N; all = true) if isdefined(N, n) && !Base.isdeprecated(N, n))
+function _stack_type_arities(parsed, jl, pkg::Symbol, stack)
+    arities = Dict{Tuple{Symbol, Symbol}, Int}()
+    for M in Base.loaded_modules_array()
+        nameof(M) in stack || continue
+        for (_, n, T) in _module_bindings(M)
+            T isa Type && T !== Union{} || continue
+            k, U = 0, T
+            while U isa UnionAll
+                k += 1; U = U.body
+            end
+            U isa DataType && !isabstracttype(U) && (arities[(nameof(M), n)] = k)
+        end
+    end
+    for f in jl
+        _visit_lines(parsed[f], Ref(0)) do x
+            x.head === :struct || return
+            sig = x.args[2]
+            sig isa Expr && sig.head === :<: && (sig = sig.args[1])
+            sig isa Symbol && (arities[(pkg, sig)] = 0)
+            sig isa Expr && sig.head === :curly && sig.args[1] isa Symbol && (arities[(pkg, sig.args[1])] = length(sig.args) - 1)
+        end
+    end
+    return arities
+end
+# Whether the type expression `a` is closed: no bounded parameter (`<:`, `>:`) and no `where` anywhere in it.
+_closed_type_expr(a) = !(a isa Expr) || !(a.head in (:<:, :>:, :where)) && all(_closed_type_expr, a.args)
+# The arity of record of the type a right side names: a qualified name's (its root module, an alias of the stack's
+# resolved); a bare name's when every stack type of that name agrees on it, else `nothing`.
+function _named_arity(arities, ref)
+    if ref isa Expr && ref.head === :.
+        root = _qualifier_root(ref)
+        return get(arities, (get(_PACKAGE_ALIASES, root, root), _last_name(ref)), nothing)
+    end
+    ks = Set(k for ((_, n), k) in arities if n === ref)
+    return length(ks) == 1 ? only(ks) : nothing
+end
+function _concrete_alias_rules!(out, f, ex, arities)
+    line = Ref(0)
+    _visit_lines(ex, line) do x
+        a = _const_assignment(x)
+        a === nothing && return
+        lhs, rhs = a
+        lhs isa Symbol || return
+        curly = rhs isa Expr && rhs.head === :curly
+        ref = curly ? rhs.args[1] : rhs
+        (ref isa Symbol || (ref isa Expr && ref.head === :.)) && _last_name(ref) !== lhs || return
+        k = _named_arity(arities, ref)
+        k == (curly ? length(rhs.args) - 1 : 0) && _closed_type_expr(rhs) &&
+            push!(out, NamingViolation(f, line[], string(lhs, " = ", _last_name(ref), curly ? "{…}" : ""), :R20))
+    end
+    return out
+end
+# R20 at run time (owner, 2026-11-24): a module-level `const` binding of `M` or a submodule whose value is ONE concrete
+# instantiation of a stack type under another name, or under the type's own name when it is not the type itself
+# (`v !== v.name.wrapper`) — a COMPUTED one included (`const X = typeof(…)`), which the parsed rule cannot see. A type
+# of a package outside the stack (FlexUnits' `BaseQuantity` and units, a FillArrays or StructArrays type) is no stack
+# type and is not this rule's (the owner's ruling covers stack types). Limit: a partial application (a `UnionAll`,
+# `const X = EuclideanMap{3, Float64}`) is not a concrete type and is not seen here.
+function _concrete_type_bindings(M::Module, stack = _stack_roots())
+    out = NamingViolation[]
+    for (N, n, v) in _module_bindings(M)
+        isconst(N, n) && v isa DataType && isconcretetype(v) && (nameof(v) !== n || v !== v.name.wrapper) || continue
+        nameof(Base.moduleroot(parentmodule(v))) in stack || continue
+        push!(out, NamingViolation(string(N), 0, string(n, " = ", v), :R20))
+    end
+    return out
+end
+check_naming(M::Module) = (stack = _stack_roots();
+    _sorted_unique!(vcat(check_naming(pkgdir(M); stack_roots = stack), _concrete_type_bindings(M, stack))))
+# One violation per (file, line, text, rule), in file and line order.
+function _sorted_unique!(out)
+    unique!(v -> (v.file, v.line, v.text, v.rule), out)
+    return sort!(out; by = v -> (v.file, v.line, v.rule))
 end
 
 function _prose_rules!(out, f, line, text)

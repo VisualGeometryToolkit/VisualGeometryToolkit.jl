@@ -183,7 +183,7 @@ function intrinsics end
 """
     lens(camera_or_model)
 
-Return the lens model (e.g. `Pinhole`, a `Lens`, or any user-defined
+Return the lens model (e.g. `Lens(Perspective())`, a `Lens`, or any user-defined
 `<: AbstractLensModel`).  Use this for dispatch in downstream packages.
 """
 function lens end

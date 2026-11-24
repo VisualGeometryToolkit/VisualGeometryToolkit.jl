@@ -52,7 +52,7 @@
 # valid pixel frames: VGC owns the registered set (the offset table behind the
 # `PixelFrame` conversion factory), and a second list here could only agree
 # with it or drift from it. Validity is therefore decided by ASKING VGC, whose
-# refusal already names the registered options. (`CANONICAL_PIXEL_FRAME`, the
+# refusal already names the registered options. (``PixelFrame{:colmap}``, the
 # frame a `CameraModel`'s K is in, is stated once, in style.jl.)
 
 """
@@ -90,7 +90,7 @@ PixelFrame{:julia}
 function pixel_frame_from_name(name::AbstractString)
     C = PixelFrame{Symbol(name)}
     try
-        EuclideanMap(C, CANONICAL_PIXEL_FRAME)
+        EuclideanMap(C, PixelFrame{:colmap})
     catch e
         throw(ArgumentError("unknown pixel frame $(repr(String(name))) — $(sprint(showerror, e))"))
     end
@@ -306,7 +306,7 @@ function _noncentral_from_body(s::VgioStyle, b::Record)
 end
 
 """
-    camera_json(model::CameraModel, extent, frame = CANONICAL_PIXEL_FRAME) -> NamedTuple
+    camera_json(model::CameraModel, extent, frame = PixelFrame{:colmap}) -> NamedTuple
     camera_from_json(body, frame; length_unit = mm) -> (model, extent)
 
 The camera body every camera-carrying kind embeds — `image_size` (`{width,
@@ -316,11 +316,11 @@ into VGC's canonical frame. Building blocks for a package serializing its own
 kind; a bounded camera's body (its pitch and lens coverage too) is
 `camera_json(camera::BoundedCamera, frame)`.
 """
-camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME) =
+camera_json(model::CameraModel, extent::Size2, frame::Type{<:PixelFrame} = PixelFrame{:colmap}) =
     _model_body(VgioStyle(; pixel_frame = frame), model, extent)
 
 """
-    camera_json(model::NoncentralSplineModel, extent, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
+    camera_json(model::NoncentralSplineModel, extent, frame = PixelFrame{:colmap}; length_unit = mm) -> NamedTuple
 
 A non-central grid camera's body, a camera store's and a rig sensor's: `type =
 "noncentral_spline"`, `image_size`, the gauge `K` in the pixel `frame` and the
@@ -328,11 +328,11 @@ A non-central grid camera's body, a camera store's and a rig sensor's: `type =
 the line points — plain metres in memory — in `length_unit`).
 [`camera_from_json`](@ref) reads it back (it tells the two bodies apart by `type`).
 """
-camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
+camera_json(model::NoncentralSplineModel, extent::Size2, frame::Type{<:PixelFrame} = PixelFrame{:colmap}; length_unit::Units = mm) =
     _model_body(VgioStyle(; pixel_frame = frame, length_unit), model, extent)
 
 """
-    camera_json(camera::BoundedCamera, frame = CANONICAL_PIXEL_FRAME; length_unit = mm) -> NamedTuple
+    camera_json(camera::BoundedCamera, frame = PixelFrame{:colmap}; length_unit = mm) -> NamedTuple
 
 A bounded camera's body — the one a camera store's entry and a rig sensor
 embed: its model's body (a `CameraModel`'s of any lens, or a
@@ -341,7 +341,7 @@ bounded by a physical `Sensor`, and its `lens_coverage` in the pixel `frame` whe
 the lens does not cover the whole sensor. `camera_from_json(BoundedCamera, body,
 frame; length_unit)` reads it back.
 """
-camera_json(camera::BoundedCamera, frame::Type{<:PixelFrame} = CANONICAL_PIXEL_FRAME; length_unit::Units = mm) =
+camera_json(camera::BoundedCamera, frame::Type{<:PixelFrame} = PixelFrame{:colmap}; length_unit::Units = mm) =
     _bounded_body(VgioStyle(; pixel_frame = frame, length_unit), camera)
 
 """
@@ -359,7 +359,7 @@ body (the body of a `vgio/generic_camera/v2`/`v3` record — RadiometricCamera's
 `rc/calibration_state/v1` camera) through the same conversion as an old grid
 file: a central one as a `CameraModel` with a `SplineLens`, a non-central one as
 a `NoncentralSplineModel` (its line points in `length_unit`). An old grid body
-is read in the colmap pixel frame (`CANONICAL_PIXEL_FRAME`), whatever `frame`
+is read in the colmap pixel frame (`PixelFrame{:colmap}`), whatever `frame`
 is given: the old grid code reads every old grid body's numbers in that frame.
 """
 camera_from_json(body, frame::Type{<:PixelFrame}; length_unit::Units = mm) =

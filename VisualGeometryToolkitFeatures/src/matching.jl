@@ -4,7 +4,7 @@
 #
 # The pairwise layer — `Correspondence{S,T} = Pair{S,T}`, the `correspondences` builder and the
 # columnar `Correspondences` it returns — is VisualGeometryToolkitCore's; nn_match.jl adds the
-# `correspondences` method for NNMatch lists. CorrespondenceSet is the N-way form, defined here.
+# `correspondences` method for match lists. CorrespondenceSet is the N-way form, defined here.
 #
 # CorrespondenceSet wraps any AbstractVector — fixed-size (SVector) or growable (Vector).
 #

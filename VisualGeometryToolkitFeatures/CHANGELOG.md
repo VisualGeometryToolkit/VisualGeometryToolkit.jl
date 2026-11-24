@@ -1,5 +1,17 @@
 # VisualGeometryToolkitFeatures changelog
 
+## 0.10.0 (unreleased)
+
+Breaking: a public name is removed. `[compat]` on VisualGeometryToolkitCore stays `"0.13.1"` until this package's own
+Core 0.14 migration (it does not load against Core 0.14 yet).
+
+### Changed (breaking)
+
+- **`NNMatch` is retired** (check_naming R20: a `const` naming one concrete type, owner 2026-11-24). A match is
+  `Attributed{Correspondence{Int, Int}, NNMatchMeta}`, built `Attributed(Correspondence{Int, Int}(i, j),
+  NNMatchMeta(score, ratio))` (was `NNMatch(i, j, score, ratio)`); its fields read as before (`m.first`, `m.score`, …).
+  VisualGeometryToolkitCore's `Pinhole` is `Lens(Perspective())`. In RETIRED_NAMES.
+
 ## 0.9.11
 
 A patch on VisualGeometryToolkitCore 0.13.1 (`[compat]` VisualGeometryToolkitCore `"0.13.1"`).

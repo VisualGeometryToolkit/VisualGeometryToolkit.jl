@@ -462,7 +462,7 @@ end
             BoundedCamera(c, Sensor(ext, 3.45μm); lens_coverage = ellipse),
             BoundedCamera(nc, ext; lens_coverage = circle),
             BoundedCamera(nc, Sensor(ext, 3.45μm)))                     # the whole sensor: no coverage written
-    for bc in cams, frame in (VgtkIO.CANONICAL_PIXEL_FRAME, PixelFrame{:opencv}), u in (mm, μm)
+    for bc in cams, frame in (PixelFrame{:colmap}, PixelFrame{:opencv}), u in (mm, μm)
         body = VgtkIO.camera_json(bc, frame; length_unit = u)
         @test haskey(body, :lens_coverage) == (lens_coverage(bc) != Rect2{Float64}(0, 0, 64, 48))
         @test haskey(body, :pitch) == (sensor(bc) !== nothing)
@@ -470,14 +470,14 @@ end
         @test back isa BoundedCamera && same(back, bc)
     end
     # the non-central model's bare body, and the (model, extent) read of either kind
-    for frame in (VgtkIO.CANONICAL_PIXEL_FRAME, PixelFrame{:opencv})
+    for frame in (PixelFrame{:colmap}, PixelFrame{:opencv})
         body = VgtkIO.camera_json(nc, ext, frame; length_unit = μm)
         m, e = VgtkIO.camera_from_json(parsed(body), frame; length_unit = μm)
         @test m isa NoncentralSplineModel && e == ext && VgtkIO.same_value(m, nc)
     end
     # a body's own check: a malformed lens coverage is refused by name
     bad = parsed(merge(VgtkIO.camera_json(cams[1]), (lens_coverage = (circle = [32.0, 24.0, -1.0],),)))
-    @test_throws ArgumentError VgtkIO.camera_from_json(BoundedCamera, bad, VgtkIO.CANONICAL_PIXEL_FRAME)
+    @test_throws ArgumentError VgtkIO.camera_from_json(BoundedCamera, bad, PixelFrame{:colmap})
 end
 
 @testitem "lattice_json / lattice_from_json: the lattice record alone (an aperture spline of radii), held nodes, lengths" setup = [VGIoFixtures, SplineRecordFixtures] begin

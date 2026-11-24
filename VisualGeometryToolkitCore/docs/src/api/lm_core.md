@@ -1,7 +1,8 @@
 # Chart LM API
 
 The chart-rows contract and the stack's one Levenberg–Marquardt (NLLSsolver, through one adapter): the algorithm
-(`LevenbergMarquardt`, whose fields are its optimization strategy and damping), its stop settings (`LmStops`, with the
+(`LevenbergMarquardt`, whose fields are its optimization strategy, its damping and its backend, the damping
+defaulting to the backend's own, `default_damping`), its stop settings (`LmStops`, with the
 data's residual resolution), the chart, robust and multi-block solves (`lmsolve_chart!`, `LmProblem`, which owns its
 damping), the one success rule, and the device LM (`StaticLevenbergMarquardt`, `StaticLmStops`).
 
@@ -22,7 +23,10 @@ Pages = ["robust/rows.jl", "robust/lm_core.jl"]
 What a problem implements to be refined by `LevenbergMarquardt` — one model on a minimal chart (`model_chart`,
 `chart_rows`, `chart_model`, `chart_size`) or several blocks ([`AbstractBlockProblem`](@ref), `block_refit`) — the
 hosts' refits (`chart_refit`, `triggs_refit`, `block_lm`), the parsed robust loss (`bundle_loss`) and the refine's
-metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)).
+metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)). A refine of raw data (a
+correspondence vector, not a problem) by another solver backend, `solve(RefineProblem(cs, guess[, p]),
+LevenbergMarquardt(backend; …))`, is forwarded to the backend contract generic `lm_backend_refine`, which the
+backend's package implements (PoseLib.jl, for `PoseLibSolver()`).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

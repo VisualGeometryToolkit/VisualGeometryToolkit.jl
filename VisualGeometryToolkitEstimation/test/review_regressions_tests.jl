@@ -5,7 +5,7 @@
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitCore: solve, init, solve!, reinit!, EstimationProblem, RefineProblem, LevenbergMarquardt,
         HomographyMat, MsacScoring, Irls, TLSShape, CameraModel, project, m, successful_retcode, default_optimization_strategy,
-        withattrs, Correspondences, Extrinsics3, Vec3, CameraCalibrationMat, EuclideanMap
+        withattrs, Correspondences, CameraExtrinsics, Vec3, CameraCalibrationMat, EuclideanMap
     using VisualGeometryToolkitEstimation: Ransac, LocalOptimization, HomographyProblem, HandEyeProblem, AbsolutePoseProblem,
         BearingPoseProblem, LineFittingProblem, RelativePoseProblem
     using VisualGeometryToolkitCore: HyperRectangle, Vec2, Point2
@@ -68,7 +68,7 @@
 
     # CR8: the bearing pose on fewer data than a minimal sample hands the guess back, even one at a ray origin
     Xb = [SA[0.0, 0.0, 0.0], SA[-0.3, 0.1, 2.5]]
-    pose = Extrinsics3(RotMatrix{3, Float64}(I), Vec3{Float64}(0.0, 0.0, 0.0))
+    pose = CameraExtrinsics(EuclideanMap(RotMatrix{3, Float64}(I), Vec3{Float64}(0.0, 0.0, 0.0)))
     rb = solve(RefineProblem(BearingPoseProblem(Correspondences(Xb, [normalize(SA[0.1, 0.2, 1.0]), normalize(Xb[2])])), pose),
                LevenbergMarquardt(); scale = 1.0)
     @test rb.retcode == VgtkCore.ReturnCode.InitialFailure && rb.stop_rule == VgtkCore.NoRule

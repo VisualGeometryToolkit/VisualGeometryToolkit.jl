@@ -179,7 +179,7 @@ function _raster_frame_json(f::NamedTuple, u::Units)
         ArgumentError("save_raster: a chart frame is (chart = :page | :texture, area = Rect2(x, y, w, h)), its area in plain metres; got $(repr(f))")
     )
     String(f.chart) in _RASTER_CHARTS || throw(ArgumentError("save_raster: a chart frame's chart is :$(join(_RASTER_CHARTS, " or :")), got :$(f.chart)"))
-    return ((type = String(f.chart), area = [_metres_json(x, u) for x in JSON.lower(VgioStyle(), f.area)]), CANONICAL_PIXEL_FRAME)
+    return ((type = String(f.chart), area = [_metres_json(x, u) for x in JSON.lower(VgioStyle(), f.area)]), PixelFrame{:colmap})
 end
 _raster_frame_json(f, _) = throw(
     ArgumentError("save_raster: frame is a chart rectangle (chart = :page | :texture, area = Rect2(…)) or a pixel frame (PixelFrame{:colmap}); got $(repr(f))")

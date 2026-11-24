@@ -7,7 +7,7 @@ CurrentModule = VisualGeometryToolkitFeatures
 ## Nearest-neighbour matching
 
 [`nn_match`](@ref) and [`match`](@ref) compare two descriptor matrices, one
-descriptor per row, and return a `Vector{NNMatch}` sorted best first. Both run
+descriptor per row, and return a `Vector` of matches sorted best first. Both run
 the same KernelAbstractions kernels: `match` on the CPU, `nn_match` on any
 device (`device = CUDABackend()`, for instance), and a GPU returns what the
 CPU returns. `match` is public but not exported, because it would shadow
@@ -43,7 +43,7 @@ julia> length(nn_match(D1, D2, NN()))    # row 3 matches too, one way
 
 ## Matches as correspondences
 
-An [`NNMatch`](@ref) holds indices. VisualGeometryToolkitCore's `correspondences(features1, features2, matches)`
+A match (`Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))`) holds indices. VisualGeometryToolkitCore's `correspondences(features1, features2, matches)`
 turns them into VisualGeometryToolkitCore correspondences between the matched
 features, with each match's score and ratio as attribute columns, ready for a
 robust estimator.
@@ -73,7 +73,7 @@ over the image ([`spread_strongest`](@ref)), of a
 `3 × H × W` RGB channelview of any size (it resamples the image to the
 network's [`LOMA_IMAGE_SIZE`](@ref)² input itself, and the detections stay in
 the image's pixels); a matcher matches two described sets and returns
-`Vector{NNMatch}`, like `match`:
+a `Vector` of matches, like `match`:
 
 ```julia
 describe = LoMaDescriptor(:b)

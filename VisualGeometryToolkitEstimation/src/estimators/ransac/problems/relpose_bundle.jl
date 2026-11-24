@@ -8,7 +8,7 @@
 # Reprojection is done THROUGH THE CAMERA INTRINSICS (K₁, K₂) in the observation
 # frame — `π(Kᵢ·X)` — so the residual lives where the noise lives
 # (the same frame the scoring's outlier half-width and σ̂² are calibrated in, and the same frame the
-# MSAC LO `refine_relpose` uses with Kc as cameras).  All geometry is carried as
+# MSAC LO's PoseLib relative-pose refine uses with Kc as cameras).  All geometry is carried as
 # `Point2`/`Point3` (positions) and `Vec3` (the translation); `SVector`/`SMatrix`
 # are reserved for the LM parameter/residual vectors and Jacobian blocks.
 #
@@ -24,7 +24,7 @@
 #     landmarks jointly optimized then profiled out via Schur). Live consumer:
 #     the `bundle=true` Schur-reprojection refit path (eval build_pair_ctx →
 #     `bp = RelposeBundleProblem`, the +Lift/bundle option in refit_imc).
-#   • PoseLib's C++ `refine_relpose` (the eval ExternalRefit arms,
+#   • PoseLib's C++ relative-pose refinement (the eval ExternalRefit arms,
 #     LocalOptimizationDoneRight src/engines/refit.jl): POSE-ONLY refinement of the TRUNCATED Sampson
 #     loss — the LO-RANSAC standard (+PoseLib(TLS)/(LZ)). First-order,
 #     structure-free, hard-thresholded; a comparison baseline, not a bundle.
@@ -72,7 +72,6 @@
 # The pose variable: VGC's `EssentialManifold5`, an NLLSsolver variable through
 # VGC's manifold protocol (`nvars` = 5, `update` = `recenter`), concrete in
 # Float64 — a `Vector{Union{…}}` of the UnionAll alias would box every element.
-const _BundlePose = typeof(EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)))
 # The pose block's dimension: `EssentialManifold5`'s tangent size.
 const _POSE_DOF = 5
 
@@ -95,8 +94,7 @@ mutable struct _BundleData{T1, T2, TS}
     u2::T2
     sqrtw::TS
 end
-const _BundleOwnedData = _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}
-_BundleOwnedData(N::Int) = _BundleOwnedData(
+_BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}(N::Int) = _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}(
     zero(SMatrix{3, 3, Float64, 9}), zero(SMatrix{3, 3, Float64, 9}),
     Vector{SVector{2, Float64}}(undef, N), Vector{SVector{2, Float64}}(undef, N), Vector{Float64}(undef, N)
 )
@@ -113,21 +111,21 @@ NLLSsolver.ndeps(::_BundleRows) = NLLSsolver.static(2)
 NLLSsolver.nres(::_BundleRows) = NLLSsolver.static(4)
 NLLSsolver.varindices(r::_BundleRows) = r.varind
 NLLSsolver.getvars(r::_BundleRows{E}, vars::Vector) where {E} =
-    (vars[r.varind[1]]::_BundlePose, vars[r.varind[2]]::_BundlePoint{E})
+    (vars[r.varind[1]]::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, vars[r.varind[2]]::_BundlePoint{E})
 Base.eltype(::_BundleRows) = Float64
-function NLLSsolver.computeresidual(r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
+function NLLSsolver.computeresidual(r::_BundleRows, pose::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, p::_BundlePoint)
     d = r.data; i = r.i
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t)
     return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.value, d.u1[i], d.u2[i])
 end
 # The block's cost as the LM reads it: non-finite is +Inf (`finite_cost`).
-NLLSsolver.computecost(vars::Vector{Union{_BundlePose, _BundlePoint{E}}}, r::_BundleRows{E}) where {E} =
+NLLSsolver.computecost(vars::Vector{Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}}, r::_BundleRows{E}) where {E} =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # The closed-form 4 × 8 Jacobian, pose columns (VGC's `pose_action_jacobian`
 # at the variable's own anchor, the derivative of its `update`) then point
 # columns. Every variable is free in this problem (`optimize!` over all), so
 # NLLSsolver asks for both blocks' columns: `varflags` = 0b11.
-function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::_BundlePose, p::_BundlePoint)
+function NLLSsolver.computeresjac(_varflags, r::_BundleRows, pose::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, p::_BundlePoint)
     d = r.data; i = r.i; w = d.sqrtw[i]
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = SVector{3, Float64}(pose.t); X = p.value
     e = _reprojection_error(d.K1, d.K2, R, t, X, d.u1[i], d.u2[i])
@@ -162,7 +160,7 @@ struct _BundleRun{E, D, P <: LmProblem}
     lm::P
 end
 function _BundleRun{E}(N::Int, data::D) where {E, D}
-    vars = Union{_BundlePose, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::_BundlePose]
+    vars = Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}]
     for i in 1:N
         push!(vars, _BundlePoint{E}(zero(SVector{3, Float64})))
     end
@@ -172,7 +170,7 @@ function _BundleRun{E}(N::Int, data::D) where {E, D}
 end
 # The task's slot for its one run of point type `E`.
 mutable struct _BundleSlot{E}
-    run::Union{Nothing, _BundleRun{E, _BundleOwnedData}}
+    run::Union{Nothing, _BundleRun{E, _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}}}
 end
 _bundle_size(run::_BundleRun) = length(run.lm.variables) - 1
 function _bundle_run(::Val{E}, N::Int) where {E}
@@ -180,7 +178,7 @@ function _bundle_run(::Val{E}, N::Int) where {E}
     run = slot.run
     run !== nothing && _bundle_size(run) == N && return run
     slot.run = nothing                        # the old size's problem is released before the new is built
-    new = _BundleRun{E}(N, _BundleOwnedData(N))
+    new = _BundleRun{E}(N, _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}(N))
     slot.run = new
     return new
 end
@@ -401,7 +399,7 @@ function _bundle_solve!(
         d.sqrtw[i] = sqrtw[i]
     end
     vars = run.lm.variables                   # the start, set in place
-    vars[1] = EssentialManifold5(Rb, tb)::_BundlePose
+    vars[1] = EssentialManifold5(Rb, tb)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
     @inbounds for i in 1:N
         X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
         vars[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
@@ -409,7 +407,7 @@ function _bundle_solve!(
     # Core's one LM at the bundle's stop settings (default [relpose_bundle] max_iter, ftol; the rest Core's [lm])
     sol = lmsolve_chart!(run.lm, stops; callback)
     sol.code === ReturnCode.Failure && return nothing                    # a singular system: no solution
-    pose = run.lm.variables[1]::_BundlePose
+    pose = run.lm.variables[1]::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)
     (all(isfinite, R) && all(isfinite, t)) || return nothing
     return (; R, t, sol)

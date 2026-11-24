@@ -36,7 +36,7 @@
             @test abs(Xr.t[2]) < 1.0e-9 && abs(Xr.t[3]) < 1.0e-9
             @test abs(abs(Xr.t[1]) - B) < 1.0e-9
             @test ids(res.rig) == (:left, :right)
-            @test model(source(res.rig)).lens isa VgtkCore.Pinhole
+            @test model(source(res.rig)).lens isa VgtkCore.Lens{VgtkCore.Perspective, Nothing}
             # Q₂·R_rel = Q₁ — the two rectifying rotations agree on world directions
             @test SMatrix{3, 3, Float64}(res.R[2]) * SMatrix{3, 3, Float64}(R) ≈
                 SMatrix{3, 3, Float64}(res.R[1]) atol = 1.0e-12
@@ -97,7 +97,7 @@
         Ki = @SMatrix [300.0 0.0 80.0; 0.0 300.0 60.0; 0.0 0.0 1.0]
         Kr_inv = inv(@SMatrix [280.0 0.0 82.0; 0.0 280.0 58.0; 0.0 0.0 1.0])
         Qi = RotMatrix{3, Float64}(RotXYZ(0.01, -0.02, 0.005))
-        m = CameraModel(CameraCalibrationMat(Ki); lens = Pinhole())
+        m = CameraModel(CameraCalibrationMat(Ki); lens = Lens(Perspective()))
         math = VgtkCore.Cameras._rectify_math(m, Ki, Qi, Kr_inv)
         H = HomographyMap(Ki * SMatrix{3, 3, Float64}(Qi)' * Kr_inv)
         for u in (SVector(10.0, 20.0), SVector(80.0, 60.0), SVector(150.0, 110.0))

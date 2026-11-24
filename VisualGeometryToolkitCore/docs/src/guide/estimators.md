@@ -43,7 +43,7 @@ live in VisualGeometryToolkitEstimation. Data go in as correspondences (`a => b`
 | Radially distorted homography from 5 points | `solve(MinimalProblem(RadialHomography, cs, idx), `[`Homography5ptRadial`](@ref)`())` | minimal | VGC |
 | Fundamental matrix from a 7-point sample | `solve(MinimalProblem(FundMat, cs, idx), `[`Fundamental7pt`](@ref)`())` | minimal | VGC |
 | Essential matrix from 5 bearing pairs | `solve(MinimalProblem(EssentialMat, cs, idx), `[`Essential5pt`](@ref)`())` | minimal | VGC |
-| Absolute pose from 3 point–bearing pairs | `solve(MinimalProblem(Extrinsics3, cs, idx), `[`P3P`](@ref)`())` | minimal | VGC |
+| Absolute pose from 3 point–bearing pairs | `solve(MinimalProblem(CameraExtrinsics, cs, idx), `[`P3P`](@ref)`())` | minimal | VGC |
 | Circle through 3 points | `solve(MinimalProblem(Circle, points, idx), `[`Circle3pt`](@ref)`())` | minimal | VGC |
 | Ellipse through 5 points | `solve(MinimalProblem(Ellipse, points, idx), `[`Ellipse5pt`](@ref)`())` | minimal | VGC |
 | Radial camera from 5 plane–pixel pairs | `solve(MinimalProblem(RadialCamera, cs, idx), `[`RadialCamera5pt`](@ref)`(; center))` | minimal | VGC |

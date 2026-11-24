@@ -32,9 +32,8 @@
 # views.
 # =============================================================================
 
-const _ViewRotationChart = VgtkCore.SO3Manifold{Float64}
 # A rotation-centre problem variable: a view's rotation chart, the centre or the offset.
-const _CenterVar = Union{SVector{3, Float64}, _ViewRotationChart}
+const _CenterVar = Union{SVector{3, Float64}, VgtkCore.SO3Manifold{Float64}}
 
 """
     rotation_center_pose(R, center, offset) -> EuclideanMap
@@ -248,13 +247,13 @@ end
 # The rotation-centre bundle's variables, in block order: the centre, the offset, then each view's rotation chart.
 function _center_variables(views::RotationCenterViews, ids)
     vars0 = _CenterVar[views.center, views.offset]
-    foreach(k -> push!(vars0, _ViewRotationChart(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
+    foreach(k -> push!(vars0, VgtkCore.SO3Manifold{Float64}(SMatrix{3, 3, Float64, 9}(views.rotations[k]))), ids)
     return vars0
 end
 # The estimate read back from those variables (the centre, the offset, the views' rotations), refused when not finite.
 function _center_read_back(::Type{K}, sol, ids) where {K}
     c, d = sol.variables[1]::SVector{3, Float64}, sol.variables[2]::SVector{3, Float64}
-    Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(sol.variables[2 + v]::_ViewRotationChart)))
+    Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(sol.variables[2 + v]::VgtkCore.SO3Manifold{Float64})))
                                              for (v, k) in enumerate(ids))
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("CameraPosesProblem: the LM step is not finite"))
@@ -270,7 +269,7 @@ const _IDENTITY_POSE = EuclideanMap(SMatrix{3, 3, Float64, 9}(I), zero(SVector{3
 # pose chart), the view's pose `(R, d − R c)` (`rotation_center_pose`), the camera and the board held.
 const _ROTATION_CENTER_VIEW = (false, :rotation_center, false)
 NLLSsolver.getvars(r::_BoardViewResidual{3, _ROTATION_CENTER_VIEW}, vars::Vector{_CenterVar}) =
-    (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
+    (vars[r.varind[1]]::VgtkCore.SO3Manifold{Float64}, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
 function NLLSsolver.computeresidual(r::_BoardViewResidual{3, _ROTATION_CENTER_VIEW}, ch, c, d)
     e = VgtkCore.reprojection_error(r.camera, rotation_center_pose(model(ch), c, d), r.X, r.u)
     return r.sqrt_weight == 1.0 ? e : r.sqrt_weight * e
@@ -327,7 +326,7 @@ NLLSsolver.varindices(r::_BearingCenterBlock) = r.varind
 # the LM's generic code, which inference splits over every block type) finds no method of this block rather than an
 # impossible typeassert.
 NLLSsolver.getvars(r::_BearingCenterBlock, vars::AbstractVector{_CenterVar}) =
-    (vars[r.varind[1]]::_ViewRotationChart, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
+    (vars[r.varind[1]]::VgtkCore.SO3Manifold{Float64}, vars[r.varind[2]]::SVector{3, Float64}, vars[r.varind[3]]::SVector{3, Float64})
 Base.eltype(::_BearingCenterBlock) = Float64
 function NLLSsolver.computeresidual(r::_BearingCenterBlock, ch, c, d)
     P = rotation_center_pose(model(ch), c, d)

@@ -280,16 +280,16 @@ Perspective-3-point absolute-pose solver ([`solve`](@ref) verb over the
 
 Correspondence contract: sources are 3D world points, targets are **unit**
 bearing vectors (pixel targets are lifted to bearings beforehand, e.g.
-`lift(cs; target = u -> backproject(model, u))`). Models are `Extrinsics3` with
+`lift(cs; target = u -> backproject(model, u))`). Models are `CameraExtrinsics` with
 `x_cam = R·X + t`.
 """
-struct P3P{B <: AbstractSolverBackend} <: MinimalSolver{Extrinsics3}
+struct P3P{B <: AbstractSolverBackend} <: MinimalSolver{CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}}
     backend::B
 end
 P3P() = P3P(NativeSolver())
 sample_size(::P3P) = 3
 max_solutions(::P3P) = 4
-default_algorithm(::MinimalProblem{<:Extrinsics3}) = P3P()
+default_algorithm(::MinimalProblem{<:CameraExtrinsics}) = P3P()
 
 function __solve(prob::_MinimalNoContext, s::P3P)
     cs, idx = prob.f, prob.sample
@@ -372,7 +372,7 @@ So the two queries answer differently, on purpose:
 
 - [`minimal_solver`](@ref)`(M, S, T)` disambiguates by MODEL type and is
   exact: ask for `EssentialMat` and you get `Essential5pt`, ask for
-  `Extrinsics3` and you get `P3P`. This is the lookup consumers use.
+  `CameraExtrinsics` and you get `P3P`. This is the lookup consumers use.
 - [`induced_models`](@ref)`(S, T)` returns BOTH, because "what is estimable
   from a pair of 3-vectors" honestly has two answers and the types do not
   say which. It is not a claim that both apply to your data at once.
@@ -406,7 +406,7 @@ minimal_solvers(::Type{<:StaticVector{3}}, ::Type{<:StaticVector{3}}) =
 The model types estimable from correspondences with element types `(S, T)`
 (or from the container `cs` directly): `model_type.(minimal_solvers(S, T))`.
 
-At `(3D, 3D)` this returns `(Extrinsics3, EssentialMat)`, which are MUTUALLY
+At `(3D, 3D)` this returns `(model_type(P3P()), EssentialMat)`, which are MUTUALLY
 EXCLUSIVE — a bare `StaticVector{3}` is both a world point and a bearing, and
 no dispatch can tell them apart. That is reported rather than resolved here;
 [`minimal_solver`](@ref) disambiguates by model type. See

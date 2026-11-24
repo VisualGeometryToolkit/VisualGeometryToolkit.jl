@@ -4,18 +4,24 @@
 Julia bindings to [PoseLib](https://github.com/PoseLib/PoseLib), the C++ library
 of minimal solvers and robust refiners for camera pose estimation.
 
-Loading this package extends VisualGeometryToolkitCore:
+Loading this package extends VisualGeometryToolkitCore's `solve(problem, algorithm)`
+interface with PoseLib's backend, `PoseLibSolver()`:
 
-- Its minimal solvers gain a PoseLib backend, `PoseLibSolver()`: the
-  four-point homography, the seven-point fundamental matrix, the
-  perspective-three-point (P3P) absolute pose and the five-point essential
-  matrix. The eight-point essential matrix, `essential_dlt`, has no native
-  variant, so its default routes here.
-- PoseLib's robust Levenberg–Marquardt refiners are exported:
-  [`refine_homography`](@ref), [`refine_fundamental`](@ref),
-  [`refine_relpose`](@ref) and [`refine_absolute_pose`](@ref). Each takes a
-  seed model and its correspondences, and returns the refined model in the
-  caller's frame.
+- The minimal solvers: `solve(MinimalProblem(M, cs, idx), solver(PoseLibSolver()))`
+  runs PoseLib's four-point homography (`Homography4pt`), seven-point
+  fundamental matrix (`Fundamental7pt`), perspective-three-point absolute pose
+  (`P3P`) and five-point essential matrix (`Essential5pt`).
+- The eight-point essential matrix:
+  `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`, which has
+  no native variant.
+- PoseLib's robust Levenberg–Marquardt refines of a homography, a fundamental
+  matrix, a relative pose and an absolute pose:
+  `solve(RefineProblem(cs, guess[, p]), LevenbergMarquardt(PoseLibSolver();
+  optimization_strategy); stops = LmStops(; max_iter), scale | width)`, the
+  guess a `HomographyMat`, a `FundMat` or an `EuclideanMap{3}` and the context
+  `p` the intrinsics where PoseLib needs them (the `PoseLibSolver` method of
+  VisualGeometryToolkitCore's `lm_backend_refine` states each form). The
+  result is a `FitResult` with the refined model, in the caller's frame, as `u`.
 
 The C++ library and its flat C wrapper ship prebuilt as the binary package
 `PoseLib_jll`. The manual's "Platforms and binaries" page says how to run
@@ -31,14 +37,15 @@ using FlexUnits: Quantity
 
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     AbstractLossShape, GaussianShape, TLSShape, HuberShape, CauchyShape,
-    Irls, Triggs, EfficiencyConstant, FitResult, AbstractOptimizationStrategy,
-    HomographyMat, FundMat, EssentialMat, Extrinsics3, FixedModels,
-    EuclideanMap, UnlabeledFrame, UnitfulEuclideanMap, ustrip,
-    PoseLibSolver, Vec3, Point3, Correspondence, sources, targets, hasattr, RetiredKeyword,
+    Irls, Triggs, EfficiencyConstant, FitResult, AbstractOptimizationStrategy, ClassDefault, SolveStats,
+    LevenbergMarquardt, LevenbergDamping, LmStops, NullParameters, PlainEuclideanMap,
+    HomographyMat, FundMat, EssentialMat, CameraExtrinsics, FixedModels,
+    EuclideanMap, UnitfulEuclideanMap, ustrip,
+    PoseLibSolver, Vec3, Point3, Correspondence, sources, targets, hasattr,
     Homography4pt, Fundamental7pt, Essential5pt, P3P,
     sign_normalize, is_valid_solution,
     homography_4pt, fundamental_7pt, p3p,
-    essential_5pt, essential_dlt, motion
+    essential_5pt, essential_8pt
 
 # Every `ccall` goes to `libposelib_jl`, the library product of `PoseLib_jll`.
 # On a platform Yggdrasil does not build for, the package still loads — so does
@@ -63,52 +70,65 @@ is_available() = PoseLib_jll.is_available()
 # Helpers
 # -----------------------------------------------------------------------------
 
+# Unit-bearing correspondences (`StaticVector{3}` each side) and plane correspondences (`StaticVector{2}` each side),
+# in any Correspondence container.
+const _BearingPairs = AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}}
+const _PlanePairs = AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}}
+
 # Pack N SVector{3} into a flat NTuple for ccall (x,y,z,x,y,z,...)
 @inline function _pack_points3(pts::NTuple{N, <:StaticVector{3, Float64}}) where N
     ntuple(i -> pts[div(i-1, 3) + 1][mod(i-1, 3) + 1], Val(3N))
 end
 
 # Read pose (R col-major + t) from MVector at offset. Absolute-pose (p3p)
-# output — world-to-camera, so the labeled `Extrinsics3` is the honest type.
-@inline function _read_pose_from_buf(buf, offset::Int)
-    R = SMatrix{3,3,Float64,9}(
-        buf[offset+1], buf[offset+2], buf[offset+3],
-        buf[offset+4], buf[offset+5], buf[offset+6],
-        buf[offset+7], buf[offset+8], buf[offset+9])
-    t = Vec3{Float64}(buf[offset+10], buf[offset+11], buf[offset+12])
-    Extrinsics3(R, t)
-end
+# output — world-to-camera, so the labeled `CameraExtrinsics` is the honest type;
+# the C buffers' bits, unchecked.
+@inline _read_pose_from_buf(buf, offset::Int) =
+    CameraExtrinsics(_plain_pose(_read_mat33_from_buf(buf, offset),
+                                 Vec3{Float64}(buf[offset+10], buf[offset+11], buf[offset+12]); check = false))
 
-# The C wrapper takes each side of the correspondences as ONE contiguous
-# point-major buffer (`M·n` and `N·n` doubles). Packing both columns, read
-# through VGC's `sources`/`targets` protocol in one sweep, is the only per-call
-# copy, whichever Correspondence container is supplied (`Correspondences`, `StructArray{<:Pair}`,
-# `Vector{<:Pair}`).
-@inline function _pack(cs::AbstractVector{<:Correspondence{<:StaticVector{M}, <:StaticVector{N}}}) where {M, N}
+# The unlabeled pose a refine returns, `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3, Float64}` rotation and a
+# `Vec3{Float64}` translation, from a rotation matrix and a translation (the rotation checked unless `check = false`).
+_plain_pose(R::SMatrix{3, 3, Float64, 9}, t::Vec3{Float64}; check::Bool = true) = EuclideanMap(RotMatrix{3, Float64}(R), t; check)
+
+# The C wrapper takes each side of the correspondences as one contiguous
+# point-major block (`M·n` and `N·n` doubles). Both blocks live in ONE buffer,
+# the sources first, the targets from `M·n + 1` on (`_targets_at`), each handed
+# to the C call as a pointer under `GC.@preserve`: one allocation. Packing both
+# columns, read through VGC's `sources`/`targets` protocol in one sweep, is the
+# only per-call copy, whichever Correspondence container is supplied
+# (`Correspondences`, `StructArray{<:Pair}`, `Vector{<:Pair}`); `source` maps each
+# source point to its plain form as it is packed (a physical world point's metres).
+@inline function _pack(cs::AbstractVector{<:Correspondence{<:StaticVector{M}, <:StaticVector{N}}}, source::F = identity) where {M, N, F}
     src = sources(cs); dst = targets(cs)
     Base.require_one_based_indexing(src, dst)
     n = length(cs)
-    a = Vector{Float64}(undef, M * n); b = Vector{Float64}(undef, N * n)
+    a = Vector{Float64}(undef, (M + N) * n)
     @inbounds for i in 1:n
-        u = src[i]; v = dst[i]
+        u = source(src[i]); v = dst[i]
         for j in 1:M; a[M * (i - 1) + j] = u[j]; end
-        for j in 1:N; b[N * (i - 1) + j] = v[j]; end
+        for j in 1:N; a[M * n + N * (i - 1) + j] = v[j]; end
     end
-    return a, b
+    return a
 end
+# Where the targets' block of a packed buffer starts: after `M` doubles per correspondence.
+@inline _targets_at(buf::Vector{Float64}, M::Int, n::Int) = pointer(buf, M * n + 1)
 
-# Per-correspondence 3×2 matrices (the backprojection Jacobians `M₁`/`M₂`) into
-# one contiguous `6·n` buffer, point-major. StaticArrays stores column-major and
-# so does Eigen, so a StaticMatrix's LINEAR index is already the wire order and
-# the C side maps each 6-double block straight onto an
-# `Eigen::Matrix<double,3,2>` — no transpose anywhere in the crossing.
-@inline function _pack_tangent(Ms::AbstractVector{<:StaticMatrix{3, 2}})
-    Base.require_one_based_indexing(Ms)
-    a = Vector{Float64}(undef, 6 * length(Ms))
-    @inbounds for i in eachindex(Ms)
-        M = Ms[i]
+# The per-correspondence 3×2 matrices (the backprojection Jacobians `M₁` and
+# `M₂`) into ONE buffer, each side a contiguous `6·n` block, point-major, `M₂`'s
+# from `6n + 1` on. StaticArrays stores column-major and so does Eigen, so a
+# StaticMatrix's LINEAR index is already the wire order and the C side maps each
+# 6-double block straight onto an `Eigen::Matrix<double,3,2>` — no transpose
+# anywhere in the crossing.
+@inline function _pack_tangent(M1s::AbstractVector{<:StaticMatrix{3, 2}}, M2s::AbstractVector{<:StaticMatrix{3, 2}})
+    Base.require_one_based_indexing(M1s, M2s)
+    n = length(M1s)
+    a = Vector{Float64}(undef, 12 * n)
+    @inbounds for i in 1:n
+        A = M1s[i]; B = M2s[i]
         for j in 1:6
-            a[6 * (i - 1) + j] = M[j]
+            a[6 * (i - 1) + j] = A[j]
+            a[6 * n + 6 * (i - 1) + j] = B[j]
         end
     end
     return a
@@ -133,7 +153,7 @@ PoseLib's four-point homography solver, the `PoseLibSolver` backend of
 VisualGeometryToolkitCore's `homography_4pt` kernel. The points are 2-vectors:
 sources `sᵢ` and targets `dᵢ` with `dᵢ ≃ H sᵢ`. Returns the homography, sign
 normalized, or `nothing` for a degenerate sample. The public entry point is
-`solve(Homography4pt(PoseLibSolver()), cs, idx)`.
+`solve(MinimalProblem(HomographyMat, cs, idx), Homography4pt(PoseLibSolver()))`.
 """
 function VgtkCore.homography_4pt(::PoseLibSolver,
                         s₁::StaticVector{2,T}, s₂::StaticVector{2,T},
@@ -182,7 +202,7 @@ VisualGeometryToolkitCore's `fundamental_7pt` kernel. `cs` holds 2D image
 correspondences `x1 => x2` in the caller's frame and `idx` names the seven of
 the sample. Returns every real solution, up to three, in that frame; a
 degenerate sample returns fewer, possibly none. The public entry point is
-`solve(Fundamental7pt(PoseLibSolver()), cs, idx)`.
+`solve(MinimalProblem(FundMat, cs, idx), Fundamental7pt(PoseLibSolver()))`.
 """
 function VgtkCore.fundamental_7pt(::PoseLibSolver, cs, idx::AbstractVector{<:Integer})
     u1 = cs.first; u2 = cs.second
@@ -211,7 +231,7 @@ end
 # =============================================================================
 
 """
-    p3p(::PoseLibSolver, x, X) -> Union{FixedModels{4, Extrinsics3}, Nothing}
+    p3p(::PoseLibSolver, x, X) -> Union{FixedModels{4, model_type(P3P())}, Nothing}
 
 PoseLib's perspective-three-point solver, the `PoseLibSolver` backend of
 VisualGeometryToolkitCore's `p3p` kernel. `x` holds three unit bearings
@@ -219,7 +239,8 @@ VisualGeometryToolkitCore's `p3p` kernel. `x` holds three unit bearings
 every real solution, up to four, as world-to-camera extrinsics in the frame of
 `X` (plain `Float64` points; the translation is in their unit); a degenerate sample returns fewer, possibly none, and inputs of
 any length other than three return `nothing`. The public entry point is
-`solve(P3P(PoseLibSolver()), cs, idx)` with `cs` the correspondences `X => x`.
+`solve(MinimalProblem(CameraExtrinsics, cs, idx), P3P(PoseLibSolver()))` with `cs` the correspondences
+`X => x`.
 """
 function VgtkCore.p3p(::PoseLibSolver,
              x::AbstractVector{S},
@@ -234,7 +255,7 @@ function VgtkCore.p3p(::PoseLibSolver,
               (Ref{NTuple{9,Float64}}, Ref{NTuple{9,Float64}},
                Ptr{Float64}, Cint),
               Ref(px), Ref(pX), pointer(pose_buf), 4)
-    FixedModels{4, Extrinsics3}(n) do i
+    FixedModels{4, VgtkCore.model_type(P3P())}(n) do i
         _read_pose_from_buf(pose_buf, 12*(i-1))
     end
 end
@@ -274,7 +295,7 @@ _Relpose5ptBuffers() = _Relpose5ptBuffers(Ref{NTuple{15,Float64}}(),
     end::_Relpose5ptBuffers
 
 # Five bearings per side, as an `NTuple` or as the `SVector{5}` VGC's
-# `solve(Essential5pt(PoseLibSolver()), cs, idx)` builds. `Tuple(::SVector)` is
+# `solve(MinimalProblem(EssentialMat, cs, idx), Essential5pt(PoseLibSolver()))` builds. `Tuple(::SVector)` is
 # free, so both reach the same packing.
 const _Float64Bearings5 = Union{NTuple{5, <:StaticVector{3, Float64}},
                          StaticVector{5, <:StaticVector{3, Float64}}}
@@ -290,7 +311,8 @@ the second form reads the five correspondences `cs[idx]` of bearings
 `f₁ => f₂`. A 2-vector is a `MethodError`, never lifted to the z = 1 plane.
 Returns every real solution that VisualGeometryToolkitCore's
 `is_valid_solution` accepts, up to ten; a degenerate sample returns fewer, possibly
-none. The public entry point is `solve(Essential5pt(PoseLibSolver()), cs, idx)`.
+none. The public entry point is
+`solve(MinimalProblem(EssentialMat, cs, idx), Essential5pt(PoseLibSolver()))`.
 """
 function VgtkCore.essential_5pt(::PoseLibSolver, x1::_Float64Bearings5, x2::_Float64Bearings5)
     bufs = _relpose5pt_buffers()
@@ -326,8 +348,7 @@ end
 # `sources`/`targets` protocol so every Correspondence container works (a plain
 # `Vector{<:Pair}` has no `.first` column).
 function VgtkCore.essential_5pt(::PoseLibSolver,
-        cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}},
-        idx::AbstractVector{<:Integer})
+        cs::_BearingPairs, idx::AbstractVector{<:Integer})
     u1 = sources(cs); u2 = targets(cs)
     x1 = @inbounds ntuple(k -> Vec3{Float64}(u1[idx[k]]), Val(5))
     x2 = @inbounds ntuple(k -> Vec3{Float64}(u2[idx[k]]), Val(5))
@@ -339,88 +360,61 @@ end
 # essential_5pt(PoseLibSolver(), x1, x2).
 
 # =============================================================================
-# essential_dlt  (PoseLib only — backend method + no-backend default)
+# essential_8pt  (PoseLib only — the backend of DLT(PoseLibSolver()) on an essential matrix)
 # =============================================================================
 
 """
-    essential_dlt(::PoseLibSolver, cs) -> Union{EssentialMat{Float64}, Nothing}
-    essential_dlt(cs) -> Union{EssentialMat{Float64}, Nothing}
+    essential_8pt(::PoseLibSolver, cs) -> Union{EssentialMat{Float64}, Nothing}
 
-PoseLib's eight-point essential matrix: the direct linear transform over eight
-or more correspondences `cs` of unit bearings `f₁ => f₂`, every one taken as an
-inlier. VisualGeometryToolkitCore has no native eight-point solver, so the form
-without a backend runs this one. An algorithm, so it can only be degenerate:
-it returns `nothing` when PoseLib's solution is not finite, but a degenerate
-set (a pure rotation, repeated points) can also give a finite, meaningless `E`
-that nothing flags. Fewer than eight correspondences throw an `ArgumentError`
-naming the count.
+PoseLib's eight-point essential matrix, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `essential_8pt` kernel: the direct linear transform
+over eight or more correspondences `cs` of unit bearings `f₁ => f₂`, every one
+taken as an inlier. VisualGeometryToolkitCore has no native eight-point solver,
+so this is the only backend. The public entry point is
+`solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`, whose
+`FitResult` holds the matrix as `u` (`nothing` when degenerate).
+
+An algorithm, so it can only be degenerate: it returns `nothing` when PoseLib's
+solution is not finite, but a degenerate set (a pure rotation, repeated points)
+can also give a finite, meaningless `E` that nothing flags. Fewer than eight
+correspondences throw an `ArgumentError` naming the count. Correspondences that
+are not bearings (2-vectors on the z = 1 plane) are a `MethodError`, never lifted.
 """
-function VgtkCore.essential_dlt(::PoseLibSolver,
-        cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}})
+function VgtkCore.essential_8pt(::PoseLibSolver, cs::_BearingPairs)
     n = length(cs)
-    n >= 8 || throw(ArgumentError("essential_dlt needs at least 8 correspondences, got $n"))
-    buf1, buf2 = _pack(cs)
+    n >= 8 || throw(ArgumentError("DLT(PoseLibSolver()) of an essential matrix needs at least 8 correspondences, got $n"))
+    buf = _pack(cs)
     E_buf = MVector{9, Float64}(undef)
     _require_library()
-    ccall((:poselib_essential_8pt, libposelib_jl), Cint,
+    GC.@preserve buf ccall((:poselib_essential_8pt, libposelib_jl), Cint,
           (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}),
-          buf1, buf2, n, pointer(E_buf))
+          pointer(buf), _targets_at(buf, 3, n), n, pointer(E_buf))
     all(isfinite, E_buf) || return nothing
     EssentialMat{Float64}(Tuple(E_buf))
 end
-
-@inline VgtkCore.essential_dlt(cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}}) =
-    VgtkCore.essential_dlt(PoseLibSolver(), cs)
-
-# The refiners' 3×3 seed check: an `ArgumentError` naming the size it got, run
-# before the matrix is read under `@inbounds` into the ccall's buffer.
-_require_3x3(A::AbstractMatrix, name::String) =
-    size(A) == (3, 3) || throw(ArgumentError("$name must be 3×3, got $(join(size(A), '×'))"))
+# Any other data (calibrated 2-vectors, a z = 1 chart) has no 8-point: the pair's MethodError, stated here so that
+# Core's fallback for a backend without one does not claim PoseLib lacks it.
+VgtkCore.essential_8pt(backend::PoseLibSolver, cs) = throw(MethodError(VgtkCore.essential_8pt, (backend, cs)))
 
 # =============================================================================
-# refine_relpose  (robust-loss LM refinement of a relative pose — PoseLib LO)
+# The refines: LevenbergMarquardt(PoseLibSolver()) on raw data (lm_backend_refine)
 # =============================================================================
 
-export refine_relpose
 public is_available
 export LeZach
 
-# Relative-pose currency: a cam1→cam2 motion is NOT a world-to-camera
-# extrinsics, so `Extrinsics3`'s WorldFrame→CameraFrame labels would be
-# semantically wrong here. An UNLABELED concrete alias (same layout as the
-# retired VGC `Pose3`). VGC's view-identity frames (`ViewFrame{id}`) could
-# label it; that migration has not been done.
-public Rigid3
-
-"""
-    Rigid3
-
-The rigid motion `x ↦ R·x + t` that the pose refiners take as their seed and
-return: a VisualGeometryToolkitCore `EuclideanMap` in 3D with a `RotMatrix`
-rotation, a `Vec3` translation and unlabeled frames.
-`EuclideanMap(RotMatrix{3}(R), Vec3(t))` builds one.
-
-For [`refine_relpose`](@ref) it maps the first camera's frame to the second's.
-For [`refine_absolute_pose`](@ref) it maps the world frame to the camera's.
-A labeled pose, such as the `Extrinsics3` that P3P returns, is converted with
-VisualGeometryToolkitCore's `unlabel`.
-"""
-const Rigid3 = EuclideanMap{
-    3, Float64, RotMatrix{3, Float64, 9}, Vec3{Float64},
-    UnlabeledFrame{3}, UnlabeledFrame{3},
-}
-
 # -----------------------------------------------------------------------------
-# The strategy, typed: the stack's robust-estimation contract names a refiner's
-# loss as its strategy, `optimization_strategy`, and its width by `scale` or `width`.
-# Each strategy PoseLib runs maps to PoseLib's `BundleOptions::LossType` enum
-# (PoseLib/types.h) ONLY at the ccall boundary; the integer enum never leaves
-# this file.
+# The strategy, typed: the stack's robust-estimation contract names a refine's
+# loss as its strategy, `optimization_strategy` (the LevenbergMarquardt's field),
+# and its width by `scale` or `width` (solve keywords). Each strategy PoseLib
+# runs maps to PoseLib's `BundleOptions::LossType` enum (PoseLib/types.h) ONLY
+# at the ccall boundary; the integer enum never leaves this file.
 #
 # PoseLib's Levenberg–Marquardt weighs each residual by its loss weight ρ′ alone
 # (robust/optim/jacobian_accumulator.h: J'WJ with W = loss.weight(r²), no ρ″
 # term), so its strategy is `Irls{K}`. A `Triggs{K}` strategy (the ρ″-corrected
-# LM) is refused: PoseLib does not run it.
+# LM) is refused: PoseLib does not run it. Its damping is λ·I
+# (`LevenbergDamping()`, `default_damping(::PoseLibSolver)`).
 #
 # THE WIDTH. Each PoseLib loss is built from one scalar `loss_scale`
 # (PoseLib/robust/robust_loss.h), and for every loss bound here that scalar IS
@@ -434,7 +428,8 @@ const Rigid3 = EuclideanMap{
 #
 # So no factor, square or ½ is applied: `width = w` reaches PoseLib unchanged,
 # and test/test_refine.jl pins it behaviourally (a truncation at w, not w² or
-# w/2; Huber's elbow at w). `scale = σ` runs at `efficiency_constant · σ`.
+# w/2; Huber's elbow at w). `scale = σ` runs at `efficiency_constant(strategy, d) · σ`, the strategy's own constant,
+# else VisualGeometryToolkitCore's at the residual's codimension d (`_deployed_width`).
 # PoseLib's TruncatedCauchyLoss is not bound: no stack caller uses it.
 # -----------------------------------------------------------------------------
 
@@ -487,11 +482,14 @@ _poselib_loss_type(::LeZach) = Int32(5)                       # TRUNCATED_LE_ZAC
 _poselib_loss_type(::Irls{GaussianShape}) = throw(ArgumentError(
     "Irls{GaussianShape}: least squares is `optimization_strategy = nothing`, which takes no `scale` or `width`"))
 _poselib_loss_type(::Irls{K}) where {K} = throw(ArgumentError(
-    "PoseLib has no $(nameof(K)) loss; its refiners run Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, " *
+    "PoseLib has no $(nameof(K)) loss; its refines run Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, " *
         "LeZach(), or `nothing` (least squares)"))
 _poselib_loss_type(::Triggs) = throw(ArgumentError(
-    "PoseLib's refiners take no Triggs strategy: their Levenberg–Marquardt weighs each residual by ρ′ alone " *
+    "PoseLib's refines take no Triggs strategy: their Levenberg–Marquardt weighs each residual by ρ′ alone " *
         "(no ρ″ term), so give Irls{K} (K = TLSShape, HuberShape or CauchyShape)"))
+_poselib_loss_type(::ClassDefault) = throw(ArgumentError(
+    _WHO * " needs `optimization_strategy`: Irls{TLSShape}(), Irls{HuberShape}(), " *
+        "Irls{CauchyShape}(), LeZach(), or `nothing` for least squares (PoseLib's refines have no class default)"))
 _poselib_loss_type(lo) = throw(ArgumentError(
     "`optimization_strategy` must be Irls{TLSShape}, Irls{HuberShape}, Irls{CauchyShape}, LeZach() or `nothing` " *
         "(least squares); got $(repr(lo))"))
@@ -504,9 +502,9 @@ _carries_constant(::LeZach) = false
 """
     PoseLibRefineMetadata
 
-The metadata of a PoseLib refiner's [`FitResult`](@extref VisualGeometryToolkitCore.FitResult):
+The metadata of a PoseLib refine's [`FitResult`](@extref VisualGeometryToolkitCore.FitResult):
 the robust-estimation contract's scale record. `scale` is the noise scale the
-refiner was given and `scale_source` where it came from (`ScaleGiven` for
+refine was given and `scale_source` where it came from (`ScaleGiven` for
 `scale = σ`, `ScaleUpstream` for `scale = result`; `ScaleNone`, `scale = NaN`,
 for `width = w` and for least squares); `width` is the loss width PoseLib ran
 at (`NaN` for least squares). `noise_scale(result)` hands the scale on.
@@ -519,33 +517,48 @@ end
 
 public PoseLibRefineMetadata
 
-# A placeholder for a keyword that must be given: an `ArgumentError` naming it,
-# rather than an `UndefKeywordError`, checked after the retired keywords (a caller
-# of the retired `loss` keyword is told to give `optimization_strategy`).
-struct _Required end
+# PoseLib's Levenberg–Marquardt, `LevenbergMarquardt(PoseLibSolver(); …)`: its damping is PoseLib's λ·I.
+VgtkCore.default_damping(::PoseLibSolver) = LevenbergDamping()
 
-# The retired keywords, refused by Core's one refusal (`refuse_retired_keyword`),
-# then the required strategy.
-function _check_refine_keywords(fname::Symbol, lo, loss, loss_width, local_optimization)
-    VgtkCore.refuse_retired_keyword(loss, :loss, :optimization_strategy)
-    VgtkCore.refuse_retired_keyword(loss_width, :loss_width, :width)
-    VgtkCore.refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
-    lo isa _Required && throw(ArgumentError(
-        "$fname needs `optimization_strategy`: Irls{TLSShape}(), Irls{HuberShape}(), Irls{CauchyShape}(), LeZach(), " *
-            "or `nothing` for least squares"))
-    return nothing
+# The iteration budget PoseLib runs, from the solve's `stops`: PoseLib's wrapper sets `max_iter` and nothing else, so
+# a stop setting is APPLIED or REFUSED, never ignored. Every other field must be `===` to `LmStops()`'s (the defaults
+# of record): `stops === LmStops(; max_iter = stops.max_iter)`, which also covers a field added to LmStops later; the
+# `ArgumentError` names the field that differs.
+function _poselib_max_iter(stops::LmStops)
+    stops === LmStops(; max_iter = stops.max_iter) || throw(_unapplied_stop(stops))
+    stops.max_iter <= typemax(Cint) || throw(ArgumentError("PoseLib's max_iter is a C int, ≤ $(typemax(Cint)); got $(stops.max_iter)"))
+    return stops.max_iter
+end
+@noinline function _unapplied_stop(stops::LmStops)
+    d = LmStops()
+    for (name, set, default) in (("ftol", stops.ftol, d.ftol), ("xtol", stops.xtol, d.xtol), ("xtol_rel", stops.xtol_rel, d.xtol_rel),
+                                 ("stationarity_tol", stops.stationarity_tol, d.stationarity_tol),
+                                 ("max_time", stops.max_time, d.max_time), ("residual_resolution", stops.residual_resolution, d.residual_resolution))
+        set === default || return ArgumentError(string("PoseLib's Levenberg–Marquardt applies only `max_iter` of its LmStops ",
+            "(its tolerances are PoseLib's own); `", name, " = ", set, "` cannot be applied: leave it at its default"))
+    end
+    return ArgumentError("PoseLib's Levenberg–Marquardt applies only `max_iter` of its LmStops (its tolerances are " *
+        "PoseLib's own): leave every other field at its default")
 end
 
-# The width PoseLib runs at, and the metadata recording it, from the strategy
-# and the scale input; `d` is the codimension of the refiner's residual.
-function _refine_width(::Nothing, scale, width, ::Int)
+# The algorithm's strategy and damping, admitted (a missing strategy is named first); returns the strategy.
+function _check_poselib_alg(alg::LevenbergMarquardt)
+    lo = alg.optimization_strategy
+    lo === nothing || _poselib_loss_type(lo)
+    alg.damping isa LevenbergDamping || throw(ArgumentError(
+        "PoseLib's Levenberg–Marquardt damps by λ·I: its damping is LevenbergDamping() (the default); got $(repr(alg.damping))"))
+    return lo
+end
+
+# The width PoseLib runs at, and the metadata recording it, from the admitted strategy `lo` and the solve's scale
+# input; `d` is the codimension of the refine's residual.
+function _deployed_width(::Nothing, scale, width, ::Int)
     (scale === nothing && width === nothing) || throw(ArgumentError(
         "`optimization_strategy = nothing` is least squares, which has no width: omit `scale` and `width`"))
     # PoseLib ignores the scale of its trivial loss; 1.0 is what it has always been handed.
     return 1.0, PoseLibRefineMetadata(NaN, VgtkCore.ScaleNone, NaN)
 end
-function _refine_width(lo, scale, width, d::Int)
-    _poselib_loss_type(lo)                                   # the strategy is admitted first
+function _deployed_width(lo, scale, width, d::Int)
     si = VgtkCore.scale_input(scale, width)
     if isnan(si.scale)                                       # `width = w`
         _carries_constant(lo) && throw(ArgumentError(
@@ -559,132 +572,50 @@ function _refine_width(lo, scale, width, d::Int)
     return w, PoseLibRefineMetadata(s, si.source, w)
 end
 
-# The refined model as a FitResult: PoseLib's iteration count and why it
-# stopped (it exhausts the budget only at `iterations == max_iter`), as its
-# termination record: `(Success, NoRule)` before the cap (PoseLib reports no
-# stop rule, so none is claimed), `(MaxIters, IterationCap)` at it. PoseLib
-# reports no residual summary, so `rms` is `NaN`; `n` is the number of
-# correspondences refined over (every one handed over: PoseLib reports no weights,
-# so it is not VisualGeometryToolkitEstimation's weighted support).
-_refine_result(model, iterations::Integer, max_iter::Integer, n::Integer, meta::PoseLibRefineMetadata) =
-    FitResult(model, (iterations < max_iter ? (VgtkCore.ReturnCode.Success, VgtkCore.NoRule) :
-                                              (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
-              iterations, NaN, n, meta)
+# The refined model as a FitResult: PoseLib's iteration count (`stats.nsteps`) and why it stopped (it exhausts the
+# budget only at `iterations == max_iter`), as its termination record: `(Success, NoRule)` before the cap (PoseLib
+# reports no stop rule, so none is claimed), `(MaxIters, IterationCap)` at it. PoseLib reports no residual summary, so
+# `rms` is `NaN` and `resid` `nothing`; `n` is the number of correspondences refined over (every one handed over:
+# PoseLib reports no weights, so it is not VisualGeometryToolkitEstimation's weighted support). `original` is the C
+# wrapper's raw output: its return value (PoseLib's `BundleStats.iterations`) and its output buffers as written.
+_poselib_result(model, original, max_iter::Int, n::Integer, meta::PoseLibRefineMetadata) =
+    FitResult(model, (original.iterations < max_iter ? (VgtkCore.ReturnCode.Success, VgtkCore.NoRule) :
+                                                              (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap))...,
+              SolveStats(; nsteps = original.iterations), NaN, n, meta; original)
 
-# A seed pose in the type a refiner returns (Float64 matrix rotation and translation), so the result's type never
+# A guess pose in the type a refine returns (Float64 matrix rotation and translation), so the result's type never
 # depends on the input's.
-_returned_pose(pose::Rigid3) = Rigid3(SMatrix{3, 3, Float64, 9}(pose.R), Vec3{Float64}(pose.t[1], pose.t[2], pose.t[3]))
+_returned_pose(pose::PlainEuclideanMap{3}) = _plain_pose(SMatrix{3, 3, Float64, 9}(pose.R), Vec3{Float64}(pose.t))
 
-# Fewer correspondences than the model's minimal sample (`solver`'s `sample_size`): nothing to refine — the seed
-# `model`, unrefined, `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as VisualGeometryToolkitEstimation's
-# refines report it. `nothing` when there are enough.
-_below_minimal_sample(model, cs, solver, meta::PoseLibRefineMetadata) =
-    length(cs) >= VgtkCore.sample_size(solver) ? nothing :
-        FitResult(model, VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, 0, NaN, 0, meta)
+# Fewer correspondences than the model's minimal sample (`solver`'s `sample_size`): nothing to refine.
+_too_few(cs, solver) = length(cs) < VgtkCore.sample_size(solver)
+# The guess `model`, unrefined: `(InitialFailure, NoRule)` after 0 iterations and `n = 0` (no C call: `original` is
+# `nothing`), as VisualGeometryToolkitCore's LevenbergMarquardt reports it.
+_unrefined(model, meta::PoseLibRefineMetadata) =
+    FitResult(model, VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, SolveStats(), NaN, 0, meta)
 
-# Finite, unit-norm gate for a bearing column. Matches VisualGeometryToolkitEstimation's
-# `_assert_unit_bearings` (`problems/correspondence.jl`) in its finite check, tolerance and in what the
-# message has to tell the caller — the stack settled this shape, so this
-# binding follows it rather than inventing a second one.
-#
-# The gate exists because `StaticVector{3}` is a NECESSARY condition, not a
-# guarantee: a z = 1 chart point wears 3-vector clothing and even returns the
-# right answer for every ray the chart can represent, so the exclusion of rays
-# at and past 90° survives the type and merely stops being visible. The
-# tolerance is not delicate — a chart point has norm ≥ 1, about 1.0185 on a
-# narrow field and 1.41 at 45° off axis, and equals a unit bearing only on the
-# optical axis, where the two vectors are the same vector.
-#
-# Checked here and not in an inner loop: a binding entry point is the boundary,
-# and this is one sweep over data the caller just built.
-function _assert_unit_bearings(fs, which::AbstractString)
-    worst = 0.0; at = 0
-    @inbounds for i in eachindex(fs)
-        # FINITE first, as correspondence.jl's: `NaN > worst` is false, so a NaN bearing (a pixel the camera cannot
-        # back-project, e.g. past a fisheye's fold) would get through the norm test below.
-        all(isfinite, fs[i]) || throw(ArgumentError(
-            "refine_relpose needs finite bearings; the $which at index $i is $(Tuple(fs[i])). A camera returns NaN " *
-                "for a pixel it cannot back-project (e.g. past a fisheye's fold) — drop that correspondence."
-        ))
-        d = abs(sqrt(fs[i][1]^2 + fs[i][2]^2 + fs[i][3]^2) - 1)
-        d > worst && (worst = d; at = i)
-    end
-    worst <= 1.0e-6 || throw(ArgumentError(
-        "refine_relpose needs UNIT bearings; the $which at index $at has norm " *
-            "$(round(sqrt(fs[at][1]^2 + fs[at][2]^2 + fs[at][3]^2), digits = 6)). " *
-            "A z = 1 chart point satisfies the 3-vector signature but is not a " *
-            "bearing — its norm is 1 only on the optical axis, ~1.41 at 45° off " *
-            "it, and it does not exist at all at 90°. Back-project with the " *
-            "camera: `backproject_with_jacobian(camera, u)`."
-    ))
-    return nothing
-end
-
-"""
-    refine_relpose(pose::UnitfulEuclideanMap{3}, args...; kw...)
-
-This form is refused with an `ArgumentError`. A calibrated relative pose is
-determined only up to scale, so its translation is a direction, not a length:
-there is no unit to strip at entry or to reattach at exit. Hand over the plain
-seed, `ustrip(m, pose)` converted to a [`Rigid3`](@ref).
-"""
-refine_relpose(::UnitfulEuclideanMap{3}, args...; kw...) = throw(ArgumentError(
-    "refine_relpose: a relative pose is up to scale, so its translation is a direction, not a " *
-        "length; supply the plain seed, `convert(PoseLib.Rigid3, ustrip(m, pose))`"
-))
-
-"""
-    refine_relpose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, optimization_strategy, width)
-
-This form is refused with an `ArgumentError`. Calibrated 2-vectors are
-coordinates on the z = 1 plane (`GnomonicFrame`). That plane has no point for a
-ray at or beyond 90° from the optical axis, which excludes fisheye and
-omnidirectional cameras. Relative pose is calibrated geometry, so in this stack
-it takes unit bearings (unit rays).
-
-Use one of the two supported forms:
-
-- `refine_relpose(pose, cs)`, with `cs` of unit bearings `f₁ => f₂` that carry
-  their back-projection Jacobians `M₁` and `M₂`. This is PoseLib's
-  tangent-Sampson refiner.
-- `refine_relpose(pose, K1, K2, cs)`, with pixel points and the two
-  intrinsic matrices. PoseLib back-projects through the cameras and runs the
-  same refiner.
-
-`backproject_with_jacobian(camera, u)` returns a bearing and its Jacobian
-together.
-"""
-function refine_relpose(::Rigid3,
-                        cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
-                        kw...)
-    throw(ArgumentError(
-        "refine_relpose takes unit BEARINGS (3-vectors). Got " *
-            "$(eltype(sources(cs))) => $(eltype(targets(cs))). Calibrated 2-vectors " *
-            "imply z = 1 — the gnomonic chart — which does not exist for a ray at " *
-            "the horizon. Either back-project to bearings and attach the Jacobians, " *
-            "`refine_relpose(pose, withattrs(Correspondences(f₁, f₂); M₁, M₂); max_iter, optimization_strategy, width)` " *
-            "from `backproject_with_jacobian(camera, u)`, or hand over pixels and " *
-            "the intrinsics, `refine_relpose(pose, K1, K2, cs; max_iter, optimization_strategy, width)`."
-    ))
-end
+# The guess's and K's 3×3 check: an `ArgumentError` naming the size it got, run before the matrix is read into the
+# ccall's buffer.
+_require_3x3(A::AbstractMatrix, name::String) =
+    size(A) == (3, 3) || throw(ArgumentError("$name must be 3×3, got $(join(size(A), '×'))"))
 
 # A K as PoseLib's SIMPLE_PINHOLE camera: (focal, cx, cy), the focal the mean of K₁₁ and K₂₂ — the one statement of
-# the mapping, for every binding that hands a K over and for `calibrated_loss_width`.
+# the mapping, for every refine that hands a K over and for `calibrated_loss_width`.
 _pinhole_focal(K::AbstractMatrix) = (K[1, 1] + K[2, 2]) / 2
 _simple_pinhole(K::AbstractMatrix) = Float64[_pinhole_focal(K), K[1, 3], K[2, 3]]
 
 """
     calibrated_loss_width(K1, K2, width) -> Float64
 
-The calibrated (bearing-unit) loss width that PoseLib's relative-pose refiner
+The calibrated (bearing-unit) loss width that PoseLib's relative-pose refine
 works at when it is handed `width` in the unit of the points together with the
-intrinsics `K1` and `K2` ([`refine_relpose`](@ref)`(pose, K1, K2, cs; width)`):
-`width · ½(1/f₁ + 1/f₂)`, PoseLib's camera-aware rule (`robust.cc`), with each
-`fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2`, the focal length of the `SIMPLE_PINHOLE` camera the
-binding hands over.
+intrinsics `K1` and `K2` (a refine of pixel correspondences with the
+context `(; K1, K2)`): `width · ½(1/f₁ + 1/f₂)`, PoseLib's camera-aware rule
+(`robust.cc`), with each `fᵢ = (Kᵢ₁₁ + Kᵢ₂₂)/2`, the focal length of the
+`SIMPLE_PINHOLE` camera handed over.
 
-A refiner on calibrated data that must deploy at the same operating point as
-PoseLib's pixel refiner converts its width with this, so the two cannot drift
+A refine on calibrated data that must deploy at the same operating point as
+PoseLib's pixel refine converts its width with this, so the two cannot drift
 apart when the camera mapping changes.
 """
 calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, width::Real) =
@@ -692,434 +623,290 @@ calibrated_loss_width(K1::AbstractMatrix, K2::AbstractMatrix, width::Real) =
 
 public calibrated_loss_width
 
-"""
-    refine_relpose(pose::Rigid3, K1, K2, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
-
-Robust Levenberg–Marquardt refinement of a relative pose from pixel
-correspondences and the two cameras' intrinsics.
-
-`pose` is the seed [`Rigid3`](@ref), mapping the first camera's frame to the
-second's. `cs` holds the correspondences `x1 => x2`, each point in its own
-image's frame. `K1` and `K2` are the intrinsic matrices of those frames: pixel
-matrices for pixel points, or matrices in whatever frame the points are in.
-Returns a `FitResult` whose `estimate` is the refined `Rigid3`, as a `FitResult`.
-
-The width is in the unit of the points. PoseLib back-projects through each
-camera, so one width serves both images even when their focal lengths differ.
-`max_iter`, `optimization_strategy`, `scale` and `width`, and the result, are as
-in [`refine_homography`](@ref); the residual's codimension is 1.
-
-Each `K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal
-length `(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any
-difference between `K₁₁` and `K₂₂` are dropped, so the model is exact only for
-square pixels and zero skew.
-
-It ends in the local minimum its seed leads to, as described for
-[`refine_homography`](@ref).
-"""
-function refine_relpose(pose::Rigid3, K1::AbstractMatrix, K2::AbstractMatrix,
-                        cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
-                        max_iter::Integer, optimization_strategy = _Required(),
-                        scale = nothing, width = nothing,
-                        loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
-    _check_refine_keywords(:refine_relpose, optimization_strategy, loss, loss_width, local_optimization)
-    w, meta = _refine_width(optimization_strategy, scale, width, 1)
-    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
-    few === nothing || return few
-    X1, X2 = _pack(cs)
-    R0 = pose.R; t0 = pose.t
-    Rin = Vector{Float64}(undef, 9)
-    @inbounds for j in 1:3, i in 1:3
-        Rin[3(j-1)+i] = R0[i, j]            # column-major (Eigen layout)
-    end
-    tin  = Float64[t0[1], t0[2], t0[3]]
-    cam1 = _simple_pinhole(K1)
-    cam2 = _simple_pinhole(K2)
-    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
-    _require_library()
-    iterations = ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
-          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
-           Ptr{Float64}, Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
-          X1, X2, length(cs), Rin, tin, cam1, cam2, w, max_iter, _poselib_loss_type(optimization_strategy),
-          pointer(R_out), pointer(t_out))
-    model = Rigid3(_read_mat33_from_buf(R_out, 0),
-                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
-    return _refine_result(model, iterations, max_iter, length(cs), meta)
-end
-
-"""
-    refine_relpose(pose::Rigid3, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
-
-Robust Levenberg–Marquardt refinement of a relative pose from unit bearings,
-through PoseLib's tangent-Sampson refiner.
-
-`pose` is the seed [`Rigid3`](@ref), mapping the first camera's frame to the
-second's. `cs` holds the correspondences `f₁ => f₂` of unit bearings
-(`StaticVector{3}`). They carry their 3×2 back-projection Jacobians as the
-attribute columns `M₁` and `M₂`, attached with `withattrs(cs; M₁, M₂)`.
-VisualGeometryToolkitCore's `backproject_with_jacobian(camera, u)` returns
-each bearing together with its Jacobian. Returns a `FitResult` whose `estimate` is the refined `Rigid3`, as a `FitResult`.
-
-No image plane is involved, so a ray at or beyond 90° from the optical axis is
-an ordinary input. A 3-vector that is not of unit length is refused with an
-`ArgumentError`: a point on the z = 1 plane lifted to `(x, y, 1)` has the right
-type but is not a bearing.
-
-# The unit of the width
-
-`width` is the width `w` of the loss on the tangent-Sampson residual
-
-    r = (f₂ᵀ E f₁) / √(‖M₂ᵀ E f₁‖² + ‖M₁ᵀ Eᵀ f₂‖²)
-
-The denominator is the gradient norm of the epipolar constraint with respect
-to the coordinates that `M` differentiates against. The residual `r` is in the
-unit of those coordinates, and `width` (or `scale`) must be given in the same unit.
-The Jacobians set the unit; the call cannot.
-
-| `M` is | `r` and `width` are in |
-|---|---|
-| `∂f/∂u` from `backproject_with_jacobian` | pixels of `u` |
-| an orthonormal basis of the tangent plane of the sphere at `f` | radians |
-
-A width in the wrong unit is off by a factor of the focal length. Nothing
-reports this: a truncated loss simply keeps the wrong inliers.
-
-All arguments are in the caller's frame, and the refined pose comes back in it.
-It ends in the local minimum its seed leads to, as described for
-[`refine_homography`](@ref).
-"""
-function refine_relpose(pose::Rigid3,
-                        cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{3}}};
-                        max_iter::Integer, optimization_strategy = _Required(),
-                        scale = nothing, width = nothing,
-                        loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
-    _check_refine_keywords(:refine_relpose, optimization_strategy, loss, loss_width, local_optimization)
-    w, meta = _refine_width(optimization_strategy, scale, width, 1)
-    (hasattr(cs, :M₁) && hasattr(cs, :M₂)) || throw(ArgumentError(
-        "refine_relpose on bearings needs the backprojection Jacobians as attribute " *
-        "columns: withattrs(cs; M₁, M₂), from backproject_with_jacobian. They set " *
-        "the unit of the width, so there is no defensible default for them."))
-    # The 3-vector signature is a NECESSARY condition, not a guarantee: without
-    # this the chart would slip through in 3-vector clothing and the 90° exclusion would
-    # survive, just invisibly.
-    _assert_unit_bearings(sources(cs), "source")
-    _assert_unit_bearings(targets(cs), "target")
-    few = _below_minimal_sample(_returned_pose(pose), cs, Essential5pt(PoseLibSolver()), meta)
-    few === nothing || return few
-    D1, D2 = _pack(cs)
-    J1 = _pack_tangent(cs.M₁); J2 = _pack_tangent(cs.M₂)
-    R0 = pose.R; t0 = pose.t
-    Rin = Vector{Float64}(undef, 9)
-    @inbounds for j in 1:3, i in 1:3
-        Rin[3(j-1)+i] = R0[i, j]            # column-major (Eigen layout)
-    end
-    tin = Float64[t0[1], t0[2], t0[3]]
-    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
-    _require_library()
-    iterations = ccall((:poselib_refine_relpose_bearing, libposelib_jl), Cint,
-          (Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Cint,
-           Ptr{Float64}, Ptr{Float64},
-           Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
-          D1, D2, J1, J2, length(cs), Rin, tin,
-          w, max_iter, _poselib_loss_type(optimization_strategy),
-          pointer(R_out), pointer(t_out))
-    model = Rigid3(_read_mat33_from_buf(R_out, 0),
-                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
-    return _refine_result(model, iterations, max_iter, length(cs), meta)
-end
-
-# =============================================================================
-# refine_fundamental  (robust-loss LM refinement of a fundamental matrix)
-# =============================================================================
-
-export refine_fundamental
-
-"""
-    refine_fundamental(F, cs; max_iter, optimization_strategy, scale | width) -> FitResult{FundMat}
-
-Robust Levenberg–Marquardt refinement of a fundamental matrix through
-PoseLib's `refine_fundamental`. It minimizes the Sampson error over the
-Bartoli–Sturm parametrization of `F`, which keeps the matrix at rank 2.
-
-`F` is the seed 3×3 fundamental matrix. `cs` holds the correspondences
-`x1 => x2` of 2D image points, in the frame `F` is expressed in (pixels for a
-pixel-frame `F`). The width is that of the loss on the Sampson residual, in
-the same unit (codimension 1). `max_iter`, `optimization_strategy`, `scale` and
-`width`, and the result, are as in [`refine_homography`](@ref). Returns a
-`FitResult` whose `estimate` is the refined `FundMat`. It ends in the
-local minimum its seed leads to, as described for
-[`refine_homography`](@ref).
-"""
-function refine_fundamental(F::AbstractMatrix,
-                            cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
-                            max_iter::Integer, optimization_strategy = _Required(),
-                            scale = nothing, width = nothing,
-                            loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
-    _check_refine_keywords(:refine_fundamental, optimization_strategy, loss, loss_width, local_optimization)
-    w, meta = _refine_width(optimization_strategy, scale, width, 1)
-    _require_3x3(F, "F")
-    few = _below_minimal_sample(FundMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(F))), cs, Fundamental7pt(PoseLibSolver()), meta)
-    few === nothing || return few
-    X1, X2 = _pack(cs)
-    Fin = Vector{Float64}(undef, 9)
-    @inbounds for j in 1:3, i in 1:3
-        Fin[3(j-1)+i] = F[i, j]                # column-major (Eigen layout)
-    end
-    F_out = MVector{9, Float64}(undef)
-    _require_library()
-    iterations = ccall((:poselib_refine_fundamental, libposelib_jl), Cint,
-          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
-           Float64, Cint, Cint, Ptr{Float64}),
-          X1, X2, length(cs), Fin, w, max_iter, _poselib_loss_type(optimization_strategy),
-          pointer(F_out))
-    model = FundMat{Float64}(Tuple(_read_mat33_from_buf(F_out, 0)))
-    return _refine_result(model, iterations, max_iter, length(cs), meta)
-end
-
-# =============================================================================
-# refine_homography  (robust-loss LM refinement of a homography)
-# =============================================================================
-
-export refine_homography
-export refine_absolute_pose
-
-"""
-    refine_absolute_pose(pose::Rigid3, cs::…StaticVector{2}…; max_iter, optimization_strategy, width)
-
-This form is refused with an `ArgumentError`. Its targets would be calibrated
-points on the z = 1 plane (`GnomonicFrame`), with a loss width divided by the
-focal length. That plane has no point for a ray at or beyond 90° from the
-optical axis.
-
-Use `refine_absolute_pose(pose, K, cs)` instead: the same correspondences in
-pixels, the intrinsic matrix `K`, and the width in pixels.
-
-PoseLib has no absolute-pose refiner on bearings. Its residual is a
-reprojection error in the image, so the pixel form is the only one, and it
-reaches PoseLib as a `SIMPLE_PINHOLE` camera. That model cannot project a ray
-at or beyond 90° either, so this package offers no correct absolute-pose
-refinement for a fisheye camera.
-"""
-function refine_absolute_pose(::Rigid3,
-                              cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{2}}};
-                              kw...)
-    throw(ArgumentError(
-        "refine_absolute_pose no longer takes calibrated 2-vectors. Got " *
-            "$(eltype(sources(cs))) => $(eltype(targets(cs))); the targets were " *
-            "points on the z = 1 chart, which does not exist for a ray at the " *
-            "horizon, with the loss width pre-divided by the focal length. Supply the same " *
-            "correspondences as PIXELS with their intrinsics and a PIXEL loss width: " *
-            "`refine_absolute_pose(pose, K, cs; max_iter, optimization_strategy, width)`."
-    ))
-end
-
-"""
-    refine_absolute_pose(pose::Rigid3, K, cs; max_iter, optimization_strategy, scale | width) -> FitResult{Rigid3}
-
-Robust Levenberg–Marquardt refinement of an absolute pose from 3D-to-2D
-correspondences, through PoseLib's C++ absolute-pose bundle adjustment. The residual is the
-reprojection error `project(camera, R X + t) − u`.
-
-`pose` is the seed [`Rigid3`](@ref), mapping the world frame to the camera's.
-`K` is the intrinsic matrix of the frame the image points are in. `cs` holds
-the correspondences `X => u` of 3D points to 2D image points. Returns the
-refined `Rigid3`, as a `FitResult`.
-
-The width is that of the loss on the reprojection residual, in the unit of
-`u` and `K` (pixels for a pixel-frame `K`; codimension 2). `max_iter`,
-`optimization_strategy`, `scale` and `width`, and the result,
-are as in [`refine_homography`](@ref). Only the six degrees of freedom of the
-pose are refined; `K` stays fixed.
-
-`K` reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal length
-`(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any difference
-between `K₁₁` and `K₂₂` are dropped, so the model is exact only for square
-pixels and zero skew.
-
-It ends in the local minimum its seed leads to, as described for
-[`refine_homography`](@ref).
-"""
-function refine_absolute_pose(pose::Rigid3, K::AbstractMatrix,
-                              cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{2}}};
-                              max_iter::Integer, optimization_strategy = _Required(),
-                              scale = nothing, width = nothing,
-                              loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
-    _check_refine_keywords(:refine_absolute_pose, optimization_strategy, loss, loss_width, local_optimization)
-    w, meta = _refine_width(optimization_strategy, scale, width, 2)
-    _require_3x3(K, "K")
-    few = _below_minimal_sample(_returned_pose(pose), cs, P3P(PoseLibSolver()), meta)
-    few === nothing || return few
-    Xb, xb = _pack(cs)
-    R0 = pose.R; t0 = pose.t
-    Rin = Vector{Float64}(undef, 9)
-    @inbounds for j in 1:3, i in 1:3
-        Rin[3(j-1)+i] = R0[i, j]            # column-major (Eigen layout)
-    end
-    tin = Float64[t0[1], t0[2], t0[3]]
-    cam = _simple_pinhole(K)
-    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
-    _require_library()
-    iterations = ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,
-          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
-           Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
-          xb, Xb, length(cs), Rin, tin, cam,
-          w, max_iter, _poselib_loss_type(optimization_strategy),
-          pointer(R_out), pointer(t_out))
-    model = Rigid3(_read_mat33_from_buf(R_out, 0),
-                   Vec3{Float64}(t_out[1], t_out[2], t_out[3]))
-    return _refine_result(model, iterations, max_iter, length(cs), meta)
-end
-
 # -----------------------------------------------------------------------------
-# Physical poses and world points: one strip at entry, one reattachment at exit
+# The refines (VisualGeometryToolkitCore's `lm_backend_refine`, the backend contract generic its
+# `solve(RefineProblem(data, u0[, p]), LevenbergMarquardt(PoseLibSolver(); …))` forwards to)
 # -----------------------------------------------------------------------------
-#
-# The layering (VisualGeometryToolkitCore `conventions/units.md`): the ccall
-# boundary takes plain Float64, so a physical seed and physical world points
-# are stripped in metres once (`ustrip(m, ·)` of a base-form quantity is its
-# stored value, exactly), the plain refinement runs, and the refined pose is
-# read back in metres once (scale 1, exact). Mixed forms are refused.
 
 const _PhysicalPoints3 = AbstractVector{<:Correspondence{<:StaticVector{3, <:Quantity}, <:StaticVector{2}}}
 const _PlainPoints3 = AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{2}}}
+const _WHO = "LevenbergMarquardt(PoseLibSolver())"
+const _WHO_RELPOSE = _WHO * " of a relative pose from pixels"
+const _WHO_ABSPOSE = _WHO * " of an absolute pose"
+# The bearing gate's remedy (VisualGeometryToolkitCore's `assert_unit_bearings`): how to build a bearing.
+const _BEARING_REMEDY = "Back-project with the camera: `backproject_with_jacobian(camera, u)`."
+
+# The C wrapper's 3×3 in- and output: one column-major (Eigen) block of nine doubles.
+const _Mat33 = SMatrix{3, 3, Float64, 9}
+
+# A 3×3 matrix (or a rotation) into the C wrapper's column-major (Eigen) buffer, and a translation into its buffer:
+# small heap vectors handed to `ccall` (which the compiler does not keep on the heap where they do not escape).
+_colmajor9(A) = collect(Float64, vec(_Mat33(A)))
+_c_translation(t) = collect(Float64, SVector{3, Float64}(t))
+
+"""
+    lm_backend_refine(::PoseLibSolver, u0, data, p, alg; stops, scale, width) -> FitResult
+
+PoseLib's robust Levenberg–Marquardt refines, the `PoseLibSolver` backend of
+VisualGeometryToolkitCore's `lm_backend_refine`. The public entry point is the
+solve it forwards from:
+
+```julia
+solve(RefineProblem(data, guess[, p]), LevenbergMarquardt(PoseLibSolver(); optimization_strategy);
+      stops = LmStops(; max_iter), scale | width) -> FitResult
+```
+
+The guess's type and the data's shape select PoseLib's residual:
+
+| guess | `data` | context `p` | PoseLib's residual (codimension) |
+|---|---|---|---|
+| `HomographyMat` | `x1 => x2`, 2D image points | none | the symmetric transfer error `x2 − π(H x1)`, `x1 − π(H⁻¹ x2)` (2) |
+| `FundMat` | `x1 => x2`, 2D image points | none | the Sampson error, over the Bartoli–Sturm parametrization of `F` (rank 2) (1) |
+| `EuclideanMap{3}`, a relative pose | `x1 => x2`, 2D points of two views | `(; K1, K2)` | the Sampson error through the two cameras (1) |
+| `EuclideanMap{3}`, a relative pose | `f₁ => f₂`, unit bearings with Jacobians `M₁`, `M₂` | none | the tangent-Sampson error (1) |
+| `EuclideanMap{3}`, an absolute pose | `X => u`, 3D points to 2D image points | `(; K)` | the reprojection error `project(camera, R X + t) − u` (2) |
+
+A relative pose maps the first camera's frame to the second's; an absolute pose
+the world frame to the camera's. A pose guess is a plain `EuclideanMap{3}` (a
+labeled one, such as the `CameraExtrinsics` P3P returns, is read unlabeled), except
+the physical absolute pose below. The refined model comes back in the caller's
+frame: a `HomographyMat{Float64}`, a `FundMat{Float64}`, or an unlabeled
+`EuclideanMap{3}` with a `RotMatrix{3, Float64}` rotation and a `Vec3{Float64}`
+translation (metres for a physical absolute pose).
+
+The settings: `optimization_strategy` (the algorithm's field) is required, one
+of `Irls{TLSShape}()`, `Irls{HuberShape}()`, `Irls{CauchyShape}()`,
+[`LeZach`](@ref)`()` or `nothing` (least squares; it takes no `scale` or
+`width`). The damping is PoseLib's λ·I, `LevenbergDamping()`, the backend's
+default; any other is refused. `stops` is VisualGeometryToolkitCore's
+`LmStops`: PoseLib applies its `max_iter` (default 1000) and refuses any other
+field that is not `===` to `LmStops()`'s, naming it — PoseLib's own tolerances
+apply. Exactly one of `width = w` (the loss width, in the unit of the residual)
+or `scale = σ` (a noise scale, or an earlier robust result) is given for a
+robust strategy; with `scale` the loss runs at the strategy's efficiency
+constant, else `efficiency_constant(shape, d)` at the codimension `d`, times σ.
+TLS and Le–Zach have no efficiency constant, so they take `width`.
+
+The width is in the unit of the residual: the points' unit (pixels for pixel
+points), or for bearings the unit their Jacobians set.
+
+# The two cameras' and the camera's intrinsics
+
+Each `K` (of the context, in the frame of the points: a pixel matrix for pixel
+points) reaches PoseLib as its `SIMPLE_PINHOLE` camera model, with focal length
+`(K₁₁ + K₂₂)/2` and principal point `(K₁₃, K₂₃)`. Skew and any difference between
+`K₁₁` and `K₂₂` are dropped, so the model is exact only for square pixels and
+zero skew. Of a relative pose PoseLib back-projects through each camera, so one
+width serves both images even when their focal lengths differ. Of an absolute
+pose only the six degrees of freedom of the pose are refined; `K` stays fixed.
+
+# Bearings, and the unit of their width
+
+On unit bearings `f₁ => f₂` (`StaticVector{3}`) the correspondences carry their
+3×2 back-projection Jacobians as the attribute columns `M₁` and `M₂`
+(`withattrs(cs; M₁, M₂)`; VisualGeometryToolkitCore's
+`backproject_with_jacobian(camera, u)` returns each bearing with its Jacobian).
+The residual is
+
+    r = (f₂ᵀ E f₁) / √(‖M₂ᵀ E f₁‖² + ‖M₁ᵀ Eᵀ f₂‖²)
+
+in the unit of the coordinates the Jacobians differentiate against, and the
+width must be given in that unit: pixels of `u` for `M = ∂f/∂u` from
+`backproject_with_jacobian`, radians for an orthonormal basis of the sphere's
+tangent plane at `f`. A width in the wrong unit is off by a factor of the focal
+length, and nothing reports it: a truncated loss simply keeps the wrong inliers.
+No image plane is involved, so a ray at or beyond 90° from the optical axis is
+an ordinary input. A bearing that is not finite or not of unit length is
+refused with an `ArgumentError`: a point on the z = 1 plane lifted to
+`(x, y, 1)` has the right type but is not a bearing.
+
+# The result
+
+A `FitResult`: `u` the refined model; `retcode` and `stop_rule`
+`(ReturnCode.Success, NoRule)` when PoseLib stopped on its own tolerances,
+`(ReturnCode.MaxIters, IterationCap)` when it used the whole budget;
+`stats.nsteps` PoseLib's iteration count; `rms` `NaN` and `resid` `nothing`
+(PoseLib reports no residuals); `n` the correspondences refined over; `metadata`
+the scale record ([`PoseLibRefineMetadata`](@ref)); `original` the C wrapper's
+raw output, its return value (PoseLib's `BundleStats.iterations`) and the output
+buffers as written, column-major (`H` or `F`; a pose's `R` and `t`). Fewer
+correspondences than the model's minimal sample (4, 7, 5, 3) return the guess
+unrefined, `(InitialFailure, NoRule)`, `n = 0`, without calling PoseLib
+(`original` `nothing`). A refine ends in the local minimum its guess leads to.
+
+# Refused forms
+
+Each is an `ArgumentError` naming the supported form:
+
+- a relative pose on 2D points without the cameras' intrinsics (calibrated
+  2-vectors on the z = 1 plane, which has no point for a ray at or beyond 90°
+  from the optical axis); an absolute pose on 3D-to-2D correspondences without
+  its `K` (the same plane). PoseLib has no absolute-pose refiner on bearings,
+  and its `SIMPLE_PINHOLE` camera cannot project a ray at or beyond 90° either,
+  so this package offers no correct absolute-pose refinement for a fisheye
+  camera;
+- a physical relative pose (its translation is a direction, up to scale: there
+  is no unit to strip; hand over `ustrip(m, pose)`);
+- a physical absolute-pose guess with plain world points, or the reverse;
+- a `K` that is not 3×3.
+
+Any other combination (a stray context, another model) is a `MethodError`.
+
+# A physical absolute pose
+
+A guess whose translation is a length (FlexUnits quantities; a labeled pose, an
+estimate's `CameraExtrinsics`, is read unlabeled) with world points `X` that are
+lengths: both are stripped in metres once, the plain refinement runs, and the
+refined pose comes back with its translation in metres: equal, after
+`ustrip(m, ·)`, to the plain refinement's on the inputs' `ustrip(m, ·)`, with
+its termination record and scale record. """
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::Any, ::Any, ::Any, ::Any)
+
+# The homography and the fundamental matrix: one body (the model type, its minimal solver, the C function, the
+# residual's codimension and the name of the output buffer in `original`).
+for (M, solver, cfun, d, out) in ((:HomographyMat, :Homography4pt, :poselib_refine_homography, 2, :H),
+                                  (:FundMat, :Fundamental7pt, :poselib_refine_fundamental, 1, :F))
+    @eval function VgtkCore.lm_backend_refine(::PoseLibSolver, G::$M, cs::_PlanePairs, ::NullParameters,
+                                              alg::LevenbergMarquardt; stops::LmStops, scale, width)
+        w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, $d)
+        max_iter = _poselib_max_iter(stops)
+        _too_few(cs, $solver(PoseLibSolver())) && return _unrefined($M{Float64}(Tuple(_Mat33(G))), meta)
+        X = _pack(cs)
+        G_out = MVector{9, Float64}(undef)
+        _require_library()
+        iterations = GC.@preserve X ccall(($(QuoteNode(cfun)), libposelib_jl), Cint,
+              (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}),
+              pointer(X), _targets_at(X, 2, length(cs)), length(cs), _colmajor9(G), w, max_iter, _poselib_loss_type(alg.optimization_strategy), G_out)
+        original = NamedTuple{(:iterations, $(QuoteNode(out)))}((iterations, SVector(G_out)))
+        return _poselib_result($M{Float64}(Tuple(G_out)), original, max_iter, length(cs), meta)
+    end
+end
+
+# The relative pose on pixels with the two cameras.
+function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3}, cs::_PlanePairs, p::NamedTuple,
+                                    alg::LevenbergMarquardt; stops::LmStops, scale, width)
+    w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, 1)
+    max_iter = _poselib_max_iter(stops)
+    (; K1, K2) = VgtkCore.read_context(p, (:K1, :K2), (;), _WHO_RELPOSE)
+    _too_few(cs, Essential5pt(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    X = _pack(cs)
+    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
+    _require_library()
+    iterations = GC.@preserve X ccall((:poselib_refine_relpose_cam, libposelib_jl), Cint,
+          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
+           Ptr{Float64}, Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
+          pointer(X), _targets_at(X, 2, length(cs)), length(cs), _colmajor9(pose.R), _c_translation(pose.t), _simple_pinhole(K1), _simple_pinhole(K2),
+          w, max_iter, _poselib_loss_type(alg.optimization_strategy), R_out, t_out)
+    return _pose_result(SVector(R_out), SVector(t_out), iterations, max_iter, length(cs), meta)
+end
+
+# The relative pose on unit bearings with their Jacobians.
+function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3}, cs::_BearingPairs, ::NullParameters,
+                                    alg::LevenbergMarquardt; stops::LmStops, scale, width)
+    w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, 1)
+    max_iter = _poselib_max_iter(stops)
+    (hasattr(cs, :M₁) && hasattr(cs, :M₂)) || throw(ArgumentError(
+        "a relative pose on bearings needs the backprojection Jacobians as attribute " *
+        "columns: withattrs(cs; M₁, M₂), from backproject_with_jacobian. They set " *
+        "the unit of the width, so there is no defensible default for them."))
+    # The 3-vector signature is a NECESSARY condition, not a guarantee: without this the chart would slip through in
+    # 3-vector clothing and the 90° exclusion would survive, just invisibly.
+    VgtkCore.assert_unit_bearings(sources(cs), "source", "a relative pose on bearings"; remedy = _BEARING_REMEDY)
+    VgtkCore.assert_unit_bearings(targets(cs), "target", "a relative pose on bearings"; remedy = _BEARING_REMEDY)
+    _too_few(cs, Essential5pt(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    D = _pack(cs); J = _pack_tangent(cs.M₁, cs.M₂); n = length(cs)
+    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
+    _require_library()
+    iterations = GC.@preserve D J ccall((:poselib_refine_relpose_bearing, libposelib_jl), Cint,
+          (Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Cint,
+           Ptr{Float64}, Ptr{Float64},
+           Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
+          pointer(D), _targets_at(D, 3, n), pointer(J), pointer(J, 6n + 1), n, _colmajor9(pose.R), _c_translation(pose.t),
+          w, max_iter, _poselib_loss_type(alg.optimization_strategy), R_out, t_out)
+    return _pose_result(SVector(R_out), SVector(t_out), iterations, max_iter, length(cs), meta)
+end
+
+# The absolute pose on pixels with the camera.
+VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3}, cs::_PlainPoints3, p::NamedTuple,
+                           alg::LevenbergMarquardt; stops::LmStops, scale, width) =
+    _absolute_pose(pose, cs, p, alg, stops, scale, width, identity)
+
+# The layering (VisualGeometryToolkitCore `conventions/units.md`): the ccall boundary takes plain Float64, so a
+# physical guess and physical world points are stripped in metres once (`ustrip(m, ·)` of a base-form quantity is its
+# stored value, exactly; the points as they are packed), the plain refinement runs, and the refined pose is read back
+# in metres once (scale 1, exact), rebuilt through the checked constructor (the refined rotation is verified, as
+# before); the rest of the result is the plain refinement's. A labeled guess (an estimate's CameraExtrinsics) is read
+# unlabeled.
+function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::UnitfulEuclideanMap{3}, cs::_PhysicalPoints3, p::NamedTuple,
+                                    alg::LevenbergMarquardt; stops::LmStops, scale, width)
+    plain = _absolute_pose(VgtkCore.unlabel(ustrip(VgtkCore.m, pose)), cs, p, alg, stops, scale, width, _metres_point)
+    return VgtkCore.map_estimate(refined -> VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m), plain)
+end
 
 _metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_metres(X))
 
-"""
-    refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K, cs; max_iter, optimization_strategy, width)
-
-The physical form of [`refine_absolute_pose`](@ref): `pose` a world→camera
-pose whose translation is a length (FlexUnits quantities) and `cs` the
-correspondences `X => u` with the world points `X` lengths. Both are stripped in
-metres once, the plain refinement runs, and the refined pose comes back with its
-translation in metres, as a `FitResult`: equal, after `ustrip(m, ·)`, to the plain refinement's
-on the inputs' `ustrip(m, ·)`, with the plain refinement's `retcode`,
-`iterations` and scale record. `u`, `K` and the width stay in pixels. A
-labeled seed (an estimate's `CameraExtrinsics`, world → camera) is read
-unlabeled; the refined pose comes back unlabeled. A physical seed with plain
-points, or the reverse, is an `ArgumentError`.
-"""
-function refine_absolute_pose(pose::UnitfulEuclideanMap{3}, K::AbstractMatrix, cs::_PhysicalPoints3; kwargs...)
-    seed = convert(Rigid3, VgtkCore.unlabel(ustrip(VgtkCore.m, pose)))   # a labeled pose (an estimate's CameraExtrinsics) too
-    plain = [_metres_point(first(c)) => last(c) for c in cs]
-    # rebuilt through the checked constructor (the refined rotation is verified, as
-    # before), then read in metres; the rest of the result is the plain refinement's
-    return VgtkCore.map_estimate(refined -> VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m),
-                                 refine_absolute_pose(seed, K, plain; kwargs...))
-end
-
-refine_absolute_pose(::UnitfulEuclideanMap{3}, ::AbstractMatrix, ::_PlainPoints3; kwargs...) = throw(ArgumentError(
-    "refine_absolute_pose: the seed is physical but the world points are plain; attach their unit (X .* m)"
-))
-refine_absolute_pose(::Rigid3, ::AbstractMatrix, ::_PhysicalPoints3; kwargs...) = throw(ArgumentError(
-    "refine_absolute_pose: the world points are physical but the seed is plain; attach its unit, " *
-        "EuclideanMap(pose.R, pose.t .* m)"
-))
-
-"""
-    refine_homography(H, cs; max_iter, optimization_strategy, scale | width) -> FitResult{HomographyMat}
-
-Robust Levenberg–Marquardt refinement of a homography through PoseLib's
-`refine_homography`. It minimizes the symmetric transfer error: the forward
-residual `x2 − π(H x1)` and the backward residual `x1 − π(H⁻¹ x2)`, each
-robustified per point, where `π` divides by the third coordinate.
-
-`H` is the seed 3×3 homography. `cs` holds the correspondences `x1 => x2` of
-2D image points, in the frame `H` is expressed in (pixels for a pixel-frame
-`H`). The width is that of the loss on a one-sided transfer residual, in the
-same unit. Returns a `FitResult` whose `estimate` is the refined
-`HomographyMat`.
-
-`optimization_strategy` is required, like `max_iter`: the robust estimate's
-strategy is the caller's configuration (its strategy or TOML table), never a
-default here. PoseLib's Levenberg–Marquardt weighs each residual by its loss
-weight `ρ′` alone, so its strategies are `Irls{K}` (VisualGeometryToolkitCore's);
-a `Triggs{K}` (the `ρ″`-corrected LM) is refused, as is any other shape:
-
-| `optimization_strategy` | `ρ(r)` | note |
-|---|---|---|
-| `Irls{TLSShape}()` | `min(r², w²)` | truncated quadratic: inliers have `r < w`, outliers get zero weight |
-| `Irls{HuberShape}()` | `r²` up to `w`, linear beyond | |
-| `Irls{CauchyShape}()` | `w² log(1 + r²/w²)` | |
-| [`LeZach`](@ref)`()` | `min(r², w²)` | the truncated loss under Le and Zach's scheme |
-| `nothing` | `r²` | plain least squares; takes no `scale` or `width` |
-
-A robust strategy takes exactly one of:
-
-- `width = w`, the width `w` of VisualGeometryToolkitCore's closed form for
-  that shape. PoseLib's own `loss_scale` equals it for every loss bound here,
-  so it reaches PoseLib unchanged;
-- `scale = σ` (or an earlier robust result, read by `noise_scale`): the loss
-  runs at `w = c·σ`, with `c` the strategy's efficiency constant, else
-  VisualGeometryToolkitCore's `efficiency_constant(shape, d)` at the
-  residual's codimension `d` (2 here). TLS and Le–Zach have no efficiency
-  constant (a truncation), so they take `width`.
-
-The retired `loss` and `loss_width` keywords are refused with an
-`ArgumentError` naming their replacements. `max_iter` is PoseLib's
-Levenberg–Marquardt iteration budget; it has no default (an `Irls` strategy's
-own `max_iter`, its reweighting count, is not read by PoseLib).
-
-The result records PoseLib's `iterations` and its termination record
-(`retcode`, `stop_rule`; VisualGeometryToolkitCore's, SciMLBase's semantics):
-`(ReturnCode.Success, NoRule)` when PoseLib stopped on its own tolerances —
-PoseLib reports no stop rule, so none is claimed — and `(ReturnCode.MaxIters,
-IterationCap)` when it used the whole budget. Its metadata ([`PoseLibRefineMetadata`](@ref)) is the scale record:
-`noise_scale(result)` hands a given scale on to the next stage. PoseLib reports
-no residuals, weights or cost, so `rms` is `NaN` and `n` is the number of
-correspondences.
-
-A refiner ends in the local minimum its seed leads to: under a truncated loss,
-a correspondence whose residual at the seed exceeds the width gets no weight,
-so a seed must be close enough that its inliers fall within the width.
-Without the library on this platform ([`is_available`](@ref) false), a call
-that reaches it raises an error that says so; a refused form (calibrated
-2-vectors, mixed units, non-unit bearings) raises its own `ArgumentError` first.
-
-```jldoctest
-julia> using PoseLib, VisualGeometryToolkitCore
-
-julia> H = HomographyMat([1.0 0.0 5.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]);
-
-julia> x1 = [Point2(a, b) for a in 0.0:100.0:300.0 for b in 0.0:100.0:300.0];
-
-julia> x2 = [Point2(x[1] + 5.0, x[2] - 3.0) for x in x1];
-
-julia> r = refine_homography(HomographyMat([1.0 0.0 6.0; 0.0 1.0 -3.0; 0.0 0.0 1.0]), Correspondences(x1, x2);
-                              max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = 2.0);
-
-julia> H1 = estimate(r); H1 / H1[3, 3] ≈ H
-true
-
-julia> converged(r), iterations(r) < 25
-(true, true)
-```
-"""
-function refine_homography(H::AbstractMatrix,
-                           cs::AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}};
-                           max_iter::Integer, optimization_strategy = _Required(),
-                           scale = nothing, width = nothing,
-                           loss = RetiredKeyword(), loss_width = RetiredKeyword(), local_optimization = RetiredKeyword())
-    _check_refine_keywords(:refine_homography, optimization_strategy, loss, loss_width, local_optimization)
-    w, meta = _refine_width(optimization_strategy, scale, width, 2)
-    _require_3x3(H, "H")
-    few = _below_minimal_sample(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H))), cs, Homography4pt(PoseLibSolver()), meta)
-    few === nothing || return few
-    X1, X2 = _pack(cs)
-    Hin = Vector{Float64}(undef, 9)
-    @inbounds for j in 1:3, i in 1:3
-        Hin[3(j-1)+i] = H[i, j]                # column-major (Eigen layout)
-    end
-    H_out = MVector{9, Float64}(undef)
+# `world` maps each world point to its plain Float64 form as it is packed (`identity` for plain points).
+function _absolute_pose(pose, cs, p, alg, stops::LmStops, scale, width, world::W) where {W}   # `W`: specialized on `world`
+    w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, 2)
+    max_iter = _poselib_max_iter(stops)
+    (; K) = VgtkCore.read_context(p, (:K,), (;), _WHO_ABSPOSE)
+    _require_3x3(K, "K")
+    _too_few(cs, P3P(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    X = _pack(cs, world)             # the world points, then the image points
+    R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
-    iterations = ccall((:poselib_refine_homography, libposelib_jl), Cint,
-          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64},
-           Float64, Cint, Cint, Ptr{Float64}),
-          X1, X2, length(cs), Hin, w, max_iter, _poselib_loss_type(optimization_strategy),
-          pointer(H_out))
-    model = HomographyMat{Float64}(Tuple(_read_mat33_from_buf(H_out, 0)))
-    return _refine_result(model, iterations, max_iter, length(cs), meta)
+    iterations = GC.@preserve X ccall((:poselib_bundle_adjust_cam, libposelib_jl), Cint,
+          (Ptr{Float64}, Ptr{Float64}, Cint, Ptr{Float64}, Ptr{Float64},
+           Ptr{Float64}, Float64, Cint, Cint, Ptr{Float64}, Ptr{Float64}),
+          _targets_at(X, 3, length(cs)), pointer(X), length(cs), _colmajor9(pose.R), _c_translation(pose.t), _simple_pinhole(K),
+          w, max_iter, _poselib_loss_type(alg.optimization_strategy), R_out, t_out)
+    return _pose_result(SVector(R_out), SVector(t_out), iterations, max_iter, length(cs), meta)
 end
+
+# A refined pose from the C wrapper's output, read into static values where the buffers were written (rotation
+# column-major, translation), so the buffers do not escape the refine.
+@inline _pose_result(R::SVector{9, Float64}, t::SVector{3, Float64}, iterations, max_iter, n, meta) =
+    _poselib_result(_plain_pose(_Mat33(Tuple(R)), Vec3{Float64}(t)), (; iterations, R, t), max_iter, n, meta)
+
+# -----------------------------------------------------------------------------
+# The refused forms
+# -----------------------------------------------------------------------------
+
+# A physical relative pose: up to scale, so its translation has no unit to strip.
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::UnitfulEuclideanMap{3}, ::Union{_PlanePairs, _BearingPairs}, _p, ::LevenbergMarquardt; kw...) =
+    throw(ArgumentError("a relative pose is up to scale, so its translation is a direction, not a length; supply the " *
+        "plain guess, `ustrip(m, pose)`"))
+
+# A relative pose on 2D points without the cameras: calibrated 2-vectors, the z = 1 chart.
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::PlainEuclideanMap{3}, cs::_PlanePairs, ::NullParameters, ::LevenbergMarquardt; kw...) =
+    throw(ArgumentError(
+        "a relative pose takes pixels with the two cameras' intrinsics, or unit BEARINGS (3-vectors). Got " *
+            "$(eltype(sources(cs))) => $(eltype(targets(cs))) without intrinsics. Calibrated 2-vectors " *
+            "imply z = 1 — the gnomonic chart — which does not exist for a ray at the horizon. Either hand over " *
+            "pixels and the intrinsics, `RefineProblem(cs, pose, (; K1, K2))`, or back-project to bearings and attach " *
+            "the Jacobians, `RefineProblem(withattrs(Correspondences(f₁, f₂); M₁, M₂), pose)` from " *
+            "`backproject_with_jacobian(camera, u)`."))
+
+# An absolute pose without its K: the targets would be calibrated points on the z = 1 chart.
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::EuclideanMap{3}, cs::AbstractVector{<:Correspondence{<:StaticVector{3}, <:StaticVector{2}}},
+                           ::NullParameters, ::LevenbergMarquardt; kw...) =
+    throw(ArgumentError(
+        "an absolute pose takes PIXELS with the camera's intrinsics. Got $(eltype(sources(cs))) => " *
+            "$(eltype(targets(cs))) without them: the targets would be points on the z = 1 chart, which does not " *
+            "exist for a ray at the horizon. Supply the same correspondences as pixels, their intrinsics and a pixel " *
+            "width: `RefineProblem(cs, pose, (; K))`."))
+
+# Mixed units of an absolute pose.
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::UnitfulEuclideanMap{3}, ::_PlainPoints3, ::NamedTuple, ::LevenbergMarquardt; kw...) =
+    throw(ArgumentError("an absolute pose: the guess is physical but the world points are plain; attach their unit (X .* m)"))
+VgtkCore.lm_backend_refine(::PoseLibSolver, ::PlainEuclideanMap{3}, ::_PhysicalPoints3, ::NamedTuple, ::LevenbergMarquardt; kw...) =
+    throw(ArgumentError("an absolute pose: the world points are physical but the guess is plain; attach its unit, " *
+        "EuclideanMap(pose.R, pose.t .* m)"))
+
+# Any other guess, data or context (a stray context, another model): the tuple's MethodError, stated here so that
+# Core's fallback for a backend without a refine does not claim PoseLib has none.
+VgtkCore.lm_backend_refine(backend::PoseLibSolver, u0, data, p, alg; kw...) =
+    throw(MethodError(VgtkCore.lm_backend_refine, (backend, u0, data, p, alg)))
 
 # =============================================================================
 # motion(::HomographyMat) — moved to VisualGeometryToolkitCore

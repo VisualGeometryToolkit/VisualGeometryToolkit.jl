@@ -24,33 +24,19 @@
 #     RigidExpManifold6 (ForwardDiff Jacobian); default strategy Irls{TLSShape}.
 # =============================================================================
 
-# Honest frame labels for the hand-eye motions await VGC 0.8 view-identity frames.
-"""
-    Rigid3
-
-The unlabeled rigid motion of hand-eye calibration: a concrete
-`EuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3`
-translation between two `UnlabeledFrame{3}`s. It is the model type of
-[`HandEyeProblem`](@ref), the currency of its relative motions `(A_ij, B_ij)`,
-and the estimate of a hand-eye find (`Ransac` on a `HandEyeProblem`) on plain poses. Its translation is a
-plain number in the poses' own length unit; for physical poses (translations in
-lengths) the find returns the same map with its translation in metres,
-not a `Rigid3`.
-
-Not a camera extrinsics: the motion algebra `inv(A[j]) ∘ A[i]` composes maps
-whose frames a labeled `Extrinsics3` would reject.
-"""
-const Rigid3 = EuclideanMap{
-    3, Float64, RotMatrix{3, Float64, 9}, Vec3{Float64},
-    UnlabeledFrame{3}, UnlabeledFrame{3},
-}
+# Honest frame labels for the hand-eye motions await VGC 0.8 view-identity frames. The motions and the estimate are
+# unlabeled plain maps (`PlainEuclideanMap{3, Float64}` between `UnlabeledFrame{3}`s), stored as one concrete type `E`
+# (a `RotMatrix{3}` rotation and a `Vec3` translation: `_plain_motion`'s): the problem's third type parameter and its
+# `model_type`. The methods on a model read `X::E` (bounded to the unlabeled maps), so no other model type reaches them.
+# The bound, an unlabeled plain map of any rotation and translation type (a parametric alias with free variables):
+const _UnlabeledMap3{R, V} = EuclideanMap{3, Float64, R, V, UnlabeledFrame{3}, UnlabeledFrame{3}}
 
 # =============================================================================
 # HandEyeProblem
 # =============================================================================
 
 """
-    HandEyeProblem{S} <: AbstractRansacProblem{2}
+    HandEyeProblem{S, U, E} <: AbstractRansacProblem{2}
 
 RANSAC problem for rigid hand-eye / robot-world calibration. Solves
 `A_ij X = X B_ij` for the constant `X = T_RP` ∈ SE(3) from a stream of
@@ -58,6 +44,9 @@ relative motion pairs. Minimal sample is 2 motion pairs.
 
 Type parameters:
 - `S <: AbstractSampler`: sampling strategy
+- `U`: the unit physical poses were stripped in (`nothing` for plain ones)
+- `E`: the stored motion and model type, an unlabeled `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3}`
+  rotation and a `Vec3` translation
 
 # Constructor
 ```julia
@@ -67,7 +56,7 @@ problem = HandEyeProblem(cs)
 ```
 
 # Fields
-- `motions::Vector{Tuple{Rigid3, Rigid3}}`: (A_ij, B_ij) relative-motion pairs
+- `motions::Vector{Tuple{E, E}}`: (A_ij, B_ij) relative-motion pairs
 - `axes::Vector{SVector{3, Float64}}`: the rotation vector `log_so3(R_A)` of
   each rig motion, cached for `test_sample`'s parallel-axis test
 - `char_length::Float64`: characteristic length used to balance the rotation
@@ -88,17 +77,17 @@ first-order covariance they are scored with: the predictive NEES tail (228/6 at
 1 mrad, median ratio still 1.03) is exactly these motions, and admitting only
 motions of ≥ 5° calibrates it (Monte Carlo, `ransac_mc_calibration` (b)).
 """
-struct HandEyeProblem{S <: AbstractSampler, U} <: AbstractRansacProblem{2}
-    motions::Vector{Tuple{Rigid3, Rigid3}}
+struct HandEyeProblem{S <: AbstractSampler, U, E <: _UnlabeledMap3} <: AbstractRansacProblem{2}
+    motions::Vector{Tuple{E, E}}
     axes::Vector{SVector{3, Float64}}
     char_length::Float64
     min_rel_angle::Float64
     _sampler::S
     unit::U   # the unit physical poses were stripped in (the metre), `nothing` for plain ones
     function HandEyeProblem{S}(
-            motions::AbstractVector{Tuple{Rigid3, Rigid3}}, char_length::Real,
+            motions::AbstractVector{Tuple{E, E}}, char_length::Real,
             min_rel_angle::Real, smplr::S, unit::U = nothing
-        ) where {S <: AbstractSampler, U}
+        ) where {S <: AbstractSampler, U, E <: _UnlabeledMap3}
         axes = Vector{SVector{3, Float64}}(undef, length(motions))
         for (k, (A_ij, B_ij)) in enumerate(motions)
             ωA = log_so3(rotation(A_ij))
@@ -111,7 +100,7 @@ struct HandEyeProblem{S <: AbstractSampler, U} <: AbstractRansacProblem{2}
             )
             axes[k] = ωA
         end
-        return new{S, U}(Vector{Tuple{Rigid3, Rigid3}}(motions), axes, Float64(char_length), Float64(min_rel_angle), smplr, unit)
+        return new{S, U, E}(Vector{Tuple{E, E}}(motions), axes, Float64(char_length), Float64(min_rel_angle), smplr, unit)
     end
 end
 
@@ -124,7 +113,7 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
 - `cs` — one correspondence between rigid transforms per frame, in TIME order
   (`motion_pairs = :consecutive` pairs neighbours): `A_i => B_i`, the
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
-  labeled `Extrinsics3` accepted — unlabeled at the boundary). Any
+  labeled `CameraExtrinsics` accepted — unlabeled at the boundary). Any
   `sources`/`targets` container of `Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
   plain translations, in one length unit, or physical ones (lengths), stripped
   in metres once, here (with `char_length`): the problem records it, so its
@@ -180,22 +169,22 @@ solution_model(p::HandEyeProblem, X, _guess) = _pose_out(p.unit, X)
 
 codimension(::Type{<:HandEyeProblem}) = 6                          # d_g = 6 (3 rot + 3 trans)
 data_size(p::HandEyeProblem) = length(p.motions)
-model_type(::Type{<:HandEyeProblem}) = Rigid3
+model_type(::Type{<:HandEyeProblem{<:Any, <:Any, E}}) where {E} = E
 sampler(p::HandEyeProblem) = p._sampler
 
 """
-    sample_models(p::HandEyeProblem, idx) -> FixedModels{1, Rigid3}
+    sample_models(p::HandEyeProblem, idx) -> FixedModels{1, E}
 
 Closed-form Tsai-Lenz solver on the two minimal-sample relative motions.
-Returns `FixedModels{1, Rigid3}` with `count = 0` (no valid solution) or
+Returns `FixedModels{1, E}` (`E` the problem's model type) with `count = 0` (no valid solution) or
 `count = 1`.
 """
-function sample_models(p::HandEyeProblem, idx::AbstractVector{Int})
+function sample_models(p::HandEyeProblem{<:Any, <:Any, E}, idx::AbstractVector{Int}) where {E}
     @inbounds m1 = p.motions[idx[1]]
     @inbounds m2 = p.motions[idx[2]]
     X = _tsai_lenz_minimal(m1, m2)
-    isnothing(X) && return FixedModels{1, Rigid3}(0, (zero(Rigid3),))
-    return FixedModels{1, Rigid3}(1, (X,))
+    isnothing(X) && return FixedModels{1, E}(0, (zero(E),))
+    return FixedModels{1, E}(1, (X,))
 end
 
 """
@@ -212,7 +201,7 @@ function test_sample(p::HandEyeProblem, idx::AbstractVector{Int})
     return c < 0.999                                                # ≳ 2.5° between axes
 end
 
-test_model(::HandEyeProblem, X::Rigid3, ::AbstractVector{Int}) =
+test_model(::HandEyeProblem{<:Any, <:Any, E}, X::E, ::AbstractVector{Int}) where {E <: _UnlabeledMap3} =
     all(isfinite, rotation(X)) && all(isfinite, translation(X))
 
 # =============================================================================
@@ -230,7 +219,7 @@ test_model(::HandEyeProblem, X::Rigid3, ::AbstractVector{Int}) =
 end
 
 """
-    constraint_with_jacobians(p::HandEyeProblem, X::Rigid3, i::Int)
+    constraint_with_jacobians(p::HandEyeProblem, X, i::Int)
         -> (g::SVector{6}, ∂ₓg::SMatrix{6,6}, ∂_θg::SMatrix{6,6})
 
 Decoupled SE(3) hand-eye constraint and its derivatives.
@@ -255,7 +244,7 @@ The observation Jacobian `∂ₓg = I_6` reports the noise model directly on
 the constraint (the per-pair 6-vector is already in unit-balanced form),
 so the default `mahalanobis_distances!` produces ‖g‖.
 """
-@inline function constraint_with_jacobians(p::HandEyeProblem, X::Rigid3, i::Int)
+@inline function constraint_with_jacobians(p::HandEyeProblem{<:Any, <:Any, E}, X::E, i::Int) where {E <: _UnlabeledMap3}
     L = p.char_length
     R_X = rotation(X)
     A_ij, B_ij = p.motions[i]
@@ -291,8 +280,8 @@ provides_solver_covariance(::Type{<:HandEyeProblem}) = true   # predictive scori
 # =============================================================================
 
 chart_dof(::Type{<:HandEyeProblem}) = 6
-_chart(::HandEyeProblem, X::Rigid3) = RigidExpManifold6(rotation(X), translation(X))   # at the model type: θ enters as `_as_model` (interface.jl)
-chart_model(::HandEyeProblem, ch) = convert(Rigid3, model(ch))
+_chart(::HandEyeProblem{<:Any, <:Any, E}, X::E) where {E <: _UnlabeledMap3} = RigidExpManifold6(rotation(X), translation(X))   # at the model type: θ enters as `_as_model` (interface.jl)
+chart_model(p::HandEyeProblem, ch) = convert(model_type(p), model(ch))
 
 # √w-weighted, unit-balanced hand-eye rows in the chart at `δ` (VGC's
 # `residual_rows!`), 6 per motion with the motion's √w on each; eltype-generic
@@ -324,7 +313,7 @@ _underdetermined(::HandEyeProblem, weights::AbstractVector) = count(>(zero(eltyp
 # sandwich over the sample's 12 rows) describes — its hypotheses scattered
 # ~2.4× wider than that covariance (Monte Carlo, median). The sample's own
 # chart-LM fit, seeded by Tsai–Lenz, is that estimator.
-function sample_hypothesis(p::HandEyeProblem, X::Rigid3, idx::AbstractVector{Int})
+function sample_hypothesis(p::HandEyeProblem{<:Any, <:Any, E}, X::E, idx::AbstractVector{Int}) where {E <: _UnlabeledMap3}
     sub = HandEyeProblem{typeof(p._sampler)}(p.motions[idx], p.char_length, p.min_rel_angle, p._sampler)   # validated subset
     return _refine!(NonlinLsq(), nothing, sub, X, ones(length(idx)))
 end
@@ -334,7 +323,7 @@ end
 # =============================================================================
 
 """
-    _tsai_lenz_minimal(m1, m2) -> Union{Rigid3, Nothing}
+    _tsai_lenz_minimal(m1, m2) -> Union{E, Nothing}
 
 Tsai-Lenz hand-eye solver specialized for the minimal sample of 2 motion
 pairs. Stacks the 6×3 rotation system
@@ -349,7 +338,7 @@ R_X from p′, then solves the 6×3 translation system
 via least squares. Returns `nothing` when the rotation axes are parallel
 (rank-deficient system).
 """
-function _tsai_lenz_minimal(m1::Tuple{Rigid3, Rigid3}, m2::Tuple{Rigid3, Rigid3})
+function _tsai_lenz_minimal(m1::Tuple{E, E}, m2::Tuple{E, E}) where {E <: _UnlabeledMap3}
     αA1 = _scaled_axis(rotation(m1[1])); αB1 = _scaled_axis(rotation(m1[2]))
     αA2 = _scaled_axis(rotation(m2[1])); αB2 = _scaled_axis(rotation(m2[2]))
 
@@ -381,7 +370,7 @@ function _tsai_lenz_minimal(m1::Tuple{Rigid3, Rigid3}, m2::Tuple{Rigid3, Rigid3}
     end
     all(isfinite, t_X) || return nothing
 
-    return Rigid3(R_X, SVector{3, Float64}(t_X))
+    return E(R_X, SVector{3, Float64}(t_X))
 end
 
 # =============================================================================
@@ -389,7 +378,7 @@ end
 # =============================================================================
 
 """
-    _form_relative_motions(A, B, mode, min_angle) -> Vector{Tuple{Rigid3, Rigid3}}
+    _form_relative_motions(A, B, mode, min_angle) -> Vector{Tuple{E, E}}
 
 Form `(A_ij, B_ij) = (A_j^{-1} A_i, B_j^{-1} B_i)` from consecutive or
 all-pair frames. Discards pairs whose rig or pattern motion rotates less than
@@ -403,22 +392,23 @@ function _form_relative_motions(
         min_angle::Float64
     )
     N = length(A)
-    motions = Tuple{Rigid3, Rigid3}[]
+    E = typeof(_plain_motion(unlabel(first(A))))
+    motions = Tuple{E, E}[]
 
     pairs = mode == :consecutive ? ((i, i + 1) for i in 1:(N - 1)) :
         mode == :all ? ((i, j) for i in 1:(N - 1) for j in (i + 1):N) :
         throw(ArgumentError("motion_pairs must be :consecutive or :all, got $mode"))
 
     for (i, j) in pairs
-        # `unlabel` at the boundary: p3p/PnP hand in labeled `Extrinsics3`
+        # `unlabel` at the boundary: p3p/PnP hand in labeled `CameraExtrinsics`
         # (world→camera), and `inv(A[j]) ∘ A[i]` over labeled maps yields a
         # {WorldFrame, WorldFrame} map that will not convert into the
-        # unlabeled `Rigid3` motion tuples. Hand-eye algebra is frame-free.
+        # unlabeled motion tuples. Hand-eye algebra is frame-free.
         A_ij = inv(unlabel(A[j])) ∘ unlabel(A[i])
         B_ij = inv(unlabel(B[j])) ∘ unlabel(B[i])
         if _rotates_enough(log_so3(rotation(A_ij)), min_angle) &&
                 _rotates_enough(log_so3(rotation(B_ij)), min_angle)
-            push!(motions, (A_ij, B_ij))
+            push!(motions, (_plain_motion(A_ij), _plain_motion(B_ij)))
         end
     end
 
@@ -432,6 +422,10 @@ function _form_relative_motions(
     )
     return motions
 end
+
+# A motion as the problem stores it: the unlabeled map with a `RotMatrix{3, Float64}` rotation and a `Vec3{Float64}`
+# translation (its rotation and translation converted, not checked again: an exact type change).
+_plain_motion(x::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotation(x)), Vec3{Float64}(translation(x)); check = false)
 
 """
     _default_char_length(motions) -> Float64

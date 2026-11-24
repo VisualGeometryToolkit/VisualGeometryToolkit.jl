@@ -8,7 +8,7 @@
 
 @testitem "schoeps: central intrinsics0.yaml" setup = [VGIoFixtures, SchoepsReference] begin
     using VisualGeometryToolkitCore: backproject, model, valid_domain
-    using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
+    using VisualGeometryToolkitIO: 
     path = joinpath(FIXTURES, "central_intrinsics0.yaml")
     bc = load(BoundedCamera, path)
     cam = model(bc)
@@ -19,7 +19,7 @@
     @test all(isapprox.((va.origin..., va.widths...), (4, 3, 56, 42); atol = 1.0e-9))
     C = cam.lens.backward.controls
     @test size(C) == (4, 5)                                           # [gy, gx]
-    @test SCHOEPS_PIXEL_FRAME === PixelFrame{:colmap}     # the corner convention, read as stored
+    @test PixelFrame{:colmap} === PixelFrame{:colmap}     # the corner convention, read as stored
 
     cp = schoeps_raw_grid(path, "grid", 5, 4)
     for gy in 1:4, gx in 1:5                             # the layout: entry y·gw + x lands at [gy, gx]
@@ -76,11 +76,11 @@ end
 
 @testitem "schoeps: dataset.bin to TargetObservations" setup = [VGIoFixtures, SchoepsReference] begin
     using VisualGeometryToolkitCore: TargetObservations, convert_frame, sources, targets
-    using VisualGeometryToolkitIO: SCHOEPS_PIXEL_FRAME
+    using VisualGeometryToolkitIO: 
     path = joinpath(FIXTURES, "dataset.bin")
     @test_throws ArgumentError load(TargetObservations, path)                     # the target is the caller's to state
     obs = load(TargetObservations, path; target = :pattern)
-    @test obs isa TargetObservations{SCHOEPS_PIXEL_FRAME}
+    @test obs isa TargetObservations{PixelFrame{:colmap}}
     @test sort(collect(keys(obs))) == [1, 2]
     @test obs.images == Dict(1 => "image000.png", 2 => "image001.png")
     @test collect(keys(obs[1])) == [:pattern]
@@ -93,7 +93,7 @@ end
     @test first(convert_frame(PixelFrame{:opencv}, obs)[1][:pattern]).second == SVector(0.0, 0.0)
     # it saves as an observations file (its sensor and targets supplied) and reads back as itself
     mktempdir() do dir
-        o = TargetObservations{SCHOEPS_PIXEL_FRAME}(getfield(obs, :frames); images = obs.images, sensors = "cam", targets = [repeat("ab", 32)])
+        o = TargetObservations{PixelFrame{:colmap}}(getfield(obs, :frames); images = obs.images, sensors = "cam", targets = [repeat("ab", 32)])
         p = joinpath(dir, "obs.json")
         save(p, o)
         @test load(TargetObservations, p) == o

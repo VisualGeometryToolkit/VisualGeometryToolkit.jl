@@ -11,7 +11,7 @@
 # Contract (identical to the PoseLib backend):
 #   • `x` are UNIT bearing vectors (dot products are used as cosines — the
 #     caller normalizes, exactly as with the FFI wrapper which forwards them raw).
-#   • Returns `FixedModels{4, Extrinsics3}` with x_cam = R·X + t.
+#   • Returns `FixedModels{4, `CameraExtrinsics`}` with x_cam = R·X + t.
 #
 # `p3p(NativeSolver(), x, X)` selects this backend explicitly; the bare
 # `p3p(x, X)` default below routes here (PoseLib's C++ backend is opt-in via
@@ -114,7 +114,7 @@ end
 end
 
 """
-    p3p(::NativeSolver, x, X) -> FixedModels{4, Extrinsics3}
+    p3p(::NativeSolver, x, X) -> FixedModels{4, model_type(P3P())}
 
 Perspective-3-Point, native Julia (port of PoseLib's `p3p.cc`). `x` must be
 three **unit** bearing vectors; `X` the corresponding 3D points. Up to four
@@ -201,7 +201,8 @@ function p3p(
     # and heap-allocated once per solve, i.e. once per RANSAC trial (~15 MB
     # and ~38k GC objects per BlobBoards frame, measured 2026-08-17). Tuple
     # setindex on isbits elements is splat-generated and stays on the stack.
-    z = zero(Extrinsics3)
+    M = model_type(P3P())                     # the concrete CameraExtrinsics of P3P
+    z = zero(M)
     poses = (z, z, z, z)
     n_sols = 0
 
@@ -230,7 +231,7 @@ function p3p(
                 v2 = d0 * x0 - d2 * x2
                 R = hcat(v1, v2, cross(v1, v2)) * XX
                 n_sols += 1
-                n_sols <= 4 && (poses = Base.setindex(poses, Extrinsics3(R, Vec3{Float64}(d0 * x0 - R * X0)), n_sols))
+                n_sols <= 4 && (poses = Base.setindex(poses, M(R, Vec3{Float64}(d0 * x0 - R * X0)), n_sols))
             end
         else
             w0 = -p1 / p0
@@ -251,7 +252,7 @@ function p3p(
                 v2 = d0 * x0 - d2 * x2
                 R = hcat(v1, v2, cross(v1, v2)) * XX
                 n_sols += 1
-                n_sols <= 4 && (poses = Base.setindex(poses, Extrinsics3(R, Vec3{Float64}(d0 * x0 - R * X0)), n_sols))
+                n_sols <= 4 && (poses = Base.setindex(poses, M(R, Vec3{Float64}(d0 * x0 - R * X0)), n_sols))
             end
         end
 
@@ -269,7 +270,7 @@ function p3p(
         n_valid += 1
         data = Base.setindex(data, p, n_valid)
     end
-    return FixedModels{4, Extrinsics3}(n_valid, data)
+    return FixedModels{4, M}(n_valid, data)
 end
 
 # Bare default: native backend (PoseLib 0.3+ no longer provides this forward).

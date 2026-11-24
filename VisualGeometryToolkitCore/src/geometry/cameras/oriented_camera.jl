@@ -13,7 +13,7 @@
 # state the unit of). Included after calibration.jl, whose `RadialCamera` it
 # refuses.
 
-const _OrientedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Pinhole}, <:RotationMap{3}}
+const _OrientedPinholeCamera = PosedCamera{<:CameraModel{<:AbstractIntrinsics, Lens{Perspective, Nothing}}, <:RotationMap{3}}
 
 @noinline _refuse_oriented(what) = throw(
     ArgumentError(

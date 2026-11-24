@@ -35,7 +35,7 @@ AbstractRansacProblem{K}                     RANSAC problem interface, K = minim
         ├── HomographyProblem{T, ...}        alias: M = HomographyMat{T}, K = 4
         ├── FundMatProblem{T, ...}           alias: M = FundMat{T},       K = 7
         ├── EssentialProblem{T, ...}         alias: M = EssentialMat{T},  K = 5
-        ├── AbsolutePoseProblem{...}         alias: M = Extrinsics3,      K = 3 (3D-2D)
+        ├── AbsolutePoseProblem{...}         alias: M = `CameraExtrinsics`,      K = 3 (3D-2D)
         └── RadialHomographyProblem{T, K, ...}
 ```
 

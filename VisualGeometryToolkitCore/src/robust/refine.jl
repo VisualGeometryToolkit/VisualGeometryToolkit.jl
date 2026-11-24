@@ -378,7 +378,7 @@ sq_loss_width(::Nothing) = NaN
 _resolved_strategy(f, ::ClassDefault) = default_optimization_strategy(f)
 _resolved_strategy(_f, strategy) = strategy
 
-_refine_spec(f, alg::LevenbergMarquardt; scale, width) = bundle_loss(_resolved_strategy(f, alg.optimization_strategy);
+_refine_spec(f, alg::LevenbergMarquardt{NativeSolver}; scale, width) = bundle_loss(_resolved_strategy(f, alg.optimization_strategy);
     scale, width, codimension = codimension(f), caller = "LevenbergMarquardt")
 
 """
@@ -425,8 +425,10 @@ refused: the host LM is unbounded. A refine reads no context: its `p` is `NullPa
 any setting the solve does not take; a seeded local optimization's `p = (; extent)` is VisualGeometryToolkitEstimation's
 `LocalOptimization`).
 """
-function __solve(prob::RefineProblem{<:AbstractConstraintProblem, <:Any, NullParameters}, alg::LevenbergMarquardt;
+function __solve(prob::RefineProblem{<:AbstractConstraintProblem, <:Any, NullParameters}, alg::LevenbergMarquardt{NativeSolver};
         scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f))
+    # Core's refines run the native backend (`LevenbergMarquardt{NativeSolver}`); another backend's package solves its
+    # own problems, so another backend here has no method.
     _refuse_box(prob)
     f = prob.f
     spec = _refine_spec(f, alg; scale, width)
@@ -539,13 +541,45 @@ The refine of a bundle: the strategy and its scale input parsed by the refine co
 `Triggs{K}` at `scale = σ` or `width = w`, or `nothing`, plain least squares), then the bundle's own
 [`block_refit`](@ref), which solves through [`block_lm`](@ref). A box is refused (the host LM is unbounded).
 """
-function __solve(prob::RefineProblem{<:AbstractBlockProblem, <:Any, NullParameters}, alg::LevenbergMarquardt;
+function __solve(prob::RefineProblem{<:AbstractBlockProblem, <:Any, NullParameters}, alg::LevenbergMarquardt{NativeSolver};
         scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f))
     _refuse_box(prob)
     f = prob.f
     loss = bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = codimension(f),
                        caller = string(nameof(typeof(f))))
     return block_refit(f, prob.u0, loss, stops, alg.damping)
+end
+
+# -----------------------------------------------------------------------------
+# The LevenbergMarquardt refine of raw data by a solver backend (PoseLib's)
+# -----------------------------------------------------------------------------
+
+"""
+    lm_backend_refine(backend, u0, data, p, alg; stops, scale, width) -> FitResult
+
+The Levenberg–Marquardt refine of the guess `u0` on the raw `data` (a correspondence vector) with the context `p`, run
+by the solver `backend` (the `backend` of `alg`, a [`LevenbergMarquardt`](@ref)): what
+`solve(RefineProblem(data, u0[, p]), LevenbergMarquardt(backend; optimization_strategy); stops, scale | width)` runs.
+The guess's type and the data's shape select the backend's residual. A backend contract generic, as the minimal
+solvers' kernels and [`essential_8pt`](@ref): a backend's package implements it (PoseLib.jl, for `PoseLibSolver()`);
+a backend without one is an `ArgumentError`.
+"""
+function lm_backend_refine end
+lm_backend_refine(backend::AbstractSolverBackend, u0, data, p, alg; kw...) = throw(_no_backend_lm(backend))
+
+"""
+    solve(RefineProblem(data, u0[, p]), LevenbergMarquardt(backend; optimization_strategy, damping); stops, scale | width)
+        -> FitResult
+
+The refine of the guess `u0` on raw data (a correspondence vector, not a problem), run by a solver backend:
+[`lm_backend_refine`](@ref)`(backend, u0, data, p, alg; stops, scale, width)`, which the backend's package implements
+(PoseLib.jl: `LevenbergMarquardt(PoseLibSolver())`). `stops` defaults to `LmStops()`; a box (`lb`, `ub`) is refused, as
+by every host LM.
+"""
+function __solve(prob::RefineProblem{<:AbstractVector}, alg::LevenbergMarquardt;
+        scale = nothing, width = nothing, stops::LmStops = LmStops())
+    _refuse_box(prob)
+    return lm_backend_refine(alg.backend, prob.u0, prob.f, prob.p, alg; stops, scale, width)
 end
 
 # Observation `k`'s squared norm: its `d` rows' squares summed in order.

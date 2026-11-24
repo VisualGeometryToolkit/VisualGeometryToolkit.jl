@@ -7,6 +7,12 @@ A breaking release on VisualGeometryToolkitCore 0.14 (`[compat]` VisualGeometryT
 docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the golden records of 0.12.2 replay bit for bit
 (`ci/golden/`), the deliberate exceptions listed in `ci/golden/intended_changes.toml`.
 
+- **`Rigid3` is retired** (check_naming R20, a `const` naming one concrete type; owner 2026-11-24). The hand-eye problem
+  carries its motion type as a parameter, `HandEyeProblem{S, U, E}` (`model_type` `E`, an unlabeled
+  `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3` translation), and the robot-world
+  calibration its pose type (`RobotWorldHandEyeCalibration{K, P}`); build a pose as `EuclideanMap(RotMatrix{3}(R),
+  Vec3(t))`. Bit-identical.
+
 ### Changed (breaking)
 
 - **Finds are `Ransac`.** `find_homography`, `find_fundmat`, `find_essential`, `find_absolute_pose`, `find_hand_eye`,
@@ -78,6 +84,9 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   take physical data where the old pipelines did (`AbsolutePoseProblem`, `BearingPoseProblem`, `HandEyeProblem`: metres
   stripped at construction, reattached at the solve's exit); the plane problems refuse physical plane points.
 - New dependency: CommonSolve (the cache's `solve!`).
+- The unit-bearing gate of `EssentialProblem` and `RotationProblem` is VisualGeometryToolkitCore's `assert_unit_bearings`
+  (this package's copy is deleted). The messages are the same, except that the finite-bearing one no longer ends
+  "before building the problem".
 
 ## 0.12.2
 

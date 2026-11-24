@@ -10,7 +10,7 @@ of mutually corresponding elements, e.g. multiview tracks) lives in
 VisualGeometryToolkitFeatures as `CorrespondenceSet`; the columnar **collection** of
 pair-correspondences is `Correspondences`.
 
-Descriptor matching (`NNMatch`, `match`, strategies) lives in
+Descriptor matching (matches, `match`, strategies) lives in
 VisualGeometryToolkitFeatures.
 
 ## Correspondences and Endpoint Lifts

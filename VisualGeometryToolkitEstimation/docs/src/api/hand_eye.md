@@ -8,7 +8,6 @@ CurrentModule = VisualGeometryToolkitEstimation
 
 ```@docs
 HandEyeProblem
-Rigid3
 ```
 
 ## Find and refine
@@ -21,8 +20,8 @@ comes back in metres.
 
 ## Result Type
 
-The find returns a `FitResult{Rigid3, RansacMetadata}`
-(`RansacEstimate{Rigid3}`, with [`Rigid3`](@ref) an unlabeled `EuclideanMap{3, Float64}`). Its `u` is the recovered rigid
+The find returns a `RansacEstimate{E}` (a `FitResult` with `RansacMetadata`), `E` the problem's model type: an
+unlabeled `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3` translation. Its `u` is the recovered rigid
 transform `X = T_RP` (pattern in rig). The nuisance camera-in-world
 transform `Y = T_WC` is **not** returned — it drops out of the AX = XB
 formulation. The remaining diagnostics (`inlier_mask(result)`, `result.resid`,

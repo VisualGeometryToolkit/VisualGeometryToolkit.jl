@@ -36,7 +36,7 @@ radial basis is `radial_full`).
 | [`Unified`](@ref)`(xi)` | [Mei2007](@citet) (Kalibr `omni`) | model-defined |
 | [`ExtendedUnified`](@ref)`(alpha, beta)` | [Khomutenko2016](@citet) (Kalibr `eucm`) | model-defined |
 
-`Lens(projection)` alone is the pure projection; [`Pinhole`](@ref) is
+`Lens(projection)` alone is the pure projection; `Lens(Perspective())` is
 `Lens(Perspective())`.
 
 The whole sphere of directions onto the (longitude, latitude) rectangle — a
@@ -92,7 +92,7 @@ closed: a lens type defined downstream is asymmetric until it declares itself,
 
 | model | lens |
 |---|---|
-| pinhole | [`Pinhole`](@ref)`()` = `Lens(Perspective())` |
+| pinhole | `Lens(Perspective())` = `Lens(Perspective())` |
 | OpenCV 4/5/8/12 coefficients | `Lens(Perspective(), Additive(Radial((k1, k2, k3), (k4, k5, k6)), Tangential(p1, p2), ThinPrism((s1, s2), (s3, s4))))` — only the terms in use |
 | OpenCV 14 (tilted) | `Lens(Perspective(), Tilt(τx, τy) ∘ Additive(…))` |
 | OpenCV fisheye, COLMAP `OPENCV_FISHEYE` | [`KannalaBrandt`](@ref)`(k1, k2, k3, k4)` = `Lens(Equidistant(), Radial((k1, k2, k3, k4)))` |
@@ -178,7 +178,7 @@ region algebra treats them alike.
 
 ```@example imagecircle
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: Pinhole, KannalaBrandt
+using VisualGeometryToolkitCore: Lens, Perspective, KannalaBrandt
 s = sensor("Sony", "IMX250")                            # 2448 × 2048 @ 3.45 μm
 k = -4 / (3π^2)                                         # r = θ(1 + kθ²) folds at 90°, r = (2/3)θ
 f = ustrip(px, 6.0mm / (2 * s.pitch.width)) / (π / 3)   # a 180° lens drawing a 6 mm circle
@@ -196,7 +196,7 @@ Here the lens was chosen so the two coincide; for a fitted lens they need not.
 [`angle_of_view`](@ref) is the angle of view the camera images — its extent bounded by its lens coverage, clipped by the model's valid domain; [`field_of_view`](@ref) is the size that angle spans at a distance.
 
 ```@example imagecircle
-rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Pinhole()), s)
+rcam = BoundedCamera(CameraModel(CameraCalibrationMat(2000.0, Rect(s)); lens = Lens(Perspective())), s)
 (valid_domain(rcam), rad2deg(angle_of_view(rcam)), rad2deg(angle_of_view(rcam; dimension = :diagonal)))
 ```
 

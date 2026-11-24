@@ -1,5 +1,5 @@
 # =============================================================================
-# planar_target_pose_tests.jl — Extrinsics3(H, intrinsics): the pose of a
+# planar_target_pose_tests.jl — `CameraExtrinsics`(H, intrinsics): the pose of a
 # planar target from its plane → image homography, the inverse of
 # HomographyMat(camera). Exact on an exact H; on an H fitted to noisy pixels it
 # recovers the true pose to within the noise.
@@ -9,7 +9,7 @@
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "zhang_views.jl"))   # zhang_homography
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: HomographyMat, Extrinsics3, CameraCalibrationMat, LogicalIntrinsics,
+    using VisualGeometryToolkitCore: HomographyMat, CameraExtrinsics, CameraCalibrationMat, LogicalIntrinsics,
         Correspondence, Point2
     using LinearAlgebra, StaticArrays, Random
     using Statistics: median
@@ -27,12 +27,12 @@
     @testset "exact H: the identity" begin
         for _ in 1:200
             R, t = randpose()
-            X = Extrinsics3(H_of(R, t), intr)
-            @test X isa Extrinsics3
+            X = CameraExtrinsics(H_of(R, t), intr)
+            @test X isa model_type(P3P())
             @test rotation_angle(RotMatrix{3}(SMatrix{3, 3}(X.R)' * R)) < 1.0e-9
             @test norm(SVector{3}(X.t) - t) < 1.0e-8 * norm(t)
             # Any scale and sign of H is the same plane map.
-            Xs = Extrinsics3(HomographyMat{Float64}(-3.7 * SMatrix{3, 3}(H_of(R, t))), intr)
+            Xs = CameraExtrinsics(HomographyMat{Float64}(-3.7 * SMatrix{3, 3}(H_of(R, t))), intr)
             @test SMatrix{3, 3}(Xs.R) ≈ SMatrix{3, 3}(X.R) && SVector{3}(Xs.t) ≈ SVector{3}(X.t)
         end
     end
@@ -46,7 +46,7 @@
             px = [let c = Km * (R * SVector(b[1], b[2], 0.0) + t); SVector(c[1] / c[3], c[2] / c[3]) + 0.3 * randn(rng, SVector{2}) end
                   for b in board]
             Hf = solve(EstimationProblem(HomographyMat, [Correspondence(Point2(b...), Point2(p...)) for (b, p) in zip(board, px)]), DLT()).u
-            X = Extrinsics3(Hf, intr)
+            X = CameraExtrinsics(Hf, intr)
             push!(dr, rad2deg(rotation_angle(RotMatrix{3}(SMatrix{3, 3}(X.R)' * R))))
             push!(dt, norm(SVector{3}(X.t) - t) / norm(t))
         end

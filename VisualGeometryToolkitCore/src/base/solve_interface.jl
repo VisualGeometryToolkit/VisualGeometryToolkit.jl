@@ -142,10 +142,13 @@ function read_context end
 @inline read_context(::NullParameters, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who) =
     read_context((;), required, optional, who)
 @inline function read_context(p::NamedTuple, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who)
-    all(k -> haskey(p, k), required) && all(k -> k in required || haskey(optional, k), keys(p)) ||
-        _context_error(p, required, optional, who)
+    _has_keys(p, required) && _known_keys(keys(p), required, optional) || _context_error(p, required, optional, who)
     return merge(optional, p)
 end
+# The two checks as tuple recursions (no closure over `p`, which boxed a context of static matrices on every read).
+@inline _has_keys(p::NamedTuple, ks::Tuple) = isempty(ks) || (haskey(p, first(ks)) && _has_keys(p, Base.tail(ks)))
+@inline _known_keys(ks::Tuple, required, optional) =
+    isempty(ks) || ((first(ks) in required || haskey(optional, first(ks))) && _known_keys(Base.tail(ks), required, optional))
 @noinline function _context_error(p, required, optional, who)
     missing_keys = Tuple(k for k in required if !haskey(p, k))
     unknown = Tuple(k for k in keys(p) if !(k in required || haskey(optional, k)))

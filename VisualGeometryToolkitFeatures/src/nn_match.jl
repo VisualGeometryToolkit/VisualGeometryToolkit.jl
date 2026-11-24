@@ -107,7 +107,11 @@ struct L2 <: DescriptorDistance end
 """
     NNMatchMeta
 
-Metadata for a nearest-neighbor match.
+Metadata for a nearest-neighbor match. A match is the correspondence of two
+descriptor indices with this metadata, `Attributed{Correspondence{Int, Int},
+NNMatchMeta}`, built as `Attributed(Correspondence{Int, Int}(i, j),
+NNMatchMeta(score, ratio))`. Property forwarding gives direct access: `m.first`
+(an index into desc1), `m.second` (into desc2), `m.score` and `m.ratio`.
 
 # Fields
 - `score::Float32`: Match quality in the metric's native units
@@ -123,21 +127,6 @@ struct NNMatchMeta
     ratio::Float32
 end
 
-"""
-    NNMatch
-
-A nearest-neighbor match: `Attributed{Correspondence{Int,Int}, NNMatchMeta}`.
-
-Property forwarding gives direct access:
-- `m.first` — index into desc1
-- `m.second` — index into desc2
-- `m.score` — match quality (similarity or distance, depending on metric)
-- `m.ratio` — Lowe's SNN ratio
-"""
-const NNMatch = Attributed{Correspondence{Int, Int}, NNMatchMeta}
-
-NNMatch(i::Int, j::Int, score::Float32, ratio::Float32) =
-    Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))
 
 # =============================================================================
 # Internal Helpers
@@ -171,7 +160,7 @@ _sort_rev(::DescriptorSimilarity) = true
 
 """
     match(desc1, desc2, [strategy]; metric, dm, ratio_threshold,
-          min_similarity, max_distance) -> Vector{NNMatch}
+          min_similarity, max_distance) -> Vector{<:Attributed{<:Correspondence, NNMatchMeta}}
 
 Match descriptors using nearest-neighbor search, on the CPU. It runs the same
 KernelAbstractions matcher as [`nn_match`](@ref) on a GPU, so a device returns
@@ -193,7 +182,7 @@ Public but not exported, because it would shadow `Base.match`: import it
 - `max_distance`: Maximum score for `DescriptorDistance` metrics
 
 # Returns
-`Vector{NNMatch}` sorted by score (best first).
+a `Vector` of matches sorted by score (best first).
 
 # Usage
 ```julia
@@ -230,11 +219,11 @@ function match(
 end
 
 # =============================================================================
-# Convenience: NNMatch → geometric correspondences
+# Convenience: matches → geometric correspondences
 # =============================================================================
 
 """
-    correspondences(features1, features2, matches::AbstractVector{NNMatch})
+    correspondences(features1, features2, matches::AbstractVector{<:Attributed{<:Correspondence, NNMatchMeta}})
 
 Convert index-based NN matches to geometric correspondences.
 
@@ -253,7 +242,7 @@ Access endpoints via `sources`/`targets`, attributes via `cs.score` /
 """
 function correspondences(
         features1::AbstractVector, features2::AbstractVector,
-        matches::AbstractVector{NNMatch};
+        matches::AbstractVector{<:Attributed{<:Correspondence, NNMatchMeta}};
         metric::DescriptorMetric = CosineSimilarity()
     )
     n = length(matches)
@@ -289,7 +278,7 @@ stage) are respected and callers can chain several candidate lists through
 one pair of masks.
 
 `a`/`b` extract the two endpoint indices from a candidate — the defaults
-serve `NNMatch` (`m.first`/`m.second`); supply accessors for tuple lists.
+serve a match (`m.first`/`m.second`); supply accessors for tuple lists.
 
 The caller owns the ORDER: sort best-first (descending similarity, ascending
 distance) for best-first assignment (the reduction `MutualNN` sets already satisfy, and the one
@@ -312,10 +301,10 @@ function resolve_one_to_one!(
 end
 
 """
-    resolve_one_to_one(matches::AbstractVector{NNMatch}, n_a, n_b;
-                       metric = CosineSimilarity()) -> Vector{NNMatch}
+    resolve_one_to_one(matches::AbstractVector{<:Attributed{<:Correspondence, NNMatchMeta}}, n_a, n_b;
+                       metric = CosineSimilarity()) -> Vector{<:Attributed{<:Correspondence, NNMatchMeta}}
 
-Best-first one-to-one reduction of an `NNMatch` list: visit the best match
+Best-first one-to-one reduction of a match list: visit the best match
 first and keep each `first`/`second` index at most once. `metric` must be the
 metric the matches were scored with, because it decides what "best" means: the
 highest score for a `DescriptorSimilarity` (the default, `CosineSimilarity()`),
@@ -324,7 +313,7 @@ index spaces. `MutualNN` output is returned unchanged (already one-to-one);
 `KnnMatch(k)` output collapses to its best consistent assignment.
 """
 function resolve_one_to_one(
-        matches::AbstractVector{NNMatch}, n_a::Int, n_b::Int;
+        matches::AbstractVector{<:Attributed{<:Correspondence, NNMatchMeta}}, n_a::Int, n_b::Int;
         metric::DescriptorMetric = CosineSimilarity()
     )
     # The key is metric-dependent BECAUSE it once was not: sorting by descending

@@ -4,7 +4,7 @@
 @testitem "angle_of_view" begin
     using Test
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: view_angle_limit, view_angle, Pinhole, KannalaBrandt, Equidistant, Lens
+    using VisualGeometryToolkitCore: view_angle_limit, view_angle, Lens, Perspective, KannalaBrandt, Equidistant
     using StaticArrays
 
     mk(fx, fy, cx, cy, l) = CameraModel(CameraCalibrationMat(@SMatrix [fx 0.0 cx; 0.0 fy cy; 0.0 0.0 1.0]); lens = l)
@@ -14,8 +14,8 @@
         θ = deg2rad(60)
         fh = ustrip(px, focal_length(s.resolution, θ))
         fv = ustrip(px, focal_length(s.resolution, θ; dimension = :vertical))
-        @test angle_of_view(BoundedCamera(mk(fh, fh, 960.0, 600.0, Pinhole()), s)) ≈ θ rtol = 1.0e-12
-        @test angle_of_view(BoundedCamera(mk(fv, fv, 960.0, 600.0, Pinhole()), s); dimension = :vertical) ≈ θ rtol = 1.0e-12
+        @test angle_of_view(BoundedCamera(mk(fh, fh, 960.0, 600.0, Lens(Perspective())), s)) ≈ θ rtol = 1.0e-12
+        @test angle_of_view(BoundedCamera(mk(fv, fv, 960.0, 600.0, Lens(Perspective())), s); dimension = :vertical) ≈ θ rtol = 1.0e-12
         # the metric form: f in mm through the pitch of that axis is the same camera
         @test ustrip(μm, focal_length(s, θ; dimension = :vertical)) ≈ fv * 4.0
     end
@@ -46,28 +46,28 @@
     @testset "a skewed K: the camera's own backprojection" begin
         sk = 40.0
         K = @SMatrix [1000.0 sk 960.0; 0.0 900.0 600.0; 0.0 0.0 1.0]
-        c = BoundedCamera(CameraModel(CameraCalibrationMat(K); lens = Pinhole()), s)
+        c = BoundedCamera(CameraModel(CameraCalibrationMat(K); lens = Lens(Perspective())), s)
         @test angle_of_view(c) ≈ 2atan(960 / 1000) rtol = 1.0e-12  # on the principal row skew does not enter
         θv(v) = (y = (v - 600) / 900; x = -sk * y / 1000; atan(hypot(x, y)))
         @test angle_of_view(c; dimension = :vertical) ≈ 2min(θv(0.0), θv(1200.0)) rtol = 1.0e-12
     end
 
     @testset "an off-centre principal point: the nearer edge" begin
-        c = BoundedCamera(mk(1000.0, 1000.0, 800.0, 650.0, Pinhole()), s)
+        c = BoundedCamera(mk(1000.0, 1000.0, 800.0, 650.0, Lens(Perspective())), s)
         @test angle_of_view(c) ≈ 2atan(800 / 1000) rtol = 1.0e-12
         @test angle_of_view(c; dimension = :vertical) ≈ 2atan(550 / 1000) rtol = 1.0e-12
     end
 
     @testset "the diagonal through K⁻¹ of the corners" begin
-        c = BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Pinhole()), s)
+        c = BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Lens(Perspective())), s)
         @test angle_of_view(c; dimension = :diagonal) ≈ 2atan(hypot(960, 600) / 1000) rtol = 1.0e-12
-        a = BoundedCamera(mk(1000.0, 800.0, 960.0, 600.0, Pinhole()), s)
+        a = BoundedCamera(mk(1000.0, 800.0, 960.0, 600.0, Lens(Perspective())), s)
         @test angle_of_view(a; dimension = :diagonal) ≈ 2atan(hypot(960 / 1000, 600 / 800)) rtol = 1.0e-12
         @test angle_of_view(a; dimension = :vertical) ≈ 2atan(600 / 800) rtol = 1.0e-12
         @test_throws ArgumentError angle_of_view(c; dimension = :radial)
     end
     @testset "a projective camera has no angle of view: an ArgumentError, as fov_radius" begin
-        pc = BoundedCamera(CameraModel(ProjectiveIntrinsics(Point2(960.0, 600.0)), Pinhole()), s)
+        pc = BoundedCamera(CameraModel(ProjectiveIntrinsics(Point2(960.0, 600.0)), Lens(Perspective())), s)
         @test_throws ArgumentError angle_of_view(pc)
         @test_throws ArgumentError angle_of_view(pc; dimension = :diagonal)
         err = try angle_of_view(pc); catch e; e; end
@@ -76,7 +76,7 @@
     end
 
     @testset "the lens coverage bounds the angle: the edge of what is imaged, not the sensor's" begin
-        c = mk(1000.0, 1000.0, 960.0, 600.0, Pinhole())
+        c = mk(1000.0, 1000.0, 960.0, 600.0, Lens(Perspective()))
         whole = BoundedCamera(c, s)
         # a disc of 500 px about the principal point: every direction's edge is the disc's
         disc = BoundedCamera(c, s; lens_coverage = Circle(Point2(960.0, 600.0), 500.0))
@@ -100,11 +100,11 @@
     end
 
     @testset "field_of_view: the size the angle of view spans at a distance" begin
-        c = BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Pinhole()), s)
+        c = BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Lens(Perspective())), s)
         @test field_of_view(c, 2.0m) ≈ 2 * 2.0m * (960 / 1000) rtol = 1.0e-12
         @test field_of_view(c, 2.0m; dimension = :vertical) ≈ 2 * 2.0m * (600 / 1000) rtol = 1.0e-12
         @test field_of_view(c, 3.0) ≈ 2 * 3.0 * (960 / 1000) rtol = 1.0e-12            # a bare number: the same unit back
-        @test ustrip(m, field_of_view(BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Pinhole()), s;
+        @test ustrip(m, field_of_view(BoundedCamera(mk(1000.0, 1000.0, 960.0, 600.0, Lens(Perspective())), s;
                                                    lens_coverage = Circle(Point2(960.0, 600.0), 500.0)), 2.0m)) ≈ 2.0 rtol = 1.0e-9   # ≈ in metres (FlexUnits)
         # 180° or wider spans no finite size on a plane
         w = BoundedCamera(mk(250.0, 250.0, 960.0, 600.0, Lens(Equidistant())), s)

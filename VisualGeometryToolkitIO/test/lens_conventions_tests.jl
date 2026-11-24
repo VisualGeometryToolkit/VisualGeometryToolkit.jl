@@ -37,7 +37,7 @@
             ("pinhole", [800.0, 810.0, 320.0, 240.0], "radtan", [-0.28, 0.07, 1.0e-3, -5.0e-4], opencv_lens([-0.28, 0.07, 1.0e-3, -5.0e-4])),
             ("pinhole", [800.0, 810.0, 320.0, 240.0], "equidistant", [-0.04, 0.01, -0.008, 0.0015], KannalaBrandt(-0.04, 0.01, -0.008, 0.0015)),
             ("pinhole", [800.0, 810.0, 320.0, 240.0], "fov", [0.9], Lens(Perspective(), FieldOfView(0.9))),
-            ("pinhole", [800.0, 810.0, 320.0, 240.0], "none", Float64[], Pinhole()),
+            ("pinhole", [800.0, 810.0, 320.0, 240.0], "none", Float64[], Lens(Perspective())),
             ("omni", [0.8, 800.0, 810.0, 320.0, 240.0], "radtan", [-0.1, 0.01, 1.0e-3, 0.0], Lens(Unified(0.8), Additive(Radial((-0.1, 0.01)), Tangential(1.0e-3, 0.0)))),
             ("ds", [-0.2, 0.59, 800.0, 810.0, 320.0, 240.0], "none", Float64[], Lens(DoubleSphere(-0.2, 0.59))),
             ("eucm", [0.6, 1.1, 800.0, 810.0, 320.0, 240.0], "none", Float64[], Lens(ExtendedUnified(0.6, 1.1))),

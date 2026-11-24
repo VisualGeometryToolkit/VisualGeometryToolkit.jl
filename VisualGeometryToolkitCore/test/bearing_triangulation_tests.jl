@@ -10,7 +10,7 @@
     using Rotations
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EuclideanMap, CameraModel, LogicalIntrinsics,
-        CameraCalibrationMat, Pinhole, backproject,
+        CameraCalibrationMat, Lens, Perspective, backproject,
         test_cheirality, cheiral_pose_fast, ReturnCode, ClosedForm
 
     # the Triangulation closed form: the point (its FitResult's `u`) and both ray depths (its metadata)

@@ -66,7 +66,7 @@
     using FiniteDiff: FiniteDiff
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: EssentialMat, CameraModel, LogicalIntrinsics,
-        CameraCalibrationMat, Pinhole, backproject, project, backproject_with_jacobian,
+        CameraCalibrationMat, Lens, Perspective, backproject, project, backproject_with_jacobian,
         sampson_distance, EpipolarForm, EpipolarMap, HomographyMap, GnomonicFrame,
         ImageFrame, to_affine
 

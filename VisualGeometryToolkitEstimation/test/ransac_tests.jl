@@ -21,8 +21,9 @@ using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: minimal_sample_size, LineFittingProblem
 using VisualGeometryToolkitCore: Line2D, Point2, coeffs
 using VisualGeometryToolkitEstimation: RansacWorkspace, draw_sample!
-using VisualGeometryToolkitEstimation: InhomLineFittingProblem, HandEyeProblem, RelposeBundleProblem, UniformSampler, Rigid3
+using VisualGeometryToolkitEstimation: InhomLineFittingProblem, HandEyeProblem, RelposeBundleProblem, UniformSampler
 using VisualGeometryToolkitCore: EssentialMat, model_type
+using Rotations: RotMatrix
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 
 # The problem under the generic loop: the package's own 2D line problem
@@ -369,7 +370,9 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         for (P, M) in (
                 (LineFittingProblem{Float64}, Line2D{Float64}),
                 (InhomLineFittingProblem{Float64}, SVector{2, Float64}),
-                (HandEyeProblem{UniformSampler}, Rigid3),
+                (HandEyeProblem{UniformSampler, Nothing, VgtkCore.EuclideanMap{3, Float64, RotMatrix{3, Float64, 9}, VgtkCore.Vec3{Float64},
+                    VgtkCore.UnlabeledFrame{3}, VgtkCore.UnlabeledFrame{3}}}, VgtkCore.EuclideanMap{3, Float64, RotMatrix{3, Float64, 9},
+                    VgtkCore.Vec3{Float64}, VgtkCore.UnlabeledFrame{3}, VgtkCore.UnlabeledFrame{3}}),
                 (RelposeBundleProblem{Float64, Matrix{Float64}}, EssentialMat{Float64}),
             )
             @test model_type(P) === M

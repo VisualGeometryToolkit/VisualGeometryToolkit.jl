@@ -38,7 +38,7 @@ sensor bounds are unitless (the construction boundary stripped units).
 
 # Returns
 - `(extrinsics, correspondences)`: Tuple containing:
-  - `extrinsics::Vector{Extrinsics3}`: Camera extrinsics (world-to-camera transforms) for valid P3P solutions
+  - `extrinsics::Vector{CameraExtrinsics{Float64}}`: Camera extrinsics (world-to-camera transforms) for valid P3P solutions
   - `correspondences::StructArray{Pair{Point3, Point2}, 1, ...}`: The 3 correspondences used for P3P, backed by `SVector{3}` columns
 
 Throws an error if no valid configuration is found after max_retries attempts.

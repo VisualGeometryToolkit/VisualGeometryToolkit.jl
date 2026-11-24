@@ -77,7 +77,6 @@ struct FeatureCovariance end
 # The covariance an uncertain ASIFT frame carries: (x, y, log σ), Float64 like
 # the frame. Unlabeled: VGC's image-frame tag is a Frame{2}, and no Frame{3} tag
 # names a feature frame's (x, y, log σ) parameters.
-const _FrameCov = CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}
 
 # ----- packed symmetric storage ----------------------------------------------
 
@@ -412,8 +411,8 @@ end
     )
 end
 
-# Host: the packed (xx, xy, xℓ, yy, yℓ, ℓℓ) column as a _FrameCov.
-@inline _detection_cov(c) = _FrameCov(
+# Host: the packed (xx, xy, xℓ, yy, yℓ, ℓℓ) column as a CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}.
+@inline _detection_cov(c) = CovMat{3, Float64, SMatrix{3, 3, Float64, 9}, UnlabeledFrame{3}}(
     Float64(c[1]), Float64(c[2]), Float64(c[3]),
     Float64(c[2]), Float64(c[4]), Float64(c[5]),
     Float64(c[3]), Float64(c[5]), Float64(c[6]),

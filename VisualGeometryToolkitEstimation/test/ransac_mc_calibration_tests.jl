@@ -233,7 +233,7 @@ function _predictive_trial_hand_eye(; σ, m = 12, L = 0.5)
             δa = σ * randn(rng, 3); δt = σ * randn(rng, 3)
             RA′ = exp_so3(SVector{3}(δa ./ L)) * RA
             tA′ = tA + SVector{3}(δt) - (RA′ - RA) * tX           # g(X) = (δa, δt) exactly
-            (convert(VgtkEstimation.Rigid3, EuclideanMap(RotMatrix{3}(RA′), tA′)), convert(VgtkEstimation.Rigid3, B))
+            (VgtkEstimation._plain_motion(EuclideanMap(RotMatrix{3}(RA′), tA′)), VgtkEstimation._plain_motion(B))
         end
         s = VgtkEstimation._build_sampler(length(motions), 2, nothing)
         p = try                                                  # the constructor's rotation gate

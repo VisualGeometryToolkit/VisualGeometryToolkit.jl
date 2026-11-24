@@ -357,9 +357,9 @@ lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <
 # P3P Solver with Correspondences
 # =============================================================================
 
-# The camera form of a P3P sample: `solve(MinimalProblem(Extrinsics3, cs, idx, camera), P3P())`, the context a
+# The camera form of a P3P sample: `solve(MinimalProblem(CameraExtrinsics, cs, idx, camera), P3P())`, the context a
 # `CameraModel` (or a `BoundedCamera` of one) that back-projects the sample's pixel targets to rays before the kernel
-# (`p3p(rays, X)`): world points => pixels, every pose of the 0–4 the sample admits (`FixedModels{4, Extrinsics3}`,
+# (`p3p(rays, X)`): world points => pixels, every pose of the 0–4 the sample admits (`FixedModels{4, `CameraExtrinsics`}`,
 # empty when none).
 # A sample of a column: the column itself when the sample is all of it (its own container, static or not), else its rows.
 _sample_of(xs, idx) = idx == eachindex(xs) ? xs : xs[idx]

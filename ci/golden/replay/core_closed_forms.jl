@@ -3,17 +3,17 @@
 # ChordalMean(), spectral_rotation_averaging → SpectralAveraging(), zhang_intrinsics → Zhang() with `p = (; center[,
 # pitch])`, tls_line → TotalLeastSquares() (weights the points' `weights` column), direct_ellipse → DirectEllipse(),
 # nearest_point → NearestPoint(), triangulate → Triangulation() (`p` the pose), p3p(model, cs) →
-# MinimalProblem(Extrinsics3, cs, idx, model) → P3P(). A mask is data selection (`cs[mask]`, spec §9); `svd_ws` left the
+# MinimalProblem(CameraExtrinsics, cs, idx, model) → P3P(). A mask is data selection (`cs[mask]`, spec §9); `svd_ws` left the
 # public form. The inner-loop forms (`fundamental_dlt!`, `tls_line_statistics`) are unchanged.
 using VisualGeometryToolkitCore: EstimationProblem, MinimalProblem, solve, DLT, Kabsch, ChordalMean, SpectralAveraging,
     AbsoluteRotations, Zhang, TotalLeastSquares, DirectEllipse, NearestPoint, Triangulation, P3P, PoseLibSolver,
     fundamental_dlt!, tls_line_statistics, CorrespondenceNormalization, FundMat, EssentialMat, Line2D, Point, Point3,
-    Extrinsics3
+    CameraExtrinsics
 using Rotations: RotMatrix
 
 # PoseLib implements Core's `essential_8pt` (DLT(PoseLibSolver())'s kernel); loaded when it loads.
 const _CF_POSELIB = try
-    Base.require(Base.PkgId(Base.UUID("fe2c2836-a0c1-4fd4-bc39-a8c8a2bbd5e8"), "PoseLib")); true
+    Base.require(Base.PkgId(Base.UUID("a8c7e0b4-3d2f-4f1c-9a1e-7b2d9c8f4a3b"), "PoseLib")); true
 catch err
     err isa InterruptException && rethrow()
     false
@@ -41,7 +41,7 @@ _cf_tls(p) = solve(EstimationProblem(Line2D, p), TotalLeastSquares())
 _cf_tls(p, w) = _cf_tls(withattrs(p; weights = w))
 _cf_ellipse(p) = solve(EstimationProblem(VgtkCore.Ellipse, p), DirectEllipse())
 _cf_nearest(l) = solve(EstimationProblem(Point, l), NearestPoint())
-_cf_p3p(m, cs) = solve(MinimalProblem(Extrinsics3, cs, collect(1:length(cs)), m), P3P())
+_cf_p3p(m, cs) = solve(MinimalProblem(CameraExtrinsics, cs, collect(1:length(cs)), m), P3P())
 
 function replay_core_closed_forms(cases)
     B, R = _CF_BARE, _CF_REFUSAL
@@ -250,7 +250,7 @@ function replay_core_closed_forms(cases)
     replay!(cases, "triangulate/behind_view1/opposite_ray", (pose, sp.behind), ((P, (a, b)),) -> tri(P, -a, b); map = _CF_TRI)
     replay!(cases, "triangulate/zero_parallax/nan", sp.parallel, ((P, a, b),) -> tri(P, a, b); map = _CF_TRI)
     replay!(cases, "triangulate/fisheye_100deg/exact", (pose, sp.wide), ((P, (a, b)),) -> tri(P, a, b); map = _CF_TRI)
-    # --- p3p(model, cs) → MinimalProblem(Extrinsics3, cs, idx, model) → P3P() (every root: FixedModels, as before) --
+    # --- p3p(model, cs) → MinimalProblem(CameraExtrinsics, cs, idx, model) → P3P() (every root: FixedModels, as before) --
     model, bounds = p3p_camera()
     for seed in SEEDS
         draws = p3p_draws(StableRNG(seed), bounds, 60)

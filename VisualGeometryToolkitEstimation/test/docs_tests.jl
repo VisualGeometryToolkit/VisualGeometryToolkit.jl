@@ -1,6 +1,6 @@
 # docs_tests.jl — the docstring gates the Documenter build cannot run. Its
 # `checkdocs = :public` only sees docstrings that exist, so a public name with
-# none (`Rigid3` had none), a docstring detached from its definition by a blank
+# none (a hand-eye pose type once had none), a docstring detached from its definition by a blank
 # or comment line (Julia 1.12 makes it a bare string: `RansacWorkspace`'s
 # constructors lost theirs that way) and a signature line that drifted from the
 # methods (a removed keyword) all go unnoticed by it. The General registration

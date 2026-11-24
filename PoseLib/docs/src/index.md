@@ -10,14 +10,20 @@ stack: its inputs and outputs are the types of
 
 ## What it provides
 
-- A PoseLib backend, `PoseLibSolver()`, for VisualGeometryToolkitCore's
-  minimal solvers: the four-point homography, the seven-point fundamental
-  matrix, the perspective-three-point (P3P) absolute pose and the five-point
-  essential matrix, plus the eight-point essential matrix, `essential_dlt`.
-  See [Minimal solvers](guide/solvers.md).
-- PoseLib's robust Levenberg–Marquardt (LM) refiners:
-  [`refine_homography`](@ref), [`refine_fundamental`](@ref),
-  [`refine_relpose`](@ref) and [`refine_absolute_pose`](@ref). See
+A PoseLib backend, `PoseLibSolver()`, for VisualGeometryToolkitCore's
+`solve(problem, algorithm)` interface:
+
+- the minimal solvers, `solve(MinimalProblem(M, cs, idx), solver(PoseLibSolver()))`:
+  the four-point homography, the seven-point fundamental matrix, the
+  perspective-three-point (P3P) absolute pose and the five-point essential
+  matrix; and the eight-point essential matrix,
+  `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`. See
+  [Minimal solvers](guide/solvers.md).
+- PoseLib's robust Levenberg–Marquardt (LM) refines of a homography, a
+  fundamental matrix, a relative pose and an absolute pose:
+  `solve(RefineProblem(cs, guess[, p]), LevenbergMarquardt(PoseLibSolver();
+  optimization_strategy); stops = LmStops(; max_iter), scale | width)`, the
+  guess a `HomographyMat`, a `FundMat` or an `EuclideanMap{3}`. See
   [Refiners](guide/refiners.md).
 
 Design principles, each explained on the [Refiners](guide/refiners.md) page:
@@ -26,11 +32,13 @@ Design principles, each explained on the [Refiners](guide/refiners.md) page:
   return results in it; the width is in the unit of the data handed over.
 - **Calibrated geometry is on unit bearings**, never on the z = 1 plane, so a
   ray at or beyond 90° is an ordinary input.
-- **The robust-estimation contract's names.** The strategy is
+- **One interface for the stack.** A refine is the stack's one host
+  Levenberg–Marquardt with PoseLib's backend: its strategy is the algorithm's
   `optimization_strategy` (VisualGeometryToolkitCore's `Irls{K}`, or
-  [`LeZach`](@ref)`()`), the width `scale` or `width`, and the result a
-  `FitResult` with PoseLib's `retcode` and `iterations`; PoseLib's own loss type
-  appears only at the call into the library.
+  [`LeZach`](@ref)`()`), the width the solve keyword `scale` or `width`, and the
+  result a `FitResult` with PoseLib's termination record, its iteration count
+  (`stats.nsteps`) and the library's raw output (`original`); PoseLib's own loss
+  type appears only at the call into the library.
 
 ## Installation
 
@@ -60,14 +68,15 @@ u = pixel.(X)
 
 # PoseLib's P3P solver on three of the points and their bearings (unit rays).
 f = [Vec3(x / sqrt(sum(abs2, x))) for x in X]
-poses = solve(P3P(PoseLibSolver()), Correspondences(X, f), [1, 13, 25])
+poses = solve(MinimalProblem(CameraExtrinsics, Correspondences(X, f), [1, 13, 25]), P3P(PoseLibSolver()))
 
-# Keep the solution that reprojects all 25 points best, then refine it.
+# Keep the solution that reprojects all 25 points best, then refine it on all of
+# them: PoseLib's Levenberg–Marquardt, the truncated loss at a width of 2 pixels.
 reprojection(pose) = sum(sum(abs2, pixel(pose(x)) - v) for (x, v) in zip(X, u))
 best = poses[argmin(reprojection.(poses))]
-result = refine_absolute_pose(unlabel(best), K, Correspondences(X, u); max_iter = 50,
-                              optimization_strategy = Irls{TLSShape}(), width = 2.0)
-pose = estimate(result)
+problem = RefineProblem(Correspondences(X, u), unlabel(best), (; K))
+result = solve(problem, LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}()); width = 2.0)
+pose = result.u
 maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 ```
 
@@ -75,7 +84,7 @@ maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 
 **Start here**
 
-- [Getting started](guide/getting-started.md): a P3P solve and each refiner,
+- [Getting started](guide/getting-started.md): a P3P solve and each refine,
   run as doctests.
 
 **How to**
@@ -99,8 +108,10 @@ maximum(abs, pose.t) < 1e-8      # true: the camera is at the origin
 
 ## Role in the stack
 
-VisualGeometryToolkitCore defines the minimal solvers and their interface,
-`solve(solver, cs, idx)`; this package supplies the PoseLib backend. The
+VisualGeometryToolkitCore defines the estimation interface,
+`solve(problem, algorithm)`, its minimal solvers, the `DLT` and the
+`LevenbergMarquardt` algorithms, each with a solver backend; this package
+supplies the PoseLib backend and the problem PoseLib's refines solve. The
 robust estimators of VisualGeometryToolkitEstimation and the benchmarks of
 VisualGeometryToolkitEval select it to compare against PoseLib itself. The
 [portal](https://visualgeometrytoolkit.github.io) links every package.

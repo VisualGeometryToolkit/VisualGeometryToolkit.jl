@@ -9,9 +9,8 @@
     using JSON: JSON
     using VisualGeometryToolkitIO: load, save
 
-    export colmap, ids, canonical, sample, written, rewritten, load, save
+    export ids, canonical, sample, written, rewritten, load, save
 
-    const colmap = PixelFrame{:colmap}
     const ids = [repeat('a', 64), repeat('b', 64)]     # (the content ids of a rig of boards, of a single target)
 
     # a plane → pixel homography, as a placement would give it, in canonical form
@@ -21,7 +20,7 @@
         a = canonical([812.3, -41.7, 1210.25], [37.9, 805.1, 640.5], [0.00012, -0.00007, 0.6])
         b = canonical([-799.0, 12.5, 1511.0], [-9.25, -803.75, 480.125], [0.0001, 0.0002, 0.7])
         c = canonical([790.5, 0.0, 300.0], [0.0, 790.5, 200.0], [0.0, 0.0, 0.4])
-        return TargetHomographies{colmap}(
+        return TargetHomographies{PixelFrame{:colmap}}(
             Dict(1 => Dict(:a => a, :b => b), 4 => Dict(:a => c));
             images = Dict(1 => "img_001.png", 4 => "img_004.png"), sensors = "cam",
             times = Dict(1 => 0.5, 4 => 12.25), time_origin = "2026-11-05T00:00:00+01:00", targets = ids,
@@ -48,8 +47,8 @@ end
         end
         @test back.images == th.images && back.sensors == th.sensors && back.times == th.times
         @test back.time_origin == th.time_origin
-        @test back isa TargetHomographies{colmap} && back.targets == ids
-        @test load(TargetHomographies{colmap}, p) == th
+        @test back isa TargetHomographies{PixelFrame{:colmap}} && back.targets == ids
+        @test load(TargetHomographies{PixelFrame{:colmap}}, p) == th
         @test_throws ArgumentError load(TargetHomographies{PixelFrame{:opencv}}, p)
         # another pixel frame is another type, written under its own label
         cv = TargetHomographies{PixelFrame{:opencv}}(th.frames; images = th.images, sensors = th.sensors, targets = ids)
@@ -78,7 +77,7 @@ end
     using LinearAlgebra: norm
     M = HomographyMat{Float64}(Tuple(-37.5 .* SMatrix{3, 3, Float64}(3, 1, 0.2, 0.5, 2, 0.1, 100, 80, 1)))   # scaled, wrong sign
     raw = HomographyMap(M)
-    th = TargetHomographies{colmap}(Dict(1 => Dict(:a => raw)); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
+    th = TargetHomographies{PixelFrame{:colmap}}(Dict(1 => Dict(:a => raw)); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
         save(p, th)
@@ -86,7 +85,7 @@ end
         @test H == SMatrix{3, 3, Float64}(sign_normalize(M))
         @test abs(norm(H) - 1) <= 4eps() && H[3, 3] >= 0
     end
-    degenerate = TargetHomographies{colmap}(Dict(1 => Dict(:a => HomographyMap(SMatrix{3, 3, Float64}(fill(NaN, 9)...)))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
+    degenerate = TargetHomographies{PixelFrame{:colmap}}(Dict(1 => Dict(:a => HomographyMap(SMatrix{3, 3, Float64}(fill(NaN, 9)...)))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids)
     mktempdir() do dir
         p = joinpath(dir, "th.json")
         e = try save(p, degenerate); nothing catch e; e end
@@ -142,8 +141,8 @@ end
         @test occursin("target_homographies/v2.0", refusal(d -> d["schema"] = "vgio/target_poses/v3.0", "wrong_kind"))
     end
     # a writer refuses a value missing what the kind requires, without leaving a file
-    noimg = TargetHomographies{colmap}(sample().frames; sensors = "cam", targets = ids)
-    notargets = TargetHomographies{colmap}(sample().frames; images = sample().images, sensors = "cam")
+    noimg = TargetHomographies{PixelFrame{:colmap}}(sample().frames; sensors = "cam", targets = ids)
+    notargets = TargetHomographies{PixelFrame{:colmap}}(sample().frames; images = sample().images, sensors = "cam")
     mktempdir() do dir
         @test_throws ArgumentError save(joinpath(dir, "x.json"), noimg)
         @test_throws ArgumentError save(joinpath(dir, "y.json"), notargets)
@@ -159,7 +158,7 @@ end
     th = sample()
     A = SMatrix{8, 8, Float64}(ntuple(k -> (i = (k - 1) % 8 + 1; j = (k - 1) ÷ 8 + 1; i == j ? 1.0e-6 * i : 1.0e-8), 64))
     for Σ in (CovMat(A), CovMat{8}(σ = 1.0e-3), CovMat{8}(σ = Tuple(1.0e-3 .* (1:8))))
-        u = TargetHomographies{colmap}(
+        u = TargetHomographies{PixelFrame{:colmap}}(
             Dict(1 => Dict(:a => Uncertain(th[1][:a], Σ))); images = Dict(1 => "i.png"), sensors = "cam", targets = ids,
         )
         mktempdir() do dir

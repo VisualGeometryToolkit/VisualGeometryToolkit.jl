@@ -334,10 +334,10 @@ default_algorithm(::EstimationProblem{<:PoissonGaussian, <:Union{RawMosaic, _Ptc
 # ONE solve: the data's context (`_ptc_context`, the keys each form reads, by dispatch) and its kernel.
 __solve(prob::EstimationProblem{<:PoissonGaussian, <:Union{RawMosaic, _PtcGroups}}, alg::PhotonTransfer) =
     _photon_transfer(prob.f, _ptc_context(prob.f, prob.p), alg)
-_ptc_context(::RawMosaic, p) = _solve_context(p, (), (; sensor_model = SensorModel()), "PhotonTransfer of a frame")
+_ptc_context(::RawMosaic, p) = read_context(p, (), (; sensor_model = SensorModel()), "PhotonTransfer of a frame")
 _ptc_context(g::_PtcGroups, ::NullParameters) = _ptc_context(g, (;))
 _ptc_context(::_PtcGroups, p::NamedTuple) =
-    _solve_context(p, (:darks,), haskey(p, :darks) ? _ptc_optional(p.darks) : (;), "PhotonTransfer of frame groups")
+    read_context(p, (:darks,), haskey(p, :darks) ? _ptc_optional(p.darks) : (;), "PhotonTransfer of frame groups")
 _ptc_optional(::Darks) = (; defects = NoDefects())                                     # each group its band's Dark
 _ptc_optional(::AbstractDict{<:Quantity, <:ReadNoise}) = (; sensor_model = SensorModel())   # one model for every group
 _ptc_optional(_) = (;)
@@ -776,7 +776,7 @@ MasterDark(; false_defects::Real = 0.01) = MasterDark(false_defects)
 estimator_kind(::MasterDark) = ClosedFormKind()
 default_algorithm(::EstimationProblem{<:Dark, <:AbstractVector{<:RawMosaic}}) = MasterDark()
 function __solve(prob::EstimationProblem{<:Dark, <:AbstractVector{<:RawMosaic}}, alg::MasterDark)
-    (; dark, read_noise, defects) = _master_dark(prob.f, _solve_context(prob.p, (:exposure_band,), (;), "MasterDark").exposure_band, alg)
+    (; dark, read_noise, defects) = _master_dark(prob.f, read_context(prob.p, (:exposure_band,), (;), "MasterDark").exposure_band, alg)
     return closed_form_result(dark, length(prob.f); metadata = (; read_noise, defects))
 end
 

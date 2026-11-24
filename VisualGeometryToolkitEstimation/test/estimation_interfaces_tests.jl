@@ -21,19 +21,12 @@
 using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: correspondences,
-    AbstractWeightPolicy, NormalizedWeightPolicy,
-    RefitFamily, NativeRefit, ExternalRefit,
-    ConsensusSet, is_fresh, inlier_count, consensus_set, score_model!, MsacScoring,
-    codimension, minimal_sample_size, lo_width, with_width, LossWidth, EfficiencyConstant, sq_loss_width,
-    liftable, bounded,
-    GaussianShape, WelschShape, GemanMcclureShape, CauchyShape,
-    SmoothTLSShape
-using VisualGeometryToolkitCore: scale_s2, check_fresh   # VGC accessors (public)
-using VisualGeometryToolkitEstimation: PosteriorLikelihood   # public, not exported
+using VisualGeometryToolkitCore: correspondences, AbstractWeightPolicy, NormalizedWeightPolicy, RefitFamily, NativeRefit, ExternalRefit, ConsensusSet, is_fresh, inlier_count, consensus_set, score_model!, MsacScoring, codimension, minimal_sample_size, lo_width, with_width, LossWidth, EfficiencyConstant, sq_loss_width, liftable, bounded, GaussianShape, WelschShape, GemanMcclureShape, CauchyShape, SmoothTLSShape
+using VisualGeometryToolkitCore: scale_s2, check_fresh
+using VisualGeometryToolkitEstimation: PosteriorLikelihood
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RansacWorkspace   # workspace type is unexported (eval imports it explicitly too)
-using VisualGeometryToolkitCore: s_hat_sq   # the posterior-weight toolkit's accessor (VGC)
+using VisualGeometryToolkitEstimation: RansacWorkspace
+using VisualGeometryToolkitCore: s_hat_sq
 const VgtkEstimation = VisualGeometryToolkitEstimation
 
 # Local strategy for the constructor-extension routing test (the pattern the
@@ -55,10 +48,10 @@ _contract_problem(; n_in = 40, n_out = 10, noise = 0.3, seed = 7) =
     # inliers). One noisy quadruple can be conditioned badly enough to support
     # only itself, so the best supported of ten disjoint quadruples is used.
     samples = [collect(i:(i + 3)) for i in 1:4:37]
-    models = solve(problem, first(samples))
+    models = VgtkEstimation.sample_models(problem, first(samples))
     @test models !== nothing && !isempty(models)
     model = argmax(m -> score_model!(buf, scoring, problem, m)[2],
-                   (m for idx in samples for m in solve(problem, idx)))
+                   (m for idx in samples for m in VgtkEstimation.sample_models(problem, idx)))
 
     # score_model! returns (S, k*) — the scorer's k*, equal to the mask popcount.
     S, k = score_model!(buf, scoring, problem, model)

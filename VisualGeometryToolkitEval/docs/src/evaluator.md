@@ -11,7 +11,7 @@ implement VisualGeometryToolkitCore's contracts:
 - a local optimization, whose `RefitFamily` routes it to one of two paths.
   `NativeRefit` runs `locally_optimize!` inside VisualGeometryToolkitEstimation's
   RANSAC loop. `ExternalRefit` hands the model to a third-party refiner that
-  maps a model to a model (`refine_external!`).
+  maps a model to a model (`external_refit!`).
 
 The evaluator holds no scorer or optimizer of its own. A project that
 evaluates particular scorers or optimizers depends on their packages and

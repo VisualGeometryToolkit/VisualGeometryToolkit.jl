@@ -1,249 +1,172 @@
 # Fitting Algorithms
 
-The `find_*` functions are end-to-end RANSAC pipelines: they construct the
-problem, wire up scoring and local optimization, and return a
-`RansacEstimate` (a `FitResult{M, RansacMetadata}`). The `fit_*` prefix is
-kept for fits that are not a RANSAC search — iterative, reweighted or
-repeated (`fit_division_camera` and its model-block update `division_camera_step`,
-`fit_radial_camera`, `fit_camera`, `fit_robot_world_hand_eye`, `fit_line`,
-`fit_rotation`, `fit_linear`, `fit_rotation_averaging`, `fit_rigid_alignment`) — and
-`refine_*` for polishing a given model (one per `find_*`, `refine_camera`, and the bundles
-`refine_robot_world_hand_eye` and `refine_camera_and_poses`). `fit_camera` is the
-linear camera-from-camera fit (no guess), `refine_camera` its chart LM from a guess,
-and `approximate_camera` the two in one call. One-step
-algebraic algorithms keep their algorithm's name and live in
-VisualGeometryToolkitCore (`homography_dlt`, `kabsch`, `tls_line`, …).
+Every estimator of the package is `solve(problem, algorithm)`. The algorithm's
+KIND ([`estimator_kind`](@extref VisualGeometryToolkitCore.estimator_kind))
+states how it computes and so how it can fail:
 
-Every `find_*` shares one keyword surface (documented on
-[`find_homography`](@ref)) and the same core defaults, read from its class's
-`[pipelines.<class>]` table in `configs/default.toml`: its `scoring` table
+| kind | problem | algorithms here |
+|:--|:--|:--|
+| find (randomized; decides the inliers) | `EstimationProblem(f, p)`, `f` a family problem | [`Ransac`](@ref) |
+| refine (from a guess; can end in a local minimum) | `RefineProblem(f, θ₀[, p])` | VisualGeometryToolkitCore's `LevenbergMarquardt`; [`LocalOptimization`](@ref) |
+| fit (seeds itself; can fail to converge) | `EstimationProblem(M, data[, p])` | [`ReweightedLeastSquares`](@ref), [`RotationAveraging`](@ref), [`FilteredRotationAveraging`](@ref), [`ResidualMixture`](@ref), [`CameraRegression`](@ref), [`PSpline`](@ref), [`ForwardSpline`](@ref), [`OpticalAxis`](@ref), [`RadialCameraFit`](@ref), [`DivisionCameraFit`](@ref), [`SimFitPP`](@ref), [`PooledScale`](@ref) |
+
+One-step algebraic algorithms (closed forms and minimal solvers) are
+VisualGeometryToolkitCore's: `DLT`, `Kabsch`, `TotalLeastSquares`, `Homography4pt`, ….
+
+## Finds: `Ransac` on a family problem
+
+A family problem holds the data and its own construction context (a camera, a
+distortion centre, the hand-eye motions); the find's context `p` is the
+optional validity region, `(; extent)`:
+
+| family problem | data | default MSAC `threshold` |
+|:--|:--|:--|
+| [`HomographyProblem`](@ref)`(cs)`, [`FundMatProblem`](@ref)`(cs)` | pixel correspondences | 3 px |
+| [`RadialHomographyProblem`](@ref)`(cs; center)`, [`RadialCameraProblem`](@ref)`(cs; center)` | board ↔ pixel correspondences | 3 px |
+| [`EssentialProblem`](@ref)`(camera1, camera2, cs)`, [`RotationProblem`](@ref)`(camera1, camera2, cs)` | pixel correspondences, back-projected by the cameras | 1 px |
+| [`AbsolutePoseProblem`](@ref)`(camera, X .=> u)` | world point ↔ pixel | 8 px |
+| [`HandEyeProblem`](@ref)`(A .=> B; motion_pairs, char_length)` | rig-pose ↔ pattern-pose pairs | `0.01·L` (a fraction of the characteristic length) |
+| [`CircleProblem`](@ref)`(points)`, [`EllipseProblem`](@ref)`(points)` | image points | 1 px |
+
+`Ransac()` reads its defaults from the problem's class, the
+`[pipelines.<class>]` table of `configs/default.toml`: the `scoring` table
 (read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml) — every class's is MSAC,
-`{ type = "msac", threshold = … }`) and `Irls{TLSShape}()` local optimization
-following the scorer's decision point. The default MSAC thresholds are
-conventions, not tuned values:
-
-| pipeline | MSAC `threshold` |
-|:--|:--|
-| `find_homography`, `find_fundmat`, `find_radial_homography`, `find_radial_camera` | 3 px |
-| `find_essential` | 1 px |
-| `find_absolute_pose` | 8 px |
-| `find_hand_eye` | `0.01·L` (a fraction of the characteristic length) |
-
-`scoring = …` replaces the scorer and `local_optimization_strategy = …` the strategy. A
-bare `threshold` or `outlier_halfwidth` keyword is refused: a width is its
-scorer's (a threshold scorer's `threshold`, the Student-t + uniform scorer's
-`outlier_halfwidth`) and goes into that scorer.
-
-## `find_*` and `refine_*`: a search, and a refine from a given model
-
-A `find_*` samples hypotheses, scores each, runs the class's local optimization
-from the ones it keeps, and ORIGINATES a scale: its consensus partition's ŝ,
-the result's `noise_scale`. A `refine_*` starts from a model the caller gives —
-`refine_homography(H, pairs)`, `refine_circle(circle, points)`,
-`refine_absolute_pose(pose, camera, pairs)`, …, the model first, then the data
-as the `find_*` takes them — and NEVER estimates a scale: it runs no scorer,
-forms no consensus set and drops no datum. Its robust loss runs over every
-datum at the scale the caller gives, frozen:
+`{ type = "msac", threshold = … }`) and an `Irls{TLSShape}()` local optimization
+following the scorer's decision point. The thresholds are conventions, not
+tuned values. `Ransac(; scoring = …)` replaces the scorer and
+`local_optimization_strategy = …` the strategy; a bare `threshold` or
+`outlier_halfwidth` keyword is refused, a width being its scorer's.
 
 ```julia
-r = find_homography(pairs)                      # RANSAC: the model, its inliers, its scale ŝ
-h = refine_homography(estimate(r), pairs; scale = r)   # Triggs{Welsch} at efficiency_constant(Welsch, 2) · ŝ
-noise_scale(h) == noise_scale(r)                # the scale it ran with, handed on (ScaleUpstream)
+f = HomographyProblem(correspondences(src, dst))
+r = solve(EstimationProblem(f), Ransac(; scoring = MsacScoring(HomographyProblem; threshold = 2.0)); rng = Xoshiro(1))
+H = r.u                      # the model; `nothing` when found_model(r) is false
+inliers = inlier_mask(r)
 ```
 
-The strategy is `optimization_strategy`: `Triggs{Shape}` (the default,
-`Triggs{WelschShape}()`, `configs/default.toml [refine.<class>]`), one
-robustified chart LM, the one fixed-scale robust path (an `Irls{Shape}` is
-refused, naming its `Triggs{Shape}`: a refine runs no reweighting cycles); or
-`nothing`, plain least squares. A robust strategy
-needs EXACTLY ONE of `scale = σ` (a number, or an upstream result whose
-`noise_scale` it takes) and `width = w` (the loss width itself); least squares
-takes neither. The loss width is the strategy's efficiency constant times the
-scale — Core's `efficiency_constant(Shape, d)` at the problem's codimension
-unless the strategy states one (TLS has none: state one, or give a width).
+A find originates a scale: its consensus partition's ŝ, the result's
+`noise_scale`. A family problem holds any number of data; on fewer than a
+minimal sample the find draws no trial and returns the `:no_model` result.
 
-The result is a `FitResult` with [`RefineMetadata`](@ref VisualGeometryToolkitEstimation.RefineMetadata): the refined model,
-the per-datum `weights` (the loss's ρ′; all ones under least squares) and
-`residuals` at it, and the scale record (`noise_scale`, `scale_source`,
-`loss_width`). `n` is the weights' support and `rms` the weighted one. There is
-no inlier mask: a loss weight has no cut of its own (`inlier_mask(result, cut)`
-states one).
+## Refines: `LevenbergMarquardt` on the same problem
+
+A refine starts from the model the caller gives and NEVER estimates a scale: it
+runs no scorer, forms no consensus set and drops no datum. Its robust loss runs
+over every datum at the scale the caller gives, frozen:
+
+```julia
+r = solve(EstimationProblem(f), Ransac(); rng = Xoshiro(1))         # the model, its inliers, its scale ŝ
+h = solve(RefineProblem(f, r.u), LevenbergMarquardt(); scale = r)   # Triggs{Welsch} at efficiency_constant(Welsch, 2) · ŝ
+noise_scale(h) == noise_scale(r)                                     # the scale it ran with, handed on (ScaleUpstream)
+```
+
+The strategy is the algorithm's `optimization_strategy`: `Triggs{Shape}` (the
+default, `ClassDefault()`: `configs/default.toml [refine.<class>]`), one
+robustified chart LM, the one fixed-scale robust path (an `Irls{Shape}` is
+refused, naming its `Triggs{Shape}`); or `nothing`, plain least squares. A
+robust strategy needs EXACTLY ONE of the solve keywords `scale = σ` (a number,
+or an upstream result whose `noise_scale` it takes) and `width = w` (the loss
+width itself); least squares takes neither. The loss width is the strategy's
+efficiency constant times the scale — VisualGeometryToolkitCore's
+`efficiency_constant(Shape, d)` at the problem's codimension unless the strategy
+states one (TLS has none: state one, or give a width). The LM's stops are the
+solve keyword `stops = LmStops(…)`.
+
+The result is a `FitResult` with VisualGeometryToolkitCore's `RefineMetadata`:
+the refined model `u`, the per-datum distances at it `resid`, the per-datum
+`weights` (the loss's ρ′; all ones under least squares) and the scale record
+(`noise_scale`, `scale_source`, `loss_width`). `n` is the weights' support and
+`rms` the weighted one. There is no inlier mask: a loss weight has no cut of its
+own (`inlier_mask(result, cut)` states one). On fewer data than a minimal sample
+the guess comes back unrefined, `(InitialFailure, NoRule)`.
 
 The RANSAC-family seeded refine — a scorer, its consensus set, the strategy
 anchored on it, the consensus test on the result — is
-[`locally_optimize`](@ref)`(problem, θ₀; scoring, local_optimization_strategy)`, with
-any strategy the problem hosts (and `BoundedProblem` for an extent check).
+[`LocalOptimization`](@ref)`(strategy; scoring)` on `RefineProblem(f, θ₀[, (; extent)])`,
+with any strategy the problem hosts.
 
-One `refine_*` has no `find_*`: `refine_absolute_pose(pose, bearings)` on a
-[`BearingPoseProblem`](@ref) — a camera given by its rays, possibly with
-per-ray origins (a non-central camera, for which there is no minimal solver).
+The absolute pose also has a problem with no find:
+[`BearingPoseProblem`](@ref)`(X .=> f)`, a camera given by its rays, possibly
+with per-ray origins (a non-central camera, for which there is no minimal
+solver) — refined by `LevenbergMarquardt` like any other.
 
-The bundles (`refine_robot_world_hand_eye`, `refine_camera_and_poses`) are not
-RANSAC problems and keep their own LM, but take the same strategy, default and
-scale input (`optimization_strategy`, `scale` | `width`), and `refine_camera_and_poses` holds
-parameters with `fixed`.
+The block problems — [`CameraPosesProblem`](@ref), [`RobotWorldHandEyeProblem`](@ref),
+[`RelativePoseProblem`](@ref), [`CameraRegressionProblem`](@ref) — are
+refined by the same `LevenbergMarquardt` through VisualGeometryToolkitCore's
+block contract, with the same strategy, default and scale input.
+
+## Units and frames at the boundary
+
+The absolute-pose, bearing-pose and hand-eye problems take plain or physical
+data (lengths), all one form: physical data are stripped in metres once at
+construction, and the solve's model comes back in metres (a find's, and a
+refine's from a physical guess). A refine's pose keeps its guess's frame labels.
+The plane problems (homography, radial homography, radial camera) refuse
+physical plane points: the model cannot record their unit.
 
 ## Robust fits: one strategy, one fixed scale
 
-The reweighted fits — `fit_linear`, `fit_rotation`, `fit_rotation_averaging`,
-`fit_rigid_alignment` and `fit_robot_world_hand_eye` — keep their own
-objective (a least squares, a Kabsch, the staged hand-eye solve). Their only
-robustness is `optimization_strategy = Irls{K}(…)`, an M-estimator weighting
-at ONE loss width, set from the call's scale input and never re-estimated;
-`optimization_strategy = nothing` is the plain least squares. The scale input
-is exactly one of:
+The reweighted fits — [`ReweightedLeastSquares`](@ref) on a linear model, a
+rotation from direction pairs, a rigid alignment and a robot-world
+calibration; [`RotationAveraging`](@ref) — keep their own objective (a least
+squares, a Kabsch, the staged hand-eye solve). Their only robustness is
+`optimization_strategy = Irls{K}(…)`, an M-estimator weighting at ONE loss
+width, set from the solve's scale input and never re-estimated;
+`optimization_strategy = nothing` is the plain least squares. The scale input is
+exactly one of the solve keywords:
 
 - `scale = σ` — the residuals' noise scale (`ScaleGiven`);
 - `scale = result` — an upstream robust result's `noise_scale(result)`
-  (`ScaleUpstream`), e.g. a `find_*`'s consensus scale handed down;
+  (`ScaleUpstream`), e.g. a find's consensus scale handed down;
 - `width = w` — the loss width itself (the result then records `ScaleNone`).
 
 The width is `w`, or `c · σ` with `c` the strategy's efficiency constant, by
-default `efficiency_constant(K, d)` at the fit's residual codimension `d`
-(`fit_linear` 1, `fit_rotation` 2, `fit_rotation_averaging` and
-`fit_rigid_alignment` 3, the hand-eye's whitened 6-vector 6). Neither, both,
-a scale given to a least-squares fit, a refine's `Triggs`, or a shape with no
-efficiency constant and no width is an `ArgumentError`. The result records
-`scale`/`scale_source` (`noise_scale(result)` hands it on), its `loss_width`,
-and per-datum `weights(result)`: the loss weights `ρ′` normalized to 1
-(`IrlsWeights`; `inlier_mask(result, cut)` needs a cut), or lazy unit weights
-(`BinaryWeights`) for least squares.
+default `efficiency_constant(K, d)` at the fit's residual codimension `d`.
+Neither, both, a scale given to a least-squares fit, a refine's `Triggs`, or a
+shape with no efficiency constant and no width is an `ArgumentError`. The
+result records `scale`/`scale_source` (`noise_scale(result)` hands it on), its
+`loss_width`, and per-datum `weights(result)`: the loss weights `ρ′` normalized
+to 1 (`IrlsWeights`; `inlier_mask(result, cut)` needs a cut), or lazy unit
+weights (`BinaryWeights`) for least squares.
 
 ```julia
-R     = fit_rotation(cs; scale = find_rotation(cs))               # Huber (the default) at 1.5011 × the consensus scale
-align = fit_rigid_alignment(centres .=> truth; optimization_strategy = Irls{WelschShape}(), scale = 0.005)
+R = solve(EstimationProblem(RotMatrix{3}, cs), ReweightedLeastSquares(); scale = rotation_find_result)
+align = solve(EstimationProblem(EuclideanMap{3}, centres .=> truth),
+              ReweightedLeastSquares(; optimization_strategy = Irls{WelschShape}()); scale = 0.005)
 ```
 
-## Homography
+## Camera regression
+
+A camera model is regressed onto a source camera over a region by
+[`CameraRegression`](@ref) (one linear solve, no guess) on a
+[`CameraRegressionProblem`](@ref), and refined from a guess by
+`LevenbergMarquardt` on the same problem; [`PSpline`](@ref) is the spline
+targets' penalized solve on a given lattice, [`ForwardSpline`](@ref) a
+`SplineLens` camera's forward spline, and [`OpticalAxis`](@ref) the radially
+symmetric camera closest to a camera. A fit then a refine is the two-solve
+recipe:
 
 ```julia
-using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: correspondences, estimate, MsacScoring, inlier_mask
-using StaticArrays
-
-src = [SA[100.0, 200.0], ...]
-dst = [SA[112.0, 195.0], ...]
-
-result = find_homography(correspondences(src, dst); scoring = MsacScoring(HomographyProblem; threshold = 2.0))
-H       = estimate(result)         # 3×3 homography matrix
-inliers = inlier_mask(result)
+start = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, camera, region)), CameraRegression()).u   # the linear fit
+kb = solve(RefineProblem(CameraRegressionProblem(camera, region), start), LevenbergMarquardt())                    # its exact pixel least squares
 ```
 
-See [`find_homography`](@ref) on the [Homography](../api/homography.md) API page
-for the full keyword surface.
+## Line fitting
 
-## Essential Matrix (calibrated)
-
-```julia
-using VisualGeometryToolkitCore: CameraModel, correspondences, estimate, px
-using StaticArrays: SA
-
-# PIXEL correspondences and the two cameras that took them; each view is
-# back-projected to unit bearings by its own camera inside the pipeline.
-cam1 = CameraModel(800.0px, SA[320.0px, 240.0px])
-cam2 = CameraModel(1150.0px, SA[300.0px, 260.0px])
-result = find_essential(cam1, cam2, correspondences(src_pixels, dst_pixels))
-E = estimate(result)
-```
-
-The scorer's width is in PIXELS (default MSAC at 1.0): the residual is whitened
-by the back-projection Jacobians. A threshold scorer's threshold — or the
-Student-t scorer's outlier half-width — below 0.06 px, VisualGeometryToolkitFeatures' sub-pixel refinement
-bound, is refused as a likely calibrated leftover, by `find_essential`,
-`ransac` and `locally_optimize` alike. See
-[`find_essential`](@ref) on the [Essential Matrix](../api/essential.md) API
-page for the full keyword surface.
-
-## Fundamental Matrix
-
-```julia
-result = find_fundmat(correspondences(src, dst); scoring = MsacScoring(FundMatProblem; threshold = 2.0))
-F = estimate(result)
-```
-
-See [`find_fundmat`](@ref) on the [Fundamental Matrix](../api/fundmat.md) API
-page for the full keyword surface.
-
-## Absolute Pose (3D-2D)
-
-```julia
-using VisualGeometryToolkitCore: CameraModel, correspondences, estimate, px, MsacScoring
-using StaticArrays: SA
-
-camera = CameraModel(f * px, SA[cx * px, cy * px])
-result = find_absolute_pose(camera, correspondences(world_points_3d, image_points_2d);
-                  scoring = MsacScoring(AbsolutePoseProblem; threshold = 4.0))
-pose = estimate(result)    # EuclideanMap{3,Float64} (rotation + translation)
-```
-
-See [`find_absolute_pose`](@ref) on the [P3P](../api/p3p.md) API page for the full
-keyword surface.
-
-## Hand-Eye Calibration (AX = XB)
-
-Recover the rigid transform between a tracked rig and a rigidly-attached
-calibration pattern from synchronized pose pairs `(A_i, B_i)`. Inputs are
-two `EuclideanMap{3,Float64}` streams: `A_i = T_WR` (rig in world, from motion capture)
-and `B_i = T_CP` (pattern in camera, from PnP).
-
-```julia
-using VisualGeometryToolkitCore: EuclideanMap, estimate, inlier_mask
-
-A = EuclideanMap{3,Float64}[ ... ]   # T_WR per frame (e.g. mocap)
-B = EuclideanMap{3,Float64}[ ... ]   # T_CP per frame (e.g. PnP)
-
-result = find_hand_eye(A .=> B)     # one A_i => B_i per frame, time order
-X       = estimate(result)         # T_RP, the rigid pattern-in-rig transform
-inliers = inlier_mask(result)
-```
-
-Unlike the other `find_*` pipelines, its inputs are pose pairs rather than
-correspondences. The nuisance camera-in-world transform `Y = T_WC` drops out
-of the AX = XB formulation and is not returned.
-
-See [`find_hand_eye`](@ref) on the [Hand-Eye Calibration](../api/hand_eye.md)
-API page for the full keyword surface and
-[Rig-to-Pattern Hand–Eye Calibration](hand-eye.md) for the formulation.
-
-## Building the pipeline manually
-
-To swap the scorer or the local optimization, hand them to the pipeline or
-build the pieces directly. A scorer from RANSACScoringDoneRight and a strategy
-from LocalOptimizationDoneRight compose like the core ones:
-
-```julia
-using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
-using LocalOptimizationDoneRight: HQ, WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY
-using VisualGeometryToolkitCore: WelschShape
-
-cs       = correspondences(src, dst)
-problem  = HomographyProblem(cs)
-result   = find_homography(cs;
-                  scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                  local_optimization_strategy = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
-
-# or the loop itself
-result   = ransac(problem, StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior());
-                  local_optimization_strategy = HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_HOMOGRAPHY))
-```
-
-See the [RANSAC](ransac.md) page for the full configuration surface (samplers,
-adaptive trial counts, width modes, etc.).
-
-## Line Fitting
-
-The line problems (`LineFittingProblem`, `InhomLineFittingProblem`) plug into
-the same `ransac()` entry point; there is no dedicated `find_*` pipeline for
-them. The unexported `fit_line(points::AbstractVector{<:Uncertain{<:Point2}})`
-is the line problem's local-optimization refit, not a RANSAC pipeline: an
-iterative covariance-weighted orthogonal fit that seeds its normal from an
-unweighted scatter, then reweights each point by its variance along the normal
-(σᵢ² = n⊤Σᵢn) and refits. It returns a `FitResult` whose estimate is an
-`Uncertain{Line2D}` carrying the (φ, d) covariance. The one-step unweighted
-total-least-squares line is VisualGeometryToolkitCore's `tls_line`.
+The line problems ([`LineFittingProblem`](@ref), [`InhomLineFittingProblem`](@ref))
+have no class of record: name the scorer.
 
 ```julia
 using VisualGeometryToolkitCore: MsacScoring
-problem  = LineFittingProblem(uncertain_points)
-result   = ransac(problem, MsacScoring(problem; threshold = 1.0))
+f = LineFittingProblem(uncertain_points)
+r = solve(EstimationProblem(f), Ransac(; scoring = MsacScoring(f; threshold = 1.0)); rng = Xoshiro(1))
 ```
+
+The line problem's local-optimization refit is an iterative
+covariance-weighted orthogonal fit, seeded from an unweighted scatter, that
+reweights each point by its variance along the normal (σᵢ² = n⊤Σᵢn) and refits;
+the one-step unweighted total-least-squares line is VisualGeometryToolkitCore's
+`TotalLeastSquares`.
+
+See the [RANSAC](ransac.md) page for the full configuration surface (samplers,
+adaptive trial counts, width modes, the cache).

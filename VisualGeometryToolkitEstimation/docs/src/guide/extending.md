@@ -15,8 +15,9 @@ To add a new geometry type to the RANSAC framework, implement a subtype of
 # The problem interface is split across its owners: extend each verb from the
 # package that owns it (`import`, so the methods below extend rather than shadow).
 using VisualGeometryToolkitEstimation: AbstractRansacProblem
+import VisualGeometryToolkitEstimation: sample_models
 import VisualGeometryToolkitCore: minimal_sample_size, data_size, codimension, mahalanobis_distances!,
-    model_type, solve, test_sample, test_model, test_consensus, refine!, refine_workspace
+    model_type, test_sample, test_model, test_consensus, refine!, refit_workspace
 using VisualGeometryToolkitCore: FixedModels
 
 struct MyProblem <: AbstractRansacProblem
@@ -35,9 +36,9 @@ model_type(::MyProblem) = SMatrix{3,3,Float64,9}
 # Codimension: number of independent constraint equations per point
 codimension(::MyProblem) = 1
 
-# Solve from a minimal sample (indices into data)
-function solve(p::MyProblem, sample_indices::AbstractVector{Int})
-    # Return a model or FixedModels{N,M}, or nothing on failure
+# Every model of a minimal sample (indices into data)
+function sample_models(p::MyProblem, sample_indices::AbstractVector{Int})
+    # Return FixedModels{N,M}: count 0 on failure
 end
 
 # Compute the Mahalanobis distance (≥ 0) of every data point given a model.
@@ -71,8 +72,8 @@ test_consensus(p::MyProblem, model, mask::BitVector) = true
 # problem that defines refine!(ws, ::MyProblem, θ, weights) itself, as below,
 # bypasses the router. A LINEAR problem's step is its one-step algorithm under
 # the weights, θ unread (the weighted DLT for H/F when handed a DltWorkspace;
-# the line problem instead refits with its iterative fit_line on the points of
-# positive weight). `ws` is the refit workspace refine_workspace(typeof(p), n)
+# the line problem instead refits with its iterative covariance-weighted line on
+# the points of positive weight). `ws` is the refit workspace refit_workspace(typeof(p), n)
 # (a ManifoldLmWorkspace{N} for the chart-LM problems, `nothing` for a problem
 # whose refit needs none); define a method for MyProblem when it needs one.
 # Type θ with the model type, so a call in the wrong order is a MethodError
@@ -81,19 +82,35 @@ function refine!(ws, p::MyProblem, θ::SMatrix{3,3,Float64,9}, weights::Abstract
     # Return refined model or nothing
 end
 
-# solve() must return FixedModels{N,M} or nothing
-# Single-solution: FixedModels{1,M}; multi-solution: FixedModels{N,M}
+# sample_models returns FixedModels{N,M}:
+# single-solution FixedModels{1,M}; multi-solution FixedModels{N,M}
 ```
 
 ### Usage
 
-```julia
-using VisualGeometryToolkitCore: MsacScoring, TLSShape
+A problem without a class of record names its scorer (`Ransac()`'s
+`ClassDefault()` scorer is refused for it):
 
-problem = MyProblem(data)
-result = ransac(problem, MsacScoring(problem; threshold = 2.0);
-                local_optimization_strategy = Irls{TLSShape}())   # needs refine!
+```julia
+using VisualGeometryToolkitCore: MsacScoring, TLSShape, EstimationProblem, solve
+using Random: Xoshiro
+
+f = MyProblem(data)
+result = solve(EstimationProblem(f),
+               Ransac(; scoring = MsacScoring(f; threshold = 2.0),
+                      local_optimization_strategy = Irls{TLSShape}());   # needs refine!
+               rng = Xoshiro(1))
 ```
+
+A chart problem is refined by VisualGeometryToolkitCore's `LevenbergMarquardt`
+(`solve(RefineProblem(f, θ₀), LevenbergMarquardt(…); scale | width)`) once it
+implements Core's chart contract on its own type: `model_chart(f, model)` (the
+chart at a model), `chart_rows(f, chart, √w)` (the √w-weighted rows, in the
+residual's own unit), `chart_model(f, chart)`, `chart_size(f)`, and
+`default_optimization_strategy(f)` for its `ClassDefault()`. The family
+problems here implement it once for every `AbstractRansacProblem` with a chart
+(`chart_dof`), so a new chart problem provides the per-problem facts the family
+uses (`_chart`, the rows on `ChartLm`, `_model_at`).
 
 The problem now composes with every scorer and strategy of the stack —
 VisualGeometryToolkitCore's conformance helpers (`test_constraint_problem`,
@@ -136,6 +153,6 @@ block_coordinate_result(state, method::MyMethod, problem, θ, stop_reason, final
 ```
 
 The protocol is exercised by [`PosteriorIrlsMethod`](@ref), which `Irls{K}`
-runs inside the RANSAC LO inner loop and `fit_residual_mixture` runs on held
+runs inside the RANSAC LO inner loop and [`ResidualMixture`](@ref) runs on held
 residuals — read `src/estimators/ransac/local_optimization.jl` for a complete
 worked example.

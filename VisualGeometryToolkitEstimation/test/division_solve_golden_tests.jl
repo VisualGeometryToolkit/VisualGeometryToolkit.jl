@@ -1,7 +1,7 @@
 # The division camera solve's outputs, bit for bit: f, the coefficients, every
 # pose, sigma, ν, the per-view weights and the iteration count of
-# `fit_division_camera` on clean, contaminated (one and two coefficients) and
-# known-k scenes, and two `division_camera_step`s — recorded against the solve
+# `DivisionCameraFit` on clean, contaminated (one and two coefficients) and
+# known-k scenes, and two stacked focal solves — recorded against the solve
 # before its arrow (Schur) elimination was generalized to per-board blocks of any
 # size, so a refactor of the elimination that changes one bit fails here.
 #

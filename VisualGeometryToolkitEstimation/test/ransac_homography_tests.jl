@@ -1,6 +1,6 @@
 @testitem "ransac_homography" setup = [HomographyScenes] begin
     import VisualGeometryToolkitEstimation as VgtkEstimation; include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "thin_homography.jl"))   # `thin_homography_correspondences`
-    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -10,15 +10,14 @@ using Random
 using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: Correspondences, correspondences, exact
-using VisualGeometryToolkitCore: homography_4pt   # the positional minimal kernel (public, not exported)
-using VisualGeometryToolkitCore: converged, estimate   # VGC accessors (public)
-using VisualGeometryToolkitCore: MsacScoring, RansacScoring   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: homography_4pt
+
+using VisualGeometryToolkitCore: MsacScoring, RansacScoring
 using VisualGeometryToolkitEstimation: UniformSampler, inlier_ratio, sampler
 using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitEstimation
 using Rotations: RotMatrix, RotX, RotZ
-using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_type,
-    ProsacSampler, reset!
+using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_type, ProsacSampler, reset!
 
 # =============================================================================
 # Test utilities
@@ -36,7 +35,7 @@ struct _ExternalArm <: VgtkCore.AbstractOptimizationStrategy end
 VgtkCore.RefitFamily(::_ExternalArm) = VgtkCore.ExternalRefit()
 VgtkCore.external_workspace(::_ExternalArm, _problem, _frame, _scoring) = Ref(0)
 VgtkCore.prepare_external!(ws, ::_ExternalArm, _problem, _θ, _width, _scoring) = (ws[] += 1; true)
-VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) = (ws[] += 10; θ)
+VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) = (ws[] += 10; θ)
 
 @testset "RANSAC Homography" begin
 
@@ -99,12 +98,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         end
 
         # And a full RANSAC converges on the clean board→image data.
-        result = ransac(
-            p, MsacScoring(p; threshold = 2.0);
-            config = RansacConfig(max_trials = 500, min_trials = 50),
-            rng = StableRNG(126)
-        )
-        @test converged(result)
+        result = solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 2.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 500, min_trials = 50)); rng = StableRNG(126))
+        @test successful_retcode(result)
         @test sum(inlier_mask(result)) == length(board)
     end
 
@@ -118,7 +113,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         @test p isa HomographyProblem{Float64}
 
         # Too few correspondences
-        @test_throws ArgumentError HomographyProblem(correspondences(src[1:3], dst[1:3]))
+        # fewer than a minimal sample is a problem too: its solve is the no-model result, not a refusal at construction
+        @test VgtkEstimation.data_size(HomographyProblem(correspondences(src[1:3], dst[1:3]))) == 3
     end
 
     # The problem's constraint triple — what scoring whitens — IS the owner's
@@ -138,7 +134,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # Identity recovery on noiseless points
         src = [SA[100.0, 200.0], SA[500.0, 100.0], SA[800.0, 600.0], SA[200.0, 700.0]]
         p_id = HomographyProblem(correspondences(src, copy(src)))
-        models = solve(p_id, [1, 2, 3, 4])
+        models = VgtkEstimation.sample_models(p_id, [1, 2, 3, 4])
         @test !isnothing(models)
         H_id_recovered = first(models)
         I3 = SMatrix{3, 3, Float64, 9}(1, 0, 0, 0, 1, 0, 0, 0, 1)
@@ -181,18 +177,14 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         )
         problem = HomographyProblem(correspondences(source_pts, target_pts))
 
-        result = ransac(
-            problem, MsacScoring(problem; threshold = 3.0);
-            config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = StableRNG(127)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring = MsacScoring(problem; threshold = 3.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 3000, min_trials = 200)); rng = StableRNG(127))
 
-        @test converged(result)
+        @test successful_retcode(result)
         test_pts = [
             SA[300.0, 400.0], SA[600.0, 300.0], SA[450.0, 550.0],
             SA[200.0, 200.0], SA[700.0, 500.0],
         ]
-        @test max_transfer_error(estimate(result), H_true, test_pts) < 2.0
+        @test max_transfer_error(result.u, H_true, test_pts) < 2.0
         @test inlier_ratio(result) > 0.5
         @test sum(inlier_mask(result)) >= n_inliers * 0.7
     end
@@ -233,19 +225,14 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         )
         problem = HomographyProblem(correspondences(source_pts, target_pts))
 
-        result = ransac(
-            problem, MsacScoring(problem; threshold = 3.0);
-            local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5),
-            config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = StableRNG(128)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring = MsacScoring(problem; threshold = 3.0), local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), config = RansacConfig(max_trials = 3000, min_trials = 200)); rng = StableRNG(128))
 
-        @test converged(result)
+        @test successful_retcode(result)
         test_pts = [
             SA[300.0, 400.0], SA[600.0, 300.0], SA[450.0, 550.0],
             SA[200.0, 200.0], SA[700.0, 500.0],
         ]
-        @test max_transfer_error(estimate(result), H_true, test_pts) < 2.0
+        @test max_transfer_error(result.u, H_true, test_pts) < 2.0
         @test sum(inlier_mask(result)) >= n_inliers * 0.7
     end
 
@@ -256,15 +243,10 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         problem = HomographyProblem(correspondences(source_pts, target_pts))
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         counted = VgtkEstimation.CountedLO(inner)
-        run(lo) = ransac(
-            problem, MsacScoring(problem; threshold = 3.0);
-            local_optimization_strategy = lo,
-            config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = StableRNG(128)
-        )
+        run(lo) = solve(EstimationProblem(problem), Ransac(; scoring = MsacScoring(problem; threshold = 3.0), local_optimization_strategy = lo, config = RansacConfig(max_trials = 3000, min_trials = 200)); rng = StableRNG(128))
         r_inner = run(inner)
         r_counted = run(counted)
-        @test estimate(r_counted) == estimate(r_inner)
+        @test r_counted.u == r_inner.u
         @test counted.calls[] >= 1
         @test counted.iterations[] >= counted.calls[]
         # each call's record, beside the counters: its iterations, ReturnCode and StopRule
@@ -275,8 +257,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # a seeded call's record is the termination record its result reports
         seeded = VgtkEstimation.CountedLO(inner)
         sc = MsacScoring(problem; threshold = 3.0)
-        rs = locally_optimize(problem, estimate(r_inner); local_optimization_strategy = seeded, scoring = sc)
-        @test seeded.call_records == [(iterations = seeded.iterations[], retcode = rs.lo_retcode, stop_rule = rs.lo_stop_rule)]
+        rs = solve(RefineProblem(problem, r_inner.u), LocalOptimization(seeded; scoring = sc))
+        @test seeded.call_records == [(iterations = seeded.iterations[], retcode = rs.metadata.lo_retcode, stop_rule = rs.metadata.lo_stop_rule)]
         @test VgtkCore.lo_width(counted) == VgtkCore.lo_width(inner)
         @test VgtkCore.lo_label(counted) == VgtkCore.lo_label(inner)
         @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
@@ -305,12 +287,7 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             HomographyProblem(correspondences(src, tgt))
         end
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
-        run(lo, j) = ransac(
-            problems[j], MsacScoring(problems[j]; threshold = 3.0);
-            local_optimization_strategy = lo,
-            config = RansacConfig(max_trials = 500, min_trials = 200),
-            rng = StableRNG(j)
-        )
+        run(lo, j) = solve(EstimationProblem(problems[j]), Ransac(; scoring = MsacScoring(problems[j]; threshold = 3.0), local_optimization_strategy = lo, config = RansacConfig(max_trials = 500, min_trials = 200)); rng = StableRNG(j))
         serial = VgtkEstimation.CountedLO(inner)
         foreach(j -> run(serial, j), eachindex(problems))
         threaded = VgtkEstimation.CountedLO(inner)
@@ -325,14 +302,14 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # Contention the sweep above rarely reaches: four tasks hammer one counter
         # with near-instant calls (a plain `Ref` loses increments here).
         sc = MsacScoring(problems[1]; threshold = 3.0)
-        θ = estimate(run(inner, 1))
+        θ = run(inner, 1).u
         hammered = VgtkEstimation.CountedLO(nothing)
         n_calls = 20_000
         tasks = map(1:4) do _
             Threads.@spawn begin
                 ws = VgtkEstimation.RansacWorkspace(problems[1], sc, hammered)
                 for _ in 1:n_calls
-                    locally_optimize(problems[1], θ; local_optimization_strategy = hammered, scoring = sc, workspace = ws)
+                    solve(RefineProblem(problems[1], θ), LocalOptimization(hammered; scoring = sc))
                 end
             end
         end
@@ -350,42 +327,44 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         cfg = RansacConfig(max_trials = 3000, min_trials = 200)
         inner = Irls{WelschShape}(efficiency_constant = 1.5)
         events(trace) = (trial, score, ws) -> push!(trace, (trial, score, ws.best_model, ws.best_lo_retcode, ws.best_lo_stop_rule))
-        run(lo, trace = []; kw...) = ransac(
-            problem, sc; local_optimization_strategy = lo, config = cfg, rng = StableRNG(128),
-            on_improvement = events(trace), kw...
-        )
+        run(lo, trace = []; kw...) = solve(EstimationProblem(problem),
+            Ransac(; scoring = sc, local_optimization_strategy = lo, config = cfg, on_improvement = events(trace), kw...);
+            rng = StableRNG(128))
 
         # The recipe it standardizes: the race with no LO, then the seeded refine.
         trace0 = []
         r0 = run(nothing, trace0)
-        seeded = locally_optimize(problem, estimate(r0); local_optimization_strategy = inner, scoring = sc)
+        seeded = solve(RefineProblem(problem, r0.u), LocalOptimization(inner; scoring = sc))
         trace = []
         rt = run(VgtkEstimation.TerminalLO(inner), trace)
-        @test converged(rt)
-        @test estimate(rt) == estimate(seeded)                 # bit-identical refined model
-        @test estimate(rt) != estimate(r0)                     # the LO did move it
-        @test VgtkCore.iterations(rt) == VgtkCore.iterations(r0)   # trials of the raw race
-        @test rt.sample_acceptance_rate == r0.sample_acceptance_rate
+        @test successful_retcode(rt)
+        @test rt.u == seeded.u                 # bit-identical refined model
+        @test rt.u != r0.u                     # the LO did move it
+        @test rt.stats.nsteps == r0.stats.nsteps   # trials of the raw race
+        @test rt.metadata.sample_acceptance_rate == r0.metadata.sample_acceptance_rate
         @test !isempty(trace0) && trace == trace0              # the raw incumbent's events
-        @test rt.lo_retcode == seeded.lo_retcode && rt.lo_stop_rule == seeded.lo_stop_rule
+        @test rt.metadata.lo_retcode == seeded.metadata.lo_retcode && rt.metadata.lo_stop_rule == seeded.metadata.lo_stop_rule
         @test inlier_mask(rt) == inlier_mask(seeded)             # re-scored for the refined model
-        @test rt.quality == seeded.quality
-        @test rt.residuals == seeded.residuals
+        @test rt.metadata.quality == seeded.metadata.quality
+        @test rt.resid == seeded.resid
         @test noise_scale(rt) === noise_scale(seeded)
 
-        # A reused workspace gives the same.
-        ws = VgtkEstimation.RansacWorkspace(problem, sc, VgtkEstimation.TerminalLO(inner))
-        @test estimate(run(VgtkEstimation.TerminalLO(inner); workspace = ws)) == estimate(seeded)
+        # A reused workspace (the cache of `init`, solved twice) gives the same.
+        c = init(EstimationProblem(problem), Ransac(; scoring = sc, local_optimization_strategy = VgtkEstimation.TerminalLO(inner), config = cfg);
+                 rng = StableRNG(128))
+        solve!(c)
+        c.cache.rng = StableRNG(128)
+        @test solve!(c).u == seeded.u
 
         # Placement is a static trait; a counter counts the terminal call in either nesting.
         @test VgtkEstimation.lo_placement(inner) === VgtkEstimation.InLoopPlacement()
         @test VgtkEstimation.lo_placement(VgtkEstimation.TerminalLO(inner)) === VgtkEstimation.TerminalPlacement()
         outer = VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(inner))
         @test VgtkEstimation.lo_placement(outer) === VgtkEstimation.TerminalPlacement()
-        @test estimate(run(outer)) == estimate(seeded)
+        @test run(outer).u == seeded.u
         @test outer.calls[] == 1
         counted = VgtkEstimation.CountedLO(inner)
-        @test estimate(run(VgtkEstimation.TerminalLO(counted))) == estimate(seeded)
+        @test run(VgtkEstimation.TerminalLO(counted)).u == seeded.u
         @test counted.calls[] == 1
 
         # The per-candidate guard has no candidate to guard.
@@ -403,8 +382,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             VgtkEstimation.TerminalLO(VgtkCore.with_width(inner, VgtkCore.LossWidth(2.0)))
         @test VgtkCore.fixed_width(t, 4.0) == VgtkCore.fixed_width(inner, 4.0)
         # A seeded refine has no race: it runs the inner strategy.
-        @test estimate(locally_optimize(problem, estimate(r0); local_optimization_strategy = t, scoring = sc)) ==
-            estimate(seeded)
+        @test solve(RefineProblem(problem, r0.u), LocalOptimization(t; scoring = sc)).u ==
+            seeded.u
     end
 
     @testset "the wrappers forward the refit family and the external-refit bracket" begin
@@ -415,8 +394,8 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
             ws = VgtkCore.external_workspace(w, nothing, nothing, nothing)
             @test ws isa Base.RefValue{Int}                                      # the inner's workspace
             @test VgtkCore.prepare_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) && ws[] == 1
-            @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
-            @test VgtkCore.refine_external!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
+            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
+            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
             # an external refit is not counted: the wrapper that ran the bracket counts nothing
             w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0 && isempty(w.call_records)
         end
@@ -431,13 +410,12 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         problem = HomographyProblem(thin_homography_correspondences())   # the suite's fixture file, shared with the golden records
         sc = MsacScoring(problem; threshold = 0.5)
         cfg = RansacConfig(max_trials = 5000, min_trials = 3000)
-        r0 = ransac(problem, sc; local_optimization_strategy = nothing, config = cfg, rng = StableRNG(1))
-        rt = ransac(problem, sc; local_optimization_strategy = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)),
-            config = cfg, rng = StableRNG(1))
+        r0 = solve(EstimationProblem(problem), Ransac(; scoring = sc, local_optimization_strategy = nothing, config = cfg); rng = StableRNG(1))
+        rt = solve(EstimationProblem(problem), Ransac(; scoring = sc, local_optimization_strategy = VgtkEstimation.TerminalLO(Irls{WelschShape}(efficiency_constant = 1.5)), config = cfg); rng = StableRNG(1))
         @test sum(inlier_mask(rt)) == 5
-        @test (rt.lo_retcode, rt.lo_stop_rule) == (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)   # the refit did not run
-        @test estimate(rt) == estimate(r0)
-        @test VgtkCore.retcode(rt) == VgtkCore.retcode(r0) && VgtkCore.stop_rule(rt) == VgtkCore.stop_rule(r0)   # the search's record
+        @test (rt.metadata.lo_retcode, rt.metadata.lo_stop_rule) == (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)   # the refit did not run
+        @test rt.u == r0.u
+        @test rt.retcode == r0.retcode && rt.stop_rule == r0.stop_rule   # the search's record
     end
 
     @testset "PROSAC with scored correspondences" begin
@@ -453,15 +431,11 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         problem = HomographyProblem(Correspondences(source_pts, target_pts; score = scores))
         @test sampler(problem) isa ProsacSampler
 
-        result = ransac(
-            problem, MsacScoring(problem; threshold = 3.0);
-            config = RansacConfig(max_trials = 3000, min_trials = 200),
-            rng = StableRNG(131)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring = MsacScoring(problem; threshold = 3.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 3000, min_trials = 200)); rng = StableRNG(131))
 
-        @test converged(result)
+        @test successful_retcode(result)
         test_pts = [SA[300.0, 400.0], SA[600.0, 300.0], SA[450.0, 550.0]]
-        @test max_transfer_error(estimate(result), H_true, test_pts) < 2.0
+        @test max_transfer_error(result.u, H_true, test_pts) < 2.0
         # PROSAC's growth horizon is the run's budget, not a fixed constant.
         @test sampler(problem).T_N == 3000
     end
@@ -535,22 +509,22 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         lo_default = VgtkEstimation._dflt_lo(:homography)
         for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
             cfg = RansacConfig(max_trials = 3000, min_trials = 200)
-            rm = ransac(pm, MsacScoring(pm; threshold = 3.0); local_optimization_strategy = lo, config = cfg, rng = StableRNG(129))
-            ru = ransac(pu, MsacScoring(pu; threshold = 3.0); local_optimization_strategy = lo, config = cfg, rng = StableRNG(129))
-            @test converged(rm)
-            @test estimate(rm) isa model_type(pm)
+            rm = solve(EstimationProblem(pm), Ransac(; scoring = MsacScoring(pm; threshold = 3.0), local_optimization_strategy = lo, config = cfg); rng = StableRNG(129))
+            ru = solve(EstimationProblem(pu), Ransac(; scoring = MsacScoring(pu; threshold = 3.0), local_optimization_strategy = lo, config = cfg); rng = StableRNG(129))
+            @test successful_retcode(rm)
+            @test rm.u isa model_type(pm)
             @test sum(inlier_mask(rm)[1:n_inliers]) >= 0.9 * n_inliers
             @test sum(inlier_mask(rm)[(n_inliers + 1):end]) <= 3
-            @test max_transfer_error(_to_px(estimate(rm)), H_true, mapped_test_pts) < 1.0
+            @test max_transfer_error(_to_px(rm.u), H_true, mapped_test_pts) < 1.0
             # The LO objective is the same pixel objective mapped or not, so
             # the two runs land on the same homography.
-            @test max_transfer_error(_to_px(estimate(rm)), estimate(ru), mapped_test_pts) < 0.5
+            @test max_transfer_error(_to_px(rm.u), ru.u, mapped_test_pts) < 0.5
         end
-        # `locally_optimize` from a perturbed model-frame seed.
+        # `LocalOptimization` from a perturbed model-frame seed.
         Hs = _to_model(HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H_true) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0)))))
         for lo in (Irls{WelschShape}(efficiency_constant = 1.5), lo_default)
-            r = VgtkEstimation.locally_optimize(pm, Hs; scoring = MsacScoring(pm; threshold = 3.0), local_optimization_strategy = lo)
-            @test max_transfer_error(_to_px(estimate(r)), H_true, mapped_test_pts) < 1.0
+            r = solve(RefineProblem(pm, Hs), LocalOptimization(lo; scoring = MsacScoring(pm; threshold = 3.0)))
+            @test max_transfer_error(_to_px(r.u), H_true, mapped_test_pts) < 1.0
         end
     end
 
@@ -561,15 +535,11 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         cs32 = correspondences(SVector{2, Float32}.(source_pts), SVector{2, Float32}.(target_pts))
         pm = HomographyProblem(cs32; src_map = C₁, dst_map = C₂)
         @test model_type(pm) == HomographyMat{Float32}
-        sols = VgtkEstimation.solve(pm, [1, 15, 30, 45])
+        sols = VgtkEstimation.sample_models(pm, [1, 15, 30, 45])
         @test sols[1] isa model_type(pm)
-        r = ransac(
-            pm, MsacScoring(pm; threshold = 3.0);
-            config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = StableRNG(130)
-        )
-        @test converged(r)
-        @test max_transfer_error(_to_px(estimate(r)), H_true, mapped_test_pts) < 2.0
+        r = solve(EstimationProblem(pm), Ransac(; scoring = MsacScoring(pm; threshold = 3.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 2000, min_trials = 100)); rng = StableRNG(130))
+        @test successful_retcode(r)
+        @test max_transfer_error(_to_px(r.u), H_true, mapped_test_pts) < 2.0
     end
 
     @testset "metre-unit board: the sample gate is scale-free" begin
@@ -592,12 +562,12 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         # threshold means 3 px. As a PLAIN (unit isotropic) metre board the
         # residual is in metres — ~7e-5 for a 0.2 px inlier, ~0.015 for a 40 px
         # mismatch, every one under 3 — and the fit lands ~40 px off.
-        result = find_homography(correspondences(exact.(board), pix))
-        @test converged(result)
+        result = solve(EstimationProblem(HomographyProblem(correspondences(exact.(board), pix))), Ransac())
+        @test successful_retcode(result)
         @test sum(inlier_mask(result)[9:end]) >= 50
         @test !any(inlier_mask(result)[1:8])
-        @test max_transfer_error(estimate(result), H_true, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
-        plain = find_homography(correspondences(board, pix))
+        @test max_transfer_error(result.u, H_true, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
+        plain = solve(EstimationProblem(HomographyProblem(correspondences(board, pix))), Ransac())
         @test all(inlier_mask(plain)[1:8])          # the unit error the rule removes
         # A genuinely coincident pair is still refused.
         @test !VgtkEstimation.test_sample(
@@ -614,9 +584,9 @@ VgtkCore.refine_external!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth
         cs = correspondences(source_pts, target_pts)
         ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
         p = HomographyProblem(cs)
-        @test converged(find_homography(cs; workspace = ws, rng = StableRNG(132)))
-        @test converged(find_homography(cs; workspace = ws, scoring = MsacScoring(HomographyProblem; threshold = 2.0), rng = StableRNG(133)))
-        @test converged(find_homography(cs; workspace = ws, scoring = RansacScoring(p; threshold = 3.0), rng = StableRNG(134)))
+        @test successful_retcode(solve(EstimationProblem(HomographyProblem(cs)), Ransac(); rng = StableRNG(132)))
+        @test successful_retcode(solve(EstimationProblem(HomographyProblem(cs)), Ransac(; scoring = MsacScoring(HomographyProblem; threshold = 2.0)); rng = StableRNG(133)))
+        @test successful_retcode(solve(EstimationProblem(HomographyProblem(cs)), Ransac(; scoring = RansacScoring(p; threshold = 3.0)); rng = StableRNG(134)))
     end
 
 end

@@ -32,7 +32,7 @@
                                    weights = Dict(p => 1.0 for p in keys(bad)))   # no weights dict
     @test_throws ArgumentError solve(EstimationProblem(AbsoluteRotations, Dict{Tuple{Int, Int}, RotMatrix{3, Float64, 9}}()), SpectralAveraging())
     # a split graph (two components, or a zero-weight bridge) is the caller's to refuse:
-    # Estimation's fit_rotation_averaging checks its ViewGraph (fit_rotation_averaging_tests.jl)
+    # Estimation's RotationAveraging checks its ViewGraph (fit_rotation_averaging_tests.jl)
     chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
     @test_throws ArgumentError solve(EstimationProblem(AbsoluteRotations, Dict(p => Attributed(Rp, (; weight = -1.0)) for (p, Rp) in chain)), SpectralAveraging())
 end

@@ -1,8 +1,8 @@
-# RotationProblem / find_rotation — the pure rotation between two views of a
+# RotationProblem / Ransac on a RotationProblem — the pure rotation between two views of a
 # calibrated fisheye on unit bearings (the infinite homography): the minimal
 # solver, the gates, the residual against VGC's bearing transfer constraint, the
 # chart rows against ForwardDiff, the chart-LM refit lowering the Sampson cost
-# below the kabsch start, and the recovery past 90° with outliers.
+# below the Kabsch start, and the recovery past 90° with outliers.
 
 @testsetup module RotationScene
 import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -11,11 +11,11 @@ export FISHEYE, rotation_scene
 end
 
 @testitem "RotationProblem: minimal solver, gates, residual" setup = [RotationScene] begin
+    using VisualGeometryToolkitCore: solve
     import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
-        withattrs, sources, targets, estimate, converged, angle_between
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences, withattrs, sources, targets, angle_between
+    using VisualGeometryToolkitEstimation: RotationProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     rng = Xoshiro(21)
     R = RotMatrix(RotationVec(0.3, -0.5, 0.2))
@@ -23,7 +23,7 @@ end
     p = RotationProblem(FISHEYE, FISHEYE, cs)
     @test VgtkEstimation.codimension(p) == 2 && VgtkEstimation.minimal_sample_size(p) == 2 && VgtkEstimation.chart_dof(p) == 3
     @test maximum(θs) > deg2rad(90)                                    # the field reaches past 90°
-    sol = VgtkEstimation.solve(p, [1, 2])
+    sol = VgtkEstimation.sample_models(p, [1, 2])
     @test sol.count == 1 && norm(SMatrix{3, 3}(first(sol)) - R) < 1.0e-9   # exact on two clean pairs
     r = zeros(60); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(r) < 1.0e-5                                           # pixels
@@ -46,7 +46,7 @@ end
     # parallel bearings: the minimal solver's refusal
     f = backproject_with_jacobian(FISHEYE, SA[600.0, 600.0])
     pb = RotationProblem(withattrs(Correspondences([f[1], f[1], f[1]], [f[1], f[1], f[1]]); M₁ = [f[2], f[2], f[2]], M₂ = [f[2], f[2], f[2]]))
-    @test VgtkEstimation.solve(pb, [1, 2]).count == 0
+    @test VgtkEstimation.sample_models(pb, [1, 2]).count == 0
     # refusals: a Pair vector, 2-vectors, non-unit bearings
     @test_throws ArgumentError RotationProblem([f[1] => f[1], f[1] => f[1]])
     @test_throws ArgumentError RotationProblem(withattrs(Correspondences([2 * f[1], f[1]], [f[1], f[1]]); M₁ = [f[2], f[2]], M₂ = [f[2], f[2]]))
@@ -54,21 +54,21 @@ end
 end
 
 @testitem "RotationProblem: chart rows against ForwardDiff; the refit lowers the Sampson cost" setup = [RotationScene] begin
+    using VisualGeometryToolkitCore: solve, EstimationProblem, Kabsch
     import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
-        withattrs, sources, targets, estimate, converged, angle_between
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences, withattrs, sources, targets, angle_between
+    using VisualGeometryToolkitEstimation: RotationProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     import ForwardDiff
-    using VisualGeometryToolkitCore: kabsch, zero_tangent, residual_rows!, residual_jacobian_rows!
+    using VisualGeometryToolkitCore: zero_tangent, residual_rows!, residual_jacobian_rows!
     rng = Xoshiro(22)
     R = RotMatrix(RotationVec(-0.4, 0.25, 0.6))
     # anisotropic fisheye noise: the periphery's pixels subtend different angles radially and tangentially
     cs, _, _ = rotation_scene(rng, R, 200; σ = 1.0)
     p = RotationProblem(FISHEYE, FISHEYE, cs)
-    R0 = RotMatrix{3, Float64, 9}(kabsch(Correspondences(sources(p.cs), targets(p.cs))) )   # the unweighted kabsch: the LM's start
+    R0 = RotMatrix{3, Float64, 9}(solve(EstimationProblem(RotMatrix{3}, Correspondences(sources(p.cs), targets(p.cs))), Kabsch()).u)   # the unweighted Kabsch: the LM's start
     ch = VgtkEstimation._chart(p, R0)
     n = 200; sqrtw = rand(rng, 2n)
     lm = VgtkEstimation._lm_state(p, ch, sqrtw)
@@ -76,9 +76,9 @@ end
     J = zeros(2n, 3); residual_jacobian_rows!(J, lm, a0)
     rows(a) = (out = zeros(eltype(a), 2n); residual_rows!(out, lm, SVector{3}(a)); out)
     @test J ≈ ForwardDiff.jacobian(rows, Vector(a0)) rtol = 1.0e-8
-    # the chart-LM refit (refine!) from the kabsch start lowers the Sampson cost
+    # the chart-LM refit (refine!) from the Kabsch start lowers the Sampson cost
     cost(Rx) = (r = zeros(n); VgtkEstimation.mahalanobis_distances!(r, p, Rx); sum(abs2, r))
-    ws = VgtkEstimation.refine_workspace(typeof(p), n)
+    ws = VgtkEstimation.refit_workspace(typeof(p), n)
     R1 = VgtkCore.refine!(ws, p, R0, ones(n))
     @test R1 isa RotMatrix
     @test cost(R1) < cost(R0)
@@ -86,29 +86,30 @@ end
     @test warm_allocated(VgtkCore.refine!, ws, p, R0, ones(n)) == 0   # allocation-free: the refit's buffers are the workspace's and the task's
 end
 
-@testitem "find_rotation: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin
+@testitem "Ransac on a RotationProblem: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin
+    using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
+    using VisualGeometryToolkitEstimation: Ransac
     using VisualGeometryToolkitCore: retcode_symbol
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
-    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences,
-        withattrs, sources, targets, estimate, converged, angle_between, retcode, iterations, MsacScoring
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation
+    using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences, withattrs, sources, targets, angle_between, MsacScoring
+    using VisualGeometryToolkitEstimation: RotationProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     rng = Xoshiro(23)
     for trial in 1:3
         R = RotMatrix(QuatRotation(normalize(SVector(1.0, 0.3randn(rng), 0.3randn(rng), 0.3randn(rng)))))
         cs, θs, bad = rotation_scene(rng, R, 300; σ = 0.5, outl = 0.3)
-        res = find_rotation(FISHEYE, FISHEYE, cs; rng = Xoshiro(trial))
-        @test converged(res)
-        @test rad2deg(Rotations.rotation_angle(RotMatrix{3}(estimate(res)' * R))) < 0.05
+        res = solve(EstimationProblem(RotationProblem(FISHEYE, FISHEYE, cs)), Ransac(); rng = Xoshiro(trial))
+        @test successful_retcode(res)
+        @test rad2deg(Rotations.rotation_angle(RotMatrix{3}(res.u' * R))) < 0.05
         inl = inlier_mask(res)
         good = setdiff(1:300, bad)
         @test count(inl[good]) > 0.8 * length(good)      # 1 px MSAC on a 2-D residual of 0.5 px per coordinate in each view: P(χ²₂ < 4) = 0.86
         @test count(inl[bad]) < 0.05 * length(bad) + 2
         @test any(θs[findall(inl)] .> deg2rad(90))                       # inliers past 90° took part
     end
-    @test let r = find_rotation(FISHEYE, FISHEYE, Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]]))
-        retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+    @test let r = solve(EstimationProblem(RotationProblem(FISHEYE, FISHEYE, Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]]))), Ransac())
+        retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
     end
-    @test_throws ArgumentError find_rotation(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1]; scoring = MsacScoring(RotationProblem; threshold = 0.01))
+    @test_throws ArgumentError solve(EstimationProblem(RotationProblem(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1])), Ransac(; scoring = MsacScoring(RotationProblem; threshold = 0.01)))
 end

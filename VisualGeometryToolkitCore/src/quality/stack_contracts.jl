@@ -72,7 +72,8 @@ end
     private_name_violations(dir, name) -> Vector{String}
 
 A heuristic source scan of the `.jl` files under `dir` (a package's `src/` and
-`ext/`) for names that begin with `_` and are reached from another stack
+`ext/`) for names that begin with `_` (not `__`: the solve interface's declared extension points
+`__solve`/`__init`, SciMLBase's names, public in Core) and are reached from another stack
 package (a key of [`stack_dependencies`](@ref) other than `name`): imported
 (`using Pkg: _x`, `import Pkg.Sub: _x`) or accessed qualified (`Pkg._x`,
 `Pkg.Sub._x`, also through a `const P = Pkg` or `import Pkg as P` alias).
@@ -102,10 +103,10 @@ function private_name_violations(dir::AbstractString, name::AbstractString)
             line = count(==('\n'), src[1:prevind(src, m.offset)]) + 1
             for nm in split(list, ',')
                 n = strip(first(split(strip(nm), r"\s+as\s+")))
-                startswith(n, '_') && push!(out, "$(relpath(path, dir)):$line: $(alias[pkg])$sub.$n")
+                startswith(n, '_') && !startswith(n, "__") && push!(out, "$(relpath(path, dir)):$line: $(alias[pkg])$sub.$n")
             end
         end
-        for (k, l) in enumerate(lines), m in eachmatch(r"(?<![\w.])(\w+)((?:\.[A-Za-z]\w*)*)\.(_\w*!?)", l)
+        for (k, l) in enumerate(lines), m in eachmatch(r"(?<![\w.])(\w+)((?:\.[A-Za-z]\w*)*)\.(_(?!_)\w*!?)", l)
             pkg = something(m[1])
             haskey(alias, pkg) && push!(out, "$(relpath(path, dir)):$k: $(alias[pkg])$(something(m[2], "")).$(something(m[3]))")
         end
@@ -131,7 +132,7 @@ const CONTRACT_GENERICS = (
     # the constraint-problem protocol (robust/problem.jl)
     data_size, codimension, minimal_sample_size, mahalanobis_distances!, mahalanobis_distance,
     residual_context, whitened_residual,
-    observation_covariance, solver_covariance, provides_solver_covariance, refine!, refine_workspace,
+    observation_covariance, solver_covariance, provides_solver_covariance, refine!, refit_workspace,
     # the scoring contract (robust/scoring_contract.jl, robust/baseline_scorers.jl)
     scoring_workspace, score!, inlier_count, consensus_order, decision_boundary, has_decision_boundary,
     is_predictive, scored_model, scale_prior, outlier_halfwidth, score_bound, check_workspace,
@@ -149,7 +150,7 @@ const CONTRACT_GENERICS = (
     estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth,
     # the local-optimization contract (robust/lo_contract.jl)
     lo_workspace, locally_optimize!, lo_width,
-    refine_external!, external_workspace, prepare_external!,
+    external_refit!, external_workspace, prepare_external!,
     # selection over a benchmark pool (robust/pool_selection.jl)
     best_pool_model, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,
     # the chart-rows contract (robust/rows.jl)
@@ -160,10 +161,14 @@ const CONTRACT_GENERICS = (
     # `estimator_kind` and `supports_solve_rng` for them and `default_algorithm` for its own problem types — never a
     # method of `solve`/`init` (Core's front end)
     __solve, __init, reinit!, estimator_kind, default_algorithm, supports_solve_rng,
+    # the LevenbergMarquardt refine's contracts (robust/refine.jl): the chart contract a chart problem's author
+    # implements, its class's strategy of record, and the block contract of a bundle
+    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
+    block_refit, with_robustifier, default_stops,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/)
     homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p,
-    # the per-datum weights a metadata answers otherwise (base/fit_result.jl)
-    weights,
+    # the per-datum weights, residual dof and variance a metadata answers otherwise (base/fit_result.jl)
+    weights, dof, s2,
     # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):
     # `cost(state)` ½ Σ‖r‖², a number; `residuals(state)` the residual vectors it sums (robust/losses.jl, robust/scoring_contract.jl)
     cost, residuals,

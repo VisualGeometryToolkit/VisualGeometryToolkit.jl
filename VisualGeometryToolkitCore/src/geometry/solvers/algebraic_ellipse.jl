@@ -7,7 +7,7 @@
 # 4AC − B² = 1, a 3×3 eigenproblem with exactly one elliptic solution, in
 # Hartley-normalized coordinates. One deterministic step, so an algorithm name
 # (taxonomy v2); the orthogonal-distance refinement from it is
-# VisualGeometryToolkitEstimation's `refine_ellipse`.
+# VisualGeometryToolkitEstimation's ellipse refine (`LevenbergMarquardt` on an `EllipseProblem`).
 #
 # The log-shape chart below is the ellipse's minimal parameterization that the
 # refinement and its covariance live in.

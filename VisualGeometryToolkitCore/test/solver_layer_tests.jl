@@ -194,9 +194,11 @@
             @test Tk(ctr) == SVector(0.0, 0.0)
             @test sum(norm(Tk(p)) for p in src) / length(src) ≈ sqrt(2) rtol = 1.0e-14
             wts = [isodd(i) ? 2.0 : 0.0 for i in 1:20]
-            @test AffineMap(HartleyNormalization(), src, wts) == AffineMap(HartleyNormalization(), src, nothing, wts)
-            @test AffineMap(HartleyNormalization(), src, BitVector(isodd(i) for i in 1:20)) ==
-                AffineMap(HartleyNormalization(), src[1:2:end])
+            # a selection is indexing and an influence a weight (no mask): 0/1 weights are the indexed subset, a uniform
+            # weight over it the same normalization
+            @test AffineMap(HartleyNormalization(), src, Float64.(isodd.(1:20))) == AffineMap(HartleyNormalization(), src[1:2:end])
+            Tw2 = AffineMap(HartleyNormalization(), src, wts); Ts = AffineMap(HartleyNormalization(), src[1:2:end])
+            @test isapprox(Tw2.linear, Ts.linear; rtol = 1.0e-14) && isapprox(Tw2.translation, Ts.translation; rtol = 1.0e-14)
             # Diagonal: image centre to the origin, corners at unit radius
             Td = AffineMap(DiagonalNormalization(Size2(1200.0, 900.0)))
             @test Td(SVector(600.0, 450.0)) == SVector(0.0, 0.0)

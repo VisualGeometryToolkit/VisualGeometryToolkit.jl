@@ -19,13 +19,13 @@
 # from the centre: the geometric distance d − r to first order, in PIXELS. The
 # refit is the family's chart LM (`refine!` → `_refine!(::NonlinLsq, …)`) on the
 # rows below — the same constraint, whitened the same way — and every local
-# optimization of the family runs on them: `find_circle`'s, the robustified LM
+# optimization of the family runs on them: the find's, the robustified LM
 # (`Triggs`), and the IRLS and the lifts alike.
 #
 # DATA: the circle's datum is one point of one image; there is no second view
 # and so no correspondence. The problem stores the canonical points
-# (`Vector{Point2{Float64}}`) as its data `cs`, as `tls_line(points)` and
-# `direct_ellipse(points)` take them, and the minimal solver reads the same
+# (`Vector{Point2{Float64}}`) as its data `cs`, as `TotalLeastSquares` and
+# `DirectEllipse` take them, and the minimal solver reads the same
 # vector (`solve(Circle3pt(), points, idx)`). The only shared change this
 # needed is the problem scalar read off a point vector (`_problem_scalar`,
 # correspondence.jl). The points are plain (unit isotropic noise); no normalization —
@@ -42,7 +42,7 @@ VisualGeometryToolkitCore). Minimal sample 3 (VisualGeometryToolkitCore's
 `Circle3pt`), codimension 1 (the Sampson distance of `‖x − c‖² − r²`, in the
 points' units), a 3-dof chart (VisualGeometryToolkitCore's `CircleManifold`: the
 centre and log r). Build it with `CircleProblem(points)`; the public estimator
-is [`find_circle`](@ref).
+is a find, `solve(EstimationProblem(CircleProblem(points)), Ransac(); rng)`.
 """
 const CircleProblem = MinimalSolveProblem{VgtkCore.Circle{Float64}, 3, Float64}
 

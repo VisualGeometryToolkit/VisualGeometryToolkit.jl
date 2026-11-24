@@ -43,7 +43,7 @@ module Cameras
 public pixel_intrinsics   # the pixel intrinsics of a camera (the stack's fits read them)
 public coefficient_names  # a lens leaf type's coefficient names (the stack's lens fits read them)
 public reframed_calibration   # the pixel-frame change of a K (VisualGeometryToolkitIO's stored K reads and writes through it)
-public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens is radially symmetric about the principal point (a Holy trait; RadialCamera and Estimation's fit_camera read it)
+public RadialSymmetry, RadiallySymmetric, RadiallyAsymmetric   # whether a lens is radially symmetric about the principal point (a Holy trait; RadialCamera and Estimation's CameraRegression read it)
 
 # Import general Julia packages directly (not through parent)
 using StaticArrays: StaticArrays, SVector, SMatrix, MMatrix, StaticVector, StaticMatrix
@@ -192,7 +192,7 @@ import ..VisualGeometryToolkitCore: transfer_ellipse          # extended for the
 import ..VisualGeometryToolkitCore: PerspectiveMap  # From CoordinateTransformations (imported to extend)
 using ..VisualGeometryToolkitCore: p3p, NativeSolver   # the P3P kernel (solvers.jl), which the camera form of a P3P sample calls
 import ..VisualGeometryToolkitCore: __solve, default_algorithm, estimator_kind, sample_size, max_solutions   # the estimation interface, extended by RadialCamera5pt, Zhang (calibration.jl) and the camera form of P3P (utilities.jl)
-using ..VisualGeometryToolkitCore: MinimalSolver, MinimalProblem, EstimationProblem, FixedModels, AbstractEstimationAlgorithm, ClosedFormKind, closed_form_result, P3P, _MinimalNoContext, _solve_context
+using ..VisualGeometryToolkitCore: MinimalSolver, MinimalProblem, EstimationProblem, FixedModels, AbstractEstimationAlgorithm, ClosedFormKind, closed_form_result, P3P, _MinimalNoContext, read_context
 
 
 # Include sensor specifications

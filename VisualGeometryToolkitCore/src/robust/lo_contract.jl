@@ -196,7 +196,7 @@ _strategy_constant(w, _K, _d) = throw(ArgumentError(
         "give the strategy an efficiency constant or none"))
 
 """
-    refine_width(lo, scale, width, d::Integer) -> (; width, efficiency_constant, input)
+    refit_width(lo, scale, width, d::Integer) -> (; width, efficiency_constant, input)
 
 The refine contract's loss width, the one rule of every refiner that deploys a
 strategy from its `scale` / `width` keywords (Estimation's `refine_*`, `fit_*` and
@@ -214,7 +214,7 @@ bundles, PoseLib's refiners), at the residual's codimension `d`:
 
 The strategy itself is the caller's to admit first (each refiner takes its own set).
 """
-function refine_width(lo, scale, width, d::Integer)
+function refit_width(lo, scale, width, d::Integer)
     if lo === nothing
         (scale === nothing && width === nothing) || throw(ArgumentError(
             "plain least squares (`optimization_strategy = nothing`) has no loss width: omit `scale` and `width` (got " *
@@ -286,7 +286,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
 #
 #   external_workspace(lo, problem, frame, scoring) -> ws     once per (pair, arm)
 #   prepare_external!(ws, lo, problem, θ, width, scoring) -> Bool   [true]  outside the timing bracket
-#   refine_external!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing   the bracketed call
+#   external_refit!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing   the bracketed call
 #
 # `width` is an absolute loss width (`LossWidth`) or a fixed noise scale
 # (`FixedS2(s2)`, a role-isolated control's plug-in scale): by default a fixed
@@ -306,7 +306,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
     external_workspace(lo, problem, frame, scoring) -> ws
 
 The per-(pair, arm) workspace of an external refiner `lo` (see
-[`refine_external!`](@ref)): whatever the solver reads beyond the problem —
+[`external_refit!`](@ref)): whatever the solver reads beyond the problem —
 from the two-view `frame` (`frame.Kc1`, `frame.Kc2`, `frame.cs`; see the
 contract above) a point matrix, the solver's calibrations, a consensus
 workspace — built once and reused by every refit of that pair. Default
@@ -324,11 +324,11 @@ neither timed nor counted, and the refit falls back. Default `true`.
 prepare_external!(_ws, ::Union{Nothing, AbstractOptimizationStrategy}, _problem, _θ, _width, _scoring) = true
 
 # A fixed noise scale is, by default, the absolute loss width √s2.
-refine_external!(ws, lo::Union{Nothing, AbstractOptimizationStrategy}, problem, θ, f::FixedS2, scoring) =
-    refine_external!(ws, lo, problem, θ, LossWidth(1.0, scale_s2(f)), scoring)
+external_refit!(ws, lo::Union{Nothing, AbstractOptimizationStrategy}, problem, θ, f::FixedS2, scoring) =
+    external_refit!(ws, lo, problem, θ, LossWidth(1.0, scale_s2(f)), scoring)
 
 """
-    refine_external!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing
+    external_refit!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing
 
 The `ExternalRefit` member of `RefitFamily`: refine the model `θ` of `problem`
 with the external solver `lo` at the absolute loss width `width::LossWidth`
@@ -339,8 +339,8 @@ Returns the refined model (the problem's model type) or `nothing` when the
 solver produced none. A pure model → model refine: no seed sweep, no
 re-score. The owner of the strategy implements it.
 """
-function refine_external! end
+function external_refit! end
 # The refusal: a local optimizer with no external refit at an absolute width.
-refine_external!(_ws, lo::Union{Nothing, AbstractOptimizationStrategy}, _problem, _θ, ::LossWidth, _scoring) = throw(ArgumentError(
-    "$(nameof(typeof(lo))) has no external refit (refine_external!) — it is not an ExternalRefit strategy"))
+external_refit!(_ws, lo::Union{Nothing, AbstractOptimizationStrategy}, _problem, _θ, ::LossWidth, _scoring) = throw(ArgumentError(
+    "$(nameof(typeof(lo))) has no external refit (external_refit!) — it is not an ExternalRefit strategy"))
 

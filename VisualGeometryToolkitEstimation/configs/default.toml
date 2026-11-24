@@ -16,6 +16,10 @@
 # trigger a recompile), so a Revise session needs a restart to see one.
 # =============================================================================
 
+# The version of this file's layout (`ESTIMATION_CONFIG_VERSIONS`): version 1 (0.12 and earlier, no key) named its tables after
+# the retired estimator functions; a stored file of it is read through `VisualGeometryToolkitCore.migrate_config`.
+config_version = 2
+
 [ransac]
 # The three RansacConfig fields. `min_trials` is 100 everywhere now — the
 # fitting pipelines used to carry a parallel literal of 500 in _pipeline.jl,
@@ -81,7 +85,7 @@ scoring            = { type = "msac", threshold = 8.0 }   # px — a convention 
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.bearing_pose]
-# refine_absolute_pose on caller-supplied bearings (a BearingPoseProblem; refine
+# the absolute-pose refine on caller-supplied bearings (a BearingPoseProblem; refine
 # only — no find_*). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
 # bound, π (the largest angle between two rays) times the largest pixel
 # whitening gain, so the default 1.0 admits every correspondence to the
@@ -105,7 +109,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.hand_eye]
 # The MSAC threshold is UNIT-FREE here: a fraction of the problem's characteristic
-# length L (median rig translation per motion), so find_hand_eye's default
+# length L (median rig translation per motion), so the hand-eye find's default
 # MSAC threshold of 0.01·L is the same whether the poses are in metres or
 # millimetres (a rotation error of 0.01 rad ≈ 0.57° reaches it). A caller's
 # `scoring` is a length (the poses' unit; metres for physical poses). A convention of this
@@ -156,7 +160,7 @@ optimization_strategy = { type = "triggs", loss = "welsch" }
 [refine.hand_eye]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[fit_division_camera]
+[division_camera_fit]
 ncoef = 1
 # The E-step, the fit's `weighting` (a fit takes no `scoring`): the shared Student-t + uniform
 # scorer's posterior (`scoring_from_toml`, problem DivisionCameraProblem). Its outlier_halfwidth
@@ -173,7 +177,7 @@ mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop 
 branch_audit_efficiency_constant = 3.5322300675464233
 # The E-step's start: the posterior seeded at the median residual (VisualGeometryToolkitCore's
 # `median_seeded_posterior`) at this Student-t ν, the ν update's upper bound (VisualGeometryToolkitCore's
-# `next_nu` ν_max): a near-Gaussian start, which the EM's estimated ν then moves.
+# the ν update's ν_max): a near-Gaussian start, which the EM's estimated ν then moves.
 seed_nu = 1.0e4
 
 [robot_world_hand_eye]
@@ -183,14 +187,15 @@ min_rel_angle_deg = 5.0          # relative motions below this are degenerate fo
 # (rotation / σ_rot, translation / σ_trans).
 tol = 1.0e-10
 
-[refine_robot_world_hand_eye]
-# The strategy, as every refine_*'s (the refine contract): its loss width is
+[robot_world_hand_eye_problem]
+# The refine of a RobotWorldHandEyeProblem (solve(RefineProblem(problem, guess), LevenbergMarquardt()))
+# at ClassDefault(): the refine contract's strategy: its loss width is
 # efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
 optimization_strategy = { type = "triggs", loss = "welsch" }
-# Its LM is the camera-and-poses bundle's one solve, at [refine_camera_and_poses]'s
+# Its LM is the camera-and-poses bundle's one solve, at [camera_poses_problem]'s
 # settings (max_iter, ftol, xtol): no settings of its own.
 
-[refine_camera_and_poses]
+[camera_poses_problem]
 # The strategy, as every refine_*'s (the refine contract): its loss width is
 # efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
 optimization_strategy = { type = "triggs", loss = "welsch" }
@@ -200,30 +205,30 @@ max_iter = 100                   # the camera + poses LM's cap on ACCEPTED itera
 # experiments' camera + poses bundle ran with (RadiometricCamera, until 2026-10-28).
 ftol = 1.0e-12
 xtol = 1.0e-12
-[fit_rotation]
-# The reweighted Kabsch of `fit_rotation`: an Irls strategy (loss, max_iter —
+[reweighted_least_squares.rotation]
+# The reweighted Kabsch of `ReweightedLeastSquares` on a rotation between direction pairs: an Irls strategy (loss, max_iter —
 # the reweight-and-solve iterations at most), read by the one strategy reader.
 # The loss runs at ONE width, `efficiency_constant × scale` (the shape's
 # constant at codimension 2 unless the strategy gives one) or the call's
 # `width`: the scale is data, never a TOML default.
 optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # rad: converged when an iteration moves the rotation by less
-[fit_rotation_averaging]
-# The Lie-algebra IRLS of `fit_rotation_averaging` (Chatterjee & Govindu): an
+[rotation_averaging]
+# The Lie-algebra IRLS of `RotationAveraging` (Chatterjee & Govindu): an
 # Irls strategy at ONE width, `efficiency_constant × scale` (the shape's
 # constant at codimension 3 unless the strategy gives one) or the call's
 # `width`. Read by the one strategy reader.
 optimization_strategy = { type = "irls", loss = "huber", max_iter = 100 }
 max_iter           = 100         # the least-squares fit's iterations at most (optimization_strategy = nothing: unit weights)
 tol                = 1.0e-12     # rad: converged when an iteration moves every frame by less
-[fit_linear]
-# The reweighted least squares of `fit_linear`: an Irls strategy at ONE width,
+[reweighted_least_squares.linear]
+# The reweighted least squares of `ReweightedLeastSquares` on a `LinearModel`: an Irls strategy at ONE width,
 # `efficiency_constant × scale` (the shape's constant at codimension 1 unless
 # the strategy gives one) or the call's `width`. Read by the one strategy reader.
 optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
 tol                = 1.0e-12     # converged when an iteration moves x by less (max-norm, relative to max(1, ‖x‖∞))
-[fit_rigid_alignment]
-# The reweighted Kabsch of `fit_rigid_alignment` (the ATE alignment). Its
+[reweighted_least_squares.rigid_alignment]
+# The reweighted Kabsch of `ReweightedLeastSquares` on an `EuclideanMap{3}` (the ATE alignment). Its
 # default is the classical least-squares alignment (optimization_strategy =
 # nothing, in code); a robust call gives an Irls strategy and its scale.
 tol                = 1.0e-12     # rad, and × the loss width: converged when an iteration moves the transform by less
@@ -234,13 +239,13 @@ tol                = 1.0e-12     # rad, and × the loss width: converged when an
 # of the plain-H reprojection norms (codimension 2). 3·√quantile(Chisq(2), 0.5): three
 # medians of the norms.
 efficiency_constant = 3.5322300675464233
-# The chart LMs' stop settings (the LO refits, a refine's least squares and Triggs, `refine_camera`'s lens families)
+# The chart LMs' stop settings (the LO refits, a refine's least squares and Triggs, the camera regression's lens families)
 # and every bundle's stall tolerance are Core's one owner, `LmStops` (VisualGeometryToolkitCore configs/default.toml
 # `[lm]`: max_iter 1000, ftol 1e-10, xtol 1e-10, stationarity_tol 0.05, with their measurements); Estimation's
 # `[chart_lm]` table, equal to it, retired in 0.11.0. A fit overrides a field only from its own table below.
 
 [relpose_bundle]
-# the relative-pose bundle's LM cap (its `refine!` and `refine_relative_pose`) on
+# the relative-pose bundle's LM cap (its `refine!` and the RelativePoseProblem refine) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
 # candidate steps; see Core's [lm]
 max_iter = 100
@@ -255,22 +260,22 @@ max_iter = 100
 # relative and the rotation within 1e-9 of the longer runs.
 ftol = 1.0e-10
 
-[refine_camera]
-# a lens family's refine (`refine_camera(guess, source, region)`, and
-# `approximate_camera`'s, `optical_axis`'s): the LM cap on
+[camera_regression_problem]
+# a lens family's refine (`solve(RefineProblem(CameraRegressionProblem(source, region), guess), LevenbergMarquardt())`,
+# and `OpticalAxis`'s): the LM cap on
 # ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
 # candidate steps; see Core's [lm])
 max_iter = 100
 
 [optical_axis]
-# The radial terms of the axis family (`optical_axis`: Fisheye624's form, Equidistant ∘ Radial{Even, n}, its
+# The radial terms of the axis family (`OpticalAxis`: Fisheye624's form, Equidistant ∘ Radial{Even, n}, its
 # decentering held at zero; the radius θ·(1 + k₁θ² + … + kₙθ²ⁿ), terms θ³ … θ^(2n+1)). 4 (θ³…θ⁹), from the order
 # study of 2026-11-13 (the wave-10 order study; n = 2, 3, 4, 6 on the test fixtures and RC's
 # spline-start cameras): the smallest n whose principal point lies within ½σ (its formal LS 1σ) of n = 6's on every
 # converging RC camera, its cond(J) 47–160× below n = 6's and 1–4 iterations fewer. n = 2 is 7σ off (RC's
 # radiometric_refinement start); n = 3 up to 1.2σ. Until 0.11.0 the family was Fisheye624's own, n = 6 (θ³…θ¹³).
 radial_terms = 4
-# The first order of the axis fit's order continuation (`optical_axis`: the family fitted at this many radial terms, its
+# The first order of the axis fit's order continuation (`OpticalAxis`: the family fitted at this many radial terms, its
 # linear fit then the refine, then at each next order to `radial_terms`, each from the last; the higher coefficients
 # held at 0). 1 (θ³), from the order study of 2026-11-15 (rc-convergence optaxis/order, job 19824; RC's ag10fe start, a
 # Schöps source whose r(θ) slope falls from 11 to 3 px/° over 85–95°, its region reaching 96.36°): the 1-term linear
@@ -293,7 +298,7 @@ dg             = 1               # the residual codimension (χ² degrees of fre
 
 # The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under
-# `fit_residual_mixture` the model is a held fit's, so the update is "keep_model";
+# `ResidualMixture` the model is a held fit's, so the update is "keep_model";
 # its `tol` stops the EM once an iteration lowers the mixture NLL by no more
 # than that fraction. Every nuisance part is estimated: ŝ², ν and the inlier
 # prior π (a held part is `{ type = "fixed_s2", s2 = … }`,

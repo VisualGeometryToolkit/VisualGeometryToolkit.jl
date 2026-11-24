@@ -6,9 +6,10 @@
 using StableRNGs: StableRNG
 using StaticArrays: SVector
 using Rotations: RotXYZ
-using VisualGeometryToolkitCore: RadialCamera, CameraModel, CorrespondenceNormalization, Correspondences, intrinsics, lens,
-    focal_length, parameter_vector, iterations, estimate, rotation, translation, noise_scale
-using VisualGeometryToolkitEstimation: DivisionCameraState, fit_division_camera, division_camera_step
+using VisualGeometryToolkitCore: RadialCamera, CameraModel, CorrespondenceNormalization, Correspondences, intrinsics, lens, focal_length, parameter_vector, rotation, translation, noise_scale
+using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraFit
+import VisualGeometryToolkitEstimation as VgtkEstimation
+using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
 
 # A state's f, k and every pose (rotation column-major, then translation), by view key.
 function _golden_state!(out, name, st::DivisionCameraState)
@@ -22,15 +23,15 @@ function _golden_state!(out, name, st::DivisionCameraState)
 end
 
 function _golden_fit!(out, name, res)
-    cam = estimate(res)
+    cam = res.u
     push!(out, "$name.focal" => collect(Float64, focal_length(intrinsics(cam))))
     push!(out, "$name.coefficients" => collect(Float64, parameter_vector(lens(cam))))
-    _golden_state!(out, "$name.state", res.state)
+    _golden_state!(out, "$name.state", res.metadata.state)
     push!(out, "$name.sigma" => [noise_scale(res)])   # the key predates `noise_scale`
-    push!(out, "$name.nu" => [res.ν])
-    push!(out, "$name.iterations" => [Float64(iterations(res))])
-    for id in sort!(collect(keys(res.views)))
-        push!(out, "$name.weights[$id]" => collect(Float64, res.views[id].weights))
+    push!(out, "$name.nu" => [res.metadata.ν])
+    push!(out, "$name.iterations" => [Float64(res.stats.nsteps)])
+    for id in sort!(collect(keys(res.metadata.views)))
+        push!(out, "$name.weights[$id]" => collect(Float64, res.metadata.views[id].weights))
     end
     return out
 end
@@ -43,20 +44,20 @@ function golden_record()
     # clean: pixel noise only
     clean, _ = noisy_board_views(StableRNG(11), cams; σ = 0.4)
     vclean = Dict(enumerate(clean))
-    _golden_fit!(out, "clean", fit_division_camera(rc, vclean; image_size = sz))
-    # contaminated: 8 % gross outliers (fit_division_camera_tests' scene), one and two coefficients
+    _golden_fit!(out, "clean", solve(EstimationProblem(CameraModel, (rc, vclean), (; image_size = sz)), DivisionCameraFit()))
+    # contaminated: 8 % gross outliers (division_camera_fit_tests' scene), one and two coefficients
     dirty, _ = noisy_board_views(StableRNG(3), cams; σ = 0.4, ε = 0.08)
     vdirty = Dict(enumerate(dirty))
-    _golden_fit!(out, "contaminated", fit_division_camera(rc, vdirty; image_size = sz))
-    _golden_fit!(out, "contaminated2", fit_division_camera(rc, vdirty; image_size = sz, ncoef = 2))
+    _golden_fit!(out, "contaminated", solve(EstimationProblem(CameraModel, (rc, vdirty), (; image_size = sz)), DivisionCameraFit()))
+    _golden_fit!(out, "contaminated2", solve(EstimationProblem(CameraModel, (rc, vdirty), (; image_size = sz)), DivisionCameraFit(; ncoef = 2)))
     # known k
-    _golden_fit!(out, "known_k", fit_division_camera(rc, vdirty; image_size = sz, k = K0))
+    _golden_fit!(out, "known_k", solve(EstimationProblem(CameraModel, (rc, vdirty), (; image_size = sz, k = K0)), DivisionCameraFit()))
     # one step: plain rows, and whitened at a seed under prior weights
     N = CorrespondenceNormalization(DivisionCameraState, vdirty; center = SVector(0.0, 0.0))
-    _golden_state!(out, "step_plain", division_camera_step(N, rc, vdirty))
+    _golden_state!(out, "step_plain", VgtkEstimation._keyed_focal_solve(N, rc, vdirty))
     wv = Dict(i => Correspondences(first.(b), last.(b); weights = fill(Float64(i), length(b))) for (i, b) in enumerate(dirty))
     Nw = CorrespondenceNormalization(DivisionCameraState, wv; center = SVector(0.0, 0.0))
-    _golden_state!(out, "step_seeded", division_camera_step(Nw, rc, wv; whiten_at = 2500.0))
+    _golden_state!(out, "step_seeded", VgtkEstimation._keyed_focal_solve(Nw, rc, wv; whiten_at = 2500.0))
     return out
 end
 

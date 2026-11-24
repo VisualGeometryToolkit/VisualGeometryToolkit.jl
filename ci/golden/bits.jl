@@ -167,7 +167,8 @@ end
 How a replacement's record maps onto the recorded one. `renames` is a vector of `new_prefix => old_prefix`
 pairs, applied to each NEW path, the longest matching prefix first (a prefix matches a whole path segment).
 `new_only` lists the new paths (or prefixes) that have no recorded counterpart (`prob`, `alg`, `original`, a
-counter the old result did not keep): they must be listed, never silently dropped. `retyped` lists the (old)
+counter the old result did not keep): they must be listed, never silently dropped. A rename takes precedence over a
+`new_only` prefix (`stats` new, its `stats.nsteps` renamed onto `iterations`). `retyped` lists the (old)
 paths whose TYPE the migration changes (a result's own type, a renamed metadata type, an array of one): a
 struct's fields are still compared one by one, an array's leaf bits as a whole. Every recorded path must be matched by exactly one new path, with the
 same leaf type and the same bits. `ignored` lists recorded paths that are not compared at all — only an
@@ -214,8 +215,8 @@ function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP, intended 
     want = Dict(p => (t, v) for (p, t, v) in old)
     got = Dict{String, Tuple{String, String}}()
     for (p, t, v) in new_record
-        _is_new_only(map, p) && continue
         q = _map_path(map, p)
+        q == p && _is_new_only(map, p) && continue   # a rename takes precedence: `stats` new, `stats.nsteps` renamed
         haskey(got, q) && push!(diffs, "two new paths map onto `$q`")
         got[q] = (t, v)
     end
@@ -233,8 +234,9 @@ function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP, intended 
             end
         elseif !haskey(got, p)
             push!(diffs, "recorded `$p` ($t) has no counterpart")
-        elseif p in map.retyped && (t == "struct") == (got[p][1] == "struct") && v == got[p][2]
-            continue   # a declared type change: the struct's fields, or the array's leaf bits, still compared
+        elseif p in map.retyped && (t == "struct" ? got[p][1] == "struct" :
+                                    (got[p][1] != "struct" && startswith(got[p][1], "array") == startswith(t, "array") && v == got[p][2]))
+            continue   # a declared type change: a struct's fields compared one by one, an array's leaf bits as a whole
         elseif got[p] != (t, v)
             push!(diffs, "`$p`: recorded $t $v, new $(got[p][1]) $(got[p][2])")
         end

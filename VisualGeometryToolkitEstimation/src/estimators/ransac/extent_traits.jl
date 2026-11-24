@@ -174,8 +174,8 @@ data_size(p::BoundedProblem) = data_size(p.inner)
 sampler(p::BoundedProblem) = sampler(p.inner)
 codimension(::Type{<:BoundedProblem{P}}) where {P} = codimension(P)
 model_type(::Type{<:BoundedProblem{P}}) where {P} = model_type(P)
-solve(p::BoundedProblem, idx::AbstractVector{Int}) = solve(p.inner, idx)
-fit_hypothesis(p::BoundedProblem, θ, idx::AbstractVector{Int}) = fit_hypothesis(p.inner, θ, idx)
+sample_models(p::BoundedProblem, idx::AbstractVector{Int}) = sample_models(p.inner, idx)
+sample_hypothesis(p::BoundedProblem, θ, idx::AbstractVector{Int}) = sample_hypothesis(p.inner, θ, idx)
 mahalanobis_distances!(d::Vector, p::BoundedProblem, m) = mahalanobis_distances!(d, p.inner, m)
 # the per-point hooks (and VGC's `whitened_residuals!` loop over them) read the
 # inner problem's context, distance and signed residual
@@ -205,3 +205,7 @@ constraint_with_jacobians(p::BoundedProblem, model, i::Int) =
     constraint_with_jacobians(p.inner, model, i)
 constraint_rounding_scale(p::BoundedProblem, model, i::Int) = constraint_rounding_scale(p.inner, model, i)
 observation_covariance(p::BoundedProblem, i::Int) = observation_covariance(p.inner, i)
+_problem_unit(p::BoundedProblem) = _problem_unit(p.inner)
+
+# A bounded problem reads a guess as its inner problem does (the refine contract's `guess_model`).
+guess_model(p::BoundedProblem, u0) = guess_model(p.inner, u0)

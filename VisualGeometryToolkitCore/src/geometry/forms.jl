@@ -269,13 +269,34 @@ that is not a collineation, is an `ArgumentError` naming the lift
 (`HomographyMap(H)`, `EpipolarMap(F)`).
 """
 function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, H::HomographyMat)
-    H′ = SMatrix{3, 3}(to_homogeneous(a)) * SMatrix{3, 3}(H)
+    H′ = _collineation_left(SMatrix{3, 3}(to_homogeneous(a)), SMatrix{3, 3}(H))
     return HomographyMat{eltype(H′)}(Tuple(H′))
 end
 function Base.:∘(H::HomographyMat, b::Union{HomographyMap{3}, _AffinePlanarMap})
-    H′ = SMatrix{3, 3}(H) * SMatrix{3, 3}(to_homogeneous(b))
+    H′ = _collineation_right(SMatrix{3, 3}(H), SMatrix{3, 3}(to_homogeneous(b)))
     return HomographyMat{eltype(H′)}(Tuple(H′))
 end
+
+# The two 3×3 products of a homography's composition, each entry's arithmetic stated: an `fma` where the product is
+# fused, `*` and `+` where it is not. A `*` of two `SMatrix` is StaticArrays' `muladd` chain, which LLVM may fuse or not
+# per entry, and fuses differently in a precompiled (pkgimage) copy than in a JIT copy of the same method: a model
+# composed back by the DLT then differed in its last bits between the two (owner, 2026-11-24: the math is
+# deterministic). The pattern below is the one the golden records hold (the JIT copy's on x86-64 with FMA):
+# `A ∘ H` fuses the last term of columns 1 and 3 and none of column 2; `H ∘ B` fuses the middle term of entry (2, 2)
+# only. `_dot3_fused_last(x, y) = fma(x₃, y₃, x₁y₁ + x₂y₂)`, `_dot3_fused_middle(x, y) = fma(x₂, y₂, x₁y₁) + x₃y₃`.
+@inline _dot3(a, b, i, j) = a[i, 1] * b[1, j] + a[i, 2] * b[2, j] + a[i, 3] * b[3, j]
+@inline _dot3_fused_last(a, b, i, j) = fma(a[i, 3], b[3, j], a[i, 1] * b[1, j] + a[i, 2] * b[2, j])
+@inline _dot3_fused_middle(a, b, i, j) = fma(a[i, 2], b[2, j], a[i, 1] * b[1, j]) + a[i, 3] * b[3, j]
+@inline _collineation_left(a::SMatrix{3, 3}, b::SMatrix{3, 3}) = SMatrix{3, 3}(
+    _dot3_fused_last(a, b, 1, 1), _dot3_fused_last(a, b, 2, 1), _dot3_fused_last(a, b, 3, 1),
+    _dot3(a, b, 1, 2), _dot3(a, b, 2, 2), _dot3(a, b, 3, 2),
+    _dot3_fused_last(a, b, 1, 3), _dot3_fused_last(a, b, 2, 3), _dot3_fused_last(a, b, 3, 3),
+)
+@inline _collineation_right(a::SMatrix{3, 3}, b::SMatrix{3, 3}) = SMatrix{3, 3}(
+    _dot3(a, b, 1, 1), _dot3(a, b, 2, 1), _dot3(a, b, 3, 1),
+    _dot3(a, b, 1, 2), _dot3_fused_middle(a, b, 2, 2), _dot3(a, b, 3, 2),
+    _dot3(a, b, 1, 3), _dot3(a, b, 2, 3), _dot3(a, b, 3, 3),
+)
 function Base.:∘(a::Union{HomographyMap{3}, _AffinePlanarMap}, F::AbstractFundMat)
     F′ = transpose(SMatrix{3, 3}(_inverse_homogeneous(a))) * SMatrix{3, 3}(F)
     return FundMat{eltype(F′)}(Tuple(F′))

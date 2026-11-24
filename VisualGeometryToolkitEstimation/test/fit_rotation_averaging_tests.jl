@@ -1,50 +1,51 @@
-# fit_rotation_averaging — robust rotation averaging on a view graph: exact on
+# RotationAveraging — robust rotation averaging on a view graph: exact on
 # consistent rotations, an outlier edge down-weighted, noise, edge weights, the
 # gauge, a disconnected graph refused.
 
-@testitem "fit_rotation_averaging: exact, robust, gauged" begin
+@testitem "rotation averaging: exact, robust, gauged" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
-    using VisualGeometryToolkitEstimation: fit_rotation_averaging, _averaging_columns
+    using VisualGeometryToolkitEstimation: RotationAveraging, _averaging_columns
+    using VisualGeometryToolkitCore: ClassDefault, EstimationProblem, solve, AbsoluteRotations
+    include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
     using VisualGeometryToolkitCore: Irls
-    using VisualGeometryToolkitCore: estimate, converged, rms, spectral_rotation_averaging, CauchyShape, TLSShape, Attributed
+    using VisualGeometryToolkitCore: successful_retcode, weights, rms, SpectralAveraging, EstimationProblem, solve, AbsoluteRotations, CauchyShape, TLSShape, Attributed
 
     rng = Xoshiro(17)
     n = 8
     R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
     rel(i, j) = R[j]' * R[i]
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "rotation_graphs.jl"))   # `max_rotation_error`
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     weighted(d, p) = Dict(e => Attributed(d[e], (; weight = p[e])) for e in keys(d))   # Attributed edges, weight p
     @testset "consistent edges: exact" begin
-        res = fit_rotation_averaging(Dict(e => rel(e...) for e in edges); scale = 2.0e-3)
-        @test converged(res)
-        @test max_rotation_error(estimate(res), R, n) < 1.0e-10
-        @test estimate(res)[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
+        res = rotation_averaging(Dict(e => rel(e...) for e in edges); scale = 2.0e-3)
+        @test successful_retcode(res)
+        @test max_rotation_error(res.u, R, n) < 1.0e-10
+        @test res.u[1] ≈ one(RotMatrix{3, Float64}) atol = 1.0e-12
     end
     @testset "noise and one outlier edge: down-weighted" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
-        res = fit_rotation_averaging(noisy; optimization_strategy = Irls{CauchyShape}(), scale = 2.0e-3)
-        @test max_rotation_error(estimate(res), R, n) < 5.0e-3
-        @test res.weights[findfirst(==(bad), res.edges)] < 0.01
-        @test res.residuals[bad] > 0.3
+        res = rotation_averaging(noisy; optimization_strategy = Irls{CauchyShape}(), scale = 2.0e-3)
+        @test max_rotation_error(res.u, R, n) < 5.0e-3
+        @test weights(res)[findfirst(==(bad), res.metadata.edges)] < 0.01
+        @test res.metadata.residuals[bad] > 0.3
         # a zero edge weight drops the edge outright
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        @test max_rotation_error(estimate(fit_rotation_averaging(weighted(noisy, p); scale = 2.0e-3)), R, n) < 5.0e-3
+        @test max_rotation_error((rotation_averaging(weighted(noisy, p); scale = 2.0e-3)).u, R, n) < 5.0e-3
     end
     @testset "zero weight: rms and n over the live edges, bridges and all-zero refused" begin
         noisy = Dict(e => RotMatrix(RotationVec((2.0e-3 .* randn(rng, 3))...)) * rel(e...) for e in edges)
         bad = (2, 4); noisy[bad] = RotMatrix(RotationVec(0.5, -0.3, 0.2)) * noisy[bad]
         p = Dict(e => (e == bad ? 0.0 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = nothing)   # least squares, unit weights
+        res = rotation_averaging(weighted(noisy, p); optimization_strategy = nothing)   # least squares, unit weights
         live = [e for e in keys(noisy) if e != bad]
         @test res.n == length(live)
-        @test rms(res) ≈ sqrt(sum(e -> res.residuals[e]^2, live) / length(live))
-        @test rms(res) < 0.01                                          # the dropped edge's 0.6 rad is not in it
+        @test res.rms ≈ sqrt(sum(e -> res.metadata.residuals[e]^2, live) / length(live))
+        @test res.rms < 0.01                                          # the dropped edge's 0.6 rad is not in it
         chain = Dict((k, k + 1) => rel(k, k + 1) for k in 1:3)
-        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain))); scale = 1.0e-3)
-        @test_throws ArgumentError fit_rotation_averaging(weighted(chain, Dict(e => 0.0 for e in keys(chain))); scale = 1.0e-3)
+        @test_throws ArgumentError rotation_averaging(weighted(chain, Dict(e => (e == (2, 3) ? 0.0 : 1.0) for e in keys(chain))); scale = 1.0e-3)
+        @test_throws ArgumentError rotation_averaging(weighted(chain, Dict(e => 0.0 for e in keys(chain))); scale = 1.0e-3)
     end
     @testset "a frame whose every edge the loss drops is held, not singular" begin
         # frame 9 hangs on two mutually inconsistent edges: the seed splits the
@@ -57,13 +58,13 @@
         noisy[(7, 9)] = RotMatrix(RotationVec(0.6, 0.0, 0.0)) * rel(7, 9)
         noisy[(8, 9)] = RotMatrix(RotationVec(-0.6, 0.0, 0.0)) * rel(8, 9)
         p = Dict(e => (9 in e ? 1.0e-3 : 1.0) for e in keys(noisy))
-        res = fit_rotation_averaging(weighted(noisy, p); optimization_strategy = Irls{TLSShape}(efficiency_constant = 5.0), scale = 2.0e-3)
-        seed = spectral_rotation_averaging(weighted(noisy, p))
-        wq(e) = res.weights[findfirst(==(e), res.edges)]
+        res = rotation_averaging(weighted(noisy, p); optimization_strategy = Irls{TLSShape}(efficiency_constant = 5.0), scale = 2.0e-3)
+        seed = solve(EstimationProblem(AbsoluteRotations, weighted(noisy, p)), SpectralAveraging()).u
+        wq(e) = weights(res)[findfirst(==(e), res.metadata.edges)]
         @test wq((7, 9)) == 0 && wq((8, 9)) == 0
-        @test all(isfinite, estimate(res)[9])
-        @test SMatrix{3, 3}(estimate(res)[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9
-        @test max_rotation_error(estimate(res), R, n) < 1.0e-2                              # frames 1..8, at the noise level
+        @test all(isfinite, res.u[9])
+        @test SMatrix{3, 3}(res.u[9]) ≈ SMatrix{3, 3}(seed[9]) atol = 1.0e-9
+        @test max_rotation_error(res.u, R, n) < 1.0e-2                              # frames 1..8, at the noise level
         delete!(R, 9)
         # the unknowns: a leaf whose only edge weighs 0 is its own anchor, no columns
         col, nunk = _averaging_columns([1, 2, 3, 4], [(1, 2), (2, 3), (3, 4)], [1.0, 1.0, 0.0])
@@ -72,18 +73,20 @@
         col, nunk = _averaging_columns([1, 2, 3, 4], [(1, 2), (2, 3), (3, 4)], [1.0, 0.0, 1.0])
         @test col[1] == -1 && col[3] == -1 && col[2] >= 0 && col[4] >= 0 && nunk == 6
     end
-    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)); scale = 1.0e-3)
-    @test_throws ArgumentError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); optimization_strategy = Irls{TLSShape}(), scale = 1.0e-3)
+    @test_throws ArgumentError rotation_averaging(Dict((1, 2) => rel(1, 2), (3, 4) => rel(3, 4)); scale = 1.0e-3)
+    @test_throws ArgumentError rotation_averaging(Dict((1, 2) => rel(1, 2)); optimization_strategy = Irls{TLSShape}(), scale = 1.0e-3)
     # the private keywords are gone: the strategy is the one schema
-    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape(), scale = 1.0e-3)
-    @test_throws MethodError fit_rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3, scale = 1.0e-3)
+    @test_throws MethodError rotation_averaging(Dict((1, 2) => rel(1, 2)); loss = CauchyShape(), scale = 1.0e-3)
+    @test_throws MethodError rotation_averaging(Dict((1, 2) => rel(1, 2)); max_iter = 3, scale = 1.0e-3)
 end
 
-@testitem "fit_rotation_averaging: optimization_strategy = nothing is the least squares, iterated from the seed" begin
+@testitem "rotation averaging: optimization_strategy = nothing is the least squares, iterated from the seed" begin
     using Test, Random, LinearAlgebra, StaticArrays, Rotations
-    using VisualGeometryToolkitEstimation: fit_rotation_averaging
-    using VisualGeometryToolkitCore: estimate, converged, iterations, spectral_rotation_averaging, Attributed, log_so3,
-        scale_source, ScaleNone, weight_kind, BinaryWeights
+    using VisualGeometryToolkitEstimation: RotationAveraging
+    using VisualGeometryToolkitCore: ClassDefault, EstimationProblem, solve, AbsoluteRotations
+    include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
+    using VisualGeometryToolkitCore: successful_retcode, SpectralAveraging, EstimationProblem, solve, AbsoluteRotations, Attributed, log_so3,
+        scale_source, ScaleNone, weight_kind, BinaryWeights, weights
 
     rng = Xoshiro(23)
     n = 8
@@ -91,17 +94,17 @@ end
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 3)]
     noisy = Dict(e => SMatrix{3, 3}(RotMatrix(RotationVec((0.02 .* randn(rng, 3))...)) * (R[e[2]]' * R[e[1]])) for e in edges)
     # the seed: the spectral initializer, gauged as the fit gauges it (the first sorted frame the identity)
-    S = spectral_rotation_averaging(Dict(e => Attributed(noisy[e], (; weight = 1.0)) for e in edges))
+    S = solve(EstimationProblem(AbsoluteRotations, Dict(e => Attributed(noisy[e], (; weight = 1.0)) for e in edges)), SpectralAveraging()).u
     G = SMatrix{3, 3}(S[1])'
     seed = Dict(k => G * SMatrix{3, 3}(S[k]) for k in 1:n)
     cost(X) = sum(e -> norm(log_so3(SMatrix{3, 3}(X[e[2]]) * noisy[e] * SMatrix{3, 3}(X[e[1]])'))^2, edges)
-    ls = fit_rotation_averaging(noisy; optimization_strategy = nothing)
-    @test iterations(ls) > 0 && converged(ls)                                  # it iterates, from the seed
-    @test maximum(k -> norm(SMatrix{3, 3}(estimate(ls)[k]) - seed[k]), 1:n) > 1.0e-6   # ... and moves off it
-    @test cost(estimate(ls)) < cost(seed)                                      # toward the least-squares minimum
+    ls = rotation_averaging(noisy; optimization_strategy = nothing)
+    @test ls.stats.nsteps > 0 && successful_retcode(ls)                                  # it iterates, from the seed
+    @test maximum(k -> norm(SMatrix{3, 3}(ls.u[k]) - seed[k]), 1:n) > 1.0e-6   # ... and moves off it
+    @test cost(ls.u) < cost(seed)                                      # toward the least-squares minimum
     # the seed supplied explicitly converges to the same least squares
-    ls2 = fit_rotation_averaging(noisy; optimization_strategy = nothing, seed = seed)
-    @test maximum(k -> norm(SMatrix{3, 3}(estimate(ls)[k]) - SMatrix{3, 3}(estimate(ls2)[k])), 1:n) < 1.0e-9
+    ls2 = rotation_averaging(noisy; optimization_strategy = nothing, seed = seed)
+    @test maximum(k -> norm(SMatrix{3, 3}(ls.u[k]) - SMatrix{3, 3}(ls2.u[k])), 1:n) < 1.0e-9
     # unit loss weights, no scale: the contract's least-squares record
-    @test weight_kind(ls) === BinaryWeights() && all(==(1.0), ls.weights) && scale_source(ls) === ScaleNone
+    @test weight_kind(ls) === BinaryWeights() && all(==(1.0), weights(ls)) && scale_source(ls) === ScaleNone
 end

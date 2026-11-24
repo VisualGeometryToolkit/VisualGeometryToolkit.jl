@@ -143,7 +143,7 @@ The coefficients of the forward difference `Δᵒʳᵈᵉʳ` of a lattice's
 coefficients, `Δᵒc₀ = Σₖ sₖ cₖ₋₁` over `order + 1` consecutive nodes: the
 binomial coefficients with alternating sign, `(1, −3, 3, −1)` for `order = 3`.
 The one source of a P-spline's difference penalty
-(VisualGeometryToolkitEstimation's `fit_camera`) and of [`BoundaryRule`](@ref)'s
+(VisualGeometryToolkitEstimation's `CameraRegression`) and of [`BoundaryRule`](@ref)'s
 curvature-preserving extrapolation (`Δ³c = 0` solved for the outermost
 coefficient).
 """

@@ -23,9 +23,9 @@
     hsolve(cs) = solve(EstimationProblem(HomographyMat, cs), DLT()).u
     fsolve(cs) = solve(EstimationProblem(FundMat, cs), DLT()).u
     hdlt(cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}}; mask = nothing, svd_ws = nothing) where {T} =
-        homography_dlt!(Matrix{T}(undef, 2length(cs), 9), CorrespondenceNormalization(HomographyMat, cs; mask), cs; mask, svd_ws)
+        homography_dlt!(Matrix{T}(undef, 2length(cs), 9), CorrespondenceNormalization(HomographyMat, mask === nothing ? cs : cs[mask]), cs; mask, svd_ws)
     fdlt(cs::AbstractVector{<:Pair{<:StaticVector{2, T}, <:StaticVector{2, T}}}; mask = nothing, svd_ws = nothing) where {T} =
-        fundamental_dlt!(Matrix{T}(undef, length(cs), 9), CorrespondenceNormalization(FundMat, cs; mask), cs; mask, svd_ws)
+        fundamental_dlt!(Matrix{T}(undef, length(cs), 9), CorrespondenceNormalization(FundMat, mask === nothing ? cs : cs[mask]), cs; mask, svd_ws)
     herr(H, cs) = maximum(norm(PerspectiveMap()(SMatrix{3, 3}(H) * homog(x)) - y) for (x, y) in cs)
 
     K = SMatrix{3, 3}(500.0, 0, 0, 0, 500.0, 0, 320, 240, 1)

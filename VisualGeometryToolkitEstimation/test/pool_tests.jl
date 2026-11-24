@@ -8,13 +8,11 @@ using StaticArrays
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring
-using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, HomographyMat, HomographyMap, Point2, Size2,
-    GnomonicFrame, UnlabeledFrame, correspondences, sources, targets, sampson_distance, COINCIDENT_PX
+using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, HomographyMat, HomographyMap, Point2, Size2, GnomonicFrame, UnlabeledFrame, correspondences, sources, targets, sampson_distance, COINCIDENT_PX
 using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, pool_pixel_scale, pool_frame_calibrations,
     pool_normalization, num_models, num_points
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: draw_hypotheses, Hypotheses, InlierVariance, TrackVariance, UniformSampler,
-    RansacConfig, mahalanobis_distances!
+using VisualGeometryToolkitEstimation: draw_hypotheses, Hypotheses, InlierVariance, TrackVariance, UniformSampler, RansacConfig, mahalanobis_distances!
 
 # A raw pair of the pool interface (pixels).
 struct TestRawPair <: StereoRawPair
@@ -54,8 +52,7 @@ end
     raw, _, _ = raw_scene(Xoshiro(1); planar = true)
     p = HomographyProblem(raw.correspondences; sampler = UniformSampler(200))
     seen = Any[]
-    r = ransac(p, MsacScoring(p; threshold = 3.0); rng = Xoshiro(5), config = RansacConfig(max_trials = 400),
-        on_hypothesis = (t, m) -> push!(seen, m))
+    r = solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 3.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 400), on_hypothesis = (t, m) -> push!(seen, m)); rng = Xoshiro(5))
     h = draw_hypotheses(Xoshiro(5), p; target = 10^6, max_trials = 400)
     @test h isa Hypotheses{HomographyMat{Float64}}
     # ransac stops adaptively; its hypotheses are a prefix of the same stream

@@ -19,10 +19,10 @@ field for compile-time dispatch.
 - `draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, sampler)` —
   fill indices with a random sample drawn from `rng`. Every random decision a
   sampler makes MUST go through `rng` — this is what makes a seeded
-  `ransac(...; rng = Xoshiro(seed))` run bit-reproducible. There is no
+  `solve(…, Ransac(); rng = Xoshiro(seed))` run bit-reproducible. There is no
   two-argument form: the rng is named at every call site, so reaching for
   ambient task-local state stays visible in the source.
-- `reset!(sampler)` — reset mutable state for reuse across `ransac()` calls
+- `reset!(sampler)` — reset mutable state for reuse across RANSAC runs
 
 # Optional
 - `reset!(sampler, budget::Int)` — reset, and take the run's trial budget
@@ -160,20 +160,20 @@ function ProsacSampler(
         T_N::Int = _dflt("ransac", "max_trials")
     )
     N = length(sorted_indices)
-    _holds_minimal_sample(m, N) || throw(ArgumentError("Need at least $m data points for PROSAC, got $N"))
+    # fewer than a minimal sample is a sampler nothing draws from (a find on it draws no trial): refused at a draw
     V = typeof(sorted_indices)
-    return ProsacSampler{V}(sorted_indices, m, N, T_N, m, 0, _p_all_inliers(m, N, m) * T_N, 1)
+    return ProsacSampler{V}(sorted_indices, m, N, T_N, m, 0, _prosac_T_n(m, N) * T_N, 1)
 end
 
 """
     reset!(ps::ProsacSampler)
 
-Reset PROSAC sampler state for reuse (e.g., across multiple `ransac()` calls).
+Reset PROSAC sampler state for reuse (e.g., across several RANSAC runs).
 """
 function reset!(ps::ProsacSampler)
     ps.n = ps.m
     ps.t = 0
-    ps.T_n = _p_all_inliers(ps.m, ps.N, ps.m) * ps.T_N
+    ps.T_n = _prosac_T_n(ps.m, ps.N) * ps.T_N
     ps.T_n_prime = 1
     return nothing
 end
@@ -234,8 +234,13 @@ function _draw_prosac!(
     return nothing
 end
 
-draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, s::ProsacSampler) =
-    (_draw_prosac!(rng, indices, s); nothing)
+function draw!(rng::Random.AbstractRNG, indices::AbstractVector{Int}, s::ProsacSampler)
+    _holds_minimal_sample(s.m, s.N) || throw(ArgumentError("Need at least $(s.m) data points for PROSAC, got $(s.N)"))
+    _draw_prosac!(rng, indices, s)
+    return nothing
+end
+# The schedule's first growth point: the all-inlier probability of the top m of N (none to draw below a minimal sample).
+_prosac_T_n(m::Int, N::Int) = _holds_minimal_sample(m, N) ? _p_all_inliers(m, N, m) : 0.0
 
 # =============================================================================
 # Gaussian Sampler  (Shekhovtsov-style weighted sampling via Gumbel-Max top-k)
@@ -274,7 +279,7 @@ SNN score.  Stateless (no progressive expansion).  Matches Shekhovtsov's
 
 The three scratch buffers make `draw!` allocation-free (the hot RANSAC loop
 draws once per hypothesis); a `GaussianSampler` is therefore NOT safe to
-share across concurrent `ransac()` calls (one sampler per problem instance,
+share across concurrent RANSAC runs (one sampler per problem instance,
 which is how every constructor site builds it).
 """
 struct GaussianSampler <: AbstractSampler

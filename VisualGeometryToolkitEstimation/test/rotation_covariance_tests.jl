@@ -3,7 +3,7 @@
 # whitened through Core's Sampson layer on every route; `uncertain_rotation`,
 # its fit's rotation with the absolute covariance noise_scale² × solver_covariance
 # in the so(3) chart, against a Monte Carlo of the pipeline under ANISOTROPIC
-# detection noise; the chart the averaging reads it in; and fit_rotation_averaging
+# detection noise; the chart the averaging reads it in; and RotationAveraging
 # whitening each Uncertain edge by it (scale upstream, a weak edge down-weighted).
 
 @testsetup module RotationEdgeScenes
@@ -65,13 +65,15 @@ end
     @test_throws ArgumentError RotationProblem(cam, cam, correspondences(exact.(u1), exact.(u2)))
 end
 
-@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of find_rotation under anisotropic detection noise" setup = [RotationEdgeScenes] begin
+@testitem "rotation edge: uncertain_rotation matches a Monte Carlo of the rotation find under anisotropic detection noise" setup = [RotationEdgeScenes] begin
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: correspondences, log_so3, estimate, value_of, MsacScoring, Uncertain, CovMat,
+    using VisualGeometryToolkitCore: correspondences, log_so3, value_of, MsacScoring, Uncertain, CovMat,
         noise_scale, scale_source, ScaleEstimated
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, solver_covariance
+    using VisualGeometryToolkitEstimation: RotationProblem, Ransac, uncertain_rotation, solver_covariance
+    using VisualGeometryToolkitCore: EstimationProblem, solve
+    rotation_find(c1, c2, cs; rng, kw...) = solve(EstimationProblem(RotationProblem(c1, c2, cs)), Ransac(; kw...); rng)
     using StableRNGs: StableRNG
 
     rng = Xoshiro(3)
@@ -81,26 +83,26 @@ end
     Σ1 = anisotropic_covariances(rng, n); Σ2 = anisotropic_covariances(rng, n)
     # the covariance at the truth, unit variance factor (the covariances are the noise)
     p0 = RotationProblem(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)))
-    exact_fit = find_rotation(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)); rng = StableRNG(1))
+    exact_fit = rotation_find(cam, cam, correspondences(uncertain_pixels(u1, Σ1), uncertain_pixels(u2, Σ2)); rng = StableRNG(1))
     e0 = uncertain_rotation(p0, exact_fit; scale = 1.0)
     @test e0 isa Uncertain
     @test SMatrix{3, 3}(value_of(e0)) ≈ SMatrix{3, 3}(R) atol = 1.0e-10
     ΣR = SMatrix{3, 3}(cov(e0))
     @test ΣR ≈ ΣR' && all(>(0), eigvals(Symmetric(Matrix(ΣR))))
     @test @inferred(uncertain_rotation(p0, exact_fit; scale = 1.0)) isa Uncertain
-    # Monte Carlo of the pipeline: detections drawn from their covariances, find_rotation (its scorer's threshold in
+    # Monte Carlo of the pipeline: detections drawn from their covariances, the rotation find (its scorer's threshold in
     # whitened units; its LO the whitened chart LM), the error in the left chart log(R̂·Rᵀ)
     trials = 300
     runs = map(1:trials) do t
         cs = correspondences(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
                      uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u2, Σ2)], Σ2))
         p = RotationProblem(cam, cam, cs)
-        res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(t))
-        (log_so3(SMatrix{3, 3}(estimate(res)) * SMatrix{3, 3}(R)'), p, res)
+        res = rotation_find(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(t))
+        (log_so3(SMatrix{3, 3}(res.u) * SMatrix{3, 3}(R)'), p, res)
     end
     ω = first.(runs)
     C = cov(reduce(hcat, ω); dims = 2)
-    # find_rotation's scorer ORIGINATES the scale, in whitened units (B4's record): ≈ 1 when the covariances are the noise;
+    # the rotation find's scorer ORIGINATES the scale, in whitened units (B4's record): ≈ 1 when the covariances are the noise;
     # uncertain_rotation reads it by default (scale = result)
     @test all(r -> scale_source(r[3]) === ScaleEstimated, runs)
     scales = [noise_scale(r[3]) for r in runs]
@@ -157,9 +159,12 @@ end
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotXYZ, QuatRotation, rotation_angle
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: correspondences, estimate, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
+    using VisualGeometryToolkitCore: correspondences, value_of, Attributed, Uncertain, CovMat, HuberShape, MsacScoring,
         noise_scale, scale_source, ScaleUpstream, ScaleGiven, ScaleNone, ScaleEstimated
-    using VisualGeometryToolkitEstimation: RotationProblem, find_rotation, uncertain_rotation, fit_rotation_averaging
+    using VisualGeometryToolkitEstimation: RotationProblem, Ransac, uncertain_rotation, RotationAveraging
+    using VisualGeometryToolkitCore: EstimationProblem, solve, ClassDefault, AbsoluteRotations
+    rotation_find(c1, c2, cs; rng, kw...) = solve(EstimationProblem(RotationProblem(c1, c2, cs)), Ransac(; kw...); rng)
+    include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
     using VisualGeometryToolkitCore: Irls
     using StableRNGs: StableRNG
 
@@ -169,7 +174,6 @@ end
     weak = (2, 3)
     # pixel noise per edge: the weak edge's detections 8× noisier (its Σ says so)
     s(e) = e == weak ? 4.0 : 0.5
-    err(est, R) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(est[k])' * R[k])), 1:nf)
     function trial(seed)
         rng = Xoshiro(seed)
         # small turns between frames so every pair overlaps; frame k's directions into the common frame: d = R_k·f_k
@@ -182,14 +186,14 @@ end
             cs = correspondences(uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u1, Σ1)], Σ1),
                          uncertain_pixels([jitter(rng, u, Σ) for (u, Σ) in zip(u2, Σ2)], Σ2))
             p = RotationProblem(cam, cam, cs)
-            res = find_rotation(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(seed))
+            res = rotation_find(cam, cam, cs; scoring = MsacScoring(p; threshold = 4.0), rng = StableRNG(seed))
             (p, res)
         end
         unc = Dict(e => uncertain_rotation(p, res) for (e, (p, res)) in zip(edges, fits))   # at each fit's own scale
-        plain = Dict(e => SMatrix{3, 3}(estimate(res)) for (e, (_, res)) in zip(edges, fits))
-        a = fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}())
-        b = fit_rotation_averaging(plain; optimization_strategy = Irls{HuberShape}(), scale = 1.0e-3)
-        return err(estimate(a), R), err(estimate(b), R), a, b, unc, fits
+        plain = Dict(e => SMatrix{3, 3}(res.u) for (e, (_, res)) in zip(edges, fits))
+        a = rotation_averaging(unc; optimization_strategy = Irls{HuberShape}())
+        b = rotation_averaging(plain; optimization_strategy = Irls{HuberShape}(), scale = 1.0e-3)
+        return max_rotation_error(a.u, R, nf), max_rotation_error(b.u, R, nf), a, b, unc, fits
     end
     res = [trial(k) for k in 1:10]
     @test mean(r[1] for r in res) < mean(r[2] for r in res)                   # the covariance-weighted average is the better one
@@ -201,60 +205,61 @@ end
     @test all(f -> scale_source(f[2]) === ScaleEstimated, fits)
     @test noise_scale(a) == 1.0 && scale_source(a) == ScaleUpstream
     @test scale_source(b) == ScaleGiven
-    w = fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}(), width = 2.0)
-    @test scale_source(w) == ScaleNone && w.loss_width == 2.0
-    @test scale_source(fit_rotation_averaging(unc; optimization_strategy = nothing)) == ScaleNone
+    w = rotation_averaging(unc; optimization_strategy = Irls{HuberShape}(), width = 2.0)
+    @test scale_source(w) == ScaleNone && w.metadata.loss_width == 2.0
+    @test scale_source(rotation_averaging(unc; optimization_strategy = nothing)) == ScaleNone
     # absolute covariances take no scale; a graph mixing Uncertain and plain edges is refused
-    @test_throws r"give no `scale`" fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}(), scale = 1.0)
+    @test_throws r"give no `scale`" rotation_averaging(unc; optimization_strategy = Irls{HuberShape}(), scale = 1.0)
     mixed = Dict{Tuple{Int, Int}, Any}(unc); mixed[weak] = value_of(unc[weak])
-    @test_throws r"every edge its covariance" fit_rotation_averaging(mixed; optimization_strategy = Irls{HuberShape}(), scale = 1.0e-3)
-    @test @inferred(fit_rotation_averaging(unc; optimization_strategy = Irls{HuberShape}())) isa VgtkCore.FitResult
+    @test_throws r"every edge its covariance" rotation_averaging(mixed; optimization_strategy = Irls{HuberShape}(), scale = 1.0e-3)
+    @test @inferred(rotation_averaging(unc; optimization_strategy = Irls{HuberShape}())) isa VgtkCore.FitResult
 end
 
 @testitem "rotation averaging: Uncertain edges at a known covariance — the synthetic checks" begin
     using Test, Random, LinearAlgebra, StaticArrays, Statistics
     using Rotations: RotMatrix, RotationVec, QuatRotation, rotation_angle
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: Attributed, Uncertain, CovMat, estimate, HuberShape, retract_jacobian, SO3Manifold, propagate
-    using VisualGeometryToolkitEstimation: fit_rotation_averaging
+    using VisualGeometryToolkitCore: Attributed, weights, Uncertain, CovMat, HuberShape, retract_jacobian, SO3Manifold, propagate
+    using VisualGeometryToolkitEstimation: RotationAveraging
+    using VisualGeometryToolkitCore: ClassDefault, EstimationProblem, solve, AbsoluteRotations
+    include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
     using VisualGeometryToolkitCore: Irls
 
     n = 7
     edges = [(i, j) for i in 1:n for j in (i + 1):min(n, i + 2)]
     weak = (3, 4)
     σ, σw = 0.004, 0.04                                              # rad per axis: a typical edge, the weak one
-    err(e, R) = maximum(k -> rotation_angle(RotMatrix{3}(SMatrix{3, 3}(e[k])' * R[k])), 1:n)
     function trial(seed)
         rng = Xoshiro(seed)
         R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
         s(e) = e == weak ? σw : σ
         rel = Dict(e => RotMatrix(RotationVec((s(e) .* randn(rng, 3))...)) * (R[e[2]]' * R[e[1]]) for e in edges)
-        uni = fit_rotation_averaging(rel; optimization_strategy = Irls{HuberShape}(), scale = σ)
-        unc = fit_rotation_averaging(Dict(e => Attributed(Uncertain(rel[e], CovMat(SMatrix{3, 3}(s(e)^2 * I))), (; weight = 1.0))
+        uni = rotation_averaging(rel; optimization_strategy = Irls{HuberShape}(), scale = σ)
+        unc = rotation_averaging(Dict(e => Attributed(Uncertain(rel[e], CovMat(SMatrix{3, 3}(s(e)^2 * I))), (; weight = 1.0))
                                           for e in edges); optimization_strategy = Irls{HuberShape}())
-        return err(estimate(uni), R), err(estimate(unc), R), uni, unc
+        return max_rotation_error(uni.u, R, n), max_rotation_error(unc.u, R, n), uni, unc
     end
     res = [trial(k) for k in 1:20]
     @test mean(r[2] for r in res) < mean(r[1] for r in res)          # the covariance-weighted average is the better one
     # the weak edge's information relative to a typical edge: the uniform run's Huber weight ratio, the
     # Uncertain run's loss weight × (σ/σw)²
     _, _, uni, unc = res[1]
-    q = findfirst(==(weak), unc.edges); t = findfirst(==((1, 2)), unc.edges)
-    @test unc.weights[q] * (σ / σw)^2 / unc.weights[t] < uni.weights[q] / uni.weights[t]
+    q = findfirst(==(weak), unc.metadata.edges); t = findfirst(==((1, 2)), unc.metadata.edges)
+    @test weights(unc)[q] * (σ / σw)^2 / weights(unc)[t] < weights(uni)[q] / weights(uni)[t]
 
     # absolute σ²·I edges are the plain edges at scale σ (to rounding: the whitened path is another evaluation order)
     rng = Xoshiro(9)
     R = Dict(k => (k == 1 ? one(RotMatrix{3, Float64}) : RotMatrix(QuatRotation(normalize(randn(rng, 4))))) for k in 1:n)
     rel = Dict(e => RotMatrix(RotationVec((σ .* randn(rng, 3))...)) * (R[e[2]]' * R[e[1]]) for e in edges)
-    plain = fit_rotation_averaging(rel; scale = σ)
-    eye = fit_rotation_averaging(Dict(e => Uncertain(rel[e], CovMat(SMatrix{3, 3}(σ^2 * I))) for e in edges))
-    @test maximum(k -> norm(SMatrix{3, 3}(estimate(plain)[k]) - SMatrix{3, 3}(estimate(eye)[k])), 1:n) < 1.0e-10
-    @test plain.weights ≈ eye.weights rtol = 1.0e-10
+    plain = rotation_averaging(rel; scale = σ)
+    eye = rotation_averaging(Dict(e => Uncertain(rel[e], CovMat(SMatrix{3, 3}(σ^2 * I))) for e in edges))
+    @test maximum(k -> norm(SMatrix{3, 3}(plain.u[k]) - SMatrix{3, 3}(eye.u[k])), 1:n) < 1.0e-10
+    @test weights(plain) ≈ weights(eye) rtol = 1.0e-10
     # a 9×9 vec(R) covariance (solver_covariance's form) is read into the chart: J Σω Jᵀ gives back Σω
     Σω = SMatrix{3, 3}(Diagonal(SVector(1.0, 2.0, 3.0))) * σ^2
     nine = Dict(e => Uncertain(rel[e], CovMat(propagate(retract_jacobian(SO3Manifold(SMatrix{3, 3}(rel[e]))), Σω))) for e in edges)
     three = Dict(e => Uncertain(rel[e], CovMat(Σω)) for e in edges)
-    a = fit_rotation_averaging(nine); b = fit_rotation_averaging(three)
-    @test maximum(k -> norm(SMatrix{3, 3}(estimate(a)[k]) - SMatrix{3, 3}(estimate(b)[k])), 1:n) < 1.0e-9
-    @test_throws ArgumentError fit_rotation_averaging(Dict(e => Uncertain(rel[e], CovMat(SMatrix{2, 2}(1.0I))) for e in edges))
+    a = rotation_averaging(nine); b = rotation_averaging(three)
+    @test maximum(k -> norm(SMatrix{3, 3}(a.u[k]) - SMatrix{3, 3}(b.u[k])), 1:n) < 1.0e-9
+    @test_throws ArgumentError rotation_averaging(Dict(e => Uncertain(rel[e], CovMat(SMatrix{2, 2}(1.0I))) for e in edges))
 end

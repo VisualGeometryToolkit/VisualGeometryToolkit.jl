@@ -20,7 +20,7 @@
 # The centre is problem DATA (required), as for the radial homography. The
 # problem owns ONE normalization, `CorrespondenceNormalization(RadialCamera, cs; center)`
 # (Hartley at the plane centroid, Hartley about the centre on the image side —
-# the strategy `fit_radial_camera` solves in too), built at construction: the
+# the strategy `RadialCameraFit` solves in too), built at construction: the
 # minimal solves run on the normalized view and their cameras come back to
 # pixels about the centre (`p.context`). Scoring and the LO stay on the RAW pixels
 # (`RadialCamera` carries its centre; the constraint subtracts it).
@@ -46,6 +46,7 @@ function RadialCameraProblem(
         center,
         sampler::Union{Nothing, AbstractSampler} = nothing,
     )
+    _refuse_physical_plane(pairs, "RadialCameraProblem")
     slv = VgtkCore.RadialCamera5pt(; center = SVector(0.0, 0.0))
     return _make_centered_problem(
         VgtkCore.RadialCamera, 5, pairs, slv, sampler, center, Point2{Float64}(center[1], center[2])
@@ -55,7 +56,7 @@ end
 codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialCamera}}) = 1   # one line-distance per correspondence
 
 # The radial camera's datum: a camera composed back into pixels (`_candidate`,
-# correspondence.jl — the minimal solve's roots and `fit_radial_camera`'s solution)
+# correspondence.jl — the minimal solve's roots and `RadialCameraFit`'s solution)
 # carries the problem's centre EXACTLY, not the composition's rounding of it.
 _with_datum(p::RadialCameraProblem, P::VgtkCore.RadialCamera) =
     VgtkCore.RadialCamera(radial_rows(P), p.context)

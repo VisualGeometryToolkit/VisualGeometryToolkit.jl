@@ -15,9 +15,19 @@ current `H` (Sampson-whitened transfer error).
 HomographyProblem
 ```
 
-## Fitting Pipeline
+## Find and refine
 
-```@docs
-find_homography
-refine_homography
+The problem is the `f` of both:
+
+```julia
+f = HomographyProblem(cs)
+r = solve(EstimationProblem(f, (; extent)), Ransac(); rng)     # the find; the extent is optional
+h = solve(RefineProblem(f, r.u), LevenbergMarquardt(); scale = r)   # the refine, at the find's scale
 ```
+
+[`Ransac`](@ref) documents the find's configuration (its class default is
+`[pipelines.homography]`: MSAC at 3 px, `Irls{TLSShape}()`); VisualGeometryToolkitCore's
+`LevenbergMarquardt` the refine's (`[refine.homography]`: `Triggs{WelschShape}()`). The
+extent validates a fitted `H` over a world-plane rectangle (`BoundedProblem`): a
+bow-tie or orientation-reversing `H` is refused. Physical (unitful) plane points
+are refused at construction: a homography cannot record their unit.

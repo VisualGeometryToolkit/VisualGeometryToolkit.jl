@@ -89,7 +89,7 @@
     VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) = WidthRefitWs(frame, 0, 0)
     VgtkCore.prepare_external!(ws::WidthRefitWs, ::WidthRefit, _problem, _θ, _width, _scoring) =
         (ws.prepared += 1; true)
-    function VgtkCore.refine_external!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
+    function VgtkCore.external_refit!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
         ws.refined += 1
         lw = loss_width(w)
         return refit_model(problem, θ, Irls{TLSShape}(lo.max_iter, LossWidth(lw)),
@@ -99,7 +99,7 @@
     struct RefusingRefit <: AbstractOptimizationStrategy end
     VgtkCore.RefitFamily(::RefusingRefit) = ExternalRefit()
     VgtkCore.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
-    VgtkCore.refine_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
+    VgtkCore.external_refit!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
 
     struct ThrowingRefit <: AbstractOptimizationStrategy end   # a native refiner with no locally_optimize!
 

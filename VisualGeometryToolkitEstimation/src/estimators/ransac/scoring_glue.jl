@@ -14,7 +14,7 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Local-optimization strategies (supplied to `ransac()`, dispatched in the loop)
+# Local-optimization strategies (a `Ransac`'s or a `LocalOptimization`'s strategy, dispatched in the loop)
 # -----------------------------------------------------------------------------
 
 """
@@ -25,11 +25,11 @@ The TERMINAL placement of a local optimization: `ransac` decides its incumbent
 race on raw-hypothesis scores alone, exactly as with
 no local optimization (`nothing`; same trials, scores and `on_improvement`
 events on the same rng), and after the loop runs `inner` ONCE on the final
-incumbent through the seeded path of [`locally_optimize`](@ref) — the same
+incumbent through the seeded path of [`LocalOptimization`](@ref) — the same
 scorer, inside `ransac`'s wall time. The result is that seeded refine's:
 
 - `estimate`: the refined model, or the raw incumbent when the refined model
-  fails `test_consensus` (as `locally_optimize` keeps its seed) or the
+  fails `test_consensus` (as a `LocalOptimization` keeps its seed) or the
   incumbent's consensus set is too thin to refine (its refit's record `(InitialFailure, NoRule)`).
   The refined model is kept even if it scores below the raw incumbent (there is
   no `score_guard` at the terminal placement);
@@ -43,7 +43,7 @@ A race that keeps no hypothesis returns its `:no_model` result unrefined, and
 an incumbent the scorer cannot score as a seed (a predictive scorer with no
 covariance on its consensus set) the raw race's result. `score_guard = true` is
 an `ArgumentError`: the guard is a per-candidate acceptance rule and the
-terminal placement has no candidate to accept. A seeded `locally_optimize`
+terminal placement has no candidate to accept. A seeded `LocalOptimization`
 with a `TerminalLO` runs `inner` (a seed has no race).
 
 Every hook the loop, the composition check, the reporting and an external
@@ -173,7 +173,7 @@ function update_nuisance!(lh::PosteriorLikelihood)
     return lh
 end
 # The E-step is VisualGeometryToolkitCore's: a datum whose squared residual is not finite
-# (Inf or NaN) gets robust weight and inlier posterior 0 there (`soft_posterior_weights!`).
+# (Inf or NaN) gets robust weight and inlier posterior 0 there (Core's posterior weights, `mixture_ecm!`).
 update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
 

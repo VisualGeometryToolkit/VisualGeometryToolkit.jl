@@ -29,7 +29,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # and hand back a MODEL-frame homography, the frame `solve` returns and scoring
 # (`constraint_with_jacobians`) composes into the data frame. On a mapped
 # problem the model changes frame by composition with the observation maps,
-# once on entry (`_chart`: `inv(C₂) ∘ H ∘ C₁`) and once on exit (`_model_at`:
+# once on entry (`_chart`: `inv(C₂) ∘ H ∘ C₁`) and once on exit (`chart_model`:
 # `C₂ ∘ H_data ∘ inv(C₁)`); identity maps leave the matrix untouched.
 
 # =============================================================================
@@ -88,7 +88,7 @@ test_consensus(p::MinimalSolveProblem{<:HomographyMat}, H::HomographyMat, mask::
 # second function, equal to scoring's only at the anchor, whose fixed point is
 # not the Sampson cost's minimum.) The chart lives in the data frame (the
 # scoring currency); a mapped problem's model-frame H is composed in by
-# `_chart` and out by `_model_at`. The same chart and rows drive the chart-LM
+# `_chart` and out by `chart_model`. The same chart and rows drive the chart-LM
 # refit and, at unit weights, the HQ/GNC lift (problems/manifold_providers.jl).
 # =============================================================================
 
@@ -104,7 +104,7 @@ end
 
 # The model a chart stands for, composed back into the model frame — then the
 # unmapped path's gauge and eltype: unit Frobenius norm, Float64.
-function _model_at(p::HomographyProblem, ch::HomographyManifold8)
+function chart_model(p::HomographyProblem, ch::HomographyManifold8)
     Hd = model(ch)
     _has_observation_maps(p) || return Hd
     Hm = p.dst_frame_map ∘ Hd ∘ inv(p.src_frame_map)

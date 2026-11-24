@@ -206,7 +206,7 @@ end
 end
 
 # How far an imaged region reaches from a centre (image_circle.jl): RadiometricCamera's radial vignetting radius and its
-# rings' disc, and Estimation's fit_camera exit radii, read it.
+# rings' disc, and Estimation's CameraRegression exit radii, read it.
 @testitem "farthest_radius: an imaged region's reach from a centre, clipped by the sensor" begin
     using Test
     using VisualGeometryToolkitCore

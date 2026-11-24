@@ -1,15 +1,15 @@
-# EllipseProblem / find_ellipse — the 2D ellipse as one more model of the RANSAC
+# EllipseProblem / Ransac on a EllipseProblem — the 2D ellipse as one more model of the RANSAC
 # family, as the circle (ransac_circle_tests.jl): the minimal solver through the
 # problem, the residual against the geometric distance, the chart rows (the
 # orthogonal distances) against finite differences, the chart-LM refit, the recovery under 40% outliers (a straight
 # run and clutter), and the keyword set shared with the other `find_*` pipelines.
 
 @testitem "EllipseProblem: minimal solver, residual, chart rows, refit" setup = [ConicScenes] begin
+    using VisualGeometryToolkitCore: solve
     import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, LinearAlgebra, StaticArrays
-    using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point,
-        whitened_residuals!
+    using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point, whitened_residuals!
     using VisualGeometryToolkitEstimation: EllipseProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
     centre(e) = SVector(e.center[1], e.center[2])
@@ -17,7 +17,7 @@
     pts, _ = ellipse_scene(rng, 200; σ = 0.0, outl = 0.0)
     p = EllipseProblem(pts)
     @test VgtkEstimation.codimension(p) == 1 && VgtkEstimation.minimal_sample_size(p) == 5 && VgtkEstimation.chart_dof(p) == 5
-    sol = VgtkEstimation.solve(p, [1, 2, 3, 4, 5])
+    sol = VgtkEstimation.sample_models(p, [1, 2, 3, 4, 5])
     e = first(sol)
     @test sol.count == 1 && norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8 &&
         abs(sin(e.θ - E₀.θ)) < 1.0e-10
@@ -26,7 +26,7 @@
     @test warm_allocated(VgtkEstimation.mahalanobis_distances!, r, p, e) == 0
     # a collinear triple and a repeated point: no ellipse
     q = EllipseProblem([Point2(0.0, 0.0), Point2(1.0, 1.0), Point2(2.0, 2.0), Point2(0.0, 3.0), Point2(3.0, 0.5), Point2(0.0, 0.0)])
-    @test VgtkEstimation.solve(q, [1, 2, 3, 4, 5]).count == 0
+    @test VgtkEstimation.sample_models(q, [1, 2, 3, 4, 5]).count == 0
     @test !VgtkEstimation.test_sample(q, [1, 2, 3, 4, 5]) && !VgtkEstimation.test_sample(q, [1, 4, 5, 2, 6])   # the gate refuses them first
     @test VgtkEstimation.test_sample(p, [1, 2, 3, 4, 5])
     # the signed residual is the Sampson residual: the geometric signed distance to first
@@ -59,26 +59,28 @@
     # the rows ARE the orthogonal distances (√w-weighted) at the anchor
     @test abs(rows(zero(a0))[7] / lm.sqrtw[7]) ≈ minimum(φ -> norm(SVector(pn[7]...) - SVector(boundary_point(e₀, φ)...)), range(0, 2π, 200_001)) atol = 1.0e-5
     # the chart-LM refit (refine!) from a perturbed ellipse lands at the noise floor
-    ws = VgtkEstimation.refine_workspace(typeof(pp), 100)
+    ws = VgtkEstimation.refit_workspace(typeof(pp), 100)
     e₁ = VgtkCore.refine!(ws, pp, e₀, ones(100))
     @test e₁ isa Ellipse{Float64}
     @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
     @test warm_allocated(VgtkCore.refine!, ws, pp, e₀, ones(100)) == 0
 end
 
-@testitem "find_ellipse: 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
+@testitem "EllipseProblem: Ransac on 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
+    using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
+    using VisualGeometryToolkitEstimation: Ransac, EllipseProblem
     using VisualGeometryToolkitCore: retcode_symbol
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     using Test, Random, LinearAlgebra, StaticArrays
-    using VisualGeometryToolkitCore: Point2, Ellipse, estimate, converged, retcode, iterations
-    using VisualGeometryToolkitEstimation: find_ellipse
+    using VisualGeometryToolkitCore: Point2, Ellipse
+    
     centre(e) = SVector(e.center[1], e.center[2])
     rng = Xoshiro(32)
     for trial in 1:3
         pts, bad = ellipse_scene(rng, 1000; σ = 0.5, outl = 0.4)
-        res = find_ellipse(pts; rng = Xoshiro(trial))
-        @test converged(res)
-        e = estimate(res)
+        res = solve(EstimationProblem(EllipseProblem(pts)), Ransac(); rng = Xoshiro(trial))
+        @test successful_retcode(res)
+        e = res.u
         @test e isa Ellipse{Float64}
         # σ = 0.5 px on 600 inliers: centre and axes σ/√300 ≈ 0.03 px, the angle ≈ 0.03/(a − b) rad
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
@@ -87,46 +89,11 @@ end
         @test count(inl[good]) > 0.9 * length(good)                       # 1 px MSAC on a 0.5 px normal residual: P(|z| < 2) = 0.95
         @test count(inl[bad]) < 0.05 * length(bad)
     end
-    @test let r = find_ellipse([Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(1.0, 1.0), Point2(0.0, 1.0)])
-        retcode_symbol(r) === :no_model && iterations(r) == 0 && estimate(r) === nothing
+    @test let r = solve(EstimationProblem(EllipseProblem([Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(1.0, 1.0), Point2(0.0, 1.0)])), Ransac())
+        retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
     end
     # no sample gives an ellipse (collinear points): a :no_model result whose estimate is nothing,
     # not a MethodError (2026-11-03: `zero(::Type{Ellipse{Float64}})` did not exist)
-    none = find_ellipse([Point2(Float64(i), 2.0 * i + 1) for i in 1:10]; rng = Xoshiro(1))
-    @test !converged(none) && retcode_symbol(none) === :no_model && estimate(none) === nothing && !any(inlier_mask(none))
-end
-
-@testitem "find_ellipse: the keywords of every find_* pipeline" setup = [ConicScenes] begin
-    using Test, Random
-    using VisualGeometryToolkitCore: MsacScoring, estimate, converged
-    using VisualGeometryToolkitEstimation: find_ellipse, find_circle, EllipseProblem,
-        RansacConfig, RansacWorkspace
-    import VisualGeometryToolkitEstimation as VgtkEstimation
-    # The shared keyword set is the one pipeline's (`_ransac_pipeline`); find_ellipse
-    # declares no keyword of its own and forwards them all, as find_circle does.
-    shared = Set(Base.kwarg_decl(only(methods(VgtkEstimation._ransac_pipeline))))
-    forward = [Symbol("kwargs...")]
-    @test Base.kwarg_decl(only(methods(find_ellipse))) == forward == Base.kwarg_decl(only(methods(find_circle)))
-    # every shared keyword is accepted by find_ellipse, with the meaning it has elsewhere
-    pts, _ = ellipse_scene(Xoshiro(33), 300; outl = 0.3)
-    p = EllipseProblem(pts)
-    supplied = Dict(
-        :local_optimization_strategy => nothing,
-        :max_trials => 500,
-        :min_trials => 50,
-        :scoring => MsacScoring(p; threshold = 1.0),
-        :config => RansacConfig(max_trials = 400, min_trials = 20),
-        :workspace => RansacWorkspace(EllipseProblem, 300),
-        :rng => Xoshiro(1),
-    )
-    @test Set(keys(supplied)) ∪ Set([:threshold, :outlier_halfwidth, :local_optimization]) == shared   # the two widths and the retired keyword: declared to be refused
-    for (k, v) in supplied
-        res = find_ellipse(pts; (; k => v)..., (k == :rng ? (;) : (; rng = Xoshiro(2)))...)
-        @test converged(res)
-    end
-    # a bare width keyword is refused, alone or beside a scoring, as for every find_*
-    @test_throws ArgumentError find_ellipse(pts; outlier_halfwidth = 5.0)
-    @test_throws ArgumentError find_ellipse(pts; threshold = 2.0)
-    @test_throws ArgumentError find_ellipse(pts; threshold = 2.0, scoring = MsacScoring(p; threshold = 1.0))
-    @test_throws MethodError find_ellipse(pts; extent = nothing)            # no ellipse-specific keyword
+    none = solve(EstimationProblem(EllipseProblem([Point2(Float64(i), 2.0 * i + 1) for i in 1:10])), Ransac(); rng = Xoshiro(1))
+    @test !successful_retcode(none) && retcode_symbol(none) === :no_model && none.u === nothing && !any(inlier_mask(none))
 end

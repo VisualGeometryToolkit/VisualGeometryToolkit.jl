@@ -18,7 +18,7 @@ the problem names what is estimated from which data — [`EstimationProblem`](@r
 [`MinimalProblem`](@ref)`(M, data, sample[, p])` for a minimal sample, [`RefineProblem`](@ref)`(f, u0)` from a guess
 — and the algorithm, a typed value, how; its [`EstimatorKind`](@ref) states how it can fail. A closed form returns
 a [`FitResult`](@ref) whose `u` is the model (`nothing` when the data are degenerate), a minimal solver every root
-(`FixedModels`). Iterative fits (`fit_*`), robust searches (`find_*`) and refinements from a guess (`refine_*`)
+(`FixedModels`). Iterative fits, robust searches (`Ransac`) and refinements from a guess ([`LevenbergMarquardt`](@ref))
 live in VisualGeometryToolkitEstimation. Data go in as correspondences (`a => b` pairs, a
 [`Correspondences`](@ref) preferred), with per-correspondence weights as its `weights` column.
 
@@ -47,34 +47,69 @@ live in VisualGeometryToolkitEstimation. Data go in as correspondences (`a => b`
 | Circle through 3 points | `solve(MinimalProblem(Circle, points, idx), `[`Circle3pt`](@ref)`())` | minimal | VGC |
 | Ellipse through 5 points | `solve(MinimalProblem(Ellipse, points, idx), `[`Ellipse5pt`](@ref)`())` | minimal | VGC |
 | Radial camera from 5 plane–pixel pairs | `solve(MinimalProblem(RadialCamera, cs, idx), `[`RadialCamera5pt`](@ref)`(; center))` | minimal | VGC |
-| A model from contaminated correspondences | `find_homography`, `find_absolute_pose`, `find_radial_camera`, `find_circle`, `find_ellipse`, … | find (RANSAC) | RVG |
-| Radial camera of one board, whitened iterations | `fit_radial_camera` | fit | RVG |
-| Division camera (focal and distortion) from boards | `fit_division_camera` (over `division_camera_step`) | fit | RVG |
-| A camera model re-expressed in another family (a lens family, a `SplineLens` and its forward spline) over a region | `fit_camera` | fit | RVG |
-| Line through points carrying covariances | `fit_line` | fit | RVG |
-| A model refined from a given one (no scorer: the caller's scale or width) | `refine_homography`, `refine_absolute_pose`, `refine_circle`, `refine_ellipse`, … | refine | RVG |
-| Robot–world / hand–eye from a guess | `refine_robot_world_hand_eye` | refine | RVG |
+| A model from contaminated correspondences | `solve(EstimationProblem(HomographyProblem(cs), p), Ransac(); rng)` (likewise `AbsolutePoseProblem`, `RadialCameraProblem`, `CircleProblem`, `EllipseProblem`, …) | find (RANSAC) | RVG |
+| Radial camera of one board, whitened iterations | `RadialCameraFit` | fit | RVG |
+| Division camera (focal and distortion) from boards | `DivisionCameraFit` (a stacked linear focal solve per iteration) | fit | RVG |
+| A camera model re-expressed in another family (a lens family, a `SplineLens` and its forward spline) over a region | `CameraRegression` | fit | RVG |
+| A model refined from a given one (no scorer: the caller's scale or width) | `solve(RefineProblem(HomographyProblem(cs), H₀), `[`LevenbergMarquardt`](@ref)`(); scale)` (any family problem) | refine | RVG |
+| Robot–world / hand–eye from a guess | `LevenbergMarquardt` on its block problem | refine | RVG |
 
 The kind fixes how a call can fail: a closed form is one deterministic computation
 and can only be degenerate; a fit can fail to converge; a find is randomized;
 a refine can end in a local minimum.
 
-### `find_*` and `refine_*`
+### Finds and refines
 
-Every RVG `find_*` is RANSAC's sampling around one local-optimization step: it
-scores hypotheses and ORIGINATES a scale (its result's `noise_scale`). Its
-`refine_*` starts from a given model (guess first, then the data as the
-`find_*` takes them) and estimates no scale: it runs no scorer, and its robust
+VisualGeometryToolkitEstimation's `Ransac` is RANSAC's sampling around one local-optimization step: on a
+family problem it scores hypotheses and ORIGINATES a scale (its result's `noise_scale`). The
+[`LevenbergMarquardt`](@ref) refine of the same family problem starts from a given model
+(`RefineProblem(f, u0)`) and estimates no scale: it runs no scorer, and its robust
 loss — `optimization_strategy = Triggs{Shape}` (the default, Welsch: one
 robustified LM, no reweighting cycles; an `Irls{Shape}` is refused) or
 `nothing` for least squares — runs at the caller's `scale`
-(a number, or an upstream result such as the `find_*`'s) times the loss's
+(a number, or an upstream result such as the find's) times the loss's
 [`efficiency_constant`](@ref), or at a given `width`. It returns the refined
 model with per-datum loss weights and the scale it ran with. The two take one
 family of [`AbstractOptimizationStrategy`](@ref) types under two keywords
-(`local_optimization_strategy` on a `find_*`); the RANSAC-family seeded step,
+(`local_optimization_strategy` of `Ransac`); the RANSAC-family seeded step,
 with a scorer and its consensus set, is VisualGeometryToolkitEstimation's
-`locally_optimize`.
+`LocalOptimization`.
+
+### What a problem implements to be refined
+
+```@meta
+CurrentModule = VisualGeometryToolkitCore
+```
+
+`LevenbergMarquardt` is the one host of every refine; a problem `f` opts in
+through one of two contracts.
+
+- **The chart contract** (one model on a minimal chart):
+  [`model_chart`](@ref)`(f, θ)` the chart about the current model,
+  [`chart_rows`](@ref)`(f, θ)` its √w-weighted residual rows,
+  [`chart_model`](@ref)`(f, ch, θ)` the model back from the chart,
+  [`chart_size`](@ref) its dimension, and the class's defaults
+  [`default_optimization_strategy`](@ref) and [`default_stops`](@ref). A guess
+  in a wider type than the problem's model is mapped in by [`guess_model`](@ref)
+  and the estimate back by [`solution_model`](@ref) (the frame labels and units
+  of the guess). The host runs [`chart_refit`](@ref) for least squares and
+  [`triggs_refit`](@ref) for a robustified loss, on the reusable
+  [`lm_workspace`](@ref).
+- **The block contract** (several variable blocks, a bundle):
+  [`AbstractBlockProblem`](@ref) and its one method,
+  [`block_refit`](@ref)`(f, u0, loss, stops, damping)`, usually a call of
+  [`block_lm`](@ref) on blocks robustified by [`with_robustifier`](@ref).
+
+The robust loss is parsed once, from the solve's `scale`/`width` and the
+algorithm's strategy, by [`bundle_loss`](@ref); the result records the scale it
+ran with ([`recorded_scale`](@ref)) and its per-datum loss weights
+([`loss_weights`](@ref), normalized by [`normalized_loss_weight`](@ref)) in a
+[`RefineMetadata`](@ref), an [`AbstractFitMetadata`](@ref).
+[`weighted_support`](@ref) and [`weighted_support_rms`](@ref) are the weight
+mass of the data the loss kept and its residual RMS. A context `p` an algorithm
+reads is checked by [`read_context`](@ref) (required keys, optional keys with
+defaults, any other key refused), and a result's residual variance is
+[`s2`](@ref)`(r)`.
 
 ## The robust-loss family
 
@@ -115,10 +150,11 @@ as a keyword:
 ```julia
 using VisualGeometryToolkitEstimation, LocalOptimizationDoneRight
 using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, FlatLabelPrior
-find_homography(cs)       # core default: the class's scorer (MSAC) + Irls{TLSShape} at its decision point
-find_homography(cs; scoring = StudentTUniformScoring(HomographyProblem, 20.0;   # outlier half-width, pixels
+prob = EstimationProblem(HomographyProblem(cs))
+solve(prob, Ransac(); rng)   # core default: the class's scorer (MSAC) + Irls{TLSShape} at its decision point
+solve(prob, Ransac(; scoring = StudentTUniformScoring(HomographyProblem, 20.0;   # outlier half-width, pixels
                         scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior()),
-                    local_optimization_strategy = HQ{WelschShape}())                     # an optimizer (LODR)
+                    local_optimization_strategy = HQ{WelschShape}()); rng)       # an optimizer (LODR)
 ```
 
 Every dispatch is static: the composed workspace is typed on the scorer's and
@@ -131,7 +167,7 @@ VisualGeometryToolkitCore.AbstractConstraintProblem)): `data_size`, `codimension
 `whitened_residual` and the distances `mahalanobis_distances!` are derived (a
 problem may supply a faster `residual_context` / `mahalanobis_distance` path); optionally `solver_covariance` for predictive
 scoring; and the weighted refit `refine!(R, problem, θ, w)` on
-`refine_workspace(P, n)` that local optimizations call.
+`refit_workspace(P, n)` that local optimizations call.
 
 **The scoring contract** (`AbstractScoring`). A scorer implements four verbs:
 
@@ -189,7 +225,7 @@ The label trait `scale_interface` is derived from the mode
 **External refiners.** A strategy that runs outside the loop (a third-party
 solver) declares `RefitFamily(lo) = ExternalRefit()` and implements
 `external_workspace(lo, problem, frame, scoring)`, optionally
-`prepare_external!`, and `refine_external!(ws, lo, problem, θ, width, scoring) ->
+`prepare_external!`, and `external_refit!(ws, lo, problem, θ, width, scoring) ->
 θ′ | nothing`, a pure model-to-model refine at an absolute `LossWidth` (a
 `FixedS2(s2)` noise scale is the width `√s2` unless the refiner reads it
 itself). In-loop strategies are `NativeRefit()`, the default.

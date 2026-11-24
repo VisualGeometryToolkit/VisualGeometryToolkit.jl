@@ -21,7 +21,7 @@ Residuals are **standardized**: `r_std[i] = (n⊤pᵢ + d) / √(n⊤Σᵢn)`, s
 points contribute on a comparable scale regardless of their covariance shape.
 
 Supports LO-RANSAC via `refine!(ws, problem, θ, weights)` (θ unread: a linear
-problem's step): the covariance-weighted line of `fit_line` with each point's
+problem's step): the covariance-weighted line fit with each point's
 weight `wᵢ/σᵢ²` — the local optimizer's robust weight times its inverse
 variance along the normal — seeded by the `w`-weighted total-least-squares
 normal. A zero weight drops the point.
@@ -34,7 +34,7 @@ normal. A zero weight drops the point.
 - Minimal sample: 2 points (returns `FixedModels{1, Line2D{T}}`)
 - Model type: `Line2D{T}` (Hesse normal form)
 - Residual: Standardized orthogonal distance
-- LO-RANSAC: `refine!(ws, p, θ, weights)` — the `weights`-weighted `fit_line` step, θ unread
+- LO-RANSAC: `refine!(ws, p, θ, weights)` — the `weights`-weighted covariance line fit, θ unread
 """
 struct LineFittingProblem{T} <: AbstractRansacProblem{2}
     points::Vector{Point2{T}}
@@ -63,7 +63,7 @@ _line_shape(::Type{T}, ::Point2) where {T} = SMatrix{2, 2, T, 4}(one(T), zero(T)
 codimension(::Type{<:LineFittingProblem}) = 1  # d_g = 1: signed distance is scalar
 data_size(p::LineFittingProblem) = length(p.points)
 model_type(::Type{<:LineFittingProblem{T}}) where {T} = Line2D{T}
-function solve(p::LineFittingProblem, idx::AbstractVector{Int})
+function sample_models(p::LineFittingProblem, idx::AbstractVector{Int})
     line = @inbounds Line2D(p.points[idx[1]], p.points[idx[2]])
     return FixedModels{1, typeof(line)}(1, (line,))
 end
@@ -151,7 +151,7 @@ end
 codimension(::Type{<:InhomLineFittingProblem}) = 1  # d_g = 1: signed distance is scalar
 data_size(p::InhomLineFittingProblem) = length(p.points)
 model_type(::Type{<:InhomLineFittingProblem{T}}) where {T} = SVector{2, T}
-function solve(p::InhomLineFittingProblem{T}, idx::AbstractVector{Int}) where {T}
+function sample_models(p::InhomLineFittingProblem{T}, idx::AbstractVector{Int}) where {T}
     M = SVector{2, T}
     @inbounds begin
         p1 = p.points[idx[1]]

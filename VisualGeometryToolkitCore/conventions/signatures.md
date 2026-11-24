@@ -20,8 +20,8 @@ question whether the model is `F` or a plane, so it takes the same order.
 
 What counts as the model:
 - **A given model leads, in task verbs too.** The camera handed to
-  `find_absolute_pose(camera, pairs)`, the guess handed to
-  `refine_relpose(pose, K1, K2, x1, x2)`: estimated or given, it is applied to the data.
+  `AbsolutePoseProblem(camera, pairs)`, the guess handed to
+  `RefineProblem(f, pose)`: estimated or given, it is applied to the data.
 - **A required tool leads; a policy with a default stays last.** A metric, a
   descriptor network and gallery, the method or scorer being evaluated:
   `pairwise_matrix(metric, d1, d2)`, `find_boards(gallery, network, img)`,
@@ -67,7 +67,7 @@ ordering similar to Julia Base"; the model-first rule never overrides it):
 - VisualGeometryToolkitEstimation's RANSAC family leads with the problem, which carries
   the data, and puts the hypothesis after it: `sample_models(problem, idx)`,
   `test_model(problem, model, idx)`, `mahalanobis_distances!(d, problem, model)`,
-  `locally_optimize(problem, θ₀)`, and wrappers that hold a problem or a
+  `refine!(ws, problem, θ, weights)`, and wrappers that hold a problem or a
   per-pair context (`refit_imc(lo, ctx, seed)`).
 
 (VisualGeometryToolkitCore 0.27.0 replaced seven role-based rules with this one:

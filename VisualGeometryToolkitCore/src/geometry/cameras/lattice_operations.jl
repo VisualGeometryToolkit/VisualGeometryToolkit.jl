@@ -5,7 +5,7 @@
 #
 # Two host-side operations on a uniform cubic lattice (node j at cell j − 2, `size − 3`
 # cells per axis over the closed area), which a resample of one SplineLens onto another
-# lattice composes (VisualGeometryToolkitEstimation's `fit_camera(SplineLens, spline
+# lattice composes (VisualGeometryToolkitEstimation's `CameraRegression(SplineLens, spline
 # source)`):
 #
 # - `subdivide_lattice`: the same function on a lattice whose every cell is split into

@@ -9,7 +9,7 @@
 # (a GENERALIZED, non-central camera) and its back-projection Jacobian (pixel
 # whitening). The `MinimalSolveProblem{Extrinsics3}` instance whose context is
 # a `BearingPoseContext` (AbsolutePoseProblem's is a `PoseContext`). Restored
-# 2026-10-29 from the bearing form of `refine_absolute_pose` (hoisted from
+# 2026-10-29 from the bearing form of the absolute-pose refine (hoisted from
 # RadiometricCamera 2026-10-27) as a problem of the refine interface: its rows
 # are that form's, unchanged.
 #
@@ -56,13 +56,14 @@ correspondence the ray origin in the camera frame (zero for a central camera),
 the observation's tangent basis, the whitening (`I₂`, or `(BᵀM)⁻¹` into
 pixels) and the caller's fixed √weight.
 """
-struct BearingPoseContext
+struct BearingPoseContext{U}
     origins::Vector{SVector{3, Float64}}
     B::Vector{SMatrix{3, 2, Float64, 6}}
     W::Vector{SMatrix{2, 2, Float64, 4}}
     sw::Vector{Float64}
     central::Bool        # no `origins` column: every ray from the camera centre
     pixels::Bool         # an `M` column: the residuals are pixels, else radians
+    unit::U              # the unit physical points and origins were stripped in (the metre), `nothing` for plain ones
 end
 
 """
@@ -88,16 +89,25 @@ Optional attribute COLUMNS of `cs`:
 
 A bearing of norm ≠ 1 (a z = 1 chart point) is an `ArgumentError`, as is a
 non-finite point, origin or bearing. The public estimator is the bearing form
-of [`refine_absolute_pose`](@ref).
+a LevenbergMarquardt refine: `solve(RefineProblem(BearingPoseProblem(cs), pose), LevenbergMarquardt(); scale | width)`.
 """
 const BearingPoseProblem = MinimalSolveProblem{
     Extrinsics3, 3, Float64, <:Any, <:Any, <:Any, <:Any, <:VgtkCore.MinimalSolver, <:BearingPoseContext,
 }
 
-function BearingPoseProblem(
-        cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
-        sampler::Union{Nothing, AbstractSampler} = nothing
-    )
+BearingPoseProblem(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}};
+                   sampler::Union{Nothing, AbstractSampler} = nothing) = _bearing_pose_problem(cs, sampler, nothing)
+# Physical world points (and ray origins): stripped in metres once, here; the problem records it, so a refine from a
+# physical guess comes back in metres.
+function BearingPoseProblem(cs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{3, <:Real}}};
+                            sampler::Union{Nothing, AbstractSampler} = nothing)
+    plain = _map_correspondences(_plain_metres, identity, cs)
+    if plain isa VgtkCore.Correspondences && VgtkCore.hasattr(plain, :origins)
+        plain = withattrs(plain; origins = map(_plain_metres, plain.origins))
+    end
+    return _bearing_pose_problem(plain, sampler, VgtkCore.m)
+end
+function _bearing_pose_problem(cs, sampler, unit)
     smplr = _problem_sampler(cs, 3, sampler)
     n = length(cs)
     Xs = SVector{3, Float64}[SVector{3, Float64}(X) for X in sources(cs)]
@@ -120,7 +130,7 @@ function BearingPoseProblem(
     end
     Bs = map(f -> VgtkCore.s2_tangent_basis_matrix(Float64, f), fs)   # the residual's coordinates
     Ws = M_col === nothing ? fill(SMatrix{2, 2, Float64, 4}(I), n) : [_pixel_whitening(fs[i], Bs[i], M_col[i], i) for i in 1:n]
-    ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing)
+    ctx = BearingPoseContext(os, Bs, Ws, sw, os_col === nothing, M_col !== nothing, unit)
     data = VgtkCore.Correspondences(Xs, fs)
     return MinimalSolveProblem{Extrinsics3, 3}(data, nothing, data, nothing, VgtkCore.P3P(), ctx, smplr)
 end
@@ -148,7 +158,7 @@ came from, or `nothing` when it can. The defects, in the order they are tested:
 
 It is the test of [`BearingPoseProblem`](@ref)'s `M` column, which refuses a
 defective one by it, and the rotation-centre refine's
-([`refine_camera_and_poses`](@ref) on [`RotationCenterViews`](@ref)), which leaves
+([`CameraPosesProblem`](@ref) on [`RotationCenterViews`](@ref)), which leaves
 such a dot out and counts it. A caller that whitens bearing residuals by the
 camera's Jacobian asks it first:
 
@@ -227,11 +237,11 @@ end
 _width_unit(p::BearingPoseProblem) = π * maximum(W -> opnorm(W), p.context.W)
 
 # P3P on the bearings for a central camera; nothing solves a generalized one.
-function solve(p::BearingPoseProblem, idx::AbstractVector{Int})
+function sample_models(p::BearingPoseProblem, idx::AbstractVector{Int})
     p.context.central || throw(ArgumentError(
         "BearingPoseProblem with ray origins (a non-central camera) has no minimal solver: it is refine-only " *
-            "(`refine_absolute_pose(pose, cs)` from a guess)"))
-    return solve(p.solver, p.cs_solve, idx)
+            "(`solve(RefineProblem(BearingPoseProblem(cs), pose), LevenbergMarquardt(); …)` from a guess)"))
+    return _minimal_solve(p.solver, p.cs_solve, idx)
 end
 
 # Degenerate samples: coincident or collinear world points, coplanar rays

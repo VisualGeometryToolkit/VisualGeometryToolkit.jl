@@ -11,9 +11,18 @@
     using Distributions: Chisq, quantile, cdf
     using StaticArrays, LinearAlgebra
     using VisualGeometryToolkitEstimation
-    using VisualGeometryToolkitEstimation: SimFitPP, unbiased_median_variance, simfitpp_loss_width,
-                                           simfitpp_select, with_residual_unit,
-                                           _msac_best_over
+    using VisualGeometryToolkitEstimation: SimFitPP, PoolSelection, with_residual_unit, _msac_best_over,
+                                           _unbiased_median_variance
+    using VisualGeometryToolkitCore: EstimationProblem, solve, LossWidth, successful_retcode, supports_solve_rng, estimator_kind, FitKind
+    # SimFitPP's two problems, read as (the loss width, whether it is in bounds) and (the pool model, its loss width, in bounds)
+    function loss_width_solve(fit, residuals_sq, n, initial_loss_width, cfg = SimFitPP(); num_previous_est = 0, rng = Random.default_rng())
+        r = solve(EstimationProblem(LossWidth, (; fit, residuals_sq, n), (; initial_loss_width, num_previous_est)), cfg; rng)
+        return r.u, successful_retcode(r)
+    end
+    function pool_select(D, initial_loss_width, cfg = SimFitPP(); rng)
+        r = solve(EstimationProblem(PoolSelection, D, (; initial_loss_width)), cfg; rng)
+        return r.u, r.metadata.loss_width, successful_retcode(r)
+    end
     using VisualGeometryToolkitCore.Pools: PoolPair, pool_normalization, pool_frame_calibrations,
                                     calibration_matrices, pixel_residuals, pool_pixel_scale
     using VisualGeometryToolkitCore
@@ -29,20 +38,20 @@
         errors_r = fill(NaN, size(D, 2)), errors_t = fill(NaN, size(D, 2)),
         gt_inliers = falses(size(D, 1)), gt_variance = NaN, source_map = I3, destination_map = I3)
 
-    @testset "unbiased_median_variance (UnbiasedMed)" begin
+    @testset "the unbiased median variance (UnbiasedMed)" begin
         rng = MersenneTwister(7)
         σ = 1.3; n = 200_000
         r2 = (σ .* randn(rng, n)) .^ 2                       # χ²₁ scaled by σ²
         # Wide loss width: the truncation correction is negligible and the estimate
         # is the naive median/ppf(1/2).
-        wide = unbiased_median_variance(r2, (20σ)^2)
+        wide = _unbiased_median_variance(r2, (20σ)^2)
         @test isapprox(wide, σ^2; rtol = 0.02)
         # Truncation at 2σ (ratio ≈ 8.8 > min_ratio 5): the naive estimate is biased
         # low, the corrected one is closer to σ².
         sq_loss_width = (2σ)^2
         kept = r2[r2 .< sq_loss_width]
         naive = median(kept) / quantile(Chisq(1), 0.5)
-        corrected = unbiased_median_variance(r2, sq_loss_width)
+        corrected = _unbiased_median_variance(r2, sq_loss_width)
         @test naive < σ^2
         @test abs(corrected - σ^2) < abs(naive - σ^2)
         @test isapprox(corrected, σ^2; rtol = 0.05)
@@ -51,9 +60,9 @@
         th_sq_low = (0.8σ)^2
         kept_low = r2[r2 .< th_sq_low]
         @test th_sq_low / median(kept_low) < 5
-        @test unbiased_median_variance(r2, th_sq_low) == median(kept_low) / quantile(Chisq(1), 0.5)
+        @test _unbiased_median_variance(r2, th_sq_low) == median(kept_low) / quantile(Chisq(1), 0.5)
         # No residual below the threshold → NaN (the reference's median of an empty array).
-        @test isnan(unbiased_median_variance(r2, 0.0))
+        @test isnan(_unbiased_median_variance(r2, 0.0))
         # The fixed point is the quantile the truncated median corresponds to:
         # q solves q = F(ratio·F⁻¹(q))/2, so m / F⁻¹(q) with m the truncated median.
         m = median(kept); ratio = sq_loss_width / m; q = 0.5
@@ -74,7 +83,7 @@
         return D
     end
 
-    @testset "simfitpp_loss_width on a synthetic estimator" begin
+    @testset "SimFitPP: the loss width of a synthetic estimator" begin
         rng = MersenneTwister(11)
         σ = 1.0
         D = _synthetic_pool(rng; σ)
@@ -82,17 +91,19 @@
         fit(loss_width, train) = _msac_best_over(D, train, loss_width)
         residuals_sq(j, val) = Float64[Float64(D[i, j])^2 for i in val]
         cfg = SimFitPP()                                          # alpha 0.99, bounds 0.25..8
-        loss_width, ok = simfitpp_loss_width(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
+        # randomized without being a find: the solve takes an rng
+        @test estimator_kind(cfg) === FitKind() && supports_solve_rng(EstimationProblem(LossWidth, (; fit, residuals_sq, n), (; initial_loss_width = 1.0)), cfg)
+        loss_width, ok = loss_width_solve(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
         @test ok
         # The loss width targets loss_width² = ppf_{χ²₁}(0.99)·σ² ≈ 6.63σ², i.e. ≈ 2.58σ.
         @test isapprox(loss_width, sqrt(quantile(Chisq(1), 0.99)) * σ; rtol = 0.15)
         # Deterministic under a fixed rng.
-        repeat_loss_width, _ = simfitpp_loss_width(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
+        repeat_loss_width, _ = loss_width_solve(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
         @test repeat_loss_width == loss_width
         # Cross-pair filtering: with p earlier estimates behind the initial loss
         # width, the result is the log-space weighted mean of the raw estimate and it.
-        raw_loss_width, _ = simfitpp_loss_width(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
-        filtered_loss_width, ok_f = simfitpp_loss_width(fit, residuals_sq, n, 1.0, cfg; num_previous_est = 3, rng = MersenneTwister(1))
+        raw_loss_width, _ = loss_width_solve(fit, residuals_sq, n, 1.0, cfg; rng = MersenneTwister(1))
+        filtered_loss_width, ok_f = loss_width_solve(fit, residuals_sq, n, 1.0, cfg; num_previous_est = 3, rng = MersenneTwister(1))
         @test ok_f
         @test isapprox(filtered_loss_width, exp(log(raw_loss_width) / 4 + 3 / 4 * log(1.0)); rtol = 1e-12)
         # Out of bounds at every round (σ = 0.02 puts every proposal near 0.05,
@@ -100,11 +111,11 @@
         Dsm = _synthetic_pool(MersenneTwister(3); σ = 0.02)
         fitsm(loss_width, train) = _msac_best_over(Dsm, train, loss_width)
         ressm(j, val) = Float64[Float64(Dsm[i, j])^2 for i in val]
-        small_loss_width, oksm = simfitpp_loss_width(fitsm, ressm, size(Dsm, 1), 1.0, cfg; rng = MersenneTwister(1))
+        small_loss_width, oksm = loss_width_solve(fitsm, ressm, size(Dsm, 1), 1.0, cfg; rng = MersenneTwister(1))
         @test !oksm
         @test small_loss_width == 1.0
         # An estimator that fails (nothing) never produces a loss width.
-        failed_loss_width, okf = simfitpp_loss_width((loss_width, tr) -> nothing, (m, v) -> nothing, n, 1.0, cfg)
+        failed_loss_width, okf = loss_width_solve((loss_width, tr) -> nothing, (m, v) -> nothing, n, 1.0, cfg)
         @test !okf && failed_loss_width == 1.0
         # with_residual_unit scales only the bounds.
         cfg_unit = with_residual_unit(cfg, 0.01)
@@ -112,7 +123,7 @@
               cfg_unit.max_loss_width == cfg.max_loss_width * 0.01 && cfg_unit.alpha == cfg.alpha
     end
 
-    @testset "simfitpp_select on a pool's residual matrix" begin
+    @testset "SimFitPP: a pool's selection on its residual matrix" begin
         rng = MersenneTwister(5)
         D = _synthetic_pool(rng; σ = 0.8)
         n, K = size(D)
@@ -120,7 +131,7 @@
         @test pool_pixel_scale(pair) == 1.0
         # identity maps: the pool frame IS the pixel frame, so the matrix method
         # on the stored residuals runs at the reference's pixel bounds
-        j, loss_width, ok = simfitpp_select(D, 1.0; rng = MersenneTwister(2))
+        j, loss_width, ok = pool_select(D, 1.0; rng = MersenneTwister(2))
         @test ok
         @test j == 1                                             # the true model wins at the estimated loss width
         @test isapprox(loss_width, sqrt(quantile(Chisq(1), 0.99)) * 0.8; rtol = 0.15)
@@ -159,11 +170,11 @@
         # pixel bounds on the pixel residuals — not on the pool's half-diagonal-unit
         # residual matrix, which the default pixel bounds do not fit
         pair = mk(similarity_matrix(s, -0.9, -0.7), similarity_matrix(s, -0.95, -0.65))
-        @test simfitpp_select(pair, 3.0; rng = MersenneTwister(3)) ==
-              simfitpp_select(pixel_residuals(pair), 3.0; rng = MersenneTwister(3))
+        @test pool_select(pair, 3.0; rng = MersenneTwister(3)) ==
+              pool_select(pixel_residuals(pair), 3.0; rng = MersenneTwister(3))
         # the pool frame's unit stays available through the matrix method
         c = with_residual_unit(SimFitPP(), pool_pixel_scale(pair))
-        @test first(simfitpp_select(Dc, 0.01, c; rng = MersenneTwister(3))) in 0:K
+        @test first(pool_select(Dc, 0.01, c; rng = MersenneTwister(3))) in 0:K
         @test pool_pixel_scale(pair) == s
         # the pool's normalization and pool-frame calibrations (VisualGeometryToolkitCore's)
         T1c, T2c = similarity_matrix(s, -0.9, -0.7), similarity_matrix(s, -0.95, -0.65)

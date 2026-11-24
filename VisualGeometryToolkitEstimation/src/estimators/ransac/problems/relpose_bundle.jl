@@ -18,7 +18,7 @@
 #
 # TWO DISTINCT relpose refit PATHS — not redundant (they solve different
 # objectives and serve different consumers):
-#   • `refine_relative_pose` (THIS file; NLLSsolver, the stack's LM, with
+#   • `_refine_relative_pose` (THIS file, the refine of a `RelativePoseProblem`; NLLSsolver, the stack's LM, with
 #     the structure eliminated through the Schur complement): the RelposeBundleProblem's
 #     own refit — the EXACT full-3D two-view reprojection MLE (per-point 3D
 #     landmarks jointly optimized then profiled out via Schur). Live consumer:
@@ -211,7 +211,7 @@ end
 #
 # WHY: the DLT builds `P = K[I|0]` — pinhole BY CONSTRUCTION — and that matrix
 # does not exist for the fisheye and omnidirectional cameras this wave is for.
-# VGC's `triangulate(pose, f₁, f₂)` takes bearings and needs no such matrix.
+# VGC's `triangulate_bearings` takes bearings and needs no such matrix.
 # It returns NaN depths for parallel rays rather than a plausible point.
 #
 # The numbers are a MIXED trade and the tail is the reason, not the median.
@@ -227,10 +227,10 @@ end
 # confers no camera-generality — carrying camera models is what would, and that
 # is a separate decision.
 #
-# PARALLEL RAYS: VGC's `triangulate` returns NaN there (nothing was
+# PARALLEL RAYS: VGC's `triangulate_bearings` returns NaN there (nothing was
 # triangulated, the honest answer for cheirality). A bundle cannot start from
 # NaN — one far point, or one baseline-parallel outlier, made the whole refit
-# and every residual NaN, so `refine_relative_pose` returned `nothing` even
+# and every residual NaN, so the bundle returned no pose even
 # with that point at weight 0. The pixel DLT this replaced was finite there.
 # So a parallel pair is placed FAR along the first ray (`_PARALLEL_DEPTH`
 # baselines, ‖t‖ = 1): reprojection error ~ f/_PARALLEL_DEPTH px, finite, and a
@@ -242,7 +242,7 @@ end
 const _PARALLEL_DEPTH = 1.0e6
 @inline function _triangulate_rays(iK1, iK2, u1, u2, R, t)
     f₁ = _pixel_bearing(iK1, u1)
-    X, _, _ = triangulate(
+    X, _, _ = triangulate_bearings(
         EuclideanMap(SMatrix{3, 3, Float64, 9}(R), SVector{3, Float64}(t); check = false),
         f₁, _pixel_bearing(iK2, u2)
     )
@@ -283,31 +283,57 @@ function _cheiral_relpose(p, E)
 end
 
 """
-    refine_relative_pose(pose::PlainEuclideanMap{3}, K1, K2, cs; max_iter)   # default: configs/default.toml [relpose_bundle]
-        -> Union{EuclideanMap{3}, Nothing}
+    RelativePoseProblem(K1, K2, cs)
 
-Robust full-3D two-view bundle adjustment of a relative pose: the exact
-reprojection MLE over the pose and one 3D landmark per correspondence (profiled
-out through the Schur complement), seeded at `pose` and returning the refined
-pose with unit translation, or `nothing` on failure (fewer than 5
-correspondences, a solver failure).
+    solve(RefineProblem(RelativePoseProblem(K1, K2, cs), pose::PlainEuclideanMap{3}), LevenbergMarquardt(); stops)
+        -> FitResult{Union{EuclideanMap{3}, Nothing}}   # stops default: configs/default.toml [relpose_bundle]
+
+The full-3D two-view bundle adjustment of a relative pose, a multi-block problem (VisualGeometryToolkitCore's
+`AbstractBlockProblem`): the exact reprojection MLE over the pose and one 3D landmark per correspondence (profiled out
+through the Schur complement), seeded at `pose`, `u` the refined pose with unit translation.
 
 `cs` are the `u₁ => u₂` correspondences in the frame of the intrinsics `K1`,
 `K2` (reprojection is `π(Kᵢ·X)`), any `sources`/`targets` container; per-point
 weights are its `weights` column when it has one (e.g. `withattrs(cs; weights
-= w)`, the IRLS posterior), unit otherwise.
+= w)`, the IRLS posterior), unit otherwise. The bundle is the weighted least squares: its
+`optimization_strategy` is `nothing` (`ClassDefault()` resolves to it; a robust strategy is an `ArgumentError` —
+its robustness is the weights column), and its damping Marquardt's (another is an `ArgumentError`: the kept run is
+built for it).
 
 The seed is a plain pose (a physical one is a `MethodError`): two views fix a
 relative pose only up to scale, so its translation is a direction — read
 unit-normalized, returned with unit norm — and no length enters or leaves. A
 physical seed is stripped by the caller in any unit (`ustrip(m, pose)`).
+
+The result: the LM's termination record and accepted steps, `n` the correspondences and `rms` the weighted
+reprojection rms over them (`√(cost/n)`), no metadata. A bundle that cannot run has no pose: `u = nothing`,
+`(InitialFailure, NoRule)` for fewer than 5 correspondences, `(Failure, NonFinite)` for a singular system or a
+non-finite pose.
 """
-function refine_relative_pose(
-        pose::PlainEuclideanMap{3}, K1::AbstractMatrix, K2::AbstractMatrix,
-        cs::AbstractVector{<:Pair}; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER
-    )
+struct RelativePoseProblem{K1 <: AbstractMatrix, K2 <: AbstractMatrix, C} <: AbstractBlockProblem
+    K1::K1
+    K2::K2
+    cs::C
+end
+# each view's calibration in its own type (an `SMatrix` and a `CameraCalibrationMat` may meet)
+RelativePoseProblem(K1::A, K2::B, cs::C) where {A <: AbstractMatrix, B <: AbstractMatrix, C <: AbstractVector{<:Pair}} =
+    RelativePoseProblem{A, B, C}(K1, K2, cs)
+
+const _RELPOSE_BUNDLE_STOPS = LmStops(; max_iter = _RELPOSE_BUNDLE_MAX_ITER, ftol = _RELPOSE_BUNDLE_FTOL)
+default_stops(::RelativePoseProblem) = _RELPOSE_BUNDLE_STOPS
+default_optimization_strategy(::RelativePoseProblem) = nothing
+
+function block_refit(f::RelativePoseProblem, pose::PlainEuclideanMap{3}, loss, stops::LmStops, damping::LmDamping)
+    loss.strategy === nothing || throw(ArgumentError(
+        "RelativePoseProblem: the two-view bundle is a weighted least squares (its weights the correspondences' `weights` " *
+            "column): optimization_strategy = nothing"))
+    damping isa MarquardtDamping || throw(ArgumentError(
+        "RelativePoseProblem: the two-view bundle's kept run is Marquardt's (MarquardtDamping), got $(nameof(typeof(damping)))"))
+    cs = f.cs
     u1 = sources(cs); u2 = targets(cs)
     N = length(u1)
+    U = Union{typeof(EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64}); check = false)), Nothing}
+    N >= 5 || return FitResult{U}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, N, nothing)
     # Per-point √weights from the `weights` column, through VGC's one fill and
     # its one contract (a non-finite or negative weight is the caller's error);
     # unit weights when there is none (per-correspondence data travels as a
@@ -316,10 +342,12 @@ function refine_relative_pose(
     sqrtw = w === nothing ? ones(N) : fill_sqrt_weights!(Vector{Float64}(undef, N), w, N)
     res = _refine_relative_pose(
         SMatrix{3, 3, Float64, 9}(rotation(pose)), SVector{3, Float64}(translation(pose)),
-        K1, K2, _inv3(K1), _inv3(K2), u1, u2, sqrtw; max_iter
+        f.K1, f.K2, _inv3(f.K1), _inv3(f.K2), u1, u2, sqrtw; stops
     )
-    res === nothing && return nothing
-    return EuclideanMap(RotMatrix{3, Float64}(res.R), res.t; check = false)
+    res === nothing && return FitResult{U}(nothing, ReturnCode.Failure, NonFinite, SolveStats(), NaN, N, nothing)
+    (; code, rule, iterations, cost) = res.sol
+    return FitResult{U}(EuclideanMap(RotMatrix{3, Float64}(res.R), res.t; check = false), code, rule,
+                        SolveStats(; nsteps = iterations), sqrt(cost / N), N, nothing)
 end
 
 # -----------------------------------------------------------------------------
@@ -342,8 +370,7 @@ function _refine_relative_pose(
         K1::AbstractMatrix, K2::AbstractMatrix,
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
-        sqrtw::AbstractVector; max_iter::Int = _RELPOSE_BUNDLE_MAX_ITER,
-        ftol::Float64 = _RELPOSE_BUNDLE_FTOL,
+        sqrtw::AbstractVector; stops::LmStops = _RELPOSE_BUNDLE_STOPS,
         schur::Bool = _BUNDLE_SCHUR, callback::F = NLLSsolver.nullcallback
     ) where {F}
     # (`::F`: a Function-typed argument only handed on is not specialized,
@@ -352,20 +379,20 @@ function _refine_relative_pose(
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
     E = schur && _BUNDLE_SCHUR
-    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback) :
-        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback)
+    return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback) :
+        _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback)
 end
 
 function _bundle_optimize(
-        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback
+        v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback
     ) where {E}
     # a function barrier: the task's kept run is stored without its LmProblem's concrete type (the slot holds any size's
     # run), so the per-point setup and the solve run in a method specialized on it — one dynamic call per bundle, not one
     # per point (without it a call allocated ~2N times)
-    return _bundle_solve!(_bundle_run(v, N), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback)
+    return _bundle_solve!(_bundle_run(v, N), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback)
 end
 function _bundle_solve!(
-        run::_BundleRun{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, max_iter, ftol, callback::F
+        run::_BundleRun{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops::LmStops, callback::F
     ) where {E, F}
     d = run.data
     d.K1 = SMatrix{3, 3, Float64, 9}(K1); d.K2 = SMatrix{3, 3, Float64, 9}(K2)
@@ -379,8 +406,8 @@ function _bundle_solve!(
         X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
         vars[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
     end
-    # Core's one LM at the bundle's own stop settings ([relpose_bundle] max_iter, ftol; the rest Core's [lm])
-    sol = lmsolve_chart!(run.lm, LmStops(; max_iter, ftol); callback)
+    # Core's one LM at the bundle's stop settings (default [relpose_bundle] max_iter, ftol; the rest Core's [lm])
+    sol = lmsolve_chart!(run.lm, stops; callback)
     sol.code === ReturnCode.Failure && return nothing                    # a singular system: no solution
     pose = run.lm.variables[1]::_BundlePose
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)

@@ -1,5 +1,5 @@
 @testitem "pnp_lens" setup = [PoseScenes, Contamination] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # pnp_lens_tests.jl — the absolute-pose problem on a DISTORTING camera: the
@@ -15,7 +15,7 @@ using FiniteDiff: FiniteDiff
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: LeftRigidManifold6, project
-using VisualGeometryToolkitCore: estimate, rotation, translation   # VGC accessors (public)
+using VisualGeometryToolkitCore: rotation, translation
 using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation
 
@@ -52,10 +52,10 @@ const _SCENES = Dict(
         "Irls{Welsch}" => VgtkCore.Irls{VgtkCore.WelschShape}(efficiency_constant = 1.5),
     )   # the Student-t + uniform IRLS and the Welsch HQ lift: LocalOptimizationDoneRight's suite
     @testset "$lo_name" for (lo_name, lo) in arms
-        est = find_absolute_pose(cam, src .=> dst; scoring = VgtkCore.MsacScoring(AbsolutePoseProblem; threshold = 5.0), local_optimization_strategy = lo, rng = StableRNG(3))
+        est = solve(EstimationProblem(AbsolutePoseProblem(cam, src .=> dst)), Ransac(; scoring = VgtkCore.MsacScoring(AbsolutePoseProblem; threshold = 5.0), local_optimization_strategy = lo); rng = StableRNG(3))
         @test est !== nothing
-        @test rotation_error_deg(estimate(est), R_gt) < 0.05
-        @test translation_error(estimate(est), t_gt) < 1.0
+        @test rotation_error_deg(est.u, R_gt) < 0.05
+        @test translation_error(est.u, t_gt) < 1.0
         m = inlier_mask(est)
         @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
         @test count(m .& gt .& (radius .> rim)) >= count(gt .& (radius .> rim)) - 1    # the rim is kept

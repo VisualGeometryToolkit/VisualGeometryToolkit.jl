@@ -342,8 +342,8 @@ Base.showerror(io::IO, e::RegionBeyondSupport) = print(io, "RegionBeyondSupport:
     check_region_support(camera, region; who::AbstractString) -> region
     check_region_support(support, region; who::AbstractString) -> region
 
-THE guard of every fit over a camera's region (`optical_axis`,
-`approximate_camera`, `refine_camera`, …): `region` back when it lies inside
+THE guard of every fit over a camera's region (VisualGeometryToolkitEstimation's camera
+regressions, their refine and the optical-axis fit): `region` back when it lies inside
 the source's calibrated support — `valid_domain(camera)`, or a `support`
 region given directly (a source camera's, when the camera fitted from is a
 re-gridded copy whose own domain no longer records it) — and a

@@ -1,9 +1,10 @@
 name = "VisualGeometryToolkitEstimation"
 uuid = "9a478df9-9a37-4dc7-9070-58617efe7573"
-version = "0.12.2"
+version = "0.13.0"
 authors = ["James Pritts <jbpritts@gmail.com>"]
 
 [deps]
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FixedSizeArrays = "3821ddf9-e5b5-40d5-8e25-6813ab96b5e2"
@@ -12,6 +13,7 @@ ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NLLSsolver = "50b5cf9e-bf7a-4e29-8981-4280cbba70cb"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -27,6 +29,7 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 VisualGeometryToolkitEstimationTestExt = "Test"   # synthetic_scenes: the shared synthetic test scenes
 
 [compat]
+CommonSolve = "0.2.14"
 CoordinateTransformations = "0.6.4"
 Distributions = "0.25.134"
 FixedSizeArrays = "1.5.2"
@@ -35,6 +38,7 @@ Graphs = "1.15"
 ForwardDiff = "1.4.7"
 LinearAlgebra = "1"
 NLLSsolver = "5.3.4"
+PrecompileTools = "1.4"
 Random = "1"
 Rotations = "1.7.1"
 SparseArrays = "1"
@@ -42,7 +46,7 @@ StaticArrays = "1.9.24"
 Statistics = "1.11.5"
 TOML = "1"
 Test = "1"
-VisualGeometryToolkitCore = "0.13"
+VisualGeometryToolkitCore = "0.14"
 julia = "1.13"
 
 [workspace]

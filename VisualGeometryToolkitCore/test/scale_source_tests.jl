@@ -81,30 +81,30 @@ end
 # The refine contract's loss width (hoisted from Estimation's `_refine_loss` and PoseLib's `_refine_width`, which had
 # drifted): least squares takes neither keyword; `scale` multiplies the strategy's constant (its own, else the table's);
 # `width` is the width itself and is refused beside a strategy's own width mode, named for what that mode is.
-@testitem "refine_width: scale xor width, the strategy's constant, least squares" begin
+@testitem "refit_width: scale xor width, the strategy's constant, least squares" begin
     using Test
-    using VisualGeometryToolkitCore: refine_width, Irls, WelschShape, TLSShape, EfficiencyConstant, LossWidth,
+    using VisualGeometryToolkitCore: refit_width, Irls, WelschShape, TLSShape, EfficiencyConstant, LossWidth,
         efficiency_constant, ScaleGiven, ScaleNone, FitResult
-    lsq = refine_width(nothing, nothing, nothing, 2)
+    lsq = refit_width(nothing, nothing, nothing, 2)
     @test isnan(lsq.width) && isnan(lsq.efficiency_constant) && lsq.input === nothing
-    @test_throws "has no loss width" refine_width(nothing, 0.5, nothing, 2)
-    @test_throws "has no loss width" refine_width(nothing, nothing, 2.0, 2)
+    @test_throws "has no loss width" refit_width(nothing, 0.5, nothing, 2)
+    @test_throws "has no loss width" refit_width(nothing, nothing, 2.0, 2)
     w = Irls{WelschShape}(25, nothing)
-    r = refine_width(w, 0.5, nothing, 2)
+    r = refit_width(w, 0.5, nothing, 2)
     @test r.efficiency_constant == efficiency_constant(WelschShape, 2) && r.width == r.efficiency_constant * 0.5 &&
           r.input.source === ScaleGiven
-    r = refine_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), 0.5, nothing, 1)
+    r = refit_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), 0.5, nothing, 1)
     @test r.width == 1.5 && r.efficiency_constant == 3.0
-    r = refine_width(w, nothing, 2.0, 2)
+    r = refit_width(w, nothing, 2.0, 2)
     @test r.width == 2.0 && r.efficiency_constant == 1.0 && r.input.source === ScaleNone && isnan(r.input.scale)
-    @test_throws "give `scale` or `width`, not both" refine_width(w, 0.5, 2.0, 2)
-    @test_throws ArgumentError refine_width(w, nothing, nothing, 2)
+    @test_throws "give `scale` or `width`, not both" refit_width(w, 0.5, 2.0, 2)
+    @test_throws ArgumentError refit_width(w, nothing, nothing, 2)
     # a stated constant would be overridden by `width`; a stated absolute width contradicted (not "a constant")
-    @test_throws "states its efficiency constant 3.0" refine_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), nothing, 2.0, 2)
-    @test_throws "states its own width" refine_width(Irls{TLSShape}(25, LossWidth(2.0)), nothing, 1.0, 2)
+    @test_throws "states its efficiency constant 3.0" refit_width(Irls{WelschShape}(25, EfficiencyConstant(3.0)), nothing, 2.0, 2)
+    @test_throws "states its own width" refit_width(Irls{TLSShape}(25, LossWidth(2.0)), nothing, 1.0, 2)
     # a truncation with no constant takes `width`, and refuses `scale` (no constant to multiply)
-    @test refine_width(Irls{TLSShape}(25, nothing), nothing, 1.5, 2).width == 1.5
-    @test_throws "no efficiency constant" refine_width(Irls{TLSShape}(25, nothing), 0.5, nothing, 2)
+    @test refit_width(Irls{TLSShape}(25, nothing), nothing, 1.5, 2).width == 1.5
+    @test_throws "no efficiency constant" refit_width(Irls{TLSShape}(25, nothing), 0.5, nothing, 2)
 end
 
 # The unit-bearing gate (hoisted from Estimation's `_assert_unit_bearings` and PoseLib's copy): finite first, then unit.

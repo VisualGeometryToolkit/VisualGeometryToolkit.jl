@@ -126,7 +126,17 @@ function fundamental_dlt!(
     return sign_normalize(inv(destination_map(N)) ∘ enforce_rank_two(FundMat{T}(Tuple(F_norm))) ∘ source_map(N))   # composed back to the data frame, then the gauge
 end
 
-# Kernel of [`Triangulation`](@ref) (whose docstring is the one copy): `_triangulate(pose::EuclideanMap{3}, f₁, f₂) -> (X, λ₁, λ₂)`. Its recorded study and
+"""
+    triangulate_bearings(pose::PlainEuclideanMap{3}, f₁, f₂) -> (X, λ₁, λ₂)
+
+The kernel of [`Triangulation`](@ref), public as inner-loop machinery (beside `homography_dlt!`, `p3p(rays, X)`): the
+midpoint of the mutual perpendicular of the two unit-bearing rays in view 1's frame and both depths, `pose` mapping view
+1 to view 2. `@inline`, so a caller's loop compiles it in its own context (VisualGeometryToolkitEstimation's
+relative-pose bundle seeds its points with it); `solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())` is
+the public estimator. Parallel rays give a NaN point.
+"""
+function triangulate_bearings end
+# Kernel of [`Triangulation`](@ref) (whose docstring is the one copy). Its recorded study and
 # NEGATIVE RESULT, kept beside the arithmetic they measured:
 #
 # Triangulate a correspondence of UNIT BEARINGS: the midpoint of the mutual
@@ -180,7 +190,7 @@ end
 # camera, so it is the geometry, not the test. Ray depth is still the right
 # statement (a z-test assumes a forward hemisphere the ray domain lacks), but it
 # buys correctness of MEANING, not accuracy.
-@inline function _triangulate(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
+@inline function triangulate_bearings(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
     T = float(promote_type(eltype(f₁), eltype(f₂)))
     R = SMatrix{3, 3, T, 9}(pose.R)
     t = SVector{3, T}(pose.t)
@@ -215,7 +225,7 @@ Parallel rays (no parallax) are rejected — `NaN > 0` is false — which is the
 honest answer: nothing was triangulated.
 """
 @inline function test_cheirality(pose::PlainEuclideanMap{3}, f₁::StaticVector{3}, f₂::StaticVector{3})
-    _, λ₁, λ₂ = _triangulate(pose, f₁, f₂)
+    _, λ₁, λ₂ = triangulate_bearings(pose, f₁, f₂)
     return λ₁ > 0 && λ₂ > 0
 end
 
@@ -489,7 +499,7 @@ end
 end
 # On bearings the pixel gradients come back to bearings through M₁, M₂.
 @inline _normal_rate(E::EssentialMat, G_x, f₁::StaticVector{3}, f₂::StaticVector{3}; M₁, M₂) =
-    _bilinear_rate(f₁, f₂, M₁ * SVector(G_x[1], G_x[2]), M₂ * SVector(G_x[3], G_x[4]))
+    _bilinear_rate(f₁, f₂, _fma_mul(M₁, SVector(G_x[1], G_x[2])), _fma_mul(M₂, SVector(G_x[3], G_x[4])))   # stated arithmetic (base/fused_products.jl `_fma_mul`)
 # vec(d·bᵀ + a·sᵀ): the contraction of a bilinear constraint dᵀ M s at the source
 # and target points `s`, `d` with their gradients `b`, `a` lifted to 3-vectors.
 @inline _bilinear_rate(s, d, b, a) = vec(d * b' + a * s')

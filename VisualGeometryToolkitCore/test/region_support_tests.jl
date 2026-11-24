@@ -22,6 +22,6 @@
     cam = CameraModel(SMatrix{3, 3, Float64}(300, 0, 0, 0, 300, 0, 320, 240, 1); lens = KannalaBrandt(-0.135))
     v = valid_domain(cam)
     @test v isa Ellipse
-    @test_throws RegionBeyondSupport check_region_support(cam, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5); who = "approximate_camera")
-    @test check_region_support(cam, Rect(300.0, 220.0, 40.0, 40.0); who = "approximate_camera") == Rect(300.0, 220.0, 40.0, 40.0)
+    @test_throws RegionBeyondSupport check_region_support(cam, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5); who = "CameraRegression")
+    @test check_region_support(cam, Rect(300.0, 220.0, 40.0, 40.0); who = "CameraRegression") == Rect(300.0, 220.0, 40.0, 40.0)
 end

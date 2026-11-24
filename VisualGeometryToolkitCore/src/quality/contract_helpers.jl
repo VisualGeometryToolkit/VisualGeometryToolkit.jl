@@ -95,7 +95,7 @@ function test_constraint_problem end
 """
     check_algorithm_traits(M::Module) -> Vector{String}
 
-The estimation interface's declarations in `M` and its submodules (decision 7 of 2026-11-23), each finding a
+The estimation interface's declarations (check_naming's run-time rules R16–R18) in `M` and its submodules (decision 7 of 2026-11-23), each finding a
 string:
 
 - every concrete [`AbstractEstimationAlgorithm`](@ref) `M` defines has an [`estimator_kind`](@ref) method;
@@ -103,7 +103,10 @@ string:
   not a [`FindKind`](@ref), no [`supports_solve_rng`](@ref) override, [`needs_initial_model`](@ref) exactly for a
   [`RefineProblem`](@ref), a [`MinimalKind`](@ref) exactly for a [`MinimalProblem`](@ref), never
   [`decides_inliers`](@ref), and a [`ClosedFormKind`](@ref) wherever a closed form of `M` solves the same problem
-  (a closed form over a fit).
+  (a closed form over a fit);
+- the solve methods follow the interface (check_naming R16, R18): no method of CommonSolve's `solve` or `init`
+  outside VisualGeometryToolkitCore (Core owns the front end); a `__solve`/`__init` method only for an algorithm type
+  its module owns; an `rng` keyword only on a method whose (problem, algorithm) pair [`supports_solve_rng`](@ref).
 
 Read from the methods and their inferred results, so no problem is built. Implemented by
 VisualGeometryToolkitCoreTestExt (`using Test` loads it).

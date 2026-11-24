@@ -361,13 +361,16 @@ lookat_pose(eye::StaticVector{3}, target::StaticVector{3}, up::StaticVector{3, <
 # `CameraModel` (or a `BoundedCamera` of one) that back-projects the sample's pixel targets to rays before the kernel
 # (`p3p(rays, X)`): world points => pixels, every pose of the 0–4 the sample admits (`FixedModels{4, Extrinsics3}`,
 # empty when none).
+# A sample of a column: the column itself when the sample is all of it (its own container, static or not), else its rows.
+_sample_of(xs, idx) = idx == eachindex(xs) ? xs : xs[idx]
 function __solve(prob::MinimalProblem{<:Any, <:Any, <:Any, <:Union{CameraModel, BoundedCamera{<:CameraModel}}}, ::P3P{NativeSolver})
     cs, idx = prob.f, prob.sample
     length(idx) == 3 || throw(ArgumentError("P3P requires exactly 3 correspondences, got $(length(idx))"))
-    u = sources(cs); v = targets(cs)
-    # static Float64 triples, as the bearing form builds them: the sample allocates nothing (a BoundedCamera
-    # back-projects as its camera does)
-    X = SVector{3}(ntuple(k -> SVector{3, Float64}(@inbounds u[idx[k]]), Val(3)))
-    rays = SVector{3}(ntuple(k -> SVector{3, Float64}(backproject(prob.p, @inbounds v[idx[k]])), Val(3)))
+    # the sample's points and rays in the caller's own element types (a BoundedCamera back-projects as its camera
+    # does): the kernel `p3p(rays, X)` is specialized on its containers, and a copy specialized on converted static
+    # triples fuses its `muladd`s otherwise — the old `p3p(model, cs)`'s bits on every container are this call's
+    # (the golden replay, 2026-11-23). Not a hot path: the RANSAC problems solve on their own bearings.
+    X = _sample_of(sources(cs), idx)
+    rays = backproject.(Ref(prob.p), _sample_of(targets(cs), idx))
     return p3p(rays, X)
 end

@@ -1,5 +1,84 @@
 # VisualGeometryToolkitEstimation changelog
 
+## 0.13.0
+
+A breaking release on VisualGeometryToolkitCore 0.14 (`[compat]` VisualGeometryToolkitCore `"0.14"`): every estimator is
+`solve(problem, algorithm)` (CommonSolve's verb, Core's front end; docs/design/sciml-mapping.md and
+docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the golden records of 0.12.2 replay bit for bit
+(`ci/golden/`), the deliberate exceptions listed in `ci/golden/intended_changes.toml`.
+
+### Changed (breaking)
+
+- **Finds are `Ransac`.** `find_homography`, `find_fundmat`, `find_essential`, `find_absolute_pose`, `find_hand_eye`,
+  `find_radial_homography`, `find_radial_camera`, `find_rotation`, `find_circle` and `find_ellipse` are deleted:
+  `solve(EstimationProblem(XProblem(data…), p), Ransac(; scoring, local_optimization_strategy, config); rng)`, the
+  family problem (`HomographyProblem(cs)`, `EssentialProblem(camera1, camera2, cs)`, …) the public `f`, `p = (; extent)`
+  the validity region. `ransac`/`ransac!` are deleted (the same `Ransac`; workspace reuse is `init` → `solve!` →
+  `reinit!(cache; f)`). A workspace's storage precision is `Ransac(Float64; …)`; `max_trials`/`min_trials` are
+  `config`'s.
+- **Refines are Core's `LevenbergMarquardt`.** The ten `refine_*` of the families are deleted:
+  `solve(RefineProblem(XProblem(data…), θ₀), LevenbergMarquardt(; optimization_strategy); scale | width)`; the refine
+  body (`RefineMetadata`, the scale input, the chart refit, the zero-weight rows, `bundle_loss`) moved to
+  VisualGeometryToolkitCore. The `workspace` keyword is gone (the chart LM's task-local buffers serve). A refusal of a
+  keyword the solve does not take is a `MethodError` (was an `ArgumentError` naming the refine).
+- **`locally_optimize` is `LocalOptimization(strategy; scoring, score_guard)`** on `RefineProblem(f, θ₀[, (; extent)])`
+  (a model or a `FixedModels`).
+- **Renamed hooks.** `solve(problem, idx)` → `sample_models(problem, idx)`; `fit_hypothesis` → `sample_hypothesis`;
+  `locally_optimize_rescored!` → `rescore_and_optimize!`; Core's `refine_external!`, `refine_workspace`,
+  `refine_width` → `external_refit!`, `refit_workspace`, `refit_width`.
+- **`pooled_noise_scale` is `PooledScale()`** on `EstimationProblem(NoiseScale, results)` or
+  `EstimationProblem(NoiseScale, scales => dofs)`.
+- **Results are read by field** (`r.u`, `r.retcode`, `r.stats.nsteps`, `r.resid`, `r.metadata.quality`); the per-datum
+  residuals of a RANSAC result and a refine are `r.resid` (no longer `metadata.residuals`). Every metadata with weights
+  subtypes Core's `AbstractFitMetadata{L}` (one `weight_kind`).
+- **Local-optimization and refine results moved** (VisualGeometryToolkitCore 0.14's deterministic Sampson Jacobian):
+  the chart LM's rows used to depend in their last bits on how the code was compiled (a package-image copy and a JIT
+  copy fused StaticArrays' `muladd`s differently); they are explicit `fma` chains now, the same in every compiled copy.
+  The finds' local optimizations and the refines of the Sampson-constraint problems (homography, fundamental and
+  essential matrix, circle, radial camera, rotation) move against 0.12:
+  | max relative move per result | records |
+  |---|---|
+  | ≤ 1e-12 | 425 |
+  | (1e-12, 1e-10] | 98 |
+  | (1e-10, 1e-6] | 95 |
+  | (1e-6, 1e-3] | 39 |
+  | > 1e-3 | 25 |
+  | a trace changed length | 1 |
+
+  683 golden records move (1554 leaves); `ci/golden/intended_changes.toml` lists each with its exact old and new bits
+  and its size. The large moves are ill-conditioned refines (an essential matrix whose sign representative flips around
+  a ~5e-10 move, or a refine that stops at another iterate) and rotation averagings on a five-edge graph that carry the
+  last-bit change to another solution; 28 results change an iteration count or a stop rule.
+- **Configuration version 2.** `configs/default.toml` states `config_version = 2`; its estimator tables are named after
+  the algorithm or problem that reads them. A stored version-1 file (0.12 and earlier) is read with
+  `VisualGeometryToolkitCore.migrate_config(TOML.parsefile(path), ESTIMATION_CONFIG_VERSIONS)`.
+- A PrecompileTools workload: the homography refine (`LevenbergMarquardt`), so a fresh process's first refine does not
+  compile it (new dependency PrecompileTools). The find is left to the JIT by the owner's decision (2026-11-24): with
+  it in the workload, the package-image copy of its scoring loop ran 5 % slower and a find without local optimization
+  3.7 % slower than 0.12, over the runtime gate; refine-only, every gate holds. `DivisionCameraMetadata` is `public`.
+- **Fits are algorithm types.** `fit_rotation`, `fit_linear`, `fit_rigid_alignment` and `fit_robot_world_hand_eye` →
+  `ReweightedLeastSquares(; optimization_strategy, tol)` on `EstimationProblem(RotMatrix{3} | EuclideanMap{3} |
+  LinearModel | RobotWorldHandEyeCalibration, data[, p])`; `fit_rotation_averaging` → `RotationAveraging`,
+  `fit_filtered_rotation_averaging` → `FilteredRotationAveraging` (on `EstimationProblem(AbsoluteRotations, graph)`);
+  `fit_residual_mixture` → `ResidualMixture` (on `EstimationProblem(PosteriorWeightState, distances, (; model_dof))`);
+  `simfitpp_loss_width`/`simfitpp_select` → `SimFitPP` (an `rng` solve keyword); `fit_camera` → `CameraRegression` on
+  `CameraRegressionProblem(T, source, region; …)`, `pspline_grid` → `PSpline`, `fit_forward_spline` → `ForwardSpline`,
+  `optical_axis` → `OpticalAxis`; `fit_radial_camera` → `RadialCameraFit`; `fit_division_camera` → `DivisionCameraFit`.
+- **Bundles are block problems refined by `LevenbergMarquardt`.** `refine_camera` → `RefineProblem(CameraRegressionProblem(…),
+  guess)`; `refine_camera_and_poses` (every form) → `RefineProblem(CameraPosesProblem(…), (; camera, poses[, board_poses |
+  views]))`; `refine_robot_world_hand_eye` → `RefineProblem(RobotWorldHandEyeProblem(camera, markers), guess)`;
+  `refine_relative_pose` → `RefineProblem(RelativePoseProblem(K1, K2, cs), pose)`, now a `FitResult`. Their LM settings
+  (`max_iter`, `ftol`, `xtol`, `max_time`) are the solve's `stops`.
+- **Deleted:** `approximate_camera` (the regression's fit, then its refine); internal now: `division_camera_step`,
+  `unbiased_median_variance`, `fit_line`; `n_without_bearing`, `without_bearing`, `without_projection` (read the metadata's
+  fields). `irls_termination`'s keyword `solve_failed` is `linear_solve_failed`. Configuration tables renamed after
+  their algorithm or problem (`[division_camera_fit]`, `[camera_poses_problem]`, `[camera_regression_problem]`,
+  `[reweighted_least_squares.*]`, `[rotation_averaging]`, …).
+- **The family problems hold any number of data** (a solve on too few is the `:no_model` find or the unrefined refine) and
+  take physical data where the old pipelines did (`AbsolutePoseProblem`, `BearingPoseProblem`, `HandEyeProblem`: metres
+  stripped at construction, reattached at the solve's exit); the plane problems refuse physical plane points.
+- New dependency: CommonSolve (the cache's `solve!`).
+
 ## 0.12.2
 
 A patch on VisualGeometryToolkitCore 0.13.0 (`[compat]` VisualGeometryToolkitCore `"0.13"`), which removed the

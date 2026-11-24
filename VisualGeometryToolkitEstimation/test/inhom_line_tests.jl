@@ -1,5 +1,5 @@
 @testitem "inhom_line" begin
-    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
 using LinearAlgebra
@@ -9,15 +9,13 @@ using Random
 using StableRNGs
 using ForwardDiff
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: estimate, metadata   # VGC accessors (public)
-using VisualGeometryToolkitCore: codimension, solver_covariance, scoring_workspace, whitened_residuals!   # the constraint-problem and scoring contracts (VGC)
-using VisualGeometryToolkitCore: MsacScoring, ThresholdScoringWorkspace   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitEstimation: RansacMetadata   # public, not exported
+
+using VisualGeometryToolkitCore: codimension, solver_covariance, scoring_workspace, whitened_residuals!
+using VisualGeometryToolkitCore: MsacScoring, ThresholdScoringWorkspace
+using VisualGeometryToolkitEstimation: RansacMetadata
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: decision_boundary   # the scoring contract (VGC)
-using VisualGeometryToolkitEstimation: RansacConfig, ransac,
-    RansacWorkspace,
-    data_size, minimal_sample_size, model_type, constraint_with_jacobians
+using VisualGeometryToolkitCore: decision_boundary
+using VisualGeometryToolkitEstimation: RansacConfig, RansacWorkspace, data_size, minimal_sample_size, model_type, constraint_with_jacobians
 using VisualGeometryToolkitCore: whitened_constraint_rows, constraint
 
 # =============================================================================
@@ -26,7 +24,7 @@ using VisualGeometryToolkitCore: whitened_constraint_rows, constraint
 # =============================================================================
 
 # (x₁, y₁, x₂, y₂) → (a, b) of the line y = a + b·x through the two points.
-_solved(x) = first(solve(InhomLineFittingProblem([SVector(x[1], x[2]), SVector(x[3], x[4])]), [1, 2]))
+_solved(x) = first(VisualGeometryToolkitEstimation.sample_models(InhomLineFittingProblem([SVector(x[1], x[2]), SVector(x[3], x[4])]), [1, 2]))
 # the constraint g of point i, as a function of the model and of that point's y
 _g_of_θ(pts, θ, i) = constraint(InhomLineFittingProblem([SVector{2, eltype(θ)}(p) for p in pts]), SVector{2}(θ[1], θ[2]), i)
 _g_of_y(pts, model, y, i) = constraint(
@@ -55,7 +53,7 @@ _g_of_y(pts, model, y, i) = constraint(
             prob = InhomLineFittingProblem(pts)
             idx = [1, 2]
 
-            models = solve(prob, idx)
+            models = VgtkEstimation.sample_models(prob, idx)
             @test !isnothing(models)
             model = first(models)
 
@@ -97,14 +95,14 @@ _g_of_y(pts, model, y, i) = constraint(
         scoring = MsacScoring(prob; threshold = 3noise)   # 3σ of the inlier noise
         config = RansacConfig(; max_trials = 500, success_prob = 0.999)
 
-        result = ransac(prob, scoring; config, rng = StableRNG(171))
+        result = solve(EstimationProblem(prob), Ransac(; scoring, local_optimization_strategy = nothing, config); rng = StableRNG(171))
 
         # Check model accuracy
-        model = estimate(result)
+        model = result.u
         @test abs(model[1] - a_true) < 1.0  # intercept
         @test abs(model[2] - b_true) < 0.5  # slope
 
-        attrs = metadata(result)
+        attrs = result.metadata
         @test attrs isa RansacMetadata
 
         # Inlier ratio should be reasonable

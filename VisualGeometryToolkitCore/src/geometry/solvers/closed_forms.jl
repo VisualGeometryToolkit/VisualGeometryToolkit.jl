@@ -170,7 +170,7 @@ rotation averaging, not a robust estimator. A pair carries its non-negative
 weight as `Attributed(R_ij, (; weight))`, read with [`weight_of`](@ref); a bare
 `R_ij` weighs 1. A zero-weight pair contributes nothing. The pairs of positive weight must
 connect every frame: the caller checks it on its graph (VisualGeometryToolkitEstimation's
-`fit_rotation_averaging` refuses a split one through its `ViewGraph`); on a split graph the
+`RotationAveraging` refuses a split one through its `ViewGraph`); on a split graph the
 leading eigenspace is degenerate and the rotations returned are meaningless (a chain with one
 zero-weight bridge came back 180° off).
 
@@ -208,7 +208,7 @@ weight drops the point. Without them every point weighs 1. Throws
 non-finite weight, or a `weights` whose length differs from `points`'.
 
 For points carrying their own covariances, VisualGeometryToolkitEstimation's
-`fit_line` (an iterative weighted fit) applies.
+`the heteroscedastic line fit` (an iterative weighted fit) applies.
 
 The default algorithm of a line from points.
 """
@@ -235,7 +235,7 @@ few in general position, e.g. collinear). Throws `ArgumentError` for fewer than
 5 points.
 
 A start value: the algebraic residual weighs points by where they sit on the
-curve. VisualGeometryToolkitEstimation's `refine_ellipse` minimizes the
+curve. VisualGeometryToolkitEstimation's ellipse refine (`LevenbergMarquardt` on an `EllipseProblem`) minimizes the
 orthogonal distance from it.
 
 The default algorithm of an ellipse from points.
@@ -306,8 +306,12 @@ struct Triangulation <: AbstractEstimationAlgorithm end
 estimator_kind(::Triangulation) = ClosedFormKind()
 const _BearingPair = Pair{<:StaticVector{3}, <:StaticVector{3}}
 default_algorithm(::EstimationProblem{<:Point3, <:_BearingPair, <:PlainEuclideanMap{3}}) = Triangulation()
+# The kernel in a compiled copy of its own: inlined into a caller, LLVM fuses its StaticArrays `muladd`s by the caller's
+# context, so the same rays triangulated last-bit differently by call site (the golden replay, 2026-11-23); one
+# non-inlined copy gives every solve the bits of the retired public triangulation function (a plain call of the kernel).
+@noinline _triangulation_kernel(pose, f₁, f₂) = triangulate_bearings(pose, f₁, f₂)
 function __solve(prob::EstimationProblem{<:Point3, <:_BearingPair, <:PlainEuclideanMap{3}}, ::Triangulation)
-    X, λ₁, λ₂ = _triangulate(prob.p, first(prob.f), last(prob.f))
+    X, λ₁, λ₂ = _triangulation_kernel(prob.p, first(prob.f), last(prob.f))
     metadata = (; depths = (λ₁, λ₂))
     # parallel rays: the kernel's NaN point, recorded degenerate (the kernel's own test: NaN depths)
     isnan(λ₁) && return FitResult(X, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, metadata)

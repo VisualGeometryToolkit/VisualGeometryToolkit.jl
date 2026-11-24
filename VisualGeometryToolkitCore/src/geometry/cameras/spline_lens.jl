@@ -678,7 +678,7 @@ end
 # a solve warm-started within √eps of its answer, which `_static_lm` returns as it is
 # (the reference's F < eps stop), so that x*(c) would be a step function of the
 # controls. A SplineLens camera's bundle refinement reads it
-# (VisualGeometryToolkitEstimation's `refine_camera_and_poses`).
+# (VisualGeometryToolkitEstimation's `CameraPosesProblem refine`).
 function _projection_jacobians(controls::AbstractMatrix{<:SVector{3}}, area::Rect2, x::StaticVector{2}, t::StaticVector{3})
     _, ix, iy, wx, wy, _, _ = _window_weights(size(controls), area, x)   # the window and its weights: w
     _, _, Jx, n = _direction_differential(_spline_value_and_partials(controls, area, x)...)

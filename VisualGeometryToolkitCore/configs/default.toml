@@ -7,6 +7,10 @@
 # estimator states its default (refine, fit).
 # =============================================================================
 
+# The version of this file's layout (`migrate_config`, `CONFIG_VERSIONS`): a stored file of an earlier version is read
+# through the converter, so the code sees the current names only.
+config_version = 1
+
 [optimization_strategy.irls]
 max_iter = 25
 

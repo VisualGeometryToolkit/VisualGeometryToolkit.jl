@@ -1,6 +1,7 @@
 @testitem "config_toml" setup = [HomographyScenes] begin
+    using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, successful_retcode
     using VisualGeometryToolkitCore: Irls, Triggs
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -18,12 +19,12 @@ using TOML
 using Random
 using StableRNGs
 using StaticArrays
-using VisualGeometryToolkitCore: converged, estimate, iterations   # VGC accessors (public)
-using VisualGeometryToolkitCore: AbstractOptimizationStrategy, CauchyShape, GaussianShape, HuberShape, TLSShape, WelschShape   # owned and exported by VisualGeometryToolkitCore
+
+using VisualGeometryToolkitCore: AbstractOptimizationStrategy, CauchyShape, GaussianShape, HuberShape, TLSShape, WelschShape
 using VisualGeometryToolkitCore: HomographyMat
-using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: toml_key   # public (the TOML key of a field)
-using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS, config_dict, optimization_strategy_from_toml   # public, not exported
+using VisualGeometryToolkitCore: MsacScoring
+using VisualGeometryToolkitCore: toml_key
+using VisualGeometryToolkitEstimation: OPTIMIZATION_STRATEGY_TAGS, config_dict, optimization_strategy_from_toml
 using VisualGeometryToolkitEstimation
 import VisualGeometryToolkitCore
 # A width-carrying strategy's efficiency constant (its `EfficiencyConstant` width mode).
@@ -234,27 +235,26 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         H = HomographyMat{Float64}(Tuple(SA[1.1 0.0 5.0; 0.0 1.1 -3.0; 0.0 0.0 1.0]))
         src, dst = homography_pairs(rng, H; n_in = 40, source = rng -> SVector{2, Float64}(randn(rng, 2) .* 100 .+ 200))
         pairs = src .=> dst
-        r_default = find_homography(pairs; rng = StableRNG(282))
-        r_config = find_homography(pairs; config = RansacConfig(max_trials = 200, min_trials = 10), rng = StableRNG(283))
-        @test converged(r_default) && converged(r_config)
-        @test iterations(r_config) <= 200
+        r_default = solve(EstimationProblem(HomographyProblem(pairs)), Ransac(); rng = StableRNG(282))
+        r_config = solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; config = RansacConfig(max_trials = 200, min_trials = 10)); rng = StableRNG(283))
+        @test successful_retcode(r_default) && successful_retcode(r_config)
+        @test r_config.stats.nsteps <= 200
         # `min_trials = 100` is the file's floor for the default run
-        @test iterations(r_default) >= _dflt("ransac", "min_trials")
+        @test r_default.stats.nsteps >= _dflt("ransac", "min_trials")
 
         # A width is its scorer's: a bare `threshold` is refused, alone or
         # beside a scorer; the default IS the class table's scorer.
         prob = HomographyProblem(pairs)
         sc = MsacScoring(prob; threshold = 5.0)
-        @test_throws ArgumentError find_homography(pairs; threshold = 5.0, scoring = sc)
-        @test_throws ArgumentError find_homography(pairs; threshold = 5.0)
-        r_tbl = find_homography(pairs; rng = StableRNG(282),
-            scoring = VgtkEstimation.scoring_from_toml(_dflt("pipelines.homography", "scoring"); problem = HomographyProblem{Float64}))
-        @test estimate(r_tbl) == estimate(r_default) && inlier_mask(r_tbl) == inlier_mask(r_default)
+        @test_throws ArgumentError solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; threshold = 5.0, scoring = sc))
+        @test_throws ArgumentError solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; threshold = 5.0))
+        r_tbl = solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; scoring = VgtkEstimation.scoring_from_toml(_dflt("pipelines.homography", "scoring"); problem = HomographyProblem{Float64})); rng = StableRNG(282))
+        @test r_tbl.u == r_default.u && inlier_mask(r_tbl) == inlier_mask(r_default)
         lo = nothing
-        θ₀ = estimate(r_default)
-        @test converged(locally_optimize(prob, θ₀; local_optimization_strategy = lo, scoring = sc))
-        @test_throws ArgumentError locally_optimize(prob, θ₀; local_optimization_strategy = lo, threshold = 5.0, scoring = sc)
-        @test_throws UndefKeywordError locally_optimize(prob, θ₀; local_optimization_strategy = lo)   # no scorer
+        θ₀ = r_default.u
+        @test successful_retcode(solve(RefineProblem(prob, θ₀), LocalOptimization(lo; scoring = sc)))
+        @test_throws ArgumentError solve(RefineProblem(prob, θ₀), LocalOptimization(lo; threshold = 5.0, scoring = sc))
+        @test_throws UndefKeywordError solve(RefineProblem(prob, θ₀), LocalOptimization(lo))   # no scorer
     end
 
 end
@@ -307,8 +307,7 @@ end
     using Test
     using TOML: TOML
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, IGPrior, FlatLabelPrior, ProfiledLabelPrior,
-        BetaLabelPrior, SCORING_TAGS, scale_prior, label_prior
+    using VisualGeometryToolkitCore: StudentTUniformScoring, JeffreysPrior, IGPrior, FlatLabelPrior, ProfiledLabelPrior, BetaLabelPrior, SCORING_TAGS, scale_prior, label_prior
     using VisualGeometryToolkitEstimation: scoring_from_toml, config_dict, default_config_path, HomographyProblem, EssentialProblem
     P = EssentialProblem
     # the defaults file states them, and only there

@@ -87,9 +87,9 @@
                 normalize(SVector(0.0, -0.15, 1.0)),
             ]
             Xs = [SVector(1.0, 0.0, 5.0), SVector(-1.0, 1.0, 6.0), SVector(0.5, -1.0, 4.0)]
-            solve_alloc(xs, Xs) = @allocated p3p(NativeSolver(), xs, Xs)
-            solve_alloc(xs, Xs)                    # warm
-            @test solve_alloc(xs, Xs) == 0
+            p3p_allocated(xs, Xs) = @allocated p3p(NativeSolver(), xs, Xs)
+            p3p_allocated(xs, Xs)                    # warm
+            @test p3p_allocated(xs, Xs) == 0
         end
     end
 end

@@ -668,7 +668,7 @@ end
 end
 
 # A device state's two reductions from its per-work-item partial sums: the cost, Jᵀr and JᵀJ of every row, the same
-# bits as the unpack VisualGeometryToolkitEstimation's lens regression wrote by hand until 0.10.1 (refine_camera.jl).
+# bits as the unpack VisualGeometryToolkitEstimation's lens regression wrote by hand until 0.10.1 (camera_regression_refine.jl).
 @testitem "reduce_normal_equations and reduce_cost: a device state's reductions from its work items' partial sums" begin
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm

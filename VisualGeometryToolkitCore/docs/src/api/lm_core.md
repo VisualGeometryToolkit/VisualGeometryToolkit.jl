@@ -17,6 +17,19 @@ Private = false
 Pages = ["robust/rows.jl", "robust/lm_core.jl"]
 ```
 
+## The Refine: Chart and Block Contracts
+
+What a problem implements to be refined by `LevenbergMarquardt` — one model on a minimal chart (`model_chart`,
+`chart_rows`, `chart_model`, `chart_size`) or several blocks ([`AbstractBlockProblem`](@ref), `block_refit`) — the
+hosts' refits (`chart_refit`, `triggs_refit`, `block_lm`), the parsed robust loss (`bundle_loss`) and the refine's
+metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)).
+
+```@autodocs
+Modules = [VisualGeometryToolkitCore]
+Private = false
+Pages = ["robust/refine.jl"]
+```
+
 ## Index
 
 ```@index

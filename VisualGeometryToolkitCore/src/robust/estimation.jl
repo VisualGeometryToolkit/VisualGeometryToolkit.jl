@@ -156,14 +156,14 @@ an implementation concern, orthogonal to the paper's two classification axes
 - `NativeRefit()`   — the in-process solver loop (weight policy / joint lift /
   continuation schedule / block-coordinate ascent all run here)
 - `ExternalRefit()` — an external refiner called at an absolute width outside
-  the loop ([`refine_external!`](@ref): PoseLib LM/LZ and its adaptive-width
+  the loop ([`external_refit!`](@ref): PoseLib LM/LZ and its adaptive-width
   arm, RansacLib classical LO)
 
 New strategies declare their family; consumers dispatch on it and never
 enumerate concrete strategy types.
 
 DESIGN RULE (RVG 2026-07-18 port): all native strategies run through the
-production `locally_optimize` port (`NativeRefit`, the default); the noise scale
+production local-optimization port (`NativeRefit`, the default); the noise scale
 is ingested ONLY through the strategy's width mode ([`loss_at`](@ref)) from the
 scorer's consensus set, never from a deployed plug-in or loss-width-window
 bootstrap. An external arm that anchors a width (the adaptive PoseLib LM arm)
@@ -182,7 +182,7 @@ struct NativeRefit <: RefitFamily end
 
 The [`RefitFamily`](@ref) of a strategy whose refit is an external refiner
 called at an absolute width, through [`external_workspace`](@ref),
-[`prepare_external!`](@ref) and [`refine_external!`](@ref).
+[`prepare_external!`](@ref) and [`external_refit!`](@ref).
 """
 struct ExternalRefit <: RefitFamily end
 

@@ -79,7 +79,7 @@ an iteration moves the parameters by less than `rtol` RELATIVE,
 `‖p − p_old‖ / ‖p_old‖ < rtol` with `p` the problem's
 [`change_parameters`](@ref) of the iterate, and returns the LAST iterate. For a
 fixed-point iteration with no fixed objective to track — one that re-linearizes
-its residuals at every iterate (`fit_division_camera`), where the cost of one
+its residuals at every iterate ([`DivisionCameraFit`](@ref)), where the cost of one
 iteration is not comparable to the next. TOML tag `"parameter_change"`.
 """
 struct ParameterChangeStop
@@ -93,7 +93,7 @@ end
 
 The parameters of the model `θ` that [`ParameterChangeStop`](@ref) compares
 between iterations — a problem's own measure of how far an iteration moved its
-model (`fit_division_camera`'s: the focal length and the division coefficients,
+model ([`DivisionCameraFit`](@ref)'s: the focal length and the division coefficients,
 pixels). The default is the model's `parameter_vector`.
 """
 change_parameters(_problem, θ) = parameter_vector(θ)
@@ -341,7 +341,7 @@ function posterior_irls!(
     _seed_policy_weights!(state, lh, data_size(problem))
     result = block_coordinate_descent!(state, lh, method, problem, model; max_iter)
     copyto!(buf.residuals, state.best_residuals)
-    return lo_estimate(estimate(result), retcode(result), stop_rule(result); iterations = iterations(result), residuals_current = true)
+    return lo_estimate(result.u, result.retcode, result.stop_rule; iterations = result.stats.nsteps, residuals_current = true)
 end
 
 """
@@ -405,14 +405,14 @@ end
 
 Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
 and the iterations they report (`iterations[]`, the sum of
-`iterations(result)`), and records each invocation's termination in
+`r.stats.nsteps`), and records each invocation's termination in
 `call_records`, a `Vector` of `(; iterations, retcode, stop_rule)` (the call's
-`iterations(result)`, its `ReturnCode` and its `StopRule`), one entry per call.
+`r.stats.nsteps`, its `ReturnCode` and its `StopRule`), one entry per call.
 It answers every hook the RANSAC loop, the scorer
 composition check, the reporting and an external refit read on a strategy
 exactly as `inner` does — its `RefitFamily`, placement and external-refit
 bracket included — so a run with `CountedLO(inner)` returns the model a run
-with `inner` returns. An external refit (`refine_external!`) is forwarded
+with `inner` returns. An external refit (`external_refit!`) is forwarded
 uncounted. It is not a registered strategy (no TOML tag): it carries counters,
 not configuration. A counter is shared by every run that is handed the same
 wrapper — the counters are `Threads.Atomic{Int}` and `call_records` is appended
@@ -434,8 +434,8 @@ CountedLO(inner::Union{Nothing, AbstractOptimizationStrategy}) =
 function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
     Threads.atomic_add!(lo.calls, 1)
-    Threads.atomic_add!(lo.iterations, VgtkCore.iterations(r))
-    @lock lo.call_records_lock push!(lo.call_records, (; iterations = VgtkCore.iterations(r), retcode = VgtkCore.retcode(r), stop_rule = stop_rule(r)))
+    Threads.atomic_add!(lo.iterations, r.stats.nsteps)
+    @lock lo.call_records_lock push!(lo.call_records, (; iterations = r.stats.nsteps, retcode = r.retcode, stop_rule = r.stop_rule))
     return r
 end
 
@@ -450,7 +450,7 @@ lo_placement(lo::CountedLO) = lo_placement(lo.inner)
 # =============================================================================
 #
 # The loop never calls `locally_optimize!` with a `TerminalLO` (its race runs
-# `nothing`, its terminal call `inner`); a seeded `locally_optimize`
+# `nothing`, its terminal call `inner`); a seeded `LocalOptimization`
 # does, and runs `inner`.
 
 locally_optimize!(L, lo::TerminalLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
@@ -488,5 +488,5 @@ VgtkCore.external_workspace(lo::_WrappedLO, problem, frame, scoring) =
     VgtkCore.external_workspace(lo.inner, problem, frame, scoring)
 VgtkCore.prepare_external!(ws, lo::_WrappedLO, problem, θ, width, scoring) =
     VgtkCore.prepare_external!(ws, lo.inner, problem, θ, width, scoring)
-VgtkCore.refine_external!(ws, lo::_WrappedLO, problem, θ, width::LossWidth, scoring) =
-    VgtkCore.refine_external!(ws, lo.inner, problem, θ, width, scoring)
+VgtkCore.external_refit!(ws, lo::_WrappedLO, problem, θ, width::LossWidth, scoring) =
+    VgtkCore.external_refit!(ws, lo.inner, problem, θ, width, scoring)

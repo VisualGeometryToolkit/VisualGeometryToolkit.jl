@@ -29,7 +29,7 @@ alike.
 # Example
 ```julia
 config = RansacConfig(success_prob=0.999, max_trials=50_000)
-result = ransac(problem, scoring; config)
+result = solve(EstimationProblem(problem), Ransac(; scoring, config); rng)
 ```
 """
 Base.@kwdef struct RansacConfig
@@ -48,13 +48,13 @@ end
 # Result Types — FitResult with RANSAC / LO metadata
 # -----------------------------------------------------------------------------
 #
-# Every estimator here returns VisualGeometryToolkitCore's `FitResult{P, M}`: the
-# fixed core (`estimate`, `retcode`, `iterations`, `rms`, `n`) plus one
-# concrete metadata type selected at compile time. RANSAC carries its
-# consensus diagnostics in `RansacMetadata`; a local-optimization refit is
-# VisualGeometryToolkitCore's lean `lo_estimate` result. Metadata fields forward
-# as properties (`r.quality`, `r.dof`); the per-datum weights, their kind, the
-# inlier mask and the scale are read through Core's accessors (`weights`,
+# Every estimator here returns VisualGeometryToolkitCore's `FitResult`: SciML's
+# fields (`u`, `resid`, `retcode`, `stats`, …) and the stack's (`stop_rule`,
+# `rms`, `n`) plus one concrete metadata type selected at compile time. RANSAC
+# carries its consensus diagnostics in `RansacMetadata`; a local-optimization
+# refit is VisualGeometryToolkitCore's lean `lo_estimate` result. A result's own
+# data are read by field (`r.u`, `r.metadata.quality`); the per-datum weights,
+# their kind, the inlier mask and the scale through Core's accessors (`weights`,
 # `weight_kind`, `inlier_mask`, `noise_scale`, `scale_source`).
 
 """
@@ -65,10 +65,10 @@ RANSAC-specific diagnostics, the `metadata` of a [`RansacEstimate`](@ref):
 whose `weight_kind` gives the weights their meaning (a threshold scorer's
 `BinaryWeights`, the Student-t + uniform scorer's `PosteriorWeights`).
 
-The core fields carry the rest: the termination record (`retcode(result)`,
-`stop_rule(result)`; below), `iterations` the number of trials
-(hypotheses drawn — RANSAC's loop count; VGC's shared `FitResult` field, no
-second name), and `n` and `rms` the weights' support and weighted
+The result's own fields carry the rest: the termination record (`r.retcode`,
+`r.stop_rule`; below), `r.stats.nsteps` the number of trials (hypotheses
+drawn — SciML's counter), `r.resid` the final residuals of every data point
+(storage precision), and `n` and `rms` the weights' support and weighted
 root-mean-square residual:
 
 - `n = count(>(0), weights)`;
@@ -79,7 +79,6 @@ its rms, so `rms` is not outlier-dominated. For a posterior scorer they span
 every point of non-negligible posterior, each counted at its weight.
 
 # Fields
-- `residuals::Vector{T}`: final residuals for all data points (storage precision)
 - `weights::Vector{T}`: per-point weights in [0, 1] (storage precision), read by
   `weights(result)`: the consensus membership 1/0 for a threshold scorer, the
   posterior inlier probability for the Student-t + uniform scorer (a value
@@ -87,7 +86,7 @@ every point of non-negligible posterior, each counted at its weight.
   the scorer's kind (`w > 0`; the MAP rule `w > ½`)
 - `quality::Float64`: total model quality (higher = better) — the marginal score
 - `scale::Float64`: the scale the scorer ORIGINATES, read by `noise_scale(result)`:
-  `√(fit_scale(prior, RSS, ν))` of the consensus partition — the inverse-gamma
+  the scale MAP `√ŝ²` (Core's `ScaleMAP(prior)` on `(RSS, ν)`) of the consensus partition — the inverse-gamma
   MAP (VisualGeometryToolkitCore's `consensus_s2`) under the scoring's scale
   prior, `√((RSS + 2β₀)/(ν + 2α₀))`, so `√(RSS/ν)` under the default Jeffreys
   prior, floored at `√eps` (a noise-free partition, `RSS = 0`, gives ≈ 1.49e-8,
@@ -115,8 +114,7 @@ every point of non-negligible posterior, each counted at its weight.
 `quality` and `scale` are `Float64` regardless of `T`: scalars carry no
 footprint argument, and these are the numbers downstream thresholds compare.
 """
-struct RansacMetadata{T, S}
-    residuals::Vector{T}
+struct RansacMetadata{T, S} <: AbstractFitMetadata{S}
     weights::Vector{T}
     quality::Float64
     scale::Float64
@@ -128,28 +126,22 @@ struct RansacMetadata{T, S}
     nonfinite_scale::Bool
 end
 # A result whose scale was not dropped (every result before the field, and every search with no model).
-RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule) where {T, S} =
-    RansacMetadata{T, S}(residuals, weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule, false)
+RansacMetadata{T, S}(weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule) where {T, S} =
+    RansacMetadata{T, S}(weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule, false)
 
 # The local-optimization record of a model no local optimization ran for: SciMLBase's "not run".
 const _LO_NOT_RUN = (ReturnCode.Default, NoRule)
 
-# The weights' kind is the scorer's, from the metadata's type (Core's trait).
-VgtkCore.weight_kind(::Type{<:RansacMetadata{<:Any, S}}) where {S} = VgtkCore.weight_kind(S)
+# The weights' kind is the scorer's, the producer (Core's one `AbstractFitMetadata` method).
 
 """
     RansacEstimate{M, T, S} = FitResult{Union{M, Nothing}, RansacMetadata{T, S}}
 
-The return type of [`ransac`](@ref), [`locally_optimize`](@ref) and every
-`find_*` pipeline: `M` the model, `T` the storage precision, `S` the scorer's
-type. The model and the core diagnostics are read through
-VisualGeometryToolkitCore's accessors — `estimate(result)`,
-`found_model(result)`, `retcode(result)`, `stop_rule(result)`, `iterations(result)` (for RANSAC the number of trials,
-hypotheses drawn), `rms(result)` — the weights through `weights(result)`,
-`weight_kind(result)` and `inlier_mask(result)`, the scale through
-`noise_scale(result)` and `scale_source(result)`; the other diagnostics of
-[`RansacMetadata`](@ref) forward as properties (`result.quality`,
-`result.dof`).
+The result of [`Ransac`](@ref) and [`LocalOptimization`](@ref): `M` the model, `T` the storage precision, `S` the
+scorer's type. Read by field — `r.u` (the model, `nothing` for a search that found none), `r.retcode`, `r.stop_rule`,
+`r.stats.nsteps` (for RANSAC the number of trials, hypotheses drawn), `r.resid`, `r.rms`, `r.n`, `r.metadata.quality`
+— and the cross-type quantities by their functions: `found_model(r)`, `weights(r)`, `weight_kind(r)`,
+`inlier_mask(r)`, `noise_scale(r)`, `scale_source(r)`.
 
 The termination record of the search:
 
@@ -162,15 +154,11 @@ The termination record of the search:
 | a selection among fixed candidates, or a seed kept unrefined | `Success` | `ClosedForm` | `:solved` |
 | a seed refined by a local optimization | that refit's record | | |
 
-`found_model(result)` is THE "a model was found" predicate; `converged(result)`
-is strict (`successful_retcode(retcode(result))`: false for a search that drew
-`max_trials` without reaching its confidence, which still found a model). A
-failed search — `found_model(result) == false`, `retcode(result) ==
-ReturnCode.Failure` — has no estimate: its `estimate` is `nothing` (so `estimate(result)` is
-`Union{M, Nothing}`, Base's `findfirst` idiom), its `quality` is `-Inf`, its
-weights all zero (an all-false `inlier_mask`), `rms` NaN and its scale
-`ScaleNone`. Every `find_*` and `refine_*` pipeline returns this type on every
-path and inherits the rule.
+`found_model(r)` is THE "a model was found" predicate; `successful_retcode(r)` is strict (false for a search that drew
+`max_trials` without reaching its confidence, which still found a model). A failed search — `found_model(r) == false`,
+`r.retcode == ReturnCode.Failure` — has no estimate: its `u` is `nothing` (so `r.u` is `Union{M, Nothing}`, Base's
+`findfirst` idiom), its `quality` is `-Inf`, its weights all zero (an all-false `inlier_mask`), `rms` NaN and its scale
+`ScaleNone`.
 """
 const RansacEstimate{M, T, S} = FitResult{Union{M, Nothing}, RansacMetadata{T, S}}
 
@@ -184,11 +172,9 @@ inlier_ratio(r::RansacEstimate) = count(VgtkCore.inlier_mask(r)) / length(weight
 """
     PooledScaleMetadata
 
-The `metadata` of [`pooled_noise_scale`](@ref)'s result: `scale` the pooled
-noise scale (read by `noise_scale`), `scale_source` `ScaleEstimated`, `dof`
-the pooled degrees of freedom `Σνᵢ`, `pooled` the number of results that
-entered the pool and `left_out` the number that did not (no scale, or no
-degrees of freedom).
+The `metadata` of a [`PooledScale`](@ref) result: `scale` the pooled noise scale (read by `noise_scale`),
+`scale_source` `ScaleEstimated`, `dof` the pooled degrees of freedom `Σνᵢ`, `pooled` the number of entries that entered
+the pool and `left_out` the number that did not (no scale, or no degrees of freedom).
 """
 struct PooledScaleMetadata
     scale::Float64
@@ -199,40 +185,36 @@ struct PooledScaleMetadata
 end
 
 """
-    pooled_noise_scale(results) -> FitResult{Float64, PooledScaleMetadata}
+    PooledScale()
 
-ONE noise scale for a set of RANSAC results that share one noise model (one
-per view, board or photograph of a set): the degrees-of-freedom-weighted pool
-of their scales,
+A [`ClosedFormKind`](@extref VisualGeometryToolkitCore.ClosedFormKind): ONE noise scale for a set of results that share
+one noise model (one per view, board or photograph of a set), the degrees-of-freedom-weighted pool of their scales,
 
-    σ̂ = √(Σᵢ νᵢ ŝᵢ² / Σᵢ νᵢ),   ŝᵢ = noise_scale(rᵢ),   νᵢ = rᵢ.dof,
+    σ̂ = √(Σᵢ νᵢ ŝᵢ² / Σᵢ νᵢ),   ŝᵢ = noise_scale(rᵢ),   νᵢ = dof(rᵢ),
 
-the pooled variance of their consensus partitions. A result without a scale
-(`ScaleNone`: a failed search) or without degrees of freedom (`dof == 0`) is
-left out and counted. The estimate is `σ̂`, also the metadata's `scale`
-(`ScaleEstimated`), so a downstream stage takes it as `scale = result` and
-records `ScaleUpstream`. Its termination record is a closed form's
-(`ReturnCode.Success`, `ClosedForm`), or `(ReturnCode.InitialFailure, NoRule)`
-(estimate and scale `NaN`, `ScaleNone`) when no result enters the pool.
+the pooled variance of their consensus partitions:
+
+- `solve(EstimationProblem(NoiseScale, results), PooledScale())`: the results themselves; a result without a scale
+  (`ScaleNone`: a failed search) or without degrees of freedom (`dof == 0`) is left out and counted;
+- `solve(EstimationProblem(NoiseScale, scales => dofs), PooledScale())`: the numbers a result records — each one's noise
+  scale `ŝᵢ` and its degrees of freedom `νᵢ`, index-aligned (a record read back from disk) — an entry whose scale is not
+  finite (`NaN`: none recorded) or whose `νᵢ ≤ 0` left out and counted; a `DimensionMismatch` when the lengths differ.
+
+`u` is `σ̂`, also the metadata's `scale` (`ScaleEstimated`), so a downstream stage takes it as `scale = result` and
+records `ScaleUpstream`; `n` the entries pooled; its termination record a closed form's (`Success`, `ClosedForm`), or
+`(InitialFailure, NoRule)` (`u` and scale `NaN`, `ScaleNone`) when nothing enters the pool.
 """
-pooled_noise_scale(results) =
-    pooled_noise_scale([VgtkCore.scale_source(r) == ScaleNone ? NaN : Float64(VgtkCore.noise_scale(r)) for r in results],
-                       [r.dof for r in results])
+struct PooledScale <: AbstractEstimationAlgorithm end
+estimator_kind(::PooledScale) = ClosedFormKind()
 
-"""
-    pooled_noise_scale(scales::AbstractVector{<:Real}, dofs::AbstractVector{<:Integer}) -> FitResult{Float64, PooledScaleMetadata}
+__solve(prob::EstimationProblem{NoiseScale, <:AbstractVector{<:FitResult}, NullParameters}, ::PooledScale) =
+    _pooled_scale([scale_source(r) == ScaleNone ? NaN : Float64(noise_scale(r)) for r in prob.f], [dof(r) for r in prob.f])
+__solve(prob::EstimationProblem{NoiseScale, <:Pair{<:AbstractVector, <:AbstractVector}, NullParameters}, ::PooledScale) =
+    _pooled_scale(first(prob.f), last(prob.f))
 
-The same pool from the numbers a result records — each one's noise scale `ŝᵢ`
-and its degrees of freedom `νᵢ`, index-aligned (a record read back from disk,
-say, rather than the results themselves): `σ̂ = √(Σᵢ νᵢ ŝᵢ² / Σᵢ νᵢ)`, an entry
-whose scale is not finite (no scale recorded: `NaN`) or whose `νᵢ ≤ 0` left out
-and counted. The results method above is this one on `noise_scale(rᵢ)` (`NaN`
-for a `ScaleNone` result) and `rᵢ.dof`. A `DimensionMismatch` when the two
-lengths differ.
-"""
-function pooled_noise_scale(scales::AbstractVector, dofs::AbstractVector)
+function _pooled_scale(scales::AbstractVector, dofs::AbstractVector)
     length(scales) == length(dofs) ||
-        throw(DimensionMismatch("pooled_noise_scale: $(length(scales)) scales, $(length(dofs)) degrees of freedom"))
+        throw(DimensionMismatch("PooledScale: $(length(scales)) scales, $(length(dofs)) degrees of freedom"))
     num, den, pooled, left_out = 0.0, 0, 0, 0
     for (s, ν) in zip(scales, dofs)
         if ν <= 0 || !isfinite(s)
@@ -241,9 +223,9 @@ function pooled_noise_scale(scales::AbstractVector, dofs::AbstractVector)
         end
         num += ν * Float64(s)^2; den += ν; pooled += 1
     end
-    pooled == 0 && return FitResult(NaN, ReturnCode.InitialFailure, NoRule, 0, NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
+    pooled == 0 && return FitResult(NaN, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
     σ = sqrt(num / den)
-    return FitResult(σ, ReturnCode.Success, ClosedForm, 0, NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
+    return FitResult(σ, ReturnCode.Success, ClosedForm, SolveStats(), NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
 end
 
 # The lean result of one local-optimization refit is VisualGeometryToolkitCore's
@@ -295,7 +277,7 @@ _set_n!(::Nothing, ::Int) = nothing
 
 The local-optimization workspace of every strategy this package hosts
 (VisualGeometryToolkitCore's `lo_workspace`), built once per composed workspace: the
-problem's refit workspace `refine` ([`refine_workspace`](@ref): a
+problem's refit workspace `refine` ([`refit_workspace`](@ref): a
 `ManifoldLmWorkspace{N}` for the chart problems, `nothing` for a problem whose
 refit pre-allocates nothing) and the per-point buffers of the posterior-weight
 iteration (`posterior_w`, `posterior_inlier`, `posterior_sq_r`, Float64) and of
@@ -355,7 +337,7 @@ statically dispatched.
 its siblings, documented on the constructor.
 
 # Reuse
-Supply a workspace to `ransac(; workspace = ws)` (or `ransac!`) to avoid
+Reuse one through `init(problem, Ransac(…); rng)` → `solve!` → `reinit!` to avoid
 allocation across calls; a workspace sized for a larger problem is trimmed to
 each call's data size.
 """
@@ -393,10 +375,9 @@ end
     RansacResultBuffers{T}(n)
 
 The per-point arrays of a [`RansacEstimate`](@ref) — its `residuals` and
-`weights` — preallocated, so that
-[`ransac!`](@ref) writes its result into them with no allocation. The returned
-estimate's metadata holds THESE arrays: the next `ransac!` into the same
-buffers overwrites it.
+`weights` — preallocated, so that a [`RansacCache`](@ref)'s `solve!` writes its
+result into them with no allocation. The returned estimate's metadata holds THESE
+arrays: the next `solve!` of the same cache overwrites it.
 """
 struct RansacResultBuffers{T <: AbstractFloat}
     residuals::Vector{T}

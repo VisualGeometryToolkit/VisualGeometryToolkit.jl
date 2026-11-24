@@ -67,10 +67,11 @@ Absolute-pose problem context: the backprojected unit ray directions (one
 per correspondence, precomputed at construction) and the imaging transform
 used by the pixel-reprojection residuals.
 """
-struct PoseContext{F, M}
+struct PoseContext{F, M, U}
     rays::Vector{Vec3{Float64}}
     proj::F
     model::M                       # the full CameraModel: the residual currency is ITS raw pixels
+    unit::U                        # the unit physical world points were stripped in (the metre), `nothing` for plain ones
 end
 
 # =============================================================================
@@ -155,7 +156,7 @@ The RANSAC problem of a pure rotation between two calibrated views: the
 sample 2 (VisualGeometryToolkitCore's `Rotation2pt`), codimension 2, a 3-dof
 chart. Build it with `RotationProblem(camera1, camera2, pixel_cs)` or from a
 bearing `Correspondences` carrying `M₁`/`M₂` columns; the public estimator is
-[`find_rotation`](@ref).
+a rotation find (`Ransac` on a `RotationProblem`).
 """
 const RotationProblem = MinimalSolveProblem{RotMatrix{3, Float64, 9}, 2, Float64}
 
@@ -272,13 +273,12 @@ end
 _has_noise_columns(cs) = VgtkCore.hasattr(cs, :Σ₁) || VgtkCore.hasattr(cs, :Σ₂)
 _has_noise_columns(::_PointCorrespondences) = false
 
-# The prologue every correspondence-problem constructor shares: enough
-# correspondences for a `K`-point minimal sample, and the sampler — the
-# caller's, or PROSAC on the `:score` attribute column (per-correspondence data
-# travels as a column, never a keyword); uniform without one.
+# The prologue every correspondence-problem constructor shares: the sampler — the caller's, or PROSAC on the `:score`
+# attribute column (per-correspondence data travels as a column, never a keyword); uniform without one. A problem holds
+# any number of correspondences: a solve on fewer than a minimal sample is the find's `:no_model` result (no trial
+# drawn) and the refine's unrefined guess (`(InitialFailure, NoRule)`), never a refusal at construction.
 function _problem_sampler(pairs, K::Int, sampler)
     n = length(pairs)
-    _holds_minimal_sample(K, n) || throw(ArgumentError("Need at least $K correspondences, got $n"))
     return sampler === nothing ? _build_sampler(n, K, VgtkCore.attribute_column(pairs, :score)) : sampler
 end
 
@@ -637,7 +637,7 @@ which is a separate decision alongside the relative-pose bundle carrying camera
 models. Nothing is lost for a calibrated pinhole benchmark.
 """
 HomographyProblem(pairs; kw...) =
-    _make_minimal_problem(HomographyMat, Val(4), pairs; kw...)
+    _make_minimal_problem(HomographyMat, Val(4), _refuse_physical_plane(pairs, "HomographyProblem"); kw...)
 
 """
     FundMatProblem(pairs; sampler=nothing, backend=NativeSolver())
@@ -839,20 +839,30 @@ X, u)`. A `Pinhole` model keeps the classic calibrated kernels
 measured and the camera as calibrated.
 
 The world points are plain numbers (`StaticVector{3, <:Real}`, or an
-`Uncertain` one): a problem is the inner loop, and physical points (lengths)
-are a `MethodError` here — [`find_absolute_pose`](@ref) takes them and strips
-them in metres once.
+`Uncertain` one) or physical ones (lengths), which
+are stripped in metres once, here, and the problem records it: its solve's
+model comes back in metres (a find's pose, a refine's from a physical guess).
 """
 function AbsolutePoseProblem(
         model::CameraModel, pairs::AbstractVector{<:Pair{<:_PlainPoint3}};
         backend::AbstractSolverBackend = NativeSolver()
     )
+    return _absolute_pose_problem(model, pairs, backend, nothing)
+end
+function AbsolutePoseProblem(
+        model::CameraModel, pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
+        backend::AbstractSolverBackend = NativeSolver()
+    )
+    plain = _map_correspondences(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    return _absolute_pose_problem(model, plain, backend, VgtkCore.m)
+end
+function _absolute_pose_problem(model::CameraModel, pairs, backend::AbstractSolverBackend, unit)
     smplr = _problem_sampler(pairs, 3, nothing)
     cs = _canonicalize_pairs(Float64, pairs)          # Point3 / Point2 storage, Float64
     src = sources(cs)
     rays = backproject.(Ref(model), targets(cs))
     proj = VgtkCore.imaging_transform(intrinsics(model), lens(model))
-    ctx = PoseContext(rays, proj, model)
+    ctx = PoseContext(rays, proj, model, unit)
     slv = VgtkCore.P3P(backend)
     cs_solve = VgtkCore.Correspondences(src, rays)
     return MinimalSolveProblem{Extrinsics3, 3}(cs, nothing, cs_solve, nothing, slv, ctx, smplr)
@@ -877,8 +887,8 @@ sampler(p::AbstractCorrespondenceProblem) = p._sampler
 # the minimal kernels never normalize, the problem's one normalization is theirs.
 # A problem without one (E on its unit bearings, the pose on its world→ray
 # view) solves on `cs_solve`.
-solve(p::MinimalSolveProblem, idx::AbstractVector{Int}) =
-    map(m -> _candidate(p, m), solve(p.solver, _solver_view(p), idx))
+sample_models(p::MinimalSolveProblem, idx::AbstractVector{Int}) =
+    map(m -> _candidate(p, m), _minimal_solve(p.solver, _solver_view(p), idx))
 
 @inline _solver_view(p::MinimalSolveProblem) = p.normalization === nothing ? p.cs_solve : p.cs_hartley
 

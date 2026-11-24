@@ -26,7 +26,7 @@
 #
 # A local optimization reads one more verb of a problem: the weighted refit
 # `refine!(R, problem, θ, w)` on the problem's own workspace
-# `refine_workspace(P, n)` (VisualGeometryToolkitEstimation implements both per problem).
+# `refit_workspace(P, n)` (VisualGeometryToolkitEstimation implements both per problem).
 # =============================================================================
 
 """
@@ -39,7 +39,7 @@ Implementors provide `data_size`, `codimension`, `minimal_sample_size`, and
 `solver_covariance` with
 `provides_solver_covariance` (predictive scoring), `residual_context` with
 `mahalanobis_distance` (a Jacobian-free distance path), and `refine!` with
-`refine_workspace` (the weighted refit local optimizations call).
+`refit_workspace` (the weighted refit local optimizations call).
 """
 abstract type AbstractConstraintProblem end
 
@@ -283,17 +283,17 @@ end
 
 The weighted refit of `problem` from `θ` under per-point weights `w`
 (`w[1:data_size(problem)]`), on the problem's refit workspace `R`
-([`refine_workspace`](@ref)) — the model block of every IRLS-family local
+([`refit_workspace`](@ref)) — the model block of every IRLS-family local
 optimization. `nothing` means the solve failed (an underdetermined or singular
 system); the caller keeps its incumbent.
 """
 function refine! end
 
 """
-    refine_workspace(::Type{P}, n::Int) -> R
+    refit_workspace(::Type{P}, n::Int) -> R
 
 The scratch of [`refine!`](@ref) for a problem of type `P` with up to `n` data
 points, built once per composed workspace and reused across calls. `nothing`
 for a problem whose refit needs none.
 """
-function refine_workspace end
+function refit_workspace end

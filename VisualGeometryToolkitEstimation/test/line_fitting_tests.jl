@@ -1,16 +1,16 @@
 @testitem "line_fitting" setup = [Contamination] begin
     using VisualGeometryToolkitCore: retcode_symbol
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
-# fit_line + LineFittingProblem
+# the heteroscedastic line + LineFittingProblem
 # =============================================================================
 #
-# WHY THIS FILE EXISTS: `src/fitting/line.jl` (both `fit_line` methods, the
+# WHY THIS FILE EXISTS: `src/fitting/line.jl` (both `_heteroscedastic_line` methods, the
 # scatter accumulator, the parameter covariance) had zero coverage — the
 # suite tested `InhomLineFittingProblem` but never the plain `LineFittingProblem`
-# LO refit, which shares `fit_line`'s covariance-weighted step. That step must
+# LO refit, which shares `_heteroscedastic_line`'s covariance-weighted step. That step must
 # honour the LO's SOFT weights (it once used them only as a > 0 mask, so every
 # soft-weighting LO refit the outliers at full weight), and the posterior-IRLS
 # LO must run until its cost stops falling (it once stopped after two cycles).
@@ -24,17 +24,17 @@ using Random
 using StableRNGs
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: Point2, Uncertain, CovMat, UnlabeledFrame, Line2D, HuberShape
-using VisualGeometryToolkitCore: coeffs, converged, estimate, geom, iterations, retcode   # VGC accessors (public)
-using VisualGeometryToolkitCore: data_size, minimal_sample_size   # the constraint-problem contract (VGC)
-using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: coeffs, successful_retcode, geom
+using VisualGeometryToolkitCore: data_size, minimal_sample_size
+using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
+using VisualGeometryToolkitEstimation: _heteroscedastic_line, RansacWorkspace
 
 
 
 @testset "line fitting" begin
 
-    @testset "fit_line — heteroscedastic (Uncertain points)" begin
+    @testset "the heteroscedastic line (Uncertain points)" begin
         rng = StableRNG(29)
         # Half the points are 100× noisier; the weighted fit must ignore them.
         pts = Uncertain{Point2{Float64}, CovMat{2, Float64, SMatrix{2, 2, Float64, 4}, UnlabeledFrame{2}}}[]
@@ -44,11 +44,11 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
             Σ = SMatrix{2, 2, Float64}(1.0e-8, 0.0, 0.0, σ^2)
             push!(pts, Uncertain(Point2{Float64}(Float64(i), y), CovMat(Σ)))
         end
-        res = fit_line(pts)
+        res = _heteroscedastic_line(pts)
         # Precise points lie close to the recovered line.
-        errs = [abs(signed_distance(geom(estimate(res)), geom(pts[i]))) for i in 1:2:59]
+        errs = [abs(signed_distance(geom(res.u), geom(pts[i]))) for i in 1:2:59]
         @test maximum(errs) < 0.1
-        @test res.ν == 58
+        @test res.metadata.ν == 58
     end
 
     @testset "LineFittingProblem — buffer type and LO refit" begin
@@ -97,8 +97,8 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
     # (The Student-t + uniform IRLS version is LocalOptimizationDoneRight's test.)
     @testset "Irls{Welsch} recovers the line through its soft weights" begin
         prob, θ₀ = contaminated_line(StableRNG(57))
-        r = locally_optimize(prob, θ₀; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), scoring = MsacScoring(prob; threshold = 0.1))   # 10σ; the outliers sit 0.475 off the seed
-        line = estimate(r)
+        r = solve(RefineProblem(prob, θ₀), LocalOptimization(Irls{WelschShape}(efficiency_constant = 1.5); scoring = MsacScoring(prob; threshold = 0.1)))   # 10σ; the outliers sit 0.475 off the seed
+        line = r.u
         @test abs(signed_distance(line, Point2(0.0, 0.0))) < 0.006
         @test abs(signed_distance(line, Point2(56.0, 0.0))) < 0.006
         @test count(inlier_mask(r)[1:57]) >= 55 && !any(inlier_mask(r)[58:60])
@@ -116,9 +116,9 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         ws = RansacWorkspace(prob, sc, lo)
         _, k = VgtkCore.score_model!(ws.buf, sc, prob, θ₀)
         est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
-        @test iterations(est) > 2
+        @test est.stats.nsteps > 2
         @test retcode_symbol(est) in (:converged, :max_iterations)
-        @test abs(signed_distance(estimate(est), Point2(28.0, 0.0))) < abs(signed_distance(θ₀, Point2(28.0, 0.0)))
+        @test abs(signed_distance(est.u, Point2(28.0, 0.0))) < abs(signed_distance(θ₀, Point2(28.0, 0.0)))
     end
 
     @testset "Irls survives a failed refit" begin
@@ -128,9 +128,9 @@ using VisualGeometryToolkitEstimation: fit_line, RansacWorkspace
         rng = StableRNG(59)
         pts = [SVector(Float64(i), 1.0 + 0.5i + 0.01 * randn(rng)) for i in 1:40]
         prob = InhomLineFittingProblem(pts)
-        r = ransac(prob, MsacScoring(prob; threshold = 0.05); local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5), rng = StableRNG(60))
-        @test converged(r)
-        @test VgtkCore.retcode_symbol(r.lo_retcode, r.lo_stop_rule) === :solve_failed
+        r = solve(EstimationProblem(prob), Ransac(; scoring = MsacScoring(prob; threshold = 0.05), local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5)); rng = StableRNG(60))
+        @test successful_retcode(r)
+        @test VgtkCore.retcode_symbol(r.metadata.lo_retcode, r.metadata.lo_stop_rule) === :solve_failed
     end
 
 end

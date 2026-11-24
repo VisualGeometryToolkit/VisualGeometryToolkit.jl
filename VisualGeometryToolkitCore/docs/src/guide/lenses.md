@@ -134,7 +134,7 @@ name or by group (`:k` for `k1, k2, …`), `()` by default (everything is
 refined; a camera's skew, the gauge, is held by construction, so naming it
 changes nothing).
 [`LensSpec`](@ref)`(family; fixed)` and VisualGeometryToolkitEstimation's
-`refine_camera_and_poses` take it, and [`free_parameter_names`](@ref) resolves
+`CameraPosesProblem refine` take it, and [`free_parameter_names`](@ref) resolves
 it to the names that stay free —
 `free_parameter_names((:f, :aspect, :skew, :cx, :cy, :k1, :k2), (:aspect, :k))`
 is `(:f, :cx, :cy)`. A name or group that names nothing of the model, or a

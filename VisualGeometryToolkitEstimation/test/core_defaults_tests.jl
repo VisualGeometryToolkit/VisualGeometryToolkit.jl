@@ -1,6 +1,6 @@
 @testitem "core_defaults" setup = [RadialCameraScene, EpipolarScenes, HomographyScenes, PoseScenes, DivisionBoards, Contamination,
-                                   ConicScenes, RotationScene, FindScenes] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessor
+                                   ConicScenes, RotationScene, FindScenes, RefineSolve] begin
+    using VisualGeometryToolkitCore: inlier_mask
     using VisualGeometryToolkitCore: retcode_symbol
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -25,13 +25,10 @@ using Test, Random, LinearAlgebra, StaticArrays, StructArrays
 using StableRNGs
 using Rotations: RotMatrix, RotXYZ
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: MsacScoring, TLSShape, converged, estimate, correspondences, radial_transfer, RadialHomography,
-    HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
+using VisualGeometryToolkitCore: MsacScoring, TLSShape, correspondences, radial_transfer, RadialHomography, HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, WelschShape, HuberShape, Circle
-using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem,
-    RadialCameraProblem, find_radial_homography, find_radial_camera, HandEyeProblem,
-    RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
+using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem, RadialCameraProblem, HandEyeProblem, RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
 
 thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
 
@@ -39,10 +36,10 @@ thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
 # The default run and the run with its default spelled out (MSAC at the class
 # threshold in the problem's residual unit) are the same run.
 function same_run(r_default, r_explicit)
-    @test r_default !== nothing && converged(r_default)
-    @test estimate(r_default) == estimate(r_explicit)
+    @test r_default !== nothing && successful_retcode(r_default)
+    @test r_default.u == r_explicit.u
     @test inlier_mask(r_default) == inlier_mask(r_explicit)
-    @test r_default.quality == r_explicit.quality
+    @test r_default.metadata.quality == r_explicit.metadata.quality
 end
 
 @testset "the class scorers of record: MSAC at the threshold conventions" begin
@@ -59,7 +56,7 @@ end
     # the default scorer, and the workspace a problem type is pre-allocated for
     cs, _ = h_scene()
     p = HomographyProblem(cs)
-    @test _class_scoring(p, :homography, nothing) === MsacScoring(p; threshold = 3.0)
+    @test _class_scoring(p, VgtkCore.ClassDefault()) === MsacScoring(p; threshold = 3.0)
     @test _width_unit(p) === nothing
     ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
     @test ws.buf.scoring_ws isa VgtkCore.ThresholdScoringWorkspace
@@ -69,58 +66,56 @@ end
     @testset "homography" begin
         cs, n_in = h_scene()
         p = HomographyProblem(cs)
-        r = find_homography(cs; rng = StableRNG(1))
-        same_run(r, find_homography(cs; scoring = MsacScoring(p; threshold = thr(:homography)), rng = StableRNG(1)))
+        r = solve(EstimationProblem(HomographyProblem(cs)), Ransac(); rng = StableRNG(1))
+        same_run(r, solve(EstimationProblem(HomographyProblem(cs)), Ransac(; scoring = MsacScoring(p; threshold = thr(:homography))); rng = StableRNG(1)))
         @test count(inlier_mask(r)[1:n_in]) > 0.9 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 10
-        @test r.lo_retcode != VgtkCore.ReturnCode.Default                   # the default LO ran
+        @test r.metadata.lo_retcode != VgtkCore.ReturnCode.Default                   # the default LO ran
     end
     @testset "fundmat" begin
         u₁, u₂, n_in = stereo_scene(PCAM)
         cs = StructArray(u₁ .=> u₂)
-        r = find_fundmat(cs; rng = StableRNG(2))
-        same_run(r, find_fundmat(cs; scoring = MsacScoring(FundMatProblem(cs); threshold = thr(:fundmat)), rng = StableRNG(2)))
+        r = solve(EstimationProblem(FundMatProblem(cs)), Ransac(); rng = StableRNG(2))
+        same_run(r, solve(EstimationProblem(FundMatProblem(cs)), Ransac(; scoring = MsacScoring(FundMatProblem(cs); threshold = thr(:fundmat))); rng = StableRNG(2)))
         @test count(inlier_mask(r)[1:n_in]) > 0.75 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 15
     end
     @testset "essential" begin
         u₁, u₂, n_in = stereo_scene(ECAM; seed = 14)
         cs = correspondences(u₁, u₂)
-        r = find_essential(ECAM, ECAM, cs; rng = StableRNG(3))
+        r = solve(EstimationProblem(EssentialProblem(ECAM, ECAM, cs)), Ransac(); rng = StableRNG(3))
         p = EssentialProblem(ECAM, ECAM, cs)
-        same_run(r, find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = thr(:essential)), rng = StableRNG(3)))
+        same_run(r, solve(EstimationProblem(EssentialProblem(ECAM, ECAM, cs)), Ransac(; scoring = MsacScoring(p; threshold = thr(:essential))); rng = StableRNG(3)))
         @test count(inlier_mask(r)[1:n_in]) > 0.75 * n_in && count(inlier_mask(r)[(n_in + 1):end]) < 15
     end
     @testset "absolute pose" begin
         cs = pnp_scene()
-        r = find_absolute_pose(PCAM, cs; rng = StableRNG(4))
+        r = solve(EstimationProblem(AbsolutePoseProblem(PCAM, cs)), Ransac(); rng = StableRNG(4))
         p = AbsolutePoseProblem(PCAM, cs)
-        same_run(r, find_absolute_pose(PCAM, cs; scoring = MsacScoring(p; threshold = thr(:absolute_pose)), rng = StableRNG(4)))
+        same_run(r, solve(EstimationProblem(AbsolutePoseProblem(PCAM, cs)), Ransac(; scoring = MsacScoring(p; threshold = thr(:absolute_pose))); rng = StableRNG(4)))
         @test count(inlier_mask(r)[1:120]) > 100
-        @test rotation_error_deg(estimate(r), R_PNP) < 1.0 && translation_error(estimate(r), T_PNP) < 0.05
+        @test rotation_error_deg(r.u, R_PNP) < 1.0 && translation_error(r.u, T_PNP) < 0.05
     end
     @testset "radial homography" begin
         pairs, gt = radial_homography_scene()
         c = (RW / 2, RH / 2)
-        r = find_radial_homography(pairs; center = c, rng = StableRNG(5))
+        r = solve(EstimationProblem(RadialHomographyProblem(pairs; center = c)), Ransac(); rng = StableRNG(5))
         p = RadialHomographyProblem(pairs; center = c)
-        same_run(r, find_radial_homography(pairs; center = c, scoring = MsacScoring(p; threshold = thr(:radial_homography)),
-                                           rng = StableRNG(5)))
+        same_run(r, solve(EstimationProblem(RadialHomographyProblem(pairs; center = c)), Ransac(; scoring = MsacScoring(p; threshold = thr(:radial_homography))); rng = StableRNG(5)))
         @test count(inlier_mask(r) .& gt) >= count(gt) - 3 && count(inlier_mask(r) .& .!gt) <= 2
     end
     @testset "radial camera" begin
         pairs, gt = radial_camera_pairs()
-        r = find_radial_camera(pairs; center = RC_CENTER, rng = StableRNG(6))
+        r = solve(EstimationProblem(RadialCameraProblem(pairs; center = RC_CENTER)), Ransac(); rng = StableRNG(6))
         p = RadialCameraProblem(pairs; center = RC_CENTER)
-        same_run(r, find_radial_camera(pairs; center = RC_CENTER, scoring = MsacScoring(p; threshold = thr(:radial_camera)),
-                                       rng = StableRNG(6)))
+        same_run(r, solve(EstimationProblem(RadialCameraProblem(pairs; center = RC_CENTER)), Ransac(; scoring = MsacScoring(p; threshold = thr(:radial_camera))); rng = StableRNG(6)))
         @test count(inlier_mask(r) .& gt) >= count(gt) - 2 && count(inlier_mask(r) .& .!gt) == 0
     end
     @testset "hand-eye (a fraction of the characteristic length)" begin
         cs, X = hand_eye_scene()
-        r = find_hand_eye(cs; rng = StableRNG(7))
+        r = solve(EstimationProblem(HandEyeProblem(cs)), Ransac(); rng = StableRNG(7))
         p = HandEyeProblem(cs; min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")))
         @test _width_unit(p) == p.char_length
-        same_run(r, find_hand_eye(cs; scoring = MsacScoring(p; threshold = thr(:hand_eye) * p.char_length), rng = StableRNG(7)))
-        @test norm(translation(estimate(r)) - translation(X)) < 0.01
+        same_run(r, solve(EstimationProblem(HandEyeProblem(cs)), Ransac(; scoring = MsacScoring(p; threshold = thr(:hand_eye) * p.char_length)); rng = StableRNG(7)))
+        @test norm(translation(r.u) - translation(X)) < 0.01
     end
 end
 
@@ -132,12 +127,20 @@ function deq(a::T, b::T) where {T}
     fieldcount(T) == 0 && return isequal(a, b)
     return all(deq(getfield(a, f), getfield(b, f)) for f in fieldnames(T))
 end
+# two results of one problem by two spellings of one algorithm: equal in every field but the recorded algorithm
+deq(a::VgtkCore.FitResult, b::VgtkCore.FitResult) =
+    all(f -> deq(getfield(a, f), getfield(b, f)), (:u, :resid, :retcode, :stats, :original, :stop_rule, :rms, :n, :metadata))
+# a find on the family problem `p` from a find's old keyword set: `rng` the solve's, the rest `Ransac`'s
+function run(p, nt::NamedTuple)
+    alg = Ransac(; Base.structdiff(nt, NamedTuple{(:rng,)})...)
+    return haskey(nt, :rng) ? solve(EstimationProblem(p), alg; rng = nt.rng) : solve(EstimationProblem(p), alg)
+end
 
 # The find_* pipelines on the one robust-estimation schema: each class's scorer is its [pipelines.<class>] `scoring`
 # table, read by scoring_from_toml; the defaults are today's (MSAC at the class conventions), bit for bit; a Student-t +
 # uniform scorer built from a table reaches the pipeline with exactly its outlier half-width and runs as `ransac` on
 # the class's problem; each scorer takes its own width key, and a bare width keyword is refused.
-@testset "find_*: the one scorer schema, every class" begin
+@testset "Ransac: the one scorer schema, every class" begin
     TODAY = Dict(:homography => 3.0, :fundmat => 3.0, :essential => 1.0, :rotation => 1.0, :circle => 1.0,
                  :ellipse => 1.0, :absolute_pose => 8.0, :radial_homography => 3.0, :radial_camera => 3.0, :hand_eye => 0.01)
     cs_h, _ = h_scene()
@@ -151,34 +154,27 @@ end
     pts_e, _ = ellipse_scene(Xoshiro(34), 300; outl = 0.3)
     cs_r = rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120; outl = 0.3)[1]
     min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
-    cases = (   # class, the find_* on its data, the class's problem
-        (:homography, kw -> find_homography(cs_h; kw...), HomographyProblem(cs_h)),
-        (:fundmat, kw -> find_fundmat(cs_f; kw...), FundMatProblem(cs_f)),
-        (:essential, kw -> find_essential(ECAM, ECAM, cs_e; kw...), EssentialProblem(ECAM, ECAM, cs_e)),
-        (:rotation, kw -> find_rotation(FISHEYE, FISHEYE, cs_r; kw...), RotationProblem(FISHEYE, FISHEYE, cs_r)),
-        (:circle, kw -> find_circle(pts_c; kw...), CircleProblem(pts_c)),
-        (:ellipse, kw -> find_ellipse(pts_e; kw...), EllipseProblem(pts_e)),
-        (:absolute_pose, kw -> find_absolute_pose(PCAM, cs_p; kw...), AbsolutePoseProblem(PCAM, cs_p)),
-        (:radial_homography, kw -> find_radial_homography(rh; center = c_rh, kw...), RadialHomographyProblem(rh; center = c_rh)),
-        (:radial_camera, kw -> find_radial_camera(rc; center = RC_CENTER, kw...), RadialCameraProblem(rc; center = RC_CENTER)),
-        (:hand_eye, kw -> find_hand_eye(he; kw...), HandEyeProblem(he; min_rel_angle)),
+    cases = (   # class, the class's family problem on its data
+        (:homography, HomographyProblem(cs_h)), (:fundmat, FundMatProblem(cs_f)), (:essential, EssentialProblem(ECAM, ECAM, cs_e)),
+        (:rotation, RotationProblem(FISHEYE, FISHEYE, cs_r)), (:circle, CircleProblem(pts_c)), (:ellipse, EllipseProblem(pts_e)),
+        (:absolute_pose, AbsolutePoseProblem(PCAM, cs_p)), (:radial_homography, RadialHomographyProblem(rh; center = c_rh)),
+        (:radial_camera, RadialCameraProblem(rc; center = RC_CENTER)), (:hand_eye, HandEyeProblem(he; min_rel_angle)),
     )
-    for (seed, (class, run, p)) in enumerate(cases)
+    for (seed, (class, p)) in enumerate(cases)
         @testset "$class" begin
             P = typeof(p)
             tbl = _dflt("pipelines.$class", "scoring")
             # the class's scorer of record: today's MSAC at today's value, in the problem's unit
             τ = TODAY[class] * (class === :hand_eye ? p.char_length : 1.0)
             @test tbl == Dict("type" => "msac", "threshold" => TODAY[class])
-            @test _class_scoring(p, class, nothing) === MsacScoring(p; threshold = τ)
-            @test deq(run((; rng = StableRNG(seed))), run((; scoring = MsacScoring(p; threshold = τ), rng = StableRNG(seed))))
+            @test _class_scoring(p, VgtkCore.ClassDefault()) === MsacScoring(p; threshold = τ)
+            @test deq(run(p, (; rng = StableRNG(seed))), run(p, (; scoring = MsacScoring(p; threshold = τ), rng = StableRNG(seed))))
             # a Student-t + uniform scorer from its table: exactly its outlier half-width, through the find_* unchanged
             h = 7.25
             st = scoring_from_toml(Dict("type" => "student_t_uniform", "outlier_halfwidth" => h); problem = P)
             @test st isa StudentTUniformScoring && VgtkCore.outlier_halfwidth(st) === h
-            @test deq(run((; scoring = st, rng = StableRNG(seed))),
-                      VgtkEstimation.ransac(p, st; local_optimization_strategy = _dflt_lo(class), rng = StableRNG(seed),
-                                            config = RansacConfig()))
+            @test deq(run(p, (; scoring = st, rng = StableRNG(seed))),
+                      solve(EstimationProblem(p), Ransac(; scoring = st, local_optimization_strategy = _dflt_lo(class), config = RansacConfig()); rng = StableRNG(seed)))
             # the LO follows the scorer: the class's strategy has no width of its own
             @test VgtkCore.lo_width(_dflt_lo(class)) === nothing || class in (:circle, :ellipse)
             # each scorer takes its own width key only (TOML), and a bare width keyword is refused (function level)
@@ -189,9 +185,9 @@ end
             @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac", TH => 3.0, OH => 3.0); problem = P)
             @test_throws ArgumentError scoring_from_toml(Dict("type" => "msac"); problem = P)                  # missing
             @test_throws ArgumentError scoring_from_toml(Dict("type" => "student_t_uniform"); problem = P)     # missing
-            @test_throws ArgumentError run((; scoring = st, Symbol(TH) => 3.0))
-            @test_throws ArgumentError run((; scoring = MsacScoring(p; threshold = τ), Symbol(OH) => 3.0))
-            @test_throws ArgumentError run((; Symbol(TH) => τ))
+            @test_throws ArgumentError run(p, (; scoring = st, Symbol(TH) => 3.0))
+            @test_throws ArgumentError run(p, (; scoring = MsacScoring(p; threshold = τ), Symbol(OH) => 3.0))
+            @test_throws ArgumentError run(p, (; Symbol(TH) => τ))
             @test_throws MethodError MsacScoring(p; Symbol(OH) => 3.0)
             @test_throws MethodError StudentTUniformScoring(p; Symbol(TH) => 3.0)
         end
@@ -211,18 +207,16 @@ end
 @testset "the width keywords: refused, a width is its scorer's" begin
     cs, _ = h_scene()
     p = HomographyProblem(cs)
-    θ = estimate(find_homography(cs; rng = StableRNG(1)))
+    θ = solve(EstimationProblem(HomographyProblem(cs)), Ransac(); rng = StableRNG(1)).u
     lo = nothing
     sc = MsacScoring(p; threshold = 3.0)
     # a bare `threshold` and a bare `outlier_halfwidth` are refused on every entry, alone or beside a scorer,
     # naming `scoring` and the scorer that takes the width
     for (key, val, scorer) in ((:threshold, 3.0, "MsacScoring"), (:outlier_halfwidth, 20.0, "StudentTUniformScoring"))
         for call in (
-                () -> find_homography(cs; (; key => val)...),
-                () -> find_homography(cs; scoring = sc, (; key => val)...),
-                () -> locally_optimize(p, θ; scoring = sc, local_optimization_strategy = lo, (; key => val)...),
-                () -> locally_optimize(p, VgtkCore.FixedModels(1, (θ, θ)); scoring = sc,
-                                       local_optimization_strategy = lo, (; key => val)...),
+                () -> Ransac(; (; key => val)...),
+                () -> Ransac(; scoring = sc, (; key => val)...),
+                () -> LocalOptimization(lo; scoring = sc, (; key => val)...),
             )
             err = try
                 call(); nothing
@@ -230,16 +224,16 @@ end
                 e
             end
             @test err isa ArgumentError
-            @test occursin("`$(key)` is no keyword of the RANSAC entries", err.msg)
+            @test occursin("`$(key)` is no keyword of a RANSAC algorithm", err.msg)
             @test occursin("scoring = $(scorer)", err.msg)
         end
     end
-    # `locally_optimize` takes no class: its scorer is required
-    @test_throws UndefKeywordError(:scoring) locally_optimize(p, θ; local_optimization_strategy = lo)
-    r = locally_optimize(p, θ; scoring = sc, local_optimization_strategy = Irls{TLSShape}())
-    @test converged(r)
+    # `LocalOptimization` takes no class: its scorer is required
+    @test_throws UndefKeywordError(:scoring) solve(RefineProblem(p, θ), LocalOptimization(lo))
+    r = solve(RefineProblem(p, θ), LocalOptimization(Irls{TLSShape}(); scoring = sc))
+    @test successful_retcode(r)
     # a non-positive threshold is the scorer's refusal
-    @test_throws ArgumentError find_homography(cs; scoring = MsacScoring(p; threshold = 0.0))
+    @test_throws ArgumentError solve(EstimationProblem(HomographyProblem(cs)), Ransac(; scoring = MsacScoring(p; threshold = 0.0)))
 end
 
 @testset "essential: a sub-detector threshold is refused" begin
@@ -247,51 +241,37 @@ end
     cs = correspondences(u₁, u₂)
     p = EssentialProblem(ECAM, ECAM, cs)
     err = try
-        find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.02)); nothing
+        solve(EstimationProblem(EssentialProblem(ECAM, ECAM, cs)), Ransac(; scoring = MsacScoring(p; threshold = 0.02))); nothing
     catch e
         e
     end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
-    @test_throws ArgumentError find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.05))
+    @test_throws ArgumentError solve(EstimationProblem(EssentialProblem(ECAM, ECAM, cs)), Ransac(; scoring = MsacScoring(p; threshold = 0.05)))
     @test decision_boundary(MsacScoring(p; threshold = 0.06), nothing) == 0.06
-    @test find_essential(ECAM, ECAM, cs; scoring = MsacScoring(p; threshold = 0.06), rng = StableRNG(8)) !== nothing   # at the floor: accepted
+    @test solve(EstimationProblem(EssentialProblem(ECAM, ECAM, cs)), Ransac(; scoring = MsacScoring(p; threshold = 0.06)); rng = StableRNG(8)) !== nothing   # at the floor: accepted
 end
 
-@testset "refine_*: the keywords of the refine contract" begin
-    kw(m) = Set(Base.kwarg_decl(m))
-    # the shared keywords: the strategy, the scale input, the workspace; anything else is refused by name
-    # (refine_contract_tests.jl)
-    @test kw(only(methods(VgtkEstimation._refine_spec))) ==
-        Set([:optimization_strategy, :scale, :width, :workspace, Symbol("rest...")])
-    # each refine_* forwards the rest, and declares only its find_*'s model keywords — minus those that choose
-    # hypotheses (the radial centre comes with the model) and `extent` (an extent check reads a consensus set)
-    sampling_only = [:center, :extra_check, :minimal, :extent]
-    for (f, g) in (find_homography => refine_homography, find_fundmat => refine_fundmat,
-                   find_essential => refine_essential, find_absolute_pose => refine_absolute_pose,
-                   find_rotation => refine_rotation, find_circle => refine_circle, find_ellipse => refine_ellipse,
-                   find_radial_homography => VgtkEstimation.refine_radial_homography,
-                   find_radial_camera => VgtkEstimation.refine_radial_camera, find_hand_eye => refine_hand_eye)
-        # (refine_absolute_pose's bearing form has no find_*: its keywords are the shared set alone)
-        gm = g === refine_absolute_pose ? [m for m in methods(g) if m.nargs == 4] : collect(methods(g))
-        @test Set(kw.(gm)) == Set(setdiff(k, sampling_only) for k in kw.(methods(f)))
-        @test all(m -> Symbol("kwargs...") in kw(m), methods(g))
-        g === refine_absolute_pose && @test all(m -> kw(m) == Set([Symbol("kwargs...")]), setdiff(methods(g), gm))
-    end
+@testset "LevenbergMarquardt refine: the keywords of the refine contract" begin
+    # the run settings are the solve keywords — the scale input and the stops; the strategy is the algorithm's field
+    m = only(methods(VgtkCore.__solve, (RefineProblem{<:HomographyProblem, <:Any, VgtkCore.NullParameters}, LevenbergMarquardt)))
+    @test Set(Base.kwarg_decl(m)) == Set([:scale, :width, :stops])
+    @test fieldnames(LevenbergMarquardt) == (:optimization_strategy, :damping)
     # the class default of record: Triggs{Welsch}, no width of its own ([refine.<class>])
     for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
                   :radial_homography, :radial_camera, :hand_eye)
-        @test VgtkEstimation._dflt_refine_strategy(class) == Triggs{WelschShape}()
+        @test VgtkEstimation._refine_default(Val(class)) == Triggs{WelschShape}()
     end
     pts, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     g = Circle(Point2(C₀ + SVector(1.0, -1.0)), R₀ + 1.0)
-    @test converged(refine_circle(g, pts; scale = 0.5, workspace = RansacWorkspace(CircleProblem, 300)))
+    @test successful_retcode(solve(RefineProblem(CircleProblem(pts), g), LevenbergMarquardt(); scale = 0.5))
+    # a find's settings are no refine's: no such solve keyword (D5: an unknown solve keyword is a MethodError)
     for (k, v) in (:max_trials => 10, :min_trials => 1, :config => RansacConfig(), :rng => StableRNG(1),
                    :scoring => MsacScoring(CircleProblem; threshold = 1.0), :threshold => 2.0, :outlier_halfwidth => 5.0)
-        @test_throws ArgumentError refine_circle(g, pts; scale = 0.5, (; k => v)...)
+        @test_throws MethodError solve(RefineProblem(CircleProblem(pts), g), LevenbergMarquardt(); scale = 0.5, (; k => v)...)
     end
 end
 
-@testset "refine_*: from the raw incumbent at its find_*'s scale, every class" begin
+@testset "LevenbergMarquardt refine: from the raw incumbent at its find's scale, every class" begin
     # Each class's find_* scene; the guess is the RANSAC incumbent with NO local
     # optimization (a minimal-sample model) and the scale handed on is that
     # search's ŝ (`scale = <the find result>`, the documented hand-off). Under
@@ -322,48 +302,42 @@ end
     rc, _ = radial_camera_pairs()
     hecs, _ = hand_eye_scene()
     cases = (
-        (:circle, (; kw...) -> find_circle(pts; kw...), (θ; kw...) -> refine_circle(θ, pts; kw...)),
-        (:ellipse, (; kw...) -> find_ellipse(epts; kw...), (θ; kw...) -> refine_ellipse(θ, epts; kw...)),
-        (:homography, (; kw...) -> find_homography(hcs; kw...), (θ; kw...) -> refine_homography(θ, hcs; kw...)),
-        (:fundmat, (; kw...) -> find_fundmat(fcs; kw...), (θ; kw...) -> refine_fundmat(θ, fcs; kw...)),
-        (:essential, (; kw...) -> find_essential(ECAM, ECAM, ecs; kw...), (θ; kw...) -> refine_essential(θ, ECAM, ECAM, ecs; kw...)),
-        (:absolute_pose, (; kw...) -> find_absolute_pose(PCAM, pcs; kw...), (θ; kw...) -> refine_absolute_pose(θ, PCAM, pcs; kw...)),
-        (:rotation, (; kw...) -> find_rotation(FISHEYE, FISHEYE, rcs; kw...), (θ; kw...) -> refine_rotation(θ, FISHEYE, FISHEYE, rcs; kw...)),
-        (:radial_homography, (; kw...) -> find_radial_homography(rh; center = c, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_homography(θ, rh; kw...)),
-        (:radial_camera, (; kw...) -> find_radial_camera(rc; center = RC_CENTER, kw...), (θ; kw...) -> VgtkEstimation.refine_radial_camera(θ, rc; kw...)),
-        (:hand_eye, (; kw...) -> find_hand_eye(hecs; kw...), (θ; kw...) -> refine_hand_eye(θ, hecs; kw...)),
+        (:circle, CircleProblem(pts)), (:ellipse, EllipseProblem(epts)), (:homography, HomographyProblem(hcs)),
+        (:fundmat, FundMatProblem(fcs)), (:essential, EssentialProblem(ECAM, ECAM, ecs)), (:absolute_pose, AbsolutePoseProblem(PCAM, pcs)),
+        (:rotation, RotationProblem(FISHEYE, FISHEYE, rcs)), (:radial_homography, RadialHomographyProblem(rh; center = c)),
+        (:radial_camera, RadialCameraProblem(rc; center = RC_CENTER)), (:hand_eye, HandEyeProblem(hecs)),
     )
-    for (class, find, refine) in cases
-        raw_r = find(; local_optimization_strategy = nothing, rng = StableRNG(3))
-        raw = estimate(raw_r)
-        f = find(; rng = StableRNG(3))
+    for (class, p) in cases
+        raw_r = solve(EstimationProblem(p), Ransac(; local_optimization_strategy = nothing); rng = StableRNG(3))
+        raw = raw_r.u
+        f = solve(EstimationProblem(p), Ransac(); rng = StableRNG(3))
         m = inlier_mask(f)
         for kws in ((;), (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5)))
             class === :essential && kws !== (;) && continue
-            r = refine(raw; scale = raw_r, kws...)   # the search's own scale, handed on
-            @test converged(r) || (class === :fundmat && retcode_symbol(r) === :max_iterations)
+            r = lm(p, raw; scale = raw_r, kws...)   # the search's own scale, handed on
+            @test successful_retcode(r) || (class === :fundmat && retcode_symbol(r) === :max_iterations)
             @test VgtkCore.scale_source(r) === VgtkCore.ScaleUpstream && VgtkCore.noise_scale(r) == VgtkCore.noise_scale(raw_r)
-            @test maximum(abs, Float64.(r.residuals[m]) .- Float64.(f.residuals[m])) < (class === :fundmat ? 0.65 : 0.3) * f.rms
-            @test isapprox(sqrt(sum(abs2, Float64.(r.residuals[m])) / count(m)), f.rms; rtol = class === :fundmat ? 0.025 : 0.02)
-            τ = maximum(Float64.(f.residuals[m]))   # find_*'s consensus is the residuals within its threshold
-            @test count((Float64.(r.residuals) .<= τ) .!= m) <= max(3, round(Int, 0.03 * count(m)))
+            @test maximum(abs, Float64.(r.resid[m]) .- Float64.(f.resid[m])) < (class === :fundmat ? 0.65 : 0.3) * f.rms
+            @test isapprox(sqrt(sum(abs2, Float64.(r.resid[m])) / count(m)), f.rms; rtol = class === :fundmat ? 0.025 : 0.02)
+            τ = maximum(Float64.(f.resid[m]))   # find_*'s consensus is the residuals within its threshold
+            @test count((Float64.(r.resid) .<= τ) .!= m) <= max(3, round(Int, 0.03 * count(m)))
         end
     end
 end
 
-@testset "refine_*: from a perturbed guess on contaminated data, and from the truth on clean data" begin
+@testset "LevenbergMarquardt refine: from a perturbed guess on contaminated data, and from the truth on clean data" begin
     centre(e) = SVector(e.center[1], e.center[2])
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
     # the default Triggs{Welsch} at the scene's σ; TLS (no efficiency constant) at a width: 3σ
     for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
-        cr = estimate(refine_circle(g, pts; kws...))
+        cr = lm(CircleProblem(pts), g; kws...).u
         @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
     for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
-        e = estimate(refine_ellipse(ge, epts; kws...))
+        e = lm(EllipseProblem(epts), ge; kws...).u
         @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end
     # the exact model on clean data comes back, under least squares and the default
@@ -371,9 +345,9 @@ end
     c₀ = Circle(Point2(C₀), R₀)
     eclean, _ = ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0)
     for kws in ((; optimization_strategy = nothing), (; scale = 0.5))
-        cr = estimate(refine_circle(c₀, clean; kws...))
+        cr = lm(CircleProblem(clean), c₀; kws...).u
         @test norm(centre(cr) - C₀) < 1.0e-8 && abs(cr.r - R₀) < 1.0e-8
-        e = estimate(refine_ellipse(E₀, eclean; kws...))
+        e = lm(EllipseProblem(eclean), E₀; kws...).u
         @test norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8
     end
     src, dst = homography_pairs(StableRNG(45), H_PX; n_in = 100, n_out = 0, σ = 0.0, source = gaussian_source,
@@ -382,7 +356,7 @@ end
     for kws in ((; optimization_strategy = nothing), (; scale = 1.0),
                 (; optimization_strategy = Triggs{CauchyShape}(efficiency_constant = 2.5), scale = 1.0),
                 (; optimization_strategy = Triggs{HuberShape}(), scale = 1.0))
-        Ĥ = SMatrix{3, 3, Float64, 9}(estimate(refine_homography(HomographyMat{Float64}(Tuple(H)), StructArray(src .=> dst); kws...)))
+        Ĥ = SMatrix{3, 3, Float64, 9}(lm(HomographyProblem(StructArray(src .=> dst)), HomographyMat{Float64}(Tuple(H)); kws...).u)
         @test norm(Ĥ / Ĥ[3, 3] - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-8
     end
 end

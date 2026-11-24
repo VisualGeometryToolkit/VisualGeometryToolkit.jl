@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # The hypothesis generator of a benchmark pool: the RANSAC trial (`_draw_trial!`,
-# loop.jl — the same draw → test_sample → solve → fit_hypothesis → test_model
+# loop.jl — the same draw → test_sample → sample_models → sample_hypothesis → test_model
 # that `ransac` runs) repeated until enough samples have produced a model. It
 # verifies no consensus and selects nothing, so it is not a `find_*`; a random
 # draw is a trial, and `draw_sample!` names one trial's sample.
@@ -21,7 +21,7 @@ model frame:
   each model was solved from (repeated across siblings);
 - `trials::Int`: draws made;
 - `samples_accepted::Int`: draws that produced at least one model;
-- `n_solutions::Int`: solver solutions before `fit_hypothesis`/`test_model`.
+- `n_solutions::Int`: solver solutions before `sample_hypothesis`/`test_model`.
 """
 struct Hypotheses{M}
     models::Vector{M}
@@ -41,7 +41,7 @@ is kept, the last accepted sample's included. No scoring, no consensus, no
 local optimization.
 
 Each trial is the RANSAC trial, the one code path: `draw_sample!`, the
-problem's `test_sample`, `solve`, then per solution `fit_hypothesis` and
+problem's `test_sample`, `sample_models`, then per solution `sample_hypothesis` and
 `test_model`. The sampler is prepared for the run as `ransac` prepares it
 (`reset!(sampler, max_trials)`: a PROSAC schedule spans `max_trials`). Every
 draw comes from `rng`, so a seeded `rng` makes the result a pure function of

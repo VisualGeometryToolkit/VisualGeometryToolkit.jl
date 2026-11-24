@@ -1,8 +1,9 @@
 @testitem "radial_camera" setup = [DivisionBoards, Contamination] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: EstimationProblem, solve
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-# RadialCameraProblem + find_radial_camera — the 1-D radial camera of one board
+# RadialCameraProblem + Ransac on a RadialCameraProblem — the 1-D radial camera of one board
 # (VGC RadialCamera: rows 1–2 of the plane homography, invariant to focal
 # length and to radial distortion about the centre). Ground truth: a board
 # under a pinhole K with the principal point at the image middle, then the
@@ -14,12 +15,11 @@ using StaticArrays, LinearAlgebra, Random
 using FiniteDiff: FiniteDiff
 using Statistics: median
 using Rotations: RotXYZ
-using VisualGeometryToolkitCore: center, estimate, radial_rows   # VGC accessors (public)
+using VisualGeometryToolkitCore: center, radial_rows
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RadialCameraProblem, find_radial_camera, solve, mahalanobis_distances!, data_size, codimension
+using VisualGeometryToolkitEstimation: RadialCameraProblem, mahalanobis_distances!, data_size, codimension
 using VisualGeometryToolkitCore: refine!
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialCamera, radial_camera_5pt,
-    constraint_with_jacobians
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialCamera, radial_camera_5pt, constraint_with_jacobians
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 
 # The 4000 × 3000 frame, its centre, and the board seen through a division lens
@@ -43,12 +43,12 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     @test minimum(abs.(r[.!gt])) > 1.0
     # the minimal solve on five inliers reproduces the truth up to scale
     idx = findall(gt)[[1, 9, 25, 41, 73]]
-    sols = solve(p, idx)
+    sols = VgtkEstimation.sample_models(p, idx)
     @test length(sols) == 1
     @test _pd(sols[1], P_gt) < sqrt(2 * 1.0e-8)
     # a collinear sample is refused, not returned
     col = [i for i in eachindex(pairs) if gt[i] && pairs[i].first[2] == -100.0][1:5]
-    @test length(solve(p, col)) == 0
+    @test length(VgtkEstimation.sample_models(p, col)) == 0
     # the chart refit: from a perturbed seed, the inlier weights bring it back to the truth
     w = Float64.(gt)
     seed = RadialCamera{Float64}(radial_rows(P_gt) + 0.02 * norm(radial_rows(P_gt)) * SMatrix{2, 3, Float64, 6}(0.3, -0.5, 0.8, 0.1, -0.4, 0.6), center(P_gt))
@@ -60,19 +60,19 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     lm = VgtkEstimation.ChartLm(ch, p, sqrt.(w))
     @test VgtkCore.check_rows_jacobian(lm, SVector(0.01, -0.02, 0.005, 0.0, 0.015), data_size(p); atol = 1.0e-8)
     # RANSAC recovers the inlier set and the camera under distortion it never models
-    est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(1))
+    est = solve(EstimationProblem(RadialCameraProblem(pairs; center = _CC)), Ransac(; scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0)); rng = StableRNG(1))
     @test est !== nothing
-    @test _pd(estimate(est), P_gt) < sqrt(2 * 1.0e-6)
+    @test _pd(est.u, P_gt) < sqrt(2 * 1.0e-6)
     m = inlier_mask(est)
     @test count(m .& gt) >= count(gt) - 2 && count(m .& .!gt) == 0
     # with noise: still within the noise floor
     P_gt2, pairs2, gt2 = radial_board(StableRNG(3); σ = 0.3)
-    est2 = find_radial_camera(pairs2; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(2))
+    est2 = solve(EstimationProblem(RadialCameraProblem(pairs2; center = _CC)), Ransac(; scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0)); rng = StableRNG(2))
     @test est2 !== nothing
-    r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), estimate(est2))
+    r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), est2.u)
     @test median(abs.(r2[gt2])) < 0.5
-    @test let r = find_radial_camera(pairs[1:4]; center = _CC, rng = StableRNG(446))
-        VgtkCore.retcode_symbol(r) === :no_model && VgtkCore.iterations(r) == 0 && VgtkCore.estimate(r) === nothing
+    @test let r = solve(EstimationProblem(RadialCameraProblem(pairs[1:4]; center = _CC)), Ransac(); rng = StableRNG(446))
+        VgtkCore.retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
     end
 end
 
@@ -85,8 +85,7 @@ end
 @testset "radial camera (chart rows)" begin
     using VisualGeometryToolkitEstimation: TLSShape, MinimalSolveProblem, ManifoldLiftProvider
     using VisualGeometryToolkitCore: Irls
-    using VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
-        lift_model, lift_residuals
+    using VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model, lift_residuals
     rng = StableRNG(11)
     P_gt, pairs, gt = radial_board(rng; σ = 0.2)
     p = RadialCameraProblem(pairs; center = _CC)
@@ -107,10 +106,10 @@ end
     Jc = FiniteDiff.finite_difference_jacobian(lift_rows, zero(SVector{5, Float64}), Val(:central))
     @test maximum(abs.(J - Jc)) < 1.0e-5 * max(1.0, maximum(abs.(Jc)))
     # the deployed pipeline: RANSAC + the class default
-    est = find_radial_camera(pairs; center = _CC, scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0), rng = StableRNG(4))
+    est = solve(EstimationProblem(RadialCameraProblem(pairs; center = _CC)), Ransac(; scoring = VgtkCore.MsacScoring(RadialCameraProblem; threshold = 5.0)); rng = StableRNG(4))
     @test est !== nothing
-    @test est.lo_retcode != VgtkCore.ReturnCode.Default                  # a local optimization ran
-    rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, estimate(est))
+    @test est.metadata.lo_retcode != VgtkCore.ReturnCode.Default                  # a local optimization ran
+    rr = zeros(length(pairs)); mahalanobis_distances!(rr, p, est.u)
     @test median(abs.(rr[gt])) < 0.4
     @test count(inlier_mask(est) .& .!gt) == 0
     # the shipped default: the core's TLS IRLS, following the scorer

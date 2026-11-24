@@ -72,7 +72,7 @@ end
 estimator_kind(::ScaleMAP) = ClosedFormKind()
 default_algorithm(::EstimationProblem{SquaredScale, <:NamedTuple}) = ScaleMAP(JeffreysPrior())
 function __solve(prob::EstimationProblem{SquaredScale, <:NamedTuple, NullParameters}, alg::ScaleMAP)
-    sums = _solve_context(prob.f, (:rss, :dof), (;), "ScaleMAP")   # the sums, in any order; one naming ArgumentError
+    sums = read_context(prob.f, (:rss, :dof), (;), "ScaleMAP")   # the sums, in any order; one naming ArgumentError
     return closed_form_result(_ig_map_scale(alg.prior, sums.rss, sums.dof), 0)
 end
 

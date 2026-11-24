@@ -56,11 +56,11 @@ bridges
 
 [`chain`](@ref) composes relative transforms along the maximum
 [`spanning_tree`](@ref), the initialization Theia and OpenCV use;
-[`fit_rotation_averaging`](@ref) takes it as `seed = :spanning_tree`.
+[`RotationAveraging`](@ref) takes it as `seed = :spanning_tree`.
 [`filter_cycles`](@ref) drops edges no consistent loop supports before
 averaging, [`filter_by_orientation`](@ref) those that disagree with the averaged
 rotations after it.
-[`fit_filtered_rotation_averaging`](@ref) runs both around the averaging.
+[`FilteredRotationAveraging`](@ref) runs both around the averaging.
 
 ```@docs
 spanning_tree
@@ -69,5 +69,5 @@ triangles
 filter_cycles
 rotation_loop_angle
 filter_by_orientation
-fit_filtered_rotation_averaging
+FilteredRotationAveraging
 ```

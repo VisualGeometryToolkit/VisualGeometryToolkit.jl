@@ -1,5 +1,5 @@
 # view_angle_limit — the honest θ-domain of each lens (projections.jl). The lens
-# regression that caps its fit domain with it (`fit_camera`) lives in
+# regression that caps its fit domain with it (`CameraRegression`) lives in
 # VisualGeometryToolkitEstimation, with its tests.
 @testitem "view_angle" begin
     include(joinpath(pkgdir(VisualGeometryToolkitCore), "test", "fixtures", "pinhole_points.jl"))   # `pinhole_point`

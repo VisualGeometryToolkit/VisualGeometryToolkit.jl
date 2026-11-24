@@ -14,12 +14,11 @@ using LinearAlgebra
 using Random
 using StableRNGs
 using StaticArrays
-using VisualGeometryToolkitCore: solver_covariance, provides_solver_covariance   # the constraint-problem contract (VgtkCore)
+using VisualGeometryToolkitCore: solver_covariance, provides_solver_covariance
 using VisualGeometryToolkitEstimation: BoundedProblem, RelposeBundleProblem
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: dof, model, estimate, converged, retcode, FixedModels, Uncertain, CovMat, WelschShape,
-    transform_covariance, EuclideanManifold
+using VisualGeometryToolkitCore: dof, model, FixedModels, Uncertain, CovMat, WelschShape, transform_covariance, EuclideanManifold
 const VgtkCore = VisualGeometryToolkitCore
 
 using VisualGeometryToolkitCore.Synthetic: sample_homography_scene, sample_twoview_scene, projective_distance,
@@ -56,7 +55,7 @@ end
     csn = perturb_pairs(rng, cs, 0.5, make_point_covs(rng, 4))
     p = HomographyProblem(csn)
     idx = collect(1:4)
-    models = VgtkEstimation.solve(p, idx)
+    models = VgtkEstimation.sample_models(p, idx)
     Ĥ = first(models)
     Σ9 = solver_covariance(p, Ĥ, idx)
     @test Σ9 !== nothing
@@ -78,7 +77,7 @@ end
         )
         p = FundMatProblem(csn)
         idx = collect(1:7)
-        models = VgtkEstimation.solve(p, idx)
+        models = VgtkEstimation.sample_models(p, idx)
         length(models) == 0 && continue
         F̂ = first(models)
         Σ9 = solver_covariance(p, F̂, idx)
@@ -100,7 +99,7 @@ end
         )
         p = ecs(first.(csn), last.(csn))
         idx = collect(1:5)
-        models = VgtkEstimation.solve(p, idx)
+        models = VgtkEstimation.sample_models(p, idx)
         length(models) == 0 && continue
         Ê = _closest_to(collect(models), E)
         Σ9 = solver_covariance(p, Ê, idx)
@@ -131,7 +130,7 @@ _model_term(G::AbstractMatrix, Σ) = G * Σ * G'
         (HomographyProblem(csh), 4),
     )
     for (p, k) in cases
-        θ = first(VgtkEstimation.solve(p, collect(1:k)))
+        θ = first(VgtkEstimation.sample_models(p, collect(1:k)))
         Σ = solver_covariance(p, θ, collect(1:k))
         for c in (0.3, -2.0)
             θc = typeof(θ)(Tuple(c .* SMatrix{3, 3, Float64, 9}(θ)))

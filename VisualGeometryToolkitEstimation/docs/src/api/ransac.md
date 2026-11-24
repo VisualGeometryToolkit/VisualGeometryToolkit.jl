@@ -4,12 +4,16 @@
 CurrentModule = VisualGeometryToolkitEstimation
 ```
 
-## Main Function
+## The algorithms
+
+A find is `solve(EstimationProblem(f, p), Ransac(…); rng)`, a seeded local
+optimization `solve(RefineProblem(f, θ₀, p), LocalOptimization(strategy; scoring))`;
+`init` → `solve!` → `reinit!` reuses their workspace.
 
 ```@docs
-ransac
-ransac!
-locally_optimize
+Ransac
+LocalOptimization
+RansacCache
 ```
 
 ## Problem Interface
@@ -20,8 +24,8 @@ AbstractCorrespondenceProblem
 MinimalSolveProblem
 PoseContext
 minimal_sample_size
-solve
-fit_hypothesis
+sample_models
+sample_hypothesis
 test_sample
 test_model
 test_consensus
@@ -33,7 +37,7 @@ solver_covariance
 The rest of the problem protocol is VisualGeometryToolkitCore's, documented in
 its manual: [`data_size`](@extref VisualGeometryToolkitCore.data_size),
 [`refine!`](@extref VisualGeometryToolkitCore.refine!) (the local-optimization step this package's problems implement),
-[`model_type`](@extref VisualGeometryToolkitCore.model_type),
+[`model_type`](@extref `VisualGeometryToolkitCore.model_type`) (of an estimation problem, and a RANSAC problem's method of the same function),
 [`codimension`](@extref VisualGeometryToolkitCore.codimension),
 [`mahalanobis_distances!`](@extref VisualGeometryToolkitCore.mahalanobis_distances!),
 [`provides_solver_covariance`](@extref VisualGeometryToolkitCore.provides_solver_covariance),
@@ -90,7 +94,8 @@ their full API.
 - **`PoseLibSolver`** — bindings to the PoseLib C++ library
 - **`essential_5pt(x1, x2)`** — five-point essential matrix solver (native
   pure-Julia by default; `essential_5pt(PoseLibSolver(), x1, x2)` with `using PoseLib`)
-- **`essential_dlt(x1, x2)`** — eight-point essential matrix solver (PoseLib only)
+- **`essential_8pt(backend, cs)`** — the eight-point essential matrix kernel (PoseLib only), behind
+  `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))`
 
 ## Samplers
 
@@ -123,9 +128,14 @@ extent_trait
 
 ## Relative-pose bundle
 
+`RelposeBundleProblem` is the RANSAC problem whose local optimization is the
+two-view bundle; [`RelativePoseProblem`](@ref) is the block problem a relative
+pose is refined on (`solve(RefineProblem(RelativePoseProblem(K1, K2, cs), pose),
+LevenbergMarquardt())`).
+
 ```@docs
 RelposeBundleProblem
-refine_relative_pose
+RelativePoseProblem
 ```
 
 ## Configuration and Results
@@ -136,12 +146,10 @@ RansacEstimate
 RansacMetadata
 ```
 
-Every RANSAC-class `refine_*` returns a `FitResult` with [`RefineMetadata`](@ref)
-(the refine contract: no scorer, the caller's scale or width):
-
-```@docs
-RefineMetadata
-```
+A `LevenbergMarquardt` refine of a family problem returns a `FitResult` with
+VisualGeometryToolkitCore's
+[`RefineMetadata`](@extref VisualGeometryToolkitCore.RefineMetadata) (no scorer,
+the caller's scale or width; the per-datum distances are the result's `resid`).
 
 ## Inlier Ratio
 
@@ -151,13 +159,14 @@ inlier_ratio
 
 ## One noise scale for a set of results
 
-`pooled_noise_scale(results)` pools the scales several RANSAC results
-originated (each `ScaleEstimated`, over its own dof) into one, for a downstream
-refine of them all (`scale = pooled`, recorded `ScaleUpstream`); a result
-without a scale is left out and counted.
+`solve(EstimationProblem(NoiseScale, results), PooledScale())` pools the scales
+several RANSAC results originated (each `ScaleEstimated`, over its own dof) into
+one, for a downstream refine of them all (`scale = pooled`, recorded
+`ScaleUpstream`); a result without a scale is left out and counted.
 
 ```@docs
-pooled_noise_scale
+PooledScale
+PooledScaleMetadata
 ```
 
 ## Workspaces
@@ -168,8 +177,9 @@ per-point scores, consensus mask and the scorer's workspace `W`), the local
 optimizer's workspace `L` (`lo_workspace(P, T, lo, n)`), the incumbent and the
 minimal sample. Build it from the scorer and the strategy it will run,
 `RansacWorkspace(problem, scoring, local_optimization_strategy)`; `RansacWorkspace(P,
-n)` holds the default MSAC scorer's. The core strategies' workspace is
-[`LoBuffers`](@ref): the refit workspace `refine_workspace(P, n)` —
+n)` holds the default MSAC scorer's. A solve builds its own (`init` keeps it in
+the cache for reuse). The core strategies' workspace is
+[`LoBuffers`](@ref): the refit workspace `refit_workspace(P, n)` —
 VisualGeometryToolkitCore's `ManifoldLmWorkspace{N}` for the chart-LM refits (e.g.
 N = 8 for `HomographyProblem`, 7 for `FundMatProblem`, 6 for
 `AbsolutePoseProblem`) — and the posterior-weight buffers. `DltWorkspace`
@@ -180,7 +190,7 @@ with θ unread, which LO does not call.
 RansacWorkspace
 RansacResultBuffers
 LoBuffers
-refine_workspace
+refit_workspace
 DltWorkspace
 ```
 
@@ -197,7 +207,7 @@ Pre-allocated workspace for zero-allocation SVD computation. Defined in VisualGe
 **`FixedModels{N, M}`** — Stack-allocated container holding up to `N` candidate models of type `M`.
 Defined in VisualGeometryToolkitCore (import it from there). Supports `iterate`, `length`, `eltype`, `collect`.
 
-Used as the return type of all `solve()` methods:
+Used as the return type of every `sample_models` method:
 - `HomographyProblem` → `FixedModels{1, HomographyMat{T}}`
 - `FundMatProblem` → `FixedModels{3, FundMat{T}}`
 - `AbsolutePoseProblem` → `FixedModels{4, Extrinsics3}`
@@ -206,7 +216,7 @@ Used as the return type of all `solve()` methods:
 
 A scoring pool (VisualGeometryToolkitCore `Pools.PoolPair`, stored in
 `NormalizedImageFrame`) is written here. `draw_hypotheses` repeats the RANSAC
-trial — the same draw, sample gate, solve and model gate `ransac` runs — with
+trial — the same draw, sample gate, sample solve and model gate a `Ransac` run makes — with
 no scoring. The record's constructor `PoolPair(rng, problem, raw; target,
 max_trials, variance)` draws the hypotheses of a pixel-frame problem on a raw
 pair, carries them into the pool frame once, and returns the record with its
@@ -226,8 +236,8 @@ TrackVariance
 ## Configuration
 
 `configs/default.toml` is the config of record: `RansacConfig()`, every core
-local-optimization strategy's keyword defaults, and every `find_*` pipeline's
-`scoring` and `local_optimization_strategy` read it at precompile time, so there is
+local-optimization strategy's keyword defaults, and every problem class's
+`scoring` and `local_optimization_strategy` (`Ransac()`'s `ClassDefault()`) read it at precompile time, so there is
 no second set of Julia literals to drift from it. Single
 values are overridden by keyword. `RansacConfig(path)` loads another file's
 `[ransac]` table over the shipped one and `optimization_strategy_from_toml` builds
@@ -301,6 +311,7 @@ all of them [`CONTRACT_GENERICS`](@ref); the reader and writer are the same for
 every strategy.
 
 ```@docs
+ESTIMATION_CONFIG_VERSIONS
 default_config_path
 optimization_strategy_from_toml
 lo_from_toml

@@ -30,6 +30,9 @@
 #   * `parse_defaults` — parse a defaults file and record it as a precompilation
 #                         dependency of the calling package.
 #   * `write_toml`     — the one sorted writer behind every `write_config`.
+#   * `migrate_config` — a package's versioned converter (`ConfigVersions`): a
+#                         stored file of an earlier version read at the current
+#                         one, so code sees only current table names.
 #
 # What stays in each package: its `configs/default.toml`, the
 # `include_dependency` + parsed constant, its tag registries (TOML string →
@@ -294,16 +297,154 @@ end
 _tuple_length(::Type{S}) where {S <: Tuple} = Base.isvatuple(S) ? nothing : fieldcount(S)
 
 """
-    parse_defaults(path::AbstractString) -> Dict{String, Any}
+    parse_defaults(path::AbstractString; versions = nothing) -> Dict{String, Any}
 
 Parse a package's defaults file (its `configs/default.toml`) and record it as a
 precompilation dependency of the package being precompiled, so editing the file
 recompiles it. Call it at a module's top level with an absolute path:
-`const _TOML_DEFAULTS = parse_defaults(default_config_path())`.
+`const _TOML_DEFAULTS = parse_defaults(default_config_path(); versions = CONFIG_VERSIONS)`.
+With the package's [`ConfigVersions`](@ref) the file is read through [`migrate_config`](@ref), so the code
+reads the current table names only.
 """
-function parse_defaults(path::AbstractString)
+function parse_defaults(path::AbstractString; versions = nothing)
     include_dependency(path)
-    return TOML.parsefile(path)
+    d = TOML.parsefile(path)
+    return versions === nothing ? d : migrate_config(d, versions; source = path)
+end
+
+# -----------------------------------------------------------------------------
+# Versioned configurations: one converter per package, its migrations its own
+# -----------------------------------------------------------------------------
+
+"""
+    CONFIG_VERSION_KEY = "config_version"
+
+The top-level key that states a configuration file's version (an integer). A file without it is version 1: the
+files written before configurations were versioned.
+"""
+const CONFIG_VERSION_KEY = "config_version"
+
+"""
+    ConfigMigration(; tables, renames = [])
+
+One version change of a package's configuration: `tables` are the top-level tables of the version it reads (every
+one of them: a table of that version that is not listed is unknown, and refused); `renames` are `old => new`
+dotted table paths (`"old_table" => "family.new_table"`), each table moved whole, its keys and
+sub-tables kept.
+"""
+struct ConfigMigration
+    tables::Vector{String}
+    renames::Vector{Pair{String, String}}
+end
+ConfigMigration(; tables, renames = Pair{String, String}[]) =
+    ConfigMigration(collect(String, tables), Pair{String, String}[String(first(r)) => String(last(r)) for r in renames])
+
+"""
+    ConfigVersions(package, migrations::ConfigMigration...; tables)
+
+A package's configuration converter: `tables` are the current version's top-level tables (every one: an unknown table
+of a current file is refused, as of an earlier one), and `migrations[v]` reads version `v` and writes version `v + 1`,
+so the current version is `length(migrations) + 1` ([`current_config_version`](@ref)). A package declares ONE, beside its
+`configs/default.toml`, which states the current version under [`CONFIG_VERSION_KEY`](@ref); its defaults are read
+through it (`parse_defaults(path; versions)`), and a caller migrates a stored file with
+[`migrate_config`](@ref).
+"""
+struct ConfigVersions
+    package::String
+    tables::Vector{String}
+    migrations::Vector{ConfigMigration}
+end
+ConfigVersions(package::AbstractString, migrations::ConfigMigration...; tables) =
+    ConfigVersions(String(package), collect(String, tables), collect(ConfigMigration, migrations))
+
+"""
+    current_config_version(versions::ConfigVersions) -> Int
+
+The version a package's code reads: one past its last migration.
+"""
+current_config_version(v::ConfigVersions) = length(v.migrations) + 1
+
+"""
+    migrate_config(d::AbstractDict, versions::ConfigVersions; source = "a configuration") -> Dict{String, Any}
+
+The configuration `d` (a parsed TOML file of `versions.package`) at the current version, a new dictionary stamped
+with it: each migration from the file's version on renames its tables (`d` is not modified). Refused with an
+`ArgumentError` that names the key: a version newer than the package's, a version that is not a positive integer,
+a table the file's version does not have (an unknown key, old or current), a renamed table whose new path is taken, and, in a
+current file, a table under a name an earlier version used (it names the current one).
+"""
+function migrate_config(d::AbstractDict, v::ConfigVersions; source::AbstractString = "a configuration")
+    cur = current_config_version(v)
+    ver = get(d, CONFIG_VERSION_KEY, 1)
+    ver isa Integer && ver >= 1 || throw(ArgumentError(
+        "$source: `$CONFIG_VERSION_KEY` = $(repr(ver)) is not a version of $(v.package)'s configuration (a positive integer)"))
+    ver <= cur || throw(ArgumentError(
+        "$source: $(v.package) configuration version $ver is newer than this package's ($cur): update $(v.package)"))
+    out = Dict{String, Any}(deepcopy(d))
+    delete!(out, CONFIG_VERSION_KEY)
+    for k in ver:(cur - 1)
+        mig = v.migrations[k]
+        for key in sort!(collect(keys(out)))
+            key in mig.tables || throw(ArgumentError(
+                "$source: [$key] is not a table of $(v.package)'s configuration version $k (its tables: " *
+                    join(mig.tables, ", ") * ")"))
+        end
+        for (old, new) in mig.renames
+            t = _config_pop!(out, old)
+            t === nothing && continue
+            _config_get(out, new) === nothing || throw(ArgumentError(
+                "$source: [$old] moves to [$new] in $(v.package)'s configuration version $(k + 1), and [$new] is already there"))
+            _config_put!(out, new, t)
+        end
+    end
+    if ver == cur
+        for (k, mig) in enumerate(v.migrations), (old, new) in mig.renames
+            _config_get(out, old) === nothing || throw(ArgumentError(
+                "$source: [$old] is $(v.package)'s configuration version $k's name; version $cur calls it [$new]"))
+        end
+    end
+    for key in sort!(collect(keys(out)))
+        key in v.tables || throw(ArgumentError(
+            "$source: [$key] is not a table of $(v.package)'s configuration version $cur (its tables: " *
+                join(v.tables, ", ") * ")"))
+    end
+    out[CONFIG_VERSION_KEY] = cur
+    return out
+end
+
+"""
+    CONFIG_VERSIONS
+
+VisualGeometryToolkitCore's configuration converter ([`ConfigVersions`](@ref)): `configs/default.toml` is version 1,
+the first versioned one, with no earlier migration.
+"""
+const CONFIG_VERSIONS = ConfigVersions("VisualGeometryToolkitCore"; tables = ["lm", "optimization_strategy", "photon_transfer"])
+
+# The table at a dotted path, or `nothing`: `toml_default`'s one dotted lookup, its KeyError for a missing table read
+# as absence.
+function _config_get(d::AbstractDict, path::AbstractString)
+    segs = split(path, '.')
+    return try
+        toml_default(d, join(segs[1:(end - 1)], '.'), segs[end])
+    catch err
+        err isa KeyError || rethrow()
+        nothing
+    end
+end
+function _config_pop!(d::AbstractDict, path::AbstractString)
+    segs = split(path, '.')
+    parent = length(segs) == 1 ? d : _config_get(d, join(segs[1:(end - 1)], '.'))
+    parent isa AbstractDict && haskey(parent, segs[end]) || return nothing
+    return pop!(parent, segs[end])
+end
+function _config_put!(d::AbstractDict, path::AbstractString, x)
+    segs = split(path, '.')
+    t = d
+    for seg in segs[1:(end - 1)]
+        t = get!(() -> Dict{String, Any}(), t, seg)
+    end
+    t[segs[end]] = x
+    return d
 end
 
 """

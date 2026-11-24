@@ -25,7 +25,7 @@ integrator's final full gate.
 | 16 | a precompile key beside the stage key | the runner's run key (d90bc914) | the precompile phase keys nothing; `precompile_time` recorded, not keyed | [x] |
 | 17 | a sensor model's provenance | Eval `write_provenance(…; sensor_model)` (28db5516); IO's sensor_characterisation writer (a characterisation's components, not a model's view) | Core's `component_sources(m::SensorModel)`, read as is; no copy in Eval | [x] |
 | 18 | a package's tree hash | Eval `code_trees` (3bc4eb10); Core's sync_manifest.jl (`Pkg.dependencies()` for direct versions: another question) | Pkg's API (`Pkg.dependencies()`), the one source; inside the one `code_trees` | [x] |
-| — | E11 `refine_width`, E12 `assert_unit_bearings` (PoseLib/Estimation copies) | handed to core10 (handoffs.md) | open with core10 | [ ] |
+| — | E11 `refit_width`, E12 `assert_unit_bearings` (PoseLib/Estimation copies) | handed to core10 (handoffs.md) | open with core10 | [ ] |
 
 check_duplication / check_splat (gate prep 14383, verbatim):
 ```

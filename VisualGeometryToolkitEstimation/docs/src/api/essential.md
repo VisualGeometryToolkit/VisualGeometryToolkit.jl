@@ -17,22 +17,25 @@ Jacobians `M₁`/`M₂` that keep residuals and the threshold in PIXELS.
 EssentialProblem
 ```
 
-## Fitting Pipeline
+## Find and refine
 
-```@docs
-find_essential
-refine_essential
-```
+`solve(EstimationProblem(EssentialProblem(camera1, camera2, cs)), Ransac(); rng)`
+is the find and `solve(RefineProblem(EssentialProblem(camera1, camera2, cs), E₀),
+LevenbergMarquardt(); scale | width)` the refine. A threshold scorer's threshold
+— or the Student-t scorer's outlier half-width — below 0.06 px,
+VisualGeometryToolkitFeatures' sub-pixel refinement bound, is refused as a likely
+calibrated leftover, by every run on the problem (a find, a
+[`LocalOptimization`](@ref)).
 
 ## Thresholds and operating points
 
-`find_essential`'s default threshold, 1 px (`[pipelines.essential]` in
+The find's default threshold, 1 px (`[pipelines.essential]` in
 `configs/default.toml`), is a convention (OpenCV's `findEssentialMat`), not a
 tuned value. The paper's cross-validated operating points — the per-class
 efficiency constants of the Welsch half-quadratic lift, with their provenance — are
 LocalOptimizationDoneRight's tuning constants (`tuning_constant`,
 `WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL`, …) and are supplied with its strategy:
-`find_essential(cam1, cam2, cs; scoring = …, local_optimization_strategy =
+`Ransac(; scoring = …, local_optimization_strategy =
 HQ{WelschShape}(efficiency_constant = WELSCH_HQ_EFFICIENCY_CONSTANT_ESSENTIAL))`.
 
 ## The Pure Rotation
@@ -46,15 +49,13 @@ on two pairs, the residual the Sampson distance of the joint observation (both
 images' pixels, at their noise `blockdiag(Σ₁, Σ₂)`: unit isotropic for plain
 pixels, the detections' own for `Uncertain` ones) to the transfer constraint on bearings, in whitened pixels (VisualGeometryToolkitCore's `constraint_with_jacobians(TransferForm(H),
 f₁, f₂; M₁, M₂)` at `H = R`), and the chart-LM refit on VisualGeometryToolkitCore's
-`SO3Manifold` through the homography's transfer rows. `find_rotation`
-is its RANSAC; a scorer or a lift from another package plugs in as for
-`find_essential`. `uncertain_rotation` turns a pairwise result into a
-[`fit_rotation_averaging`](@ref) edge: the rotation with its absolute covariance
-(`noise_scale² × solver_covariance` in the so(3) chart, radians²).
+`SO3Manifold` through the homography's transfer rows. `Ransac` on it is its find;
+a scorer or a lift from another package plugs in as for the essential problem.
+`uncertain_rotation` turns a pairwise result into a [`RotationAveraging`](@ref)
+edge: the rotation with its absolute covariance (`noise_scale² × solver_covariance`
+in the so(3) chart, radians²).
 
 ```@docs
 RotationProblem
-find_rotation
-refine_rotation
 uncertain_rotation
 ```

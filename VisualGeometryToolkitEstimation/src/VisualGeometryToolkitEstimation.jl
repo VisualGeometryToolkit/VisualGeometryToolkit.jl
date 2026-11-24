@@ -12,6 +12,7 @@ using LinearAlgebra: LinearAlgebra, I, dot, norm, normalize, cross, svd, opnorm,
 using StaticArrays: StaticArrays, MVector, SA, SMatrix, SVector, StaticVector
 using FixedSizeArrays: FixedSizeArray
 using Random: Random
+using PrecompileTools: @setup_workload, @compile_workload   # src/precompile.jl
 using Rotations: Rotations, RotMatrix
 
 # VisualGeometryToolkitCore — explicit named imports only (no bare `using`).
@@ -41,10 +42,12 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     thin_ratio, _are_points_distinct,
     normal, skew, whitening_factor,   # the frozen whitening of the reweighted fits (radial camera, division lift)
     weighted_whitened_residuals!, weighted_whitened_jacobian_rows!,   # the chart LM rows of every Sampson-constraint problem (one KA kernel each)
-    kabsch, chordal_mean, log_so3,   # SO(3) log (hand-eye, robot-world)
+    log_so3,   # SO(3) log (hand-eye, robot-world)
+    Kabsch, ChordalMean, TotalLeastSquares, NearestPoint,   # Core's closed forms, solved by their algorithms in the inner loops
+    EstimationProblem, RefineProblem, MinimalProblem, NullParameters, ClassDefault, SolveStats,
+    AbstractEstimationAlgorithm, AbstractEstimationProblem, FitKind, FindKind, RefineKind, ClosedFormKind, LmDamping, MarquardtDamping,
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
-    tls_line,                                # fit_line's unweighted seed direction
-    tls_line_statistics,                     # the fixed-weight TLS step fit_line / the line LO reweight
+    tls_line_statistics,                     # the fixed-weight TLS step of the covariance line fit / the line LO reweight
     ellipse_log_shape   # the ellipse refit rows' chart (problems/ellipse.jl)
 
 # Shared robust-estimation interfaces (VGC src/robust/estimation.jl): the
@@ -55,7 +58,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # VisualGeometryToolkitCore.optimization_path etc.).
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
-using VisualGeometryToolkitCore: FitResult, estimate, retcode, converged, iterations, weights
+using VisualGeometryToolkitCore: FitResult, weights, successful_retcode, noise_scale, scale_source, dof
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
 using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symbol,
@@ -64,13 +67,13 @@ using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symb
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
 # robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
 # (fitting/_refine.jl) the scale they were handed.
-using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, ScaleInput, scale_input, BinaryWeights,
+using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, BinaryWeights,
     PosteriorWeights, unit_weights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public
 # estimator strips a physical input in metres at entry and reattaches metres at
 # exit; the inner loop takes plain maps (`PlainEuclideanMap`) and plain points.
 using FlexUnits: Quantity
-using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms, metadata
+using VisualGeometryToolkitCore: PlainEuclideanMap, UnitfulEuclideanMap, ustrip, rms
 using VisualGeometryToolkitCore: RetiredKeyword, refuse_retired_keyword   # the one refusal of a retired keyword (Core base/utils.jl)
 using VisualGeometryToolkitCore: CorrespondenceNormalization   # the correspondence normalization, chosen per model (VGC solver layer)
 using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D strategy of a least squares over lengths (robot_world_hand_eye.jl)
@@ -81,7 +84,7 @@ import VisualGeometryToolkitCore.Pools: PoolPair
 using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_correspondences, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale,
     pixel_residuals, best_model_index   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
-using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, homography_dlt, test_dlt_conditioning
+using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, test_dlt_conditioning
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
 # breaks at RUNTIME here when VGC renames the field; an accessor breaks at load).
@@ -91,20 +94,19 @@ using VisualGeometryToolkitCore: rotation, translation,        # EuclideanMap
     homography, division_coeff, center,                  # RadialHomography (center: RadialCamera too)
     radial_rows,                                         # RadialCamera
     scale_s2,                                            # ConsensusSet / DeployedLoss s2
-    sqrt_weights,                                        # ManifoldLmWorkspace buffer
     lens, intrinsics,                                    # CameraModel
     geom,                                                # Uncertain's value
     propagate,                                           # J·Σ·Jᵀ: a chart covariance into vec(M) (covariance.jl)
     loss_shape                                           # DeployedLoss's shape
 # The division-camera step, the radial-camera fit (moved from
-# VisualGeometryToolkitCore, estimator taxonomy v2) and fit_camera reach VGC through these
+# VisualGeometryToolkitCore, estimator taxonomy v2) and CameraRegression reach VGC through these
 # public names only: lens families and their manifold, the intrinsics, the
 # frame accessors and the lens-profile queries.
 using VisualGeometryToolkitCore: AbstractLensModel, AbstractRadialModel,
     Lens, LiftLens, DoubleSphere, Equidistant, Division, Perspective,
     Stereographic, Equisolid, Orthographic,
     LensManifold, ParameterManifold, Manifold, restrict, tangent_size, parameter_names, with_parameters,
-    Radial, Even, Tangential, ThinPrism,   # fit_camera's linear forms: the radial factor and the decentering deltas
+    Radial, Even, Tangential, ThinPrism,   # CameraRegression's linear forms: the radial factor and the decentering deltas
     CameraCalibrationMat, LogicalIntrinsics, calibration_matrix, parameter_vector,
     RadialCamera, source_map, destination_map,
     projected_radius, view_angle, view_angle_limit, radial_part,
@@ -121,7 +123,7 @@ import VisualGeometryToolkitCore: AbstractOptimizationStrategy,
 # strategies implement `locally_optimize!`/`lo_workspace`/`lo_width`/
 # `with_width`) and the robust-statistics toolkit.
 import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, mahalanobis_distances!,
-    solver_covariance, provides_solver_covariance, refine!, refine_workspace,
+    solver_covariance, provides_solver_covariance, refine!, refit_workspace,
     residual_context, mahalanobis_distance, whitened_residual,
     locally_optimize!, lo_workspace, lo_width
 # The core optimization strategies and the strategy registry machinery are
@@ -152,8 +154,7 @@ import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinat
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
     block_coordinate_result, current_cost, current_s2, stop_rule   # stop_rule: the criteria's rules (local_optimization.jl)
 using VisualGeometryToolkitCore: StoppingCriterion
-# The EM fits' (fit_division_camera, fit_residual_mixture) scale source and weight kind: imported above.
-import VisualGeometryToolkitCore: weight_kind
+# The EM fits' (DivisionCameraFit, ResidualMixture) scale source and weight kind: imported above.
 # The chart-rows contract (VGC robust/rows.jl: the rows a lifted local
 # optimizer reads, and the one task-local reuse policy) — RVG's chart problems
 # provide it (`import`) — the chart-LM core and protocol (VGC
@@ -162,8 +163,7 @@ import VisualGeometryToolkitCore: weight_kind
 # chart-LM protocol is `import`ed so every problem's linearization state adds
 # its methods to VGC's functions.
 using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
-    ManifoldLmWorkspace, lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed,
-    loss_robustifier
+    ManifoldLmWorkspace, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!
 import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
@@ -179,12 +179,12 @@ using VisualGeometryToolkitCore.Cameras: pixel_intrinsics
 # Small hoisted helpers: PnP pixel whitening (problem-level method added in
 # problems/p3p.jl — hence `import`), 3-D triangle thinness (model_validity.jl).
 import VisualGeometryToolkitCore: pnp_pixel_whitening
-# Ray-domain triangulation and cheirality (VGC B5): `triangulate` is exported
+# Ray-domain triangulation and cheirality (VGC B5): `Triangulation` is exported
 # there; the bundle triangulates in the ray domain (the pixel-domain DLT
 # survives only as an independent oracle in test/relpose_bundle_tests.jl). The cheirality is the
 # 4-way vote over motion(E) (`cheiral_pose_fast`, VGC geometry/solvers/fundmat.jl,
 # which applies `test_cheirality` itself); RVG calls it and does not re-export it.
-using VisualGeometryToolkitCore: triangulate, cheiral_pose_fast
+using VisualGeometryToolkitCore: cheiral_pose_fast, triangulate_bearings
 # Unified robust-loss family (VGC's loss shapes) — the GR-lift facet
 # verbs moved there verbatim. The shapes this package's defaults and
 # dispatch name are imported by name (the strategy types and the loss table
@@ -216,7 +216,17 @@ import VisualGeometryToolkitCore:
     constraint_with_jacobians, # RANSAC problems add (problem, model, i) methods
     constraint_rounding_scale, # ... and their rounding scales (problem, model, i)
     observation_covariance,    # ... and their points' noise (problem, i)
-    solve, model_type        # #21 solver-layer verbs — problems add `solve`/`model_type` methods
+    model_type               # the problems' model types
+# The estimation interface (Core's solve_interface.jl): Estimation adds `__solve`/`__init` (and `solve!`/`reinit!` on
+# its caches) for its OWN algorithm types, declares their `estimator_kind`/`supports_solve_rng`, and the defaults of
+# its own problem types; the chart contract of the LevenbergMarquardt refine is implemented on its family problems.
+import VisualGeometryToolkitCore: __solve, __init, estimator_kind, supports_solve_rng,
+    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
+    block_refit, with_robustifier, default_stops, reinit!
+import CommonSolve: solve!
+using VisualGeometryToolkitCore: solve, AbstractBlockProblem, AbstractFitMetadata,
+    chart_refit, triggs_refit, lm_workspace, normalized_loss_weight,
+    weighted_support_rms, block_lm, NoiseScale
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
 # built on VGC's correspondence protocol (solver instances carry the
 # NativeSolver/PoseLibSolver backend). The `CorrespondenceNormalization`/`MinimalSolver`
@@ -228,7 +238,7 @@ using VisualGeometryToolkitCore: sources, targets, unit_normalize, Correspondenc
 using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 
 # PoseLib (optional, NOT a hard dep since 0.8.3): provides the PoseLibSolver
-# methods for p3p / essential_5pt / essential_dlt / motion(::HomographyMat) /
+# methods for p3p / essential_5pt / essential_8pt / motion(::HomographyMat) /
 # homography_4pt / fundamental_7pt on VGC's solver stubs. The default P3P is
 # VGC's native port; `using PoseLib` in the consumer enables the C++ backends.
 # Symbols are already exported via VGC. RVG does NOT load PoseLib itself — the
@@ -242,7 +252,7 @@ using VisualGeometryToolkitCore: nlls_rows_and_jacobian   # NLLSsolver's rows an
 using VisualGeometryToolkitCore: LmStops, LmProblem   # Core's one LM: its stop settings and its multi-block problem
 using VisualGeometryToolkitCore: nlls_features, finite_cost, Eliminable   # the Schur system (upstream #60), detected
 using SparseArrays: sparse   # the rotation averaging's update
-# fit_camera's spline families: the penalized normal equations (a sparse
+# CameraRegression's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
 using SparseArrays: SparseMatrixCSC, nzrange, rowvals, nonzeros   # (gcv.jl: the Hutchinson path's pattern)
 import SparseArrays
@@ -251,7 +261,6 @@ using LinearAlgebra: cholesky, cholesky!, lu, issuccess, diag
 using VisualGeometryToolkitCore: ChartSpline, SplineLens, NoncentralSplineModel, Rect2, spline_window, pixel_centres,
     pointwise!, BoundedCamera, extent, spline_lattice, central_model, difference_rows, default_device,
     mean_positive_eigenvalue, penalty_scale   # the penalty weight's normalization (Core)
-using VisualGeometryToolkitCore: nearest_point
 
 
 # =============================================================================
@@ -271,41 +280,33 @@ using VisualGeometryToolkitCore: nearest_point
 # RVG exports → 29, 88 re-exports dropped.)
 
 # -----------------------------------------------------------------------------
-# 1. PIPELINES — robust estimation end to end
+# 1. FINDS AND REFINES — `solve(EstimationProblem(f, p), Ransac(…); rng)`,
+#    `solve(RefineProblem(f, θ₀), LevenbergMarquardt(…); scale | width)`, `f` a family problem below
 # -----------------------------------------------------------------------------
-export find_homography, find_fundmat, find_essential, find_absolute_pose,
-    find_hand_eye, find_radial_homography, find_radial_camera, find_rotation, find_circle, find_ellipse
-# Each find_*'s local-optimization step alone, from a given model (no sampling).
-export refine_homography, refine_fundmat, refine_essential, refine_absolute_pose,
-    refine_hand_eye, refine_radial_homography, refine_radial_camera, refine_rotation, refine_circle, refine_ellipse
-export fit_robot_world_hand_eye, refine_robot_world_hand_eye, fit_division_camera
-export fit_residual_mixture   # the inlier/outlier classification of a held model's residuals
-export refine_camera_and_poses   # a camera (intrinsics + lens) and one pose per view from 3D → 2D correspondences
-export fit_rotation           # the robust rotation between two sets of directions
-export optical_axis           # the radially symmetric camera closest to a camera: its axis and principal point (approximate_camera)
-export fit_linear             # the robust coefficients of a linear model (reweighted least squares)
-export fit_rigid_alignment    # the robust rigid transform between two point sets (an ATE alignment)
-export fit_rotation_averaging # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
-export fit_filtered_rotation_averaging   # the same behind the cycle and orientation filters (Theia's global pipeline)
+export Ransac, LocalOptimization, RansacConfig, RansacEstimate
+
+# -----------------------------------------------------------------------------
+# 2. FITS — one algorithm type each, solved on an `EstimationProblem` (or a `RefineProblem` for the bundles' `f`s)
+# -----------------------------------------------------------------------------
 export ViewGraph, ObservationGraph   # the frames and their verified pairs; the frames and what they observe (graphs/)
 public views, edgelist, nedges, adjacent_views, components, label_components, require_connected, induced, keep_largest_component,
     articulation, bridges, spanning_tree, chain, triangles, filter_cycles, rotation_loop_angle, filter_by_orientation,
     observers, observed, observed_in, observers_of, covisibility   # their queries and algorithms, public, not exported
-export fit_radial_camera, DivisionCameraError   # moved from VisualGeometryToolkitCore (estimator taxonomy v2)
-export fit_camera             # one model-to-model regression: a camera model of type T onto a source over a region (linear: no guess)
-public fit_forward_spline     # a SplineLens camera given its forward spline, its backward, K and frame kept (the stack's one forward fit)
-export refine_camera          # a camera model polished onto a source over a region from a guess (the chart LM)
-export approximate_camera     # fit_camera's linear start, then refine_camera
+export DivisionCameraError
 public ViewAngleLimitError    # the camera regressions' refusal of a region past the target family's view-angle limit (its fields: the measured angle, the limit)
-export pspline_grid           # the spline targets' one P-spline solve on a given lattice (fit_camera's inner step)
+export PooledScale            # one noise scale for a set of results that share a noise model (EstimationProblem(NoiseScale, results))
+# (the fits' algorithm types and their problem tags: added below by the fits' migration)
+export ReweightedLeastSquares, LinearModel   # the fixed-scale reweighted fits (a linear model, a rotation, a rigid alignment, a robot-world calibration)
+export RotationAveraging, FilteredRotationAveraging   # robust rotation averaging on a view graph, and behind the view-graph filters
+export ResidualMixture        # the Student-t + uniform mixture of a held model's residuals (classification)
+export RobotWorldHandEyeProblem, RelativePoseProblem   # the reprojection refine of a robot-world calibration; the two-view bundle of a relative pose (block problems)
+export PoolSelection   # SimFitPP's tag of a pool's selected model (its loss-width problem's is Core's `LossWidth`)
+export CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline, OpticalAxis   # a camera model regressed onto a source over a region (its refine: LevenbergMarquardt on the problem)
+export CameraPosesProblem     # a camera and one pose per view from 3D → 2D correspondences (refined by LevenbergMarquardt)
+export RadialCameraFit, DivisionCameraFit   # one board's radial camera; the division camera from many boards' radial cameras
 
 # -----------------------------------------------------------------------------
-# 2. RANSAC — the loop, its configuration and result, and seeded refinement
-# -----------------------------------------------------------------------------
-export ransac, locally_optimize, RansacConfig, RansacEstimate
-
-# -----------------------------------------------------------------------------
-# 3. PROBLEMS a user builds
+# 3. PROBLEMS a user builds — the `f` of every find and refine
 # -----------------------------------------------------------------------------
 export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, BearingPoseProblem, RotationProblem, CircleProblem, EllipseProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
@@ -319,24 +320,23 @@ public synthetic_scenes   # the shared synthetic test scenes (the Test extension
 public CountedLO   # instrumentation: counts a strategy's locally_optimize! calls and iterations, and records each call's termination
 # The terminal placement (one LO of a raw race's incumbent) and the placement trait.
 public TerminalLO, lo_placement, InLoopPlacement, TerminalPlacement
-# The zero-allocation RANSAC entry and its result buffers.
-export ransac!
-# SIMFIT++ (Edstedt, CVPRW 2025): the loss width from held-out residuals, and its pool adapter
-# (estimators/ransac/simfitpp.jl; moved from RANSACScoringDoneRight)
-export SimFitPP, simfitpp_loss_width, simfitpp_select
-public unbiased_median_variance, with_residual_unit
+# The RANSAC cache (`init(problem, Ransac(…); rng)` → `solve!`/`reinit!`) and its result buffers.
+public RansacCache
+# SIMFIT++ (Edstedt, CVPRW 2025): the loss width from held-out residuals (estimators/ransac/simfitpp.jl)
+export SimFitPP
+public with_residual_unit
 
 # -----------------------------------------------------------------------------
 # PUBLIC, not exported — the machinery
 # -----------------------------------------------------------------------------
 public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it; its normalization is Core's penalty_scale, mean_positive_eigenvalue)
 # Problem plumbing and RVG's own RANSAC-interface verbs. `Rigid3` is the
-# unlabeled EuclideanMap alias find_hand_eye returns (generic enough to collide:
+# unlabeled EuclideanMap alias a hand-eye find returns (generic enough to collide:
 # PoseLib has its own). The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
 public AbstractRansacProblem, AbstractCorrespondenceProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait, Rigid3,
-    fit_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
+    sample_models, sample_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
 # Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
 # measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).
 public draw_hypotheses, Hypotheses, PoolVariance, InlierVariance, TrackVariance
@@ -347,13 +347,13 @@ public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, Exhausti
 public DltWorkspace, RansacWorkspace, RansacResultBuffers, LoBuffers
 # The result's metadata, the lean LO result, and posterior helpers. The last two
 # have a documented downstream consumer (LocalOptimizationDoneRight).
-public RansacMetadata, inlier_ratio, pooled_noise_scale, PosteriorLikelihood, LossPlainWeights,
+public RansacMetadata, inlier_ratio, PooledScaleMetadata, PosteriorLikelihood, LossPlainWeights,
     consensus_s2!
 # The posterior-weight iteration a caller can drive outside RANSAC: its method,
-# state and model updates, and the EM spec of `fit_residual_mixture` (its TOML
+# state and model updates, and the EM spec of `ResidualMixture` (its TOML
 # loader and tag tables), with that fit's metadata.
 public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
-    posterior_irls!, consensus_posterior, required_outlier_halfwidth, locally_optimize_rescored!,
+    posterior_irls!, consensus_posterior, required_outlier_halfwidth, rescore_and_optimize!,
     StopWhenNoImprovement, iterations_without_improvement,
     MixtureEmConfig, mixture_em_from_toml, MODEL_UPDATE_TAGS, NUISANCE_TAGS, ResidualMixtureMetadata,
     NoImprovementStop, ParameterChangeStop, StopWhenParameterChangeLess, change_parameters, STOP_TAGS
@@ -362,21 +362,20 @@ public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
 # `lo_loss` — is VisualGeometryToolkitCore's.)
 public ManifoldLiftProvider
 # Relative-pose bundle and robot-world calibration.
-# The division-camera step, its state, the lift constraint and fit_camera's metadata.
-public division_camera_step, DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
+# The division-camera stack, its state, the lift constraint and CameraRegression's metadata.
+public DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
     RadialLift, CameraFitMetadata
-public refine_relative_pose, RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
-public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, RefineMetadata
-public RotationCenterRefineMetadata, n_without_bearing, without_bearing, without_projection   # the rotation-centre refine's metadata and its dots without a bearing
+public RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
+public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, DivisionCameraMetadata
+public RotationCenterRefineMetadata   # the rotation-centre refine's metadata (its dots without a bearing or a projection are its fields)
 public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
-public bundle_loss   # a bundle's robust loss from its keywords (the refine contract): Estimation's bundles and downstream ones
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
-public RotationCenterViews, rotation_center_pose, AbstractViewResidual, BearingResidual, ReprojectionResidual   # refine_camera_and_poses' rotation-centre view parametrization (its views and their data)
+public RotationCenterViews, rotation_center_pose, AbstractViewResidual, BearingResidual, ReprojectionResidual   # CameraPosesProblem's rotation-centre view parametrization (its views and their data)
 public held_parameters   # the `fixed` that holds every parameter of a camera in a refine (the rotation-centre views require it)
 public pixel_whitening_defect   # why a back-projection Jacobian cannot whiten a bearing residual into pixels (BearingPoseProblem's test of its M column)
 # Configuration: configs/default.toml is the config of record; these select a
 # strategy by tag and write a config value back as a table.
-public default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, default_student_t_uniform_scoring, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
+public ESTIMATION_CONFIG_VERSIONS, default_config_path, optimization_strategy_from_toml, lo_from_toml, scoring_from_toml, default_student_t_uniform_scoring, config_dict, OPTIMIZATION_STRATEGY_TAGS, CONTRACT_GENERICS
 # The strategy machinery every package registers its strategies with — the
 # registry macro `@lo_registry`, `lo_construct`, `LOSS_TAGS` and the registry
 # hooks — is VisualGeometryToolkitCore's (its CONTRACT_GENERICS); a name is
@@ -426,54 +425,45 @@ include("estimators/ransac/problems/relpose_bundle.jl")
 include("estimators/ransac/problems/line.jl")
 include("estimators/ransac/problems/hand_eye.jl")
 include("estimators/ransac/problems/pool.jl")   # the pool-frame problems of a pool record; PoolPair(rng, problem, raw)
-include("estimators/ransac/simfitpp.jl")        # SIMFIT++ loss-width estimation (Edstedt 2025) + its pool adapter
+include("estimators/ransac/simfitpp.jl")        # SimFitPP: the SIMFIT++ loss width (Edstedt 2025) and its pool selection
 include("estimators/ransac/covariance.jl")   # the one model covariance: the constraint sandwich (all providers)
 # The chart-rows provider of every chart problem (VGC's rows contract; needs
 # the per-problem chart/residual helpers above).
 include("estimators/ransac/problems/manifold_providers.jl")
+include("estimators/ransac/solve.jl")   # the finds and the seeded local optimization as algorithms: Ransac, LocalOptimization, RansacCache, the class defaults (after the problems: their classes)
 
-# Fitting pipelines — RANSAC-based
-include("fitting/_pipeline.jl")
-include("fitting/_refine.jl")   # the refine contract: _guarded_refine, RefineMetadata (no scorer, the caller's scale or width)
-# Provides `fit_line` and the covariance-weighted line step `_weighted_line`,
+# Fits
+# Provides the covariance-weighted line fit and its step `_weighted_line`,
 # which problems/line.jl's LO-RANSAC `refine!` calls.
 include("fitting/line.jl")
-include("fitting/ellipse.jl")      # find_ellipse and refine_ellipse
-include("fitting/homography.jl")
-include("fitting/radial_homography.jl")
-include("fitting/radial_camera.jl")
-include("fitting/fit_radial_camera.jl")        # one board's radial camera, an iterative whitened fit (moved from VGC)
-include("fitting/division_camera_step.jl")     # one iteration of the stacked linear focal solve + its state and failure (moved from VGC)
+include("fitting/radial_camera_fit.jl")        # RadialCameraFit: one board's radial camera, an iterative whitened fit
+include("fitting/division_camera_stack.jl")    # the stacked linear focal solve (one iteration of DivisionCameraFit) + its state and failure
 include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, gcv_select; the weight's normalization is Core's)
-include("fitting/fit_camera.jl")                # one model-to-model regression: a lens family (linear), or a SplineLens camera or non-central spline model, onto a source over a region
-include("fitting/refine_camera.jl")             # refine_camera (the chart LM from a guess), approximate_camera, optical_axis
-include("fitting/essential.jl")
-include("fitting/rotation.jl")
-include("fitting/circle.jl")
+include("fitting/camera_regression.jl")         # CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline: a camera model regressed onto a source over a region
+include("fitting/camera_regression_refine.jl")  # the regression's LevenbergMarquardt refine (the chart LM from a guess), OpticalAxis
 include("fitting/pose.jl")
-include("fitting/fundmat.jl")
-include("fitting/hand_eye.jl")
+include("fitting/irls_weights.jl")           # ReweightedLeastSquares and the fixed-scale IRLS of the reweighted fits: scale input, loss width, weights (before the robot-world fit, one of its problems)
 include("fitting/robot_world_hand_eye.jl")
-include("fitting/refine_robot_world_hand_eye.jl")   # reprojection refinement of a RobotWorldHandEyeCalibration (static-N chart LM; uses robot_world_hand_eye.jl's type)
-include("fitting/refine_camera_and_poses.jl")   # a camera and one pose per view from 3D → 2D correspondences (NLLSsolver on VGC's parameter and pose charts)
-include("fitting/rotation_center_views.jl")      # refine_camera_and_poses' rotation-centre views: one rotation per view, a shared centre and offset
-include("fitting/refine_spline_camera_and_poses.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
+include("fitting/robot_world_hand_eye_refine.jl")   # RobotWorldHandEyeProblem: the reprojection refine of a RobotWorldHandEyeCalibration (a block problem; uses robot_world_hand_eye.jl's type)
+include("fitting/camera_poses.jl")              # CameraPosesProblem: a camera and one pose per view from 3D → 2D correspondences (Core's block_lm on VGC's parameter and pose charts)
+include("fitting/rotation_center_views.jl")      # CameraPosesProblem's rotation-centre views: one rotation per view, a shared centre and offset
+include("fitting/camera_poses_spline.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
 include("synthetic_scenes.jl")                    # synthetic_scenes: entry point (the scenes are the Test extension)
-include("fitting/irls_weights.jl")           # the fixed-scale IRLS of the reweighted fits: scale input, loss width, weights
-include("fitting/fit_rotation.jl")           # the robust rotation between direction pairs (reweighted Kabsch)
-include("fitting/fit_linear.jl")             # the robust coefficients of a linear model (reweighted least squares)
-include("fitting/fit_rigid_alignment.jl")    # the robust rigid transform between point sets (reweighted Kabsch; ATE alignment)
+include("fitting/reweighted_rotation.jl")           # ReweightedLeastSquares on a rotation between direction pairs (reweighted Kabsch)
+include("fitting/reweighted_linear.jl")             # LinearModel; ReweightedLeastSquares on its coefficients
+include("fitting/reweighted_rigid_alignment.jl")    # ReweightedLeastSquares on a rigid transform between point sets (reweighted Kabsch; ATE alignment)
 include("graphs/view_graph.jl")              # ViewGraph: frames and verified pairs (Graphs.jl underneath)
 include("graphs/observation_graph.jl")       # ObservationGraph: frames and what they observe; covisibility → ViewGraph
-include("fitting/fit_rotation_averaging.jl") # robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
-include("fitting/residual_mixture.jl")     # fit_residual_mixture: a held model's residuals → mixture EM → MAP labels
-include("fitting/fit_division_camera.jl")    # the focal stack on the shared posterior-weight iteration (after residual_mixture.jl: its MixtureEmConfig)
+include("fitting/rotation_averaging.jl") # RotationAveraging, FilteredRotationAveraging: robust rotation averaging on a view graph (spectral or spanning-tree seed, Lie-algebra IRLS)
+include("fitting/residual_mixture.jl")     # ResidualMixture: a held model's residuals → mixture EM → MAP labels
+include("fitting/division_camera_fit.jl")    # DivisionCameraFit: the focal stack on the shared posterior-weight iteration (after residual_mixture.jl: its MixtureEmConfig)
 # TOML loaders, the strategy-tag registry and the writer — dispatches on every
 # config-carrying type, so it is included last.
 include("config_toml.jl")
 # The refine contract's strategies of record (configs/default.toml [refine.<class>] and the bundles' tables), read
-# once the TOML reader exists: constants, so a refine's default strategy is inferred (fitting/_refine.jl).
+# once the TOML reader exists: constants, so a refine's default strategy is inferred (estimators/ransac/solve.jl).
 const _REFINE_STRATEGY_DEFAULTS = _read_refine_strategy_defaults()
+include("precompile.jl")    # the PrecompileTools workload: the common find and refine (decision 13), after everything it calls
 
 """
     CONTRACT_GENERICS

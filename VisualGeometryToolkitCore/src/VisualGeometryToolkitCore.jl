@@ -370,7 +370,7 @@ public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent n
 export AbstractBlur, GaussianBlur   # one blur of an imaging model (a camera's in-focus blur, a print's), the density N(0, Σ) by its covariance (cameras/blur.jl)
 public convolve                     # two Gaussian blurs in sequence (through a linear map of its plane: `propagate`)
 public radius   # GeometryBasics' `radius`, Core's methods on it included (a Circle3D's)
-public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's fit_camera)
+public radial_part      # a lens's radially symmetric part (shared with VisualGeometryToolkitEstimation's CameraRegression)
 export parameter_vector, parameter_names, parameter_bounds, with_parameters  # the lens parameter chart
 public free_parameter_names   # parameter_names less the gauge (skew) and a `fixed` list of names and groups
 public convert_eltype                     # a camera, lens or intrinsics rebuilt in another float type
@@ -387,6 +387,16 @@ public ControlPatchManifold   # a block of a spline lattice's controls as a Mani
 public spline_window, spline_value, quasi_interpolant   # the uniform cubic lattice for any control type; the 4th-order quasi-interpolant
 export LevenbergMarquardt, StaticLevenbergMarquardt   # the one host LM (NLLSsolver) and the one device-side (KernelAbstractions-lawful) LM at static N (robust/lm_core.jl)
 public static_lm_termination   # the device LM's termination record
+public triangulate_bearings   # the Triangulation kernel, inner-loop machinery (inlined in a caller's loop)
+export RefineMetadata   # the LevenbergMarquardt refine's metadata (robust/refine.jl)
+public read_context   # THE reading of a solve's keyed context `p` (any order; one ArgumentError naming missing and unknown keys)
+public s2   # the residual variance a fit recorded (read by this function only)
+public AbstractFitMetadata   # the metadata root whose weights are its producer's (one weight_kind)
+public model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy   # the chart contract of the LevenbergMarquardt refine (contract generics)
+public chart_refit, triggs_refit, lm_workspace   # the one chart refit, its robustified form, the chart LM's workspace reuse policy
+public bundle_loss, recorded_scale, scale_record   # a refine's robust loss from its strategy and scale input; the scale it records, and the whole record (scale, source, width)
+public AbstractBlockProblem, block_refit, with_robustifier, default_stops, block_lm   # the block contract of a bundle refine, its stops of record, the one bundle LM
+public normalized_loss_weight, loss_weights, weighted_support, weighted_support_rms   # the loss weight ρ′(s)/ρ′(0); a refine's weights; THE support and rms of a weighted result
 public cubic_bspline_weight_derivatives   # their first and second derivatives in the local coordinate (kernel-lawful)
 public cubic_bspline_prefilter_taps   # the cubic B-spline interpolation prefilter, truncated: a local filter a kernel applies
 public spline_window_sums   # the one 4 × 4 cubic B-spline window sweep: the value, its partials and second partials (kernel-lawful)
@@ -550,7 +560,7 @@ public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, Extern
 # with their model-level methods.)
 public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     residual_context, whitened_residual, observation_covariance, solver_covariance, provides_solver_covariance,
-    refine!, refine_workspace
+    refine!, refit_workspace
 # The robust-statistics toolkit.
 export ScaleMAP, SquaredScale   # the inverse-gamma MAP of a squared scale, and its model tag (robust/scale.jl)
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss, weighted_rss,
@@ -580,7 +590,7 @@ public StudentTUniformScoring, Predictive, AbstractLabelPrior, FlatLabelPrior, P
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     width_scale_interface, width_s2, check_composition, width_value,
-    refine_external!, external_workspace, prepare_external!
+    external_refit!, external_workspace, prepare_external!
 # Selection over a benchmark pool record (robust/pool_selection.jl).
 public best_pool_model, selection_staging, stage_selection, select_on_grid!
 public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)
@@ -616,7 +626,7 @@ public RowsWorkspace, rows_workspace, task_buffers, point_norms!,
 # `sq_loss_width` stay UNEXPORTED (public, robust/losses.jl) — they are also the
 # natural keyword and variable names at every call site; call them qualified.
 export AbstractMEstimator, efficiency_constant
-public refine_width   # the refine contract's loss width from `scale` xor `width` (robust/lo_contract.jl)
+public refit_width   # the refine contract's loss width from `scale` xor `width` (robust/lo_contract.jl)
 public codimension_factor
 # The robust stages' scale hand-off (base/scale_source.jl): each robust result records ONE
 # scale and its ScaleSource; `scale_input` parses a stage's `scale`/`width` keywords.
@@ -832,7 +842,7 @@ export mirror   # SO(3) projection is Rotations.nearest_rotation
 public essential_8pt   # the 8-point kernel under DLT(PoseLibSolver()) on an essential matrix
 public essential_5pt   # positional minimal kernel under Essential5pt
 
-# NOTE: fit_line, LineFitResult moved to VisualGeometryToolkitEstimation
+# NOTE: the heteroscedastic line fit, LineFitResult moved to VisualGeometryToolkitEstimation
 
 # SVD workspace for zero-alloc null-space computation (used by solvers)
 public SvdWorkspace, svd_nullvec!
@@ -925,6 +935,7 @@ public stack_ci, workspace_packages, workspace_settings, affected_packages, regi
 public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
+public CONFIG_VERSION_KEY, ConfigMigration, ConfigVersions, current_config_version, migrate_config, CONFIG_VERSIONS   # the versioned configuration converter (base/config_toml.jl), Core's own
 public install_artifact, huggingface_token, is_published_url   # the one install of a published artifact (base/artifacts.jl)
 public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
     store_name_clashes, migrate_artifacts, install_built_artifact   # the artifact store: its resolution, the one wrapper of Pkg's override, a single file, a built tree, depot → store
@@ -957,7 +968,7 @@ include("base/utils.jl")    # Geometry utilities - uses types
 include("base/canonical.jl")   # canonical_json: the canonical JSON every content identity is the sha256_hex of
 include("base/config_toml.jl")  # TOML config skeleton shared by every package with a configuration of record
 # THE defaults of record of this package (configs/default.toml): the strategies' tables and the LM's stop settings ([lm])
-const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs", "default.toml")))
+const _CORE_DEFAULTS = parse_defaults(normpath(joinpath(@__DIR__, "..", "configs", "default.toml")); versions = CONFIG_VERSIONS)
 include("base/artifacts.jl")    # the artifact store and install_artifact, the one artifact install (uses config_toml.jl's TOML, utils.jl's sha256_hex)
 include("quality/tag_registry.jl")  # TagRegistry: the one tag → type map (before the kinds that register tags: the target calibrations)
 include("base/device.jl")   # default_device — the family's one KA backend resolver (CUDA ext registers)
@@ -996,6 +1007,7 @@ include("robust/student_t_uniform_scoring.jl") # StudentTUniformScoring + its sc
 include("robust/weights.jl")           # WeightKind traits, weight_kind, inlier_mask(result) (needs fit_result.jl and the scorer types)
 include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estimate, loss_at
 include("robust/strategies.jl")       # Irls{K}, Triggs{K}, LOSS_TAGS, the strategy registry machinery, STRATEGY_TAGS (needs lo_contract.jl, the loss shapes, TagRegistry)
+include("robust/refine.jl")           # the LevenbergMarquardt refine: the chart contract, chart_refit/triggs_refit, RefineMetadata, AbstractFitMetadata, bundle_loss (needs strategies.jl, lm_core.jl, problem.jl)
 
 # Geometry Transforms (partial - matrices and rigid transforms only)
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives

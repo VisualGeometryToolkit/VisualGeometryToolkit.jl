@@ -3,7 +3,7 @@
 # sides have (the golden side includes it by its path in this tree, not through `pkgdir`, which would resolve to the
 # recording checkout); it includes no other shared file (its includer does). Any change must leave every golden
 # `#fixture` record unchanged (re-record twice, the records identical and their diff empty).
-# The fit regions of fit_camera_testsetups.jl's FitCameraLensCases (and of the golden records of
+# The fit regions of camera_regression_testsetups.jl's FitCameraLensCases (and of the golden records of
 # ci/golden/fixtures/est_camera_fits.jl): a disc about a camera's principal point, of a radius in pixels or of the radius
 # a view angle images at. Data constructors only; include-once safe (functions only).
 using StaticArrays: SVector

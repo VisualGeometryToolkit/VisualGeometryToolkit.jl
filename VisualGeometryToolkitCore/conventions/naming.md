@@ -1,45 +1,63 @@
-## Naming: the verb states the kind
+## Naming: the kind states how an estimator can fail
 
-An estimator's name states its KIND — how it computes, and so how it can fail —
-and the object names WHAT IS ESTIMATED. Which family a function belongs to is
-decided by its input.
+An estimator is a PROBLEM solved by an ALGORITHM: `solve(problem, algorithm)`
+(CommonSolve's verb, the one estimation verb). The problem names WHAT IS
+ESTIMATED — the model type, or a problem-interface object `f` (a
+VisualGeometryToolkitEstimation family problem: `HomographyProblem(cs)`) — and
+the algorithm's KIND ([`estimator_kind`](@ref)) states how it computes, and so how
+it can fail. Which kind an algorithm is follows its input and its design:
 
-**Correspondences or a model in → decide in this order:**
-
-1. It needs a starting guess → `refine_*`.
-2. It samples hypotheses and verifies them (RANSAC) → `find_*`.
+1. It needs a starting guess → a refine ([`RefineKind`](@ref)), solving a
+   [`RefineProblem`](@ref)`(f, u0)`.
+2. It samples hypotheses and verifies them (RANSAC) → a find ([`FindKind`](@ref)).
 3. It is one deterministic algebraic step — a minimal sample, or least squares
-   with FIXED weights → an ALGORITHM NAME, no verb: a type solved through
-   `solve(problem, algorithm)` ([`DLT`](@ref), [`Kabsch`](@ref), [`Zhang`](@ref),
-   [`TotalLeastSquares`](@ref)).
-4. Otherwise (iterative, reweighted, repeated, staged) → `fit_*`.
+   with FIXED weights → a minimal solver or a closed form ([`MinimalKind`](@ref),
+   [`ClosedFormKind`](@ref)): [`DLT`](@ref), [`Kabsch`](@ref), [`Zhang`](@ref),
+   [`TotalLeastSquares`](@ref).
+4. Otherwise (iterative, reweighted, repeated, staged) → a fit ([`FitKind`](@ref)).
 
-| Kind ([`EstimatorKind`](@ref)) | Input | Needs a guess | Decides inliers | Returns | Must not | Lives in |
+| Kind ([`EstimatorKind`](@ref)) | Input | Needs a guess | Decides inliers | Returns | Must not | Examples |
 |------|-------|---------------|-----------------|---------|----------|----------|
 | minimal solver ([`MinimalKind`](@ref)) | a minimal sample: `solve(MinimalProblem(M, cs, idx), solver)` | no | no | every solution (`FixedModels`) | iterate, weigh, reject | VGC (`Homography4pt`, `P3P`, `RadialCamera5pt`) |
-| one-step solver, an algorithm name ([`ClosedFormKind`](@ref)) | an overdetermined set taken as inliers, optionally with FIXED weights: `solve(EstimationProblem(M, data), algorithm)` | no | no | the model, plus any statistic a consumer reads | iterate, reweight, reject | VGC (`DLT`, `Kabsch`, `ChordalMean`, `Zhang`, `TotalLeastSquares`) |
-| `fit` ([`FitKind`](@ref)) | an overdetermined set taken as inliers | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | RVG (`fit_division_camera`, `fit_radial_camera`, `fit_camera`, `fit_line`) |
-| `find` ([`FindKind`](@ref)) | contaminated data | no | yes: hypothesize, verify, locally optimize | model + inlier set | require a guess | RVG (`find_homography`, `find_absolute_pose`, `find_radial_camera`) |
-| `refine` ([`RefineKind`](@ref)) | a model and its observations: `RefineProblem(f, u0)` | yes, required | no; continuous reweighting at most | the polished model, same family | re-estimate from scratch; change the family | RVG (`refine_robot_world_hand_eye`); PoseLib.jl's `refine_*` bindings; BlobBoards' board bundle; VGC's [`LevenbergMarquardt`](@ref) |
+| closed form ([`ClosedFormKind`](@ref)) | an overdetermined set taken as inliers, optionally with FIXED weights: `solve(EstimationProblem(M, data), algorithm)` | no | no | the model, plus any statistic a consumer reads | iterate, reweight, reject | VGC (`DLT`, `Kabsch`, `ChordalMean`, `Zhang`, `TotalLeastSquares`) |
+| fit ([`FitKind`](@ref)) | an overdetermined set taken as inliers: `solve(EstimationProblem(…), algorithm)` | no — it seeds itself | soft weights at most (an IRLS) | one model with residual statistics | sample hypotheses | VisualGeometryToolkitEstimation (`DivisionCameraFit`, `CameraRegression`, `RotationAveraging`, `ReweightedLeastSquares`) |
+| find ([`FindKind`](@ref)) | contaminated data: `solve(EstimationProblem(f, p), Ransac(…); rng)` | no | yes: hypothesize, verify, locally optimize | model + inlier set | require a guess | VisualGeometryToolkitEstimation's `Ransac` on its family problems (`HomographyProblem`, `AbsolutePoseProblem`, `RadialCameraProblem`) |
+| refine ([`RefineKind`](@ref)) | a model and its observations: `RefineProblem(f, u0)` | yes, required | no; continuous reweighting at most | the polished model, same family | re-estimate from scratch; change the family | VGC's [`LevenbergMarquardt`](@ref) (and the device [`StaticLevenbergMarquardt`](@ref)); VisualGeometryToolkitEstimation's `LocalOptimization`; BlobBoards' board bundle |
 
-The kind fixes how a call can fail: an algorithm is one deterministic
-computation and can only be degenerate; a `fit` can fail to converge; a `find`
-is randomized; a `refine` can end in a local minimum. That is the point of
+The kind fixes how a call can fail: a closed form is one deterministic
+computation and can only be degenerate; a fit can fail to converge; a find
+is randomized; a refine can end in a local minimum. That is the point of
 naming by kind rather than by what comes back — the caller's error handling
-follows the verb. In code the kind is the algorithm's [`estimator_kind`](@ref), and
+follows the kind. In code the kind is the algorithm's [`estimator_kind`](@ref), and
 `solve` refuses a problem of another kind before any method runs.
 
-The name follows the DESIGN, not a knob: `fit_radial_camera(iterations = 1)` is
-still a fit. `find` is RESERVED for the sample-and-verify search.
-**[`solve`](@ref) is the ONE estimation verb** — CommonSolve's
-`solve(problem, algorithm)`, Core's front end for every problem — never an
-estimator's name; a package adds `__solve` methods for its own algorithms. A
-RANSAC problem's sample solve, returning every root, is
+The kind follows the DESIGN, not a knob: a radial-camera fit with one
+iteration is still a fit. **[`solve`](@ref) is the ONE estimation verb** —
+CommonSolve's `solve(problem, algorithm)`, Core's front end for every problem —
+never an estimator's name; a package adds `__solve` methods for its own
+algorithms. A RANSAC problem's sample solve, returning every root, is
 VisualGeometryToolkitEstimation's `sample_models(problem, idx)`. The RANSAC local-optimization step is a
 refine: `refine!(ws, problem, θ, weights)` starts from the current model θ (a
 linear problem runs its one-step algorithm under the weights and ignores θ).
 The noise-model estimators (VGC's [`ScaleMAP`](@ref), VisualGeometryToolkitEval's
-`fit_prior`) are outside this rule.
+prior fit) are outside this rule.
+
+**The estimation interface's rules, enforced by `check_naming` (R15–R20).**
+- R15: `fit_`, `find_` and `refine_` name kinds, never functions: no function a
+  package's own code (`src/`, `ext/`) defines, exports or declares public begins
+  with one, except a task verb listed in `TASK_VERBS` with its reason
+  (`find_boards`); a name beginning `_` is an internal step and exempt.
+- R16: Core owns the front end: no package but VisualGeometryToolkitCore adds a
+  method to `solve` or `init`; a package adds `__solve`/`__init` methods only for
+  algorithm types it owns.
+- R17: every concrete algorithm type has an [`estimator_kind`](@ref) method.
+- R18: an `rng` keyword appears only on a `__solve`/`__init` method whose
+  (problem, algorithm) pair [`supports_solve_rng`](@ref) — a find, or an algorithm
+  that draws and says so (`SimFitPP`).
+- R19: no identifier begins with `solve_` (an iterative algorithm's block update
+  is `update_<block>!`).
+- R20: no `const` aliases an algorithm type or a solve verb, and none holds an
+  algorithm value: one name per thing, an algorithm's configuration its fields.
 
 **Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `lmsolve_chart!`, `block_coordinate_descent!`.
 
@@ -66,7 +84,9 @@ The noise-model estimators (VGC's [`ScaleMAP`](@ref), VisualGeometryToolkitEval'
 board the answer IS a RANSAC's model and inliers), `track_boards`,
 `detect_*`, `extract_*`, `load_*`. A pipeline composes the estimators above
 and does no estimation of its own; an estimate from scratch buried inside a
-`refine` (a P3P inside a polish) is a violation to move, not to name around.
+refine (a P3P inside a polish) is a violation to move, not to name around. A
+task verb that begins with a kind word is listed, with its reason, in
+`check_naming`'s `TASK_VERBS` (R15).
 
 **Nouns are accessors, constructors and algorithm names only** —
 `centroid(frame)`, `blobs(bundle)`, `cutoff(bundle)`,

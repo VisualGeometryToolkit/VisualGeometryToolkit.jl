@@ -384,3 +384,186 @@ These are done in Core 0.14, each with its own commit:
   exemption covers a TOML table, key or value, never a comment, and in Julia only a whole string literal, never
   prose. The `core_lie` bits are pinned by the golden replay from the Estimation milestone on; until then the suite
   pins nothing for them (coordinator, 2026-11-23).
+- 2026-11-23 (Estimation agent): THE REFINE MOVE. Core's `robust/refine.jl` holds the one host LM refine:
+  `__solve(::RefineProblem{<:AbstractConstraintProblem}, ::LevenbergMarquardt; scale, width, stops = LmStops())` over
+  the CHART CONTRACT — `model_chart(f, model)` (the chart at a model; was Estimation's `_chart ∘ _as_model`),
+  `chart_rows(f, chart, √w)` (the rows the LM descends; was `_triggs_state`), `chart_model(f, chart)` (was `_model_at`),
+  `chart_size(f) -> (rows, Val(dof))` (was `_lm_size(problem)`), `guess_model(f, u0)` / `solution_model(f, θ, u0)` (the
+  guess into the inner loop's model and the refined model back into the guess's form: a physical guess's metres, a
+  labelled guess's frames; defaults `convert(model_type(f), u0)` and `θ`), `default_optimization_strategy(f)` (what
+  `ClassDefault()` resolves to) — all contract generics (CONTRACT_GENERICS). Not `chart` (MappedSurface's). Moved from
+  Estimation with their numerics unchanged: `_refine_pipeline`, `_refine_spec`, `_refine_run`, `_refine_too_few`,
+  `_ZeroWeightRows`, `RefineMetadata` (now `<: AbstractFitMetadata{L}`, its `residuals` moved to the result's `resid`),
+  the scale input (`bundle_loss`, same public name, now Core's), `_chart_refit` → public `chart_refit(ws, f, ch, rows,
+  weights; robustifier, stops, damping)`, `_triggs_lm` → public `triggs_refit(ws, shape, f, model, loss; weights, stops,
+  damping)`, `_lm_workspace(ws, rows, Val)` → public `lm_workspace` (the one reuse policy). They are public because
+  Estimation's local optimizations call them (the private-name gate forbids `VgtkCore._x`). Also public, each the one
+  copy: `normalized_loss_weight(shape, s, c²)` (was Estimation's `_irls_weight`), `loss_weights` (was `_loss_weights`),
+  `weighted_support(w, sq)` and `weighted_support_rms(w, sq)` (were Estimation's `_weighted_support(_rms)`),
+  `recorded_scale(input)` (was `_recorded_scale`), `sq_loss_width(::Nothing) = NaN` (replaces `_sq_loss_width`), and
+  `read_context` (was Core's `_solve_context`; Estimation's fits read their keyed contexts through it; not `solve_context`: R19). A `RefineProblem`
+  with `lb`/`ub` is refused by the host LM (`ArgumentError` naming `StaticLevenbergMarquardt`). The data hold fewer than a
+  minimal sample: the guess back unrefined, `(InitialFailure, NoRule)`, `resid` NaN, as `_guarded_refine` did.
+- 2026-11-23 (Estimation agent): THE BLOCK CONTRACT. `AbstractBlockProblem` (Core) is the parent of a multi-block refine's
+  `f` (the bundles, the camera regression's refine, the relative-pose bundle); `__solve(::RefineProblem{<:AbstractBlock
+  Problem}, ::LevenbergMarquardt; scale, width, stops = default_stops(f))` parses the strategy and scale input
+  (`bundle_loss` at `codimension(f)`, 2 by default) and calls the author's `block_refit(f, u0, loss, stops, damping)`,
+  which builds its blocks and variables and solves them by Core's `block_lm(blocks, vars0, unknowns, loss, stops;
+  damping)` (Estimation's `_solve_bundle`, moved, numerics unchanged; `solve_bundle` would break R19), the blocks
+  robustified through the contract generic `with_robustifier(block, sqrt_weight, robustifier)` (was `_with_robust`).
+  `default_stops(f)` (a contract generic, default `LmStops()`) carries a class's stops of record. `default_algorithm` of
+  both refine forms is `LevenbergMarquardt()`.
+- 2026-11-23 (Estimation agent): `AbstractFitMetadata{L}` (Core, `L` the producer) with ONE `weight_kind` method; the
+  producer of the posterior-weight iteration is `PosteriorWeightState` (`weight_kind(::Type{<:PosteriorWeightState}) =
+  PosteriorWeights()`), a least-squares fit's `Nothing`. RansacMetadata{T, S} <: AbstractFitMetadata{S}; its
+  `residuals` moved to the result's `resid`.
+- 2026-11-23 (Estimation agent): `Ransac([T = Float32]; scoring = ClassDefault(), local_optimization_strategy =
+  ClassDefault(), config = RansacConfig(), score_guard = false, on_improvement = nothing, on_hypothesis = nothing)`. The
+  storage precision `T` is the optional leading positional type (signatures.md: a type is never a keyword); it replaces
+  the old `workspace = RansacWorkspace(T, …)`. The trace hooks and the score guard are configuration (fields). The
+  width keywords `threshold`/`outlier_halfwidth` and the retired `local_optimization` are still refused by the
+  constructor with the way to say them (`ArgumentError`, as the find pipelines did). `ClassDefault()` resolves through
+  the problem's class (`_problem_class`: `[pipelines.<class>]`); a problem without a class has no default scorer
+  (`ArgumentError`) and its default strategy is the scorer's (`default_local_optimization_strategy(scoring)`, the old
+  `ransac` default). `max_trials`/`min_trials` are `config`'s only.
+- 2026-11-23 (Estimation agent): a find's context is `p = (; extent)` (or `NullParameters()`); any other key is an
+  `ArgumentError`, and so is an extent on a problem whose model class has no extent check (circle, ellipse, F, E,
+  rotation, hand-eye, lines: was a `MethodError` of the find, which took no `extent`). A physical problem's extent is a
+  physical rectangle (stripped in metres); a plain one with a physical problem, or the reverse, is a `MethodError` (was a
+  keyword `TypeError`).
+- 2026-11-23 (Estimation agent): the family problems hold ANY number of data: the constructors' "Need at least K
+  correspondences" refusal is gone, so a solve on too few data returns the find's `:no_model` (no trial drawn) and the
+  refine's unrefined guess, bit-identical to the old guarded pipelines. Units: `AbsolutePoseProblem`, `BearingPoseProblem`
+  and `HandEyeProblem` accept physical data (lengths), strip them in metres once at construction and record the unit (a
+  field of their context/problem); a find's model comes back in metres (`_with_units`), a refine's through
+  `solution_model` from a physical guess; a plain guess with a physical problem (or the reverse) is a `MethodError`.
+  The plane problems (`HomographyProblem`, `RadialHomographyProblem`, `RadialCameraProblem`) refuse physical plane points
+  at construction (was the find/refine wrappers'). The bearing pose's guess-coincidence refusal is `guess_model`'s.
+- 2026-11-23 (Estimation agent): `LocalOptimization(strategy; scoring, score_guard = false)` is a `RefineKind` on
+  `RefineProblem(f, θ₀[, (; extent)])`, `θ₀` a model or a `FixedModels`; `init` gives the same `RansacCache` as a find
+  (`reinit!(cache[, θ₀]; f, p)`). The cache's `solve!` returns a result whose `resid` and weights ARE the cache's buffers
+  (the old `ransac!` contract); a fresh `solve` builds fresh ones. The inner sample solve is `sample_models(problem,
+  idx)`, through Core's `solve(MinimalProblem(model_type(solver), data, idx), solver)`.
+- 2026-11-23 (Estimation agent): `pooled_noise_scale` → `PooledScale()` (`ClosedFormKind`) on `EstimationProblem(NoiseScale,
+  results)` or `EstimationProblem(NoiseScale, scales => dofs)`; same numbers and record.
+- 2026-11-24 (owner): SUPERSEDES the next entry. The math is deterministic: a kernel whose bits depend on JIT vs pkgimage
+  compilation is a defect. Core's workload entries are restored. The comparison (the golden replay with the workloads, against `--pkgimages=no`) found ONE kernel: the
+  homography's composition back from the normalized frame (`∘` of an affine or `HomographyMap` with a `HomographyMat`,
+  `geometry/forms.jl`), a StaticArrays `SMatrix * SMatrix` whose `muladd`s LLVM fused per entry differently in the two
+  copies (the JIT copy: `A ∘ H` fuses the last term of columns 1 and 3 and none of column 2, `H ∘ B` the middle term of
+  entry (2, 2) only; the pkgimage copy: the last term of every entry). Each entry's arithmetic is now stated
+  (`_collineation_left`, `_collineation_right`: `fma` where the records fused, `*` and `+` where they did not), which
+  reproduces the recorded bits in both modes. The pattern is the records', not a design: a later change to it is a
+  numeric change with intended-change entries.
+  STOPPED, NEEDS THE OWNER (2026-11-24): an Estimation workload (the homography find and refine: first find 107 ms
+  against 5.8 s, first refine 0.3 ms against 1.5 s, Estimation's load +50 ms) moves the homography chart LM's Jacobian
+  rows (Core `base/sampson.jl` `_jacobian_terms`, the codimension-2 path: `L⁻¹·Gθ`, the factor rate,
+  `_along_columns(·, B) = A·Bᵀ`) in its pkgimage copy: 167 homography, 146 conic-group and 11 noise-scale cases leave
+  their records (`find/h_scene_120+60/lo_classdefault/seed1`: recorded estimate digest 91c59225…, pkgimage 5a46dd9f…;
+  the rows' digest d4bf4c5d… against the JIT copy's ba24b230…). That kernel is shared by every Sampson class (F, E,
+  circle, radial camera, rotation, PnP), and the records hold each class's own JIT lane pattern, so stating one pattern
+  in the shared kernel is not a clean pin. Options: (a) no Estimation workload (decision 13's gate holds without it:
+  first find −17 %, first refine −25 %, loads +0.2 %); (b) state the kernel's arithmetic uniformly (`fma` throughout)
+  and re-make the LO/refine leaves of every Sampson class as intended changes; (c) both workloads, and the records
+  re-made under them (bits that then depend on what a package image holds — against this ruling).
+- 2026-11-23 (Estimation agent), NEEDS THE OWNER: decision 13's PrecompileTools workload broke bit identity. Core 0.14's
+  `precompile.jl` compiled the DLT, minimal, Kabsch and TLS entries into the pkgimage, and that copy fuses StaticArrays'
+  `muladd`s differently from the JIT copy the golden records were made with (verified: `--pkgimages=no`, or the workload
+  removed, reproduces the records bit for bit; with it, `DLT` on `htrue_100+30` differs in the last bits). Those
+  workload entries are removed (the rest of the workload is unchanged), and Estimation has no workload. A workload that
+  covers golden-pinned arithmetic needs either the records re-made under it (an intended change of every leaf it moves)
+  or the kernels rewritten with explicit `fma` (`_fma_dot`), which is itself a numeric change: the owner's call.
+- 2026-11-23 (Estimation agent): golden framework: in `compare_record` a rename takes precedence over a `new_only` prefix
+  (`stats` is new, `stats.nsteps` is renamed onto `iterations`), and a `retyped` STRUCT is compared as "still a struct"
+  (its fields one by one; the old test compared the type name and could never pass). `replay!` gained `fixture_view`
+  (the core-replay agent) for fixtures that hold arrays of upstream results.
+- 2026-11-23 (Estimation agent): the triangulation kernel is public inner-loop machinery, `triangulate_bearings(pose, f₁,
+  f₂) -> (X, λ₁, λ₂)` (`@inline`), beside `homography_dlt!`: the relative-pose bundle seeds its points with it inline, as
+  it called the public `triangulate` at 3d8a06da (the LLVM fusion of its `muladd`s follows the caller; a call through the
+  `@noinline` copy `Triangulation`'s solve keeps for its own bits moved the bundle's last bits). `s2(r::FitResult)`
+  (public, a contract generic beside `dof`) is the one reading of a recorded residual variance (R21 lists it).
+- 2026-11-23 (Estimation agent): the chart and block contract generics have throwing fallbacks (an `ArgumentError`
+  naming the missing method), so a call on an `f` that implements none is a stated refusal and JET's no-method reports
+  on Core's generic refine body stay out of the bound.
+- 2026-11-23 (naming-rules agent, relayed): R15 covers a package's own `src/`/`ext/` (functions defined, exported or
+  declared public beginning `fit_`/`find_`/`refine_`; `_` internals exempt; `TASK_VERBS` = `find_boards`, `find_board`,
+  `find_board_cameras`, each with its reason); R19 is literal (bindings beginning `solve_`; `_` internals and quoted
+  symbols exempt) — so Core's keyed-context reader is `read_context`, and four Core test locals were renamed
+  (`linear_condition`, `constant_at_efficiency`, `p3p_allocated`, `static_lm_rays!`); R20's algorithm types are computed
+  from the code; R16–R18 run in `check_algorithm_traits`; a retired name ending in `(` is matched without a right word
+  boundary (`ransac(p, s)` is caught, the word and `Ransac` are not).
+- 2026-11-23 (Estimation agent): whole-case intended changes. `intended_changes.toml` entries with `field = "*"` state a
+  case whose outcome changed KIND (an exception now a value, or the reverse): each side is `{type = "exception", value =
+  <type>}` or `{type = "record", value = <SHA-256 of the whole record>}`, both exact (`replay.jl`'s
+  `whole_case_change`; `ci/golden/digest.jl` prints the digests). Used for: a DLT index mask with repeated in-range
+  indices (now a valid selection, spec's mask ruling) and a `RotationProblem` of bearings without their Jacobian
+  columns (refused by the constructor whatever the count; the old guard returned before building it).
+- 2026-11-23 (camera-fits agent, relayed): ONE `f` for every camera-from-camera regression, `CameraRegressionProblem(target,
+  source, region; support, fixed, weight, device) <: AbstractBlockProblem` (no target for the refine, `OpticalAxis` and
+  `ForwardSpline`); `support`/`fixed`/`weight`/`device` are problem settings (refused at the solve where a target does
+  not read them), the spline-target knobs `CameraRegression`'s fields (`tolerance`, `grid_size`, `lattice_spacing`,
+  `forward`; `nothing` = not stated). Algorithms: `CameraRegression` (fit), `PSpline(; grid_size)` (closed form),
+  `ForwardSpline(; tolerance)`, `OpticalAxis()`, `RadialCameraFit(; iterations)` (the plan's `WhitenedIterations`),
+  `DivisionCameraFit(; ncoef, weighting, mixture_em, verbose)` on `EstimationProblem(CameraModel, (radial_cameras,
+  views), (; image_size, focal_seed, k))`. The refine of a regression is `LevenbergMarquardt` through the block contract
+  (least squares only; `default_stops` from `[camera_regression_problem]`). `approximate_camera` is deleted (a fit, then
+  its refine); the deferred fit/refine duplicate is one helper (`_bounded_part`). The camera-and-poses bundles are
+  `CameraPosesProblem(correspondences; fixed, box, held_boards, held_views, residual) <: AbstractBlockProblem`, the guess
+  a NamedTuple of the result's form (`(; camera, poses[, board_poses])` or `(; camera, views::RotationCenterViews)`), the
+  LM settings `stops` (`[camera_poses_problem]`). `resid` stays `nothing` for these results (quadrature samples; signed
+  rows, D12); the bundles' metadata `s²`/`ν` are `s2`/`dof`, read by `s2(r)`/`dof(r)`. `n_without_bearing`,
+  `without_bearing`, `without_projection` are retired (read `r.metadata.<field>`; field names, not RETIRED_NAMES).
+  `division_camera_step` is internal (`_keyed_focal_solve`, the inner `_stacked_focal_solve`: no `step`). TOML tables
+  renamed to the algorithm's or problem's tag: `[division_camera_fit]`, `[camera_poses_problem]`,
+  `[camera_regression_problem]` (`[optical_axis]` is `OpticalAxis`'s tag). Source and test files renamed so no file name
+  holds a retired name.
+- 2026-11-23 (other-fits agent, relayed): ONE `ReweightedLeastSquares(; optimization_strategy = ClassDefault(), tol)` for
+  the fixed-scale reweighted fits (a rotation on `EstimationProblem(RotMatrix{3}, cs)`, a rigid alignment on
+  `EuclideanMap{3}`, a linear model on the tag `LinearModel` with `(A, y[, prior])`, the robot-world calibration on
+  `EstimationProblem(RobotWorldHandEyeCalibration, markers, (; σ_rot, σ_trans, min_rel_angle))`) — `Irls{K}` cannot be
+  the algorithm (it is an `AbstractOptimizationStrategy`), and the plan's separate robot-world fit is the same algorithm;
+  `scale`/`width` are solve keywords; the class tables `[reweighted_least_squares.<rotation|linear|rigid_alignment>]`.
+  `RotationAveraging(; seed, …)` and `FilteredRotationAveraging(; cycle_tol, orientation_tol)` on
+  `EstimationProblem(AbsoluteRotations, graph)` (the filtered graph in `metadata.graph`); `ResidualMixture(; weighting)`
+  on `EstimationProblem(PosteriorWeightState, distances, (; model_dof))` (the mechanism-token rule: not `MixtureEM`);
+  `SimFitPP` (`supports_solve_rng = true`) on `EstimationProblem(LossWidth, …)` and the tag `PoolSelection`;
+  `RobotWorldHandEyeProblem(camera, markers)` and `RelativePoseProblem(K1, K2, cs)` are block problems (the latter's `u`
+  is `nothing` on failure; it refuses a robust strategy and a damping other than Marquardt). The fits' residuals stay in
+  their metadata (`resid = nothing`). The `_degenerate` trio is one `_reweighted_failure`. `fit_line` is internal
+  (`_heteroscedastic_line`). `irls_termination`'s keyword `solve_failed` is `linear_solve_failed` (R19; BlobBoards calls
+  it). The tests' shared helpers live in `test/fixtures/reweighted_fits.jl`.
+- 2026-11-24 (Estimation agent): decision 11, versioned configurations. ONE converter per package: Core's
+  `ConfigVersions(package, migrations::ConfigMigration...)` and `migrate_config(d, versions; source)`
+  (`base/config_toml.jl`), each package's converter constant (Core's `CONFIG_VERSIONS`, Estimation's `ESTIMATION_CONFIG_VERSIONS`: one name per owner) beside its `configs/default.toml`, which states
+  `config_version` (absent = 1: the files before versioning). `parse_defaults(path; versions)` reads the shipped file
+  through it, so the code sees the current table names only. A migration lists every table of the version it reads (an
+  unknown one is refused, naming it) and renames whole tables by dotted path; a current file holding an earlier name is
+  refused naming the current one. Core: version 1, no migration. Estimation: version 2, one migration (the eight
+  estimator tables, §9's fits entries). The version-1 table names are stored-format tokens in `check_naming`'s
+  `FOREIGN_FORMAT_TOKENS` (accepted in string literals and in `test/fixtures/stored_configs/`, the converter's real
+  stored inputs: Core 0.13.3's and Estimation 0.12.2's shipped files, comments dropped).
+- 2026-11-24 (Estimation agent): `rand(rng, Line2D)` / `rand(rng, Plane3D)` go through Random's sampler interface
+  (`rand(rng, ::SamplerType{Line2D{T}})`, `Sampler(…, ::Type{Line2D}, …)`), never a `rand(::AbstractRNG,
+  ::Type{Line2D})` method, which is ambiguous with every RNG package's `rand(rng::R, T::Type)` (CUDA's). A sampler takes
+  no keywords: `max_rho` and `bounds` are gone (no caller in the stack or its downstream snapshots), the ranges fixed at
+  their defaults ([0, 1), [-1, 1)).
+- 2026-11-24 (owner): no public `mask` anywhere. A hard selection is `cs[idx]`, a soft influence the `weights` attribute;
+  repeated data is valid (a duplicated row acts as weight 2 in a least squares; conventions `data-arguments.md`).
+  Index lists exist only inside the inner kernels (`homography_dlt!`, `fundamental_dlt!`, the RANSAC gates), which keep
+  refusing one longer than their buffer: the three `fundmat_dlt/guard_8/refused_long_index_mask` cases replay through
+  `fundamental_dlt!` (`DimensionMismatch`, as recorded) and their whole-case entries are gone.
+  `CorrespondenceNormalization(M, cs; mask)` and `AffineMap(::HartleyNormalization, points, mask, w)` lose the mask.
+- 2026-11-24 (owner, option (b) of the STOPPED entry above): the Sampson Jacobian states its arithmetic. Every
+  product `_jacobian_terms` reaches (`L⁻¹·Gθ`, `L⁻¹·g`, `G_x·Σ·G_xᵀ`, the factor rate's `W·K`, the chart directions
+  `A·Bᵀ` and `B·v`, the default `_normal_rate` as `_fma_tmul`, the essential rate's `M·∇`) is the explicit `fma` chain of
+  `base/fused_products.jl` (`_fma_mul`, `_fma_tmul`: the one owner of stated products, StaticArrays' order); the
+  Estimation workload is restored. The pinned code is identical in pkgimage and `--pkgimages=no` mode (all 4598 replay
+  cases and their fixtures). 683 records move (cases, and fixtures holding an upstream find as `<case>#fixture`), 1554
+  leaves, each an intended change with its case's size (max relative difference over its float leaves against the
+  unpinned code): 523 at most 1e-10 (425 at most 1e-12), 95 in (1e-10, 1e-6], 39 in (1e-6, 1e-3], 25 above 1e-3, one
+  trace that changed length; 28 change a discrete leaf (an iteration count, a stop rule). The large ones are the
+  essential refines on `stereo_ecam_140+60`/`epix_cam800` (the model's sign representative flips around a ~5e-10 move,
+  or the refine stops at another iterate) and the rotation averagings on `edges5_*` (an ill-conditioned five-edge graph
+  carrying the last-bit change to a different solution). ACCEPTED (owner, 2026-11-24): the fma pin and its 683 listed
+  records, not re-recorded; the unfused form and every per-product mix were tested and reproduce fewer (the recorded JIT
+  copy fused per lane); paper projects rerun within their documented tolerance (migration plan §5).

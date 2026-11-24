@@ -35,6 +35,21 @@
     probe = VgtkCore.check_algorithm_traits(_TraitsProbe)
     @test any(contains("NoKind: no estimator_kind"), probe)
     @test any(contains("a find is never a default"), probe)
+    # R16, R18: the solve methods follow the interface — no front-end method outside Core, a __solve for an owned
+    # algorithm only, an `rng` only where the pair draws
+    @eval module _SolveProbe
+        import VisualGeometryToolkitCore as VgtkCore
+        struct Closed <: VgtkCore.AbstractEstimationAlgorithm end
+        VgtkCore.estimator_kind(::Closed) = VgtkCore.ClosedFormKind()
+        abstract type Tag end
+        VgtkCore.solve(::VgtkCore.EstimationProblem{Tag}, ::Closed) = nothing
+        VgtkCore.__solve(::VgtkCore.EstimationProblem{Tag}, ::VgtkCore.DLT) = nothing
+        VgtkCore.__solve(::VgtkCore.EstimationProblem{Tag}, ::Closed; rng = nothing) = nothing
+    end
+    probe_of_solves = VgtkCore.check_algorithm_traits(_SolveProbe)
+    @test any(contains("R16: solve method"), probe_of_solves)
+    @test any(contains("does not own that algorithm type"), probe_of_solves)
+    @test any(contains("R18:"), probe_of_solves)
 end
 
 @testitem "quality: gates" begin

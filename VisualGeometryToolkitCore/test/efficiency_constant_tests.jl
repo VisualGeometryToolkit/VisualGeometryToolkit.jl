@@ -31,7 +31,7 @@
         ψ2 = E(r -> ψ(shape, r, c2)^2)
         return (dψ + (d - 1) * ψr)^2 / (d * ψ2)
     end
-    function solve_constant(shape, d; target = 0.95)
+    function constant_at_efficiency(shape, d; target = 0.95)
         lo, hi = 0.5, 10.0
         for _ in 1:50
             mid = (lo + hi) / 2
@@ -43,7 +43,7 @@
     @testset "$(nameof(typeof(shape))): eff(c, d) = 0.95 to 4 decimals, d = 1…3" for shape in
             (HuberShape(), CauchyShape(), WelschShape(), GemanMcclureShape())
         for d in 1:3
-            @test round(solve_constant(shape, d); digits = 4) == efficiency_constant(typeof(shape), d)
+            @test round(constant_at_efficiency(shape, d); digits = 4) == efficiency_constant(typeof(shape), d)
         end
     end
 end

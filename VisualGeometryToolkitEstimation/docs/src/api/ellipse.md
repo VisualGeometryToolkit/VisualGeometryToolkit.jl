@@ -17,13 +17,13 @@ points' ORTHOGONAL distances to the ellipse (the distance to the foot point),
 the maximum-likelihood objective under isotropic Gaussian noise on the points,
 which the Sampson distance approximates only to first order (on a
 high-curvature ellipse the Sampson least squares is measurably the worse
-estimator). `find_ellipse` is its RANSAC, with the robustified LM
-([`Triggs`](@extref VisualGeometryToolkitCore.Triggs)) as its local optimization; `refine_ellipse` refines a given
-ellipse — with `optimization_strategy = nothing`, the orthogonal-distance least
-squares, its covariance `s²·solver_covariance(problem, e, eachindex(points))`.
+estimator). `solve(EstimationProblem(EllipseProblem(points)), Ransac(); rng)` is
+its find, with the robustified LM ([`Triggs`](@extref VisualGeometryToolkitCore.Triggs))
+as its class's local optimization; `solve(RefineProblem(EllipseProblem(points), e₀),
+LevenbergMarquardt(; optimization_strategy = nothing))` is the orthogonal-distance
+least squares from a given ellipse, its covariance
+`s²·solver_covariance(problem, e, eachindex(points))`.
 
 ```@docs
 EllipseProblem
-find_ellipse
-refine_ellipse
 ```

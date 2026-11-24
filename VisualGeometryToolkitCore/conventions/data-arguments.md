@@ -7,16 +7,24 @@
 - Per-correspondence data (prior scores, weights, covariances) are attribute
   COLUMNS (`withattrs(cs; weights = w)`), never keywords; per-correspondence
   outputs come back the same way.
+- **Selection is indexing; influence is a weight** (owner, 2026-11-24). No public
+  function takes a `mask`: a hard selection is the caller's own indexing, `cs[idx]`
+  (an index list or a `BitVector`), and a soft influence is the `weights` column
+  (`withattrs(cs; weights = w)`; a zero weight leaves a datum out). Repeated data is
+  valid data: a correspondence listed twice counts twice, which in a least squares is
+  the same as weight 2. Index lists and masks live only inside the inner kernels
+  (`homography_dlt!(A, N, cs; mask)`, the RANSAC gates), which refuse one that asks
+  for more rows than their buffer holds (`DimensionMismatch`).
 - Grouped data is an `AbstractDict{K, <:AbstractVector{<:Correspondence}}` keyed by
   the identity of the group's unknown (a marker id, a `(frame, board)`):
-  `fit_robot_world_hand_eye(markers)`, `fit_division_camera(radial_cameras, views)`.
+  `EstimationProblem(RobotWorldHandEyeCalibration, markers)`, `EstimationProblem(CameraModel, (radial_cameras, views))` (a `DivisionCameraFit`).
   Block order is `sort(collect(keys(groups)))`, stored on the result; results
   come back keyed by `K`, and a joint covariance is ordered
   `[shared | per-group in key order]`.
 - Given per-group models lead, keyed by the same `K`; the key sets must match
   (`ArgumentError`).
 - Nest only an observation with its evidence: `A_i => correspondences(X, u)` (a rig
-  pose => that frame's features) in `refine_robot_world_hand_eye`.
+  pose => that frame's features) in a `RobotWorldHandEyeProblem`'s refine.
 - **Keywords are configuration only.**
 - A value carried between stages carries its per-datum attributes as
   `Attributed(x, attrs)` (`Attributed(H, (; weight))`, `Attributed(R_ij, (; weight))`):

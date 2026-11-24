@@ -68,7 +68,7 @@ const _P3P_DEGENERACY_TOL = 1.0e-2
 # a separate decision rather than changed inside this window.
 #
 # The world value is in the problem's world unit: METRES whenever the data came
-# in physical (`find_absolute_pose` strips lengths in metres, so the radius is
+# in physical (an `AbsolutePoseProblem` strips lengths in metres, so the radius is
 # 1 mm), the caller's own unit for plain data (1 μm for plain mm). Harmless for
 # boards (spacing ≫ 1 mm); a spread-relative radius is the calibrated fix, held
 # with the image one.
@@ -82,7 +82,7 @@ Reject degenerate P3P minimal samples. Four checks, distinctness and
 collinearity in each of the two spaces:
 - **world**: the 3 control points distinct (`_P3P_COINCIDENT_WORLD` = 1e-3 in
   the problem's world unit: **1 mm for physical input**, which
-  `find_absolute_pose` strips in metres, and **1e-3 of the caller's own unit
+  an `AbsolutePoseProblem` strips in metres, and **1e-3 of the caller's own unit
   for plain input** — 1 μm for plain millimetres; the two forms of one
   millimetre dataset can therefore reject different samples, but only samples
   with two control points within 1 mm, which a fixture spread over metres
@@ -318,11 +318,11 @@ function _refit_state(p::AbsolutePoseProblem, ch, sqrtw)
     return _lm_state(p, ch, sqrtw)
 end
 
-# The robustified LM's rows and a refine's least squares (`_triggs_state`, manifold_providers.jl): a loss width is in
+# The robustified LM's rows and a refine's least squares (Core's `chart_rows`, manifold_providers.jl): a loss width is in
 # PIXELS, the unit of the problem's distances, so a pinhole's calibrated refit rows are whitened into pixels by the
 # lift's frozen pixel block (any other lens's rows are pixels already). The refit's own (IRLS) rows keep their
 # calibrated form.
-function _triggs_state(p::AbsolutePoseProblem, ch, sqrtw)
+function chart_rows(p::AbsolutePoseProblem, ch, sqrtw)
     st = _refit_state(p, ch, sqrtw)
     return ChartLm(st.ch, p, st.sqrtw, _PnPAux(_lift_pixel_block(lens(p.context.model), p), nothing))
 end

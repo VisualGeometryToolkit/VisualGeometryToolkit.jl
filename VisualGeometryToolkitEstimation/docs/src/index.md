@@ -8,18 +8,21 @@ VisualGeometryToolkitEstimation provides robust estimation for geometric
 vision: one generic RANSAC loop and the estimation problems of the
 VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
-calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
-the inliers by default (least squares for most problems), and other scorers
-and local optimizers plug in by keyword.
+calibration. Every estimator is `solve(problem, algorithm)`: a family problem
+(`HomographyProblem(cs)`, …) is the problem's data; [`Ransac`](@ref) finds a
+model in contaminated data — MSAC scoring and a refit on the inliers by default,
+other scorers and local optimizers as its fields; VisualGeometryToolkitCore's
+`LevenbergMarquardt` refines a guess on the same problem; and each fit is an
+algorithm of its own.
 
 ## What it provides
 
 - **One generic RANSAC loop** on VisualGeometryToolkitCore's scoring and
   local-optimization contracts: any scorer composes with any local optimizer
-  and any problem, with static dispatch throughout, and `ransac!` runs on a
-  reused [`RansacWorkspace`](@ref). Two-level gating, adaptive trial counts,
+  and any problem, with static dispatch throughout, and `init` → `solve!` →
+  `reinit!` reuses its [`RansacWorkspace`](@ref). Two-level gating, adaptive trial counts,
   PROSAC ordered sampling. See [RANSAC](guide/ransac.md).
-- **Core defaults**: every `find_*` runs VisualGeometryToolkitCore's MSAC
+- **Core defaults**: `Ransac()` on a family problem runs VisualGeometryToolkitCore's MSAC
   (`[pipelines.<class>] scoring`, MSAC at the class's threshold) and a local optimization read from
   `configs/default.toml`: least squares on the inliers
   ([`Irls`](@extref VisualGeometryToolkitCore.Irls)`{TLSShape}`, following the scorer's decision point) for most
@@ -28,8 +31,8 @@ and local optimizers plug in by keyword.
   matrix and the radial classes 3 px; essential matrix, rotation, circle and
   ellipse 1 px; absolute pose 8 px; hand-eye `0.01·L`). See
   [Fitting Algorithms](guide/fitting.md).
-- **Composition**: bring a scorer and a strategy from other packages by
-  keyword — `scoring = StudentTUniformScoring(problem, a; scale_prior, label_prior)` from
+- **Composition**: bring a scorer and a strategy from other packages as
+  `Ransac`'s fields — `scoring = StudentTUniformScoring(problem, a; scale_prior, label_prior)` from
   VisualGeometryToolkitCore, `local_optimization_strategy = HQ{WelschShape}(…)`,
   `StudentTUniform()`, `Gnc{…}(…)` from LocalOptimizationDoneRight. See
   [Getting Started](guide/getting-started.md).
@@ -42,7 +45,7 @@ and local optimizers plug in by keyword.
 - **Posterior-weight iteration** ([`PosteriorIrlsMethod`](@ref),
   [`PosteriorLikelihood`](@ref)) on VisualGeometryToolkitCore's generic
   block-coordinate-descent loop: the machinery of
-  [`fit_residual_mixture`](@ref) and `fit_division_camera`, and the base the
+  [`ResidualMixture`](@ref) and [`DivisionCameraFit`](@ref), and the base the
   downstream Student-t + uniform strategy builds on.
 - **Problem implementations**: 2D line fitting (Hesse, inhomogeneous), homography,
   fundamental and essential matrices, radial homography and radial camera,
@@ -82,25 +85,26 @@ for i in 1:8                                                # replace 8 with out
     dst[i] = Point2(640rand(rng), 480rand(rng))
 end
 
-result = find_homography(correspondences(src, dst))   # MSAC at 3 px, the default
+problem = EstimationProblem(HomographyProblem(correspondences(src, dst)))
+result = solve(problem, Ransac())             # MSAC at 3 px, the class default
 count(inlier_mask(result))                    # 32, the true correspondences
 
-H = Matrix(estimate(result))
+H = Matrix(result.u)
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true
 
-result_2px = find_homography(correspondences(src, dst);   # a scorer overrides the class's
-                           scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0))
+result_2px = solve(problem,                   # a scorer overrides the class's
+                   Ransac(; scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0)))
 ```
 
 ## Documentation
 
-**Start here.** [Getting Started](guide/getting-started.md): a first
-pipeline, composing a scorer and a local optimizer, and calling `ransac`
-directly.
+**Start here.** [Getting Started](guide/getting-started.md): problem and
+algorithm, a first find, refining its result, composing a scorer and a local
+optimizer, and reusing a workspace.
 
 **How to.**
-[Fitting Algorithms](guide/fitting.md) (every `find_*` and `fit_*` with its
-default threshold),
+[Fitting Algorithms](guide/fitting.md) (every family problem and fit algorithm,
+with its default threshold),
 [RANSAC](guide/ransac.md) (local optimization, samplers, configuration, the
 result),
 [Scoring Functions](guide/scoring.md),

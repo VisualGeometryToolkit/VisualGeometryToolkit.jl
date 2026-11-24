@@ -17,23 +17,19 @@ using StableRNGs
 using Rotations: RotY, RotXYZ, RotMatrix
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: EuclideanMap, Correspondences
-using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract,
-    MsacScoring, RansacScoring, estimate, converged, correspondences, model_type, RadialCamera, RadialHomography,
-    radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, mahalanobis_distances!,
-    residual_context, whitened_residual, rotation, translation, radial_rows, homography, division_coeff
+using VisualGeometryToolkitCore: test_scoring_contract, test_constraint_problem, test_local_optimization_contract, MsacScoring, RansacScoring, correspondences, model_type, RadialCamera, RadialHomography, radial_transfer, WelschShape, TLSShape, data_size, codimension, minimal_sample_size, mahalanobis_distances!, residual_context, whitened_residual, rotation, translation, radial_rows, homography, division_coeff
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: RansacConfig, RelposeBundleProblem, BearingPoseProblem
-using VisualGeometryToolkitCore: RowsWorkspace, rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
-    lift_model, lift_valid, lift_rows, lift_residuals, lift_size, point_norms!
+using VisualGeometryToolkitCore: RowsWorkspace, rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model, lift_valid, lift_rows, lift_residuals, lift_size, point_norms!
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 using FiniteDiff: FiniteDiff
 
 # The incumbent of a short seeded RANSAC run: a model of the problem's own type,
 # near the scene's truth.
 function fitted(p, threshold; seed = 1)
-    r = ransac(p, MsacScoring(p; threshold); config = RansacConfig(max_trials = 300), rng = StableRNG(seed))
-    @test converged(r)
-    return estimate(r)
+    r = solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 300)); rng = StableRNG(seed))
+    @test successful_retcode(r)
+    return r.u
 end
 
 # --- the scenes --------------------------------------------------------------
@@ -94,9 +90,9 @@ function hand_eye_scene()
     X, Y, A = only(sc.X), sc.Y, sc.A
     B = [perturb_pose(rng, marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
     p = HandEyeProblem(A .=> B)
-    r = find_hand_eye(A .=> B; rng = StableRNG(31))
-    @test converged(r)
-    return p, convert(model_type(p), estimate(r))
+    r = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(31))
+    @test successful_retcode(r)
+    return p, convert(model_type(p), r.u)
 end
 
 @testset "scoring contract: the baseline scorers at a threshold" begin

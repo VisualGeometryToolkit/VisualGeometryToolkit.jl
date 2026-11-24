@@ -1,10 +1,10 @@
 # The ellipse refit rows — the points' orthogonal distances (the foot point) —
-# and refine_ellipse as plain least squares on outlier-free points: the
+# and the EllipseProblem refine as plain least squares on outlier-free points: the
 # maximum-likelihood ellipse, its covariance the one model covariance.
 
 @testitem "ellipse_fitting" begin
     using VisualGeometryToolkitCore: retcode_symbol
-    using VisualGeometryToolkitCore: inlier_mask, noise_scale   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test
@@ -14,7 +14,7 @@
     using StableRNGs
     using Statistics: mean
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: estimate, converged, GaussianShape, ambient_coordinates
+    using VisualGeometryToolkitCore: GaussianShape, ambient_coordinates
     using VisualGeometryToolkitEstimation
 
     # `ellipse_boundary_points`: VisualGeometryToolkitCore's test fixture file, shared with the golden records
@@ -26,7 +26,8 @@
         return sqrt(mean(p -> first(VgtkEstimation._ellipse_foot(SVector{2, Float64}(p), c, V, a, b))^2, pts))
     end
     # plain least squares over every point
-    ls(e, pts) = refine_ellipse(e, pts; optimization_strategy = nothing)
+    ls(e, pts) = solve(RefineProblem(EllipseProblem(pts), e), LevenbergMarquardt(; optimization_strategy = nothing))
+    _direct(pts) = solve(EstimationProblem(Ellipse, pts), DirectEllipse()).u   # the algebraic ellipse, the start
 
     e0 = Ellipse(Point2(120.0, 80.0), 30.0, 12.0, 0.6)
 
@@ -45,49 +46,49 @@
 
     @testset "noise-free points: the ellipse, to rounding" begin
         pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 30))
-        r = ls(direct_ellipse(pts), pts)
-        @test converged(r)
-        @test norm(_chart(estimate(r)) - _chart(e0)) < 1.0e-9
-        @test _orms(estimate(r), pts) < 1.0e-9
+        r = ls(_direct(pts), pts)
+        @test successful_retcode(r)
+        @test norm(_chart(r.u) - _chart(e0)) < 1.0e-9
+        @test _orms(r.u, pts) < 1.0e-9
         # from the exact ellipse, under the default (Triggs{Welsch} at a scale), it comes back
-        @test norm(_chart(estimate(refine_ellipse(e0, pts; scale = 0.5))) - _chart(e0)) < 1.0e-9
+        @test norm(_chart(solve(RefineProblem(EllipseProblem(pts), e0), LevenbergMarquardt(); scale = 0.5).u) - _chart(e0)) < 1.0e-9
     end
 
     @testset "noisy points: no worse than the algebraic start, better on an arc" begin
         for arc in (2π, π)
             pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 60; σ = 0.5, arc))
-            r = ls(direct_ellipse(pts), pts)
-            @test converged(r)
-            @test _orms(estimate(r), pts) <= _orms(direct_ellipse(pts), pts) + 1.0e-12
+            r = ls(_direct(pts), pts)
+            @test successful_retcode(r)
+            @test _orms(r.u, pts) <= _orms(_direct(pts), pts) + 1.0e-12
             @test r.n == 60
         end
         pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 60; σ = 0.5, arc = π))
-        @test _orms(estimate(ls(direct_ellipse(pts), pts)), pts) < 0.97 * _orms(direct_ellipse(pts), pts)
+        @test _orms(ls(_direct(pts), pts).u, pts) < 0.97 * _orms(_direct(pts), pts)
     end
 
     @testset "a circle: the chart has no singular point there" begin
         circle = Ellipse(Point2(50.0, 40.0), 10.0, 10.0, 0.0)
         pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), circle, 40; σ = 0.3))
-        r = ls(direct_ellipse(pts), pts)
-        @test converged(r)
-        e = estimate(r)
+        r = ls(_direct(pts), pts)
+        @test successful_retcode(r)
+        e = r.u
         @test abs(e.a - 10) < 0.3 && abs(e.b - 10) < 0.3
     end
 
     @testset "another start value, the same minimum" begin
         pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 40; σ = 0.2))
         r = ls(Ellipse(Point2(118.0, 82.0), 25.0, 15.0, 0.4), pts)
-        @test converged(r)
-        @test norm(_chart(estimate(r)) - _chart(estimate(ls(direct_ellipse(pts), pts)))) < 1.0e-6
+        @test successful_retcode(r)
+        @test norm(_chart(r.u) - _chart(ls(_direct(pts), pts).u)) < 1.0e-6
     end
 
     @testset "the covariance is calibrated (Monte Carlo NEES ≈ 5)" begin
         # s²·solver_covariance over every point (least squares), s² = RSS/(n − 5), in the ambient coordinates (c, Q)
         nees = map(1:300) do s
             pts = Point2{Float64}.(ellipse_boundary_points(StableRNG(1000 + s), e0, 60; σ = 0.5))
-            r = ls(direct_ellipse(pts), pts)
-            e = estimate(r)
-            s² = sum(abs2, r.residuals) / (length(pts) - 5)
+            r = ls(_direct(pts), pts)
+            e = r.u
+            s² = sum(abs2, r.resid) / (length(pts) - 5)
             Σ = s² * VgtkEstimation.solver_covariance(EllipseProblem(pts), e, collect(eachindex(pts)))
             δ = ambient_coordinates(e) - ambient_coordinates(e0)
             dot(δ, Matrix(Σ) \ δ)
@@ -96,8 +97,8 @@
     end
 
     @testset "too few points" begin
-        @test let r = refine_ellipse(e0, Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 4)); optimization_strategy = nothing)
-            retcode_symbol(r) === :degenerate && iterations(r) == 0 && estimate(r) == e0
+        @test let r = solve(RefineProblem(EllipseProblem(Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 4))), e0), LevenbergMarquardt(; optimization_strategy = nothing))
+            retcode_symbol(r) === :degenerate && r.stats.nsteps == 0 && r.u == e0
         end
     end
 end

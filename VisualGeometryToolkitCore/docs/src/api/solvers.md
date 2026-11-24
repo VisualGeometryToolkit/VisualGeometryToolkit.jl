@@ -18,7 +18,7 @@ layer and the solver registry are documented with the
 
 One scheme serves every solver. A normalization STRATEGY is a type named
 `<Method>Normalization`, applied as a coordinate map with
-`AffineMap(strategy, points[, mask, weights])`:
+`AffineMap(strategy, points[, weights])` (a selection is `points[idx]`):
 
 - [`HartleyNormalization`](@ref)`(; center)` — translate to the (weighted)
   centroid, or to a known `center`, and scale to mean distance √2. Estimation

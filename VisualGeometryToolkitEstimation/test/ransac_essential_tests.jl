@@ -1,5 +1,5 @@
 @testitem "ransac_essential" setup = [EpipolarScenes, Cameras] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -10,12 +10,12 @@ using StableRNGs
 using StructArrays
 using Rotations: RotMatrix, MRP, RotY
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: EssentialManifold5, Vec3   # the 5-dof E refit chart (public)
+using VisualGeometryToolkitCore: EssentialManifold5, Vec3
 using VisualGeometryToolkitCore: backproject_with_jacobian, withattrs, Correspondences
-using VisualGeometryToolkitCore: converged   # VGC accessor (public)
-using VisualGeometryToolkitCore: MsacScoring, RansacScoring   # owned and exported by VisualGeometryToolkitCore
+
+using VisualGeometryToolkitCore: MsacScoring, RansacScoring
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: data_size, refine_workspace, refit_kind, NonlinLsq, _lm_state, residual_rows!
+using VisualGeometryToolkitEstimation: data_size, refit_workspace, refit_kind, NonlinLsq, _lm_state, residual_rows!
 
 # These points are CALIBRATED and moved into the pixels of ECAM (EpipolarScenes):
 # `EssentialProblem` needs a camera whose pixels are pixels, so the gate's PIXEL
@@ -38,7 +38,7 @@ _sampson_cost(E, u₁, u₂, w) =
     E_pert = perturbed_essential(R, t, 0.08, SA[0.1, -0.08, 0.05])
 
     w = ones(n)
-    E_ref = VgtkCore.refine!(refine_workspace(typeof(p), data_size(p)), p, E_pert, w)
+    E_ref = VgtkCore.refine!(refit_workspace(typeof(p), data_size(p)), p, E_pert, w)
 
     @test E_ref !== nothing
     @test E_ref isa EssentialMat
@@ -228,8 +228,8 @@ end
     VgtkEstimation.mahalanobis_distances!(r, p32, θ)
     @test all(isfinite, r[1:150])
     @test count(<(3.0), r[1:150]) > 140              # true inliers score as inliers
-    res = VgtkEstimation.ransac(p32, MsacScoring(p32; threshold = 3.0); rng = StableRNG(7))
-    @test converged(res)
+    res = solve(EstimationProblem(p32), Ransac(; scoring = MsacScoring(p32; threshold = 3.0), local_optimization_strategy = nothing); rng = StableRNG(7))
+    @test successful_retcode(res)
     @test count(inlier_mask(res)[1:150]) > 0.9 * 150
 
     # T2: the two Jacobian columns of DIFFERENT types (here Float64 and
@@ -241,7 +241,7 @@ end
     pm = _retyped(EssentialProblem(camA, camB, correspondences(a2, b2)); T₂ = Float32)
     @test eltype(pm.cs.M₁) != eltype(pm.cs.M₂)
     θ₀ = EssentialMat(R2, normalize(t2 + SA[0.05, -0.04, 0.03]))
-    θ₁ = VgtkCore.refine!(refine_workspace(typeof(pm), data_size(pm)), pm, θ₀, ones(length(a2)))
+    θ₁ = VgtkCore.refine!(refit_workspace(typeof(pm), data_size(pm)), pm, θ₀, ones(length(a2)))
     @test θ₁ !== nothing
 end
 
@@ -260,7 +260,7 @@ end
     @test VgtkEstimation.sampler(EssentialProblem(cam, cam, Correspondences(a, b))) isa
         VgtkEstimation.UniformSampler
     # and a scored pipeline run accepts it
-    @test find_essential(cam, cam, scored; rng = StableRNG(8)) !== nothing
+    @test solve(EstimationProblem(EssentialProblem(cam, cam, scored)), Ransac(); rng = StableRNG(8)) !== nothing
 end
 
 @testset "non-finite bearings and Jacobians are refused (N2)" begin
@@ -292,22 +292,22 @@ end
     lo = nothing
     # 0.02 is the OLD calibrated default; in pixels it is nothing — refused as
     # a threshold scorer's threshold, the class default's or a caller's.
-    @test_throws ArgumentError find_essential(cam, cam, correspondences(a, b); scoring = MsacScoring(p; threshold = 0.02))
-    @test_throws ArgumentError VgtkEstimation.ransac(p, MsacScoring(p; threshold = 0.02))
-    @test_throws ArgumentError VgtkEstimation.ransac(p, RansacScoring(p; threshold = 0.02))
-    @test_throws ArgumentError locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 0.02), local_optimization_strategy = lo)
+    @test_throws ArgumentError solve(EstimationProblem(EssentialProblem(cam, cam, correspondences(a, b))), Ransac(; scoring = MsacScoring(p; threshold = 0.02)))
+    @test_throws ArgumentError solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 0.02), local_optimization_strategy = nothing))
+    @test_throws ArgumentError solve(EstimationProblem(p), Ransac(; scoring = RansacScoring(p; threshold = 0.02), local_optimization_strategy = nothing))
+    @test_throws ArgumentError solve(RefineProblem(p, θ), LocalOptimization(lo; scoring = MsacScoring(p; threshold = 0.02)))
     err = try
-        VgtkEstimation.ransac(p, MsacScoring(p; threshold = 0.02)); nothing
+        solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 0.02), local_optimization_strategy = nothing)); nothing
     catch e
         e
     end
     @test err isa ArgumentError && occursin("threshold 0.02 is below", err.msg)
     # A pixel value is accepted on the same entries — the class default (1 px) included.
-    @test locally_optimize(p, θ; scoring = MsacScoring(p; threshold = 1.0), local_optimization_strategy = lo) !== nothing
-    @test converged(find_essential(cam, cam, correspondences(a, b); rng = StableRNG(2035)))
+    @test solve(RefineProblem(p, θ), LocalOptimization(lo; scoring = MsacScoring(p; threshold = 1.0))) !== nothing
+    @test successful_retcode(solve(EstimationProblem(EssentialProblem(cam, cam, correspondences(a, b))), Ransac(); rng = StableRNG(2035)))
     # A unit-focal camera's "pixel" IS a calibrated unit, so a calibrated
     # threshold is right there and is not refused.
     pc = EssentialProblem(IDCAM, IDCAM, correspondences(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))
-    @test locally_optimize(pc, θ; scoring = MsacScoring(pc; threshold = 0.002), local_optimization_strategy = lo) !== nothing
+    @test solve(RefineProblem(pc, θ), LocalOptimization(lo; scoring = MsacScoring(pc; threshold = 0.002))) !== nothing
 end
 end

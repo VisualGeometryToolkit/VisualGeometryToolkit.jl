@@ -657,7 +657,7 @@ function radial_transfer_jacobian_rows!(J::AbstractMatrix, m::RadialHomography, 
 end
 
 """
-    CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing)
+    CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center)
 
 The radial family's normalization of `plane_point => pixel` correspondences
 (a [`RadialHomography`](@ref), a `RadialCamera`; the H/F one lives in
@@ -665,12 +665,12 @@ homography_solvers.jl): Hartley at the centroid on the plane side, Hartley
 about the REQUIRED `center` (the distortion centre, the pencil's centre) on the
 image side — the origin the minimal kernels are written about, with an
 isotropic scale that keeps a division model in its class (`k′ = k/s²`) — over
-`mask`'s correspondences and weighted by the `weights` column when there is
-one. A centroid image-side frame would move the centre off the origin
+every correspondence, weighted by the `weights` column when there is one (a
+selection is `cs[idx]`). A centroid image-side frame would move the centre off the origin
 (measured: 1.4 px misfit against 4e-13 px).
 """
-CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center, mask = nothing) =
-    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(; center), cs, _bitmask(mask, length(cs)), weights_column(cs))
+CorrespondenceNormalization(::Type{<:AbstractRadialModel}, cs; center) =
+    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(; center), cs, weights_column(cs))
 
 # -----------------------------------------------------------------------------
 # Frame change — composition with the plane-side and image-side maps.

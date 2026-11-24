@@ -198,7 +198,7 @@ function _pool_variance(v::InlierVariance, problem::HomographyProblem, raw::Ster
     n_in < v.min_inliers && return NaN
     cs = draft.correspondences
     ws = SvdWorkspace{Float64}(2 * length(cs), 9)
-    H = homography_dlt(cs; mask, svd_ws = ws)
+    H = homography_dlt!(Matrix{Float64}(undef, 2length(cs), 9), CorrespondenceNormalization(HomographyMat, cs[mask]), cs; mask, svd_ws = ws)   # the normalization of the selected correspondences, the inner DLT walking the mask
     (H === nothing || !test_dlt_conditioning(ws)) && return NaN
     rss = _sampson_rss(H, sources(cs), targets(cs), mask)
     return _rss_variance(rss, residual_dof(problem, n_in))

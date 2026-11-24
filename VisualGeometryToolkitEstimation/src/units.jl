@@ -65,3 +65,16 @@ function _refuse_physical_plane(cs, fname::AbstractString)
     )
     return cs
 end
+
+# The unit a physical problem's data were stripped in (the metre; `nothing` for a plain problem): a problem built from
+# physical data records it, so the solve reattaches it to the model at exit (`_with_units`).
+const _Metres = typeof(VgtkCore.m)
+_problem_unit(_p) = nothing
+_with_units(p, r::FitResult) = _with_units(_problem_unit(p), r)
+_with_units(::Nothing, r::FitResult) = r
+_with_units(::_Metres, r::FitResult) = _attach_metres(r)
+
+# A refine's pose guess as the inner loop's: as given for a plain problem, stripped in metres for a physical one (a
+# mix has no method). The pose problems' and hand-eye's `guess_model`.
+_plain_guess(::Nothing, pose::PlainEuclideanMap{3}) = pose
+_plain_guess(::_Metres, pose::_PhysicalPose3) = _plain_metres(pose)

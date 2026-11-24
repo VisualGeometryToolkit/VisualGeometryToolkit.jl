@@ -176,7 +176,7 @@ retired keyword `old` with the default `RetiredKeyword()` and calls
 `ArgumentError("the keyword `old` is retired: give `new`")` for any value a caller
 supplies and returns `nothing` for the default. `new` names what replaces it (a
 keyword, or the argument that now carries it). `LensSpec` refuses `free` this way
-(it takes `fixed`), every `find_*`, `ransac` and `locally_optimize` refuses
+(it takes `fixed`), `Ransac` and `LocalOptimization` refuse
 `local_optimization` (it takes `local_optimization_strategy`), every `refine_*`
 and `fit_*` the strategy spellings (the owner's ruling, 2026-11-11); a downstream
 package refuses its own retired keywords through the same pair.

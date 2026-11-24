@@ -180,3 +180,11 @@ Residual degrees of freedom, recorded in the metadata. Errors on
 a metadata type that carries none.
 """
 dof(r::FitResult) = r.metadata.dof
+
+"""
+    s2(r::FitResult) -> Float64
+
+The residual variance `ŝ² = RSS/ν` a fit recorded in its metadata (a bundle's, a robot-world calibration's): read by
+this function only (spec §2). Errors on a metadata type that carries none. A contract generic, as `dof`.
+"""
+s2(r::FitResult) = r.metadata.s2

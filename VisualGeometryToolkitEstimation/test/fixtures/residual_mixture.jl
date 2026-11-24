@@ -10,7 +10,7 @@ import VisualGeometryToolkitCore as VgtkCore
 
 # A scorer with a uniform outlier model, test-only: its consensus set is the
 # residuals below its threshold (inliers first, each part in index order), its
-# per-point scores the squared residuals (what `fit_residual_mixture` seeds the
+# per-point scores the squared residuals (what `ResidualMixture` seeds the
 # posterior from), and its outlier half-width. Scale prior: the default.
 struct HalfwidthScoring{DG} <: VgtkCore.AbstractScoring
     threshold::Float64

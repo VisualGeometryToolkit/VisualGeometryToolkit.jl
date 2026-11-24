@@ -1,25 +1,27 @@
 @testitem "radial_homography" setup = [RadialScenes] begin
+    using VisualGeometryToolkitCore: solve
+    using VisualGeometryToolkitCore: weights
+    using VisualGeometryToolkitCore: EstimationProblem, RefineProblem, LevenbergMarquardt, successful_retcode
     using VisualGeometryToolkitCore: Irls
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
-# RadialHomographyProblem + find_radial_homography — one-sided division-model
+# RadialHomographyProblem and its RANSAC find — one-sided division-model
 # radially distorted homography (VGC homography_5pt_radial / Wadenbäck 3DV'26).
 #
 # Ground truth is generated through the model's own projection
 # (radial_transfer), in pixel coordinates with the distortion center at the
-# image middle — the `center` find_radial_homography requires.
+# image middle — the `center` RadialHomographyProblem requires.
 
 using Test
 using StableRNGs
 using StaticArrays, LinearAlgebra, Random
-using VisualGeometryToolkitCore: center, converged, division_coeff, estimate, homography   # VGC accessors (public)
-using VisualGeometryToolkitCore: is_map_inlier   # the posterior MAP inlier rule
+using VisualGeometryToolkitCore: center, division_coeff, homography
+using VisualGeometryToolkitCore: is_map_inlier
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: RadialHomographyProblem, find_radial_homography, solve, mahalanobis_distances!, data_size
+using VisualGeometryToolkitEstimation: RadialHomographyProblem, mahalanobis_distances!, data_size
 using VisualGeometryToolkitCore: refine!
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, radial_transfer, backproject, WelschShape,
-    HomographyMat, unit_normalize
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, RadialHomography, radial_transfer, backproject, WelschShape, HomographyMat, unit_normalize
 using VisualGeometryToolkitCore.Synthetic: projective_distance
 
 # The 1200 × 900 frame, the ground-truth model (`radial_homography_truth`, distortion
@@ -37,7 +39,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
             pairs; center = (_RW / 2, _RH / 2), extra_check = true
         )
         idx = collect(1:5)
-        sols = solve(p, idx)
+        sols = VgtkEstimation.sample_models(p, idx)
         @test length(sols) >= 1
         # extra_check keeps the consistent root: on clean data its composed
         # (pixel-frame) model reproduces the observations at the sample
@@ -56,40 +58,35 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test maximum(r) < 1.0e-8
     end
 
-    @testset "find_radial_homography: exact data + outliers ($loname)" for
+    @testset "Ransac on a RadialHomographyProblem: exact data + outliers ($loname)" for
         (loname, lokw) in (
             ("default (Irls{TLS})", (;)),
             ("Irls{Welsch}", (; local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5))),
         )   # the old default (the Welsch HQ lift) and the Student-t + uniform IRLS: LocalOptimizationDoneRight's suite
 
         pairs, gt_mask = radial_homography_pairs(rng, m_gt; n_in = 70, n_out = 30)
-        res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
-            max_trials = 4000, min_trials = 200,
-            rng = StableRNG(99), lokw...
-        )
+        res = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2))),
+            Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
+                   config = RansacConfig(max_trials = 4000, min_trials = 200), lokw...); rng = StableRNG(99))
         @test res !== nothing
-        @test converged(res)
-        m = estimate(res)
+        @test successful_retcode(res)
+        m = res.u
         @test m isa RadialHomography{Float64}
         @test center(m) ≈ SVector(_RW / 2, _RH / 2)
         @test abs(division_coeff(m) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 1.0e-3
         @test projective_distance(homography(m), homography(m_gt)) < 1.0e-4
-        w = res.weights
+        w = weights(res)
         @test count(i -> gt_mask[i] && is_map_inlier(w[i]), eachindex(w)) >= 65
         @test count(i -> !gt_mask[i] && is_map_inlier(w[i]), eachindex(w)) <= 2
     end
 
     @testset "noise: recovers sign and magnitude of k" begin
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 120, n_out = 20, σ = 0.4)
-        res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.5),
-            max_trials = 4000, rng = StableRNG(7)
-        )
+        res = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2))), Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.5), config = RansacConfig(; max_trials = 4000)); rng = StableRNG(7))
         @test res !== nothing
-        @test converged(res)
-        @test sign(division_coeff(estimate(res))) == sign(division_coeff(m_gt))
-        @test abs(division_coeff(estimate(res)) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 0.3
+        @test successful_retcode(res)
+        @test sign(division_coeff(res.u)) == sign(division_coeff(m_gt))
+        @test abs(division_coeff(res.u) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 0.3
     end
 
     @testset "fit M-step reduces cost from a perturbed seed" begin
@@ -113,7 +110,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test minimal_sample_size(p4) == 4
         # a four-point hypothesis is a plain homography with no distortion term
         idx = findall(gt)[[1, 12, 30, 55]]
-        sols = solve(p4, idx)
+        sols = VgtkEstimation.sample_models(p4, idx)
         @test length(sols) == 1 && iszero(division_coeff(sols[1]))
         @test all(isfinite, homography(sols[1]))
         # the linear k on the truth's H over the inliers lands on the truth
@@ -124,15 +121,12 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test abs(k_lin - division_coeff(m_gt)) < 0.15 * abs(division_coeff(m_gt))
         # RANSAC: the four-point search finds the board, the (H, k) local
         # optimization brings the distorted-away inliers in and recovers k
-        est = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0),
-            rng = StableRNG(5)
-        )
+        est = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography)), Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0)); rng = StableRNG(5))
         @test est !== nothing
         m = inlier_mask(est)
         @test count(m .& gt) >= count(gt) - 3 && count(m .& .!gt) == 0
-        @test abs(division_coeff(estimate(est)) - division_coeff(m_gt)) < 0.1 * abs(division_coeff(m_gt))
-        @test sign(division_coeff(estimate(est))) == sign(division_coeff(m_gt))
+        @test abs(division_coeff(est.u) - division_coeff(m_gt)) < 0.1 * abs(division_coeff(m_gt))
+        @test sign(division_coeff(est.u)) == sign(division_coeff(m_gt))
         @test_throws ArgumentError RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :other)
         # `extra_check` filters the 5-point kernel's roots: on the four-point path
         # it used to be accepted and ignored; now it is refused, and the wrapper
@@ -140,9 +134,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test_throws ArgumentError RadialHomographyProblem(
             pairs; center = (_RW / 2, _RH / 2), minimal = :homography, extra_check = true
         )
-        @test_throws ArgumentError find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, extra_check = false
-        )
+        @test_throws ArgumentError solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography, extra_check = false)), Ransac())
     end
 
     @testset "extent gate: corner cheirality (< 180° across the board)" begin
@@ -165,17 +157,14 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
 
         # end-to-end: the extent-bounded fit still converges and recovers k
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 60, n_out = 15)
-        res = find_radial_homography(
-            pairs; center = (_RW / 2, _RH / 2), scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0),
-            extent = rect, max_trials = 3000, rng = StableRNG(21)
-        )
+        res = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2)), (; extent = rect)), Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 2.0), config = RansacConfig(; max_trials = 3000)); rng = StableRNG(21))
         @test res !== nothing
-        @test converged(res)
-        @test abs(division_coeff(estimate(res)) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 1.0e-3
+        @test successful_retcode(res)
+        @test abs(division_coeff(res.u) - division_coeff(m_gt)) / abs(division_coeff(m_gt)) < 1.0e-3
     end
 end
 
-@testset "refine_radial_homography is N = 1 only: an N = 2 model is a MethodError at dispatch" begin
+@testset "a RadialHomographyProblem refine is N = 1 only: an N = 2 guess is a MethodError at its conversion" begin
     m2 = RadialHomography{Float64}(
         HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64}(4.0, -0.2, 5.0e-5, 0.3, 4.2, -4.0e-5, 260.0, 200.0, 1.0))),
         (1.0e-7, 1.0e-13), SVector(_RW / 2, _RH / 2)
@@ -183,15 +172,15 @@ end
     @test m2 isa RadialHomography{Float64, 2}
     pairs = [SVector(1.0 * i, 2.0 * i) => SVector(3.0 * i, 4.0 * i) for i in 1:8]
     err = try
-        VgtkEstimation.refine_radial_homography(m2, pairs)
+        solve(RefineProblem(RadialHomographyProblem(pairs; center = VgtkCore.center(m2)), m2), LevenbergMarquardt(); scale = 1.0)
     catch e
         e
     end
-    @test err isa MethodError && err.f === VgtkEstimation.refine_radial_homography   # at dispatch, not deep in the pipeline
+    @test err isa MethodError && err.f === convert   # at the guess (a one-coefficient model is the problem's), not deep in the LM
 end
 end
 
-@testitem "radial_homography: the lift's plain-H seed is a TLS loss at mad_scale × the TOML multiple" setup = [RadialScenes] begin
+@testitem "radial_homography: the lift's plain-H seed is a TLS loss at the MedianNormScale scale × the TOML multiple" setup = [RadialScenes] begin
     using Test, StableRNGs, Statistics
     using StaticArrays: SVector
     import VisualGeometryToolkitCore as VgtkCore

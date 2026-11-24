@@ -1,7 +1,7 @@
-@testitem "refine_robot_world_hand_eye" setup = [PoseScenes] begin
+@testitem "robot-world reprojection refine" setup = [PoseScenes] begin
     using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: Triggs
-# refine_robot_world_hand_eye: the reprojection-error refinement of a robot-world
+# RobotWorldHandEyeProblem: the reprojection-error refinement (LevenbergMarquardt) of a robot-world
 # calibration A_i X_m = Y B_i^m against the markers' FEATURES, camera and rig
 # poses fixed. Exact recovery, the argument contract, degeneracy REPORTED, and
 # the Monte Carlo hard gate: chart NEES of Y, each X_m and the joint vector,
@@ -17,13 +17,16 @@ using Rotations: Rotations, AngleAxis, RotMatrix, RotationVec, RotZ
 using ForwardDiff: ForwardDiff
 using VisualGeometryToolkitCore: EuclideanMap, CameraModel, project
 using VisualGeometryToolkitCore: RigidExpManifold6, local_coordinates   # the decoupled pose chart (public)
-using VisualGeometryToolkitCore: estimate, retcode, rotation, translation   # VGC accessors (public)
+using VisualGeometryToolkitCore: rotation, translation   # VGC accessors (public)
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
-using VisualGeometryToolkitEstimation: refine_robot_world_hand_eye, RobotWorldHandEyeCalibration
+using VisualGeometryToolkitEstimation: RobotWorldHandEyeProblem, RobotWorldHandEyeCalibration
+using VisualGeometryToolkitCore: ClassDefault, RefineProblem, LevenbergMarquardt, solve
+include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
 using VisualGeometryToolkitCore: Irls
 using VisualGeometryToolkitCore: noise_scale, scale_source, weight_kind, weights, ScaleGiven, ScaleNone, IrlsWeights,
     BinaryWeights, efficiency_constant, WelschShape, HuberShape
 import VisualGeometryToolkitEstimation as VgtkEstimation
+import VisualGeometryToolkitCore as VgtkCore
 import NLLSsolver
 
 # The scene and its seed (`rw_grid`, `rw_marker_origin`, `rw_scene`, `rw_markers`, `rw_seed`): the suite's fixture file, shared with the golden
@@ -35,14 +38,14 @@ _rwδ(gt, h) = local_coordinates(RigidExpManifold6(h), gt)
 function rw_trial(block; N = 12, M = 3, f = 600.0, σ = 0.5, rot = 0.01, tr = 0.01, layout = :row)
     return function (rng)
         sc = rw_scene(rng; N, M, f, σ, layout)
-        res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot, tr), sc.camera, rw_markers(sc); optimization_strategy = nothing)
+        res = rwhe_refine(rw_seed(rng, sc; rot, tr), sc.camera, rw_markers(sc); optimization_strategy = nothing)
         retcode_symbol(res) === :converged || return nothing
-        cal = estimate(res)
+        cal = res.u
         δs = vcat([_rwδ(sc.Y, cal.Y)], [_rwδ(sc.X[m], cal.X[m]) for m in 1:M])
-        block === :joint && return Vector(reduce(vcat, δs)), Matrix(res.cov)
+        block === :joint && return Vector(reduce(vcat, δs)), Matrix(res.metadata.cov)
         k = block === :Y ? 0 : block
         rows = (6k + 1):(6k + 6)
-        return Vector(δs[k + 1]), Matrix(res.cov)[rows, rows]
+        return Vector(δs[k + 1]), Matrix(res.metadata.cov)[rows, rows]
     end
 end
 # Held-out reprojection: a NEW rig pose (not in the fit), one marker point;
@@ -53,46 +56,46 @@ function rw_heldout_trial(; N = 12, M = 3, f = 600.0, σ = 0.5)
         sc = rw_scene(rng; N = N + 1, M, f, σ)
         held = filter(o -> o[1] == N + 1, sc.obs)
         isempty(held) && return nothing
-        res = refine_robot_world_hand_eye(rw_seed(rng, sc), sc.camera, rw_markers(sc; frames = 1:N); optimization_strategy = nothing)
+        res = rwhe_refine(rw_seed(rng, sc), sc.camera, rw_markers(sc; frames = 1:N); optimization_strategy = nothing)
         retcode_symbol(res) === :converged || return nothing
-        cal = estimate(res)
+        cal = res.u
         i, m, cs = held[rand(rng, 1:length(held))]
         P, u = cs[rand(rng, 1:length(cs))]
         RA, tA = SMatrix{3, 3, Float64, 9}(rotation(sc.A[i])), SVector{3, Float64}(translation(sc.A[i]))
         g(z) = VgtkEstimation._rw_point_residual(z, RigidExpManifold6(cal.Y), RigidExpManifold6(cal.X[m]), RA, tA, P, u, sc.camera)
         G = ForwardDiff.jacobian(g, zero(SVector{12, Float64}))
         idx = vcat(1:6, (6m + 1):(6m + 6))
-        Σ = SMatrix{12, 12}(res.cov[idx, idx])
-        return Vector(g(zero(SVector{12, Float64}))), Matrix(res.s2 * SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0) + G * Σ * G')
+        Σ = SMatrix{12, 12}(res.metadata.cov[idx, idx])
+        return Vector(g(zero(SVector{12, Float64}))), Matrix(VgtkCore.s2(res) * SMatrix{2, 2}(1.0, 0.0, 0.0, 1.0) + G * Σ * G')
     end
 end
 
-@testset "refine_robot_world_hand_eye" begin
+@testset "robot-world reprojection refine" begin
     @testset "noiseless recovery is exact from a perturbed seed" begin
         rng = StableRNG(1)
         sc = rw_scene(rng; σ = 0.0)
-        res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot = 0.02, tr = 0.02), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        @test estimate(res) isa RobotWorldHandEyeCalibration{Int}
+        res = rwhe_refine(rw_seed(rng, sc; rot = 0.02, tr = 0.02), sc.camera, rw_markers(sc); optimization_strategy = nothing)
+        @test res.u isa RobotWorldHandEyeCalibration{Int}
         @test retcode_symbol(res) === :converged
         @test res.rms < 1.0e-9
-        @test norm(_rwδ(sc.Y, estimate(res).Y)) < 1.0e-9
-        @test all(norm(_rwδ(sc.X[m], estimate(res).X[m])) < 1.0e-9 for m in 1:3)
-        @test estimate(res).ids == [1, 2, 3]
-        @test res.dof == 2 * res.n - 24
-        @test sum(length, values(res.residuals)) == res.n          # per marker, every point
+        @test norm(_rwδ(sc.Y, res.u.Y)) < 1.0e-9
+        @test all(norm(_rwδ(sc.X[m], res.u.X[m])) < 1.0e-9 for m in 1:3)
+        @test res.u.ids == [1, 2, 3]
+        @test VgtkCore.dof(res) == 2 * res.n - 24
+        @test sum(length, values(res.metadata.residuals)) == res.n          # per marker, every point
     end
 
     @testset "the argument contract" begin
         sc = rw_scene(StableRNG(2); M = 2)
         seed = rw_seed(StableRNG(3), sc)
         mk = rw_markers(sc)
-        @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, Dict(7 => mk[1], 1 => mk[1], 2 => mk[2]); optimization_strategy = nothing)   # unknown marker
-        @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, Dict(1 => mk[1]); optimization_strategy = nothing)                 # key sets must match: marker 2 missing
+        @test_throws ArgumentError rwhe_refine(seed, sc.camera, Dict(7 => mk[1], 1 => mk[1], 2 => mk[2]); optimization_strategy = nothing)   # unknown marker
+        @test_throws ArgumentError rwhe_refine(seed, sc.camera, Dict(1 => mk[1]); optimization_strategy = nothing)                 # key sets must match: marker 2 missing
         tiny = Dict(1 => [first(mk[1][1]) => last(mk[1][1])[1:1]], 2 => [first(mk[2][1]) => last(mk[2][1])[1:1]])
-        @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, tiny; optimization_strategy = nothing)                             # 4 residuals, 18 unknowns
+        @test_throws ArgumentError rwhe_refine(seed, sc.camera, tiny; optimization_strategy = nothing)                             # 4 residuals, 18 unknowns
         # A marker with no features is refused, not refined into an Inf covariance.
-        @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, Dict(1 => mk[1], 2 => empty(mk[2])); optimization_strategy = nothing)
-        @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, Dict(1 => mk[1], 2 => [first(e) => empty(last(e)) for e in mk[2]]); optimization_strategy = nothing)
+        @test_throws ArgumentError rwhe_refine(seed, sc.camera, Dict(1 => mk[1], 2 => empty(mk[2])); optimization_strategy = nothing)
+        @test_throws ArgumentError rwhe_refine(seed, sc.camera, Dict(1 => mk[1], 2 => [first(e) => empty(last(e)) for e in mk[2]]); optimization_strategy = nothing)
         # Non-finite inputs and points the camera does not image at the guess are refused.
         bad(f) = Dict(1 => [mk[1][1:(end - 1)]; [first(mk[1][end]) => f(last(mk[1][end]))]], 2 => mk[2])
         nan_px = bad(cs -> [first(cs[1]) => SVector(NaN, last(cs[1])[2]); cs[2:end]])
@@ -100,9 +103,9 @@ end
         behind = bad(cs -> [SVector(0.0, 0.0, -10.0) => last(cs[1]); cs[2:end]])   # 10 m behind the marker: behind the camera
         nan_rig = Dict(1 => [mk[1][1:(end - 1)]; [rigid(rotation(first(mk[1][end])), SVector(NaN, 0.0, 0.0)) => last(mk[1][end])]], 2 => mk[2])
         for m in (nan_px, nan_pt, behind, nan_rig)
-            @test_throws ArgumentError refine_robot_world_hand_eye(seed, sc.camera, m; optimization_strategy = nothing)
+            @test_throws ArgumentError rwhe_refine(seed, sc.camera, m; optimization_strategy = nothing)
         end
-        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, mk; optimization_strategy = nothing)) === :converged        # the untouched input is fine
+        @test retcode_symbol(rwhe_refine(seed, sc.camera, mk; optimization_strategy = nothing)) === :converged        # the untouched input is fine
     end
 
     @testset "the refine contract: Triggs{Welsch} by default at the caller's scale, weights, the scale record" begin
@@ -114,28 +117,30 @@ end
         moved = Dict(m => [A => [X => (rand(rng) < 0.05 ? u + (20 + 20rand(rng)) * normalize(randn(rng, SVector{2, Float64})) : u)
                                  for (X, u) in cs] for (A, cs) in els] for (m, els) in mk)
         seed = rw_seed(rng, sc)
-        err(res) = norm(_rwδ(sc.Y, estimate(res).Y))
-        ls = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = nothing)
-        @test_throws r"scale = σ" refine_robot_world_hand_eye(seed, sc.camera, moved)
-        rt = refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5)
+        err(res) = norm(_rwδ(sc.Y, res.u.Y))
+        ls = rwhe_refine(seed, sc.camera, moved; optimization_strategy = nothing)
+        @test_throws r"scale = σ" rwhe_refine(seed, sc.camera, moved)
+        rt = rwhe_refine(seed, sc.camera, moved; scale = 0.5)
         @test retcode_symbol(rt) === :converged && err(rt) < err(ls) / 3
         @test noise_scale(rt) === 0.5 && scale_source(rt) === ScaleGiven && weight_kind(rt) === IrlsWeights()
-        @test rt.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.5
-        @test length(weights(rt)) == sum(length, values(rt.residuals)) && rt.n == count(>(0), weights(rt))
+        @test rt.metadata.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.5
+        @test length(weights(rt)) == sum(length, values(rt.metadata.residuals)) && rt.n == count(>(0), weights(rt))
         @test count(<(0.1), weights(rt)) >= 1
-        rh = refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Triggs{HuberShape}(), scale = 0.5)
+        rh = rwhe_refine(seed, sc.camera, moved; optimization_strategy = Triggs{HuberShape}(), scale = 0.5)
         @test retcode_symbol(rh) === :converged && err(rh) < err(ls) / 2
         @test weight_kind(ls) === BinaryWeights() && scale_source(ls) === ScaleNone && all(==(1), weights(ls))
         # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs
-        @test_throws r"Triggs\{HuberShape\}" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(),
+        @test_throws r"Triggs\{HuberShape\}" rwhe_refine(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(),
                                                                      scale = 0.5)
         # the LM's own iteration cap is the record's (NLLSsolver's bits under Core's one success rule)
-        @test retcode_symbol(refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5, max_iter = 1)) === :max_iterations
+        s₀ = VgtkCore.default_stops(RobotWorldHandEyeProblem(sc.camera, moved))
+        @test retcode_symbol(rwhe_refine(seed, sc.camera, moved; scale = 0.5,
+                                         stops = VgtkCore.LmStops(; max_iter = 1, ftol = s₀.ftol, xtol = s₀.xtol))) === :max_iterations
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword
-        @test_throws r"reads no scale" refine_robot_world_hand_eye(seed, sc.camera, moved; optimization_strategy = nothing, scale = 0.5)
-        @test_throws r"not both" refine_robot_world_hand_eye(seed, sc.camera, moved; scale = 0.5, width = 1.0)
-        @test_throws r"`local_optimization` is retired" refine_robot_world_hand_eye(seed, sc.camera, moved; local_optimization = nothing)
+        @test_throws r"reads no scale" rwhe_refine(seed, sc.camera, moved; optimization_strategy = nothing, scale = 0.5)
+        @test_throws r"not both" rwhe_refine(seed, sc.camera, moved; scale = 0.5, width = 1.0)
+        @test_throws MethodError rwhe_refine(seed, sc.camera, moved; local_optimization = nothing)   # no keyword of the solve
     end
 
     @testset "degeneracy is REPORTED (pure-z gauge family)" begin
@@ -149,11 +154,11 @@ end
         X = [rigid(AngleAxis(0.3 * rand(rng), normalize(randn(rng, 3))...), SVector(0.08 * (m - 1.5), 0.03, 0.0)) for m in 1:2]
         A = [rigid(RotMatrix(RotZ(θ)), SVector(0.0, 0.0, 0.0)) for θ in range(0.3, 2.0; length = 8)]
         markers = Dict(m => [A[i] => [P => SVector{2, Float64}(project(camera, marker_pose(Y, A[i], X[m])(P))...) for P in rw_grid()] for i in 1:8] for m in 1:2)
-        rd = refine_robot_world_hand_eye(RobotWorldHandEyeCalibration(Y, Dict(1 => X[1], 2 => X[2])), camera, markers; optimization_strategy = nothing)
+        rd = rwhe_refine(RobotWorldHandEyeCalibration(Y, Dict(1 => X[1], 2 => X[2])), camera, markers; optimization_strategy = nothing)
         sc = rw_scene(StableRNG(8); M = 2, σ = 0.0)
-        rh = refine_robot_world_hand_eye(rw_seed(StableRNG(9), sc; rot = 0.0, tr = 0.0), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        @test abs(rd.min_eigval) < 1.0e-8 * rh.min_eigval
-        @test !all(isfinite, rd.cov)
+        rh = rwhe_refine(rw_seed(StableRNG(9), sc; rot = 0.0, tr = 0.0), sc.camera, rw_markers(sc); optimization_strategy = nothing)
+        @test abs(rd.metadata.min_eigval) < 1.0e-8 * rh.metadata.min_eigval
+        @test !all(isfinite, rd.metadata.cov)
     end
 
     @testset "Monte Carlo hard gate (VGC harness, z = 4)" begin
@@ -193,12 +198,12 @@ end
         rng = StableRNG(seed)
         sc = rw_scene(rng; M, σ = 0.0, layout = :grid)
         @test length(rw_markers(sc)) == M                 # every marker is seen
-        res = refine_robot_world_hand_eye(rw_seed(rng, sc; rot = 0.1, tr = 0.1), sc.camera, rw_markers(sc); optimization_strategy = nothing)
+        res = rwhe_refine(rw_seed(rng, sc; rot = 0.1, tr = 0.1), sc.camera, rw_markers(sc); optimization_strategy = nothing)
         @test retcode_symbol(res) === :converged
         @test res.rms < 1.0e-9
-        @test norm(_rwδ(sc.Y, estimate(res).Y)) < 1.0e-9
-        @test all(norm(_rwδ(sc.X[m], estimate(res).X[m])) < 1.0e-9 for m in 1:M)
-        @test res.dof == 2 * res.n - 6 * (M + 1)
+        @test norm(_rwδ(sc.Y, res.u.Y)) < 1.0e-9
+        @test all(norm(_rwδ(sc.X[m], res.u.X[m])) < 1.0e-9 for m in 1:M)
+        @test VgtkCore.dof(res) == 2 * res.n - 6 * (M + 1)
         d = 6 * (M + 1)
         r = run_calibration(rw_trial(:joint; M, layout = :grid), StableRNG(seed + 10), 100, d)
         @test is_calibrated(r) && r.nfail == 0

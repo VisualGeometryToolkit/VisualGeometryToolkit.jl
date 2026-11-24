@@ -1,0 +1,260 @@
+# VisualGeometryToolkitEstimation 0.12.x configs/default.toml (main, 3d8a06da): configuration version 1, its data as
+# stored (comments dropped). The converter test (config_versions_tests.jl) reads it at the current version.
+
+[fit_division_camera]
+branch_audit_efficiency_constant = 3.5322300675464233
+ncoef = 1
+seed_nu = 10000.0
+
+    [fit_division_camera.mixture_em]
+    max_iter = 30
+
+        [fit_division_camera.mixture_em.model_update]
+        type = "weighted_refine"
+
+        [fit_division_camera.mixture_em.nuisance]
+        nu = "estimated"
+        scale = "estimated"
+
+            [fit_division_camera.mixture_em.nuisance.inlier_prior]
+            inlier_prior = 0.5
+            type = "fixed_prior"
+
+        [fit_division_camera.mixture_em.stop]
+        rtol = 1.0e-9
+        type = "parameter_change"
+
+    [fit_division_camera.weighting]
+    label_prior = "flat"
+    outlier_halfwidth = 20.0
+    scale_prior = "jeffreys"
+    type = "student_t_uniform"
+
+[fit_linear]
+tol = 1.0e-12
+
+    [fit_linear.optimization_strategy]
+    loss = "huber"
+    max_iter = 50
+    type = "irls"
+
+[fit_rigid_alignment]
+tol = 1.0e-12
+
+[fit_rotation]
+tol = 1.0e-12
+
+    [fit_rotation.optimization_strategy]
+    loss = "huber"
+    max_iter = 50
+    type = "irls"
+
+[fit_rotation_averaging]
+max_iter = 100
+tol = 1.0e-12
+
+    [fit_rotation_averaging.optimization_strategy]
+    loss = "huber"
+    max_iter = 100
+    type = "irls"
+
+[mixture_em]
+max_iter = 200
+stop = "no_improvement"
+
+    [mixture_em.model_update]
+    tol = 1.0e-10
+    type = "keep_model"
+
+    [mixture_em.nuisance]
+    inlier_prior = "estimated"
+    nu = "estimated"
+    scale = "estimated"
+
+[optical_axis]
+radial_terms = 4
+start_radial_terms = 1
+
+[optimization_strategy]
+
+[pipelines.absolute_pose.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.absolute_pose.scoring]
+threshold = 8.0
+type = "msac"
+
+[pipelines.bearing_pose.local_optimization_strategy]
+loss = "gaussian"
+type = "irls"
+
+[pipelines.bearing_pose.scoring]
+threshold = 1.0
+type = "msac"
+
+[pipelines.circle.local_optimization_strategy]
+efficiency_constant = 2.5
+loss = "welsch"
+type = "triggs"
+
+[pipelines.circle.scoring]
+threshold = 1.0
+type = "msac"
+
+[pipelines.ellipse.local_optimization_strategy]
+efficiency_constant = 2.5
+loss = "welsch"
+type = "triggs"
+
+[pipelines.ellipse.scoring]
+threshold = 1.0
+type = "msac"
+
+[pipelines.essential.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.essential.scoring]
+threshold = 1.0
+type = "msac"
+
+[pipelines.fundmat.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.fundmat.scoring]
+threshold = 3.0
+type = "msac"
+
+[pipelines.hand_eye]
+motion_pairs = "consecutive"
+
+    [pipelines.hand_eye.local_optimization_strategy]
+    loss = "tls"
+    type = "irls"
+
+    [pipelines.hand_eye.scoring]
+    threshold = 0.01
+    type = "msac"
+
+[pipelines.homography.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.homography.scoring]
+threshold = 3.0
+type = "msac"
+
+[pipelines.radial_camera.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.radial_camera.scoring]
+threshold = 3.0
+type = "msac"
+
+[pipelines.radial_homography.lift_seed]
+efficiency_constant = 3.5322300675464233
+
+[pipelines.radial_homography.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.radial_homography.scoring]
+threshold = 3.0
+type = "msac"
+
+[pipelines.rotation.local_optimization_strategy]
+loss = "tls"
+type = "irls"
+
+[pipelines.rotation.scoring]
+threshold = 1.0
+type = "msac"
+
+[ransac]
+max_trials = 10000
+min_trials = 100
+success_prob = 0.99
+
+[refine.absolute_pose.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.bearing_pose.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.circle.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.ellipse.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.essential.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.fundmat.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.hand_eye.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.homography.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.radial_camera.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.radial_homography.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine.rotation.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[refine_camera]
+max_iter = 100
+
+[refine_camera_and_poses]
+ftol = 1.0e-12
+max_iter = 100
+xtol = 1.0e-12
+
+    [refine_camera_and_poses.optimization_strategy]
+    loss = "welsch"
+    type = "triggs"
+
+[refine_robot_world_hand_eye.optimization_strategy]
+loss = "welsch"
+type = "triggs"
+
+[relpose_bundle]
+ftol = 1.0e-10
+max_iter = 100
+
+[robot_world_hand_eye]
+min_rel_angle_deg = 5.0
+tol = 1.0e-10
+
+[scoring.student_t_uniform]
+label_prior = "flat"
+scale_prior = "jeffreys"
+
+[simfitpp]
+alpha = 0.99
+dg = 1
+ftol = 0.01
+max_iter = 4
+max_loss_width = 8.0
+min_loss_width = 0.25
+train_fraction = 0.5

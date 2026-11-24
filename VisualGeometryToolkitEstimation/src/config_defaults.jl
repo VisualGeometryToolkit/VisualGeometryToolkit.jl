@@ -31,7 +31,7 @@
 # notice — the exact invisible-drift class this file exists to remove.
 # =============================================================================
 
-using VisualGeometryToolkitCore: toml_default, parse_defaults
+using VisualGeometryToolkitCore: toml_default, parse_defaults, ConfigVersions, ConfigMigration
 
 """
     default_config_path() -> String
@@ -41,7 +41,39 @@ point that is not handed an explicit config.
 """
 default_config_path() = normpath(joinpath(@__DIR__, "..", "configs", "default.toml"))
 
-const _TOML_DEFAULTS = parse_defaults(default_config_path())
+"""
+    ESTIMATION_CONFIG_VERSIONS
+
+VisualGeometryToolkitEstimation's configuration converter (Core's
+[`ConfigVersions`](@extref VisualGeometryToolkitCore.ConfigVersions)): `configs/default.toml` is version 2. Version 1
+(0.12 and earlier, no `config_version` key) named its tables after the retired estimator functions; version 2 names
+each after the algorithm or problem that reads it. Read a stored file at the current version with
+`VisualGeometryToolkitCore.migrate_config(TOML.parsefile(path), ESTIMATION_CONFIG_VERSIONS)`.
+
+Its one migration (`only(ESTIMATION_CONFIG_VERSIONS.migrations).renames`) moves the eight estimator tables: the division-camera
+fit's to `[division_camera_fit]`, the bundles' to `[robot_world_hand_eye_problem]`, `[camera_poses_problem]` and
+`[camera_regression_problem]`, the three reweighted fits' to `[reweighted_least_squares.<rotation | linear |
+rigid_alignment>]` and the rotation averaging's to `[rotation_averaging]`.
+"""
+const ESTIMATION_CONFIG_VERSIONS = ConfigVersions("VisualGeometryToolkitEstimation",
+    ConfigMigration(;
+        tables = ["fit_division_camera", "fit_linear", "fit_rigid_alignment", "fit_rotation", "fit_rotation_averaging",
+                  "mixture_em", "optical_axis", "optimization_strategy", "pipelines", "ransac", "refine", "refine_camera",
+                  "refine_camera_and_poses", "refine_robot_world_hand_eye", "relpose_bundle", "robot_world_hand_eye",
+                  "scoring", "simfitpp"],
+        renames = ["fit_division_camera" => "division_camera_fit",
+                   "refine_robot_world_hand_eye" => "robot_world_hand_eye_problem",
+                   "refine_camera_and_poses" => "camera_poses_problem",
+                   "refine_camera" => "camera_regression_problem",
+                   "fit_rotation" => "reweighted_least_squares.rotation",
+                   "fit_linear" => "reweighted_least_squares.linear",
+                   "fit_rigid_alignment" => "reweighted_least_squares.rigid_alignment",
+                   "fit_rotation_averaging" => "rotation_averaging"]);
+    tables = ["camera_poses_problem", "camera_regression_problem", "division_camera_fit", "mixture_em", "optical_axis",
+              "optimization_strategy", "pipelines", "ransac", "refine", "relpose_bundle", "reweighted_least_squares",
+              "robot_world_hand_eye", "robot_world_hand_eye_problem", "rotation_averaging", "scoring", "simfitpp"])
+
+const _TOML_DEFAULTS = parse_defaults(default_config_path(); versions = ESTIMATION_CONFIG_VERSIONS)
 
 """
     _dflt(table, key)

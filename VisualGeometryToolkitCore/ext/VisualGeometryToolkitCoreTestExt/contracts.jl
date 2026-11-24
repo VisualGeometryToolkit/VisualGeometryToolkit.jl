@@ -217,6 +217,35 @@ function check_algorithm_traits(M::Module)
             any(((Q, B),) -> _same_problem(P, Q), closed) &&
             push!(out, "$where_: a closed form of $(nameof(M)) solves the same problem")
     end
+    _solve_method_rules!(out, mods)
     return out
 end
+
+# R16 and R18 (check_naming's rules read from the loaded methods): Core owns the front end — no other module adds a
+# method of CommonSolve's `solve` or `init` (R16) — and a package adds `__solve`/`__init` methods only for algorithm
+# types it owns (R16, mapping F1); an `rng` keyword is declared only on a `__solve`/`__init` method whose (problem,
+# algorithm) pair draws (`supports_solve_rng`: a find, or an algorithm that overrides the trait) (R18).
+_is_core(N::Module) = N === VisualGeometryToolkitCore || parentmodule(N) === VisualGeometryToolkitCore && N !== Main
+function _solve_method_rules!(out, mods)
+    for f in (VgtkCore.solve, VgtkCore.init), m in methods(f)
+        parentmodule(m) in mods && !_is_core(parentmodule(m)) &&
+            push!(out, "R16: $(nameof(f)) method $(m.sig) outside VisualGeometryToolkitCore (add a __solve/__init method)")
+    end
+    for f in (VgtkCore.__solve, VgtkCore.__init), m in methods(f)
+        parentmodule(m) in mods || continue
+        length(Base.unwrap_unionall(m.sig).parameters) == 3 || continue
+        P, A = _sig_arg(m, 2), _sig_arg(m, 3)
+        U = Base.unwrap_unionall(A)
+        owned = U isa DataType && (parentmodule(U) in mods || _is_core(parentmodule(U)) && _is_core(parentmodule(m)))
+        _is_core(parentmodule(m)) || owned ||
+            push!(out, "R16: $(nameof(f)) method for $(A) in $(parentmodule(m)), which does not own that algorithm type")
+        if :rng in Base.kwarg_decl(m) && !_draws(P, A)
+            push!(out, "R18: $(nameof(f)) method for $(A) takes `rng`, but the pair does not supports_solve_rng")
+        end
+    end
+    return out
+end
+# Whether solves of `P` by `A` draw: a find, or an algorithm whose `supports_solve_rng` is its own (an override).
+_draws(P, A) = _kind_of(A) === VgtkCore.FindKind ||
+    which(VgtkCore.supports_solve_rng, Tuple{P, A}).sig != Tuple{typeof(VgtkCore.supports_solve_rng), VgtkCore.AbstractEstimationProblem, Any}
 

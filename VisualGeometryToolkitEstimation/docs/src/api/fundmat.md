@@ -15,9 +15,9 @@ current `F` (signed Sampson residual).
 FundMatProblem
 ```
 
-## Fitting Pipeline
+## Find and refine
 
-```@docs
-find_fundmat
-refine_fundmat
-```
+`solve(EstimationProblem(FundMatProblem(cs)), Ransac(); rng)` is the find
+(`[pipelines.fundmat]`: MSAC at 3 px) and
+`solve(RefineProblem(FundMatProblem(cs), F₀), LevenbergMarquardt(); scale | width)`
+the refine (`[refine.fundmat]`). See [`Ransac`](@ref).

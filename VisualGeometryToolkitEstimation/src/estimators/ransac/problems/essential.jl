@@ -55,9 +55,9 @@ _chart(::EssentialProblem, E::EssentialMat) = EssentialManifold5(E)
 # is whitened by the back-projection Jacobian); it was in calibrated units
 # before, where the default was 0.02. A calibrated value carried across is a
 # sub-pixel half-width that scores almost nothing an inlier: measured 7 inliers where
-# 112 are true, reported `:converged`. `find_essential`'s keyword alone was
-# guarded, so `ransac(p, StudentTUniformScoring(p, 0.02))`, `locally_optimize` and
-# `find_essential(...; scoring)` all went through unchecked. The check now
+# 112 are true, reported `:converged`. the essential find's keyword alone was
+# guarded, so a run of the loop with `StudentTUniformScoring(p, 0.02)`, a seeded local optimization and
+# a find with its own `scoring` all went through unchecked. The check now
 # lives here and the loop's entries all call it (`_check_scoring`, loop.jl).
 #
 # VisualGeometryToolkitFeatures' pinned worst-case sub-pixel refinement bound: no
@@ -127,7 +127,7 @@ end
 # (it formed a Float64 fundamental). The whitened gradient is ~1/f per pixel,
 # so at Float32 the constraint and its gradient sit within a few ulps of the
 # degeneracy test, and a Float32 camera at f = 2000 px scored every true inlier
-# `Inf` (373 of 373) — `find_essential` returned `:no_model` where Float64
+# `Inf` (373 of 373) — the find returned `:no_model` where Float64
 # converged on all 298. The data stay in the caller's eltype; only the
 # arithmetic is widened, per point, with no allocation. The model is widened
 # ONCE per model — RSDR's `residual_context`, which `mahalanobis_distances!` takes before

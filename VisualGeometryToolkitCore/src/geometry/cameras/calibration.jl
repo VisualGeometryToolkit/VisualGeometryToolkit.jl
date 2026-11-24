@@ -126,7 +126,7 @@ estimator_kind(::Zhang) = ClosedFormKind()
 const _ZhangContext = Union{NamedTuple{(:center,)}, NamedTuple{(:center, :pitch)}, NamedTuple{(:pitch, :center)}}
 default_algorithm(::EstimationProblem{<:LogicalIntrinsics, <:AbstractVector, <:_ZhangContext}) = Zhang()
 function __solve(prob::EstimationProblem{<:LogicalIntrinsics, <:AbstractVector}, ::Zhang)
-    c = _solve_context(prob.p, (:center,), (; pitch = nothing), "Zhang")
+    c = read_context(prob.p, (:center,), (; pitch = nothing), "Zhang")
     return closed_form_result(_zhang_kernel(prob.f, c.pitch, c.center), length(prob.f))
 end
 _zhang_kernel(Hs, ::Nothing, center) = _zhang_intrinsics(Hs; center)
@@ -146,8 +146,8 @@ _zhang_kernel(Hs, pitch::Size2, center) = _zhang_intrinsics(Hs, pitch; center)
 # minimal solver is `radial_camera_5pt` (`RadialCamera5pt` behind `solve`).
 # The focal and division-model stack built on it — the radial camera's fit,
 # the division lift, the whitened linear focal solve and its robust driver —
-# lives in VisualGeometryToolkitEstimation (`fit_radial_camera`, `division_camera_step`,
-# `fit_division_camera`).
+# lives in VisualGeometryToolkitEstimation (`RadialCameraFit`, its focal stack,
+# `DivisionCameraFit`).
 
 # ------------------------------------------------------------------------------
 # RadialCamera — the 1-D radial camera as a value, with its constraint
@@ -242,7 +242,7 @@ RadialCamera(m::RadialHomography) = RadialCamera(m.H, center(m))
 Whether a lens (or a piece of one: a projection, a distortion term, a
 composition) is radially symmetric about the principal point — a Holy trait of
 its TYPE, which [`RadialCamera`](@ref)`(::PosedCamera)` dispatches on and
-VisualGeometryToolkitEstimation's `fit_camera` reads to warn of non-radial
+VisualGeometryToolkitEstimation's `CameraRegression` reads to warn of non-radial
 terms it cannot fit.
 
 The default is `RadiallyAsymmetric()`, so the trait fails closed: a type that
@@ -292,7 +292,7 @@ read about `K`'s principal point.
 
 An IDENTITY, not a fit — no correspondences, no least squares, the pose taken
 exactly as it stands. That is what makes this the safe way to hand a calibrated
-arm's `Extrinsics3` to VisualGeometryToolkitEstimation's `division_camera_step`: re-estimating a radial camera
+arm's `Extrinsics3` to VisualGeometryToolkitEstimation's `DivisionCameraFit's focal stack`: re-estimating a radial camera
 from the same board's correspondences re-runs the metric upgrade's sign decision
 on a slightly different matrix, and can flip the board's pose.
 

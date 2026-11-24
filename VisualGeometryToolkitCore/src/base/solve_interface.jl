@@ -131,12 +131,17 @@ supports_solve_rng(::AbstractEstimationProblem, alg) = estimator_kind(alg) isa F
 # The problems
 # -----------------------------------------------------------------------------
 
-# THE reading of a keyed context `p`: the `required` keys and the `optional` ones (a NamedTuple of their defaults), in
-# any order; the one `ArgumentError`, naming the missing and the unknown keys, for any other (`NullParameters()` holds
-# none). Returns the context with every optional key filled.
-@inline _solve_context(::NullParameters, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who) =
-    _solve_context((;), required, optional, who)
-@inline function _solve_context(p::NamedTuple, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who)
+"""
+    read_context(p, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who) -> NamedTuple
+
+THE reading of a solve's keyed context `p`: the `required` keys and the `optional` ones (a NamedTuple of their
+defaults), in any order; the one `ArgumentError`, naming the missing and the unknown keys (`who` the algorithm), for
+any other (`NullParameters()` holds none). Returns the context with every optional key filled.
+"""
+function read_context end
+@inline read_context(::NullParameters, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who) =
+    read_context((;), required, optional, who)
+@inline function read_context(p::NamedTuple, required::Tuple{Vararg{Symbol}}, optional::NamedTuple, who)
     all(k -> haskey(p, k), required) && all(k -> k in required || haskey(optional, k), keys(p)) ||
         _context_error(p, required, optional, who)
     return merge(optional, p)
@@ -215,6 +220,16 @@ end
 const _MinimalNoContext = MinimalProblem{<:Any, <:Any, <:Any, NullParameters}
 
 """
+    model_type(x) -> Type
+
+The model type `x` estimates or produces, one function across the estimation interface: a problem's (below), a
+[`MinimalSolver`](@ref)'s, and a problem-interface object's — the `f` of [`EstimationProblem`](@ref)`(f, p)`, which reads
+it to type the problem (VisualGeometryToolkitEstimation's `HomographyProblem(cs)` estimates a `HomographyMat`). A
+package defines it for its own problem-interface types: it is a contract generic.
+"""
+function model_type end
+
+"""
     model_type(problem::AbstractEstimationProblem) -> Type
 
 The model type a problem estimates: the `M` of an [`EstimationProblem`](@ref) or a [`MinimalProblem`](@ref),
@@ -283,7 +298,8 @@ end
 What [`init`](@ref) returns: the algorithm's own `cache` (its `__init`'s) with the problem and the algorithm, so that
 `solve!(c)` records them on the result as `solve` does ([`with_problem`](@ref): ONE place for both paths). Its
 `solve!` runs the cache's owner's `solve!(c.cache)`; its `reinit!(c[, u0]; p, f)` forwards to the owner's
-`reinit!(c.cache, …)` and records the problem it now solves.
+`reinit!(c.cache[, u0]; f, p)` with BOTH of the new problem's (the caller's as given, each kept from the cache's problem
+where the call names none) and records the problem it now solves.
 """
 mutable struct EstimationCache{C, Prob <: AbstractEstimationProblem, A <: AbstractEstimationAlgorithm}
     const cache::C
@@ -296,7 +312,7 @@ function reinit!(c::EstimationCache{C, Prob}, u0...; kwargs...) where {C, Prob}
     prob = _reprob(c.prob, u0...; kwargs...)
     prob isa Prob || throw(ArgumentError(string("reinit!: the cache was initialized for a ", Prob, "; the new ",
         "guess, context or data make a ", typeof(prob), " (init a new cache for a problem of another type)")))
-    reinit!(c.cache, u0...; kwargs...)
+    reinit!(c.cache, u0...; f = prob.f, p = prob.p)   # the owner sees the whole new problem: the caller's f and p as given
     c.prob = prob
     return c
 end

@@ -26,7 +26,7 @@ stopping on the mixture NLL) — its stop rule a value too —
 [`NoImprovementStop`](@ref) (the incumbent's cost, returning the incumbent: the
 RANSAC local optimization's) or [`ParameterChangeStop`](@ref) (the relative
 change of the problem's [`change_parameters`](@ref), returning the last iterate:
-`fit_division_camera`'s) — and its state a [`PosteriorIrlsState`](@ref)
+[`DivisionCameraFit`](@ref)'s) — and its state a [`PosteriorIrlsState`](@ref)
 built from a seeded posterior and its residual buffers.
 
 ```@docs
@@ -55,8 +55,11 @@ posterior. The result records the posteriors as its `weights`
 (`PosteriorWeights`, so `inlier_mask(result)` is the MAP labels) and the
 E-step's ŝ as its `noise_scale` (`ScaleEstimated`).
 
+`solve(EstimationProblem(PosteriorWeightState, distances, p), ResidualMixture(; weighting, config))`
+is that classification.
+
 ```@docs
-fit_residual_mixture
+ResidualMixture
 ResidualMixtureMetadata
 MixtureEmConfig
 mixture_em_from_toml
@@ -77,7 +80,7 @@ is seeded from a consensus set:
 - **In the RANSAC loop**: [`consensus_posterior`](@ref) squares the seed
   model's residuals (already in the score buffers) and seeds `(ν₀, ŝ²₀)` from
   the scorer's `consensus_order` and `inlier_count` — no re-score, no sort.
-- **Residuals only**: [`fit_residual_mixture`](@ref) scores the residuals once
+- **Residuals only**: [`ResidualMixture`](@ref) scores the residuals once
   with the scorer and seeds from its consensus set. The outlier half-width is
   the scorer's; a scorer without one is refused
   ([`required_outlier_halfwidth`](@ref)).
@@ -100,13 +103,15 @@ consensus_s2!
 
 ## The reweighted fits' termination record
 
-Every reweighted fit (`fit_linear`, `fit_rotation`, `fit_rigid_alignment`,
-`fit_rotation_averaging`, `fit_robot_world_hand_eye`) records its stop through
+Every reweighted fit ([`ReweightedLeastSquares`](@ref) on a linear model, a
+rotation, a rigid alignment and a robot–world calibration;
+[`RotationAveraging`](@ref)) records its stop through
 one function, as an LM does through VisualGeometryToolkitCore's one LM,
 `lmsolve_chart!`; a
 downstream reweighted loop calls it too.
 
 ```@docs
+ReweightedLeastSquares
 irls_termination
 ```
 
@@ -118,11 +123,9 @@ and stand-alone EM-style refinement. They are VisualGeometryToolkitCore's toolki
 `model_dof`, `codimension`) are supplied explicitly, and the partition is a
 consensus order and its size `k`, as a scorer's `consensus_order` and
 `inlier_count` give them:
-[`posterior_weights!`](@extref VisualGeometryToolkitCore.posterior_weights!),
-[`posterior_inlier_probs!`](@extref VisualGeometryToolkitCore.posterior_inlier_probs!),
-[`soft_posterior_weights!`](@extref VisualGeometryToolkitCore.soft_posterior_weights!),
-[`update_nu!`](@extref `VisualGeometryToolkitCore.update_nu!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
-[`next_nu`](@extref VisualGeometryToolkitCore.next_nu) and
+[`mixture_ecm!`](@extref VisualGeometryToolkitCore.mixture_ecm!),
+[`inlier_probabilities!`](@extref VisualGeometryToolkitCore.inlier_probabilities!),
+[`update_nu!`](@extref `VisualGeometryToolkitCore.update_nu!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`) and
 [`median_seeded_posterior`](@extref VisualGeometryToolkitCore.median_seeded_posterior).
 
 ## Scale and Mixture Estimation
@@ -130,9 +133,8 @@ consensus order and its size `k`, as a scorer's `consensus_order` and
 The scale fit, the Student-t + uniform mixture and its ECM cycle, and the
 degrees-of-freedom policies the posterior weighting above draws on. They are
 VisualGeometryToolkitCore's (import them from there):
-[`fit_scale`](@extref VisualGeometryToolkitCore.fit_scale),
+[`ScaleMAP`](@extref VisualGeometryToolkitCore.ScaleMAP) (the scale MAP, `solve(EstimationProblem(SquaredScale, (; rss, dof)), ScaleMAP(prior))`),
 [`update_scale!`](@extref `VisualGeometryToolkitCore.update_scale!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
-[`partition_student_t`](@extref VisualGeometryToolkitCore.partition_student_t),
 [`StudentTMixture`](@extref VisualGeometryToolkitCore.StudentTMixture),
 [`inlier_posterior`](@extref VisualGeometryToolkitCore.inlier_posterior),
 [`posterior_weight`](@extref VisualGeometryToolkitCore.posterior_weight),
@@ -166,8 +168,8 @@ VisualGeometryToolkitCore documentation for the full API.
   multiples
 - `GemanMcclureShape` — smooth redescender
 - `TLSShape` / `SmoothTLSShape` — truncated least squares, hard and smoothed;
-  `Irls{TLSShape}()` following the scorer's threshold is every `find_*`
-  pipeline's default (least squares on the inliers)
+  `Irls{TLSShape}()` following the scorer's threshold is `Ransac()`'s class
+  default for most classes (least squares on the inliers)
 - `BarronShape` — the α-parameterized family
 
 `Irls{K}` refuses at construction a shape its mechanism cannot run:

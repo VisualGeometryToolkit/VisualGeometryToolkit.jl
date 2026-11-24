@@ -10,12 +10,15 @@ CurrentModule = VisualGeometryToolkitEstimation
 AbsolutePoseProblem
 ```
 
-## Fitting Pipeline
+## Find and refine
 
-```@docs
-find_absolute_pose
-refine_absolute_pose
-```
+`solve(EstimationProblem(AbsolutePoseProblem(camera, X .=> u), (; extent)), Ransac(); rng)`
+is the find (the extent optional: a pose that fails cheirality or images the
+board as a non-simple or non-convex quad is refused) and
+`solve(RefineProblem(AbsolutePoseProblem(camera, X .=> u), pose), LevenbergMarquardt(); scale | width)`
+the refine, from a guess that comes back under its own frame labels. World points
+may be physical (lengths): stripped in metres at construction, the pose comes
+back in metres; the extent of a physical problem is a physical rectangle.
 
 ## Result Types
 
@@ -24,12 +27,12 @@ VisualGeometryToolkitCore's world→camera rigid pose (import it from
 VisualGeometryToolkitCore). Do not confuse it with [`Rigid3`](@ref), the
 *unlabeled* alias the hand-eye problem uses — a different type.
 
-`model_type(::AbsolutePoseProblem) = Extrinsics3` and `solve` returns `FixedModels{4, Extrinsics3} | nothing`
-(up to 4 P3P solutions).
+`model_type(::AbsolutePoseProblem) = Extrinsics3` and its `sample_models` returns
+`FixedModels{4, Extrinsics3}` (up to 4 P3P solutions).
 
 ## Local Optimization
 
-`find_absolute_pose` deploys `Irls{TLSShape}()` (least squares on the
+The class default deploys `Irls{TLSShape}()` (least squares on the
 inliers, at the default MSAC scorer's 8 px threshold;
 `[pipelines.absolute_pose]` in `configs/default.toml`). Any other strategy
 composes, LocalOptimizationDoneRight's half-quadratic lifts on the 6-dof pose

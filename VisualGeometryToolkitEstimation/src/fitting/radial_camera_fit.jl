@@ -1,0 +1,103 @@
+# =============================================================================
+# RadialCameraFit — the radial camera of one board, an iterative whitened fit
+# (moved from VisualGeometryToolkitCore, estimator taxonomy v2: fit/find/refine live
+# in VisualGeometryToolkitEstimation; the minimal 5-point solve stays there as
+# `RadialCamera5pt`)
+# =============================================================================
+
+"""
+    RadialCameraFit(; iterations = 2)
+
+A [`FitKind`](@extref VisualGeometryToolkitCore.FitKind):
+`solve(EstimationProblem(RadialCamera, cs, (; center)), RadialCameraFit(; iterations))`, `cs` an
+`AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}}` -> `FitResult{RadialCamera{Float64}, Nothing}`.
+
+The radial camera of one board from its `plane_point => image_point`
+correspondences `cs`, the image points RAW as measured; `center` (pixels,
+REQUIRED, the context `p` — the principal point, as the radial camera's find and
+`RadialCameraProblem` require it) is the pencil's centre and rides on the
+returned camera, so nothing is pre-centred. There is no default: a pencil
+about the image corner fits raw pixels as well as any other, with no error.
+Each pair gives one linear constraint on the six entries of `P`
+([`constraint_with_jacobians`](@ref)); the null vector is solved by SVD in the
+radial camera's normalization, `CorrespondenceNormalization(RadialCamera, cs; center)`
+(Hartley at the plane centroid, Hartley about `center` on the image side — the
+same strategy `RadialCameraProblem` solves in), and composed back into
+pixels. Each iteration re-solves; from the second on every
+row is divided by the constraint's observation-gradient norm at the previous
+iteration's solution ([`whitening_factor`](@extref VisualGeometryToolkitCore.whitening_factor), the Sampson normalizer held
+fixed — the algebraic error becomes the exact point–radial-line distance); a
+`weights` column on `cs` (a `Correspondences` attribute, e.g. `withattrs(cs; weights)`)
+multiplies on top, the row weight being √w. `iterations = 1` is the plain
+algebraic (unwhitened) solve. This is how the BabelCalib back-end
+obtains the radial camera when no homography is available; when one is, its
+rows 1–2 are the same object (`RadialCamera(H)`). Five correspondences
+determine `P` (five degrees of freedom).
+
+The `FitResult`'s estimate is the camera, its record `(ReturnCode.Success, ClosedForm)` after `iterations`
+iterations (`stats.nsteps`), and `rms` the point–radial-line distance (px) of the `n` pairs at the
+fit, whatever the iteration count. When the constraint rows leave more than
+one null direction (a degenerate configuration — the plane points on a line,
+or a pixel on the centre) the record is `(ReturnCode.InitialFailure, NoRule)`, the camera NaN and the
+rms NaN.
+
+Units: the source points are plain numbers. A radial camera maps from the source
+plane, so its entries carry that plane's unit, which a matrix cannot record:
+physical (unitful) source points are an `ArgumentError` — strip them in the
+unit the rest of your plain data uses — metres, as the stack's boundaries strip
+(`ustrip.(m, X)`).
+"""
+struct RadialCameraFit <: AbstractEstimationAlgorithm
+    iterations::Int
+    function RadialCameraFit(iterations::Integer)
+        iterations >= 1 || throw(ArgumentError("RadialCameraFit: iterations must be ≥ 1 (0 would return the unfitted seed), got $iterations"))
+        return new(Int(iterations))
+    end
+end
+RadialCameraFit(; iterations::Integer = 2) = RadialCameraFit(iterations)
+estimator_kind(::RadialCameraFit) = FitKind()
+function __solve(prob::EstimationProblem{<:RadialCamera, <:AbstractVector{<:Correspondence{<:StaticVector{2}, <:StaticVector{2}}}},
+                 alg::RadialCameraFit)
+    (; center) = VgtkCore.read_context(prob.p, (:center,), (;), "RadialCameraFit")
+    return _radial_camera_fit(prob.f, center, alg.iterations)
+end
+function _radial_camera_fit(cs, center, iterations::Int)
+    _refuse_physical_plane(cs, "RadialCameraFit")
+    # The problem's one construction (canonical data, the radial camera's
+    # normalization, the normalized view — where the pencil's centre is the
+    # origin) and its candidate and residual; fewer than 5 pairs are refused here.
+    p = RadialCameraProblem(cs; center)
+    n = data_size(p)
+    n >= 5 || throw(ArgumentError("RadialCameraFit: five correspondences determine a radial camera (five degrees of freedom), got $n"))
+    weights = VgtkCore.check_weights(VgtkCore.weights_column(cs))   # the `weights` column, or nothing
+    Xn = sources(p.cs_solve); xn = targets(p.cs_solve)
+    o = Point2{Float64}(0.0, 0.0)
+    A = Matrix{Float64}(undef, n, 6)
+    svd_ws = VgtkCore.SvdWorkspace{Float64}(n, 6)
+    P = RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(1, 0, 0, 1, 0, 0), o)
+    degenerate(iter) = FitResult(RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(ntuple(_ -> NaN, 6)), p.context), ReturnCode.InitialFailure, NoRule, SolveStats(; nsteps = iter), NaN, n, nothing)
+    for iter in 1:iterations
+        for i in 1:n
+            _, G_x, row = constraint_with_jacobians(P, Xn[i], xn[i])
+            # iteration 1 has no solution to whiten at; from iteration 2 the
+            # previous solution's frozen Sampson factor (zero when degenerate)
+            iter > 1 && (row = row * whitening_factor(G_x))
+            weights === nothing || (row = row * sqrt(Float64(weights[i])))
+            A[i, :] .= row
+        end
+        # The null vector and the null-space gap, VGC's (`svd_nullvec!` thin
+        # once there are six rows, full for the minimal five): more than one
+        # null direction is a degenerate configuration.
+        v = VgtkCore.svd_nullvec!(svd_ws, A, n, Val(6))
+        VgtkCore.test_dlt_conditioning(svd_ws; max_cond = 1.0e10) || return degenerate(iter)
+        P = RadialCamera{Float64}(SMatrix{2, 3, Float64, 6}(v), o)
+    end
+    # into pixels by composition with the problem's normalization, the centre
+    # the exact datum (the minimal solve's `_candidate`)
+    P = _candidate(p, P)
+    # the reported residual is the point–radial-line distance in px (the
+    # problem's scoring residual), one currency whatever the iteration count
+    ss = sum(abs2, mahalanobis_distances!(Vector{Float64}(undef, n), p, P))
+    return FitResult(P, ReturnCode.Success, ClosedForm, SolveStats(; nsteps = iterations), sqrt(ss / n), n, nothing)
+end
+

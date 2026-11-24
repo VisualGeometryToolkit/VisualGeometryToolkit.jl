@@ -36,8 +36,8 @@
 | Layer | Examples | Normalizes |
 |---|---|---|
 | task verb | `find_boards`, `track_boards` | never; forwards pixels |
-| estimator, one-step public form | `find_homography`, `fit_division_camera`, `solve(EstimationProblem(HomographyMat, cs), DLT())` | once in, once out |
-| inner loop | [`homography_dlt!`](@ref), `division_camera_step`, `refine!(ws, problem, θ, w)`, [`test_model`](@ref) | never; takes the estimator's |
+| estimator: `solve(problem, algorithm)` | `solve(EstimationProblem(HomographyProblem(cs)), Ransac())`, `solve(EstimationProblem(HomographyMat, cs), DLT())` | once in, once out |
+| inner loop | [`homography_dlt!`](@ref), `refine!(ws, problem, θ, w)`, [`test_model`](@ref) | never; takes the estimator's |
 | minimal kernel | [`homography_4pt`](@ref), [`essential_5pt`](@ref), `solve(MinimalProblem(M, cs, idx), solver)` | never |
 | pool | [`PoolPair`](@ref VisualGeometryToolkitCore.Pools.PoolPair) (VGC `Pools`), VisualGeometryToolkitEstimation's pool-frame problems, VisualGeometryToolkitEval's pool IO, RANSACScoringDoneRight's pool scorers | stored in [`NormalizedImageFrame`](@ref), declared |
 

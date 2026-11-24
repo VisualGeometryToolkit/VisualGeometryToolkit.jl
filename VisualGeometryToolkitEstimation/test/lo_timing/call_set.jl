@@ -7,8 +7,8 @@
 # like VisualGeometryToolkitCore's bench record. The includer has loaded
 # VisualGeometryToolkitCore and StaticArrays.
 # =============================================================================
-using VisualGeometryToolkitCore: CameraModel, Correspondences, EssentialMat, Point2
-using VisualGeometryToolkitEstimation: EssentialProblem, locally_optimize
+using VisualGeometryToolkitCore: CameraModel, Correspondences, EssentialMat, Point2, RefineProblem, init, solve!, reinit!
+using VisualGeometryToolkitEstimation: EssentialProblem, LocalOptimization
 using StaticArrays: SMatrix
 
 "The recorded call set, beside this file."
@@ -73,11 +73,13 @@ call_set_arm(make, pairs, reps) = function ()
 end
 
 # A local-optimization strategy's arm over the call set (THE binding of every LO timing bench: this package's and
-# LocalOptimizationDoneRight's): `locally_optimize` of pair `i`'s problem from each recorded seed under the strategy
-# `make_lo()` builds (once per arm), with pair `i`'s scoring and workspace — the bench's own (its scorer is its
-# choice: MSAC here, Student-t + uniform in LocalOptimizationDoneRight), built outside the timing.
-lo_call_set_arm(make_lo, problems, scorings, workspaces, pairs, reps) = call_set_arm(pairs, reps) do
+# LocalOptimizationDoneRight's): the seeded local optimization (`LocalOptimization`) of pair `i`'s problem from each
+# recorded seed under the strategy `make_lo()` builds (once per arm), with pair `i`'s scoring — the bench's own (its
+# scorer is its choice: MSAC here, Student-t + uniform in LocalOptimizationDoneRight) — on pair `i`'s cache, built
+# outside the timing (`init`) and pointed at each seed (`reinit!`): the workspaces reused, as a call set is timed.
+lo_call_set_arm(make_lo, problems, scorings, pairs, reps) = call_set_arm(pairs, reps) do
     lo = make_lo()
-    (i, seed) -> locally_optimize(problems[i], seed; local_optimization_strategy = lo, scoring = scorings[i], workspace = workspaces[i])
+    caches = [init(RefineProblem(problems[i], first(pairs[i].seeds)), LocalOptimization(lo; scoring = scorings[i]))
+              for i in eachindex(problems)]
+    (i, seed) -> solve!(reinit!(caches[i], seed))
 end
-

@@ -19,7 +19,7 @@ paper project's suite calls, and `new_paper_project`, the template whose files
 live in `templates/paper_project/`; the docs page `docs/src/paper-projects.md`). It
 depends on VisualGeometryToolkitCore, VisualGeometryToolkitIO and VisualGeometryToolkitEstimation only.
 The evaluator is written against VisualGeometryToolkitCore's contracts (scoring, local
-optimization, `RefitFamily`, `refine_external!`, `select_on_grid!`), never
+optimization, `RefitFamily`, `external_refit!`, `select_on_grid!`), never
 against a paper scorer or strategy: RANSACScoringDoneRight,
 LocalOptimizationDoneRight and PoseLib must not appear in its deps, weakdeps,
 extras or test target. The projects that evaluate those depend on it.

@@ -2,6 +2,19 @@
 # RANSAC Interface — AbstractRansacProblem API and method stubs
 # =============================================================================
 
+"""
+    sample_models(problem, sample_indices) -> FixedModels
+
+Every model of the minimal sample `sample_indices` of a RANSAC problem — the problem's own minimal solve (its solver on
+its normalized view, each root composed back into the problem's frame): the hypotheses a trial draws, before
+[`sample_hypothesis`](@ref) and `test_model`. `count == 0` is a failed solve. A problem implements it; the public
+minimal solve of a model type is Core's `solve(MinimalProblem(M, data, idx), solver)`.
+"""
+function sample_models end
+
+# The minimal solver `solver` on the sample `idx` of `data`, through Core's one minimal entry.
+@inline _minimal_solve(solver, data, idx) = solve(MinimalProblem(model_type(solver), data, idx), solver)
+
 # -----------------------------------------------------------------------------
 # Abstract Problem Type
 # -----------------------------------------------------------------------------
@@ -20,7 +33,7 @@ and constraint derivatives for a specific estimation task.
 - `codimension(p)::Int` — constraint codimension d_g
 - `model_type(::Type{<:P})::Type` — concrete model type `M` (for workspace
   pre-allocation; defined on the TYPE, so `RansacWorkspace(P, n)` can read it)
-- `solve(p, indices)` — fit model(s) from sample indices; returns `FixedModels{N,M}` with `count` ∈ 0..N (0 means failure)
+- `sample_models(p, indices)` — every model of a minimal sample (the problem's minimal solve); returns `FixedModels{N,M}` with `count` ∈ 0..N (0 means failure)
 - `constraint_with_jacobians(p, model, i)` — `(g, ∂ₓg, ∂_θg)` at data point `i`
 
 # Derived Automatically
@@ -48,7 +61,7 @@ data_size(p::MyLineProblem) = length(p.points)
 codimension(::MyLineProblem) = 1
 model_type(::Type{MyLineProblem}) = SVector{2,Float64}  # (a, b) for y = a + bx
 
-function solve(p::MyLineProblem, idx)
+function sample_models(p::MyLineProblem, idx)
     p1, p2 = p.points[idx[1]], p.points[idx[2]]
     b = (p2[2] - p1[2]) / (p2[1] - p1[1])
     a = p1[2] - b * p1[1]
@@ -197,7 +210,7 @@ Default: delegates to `draw!(rng, indices, sampler(problem))`.
 Problems with a stored sampler just need to define `sampler(p::MyProblem) = p._sampler`.
 The rng-leading form is the only form, and a problem overriding `draw_sample!`
 must define it: routing every draw through an explicit `rng` is what makes a
-seeded `ransac(...; rng = Xoshiro(seed))` run bit-reproducible, and what keeps
+seeded `solve(…, Ransac(); rng = Xoshiro(seed))` run bit-reproducible, and what keeps
 a threaded caller off the task-local `Random.default_rng()`.
 """
 function draw_sample!(
@@ -234,19 +247,20 @@ test_sample(::AbstractRansacProblem, ::AbstractVector{Int}) = true
 # =============================================================================
 
 """
-    refine_workspace(::Type{P}, n_data) -> ManifoldLmWorkspace | nothing
+    refit_workspace(::Type{P}, n_data) -> ManifoldLmWorkspace | nothing
 
 The scratch of `refine!` for a RANSAC problem of type `P`: a sized
 `ManifoldLmWorkspace{N}` for every chart problem (from `_lm_size`, so from its
 `chart_dof`), `nothing` for a problem with no chart (VisualGeometryToolkitCore's
 problem-protocol verb).
 """
-refine_workspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} = _lm_workspace(_lm_size(P, n))
+refit_workspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} =
+    (sz = _lm_size(P, n); sz === nothing ? nothing : ManifoldLmWorkspace(sz...))
 
 # Every local-optimization strategy this package hosts runs on the same
 # workspace: the problem's refit workspace plus the posterior-weight buffers.
 lo_workspace(::Type{P}, ::Type{T}, ::Union{Nothing, AbstractOptimizationStrategy}, n::Int) where {P <: AbstractRansacProblem, T} =
-    LoBuffers{T}(refine_workspace(P, n), n, model_type(P))
+    LoBuffers{T}(refit_workspace(P, n), n, model_type(P))
 
 """
     RansacWorkspace([T = Float32,] problem, scoring[, local_optimization_strategy = nothing])
@@ -341,10 +355,10 @@ through `_refine!(::RefitKind, ws, p, θ, weights)` (see `refit_kind` /
   (the weighted DLT, correspondence.jl).
 - `NoRefit` (no chart) → `nothing` (no step in this shape).
 
-`lo_ws` is the refit workspace (`refine_workspace`; a local optimizer holds it):
+`lo_ws` is the refit workspace (`refit_workspace`; a local optimizer holds it):
 a `ManifoldLmWorkspace{N}` for the chart problems (every `_lm_size`; used
 when its size matches, otherwise the one task-local reuse policy of
-`_lm_workspace`), a `DltWorkspace` for the algebraic DLT, or `nothing` for
+Core's `lm_workspace`), a `DltWorkspace` for the algebraic DLT, or `nothing` for
 problems that allocate nothing ahead (line fitting). It is accepted for
 signature uniformity where unused.
 
@@ -387,7 +401,7 @@ function refine! end
 # seed: the radial homography's k, the radial camera's guard), `_lm_state(p, ch,
 # sqrtw)` (a state that needs an `aux`: PnP's pixel block),
 # `_refit_state` (a refit-only weight adjustment: PnP's out-of-reach points),
-# `_model_at(p, ch)` (the model a chart stands for, in the problem's frame and
+# `chart_model(p, ch)` (the model a chart stands for, in the problem's frame and
 # type; default `model(ch)`). The residual row count is `codimension(P)` rows
 # per datum, so `_lm_size`, the lift's `(D, C)` and `refit_kind` all DERIVE from
 # `chart_dof` and `codimension` — none is restated per problem.
@@ -444,7 +458,7 @@ end
 _refit_chart(p, θ, _weights) = _chart(p, θ)
 _lm_state(p, ch, sqrtw) = ChartLm(ch, p, sqrtw)
 _refit_state(p, ch, sqrtw) = _lm_state(p, ch, sqrtw)
-_model_at(_p, ch) = model(ch)
+chart_model(_p::AbstractRansacProblem, ch) = model(ch)
 
 
 # =============================================================================
@@ -481,17 +495,9 @@ _lm_size(::Nothing, _P, ::Int) = nothing
 _lm_size(D::Int, ::Type{P}, n::Int) where {P} = (codimension(P) * n, Val(D))
 _lm_size(p::AbstractRansacProblem) = _lm_size(typeof(p), data_size(p))
 
-# THE constructor of a chart-LM workspace from an `_lm_size`.
-_lm_workspace(::Nothing) = nothing
-_lm_workspace(sz::Tuple{Int, Val}) = ManifoldLmWorkspace(sz[1], sz[2])
 
-# The chart LM's workspace under the one reuse policy (the concrete type of
-# the N-dof workspace, so the refit stays inferred: VGC `lm_workspace_type`).
-@inline function _lm_workspace(lo_ws, rows::Int, v::Val{N}) where {N}
-    W = lm_workspace_type(v)
-    lo_ws isa W && length(sqrt_weights(lo_ws)) == rows && return lo_ws
-    return task_buffers(W, () -> _lm_workspace((rows, v)), (:rvg_lm_ws, rows))
-end
+
+# (The chart LM's workspace under the one reuse policy is Core's `lm_workspace(ws, rows, Val(N))`.)
 
 # The refit-kind trait's two classes (the router and `refit_kind` below).
 abstract type RefitKind end
@@ -507,7 +513,7 @@ each datum's rows, the state (`_refit_state`) and VGC's chart LM
 (`lmsolve_chart!`: NLLSsolver on the state's rows), the
 NaN guard, and the exit — the chart re-anchored at the solution by its own
 `recenter` (the one gauge every model the stack returns is in: the lift
-re-anchors every step the same way) and read as a model (`_model_at`). The LM's
+re-anchors every step the same way) and read as a model (`chart_model`). The LM's
 retcode is not read: a `:stalled` refit's model still lowered the cost from θ,
 and the LO's own acceptance (the scoring) decides whether it is kept.
 """
@@ -515,7 +521,7 @@ function _refine!(::NonlinLsq, lo_ws, p::AbstractRansacProblem, θ, weights::Abs
     _underdetermined(p, weights) && return nothing
     ch = _refit_chart(p, _as_model(p, θ), weights)
     ch === nothing && return nothing
-    return first(_chart_refit(lo_ws, p, ch, _refit_state, weights))   # the one chart refit (manifold_providers.jl)
+    return first(chart_refit(lo_ws, p, ch, _refit_state, weights))   # Core's one chart refit
 end
 
 # `lmsolve_chart!` (NLLSsolver on one linearization
@@ -570,17 +576,17 @@ state that counts further adds its method.
 refit_kind(p::AbstractRansacProblem) = chart_dof(p) === nothing ? NoRefit() : NonlinLsq()
 
 """
-    fit_hypothesis(problem, θ, sample_indices) -> model | nothing
+    sample_hypothesis(problem, θ, sample_indices) -> model | nothing
 
 The hypothesis a minimal sample contributes, given a minimal solution `θ` of it
-(`solve`). For a problem whose minimal sample exactly determines the model this
+(`sample_models`). For a problem whose minimal sample exactly determines the model this
 is `θ` itself (the default). A problem whose minimal sample OVER-determines it
 (hand-eye: two motions, 12 rows for 6 dof) fits the sample, seeded by `θ`, so
 the hypothesis is the sample's least-squares model — the estimator its
-`solver_covariance` describes. `solve` stays the pure minimal solver; `nothing`
+`solver_covariance` describes. `sample_models` stays the pure minimal solve; `nothing`
 skips the hypothesis, as a failed solve does.
 """
-fit_hypothesis(::AbstractRansacProblem, θ, ::AbstractVector{Int}) = θ
+sample_hypothesis(::AbstractRansacProblem, θ, ::AbstractVector{Int}) = θ
 
 # The router. Concrete problems carrying their own `refine!(ws, p, θ, w)` method
 # (the line step, the relative-pose bundle, the DLT workspace form) are

@@ -43,10 +43,10 @@ using VisualGeometryToolkitCore: MsacScoring, RansacScoring
 
 scoring = MsacScoring(problem; threshold = 2.0)    # codimension from the problem
 scoring = RansacScoring(problem; threshold = 2.0)
-result  = ransac(problem, scoring)
+result  = solve(EstimationProblem(problem), Ransac(; scoring); rng = Xoshiro(1))
 ```
 
-Every `find_*` reads its class's scorer, `[pipelines.<class>] scoring` in
+`Ransac()` reads its problem class's scorer, `[pipelines.<class>] scoring` in
 `configs/default.toml` (read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml)), when no
 `scoring` is given; every class's is MSAC. The thresholds are in the problem's residual unit —
 pixels for every pixel-data class, E and PnP included, whose residuals are
@@ -69,11 +69,11 @@ using VisualGeometryToolkitCore: IGPrior
 
 scoring = StudentTUniformScoring(problem, 20.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())                              # Jeffreys
 scoring = StudentTUniformScoring(problem, 20.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())   # weakly informative
-result  = find_homography(pairs; scoring)
+result  = solve(EstimationProblem(problem), Ransac(; scoring); rng = Xoshiro(1))
 ```
 
-The outlier half-width is the scorer's parameter, never a pipeline keyword:
-`find_*(…; outlier_halfwidth = …)` is an `ArgumentError` that names this form.
+The outlier half-width is the scorer's parameter, never `Ransac`'s:
+`Ransac(; outlier_halfwidth = …)` is an `ArgumentError` that names this form.
 The marginal score, its derivation and its sweep are documented with
 RANSACScoringDoneRight.
 

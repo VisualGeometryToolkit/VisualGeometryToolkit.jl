@@ -32,9 +32,9 @@ The unlabeled rigid motion of hand-eye calibration: a concrete
 `EuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3`
 translation between two `UnlabeledFrame{3}`s. It is the model type of
 [`HandEyeProblem`](@ref), the currency of its relative motions `(A_ij, B_ij)`,
-and the estimate of [`find_hand_eye`](@ref) on plain poses. Its translation is a
+and the estimate of a hand-eye find (`Ransac` on a `HandEyeProblem`) on plain poses. Its translation is a
 plain number in the poses' own length unit; for physical poses (translations in
-lengths) `find_hand_eye` returns the same map with its translation in metres,
+lengths) the find returns the same map with its translation in metres,
 not a `Rigid3`.
 
 Not a camera extrinsics: the motion algebra `inv(A[j]) ∘ A[i]` composes maps
@@ -88,16 +88,17 @@ first-order covariance they are scored with: the predictive NEES tail (228/6 at
 1 mrad, median ratio still 1.03) is exactly these motions, and admitting only
 motions of ≥ 5° calibrates it (Monte Carlo, `ransac_mc_calibration` (b)).
 """
-struct HandEyeProblem{S <: AbstractSampler} <: AbstractRansacProblem{2}
+struct HandEyeProblem{S <: AbstractSampler, U} <: AbstractRansacProblem{2}
     motions::Vector{Tuple{Rigid3, Rigid3}}
     axes::Vector{SVector{3, Float64}}
     char_length::Float64
     min_rel_angle::Float64
     _sampler::S
+    unit::U   # the unit physical poses were stripped in (the metre), `nothing` for plain ones
     function HandEyeProblem{S}(
             motions::AbstractVector{Tuple{Rigid3, Rigid3}}, char_length::Real,
-            min_rel_angle::Real, smplr::S
-        ) where {S <: AbstractSampler}
+            min_rel_angle::Real, smplr::S, unit::U = nothing
+        ) where {S <: AbstractSampler, U}
         axes = Vector{SVector{3, Float64}}(undef, length(motions))
         for (k, (A_ij, B_ij)) in enumerate(motions)
             ωA = log_so3(rotation(A_ij))
@@ -110,7 +111,7 @@ struct HandEyeProblem{S <: AbstractSampler} <: AbstractRansacProblem{2}
             )
             axes[k] = ωA
         end
-        return new{S}(Vector{Tuple{Rigid3, Rigid3}}(motions), axes, Float64(char_length), Float64(min_rel_angle), smplr)
+        return new{S, U}(Vector{Tuple{Rigid3, Rigid3}}(motions), axes, Float64(char_length), Float64(min_rel_angle), smplr, unit)
     end
 end
 
@@ -125,22 +126,22 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
   labeled `Extrinsics3` accepted — unlabeled at the boundary). Any
   `sources`/`targets` container of `Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
-  plain translations, in one length unit — a problem is the inner loop, and a
-  physical (unitful) pose is a `MethodError` here; [`find_hand_eye`](@ref)
-  takes physical poses and strips them in metres once.
+  plain translations, in one length unit, or physical ones (lengths), stripped
+  in metres once, here (with `char_length`): the problem records it, so its
+  solve's calibration comes back in metres. A mix is a `MethodError`.
 
 # Keywords
 - `motion_pairs::Symbol` — `:consecutive` uses pairs `(i, i+1)` yielding
   `N-1` motion pairs; `:all` uses every `(i, j)` with `i < j`. Defaults to
   `configs/default.toml` `[pipelines.hand_eye]` (`"consecutive"`), the same
-  authority `find_hand_eye` reads.
+  authority the hand-eye class reads.
 - `char_length` — characteristic length to balance rotation (rad) and
   translation residuals. Default: median translation magnitude of the
   relative motions A_ij.
 - `min_rel_angle` — the smallest rotation (rad) a relative motion may have:
   motions below it are dropped here, before the inner constructor's gate.
   Defaults to `configs/default.toml` `[robot_world_hand_eye]`
-  `min_rel_angle_deg`, the SAME authority `fit_robot_world_hand_eye`'s init reads:
+  `min_rel_angle_deg`, the SAME authority the robot–world fit's init reads:
   the rotation below which a relative motion is degenerate for recovering X.
 
 Throws when there are fewer than 3 frames, or when fewer than two relative
@@ -163,6 +164,15 @@ function HandEyeProblem(
     smplr = _build_sampler(n, 2, nothing)
     return HandEyeProblem{typeof(smplr)}(motions, L, Float64(min_rel_angle), smplr)
 end
+function HandEyeProblem(cs::AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}}; char_length = nothing, kwargs...)
+    plain = _map_correspondences(_plain_metres, _plain_metres, cs)::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    p = HandEyeProblem(plain; char_length = _metres(char_length), kwargs...)
+    return HandEyeProblem{typeof(p._sampler)}(p.motions, p.char_length, p.min_rel_angle, p._sampler, VgtkCore.m)
+end
+_problem_unit(p::HandEyeProblem) = p.unit
+# A refine's guess is physical exactly when its problem is; the calibration comes back in metres then.
+guess_model(p::HandEyeProblem, X::EuclideanMap{3}) = convert(model_type(p), _plain_guess(p.unit, X))
+solution_model(p::HandEyeProblem, X, _guess) = _pose_out(p.unit, X)
 
 # =============================================================================
 # AbstractRansacProblem Interface
@@ -174,13 +184,13 @@ model_type(::Type{<:HandEyeProblem}) = Rigid3
 sampler(p::HandEyeProblem) = p._sampler
 
 """
-    solve(p::HandEyeProblem, idx) -> FixedModels{1, Rigid3}
+    sample_models(p::HandEyeProblem, idx) -> FixedModels{1, Rigid3}
 
 Closed-form Tsai-Lenz solver on the two minimal-sample relative motions.
 Returns `FixedModels{1, Rigid3}` with `count = 0` (no valid solution) or
 `count = 1`.
 """
-function solve(p::HandEyeProblem, idx::AbstractVector{Int})
+function sample_models(p::HandEyeProblem, idx::AbstractVector{Int})
     @inbounds m1 = p.motions[idx[1]]
     @inbounds m2 = p.motions[idx[2]]
     X = _tsai_lenz_minimal(m1, m2)
@@ -282,7 +292,7 @@ provides_solver_covariance(::Type{<:HandEyeProblem}) = true   # predictive scori
 
 chart_dof(::Type{<:HandEyeProblem}) = 6
 _chart(::HandEyeProblem, X::Rigid3) = RigidExpManifold6(rotation(X), translation(X))   # at the model type: θ enters as `_as_model` (interface.jl)
-_model_at(::HandEyeProblem, ch) = convert(Rigid3, model(ch))
+chart_model(::HandEyeProblem, ch) = convert(Rigid3, model(ch))
 
 # √w-weighted, unit-balanced hand-eye rows in the chart at `δ` (VGC's
 # `residual_rows!`), 6 per motion with the motion's √w on each; eltype-generic
@@ -314,7 +324,7 @@ _underdetermined(::HandEyeProblem, weights::AbstractVector) = count(>(zero(eltyp
 # sandwich over the sample's 12 rows) describes — its hypotheses scattered
 # ~2.4× wider than that covariance (Monte Carlo, median). The sample's own
 # chart-LM fit, seeded by Tsai–Lenz, is that estimator.
-function fit_hypothesis(p::HandEyeProblem, X::Rigid3, idx::AbstractVector{Int})
+function sample_hypothesis(p::HandEyeProblem, X::Rigid3, idx::AbstractVector{Int})
     sub = HandEyeProblem{typeof(p._sampler)}(p.motions[idx], p.char_length, p.min_rel_angle, p._sampler)   # validated subset
     return _refine!(NonlinLsq(), nothing, sub, X, ones(length(idx)))
 end
@@ -441,7 +451,7 @@ end
 # is ‖ω‖): a relative motion is admitted when it rotates at least `min_angle` —
 # and not at all when it does not rotate (no axis), even at `min_angle = 0`.
 # Shared by the construction filter (`_form_relative_motions`), the inner
-# constructor's gate, and `fit_robot_world_hand_eye`'s init.
+# constructor's gate, and the robot–world fit's init (`RobotWorldHandEyeCalibration`).
 @inline _rotates_enough(ω::StaticVector{3}, min_angle) = (θ = norm(ω); θ >= min_angle && θ > 0)
 
 # Tsai's scaled-axis vector α = 2 sin(θ/2)·n̂ of a rotation — twice the
@@ -452,3 +462,7 @@ end
     s = w < 0 ? -2.0 : 2.0
     return SVector{3, Float64}(s * x, s * y, s * z)
 end
+
+# The class width's unit: hand-eye's scorer width of record is a fraction of the characteristic length `L` (solve.jl
+# `_in_problem_unit`), the same in metres or millimetres.
+_width_unit(problem::HandEyeProblem) = Float64(problem.char_length)

@@ -217,14 +217,22 @@ function observation_gradient_jacobian end
 # gradient's derivative the Sampson Jacobian reads. A model whose ∂G_x/∂θ is
 # structured may compute the contraction directly (the bilinear epipolar
 # models, fundmat.jl — pinned equal to this default in the tests).
-@inline _normal_rate(M, G_x, x...; kw...) = transpose(observation_gradient_jacobian(M, x...; kw...)) * G_x
+@inline _normal_rate(M, G_x, x...; kw...) = _fma_tmul(observation_gradient_jacobian(M, x...; kw...), G_x)
 
+# The Sampson Jacobian's products state their arithmetic (owner, 2026-11-24: the math is deterministic): a `*` of two
+# StaticArrays is a `muladd` chain that LLVM fused per entry differently in a precompiled (pkgimage) and a JIT copy of
+# the same method, and the chart LM's rows differed in their last bits between the two. Every product `_jacobian_terms`
+# reaches is the explicit `fma` chain of base/fused_products.jl (`_fma_mul`, `_fma_tmul`, StaticArrays' order);
+# elementwise operations and `sum` carry no contraction and stay as written.
+# Σ·G_xᵀ: the identity by dispatch, any other Σ through `_fma_mul`.
+@inline _noise_times(::UniformScaling{Bool}, Gt) = Gt
+@inline _noise_times(Σ, Gt) = _fma_mul(SMatrix(Σ), Gt)
 # A model-coordinate row carried along chart directions, held as ROWS
 # B = Dᵀ (`N × nθ`, row q = ∂θ/∂a_q; formed once per sweep — a transposed
 # product per row costs 2 ns of a 5 ns row): B·v. `nothing` keeps the model's
 # own coordinates.
 @inline _along(v::StaticVector, ::Nothing) = v
-@inline _along(v::StaticVector, B::StaticMatrix) = B * v
+@inline _along(v::StaticVector, B::StaticMatrix) = _fma_mul(B, v)
 # Directions as given — `nothing`, an `nθ × N` matrix D (`retract_jacobian`),
 # or the models they move to, `dM = (∂M/∂θ₁, …)` (`retract_directions`) — as
 # those rows.
@@ -257,7 +265,9 @@ model's own coordinates, `N = nθ`). A degenerate observation (the rule of
 [`sampson_residual_with_normal`](@ref)) has ZERO rows: a least-squares row
 cannot carry `±Inf`. Keywords are forwarded to the constraint (`M₁`, `M₂` for
 an `EssentialMat` on bearings). Element-type generic and device-safe;
-[`sampson_jacobian_rows!`](@ref) runs it over an observation set.
+[`sampson_jacobian_rows!`](@ref) runs it over an observation set. Its products are explicit `fma` chains, so the
+same inputs give the same bits in every compiled copy; on a CPU without FMA instructions they run in software
+(the same bits, slower).
 
 Ceres and GTSAM differentiate an explicit residual (`CostFunction::Evaluate`,
 a factor's `unwhitenedError` Jacobians); this is the Jacobian of the Sampson
@@ -293,21 +303,19 @@ end
     Gx = _as_row(G_x); Gθ = _as_row(G_θ)
     T = eltype(gv)
     ΣGt = _noise_times(Σ, transpose(Gx))               # Σ·G_xᵀ
-    C, d, okc = _whitening_cholesky(Gx * ΣGt)          # L·Lᵀ = G_x·Σ·G_xᵀ
+    C, d, okc = _whitening_cholesky(_fma_mul(Gx, ΣGt)) # L·Lᵀ = G_x·Σ·G_xᵀ
     good = okc & !(sum(abs2, G_x) <= _gradient_bound²(ρ, T))
     L⁻¹ = _inv_lower(C.L)
-    r = L⁻¹ * gv
+    r = _fma_mul(L⁻¹, gv)
     K = _noise_rate(M, ΣGt, y...; kw...)              # (dg·dg) × nθ: vec(∂G_x/∂θ · Σ·G_xᵀ)
-    rows = _along_columns(L⁻¹ * Gθ - _factor_rate(L⁻¹, K, r), B)   # model rows first, then the directions once
+    rows = _along_columns(_fma_mul(L⁻¹, Gθ) - _factor_rate(L⁻¹, K, r), B)   # model rows first, then the directions once
     isnan(d) && return r, rows, one(T)                 # NaN in, NaN out
     # Value decisions: a degenerate observation keeps the rule's residual (0 or
     # ±Inf) and has zero rows.
     return ifelse(good, r, _degenerate_residual(gv, _vanishes(ρ, gv))), ifelse(good, rows, zero(rows)), one(T)
 end
-# Σ·Gᵀ, the identity by dispatch.
-@inline _noise_times(::UniformScaling{Bool}, Gt) = Gt
-@inline _noise_times(Σ, Gt) = Σ * Gt
-# The inverse of a lower-triangular Cholesky factor (dg ≤ 2 here: closed form).
+# The inverse of a lower-triangular Cholesky factor: closed forms for dg ≤ 2 (every constraint of the stack), the
+# general inverse beyond.
 @inline _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{1, 1}}) where {T} = SMatrix{1, 1, T}(inv(L[1, 1]))
 @inline function _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{2, 2}}) where {T}
     a, b, c = inv(L[1, 1]), L[2, 1], inv(L[2, 2])
@@ -331,18 +339,18 @@ end
 # — the Cholesky factor's derivative applied to the residual (Φ: the lower
 # triangle, diagonal halved). Linear in K, so a fixed dg × dg² map W·K: for
 # dg = 1, (r/n²)·K; for dg = 2, with L⁻¹ = [a 0; b c], the closed form below
-# (pinned against the general Φ in the tests).
-@inline _factor_rate(L⁻¹::StaticMatrix{1, 1}, K::StaticMatrix, r::StaticVector{1}) = (L⁻¹[1, 1]^2 * r[1]) * K
+# (pinned against the general Φ in the tests); for dg ≥ 3 the general Φ itself.
+@inline _factor_rate(L⁻¹::StaticMatrix{1, 1}, K::StaticMatrix, r::StaticVector{1}) = (L⁻¹[1, 1]^2 * r[1]) * K   # a scalar times a matrix: no sum, nothing to fuse
 @inline function _factor_rate(L⁻¹::StaticMatrix{2, 2, T}, K::StaticMatrix, r::StaticVector{2}) where {T}
     a, b, c = L⁻¹[1, 1], L⁻¹[2, 1], L⁻¹[2, 2]
     m = a * c * r[1] + b * c * r[2]
     W = SMatrix{2, 4, T}(a^2 * r[1], 2 * a * b * r[1] + b^2 * r[2], zero(T), m, zero(T), m, zero(T), c^2 * r[2])
-    return W * K
+    return _fma_mul(W, K)
 end
 @inline function _factor_rate(L⁻¹::StaticMatrix{dg, dg, T}, K::StaticMatrix{m, nθ}, r::StaticVector{dg}) where {dg, T, m, nθ}
     cols = ntuple(Val(nθ)) do θ
         S = SMatrix{dg, dg, T}(ntuple(k -> K[k, θ], Val(dg * dg)))
-        _lower_half(L⁻¹ * (S + transpose(S)) * transpose(L⁻¹)) * r
+        _fma_mul(_lower_half(_fma_mul(_fma_mul(L⁻¹, S + transpose(S)), transpose(L⁻¹))), r)   # stated products, as the closed forms
     end
     return hcat(cols...)
 end
@@ -352,7 +360,7 @@ end
 # A model-coordinate matrix (rows over θ) carried along chart directions held as
 # ROWS B (`N × nθ`): columns q = M·B[q, :]ᵀ. `nothing` keeps the coordinates.
 @inline _along_columns(A::StaticMatrix, ::Nothing) = A
-@inline _along_columns(A::StaticMatrix, B::StaticMatrix) = A * transpose(B)
+@inline _along_columns(A::StaticMatrix, B::StaticMatrix) = _fma_mul(A, transpose(B))
 @inline _along_columns(v::StaticVector{n, T}, B) where {n, T} = _along_columns(SMatrix{n, 1, T}(Tuple(v)), B)
 # A vector as a `1 × n` row (the scalar closed form's B·v), and a matrix as it is.
 @inline _as_row(v::StaticVector{N, T}) where {N, T} = SMatrix{1, N, T}(Tuple(v))

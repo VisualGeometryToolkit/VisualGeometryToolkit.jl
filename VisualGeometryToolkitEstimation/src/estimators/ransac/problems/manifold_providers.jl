@@ -10,7 +10,7 @@
 # at the chart's origin with unit weights, and a step re-anchors by the chart's
 # own `recenter`. So a lift (LocalOptimizationDoneRight's HQ and GNC drivers)
 # and the chart-LM refit cannot drift apart — they share the chart, the rows
-# and the model read-out (`_model_at`).
+# and the model read-out (`chart_model`).
 #
 # Provider protocol (generic; one line per exception below):
 #   rows_provider(problem)      -> the provider (rows from the one reuse policy)
@@ -18,7 +18,7 @@
 #   lift_refresh!(prov, ch)     rows (and per-point norms for codim 2) at ch
 #   lift_jacobian!(prov, ch)    the rows' Jacobian at ch
 #   lift_retract(prov, ch, Δθ)  -> the chart re-anchored at the step (`recenter`)
-#   lift_model(prov, ch)        -> the RANSAC model                 (`_model_at`)
+#   lift_model(prov, ch)        -> the RANSAC model                 (`chart_model`)
 #   lift_valid(prov)            participation mask (default `nothing`)
 #   lift_rows / lift_residuals / lift_size
 # The exceptions: PnP carries its pixel block and participation mask (`_lift_aux`,
@@ -83,7 +83,7 @@ function lift_jacobian!(p::ManifoldLiftProvider, ch)
     return nothing
 end
 @inline lift_retract(::ManifoldLiftProvider, ch, Δθ) = recenter(ch, Δθ)
-lift_model(p::ManifoldLiftProvider, ch) = _model_at(p.problem, ch)
+lift_model(p::ManifoldLiftProvider, ch) = chart_model(p.problem, ch)
 
 # PnP — the frozen pixel block (aux) and the per-iteration participation mask,
 # written by the rows (a point the lens cannot place: out-of-field rows, masked
@@ -131,11 +131,11 @@ The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 `efficiency_constant·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
 `loss_robustifier`, and ONE `lmsolve_chart!` from `model` over every datum at
 unit weight, on the chart-LM refit's own chart and state (`_chart`,
-`_refit_state`: the rows `refine!` descends) in its workspace (`L.refine`, the
+`chart_rows`: the rows `refine!` descends) in its workspace (`L.refine`, the
 one reuse policy) at Core's LM stop settings (`LmStops`, `[lm]`). NLLSsolver's Triggs
 correction carries the loss; nothing is reweighted during the LM and no inlier set is
 formed (the loop's re-score decides the inliers). The model comes back through the
-chart's `recenter` and `_model_at`, as from `refine!`.
+chart's `recenter` and `chart_model`, as from `refine!` (Core's `triggs_refit`).
 
 The two weight rules of `Irls{K}`'s `locally_optimize!` fix the one LM's
 per-datum weights, 0 or 1 (unit weight on every row when neither excludes a
@@ -145,13 +145,13 @@ at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
 the scorer's consensus set `cs`. The weights are fixed at the seed for the whole
 LM (a datum an LM increment puts out of reach keeps its weight; the increment's cost is
 non-finite and it is rejected). A zero weight gives an exactly zero row
-whatever the problem's row is (`_chart_refit`'s zero-weight row rule).
+whatever the problem's row is (Core's `chart_refit` zero-weight row rule).
 """
 function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     check_fresh(cs, buf)
     loss = lo_loss(lo, cs, scoring, buf)
     weights = _triggs_weights!(L.posterior_w, _lo_consensus(lo, cs, buf, scoring), buf.residuals, data_size(problem))
-    return _triggs_lm(L.refine, strategy_loss(lo)(), problem, model, loss; weights)
+    return triggs_refit(L.refine, strategy_loss(lo)(), problem, model, loss; weights)
 end
 
 # The Triggs LO's per-datum weights, 0 or 1 (`_weighs`: a finite seed residual,
@@ -167,89 +167,11 @@ function _triggs_weights!(w::AbstractVector{Float64}, consensus, r::AbstractVect
     return view(w, 1:n)
 end
 
-# The rows the robustified LM robustifies, and a refine's plain least squares
-# minimises (`_refine_run(::Nothing, …)`, fitting/_refine.jl): the refit's
-# (`_refit_state`), whose per-datum norm must be the residual's own unit — the
-# unit the loss width is in (the problem's `mahalanobis_distance`). A problem
-# whose refit rows are in another unit (PnP's pinhole rows, calibrated) states
-# its pixel rows here.
-_triggs_state(problem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)
-
-# THE robustified chart LM — the RANSAC local optimization's (above) and every
-# refine_*'s Triggs (fitting/_refine.jl): `shape` at the deployed `loss`, one
-# `lmsolve_chart!` from `model` over every datum at `weights` (`nothing`: unit
-# weight; the LO's 0/1 weights above), on the refit's chart and state, in the
-# chart-LM workspace `refine_ws` (the one reuse policy).
-function _triggs_lm(refine_ws, shape::VgtkCore.AbstractLossShape, problem, model, loss::DeployedLoss; weights = nothing)
-    robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    m, (code, rule), n_iter = _chart_refit(refine_ws, problem, _chart(problem, _as_model(problem, model)), _triggs_state, weights;
-                                           robustifier)
-    m === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
-    return lo_estimate(m, code, rule; iterations = n_iter)
-end
-
-# THE chart refit — every chart LM of a RANSAC problem's model (the LO's `refine!`, a refine's least squares and its
-# Triggs, above): from the chart `ch`, the rows `state(problem, ch, √w)` at √`weights` (`nothing`: unit weight) in the
-# chart-LM workspace from `ws` (the one reuse policy, `_lm_workspace`), ONE `lmsolve_chart!` at Core's stop settings
-# (`LmStops()`, its `[lm]` table), robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
-# `recenter` and read as a model (`_model_at`). Returns `(model, (code, rule), iterations)`, the model `nothing` when
-# the solve went non-finite. A ZERO-WEIGHT ROW IS EXACTLY 0: a row whose √w is 0 (a datum the caller or the problem's
-# own state weighs 0) and its Jacobian row are set to 0 whatever the problem's row is, so a datum whose residual is
-# Inf or NaN in Float64 cannot reach the LM as 0·Inf = NaN (`_ZeroWeightRows`). Every run is wrapped — ONE state type
-# per workspace, so Core's kept NLLSsolver run (keyed by the state type) is never rebuilt when a refit's weights gain
-# or lose a zero — and a row at a nonzero √w is the problem's own, bit for bit; a refit with no zero √w only finds
-# that it has none, once.
-function _chart_refit(ws, problem, ch, state, weights; robustifier = nothing, stops::LmStops = LmStops())
-    rows, dof = _lm_size(problem)
-    ews = _lm_workspace(ws, rows, dof)
-    weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
-        fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(problem), rows ÷ data_size(problem))
-    # after the state: a problem's own state may zero √w (PnP's out-of-reach anchor points, bearing pose's caller weights)
-    lm = _ZeroWeightRows(state(problem, ch, sqrt_weights(ews)), sqrt_weights(ews), rows)
-    x, _, _, n_iter, record = robustifier === nothing ? lmsolve_chart!(ews, lm, stops) :
-        lmsolve_chart!(ews, lm, robustifier, Val(codimension(problem)), stops)
-    any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), n_iter
-    return _model_at(problem, recenter(ch, x)), record, n_iter
-end
-
-# =============================================================================
-# The zero-weight row rule — `_chart_refit`'s, for every chart refit of a RANSAC problem's model (the LO's `refine!`,
-# a `refine_*`'s least squares and its Triggs, the Triggs LO). Outside it: the lift's rows (`rows_provider`, unit
-# √w; LocalOptimizationDoneRight weighs them), and the LMs with their own states (`refine_camera`, the bundles).
-# =============================================================================
-
-# A chart-LM state whose rows (and Jacobian rows) at a zero √w are exactly 0: the
-# inner state's rows, then every row `j` with `sqrtw[j] == 0` overwritten with 0.
-# The rows at a nonzero √w are the inner state's, untouched. It answers the
-# chart-LM row protocol (`residual_rows!`, `residual_jacobian_rows!`); Core's
-# cost and normal-equation reductions read the rows through it.
-# Whether any row is at a zero √w is found once, at construction (`any_zero`: a refit with
-# none skips the overwrite; nothing is allocated). Core's cost and
-# normal-equation reductions are its defaults over these rows: a state that
-# overrides them (a device state, `refine_camera`'s) runs its own LM, not
-# `_chart_refit`.
-struct _ZeroWeightRows{L}
-    lm::L
-    sqrtw::Vector{Float64}
-    any_zero::Bool
-end
-_ZeroWeightRows(lm, sqrtw::Vector{Float64}, rows::Int) = _ZeroWeightRows(lm, sqrtw, any(iszero, view(sqrtw, 1:rows)))
-
-function residual_rows!(r, s::_ZeroWeightRows, x)
-    residual_rows!(r, s.lm, x)
-    s.any_zero || return r
-    sw = s.sqrtw
-    @inbounds for j in eachindex(r)
-        iszero(sw[j]) && (r[j] = zero(eltype(r)))
-    end
-    return r
-end
-function residual_jacobian_rows!(J, s::_ZeroWeightRows, x)
-    residual_jacobian_rows!(J, s.lm, x)
-    s.any_zero || return J
-    sw = s.sqrtw
-    @inbounds for k in axes(J, 2), j in axes(J, 1)
-        iszero(sw[j]) && (J[j, k] = zero(eltype(J)))
-    end
-    return J
-end
+# The chart contract of Core's LevenbergMarquardt refine (robust/refine.jl) on every chart problem: the chart at a model
+# (`_chart`, the refit's own seeding), the model a chart stands for (`chart_model`, defined per problem), the LM's size, and the rows the
+# robustified LM robustifies and a refine's least squares minimises — the refit's (`_refit_state`), whose per-datum
+# norm must be the residual's own unit, the unit the loss width is in (the problem's `mahalanobis_distance`). A problem
+# whose refit rows are in another unit (PnP's pinhole rows, calibrated) states its pixel rows (problems/p3p.jl).
+model_chart(p::AbstractRansacProblem, θ) = _chart(p, _as_model(p, θ))
+chart_size(p::AbstractRansacProblem) = _lm_size(p)
+chart_rows(problem::AbstractRansacProblem, ch, sqrtw) = _refit_state(problem, ch, sqrtw)

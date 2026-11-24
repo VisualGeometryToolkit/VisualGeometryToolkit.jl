@@ -105,8 +105,8 @@ end
                                               EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 0.0, 0.0)))) === Triangulation()
     @test default_algorithm(EstimationProblem(SquaredScale, (; rss = 2.0, dof = 4))) === ScaleMAP(VgtkCore.JeffreysPrior())
     struct _Family <: VgtkCore.AbstractConstraintProblem end       # a family problem: the chart-LM interface's implementer
-    # its default, LevenbergMarquardt(), is declared with its solve by the refine pipeline's move; until then none
-    @test_throws ArgumentError default_algorithm(RefineProblem(_Family(), 1.0))
+    # its default is the host LM, declared with its solve (robust/refine.jl)
+    @test default_algorithm(RefineProblem(_Family(), 1.0)) === LevenbergMarquardt()
     # a residual closure has no default: the device LM is named, and the error lists it
     closure_msg = thrown_message(() -> solve(RefineProblem(abs, SVector(1.0))))
     @test occursin("has no default algorithm", closure_msg) && occursin("StaticLevenbergMarquardt", closure_msg)
@@ -155,7 +155,7 @@ end
         return FitResult(sum(c.buffer) / length(c.buffer), ReturnCode.Success, VgtkCore.ClosedForm,
                          SolveStats(; nsteps = c.solves), NaN, length(c.data), nothing)
     end
-    VgtkCore.reinit!(c::_MeanCache; f) = (c.data = f; resize!(c.buffer, length(f)); c)
+    VgtkCore.reinit!(c::_MeanCache; f, p) = (c.data = f; resize!(c.buffer, length(f)); c)   # Core hands over the whole new problem
     prob = EstimationProblem(Float64, [1.0, 2.0, 6.0])
     c = init(prob, _Mean())
     @test c isa VgtkCore.EstimationCache && c.cache isa _MeanCache && c.prob === prob && c.alg === _Mean()
@@ -170,8 +170,8 @@ end
     r2 = solve!(c)
     @test r2.u == 4.0 && r2.stats.nsteps == 2 && c.cache.buffer === buf
     @test r2.prob.f == [4.0, 8.0, 0.0] && c.prob.f === r2.prob.f      # the problem it now solves, recorded
-    # a keyword the cache's owner does not take is a MethodError
-    @test_throws MethodError VgtkCore.reinit!(c; f = [1.0], p = NullParameters())   # the owner takes no `p`
+    # the owner is handed the whole new problem, `f` and `p`; a keyword reinit! does not take is a MethodError
+    @test_throws MethodError VgtkCore.reinit!(c; f = [1.0], rng = nothing)
     # new data of another type is refused BEFORE either side changes: the cache and its recorded problem as they were
     prob_before, data_before = c.prob, c.cache.data
     @test_throws ArgumentError VgtkCore.reinit!(c; f = Float32[1, 2])
@@ -217,7 +217,7 @@ end
     pose = EuclideanMap(one(RotMatrix{3, Float64}), SVector(-1.0, 0.0, 0.0))
     f1 = normalize(SVector(0.0, 0.0, 1.0)); f2 = normalize(SVector(-1.0, 0.0, 1.0))
     t = solve(EstimationProblem(Point3, f1 => f2, pose), Triangulation())
-    X, λ1, λ2 = VgtkCore._triangulate(pose, f1, f2)
+    X, λ1, λ2 = VgtkCore.triangulate_bearings(pose, f1, f2)
     @test t.u === X && t.metadata.depths === (λ1, λ2) && t.n == 1 && t.retcode === ReturnCode.Success
     # parallel rays: degenerate, the NaN point kept as a concrete `u`
     fp = normalize(SVector(0.1, -0.05, 1.0))
@@ -245,7 +245,7 @@ end
         c::SVector{2, Float32}
     end
     (f::_Cubic)(x) = (d = x - f.c; (f.A * d + 0.1f0 .* d .^ 3, f.A + Diagonal(0.3f0 .* d .^ 2)))
-    @kernel function solve_each!(xs, ns, oks, @Const(cs), stops)
+    @kernel function static_lm_rays!(xs, ns, oks, @Const(cs), stops)
         i = @index(Global)
         f = _Cubic(SMatrix{2, 2, Float32}(2, 0.3, 0.3, 1.5), cs[i])
         r = solve(RefineProblem(f, zero(SVector{2, Float32}); lb = SVector(-2.0f0, -2.0f0), ub = SVector(2.0f0, 2.0f0)),
@@ -257,7 +257,7 @@ end
     cs = [SVector{2, Float32}(0.3 * sin(k), 0.5 * cos(k)) for k in 1:64]
     stops = VgtkCore.StaticLmStops(SVector(1.0f0, 1.0f0); acceptance = 1.0f-8)
     xs = similar(cs); ns = zeros(Int, 64); oks = falses(64)
-    solve_each!(CPU(), 16)(xs, ns, oks, cs, stops; ndrange = 64)
+    static_lm_rays!(CPU(), 16)(xs, ns, oks, cs, stops; ndrange = 64)
     synchronize(CPU())
     for i in 1:64
         f = _Cubic(SMatrix{2, 2, Float32}(2, 0.3, 0.3, 1.5), cs[i])

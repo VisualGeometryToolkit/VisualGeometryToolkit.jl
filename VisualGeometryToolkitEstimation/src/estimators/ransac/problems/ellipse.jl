@@ -22,7 +22,7 @@
 # to first order, in PIXELS. The refit is the family's chart LM on the rows
 # below — the EXACT orthogonal distances, not the Sampson approximation (why:
 # the rows' section) — and every local optimization of the family runs on them:
-# `find_ellipse`'s robustified LM (`Triggs`), and the IRLS and the lifts alike.
+# the find's robustified LM (`Triggs`), and the IRLS and the lifts alike.
 #
 # DATA: one point of one image, stored as the canonical points
 # (`Vector{Point2{Float64}}`) as the circle's. No normalization: the minimal
@@ -39,7 +39,7 @@ sample 5 (VisualGeometryToolkitCore's `Ellipse5pt`), codimension 1 (the Sampson
 distance of `(x − c)ᵀ Q (x − c) − 1`, in the points' units), a 5-dof chart
 (VisualGeometryToolkitCore's `EllipseManifold`: the centre and the log shape).
 Build it with `EllipseProblem(points)`; the public estimator is
-[`find_ellipse`](@ref).
+a find, `solve(EstimationProblem(EllipseProblem(points)), Ransac(); rng)`.
 """
 const EllipseProblem = MinimalSolveProblem{VgtkCore.Ellipse{Float64}, 5, Float64}
 

@@ -1,0 +1,17 @@
+# VisualGeometryToolkitCore 0.13.x configs/default.toml (main, 3d8a06da): configuration version 1, the file before it
+# stated its version (comments dropped). The converter test reads it at the current version.
+
+[lm]
+device_acceptance = +inf
+device_max_iter = 100
+ftol = 1.0e-10
+max_iter = 1000
+stationarity_tol = 0.05
+xtol = 1.0e-10
+xtol_rel = 0.0
+
+[optimization_strategy.irls]
+max_iter = 25
+
+[photon_transfer]
+significance = 0.001

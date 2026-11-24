@@ -404,47 +404,40 @@ end
 # Random Sampling (matching vgtk0 interface)
 # =============================================================================
 
-"""
-    rand([rng], Line2D; max_rho=1.0) -> Line2D
+# Random's sampler interface, not a `rand(rng, ::Type{…})` method: a method on `(AbstractRNG, Type{Line2D})` is
+# ambiguous with every package's `rand(rng::SomeRNG, T::Type)` (CUDA's `rand(::CUDA.RNG, ::Type)`), while a
+# `SamplerType` method is reached only through Random's own dispatch. A sampler takes no keywords, so the ranges are fixed.
 
-Sample a random 2D line with Hesse distance up to `max_rho` from origin.
 """
-function Random.rand(rng::Random.AbstractRNG, ::Type{Line2D{T}}; max_rho::Real = 1.0) where {T}
-    ρ = rand(rng) * max_rho
+    rand([rng], Line2D) -> Line2D{Float64}
+    rand([rng], Line2D{T}) -> Line2D{T}
+
+Sample a random 2D line: its normal direction uniform on the circle, its Hesse distance from the origin uniform in
+`[0, 1)`.
+"""
+function Random.rand(rng::Random.AbstractRNG, ::Random.SamplerType{Line2D{T}}) where {T}
+    ρ = rand(rng)
     θ = rand(rng) * 2π
     return Line2D{T}(SVector{3, T}(cos(θ), sin(θ), -ρ))
 end
 
-Random.rand(rng::Random.AbstractRNG, ::Type{Line2D}; kwargs...) =
-    rand(rng, Line2D{Float64}; kwargs...)
-
-Random.rand(::Type{Line2D{T}}; kwargs...) where {T} =
-    rand(Random.default_rng(), Line2D{T}; kwargs...)
-
-Random.rand(::Type{Line2D}; kwargs...) =
-    rand(Random.default_rng(), Line2D{Float64}; kwargs...)
+Random.Sampler(::Type{<:Random.AbstractRNG}, ::Type{Line2D}, ::Random.Repetition) = Random.SamplerType{Line2D{Float64}}()
 
 """
-    rand([rng], Plane3D; bounds=1.0) -> Plane3D
+    rand([rng], Plane3D) -> Plane3D{Float64}
+    rand([rng], Plane3D{T}) -> Plane3D{T}
 
-Sample a random 3D plane with offset up to `bounds` from origin.
+Sample a random 3D plane: its unit normal uniform on the sphere, its signed offset from the origin uniform in
+`[-1, 1)`.
 """
-function Random.rand(rng::Random.AbstractRNG, ::Type{Plane3D{T}}; bounds::Real = 1.0) where {T}
-    # Random unit normal (uniform on sphere)
+function Random.rand(rng::Random.AbstractRNG, ::Random.SamplerType{Plane3D{T}}) where {T}
     n = randn(rng, SVector{3, T})
     n = n / norm(n)
-    d = (2 * rand(rng) - 1) * bounds
+    d = 2 * rand(rng) - 1
     return Plane3D{T}(SVector{4, T}(n..., d))
 end
 
-Random.rand(rng::Random.AbstractRNG, ::Type{Plane3D}; kwargs...) =
-    rand(rng, Plane3D{Float64}; kwargs...)
-
-Random.rand(::Type{Plane3D{T}}; kwargs...) where {T} =
-    rand(Random.default_rng(), Plane3D{T}; kwargs...)
-
-Random.rand(::Type{Plane3D}; kwargs...) =
-    rand(Random.default_rng(), Plane3D{Float64}; kwargs...)
+Random.Sampler(::Type{<:Random.AbstractRNG}, ::Type{Plane3D}, ::Random.Repetition) = Random.SamplerType{Plane3D{Float64}}()
 
 # =============================================================================
 # =============================================================================

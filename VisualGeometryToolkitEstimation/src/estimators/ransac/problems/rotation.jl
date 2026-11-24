@@ -7,7 +7,7 @@
 # only rotated (a panorama sweep, a rotating rig) — the INFINITE HOMOGRAPHY of
 # a calibrated camera, on rays rather than on the z = 1 chart, so the whole
 # field of a fisheye takes part (past 90°). Its construction, minimal solve
-# (VGC `Rotation2pt`: `kabsch` on two pairs), sampler and RANSAC wiring are the
+# (VGC `Rotation2pt`: Kabsch on two pairs), sampler and RANSAC wiring are the
 # family's (correspondence.jl), patterned on the essential problem: the data are unit
 # bearings from the cameras' own back-projection carrying their per-view
 # back-projection Jacobians as the `M₁`/`M₂` attribute columns, which put every
@@ -127,7 +127,7 @@ end
 # MinimalSolveProblem's, so predictive scoring contracts it with the same rows;
 # its so(3) chart form (left exp, `SO3Manifold`) is `Jᵀ·Σ·J/4`, `J` the chart's
 # `retract_jacobian` at R (orthogonal columns of norm √2) — what
-# `fit_rotation_averaging` reads from an `Uncertain` edge.
+# `RotationAveraging` reads from an `Uncertain` edge.
 provides_solver_covariance(::Type{<:RotationProblem}) = true
 
 # A rotation covariance in the so(3) chart of `SO3Manifold(R)` (left exp): a 3×3
@@ -149,14 +149,14 @@ _rotation_chart_covariance(Σ, _R) = throw(ArgumentError(
 # whitened-constraint LM the problem's local optimization runs over the inliers)
 # at unit noise in whitened units, read into the so(3) chart of `SO3Manifold`
 # (left exp, R → exp(δ)·R) and scaled by the fit's noise scale squared: an
-# absolute covariance, rad². The chart is fit_rotation_averaging's edge chart.
+# absolute covariance, rad². The chart is RotationAveraging's edge chart.
 
 """
     uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result) -> Uncertain{RotMatrix{3, Float64}}
 
-The relative rotation of a pairwise rotation fit (`find_rotation`, `refine_rotation` on `problem`) with its covariance, the edge
-[`fit_rotation_averaging`](@ref) reads: `Uncertain(R, CovMat(Σ_R))` with
-`R = estimate(result)` and
+The relative rotation of a pairwise rotation find or refine (`Ransac`, `LevenbergMarquardt` on `problem`) with its
+covariance, the edge a rotation averaging reads: `Uncertain(R, CovMat(Σ_R))` with
+`R = result.u` and
 
     Σ_R = noise_scale² · Jᵀ·solver_covariance(problem, R, inliers)·J / 4
 
@@ -180,7 +180,7 @@ An `ArgumentError` for a result with no estimate, or a singular sandwich (too
 few inliers).
 """
 function uncertain_rotation(problem::RotationProblem, result::RansacEstimate; scale = result)
-    R = estimate(result)
+    R = result.u
     R === nothing && throw(ArgumentError("uncertain_rotation: the result has no estimate"))
     σ = VgtkCore.scale_input(scale, nothing).scale
     Rm = RotMatrix{3, Float64, 9}(R)
@@ -200,7 +200,7 @@ const _UncertainRotation = typeof(VgtkCore.Uncertain(one(RotMatrix{3, Float64, 9
 # =============================================================================
 
 # The chart is the family default, `minimal_manifold(R)` — VGC's `SO3Manifold`,
-# R(ω) = exp(ω)·R — and its model read-out `model(ch)` (`_chart`, `_model_at`).
+# R(ω) = exp(ω)·R — and its model read-out `model(ch)` (`_chart`, `chart_model`).
 # The rows are the Sampson-constraint problems' one method (sampson_lm.jl): the
 # constraint's model at chart coordinates `a` is the bearing transfer form of
 # the rotation, whose `G_θ` is over vec(H) = vec(R), so the chart's

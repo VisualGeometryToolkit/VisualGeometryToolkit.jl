@@ -1,5 +1,7 @@
 @testitem "hand_eye" setup = [PoseScenes] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
+    using VisualGeometryToolkitEstimation: Ransac
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
 using LinearAlgebra: norm, I
@@ -10,8 +12,8 @@ using Rotations: RotMatrix, RotationVec
 using VisualGeometryToolkitCore: EuclideanMap, log_so3
 # Rigid3 — RVG's unlabeled rigid-motion alias (hand-eye currency; the chains
 # `marker_pose(Ygt, A[i], Xgt)` below need frame-free composition).
-using VisualGeometryToolkitCore: estimate, rotation, translation, converged   # VGC accessors (public)
-using VisualGeometryToolkitEstimation: HandEyeProblem, find_hand_eye, Rigid3
+using VisualGeometryToolkitCore: rotation, translation
+using VisualGeometryToolkitEstimation: HandEyeProblem, Rigid3
 
 # Synthesize an AX=YB dataset: a robot-world scene (Y*, one X*, N rig poses
 # A_i), its observations B_i = Y⁻¹ A_i X, then return (A, B). Optionally
@@ -42,16 +44,16 @@ end
         @test problem isa HandEyeProblem
         @test VgtkEstimation.data_size(problem) == 29   # N-1 consecutive
 
-        result = find_hand_eye(A .=> B; rng = StableRNG(247))
-        X_est = estimate(result)
+        result = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(247))
+        X_est = result.u
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 1.0e-4
         @test norm(translation(X_est) - translation(Xgt)) < 1.0e-4
     end
 
     @testset "moderate noise (σ_R = 1 mrad, σ_t = 1 mm)" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 0)
-        result = find_hand_eye(A .=> B; rng = StableRNG(248))
-        X_est = estimate(result)
+        result = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(248))
+        X_est = result.u
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.01            # < 0.6°
         @test norm(translation(X_est) - translation(Xgt)) < 0.01            # < 1 cm
     end
@@ -59,8 +61,8 @@ end
     @testset "robust to gross outliers" begin
         A, B, Xgt, _, outlier_idx =
             _synth_dataset(rng; N = 120, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 15)
-        result = find_hand_eye(A .=> B; rng = StableRNG(249))
-        X_est = estimate(result)
+        result = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(249))
+        X_est = result.u
         # Should still recover X* despite ~12% outlier rate.
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.05            # < 3°
         @test norm(translation(X_est) - translation(Xgt)) < 0.05
@@ -68,8 +70,8 @@ end
 
     @testset "all-pairs motion mode" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 20, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 0)
-        result = find_hand_eye(A .=> B; motion_pairs = :all, rng = StableRNG(250))
-        X_est = estimate(result)
+        result = solve(EstimationProblem(HandEyeProblem(A .=> B; motion_pairs = :all)), Ransac(); rng = StableRNG(250))
+        X_est = result.u
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.02
         @test norm(translation(X_est) - translation(Xgt)) < 0.02
     end
@@ -94,15 +96,15 @@ end
         end
         B = [marker_pose(Ygt, a, Xgt) for a in A]
         @test_throws ArgumentError HandEyeProblem(A .=> B)
-        @test_throws ArgumentError find_hand_eye(A .=> B)
+        @test_throws ArgumentError solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac())
         p2 = HandEyeProblem(A .=> B; min_rel_angle = deg2rad(2))
         @test VgtkEstimation.data_size(p2) == 29
         # The inner constructor is the gate: raw motions below the angle throw.
-        @test_throws ArgumentError typeof(p2)(p2.motions, p2.char_length, deg2rad(5), p2._sampler)
-        r = find_hand_eye(A .=> B; min_rel_angle = deg2rad(2), rng = StableRNG(251))
-        @test converged(r)
-        @test norm(log_so3(rotation(estimate(r))' * rotation(Xgt))) < 1.0e-4
-        @test norm(translation(estimate(r)) - translation(Xgt)) < 1.0e-3
+        @test_throws ArgumentError HandEyeProblem{typeof(p2._sampler)}(p2.motions, p2.char_length, deg2rad(5), p2._sampler)
+        r = solve(EstimationProblem(HandEyeProblem(A .=> B; min_rel_angle = deg2rad(2))), Ransac(); rng = StableRNG(251))
+        @test successful_retcode(r)
+        @test norm(log_so3(rotation(r.u)' * rotation(Xgt))) < 1.0e-4
+        @test norm(translation(r.u) - translation(Xgt)) < 1.0e-3
     end
 
     @testset "default threshold is unit-free (metres vs millimetres)" begin
@@ -112,12 +114,12 @@ end
         # motions in mm.)
         A, B, Xgt, _, _ = _synth_dataset(StableRNG(252); N = 80, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 8)
         mm(p) = Rigid3(rotation(p), SVector{3, Float64}((1000 .* translation(p))...))
-        r_m = find_hand_eye(A .=> B; rng = StableRNG(253))
-        r_mm = find_hand_eye(mm.(A) .=> mm.(B); rng = StableRNG(253))
+        r_m = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(253))
+        r_mm = solve(EstimationProblem(HandEyeProblem(mm.(A) .=> mm.(B))), Ransac(); rng = StableRNG(253))
         @test sum(inlier_mask(r_m)) >= 50
         @test inlier_mask(r_m) == inlier_mask(r_mm)
-        @test norm(log_so3(rotation(estimate(r_mm))' * rotation(estimate(r_m)))) < 1.0e-6
-        @test norm(translation(estimate(r_mm)) ./ 1000 - translation(estimate(r_m))) < 1.0e-6
+        @test norm(log_so3(rotation(r_mm.u)' * rotation(r_m.u))) < 1.0e-6
+        @test norm(translation(r_mm.u) ./ 1000 - translation(r_m.u)) < 1.0e-6
     end
 end
 end

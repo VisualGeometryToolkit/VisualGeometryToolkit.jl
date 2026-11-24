@@ -1,5 +1,5 @@
-@testitem "robot_world_hand_eye" setup = [PoseScenes] begin
-# fit_robot_world_hand_eye: staged linear robot-world calibration A_i X_m = Y B_i^m.
+@testitem "robot-world fit" setup = [PoseScenes] begin
+# ReweightedLeastSquares on a RobotWorldHandEyeCalibration: the staged linear robot-world calibration A_i X_m = Y B_i^m.
 # Ladder per house conventions + two rungs the older hand-eye tests lack:
 # Monte-Carlo covariance calibration, and a degeneracy REGRESSION — the
 # 2026-05 dataset pathology (unobservable direction invisible to residuals)
@@ -13,8 +13,10 @@ using StaticArrays
 using Rotations: Rotations, RotMatrix, RotationVec, RotZ
 using VisualGeometryToolkitCore: EuclideanMap, log_so3
 using VisualGeometryToolkitCore: RigidExpManifold6, local_coordinates   # the decoupled pose chart (public)
-using VisualGeometryToolkitCore: estimate, rotation, translation   # VGC accessors (public)
-using VisualGeometryToolkitEstimation: fit_robot_world_hand_eye, RobotWorldHandEyeCalibration
+using VisualGeometryToolkitCore: rotation, translation   # VGC accessors (public)
+using VisualGeometryToolkitEstimation: ReweightedLeastSquares, RobotWorldHandEyeCalibration
+using VisualGeometryToolkitCore: ClassDefault, EstimationProblem, solve
+include(joinpath(pkgdir(VisualGeometryToolkitEstimation), "test", "fixtures", "reweighted_fits.jl"))
 import VisualGeometryToolkitCore as VgtkCore
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore.Synthetic: run_calibration, is_calibrated   # VGC's MC calibration harness (public)
@@ -24,21 +26,21 @@ include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "robot_world_scenes
 _nobs(markers) = sum(length, values(markers))
 
 
-@testset "fit_robot_world_hand_eye" begin
+@testset "robot-world fit" begin
 
     @testset "noiseless recovery is exact" begin
         rng = StableRNG(1)
         markers, Ygt, Xgt = rwhe_synth(rng; N = 12, M = 3)
-        est = fit_robot_world_hand_eye(markers)
-        @test estimate(est) isa RobotWorldHandEyeCalibration{Int}
-        @test estimate(est).ids == [1, 2, 3]
-        @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 1.0e-6
-        @test norm(translation(estimate(est).Y) - translation(Ygt)) < 1.0e-6
+        est = rwhe_fit(markers)
+        @test est.u isa RobotWorldHandEyeCalibration{Int}
+        @test est.u.ids == [1, 2, 3]
+        @test norm(log_so3(rotation(est.u.Y)' * rotation(Ygt))) < 1.0e-6
+        @test norm(translation(est.u.Y) - translation(Ygt)) < 1.0e-6
         for m in 1:3
-            @test norm(log_so3(rotation(estimate(est).X[m])' * rotation(Xgt[m]))) < 1.0e-6
-            @test norm(translation(estimate(est).X[m]) - translation(Xgt[m])) < 1.0e-6
+            @test norm(log_so3(rotation(est.u.X[m])' * rotation(Xgt[m]))) < 1.0e-6
+            @test norm(translation(est.u.X[m]) - translation(Xgt[m])) < 1.0e-6
         end
-        @test est.s2 < 1.0e-12
+        @test VgtkCore.s2(est) < 1.0e-12
     end
 
     @testset "noiseless recovery far from the origin (the translations' normalized solve)" begin
@@ -49,27 +51,27 @@ _nobs(markers) = sum(length, values(markers))
         markers, Ygt, Xgt = rwhe_synth(rng; N = 12, M = 3)
         off = SVector(1.0e4, -7.0e3, 2.5e3)
         far = Dict(m => [EuclideanMap(rotation(a), translation(a) + off) => b for (a, b) in cs] for (m, cs) in markers)
-        est = fit_robot_world_hand_eye(far)
-        @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 1.0e-6
-        @test norm(translation(estimate(est).Y) - (translation(Ygt) + off)) < 1.0e-6
+        est = rwhe_fit(far)
+        @test norm(log_so3(rotation(est.u.Y)' * rotation(Ygt))) < 1.0e-6
+        @test norm(translation(est.u.Y) - (translation(Ygt) + off)) < 1.0e-6
         for m in 1:3
-            @test norm(translation(estimate(est).X[m]) - translation(Xgt[m])) < 1.0e-6
+            @test norm(translation(est.u.X[m]) - translation(Xgt[m])) < 1.0e-6
         end
     end
 
     @testset "moderate noise (1 mrad / 1 mm)" begin
         rng = StableRNG(2)
         markers, Ygt, Xgt = rwhe_synth(rng; N = 40, M = 5, σ_R = 1.0e-3, σ_t = 1.0e-3, drop = 0.2)
-        est = fit_robot_world_hand_eye(markers)
-        @test norm(log_so3(rotation(estimate(est).Y)' * rotation(Ygt))) < 0.01            # < 0.6°
-        @test norm(translation(estimate(est).Y) - translation(Ygt)) < 0.01
+        est = rwhe_fit(markers)
+        @test norm(log_so3(rotation(est.u.Y)' * rotation(Ygt))) < 0.01            # < 0.6°
+        @test norm(translation(est.u.Y) - translation(Ygt)) < 0.01
         for m in 1:5
-            @test norm(log_so3(rotation(estimate(est).X[m])' * rotation(Xgt[m]))) < 0.01
+            @test norm(log_so3(rotation(est.u.X[m])' * rotation(Xgt[m]))) < 0.01
         end
         # profiled scales make the variance factor ≈ 1
-        @test 0.3 < est.s2 < 3.0
-        @test est.dof == 6 * _nobs(markers) - 6 * 6
-        @test all(length(est.residuals[m]) == length(markers[m]) for m in 1:5)   # per marker, input order
+        @test 0.3 < VgtkCore.s2(est) < 3.0
+        @test VgtkCore.dof(est) == 6 * _nobs(markers) - 6 * 6
+        @test all(length(est.metadata.residuals[m]) == length(markers[m]) for m in 1:5)   # per marker, input order
     end
 
     @testset "covariance calibration (Monte Carlo, harness gates: Y, each X, joint)" begin
@@ -82,13 +84,13 @@ _nobs(markers) = sum(length, values(markers))
         M = 3
         trial(block) = function (rng)
             markers, Ygt, Xgt = rwhe_synth(rng; N = 15, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
-            est = fit_robot_world_hand_eye(markers)
-            cal = estimate(est)
+            est = rwhe_fit(markers)
+            cal = est.u
             δs = vcat([_δ(Ygt, cal.Y)], [_δ(Xgt[m], cal.X[m]) for m in 1:M])
-            block === :joint && return Vector(reduce(vcat, δs)), Matrix(est.cov)
+            block === :joint && return Vector(reduce(vcat, δs)), Matrix(est.metadata.cov)
             k = block === :Y ? 0 : block
             rows = (6k + 1):(6k + 6)
-            return Vector(δs[k + 1]), Matrix(est.cov)[rows, rows]
+            return Vector(δs[k + 1]), Matrix(est.metadata.cov)[rows, rows]
         end
         # Every block and the joint vector are calibrated. Until 2026-09-30 the
         # reported covariance was the Gauss–Newton ŝ²(JᵀJ)⁺ of the pose
@@ -107,8 +109,8 @@ _nobs(markers) = sum(length, values(markers))
         # More poses: the regime where the Gauss–Newton miss grew (1.48 at N = 40).
         trial40 = function (rng)
             markers, Ygt, Xgt = rwhe_synth(rng; N = 40, M = M, σ_R = 2.0e-3, σ_t = 2.0e-3)
-            est = fit_robot_world_hand_eye(markers)
-            return Vector(_δ(Ygt, estimate(est).Y)), Matrix(est.cov)[1:6, 1:6]
+            est = rwhe_fit(markers)
+            return Vector(_δ(Ygt, est.u.Y)), Matrix(est.metadata.cov)[1:6, 1:6]
         end
         @test is_calibrated(run_calibration(trial40, StableRNG(45), 300, 6))
     end
@@ -127,12 +129,12 @@ _nobs(markers) = sum(length, values(markers))
                 for θ in range(0.3, 2.0; length = 8)
         ]
         markers = Dict(m => [A[i] => marker_pose(Y, A[i], X[m]) for i in 1:8] for m in 1:2)
-        est = fit_robot_world_hand_eye(markers; σ_rot = 1.0, σ_trans = 1.0)
-        λmin = est.min_eigval
+        est = rwhe_fit(markers; σ_rot = 1.0, σ_trans = 1.0)
+        λmin = est.metadata.min_eigval
         # healthy geometry for comparison
         markersh, _, _ = rwhe_synth(StableRNG(6); N = 12, M = 2)
-        esth = fit_robot_world_hand_eye(markersh; σ_rot = 1.0, σ_trans = 1.0)
-        @test λmin < 1.0e-8 * esth.min_eigval    # collapsed vs healthy
+        esth = rwhe_fit(markersh; σ_rot = 1.0, σ_trans = 1.0)
+        @test λmin < 1.0e-8 * esth.metadata.min_eigval    # collapsed vs healthy
         # The null space is 2-D, so `min_eigvec` is an ARBITRARY unit vector in
         # it (its yaw/z mix is decided by FP round-off in `eigen`; an earlier
         # `norm(v[1:3]) > 0.1` check was flaky for exactly that reason — it saw
@@ -144,17 +146,17 @@ _nobs(markers) = sum(length, values(markers))
         ẑ = SVector(0.0, 0.0, 1.0)
         _g_yaw(t) = vcat(SVector(0.0, 0.0, 1.0), cross(ẑ, SVector{3, Float64}(t)))
         _g_z() = vcat(SVector(0.0, 0.0, 0.0), ẑ)
-        Ŷ, X̂ = estimate(est).Y, estimate(est).X
+        Ŷ, X̂ = est.u.Y, est.u.X
         g_yaw = vcat(_g_yaw(translation(Ŷ)), _g_yaw(translation(X̂[1])), _g_yaw(translation(X̂[2])))
         g_z = vcat(_g_z(), _g_z(), _g_z())
         Q = Matrix(qr(hcat(Vector(g_yaw), Vector(g_z))).Q)[:, 1:2]
-        v = est.min_eigvec
+        v = est.metadata.min_eigvec
         @test norm(v) ≈ 1.0
         @test norm(v - Q * (Q' * v)) < 1.0e-6          # null direction ∈ span(yaw, z-shift)
         # ... and the covariance is unbounded, not a confident finite cov_Y
-        # (pinv's cutoff used to zero the gauge directions), as in refine_robot_world_hand_eye.
-        @test !all(isfinite, est.cov) && !all(isfinite, est.cov_Y)
-        @test all(isfinite, esth.cov)
+        # (pinv's cutoff used to zero the gauge directions), as in the reprojection refine.
+        @test !all(isfinite, est.metadata.cov) && !all(isfinite, est.metadata.cov_Y)
+        @test all(isfinite, esth.metadata.cov)
     end
 
     @testset "a robust result whose weights leave no degrees of freedom: dof 0, no variance factor, no covariance" begin
@@ -169,26 +171,26 @@ _nobs(markers) = sum(length, values(markers))
         res = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
                                               termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
                                               strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 0.5, 0.0, 0.0])
-        md = VgtkCore.metadata(res)
+        md = res.metadata
         @test md.dof == 0 && isnan(md.s2) && all(isinf, md.cov)
         # with dof left, the weighted variance factor as before
         ok = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
                                              termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
                                              strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 1.0, 1.0, 0.5])
-        @test VgtkCore.metadata(ok).dof == 9 && isfinite(VgtkCore.metadata(ok).s2)
+        @test VgtkCore.dof(ok) == 9 && isfinite(VgtkCore.s2(ok))
     end
 
     @testset "argument validation" begin
         rng = StableRNG(7)
         markers, _, _ = rwhe_synth(rng; N = 6, M = 2)
-        @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1][1:2], 2 => markers[2][1:1]))   # underdetermined
-        @test_throws ArgumentError fit_robot_world_hand_eye(Dict(1 => markers[1], 2 => empty(markers[2])))      # a marker with no observations
+        @test_throws ArgumentError rwhe_fit(Dict(1 => markers[1][1:2], 2 => markers[2][1:1]))   # underdetermined
+        @test_throws ArgumentError rwhe_fit(Dict(1 => markers[1], 2 => empty(markers[2])))      # a marker with no observations
         # Marker ids are the caller's own keys (here Strings), X is keyed by them,
         # and the covariance block order is the sorted keys.
         named = Dict("b" => markers[1], "a" => markers[2])
-        estn = fit_robot_world_hand_eye(named)
-        @test estimate(estn).ids == ["a", "b"]
-        Xb, X1 = estimate(estn).X["b"], estimate(fit_robot_world_hand_eye(markers)).X[1]
+        estn = rwhe_fit(named)
+        @test estn.u.ids == ["a", "b"]
+        Xb, X1 = estn.u.X["b"], (rwhe_fit(markers)).u.X[1]
         # matrices, not the angle: acos resolves no better than ~3e-8 rad near zero
         @test norm(Matrix(rotation(Xb)) - Matrix(rotation(X1))) < 1.0e-12 && norm(translation(Xb) - translation(X1)) < 1.0e-12
     end

@@ -55,6 +55,7 @@ with_problem
 rms
 weights
 dof
+s2
 map_estimate
 ```
 

@@ -1,5 +1,5 @@
 # TotalLeastSquares — the total-least-squares line, moved up from VisualGeometryToolkitEstimation's
-# unweighted fit_line with its tests and its Monte Carlo cell.
+# unweighted the heteroscedastic line fit with its tests and its Monte Carlo cell.
 
 @testitem "TotalLeastSquares" begin
     import VisualGeometryToolkitCore as VgtkCore

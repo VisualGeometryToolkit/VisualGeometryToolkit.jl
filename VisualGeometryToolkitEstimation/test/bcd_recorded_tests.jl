@@ -2,7 +2,7 @@
 # =============================================================================
 # VGC's `Recorded` decorator on every block-coordinate state RVG runs: the
 # posterior IRLS (the frozen-loss likelihood of `Irls{K}`; the KeepModel EM of
-# `fit_residual_mixture`) and the division-camera IRLS. A recorded run must BE the bare run:
+# `ResidualMixture`) and the division-camera IRLS. A recorded run must BE the bare run:
 # the same result, and — truncated after every iteration k — the same state,
 # so iterate for iterate. Each state is built as its `locally_optimize!` arm
 # builds it (the RVG internals), on a fresh workspace per run.
@@ -11,7 +11,7 @@ using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, correspondences, estimate, retcode, iterations, Attributed,
+using VisualGeometryToolkitCore: CameraModel, Point2, Vec3, correspondences, Attributed, EstimationProblem, solve,
     WelschShape, GemanMcclureShape, HuberShape, block_coordinate_descent!, Recorded, current_cost, MsacScoring
 using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation
@@ -21,7 +21,7 @@ const VgtkCore = VisualGeometryToolkitCore
 # The consensus set of `model`, as `_locally_optimize_seed!` hands it to the
 # local optimizer (`_lo_on_partition!`), on a workspace composed for `lo`.
 function seeded(p, sc, model, lo)
-    ws = VgtkEstimation._entry_workspace(nothing, p, sc, lo)
+    ws = VgtkEstimation._entry_workspace(VgtkEstimation.RansacWorkspace(p, sc, lo), p, sc, lo)
     VgtkEstimation._prepare!(p)
     buf = ws.buf
     VgtkCore.score_model!(buf, sc, p, VgtkEstimation._seed_scored!(ws, p, sc, model))
@@ -43,7 +43,7 @@ function arm(p, sc, model::M, lo::VgtkCore.Irls) where {M}
     return state, lh, VgtkEstimation.PosteriorIrlsMethod(ws.lo_ws.refine), p, model, lo.max_iter
 end
 
-# The division-camera IRLS, set up as `fit_division_camera` sets it up: the shared
+# The division-camera IRLS, set up as `DivisionCameraFit` sets it up: the shared
 # posterior-weight iteration under its table's scorer and EM (`_division_irls`).
 function division_arm()
     cams = [board_camera(RotXYZ(a...), t) for (a, t) in zip(BOARD_ANGLES, BOARD_TS)]
@@ -57,7 +57,7 @@ function division_arm()
     return state, lh, method, problem, state0, 40
 end
 
-# The KeepModel EM of `fit_residual_mixture`, its posterior seeded at the
+# The KeepModel EM of `ResidualMixture`, its posterior seeded at the
 # residuals' median (the scorer-seeded start is the marginal's,
 # LocalOptimizationDoneRight's test).
 function mixture_arm()
@@ -84,7 +84,7 @@ problems = (
 arms(kind) = Any[VgtkCore.Irls{WelschShape}(efficiency_constant = 1.5), VgtkCore.Irls{GemanMcclureShape}(efficiency_constant = 1.9422174675375463)]   # GM: decision_width(GM, 1.25), the retired half-weight currency's 1.25
 @testset "Recorded == bare: $kind $(nameof(typeof(lo)))" for (kind, p) in problems, lo in arms(kind)
     sc = MsacScoring(p; threshold = 3.0)   # 6σ of the scenes' 0.5 px noise
-    θ = estimate(VgtkEstimation.ransac(p, sc; rng = Xoshiro(1), config = VgtkEstimation.RansacConfig(max_trials = 200)))
+    θ = solve(EstimationProblem(p), VgtkEstimation.Ransac(; scoring = sc, config = VgtkEstimation.RansacConfig(max_trials = 200)); rng = Xoshiro(1)).u
     @test VgtkCore.test_recorded(() -> arm(p, sc, θ, lo)) >= 1
 end
 @testset "Recorded == bare: division camera IRLS" begin

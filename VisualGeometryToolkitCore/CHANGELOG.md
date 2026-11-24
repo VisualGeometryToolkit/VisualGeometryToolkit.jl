@@ -8,6 +8,44 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- **Versioned configurations** (`base/config_toml.jl`): `ConfigVersions(package, ConfigMigration(; tables, renames)…)`,
+  `migrate_config(d, versions)`, `current_config_version`, `CONFIG_VERSION_KEY`, and `parse_defaults(path; versions)`.
+  A package's `configs/default.toml` states `config_version`; a stored file of an earlier version is read at the
+  current one, and an unknown old table is refused by name. Core's own converter, `CONFIG_VERSIONS`, is at version 1.
+- **Local-optimization and refine results moved: the Sampson Jacobian is deterministic now.** Its products (the chart
+  LM's rows, `sampson_residual_with_jacobian`) were StaticArrays `muladd` chains, which the compiler fused differently
+  per entry depending on how the code was compiled: a package-image copy and a JIT copy of the same method gave
+  different last bits, so a result depended on what a session had precompiled. Every product is now an explicit `fma`
+  chain (`_fma_mul`, `_fma_tmul`, `base/fused_products.jl`), identical in every compiled copy and on every target: an
+  `fma` rounds once wherever it runs, in hardware on a CPU with FMA instructions (x86-64 since Haswell, every ARMv8)
+  and in software, with the same bits but slower, on one without. A local optimization or
+  refine of a Sampson-constraint model (H, F, E, circle, radial camera, rotation) moves against 0.13:
+  | max relative move per result | records |
+  |---|---|
+  | ≤ 1e-12 | 425 |
+  | (1e-12, 1e-10] | 98 |
+  | (1e-10, 1e-6] | 95 |
+  | (1e-6, 1e-3] | 39 |
+  | > 1e-3 | 25 |
+  | a trace changed length | 1 |
+
+  683 golden records move (1554 leaves); `ci/golden/intended_changes.toml` lists each with its exact old and new bits
+  and its size. The large moves are ill-conditioned refines (an essential matrix whose sign representative flips around
+  a ~5e-10 move, or a refine that stops at another iterate) and rotation averagings on a five-edge graph that carry the
+  last-bit change to another solution; 28 results change an iteration count or a stop rule.
+- The homography's composition (`∘` of an affine or `HomographyMap` with a `HomographyMat`) states each entry's
+  arithmetic (`fma` or `*`/`+`), so a precompiled and a JIT-compiled copy round alike (they differed in the last bits
+  of the DLT's model); the values are the 0.13 records' bit for bit. `model_type` has a docstring of its own.
+- **The `LevenbergMarquardt` refine** (`src/robust/refine.jl`, moved from VisualGeometryToolkitEstimation 0.12 with its
+  numerics unchanged): `solve(RefineProblem(f, u0), LevenbergMarquardt(; optimization_strategy, damping); scale | width,
+  stops)` over the CHART contract of a constraint problem (`model_chart`, `chart_rows`, `chart_model`, `chart_size`,
+  `guess_model`, `solution_model`, `default_optimization_strategy`) and the BLOCK contract of a multi-block problem
+  (`AbstractBlockProblem`, `block_refit`, `with_robustifier`, `default_stops`, solved by `block_lm`); its default is
+  declared for both. Moved and public: `RefineMetadata` (its residuals are the result's `resid`), `bundle_loss`,
+  `chart_refit`, `triggs_refit`, `lm_workspace`, `recorded_scale`, `normalized_loss_weight`, `loss_weights`,
+  `weighted_support`, `weighted_support_rms`; `AbstractFitMetadata{L}` (one `weight_kind`, the producer's);
+  `sq_loss_width(nothing) = NaN`; `s2(r)` (a recorded residual variance, beside `dof`); `read_context` (the keyed-context
+  reader, public); `triangulate_bearings` (the Triangulation kernel, inline inner-loop machinery).
 - **The estimation interface** (`src/base/solve_interface.jl`, new dependency CommonSolve):
   - the problems `AbstractEstimationProblem`, `EstimationProblem(f, p)` / `EstimationProblem(M, data, p)` (from
     scratch), `RefineProblem(f, u0, p; lb, ub)` (from a required guess) and `MinimalProblem(M, data, sample, p)`
@@ -83,6 +121,15 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   Mechanism tokens (`lm`, `gn`, `irls`) may name contract steps, never estimators.
 
 ### Removed
+- The local-optimization hooks with a reserved kind prefix are renamed: `refine_external!` → `external_refit!`,
+  `refine_workspace` → `refit_workspace`, `refine_width` → `refit_width`.
+- **No public `mask`** (owner, 2026-11-24: selection is indexing, influence a weight): `CorrespondenceNormalization(M,
+  cs; mask)` (the H/F and the radial forms), the strategy form's positional `mask` and `AffineMap(::HartleyNormalization,
+  points, mask, weights)` lose it. A selection is `cs[idx]`, an influence the `weights` column; the inner DLT kernels
+  (`homography_dlt!`, `fundamental_dlt!`) keep their index lists.
+- `rand(rng, Line2D; max_rho)` and `rand(rng, Plane3D; bounds)` lose their keywords: the two samplers are Random's
+  sampler interface now (`rand(rng, ::SamplerType{Line2D{T}})`), which takes none; the ranges are the old defaults.
+  The old `rand(::AbstractRNG, ::Type{Line2D})` methods were ambiguous with CUDA's `rand(::CUDA.RNG, ::Type)`.
 - **The FitResult accessors:** `estimate(r)` and `r.estimate` → `r.u`; `retcode(r)` → `r.retcode`; `converged(r)`
   and `r.converged` → `successful_retcode(r)`; `iterations(r)` and `r.iterations` → `r.stats.nsteps`;
   `stop_rule(r)` → `r.stop_rule` (`stop_rule(criterion, method)` of `block_coordinate_descent!` stays); `rms(r)` →

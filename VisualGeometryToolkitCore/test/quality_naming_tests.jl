@@ -76,6 +76,53 @@ end
         @test rules("src/alg.jl" => alg, "configs/a.toml" => "[$(other)]\nx = 1\n") == [:R9]
     end
 
+    @testset "R15: the kind words name kinds, never functions" begin
+        k = "fit" * "_"; fd = "find" * "_"; rf = "refine" * "_"
+        @test rules("src/a.jl" => "$(k)thing(x) = x\n") == [:R15]
+        @test rules("src/a.jl" => "function $(fd)thing(x)\n    x\nend\n") == [:R15]
+        @test rules("src/a.jl" => "$(rf)thing!(x) = x\n") == [:R15]
+        @test rules("src/a.jl" => "export $(fd)thing\n") == [:R15]
+        @test rules("src/a.jl" => "public $(rf)thing\n") == [:R15]
+        @test rules("ext/E.jl" => "$(k)thing(x) = x\n") == [:R15]
+        # an internal step, a test helper, a task verb and a local are not estimators' names
+        @test quiet("src/a.jl" => "_$(k)thing(x) = x\n")
+        @test quiet("test/a.jl" => "$(k)thing(x) = x\n")
+        @test quiet("src/a.jl" => "$(fd)boards(img) = img\n")
+        @test quiet("src/a.jl" => "function g(x)\n    $(k)thing = x\n    return $(k)thing\nend\n")
+        @test all(v -> !isempty(v), values(NC.TASK_VERBS))   # each task verb states its reason
+    end
+
+    @testset "R19: solve is the one verb" begin
+        sv = "solve" * "_"
+        @test rules("src/a.jl" => "$(sv)block!(x) = x\n") == [:R19]
+        @test rules("test/a.jl" => "function g(x)\n    $(sv)count = 1\n    return $(sv)count\nend\n") == [:R19]
+        @test rules("scripts/a.py" => "def $(sv)thing(x):\n    return x\n") == [:R19]
+        # a value (a quoted symbol), an internal `_` name and a use of an owned name are not bindings of it
+        @test quiet("src/a.jl" => "const S = :$(sv)failed\n")
+        @test quiet("src/a.jl" => "_$(sv)view(x) = x\n")
+    end
+
+    @testset "R20: no alias of an algorithm or a solve verb, no algorithm value in a constant" begin
+        @test rules("src/a.jl" => "const MyLM = LevenbergMarquardt\n") == [:R20]
+        @test rules("src/a.jl" => "const MyDLT = VgtkCore.DLT\n") == [:R20]
+        @test rules("src/a.jl" => "const DEFAULT_LM = LevenbergMarquardt()\n") == [:R20]
+        @test rules("src/a.jl" => "const estimate_it = solve\n") == [:R20]
+        @test rules("src/a.jl" => "struct Mine <: AbstractEstimationAlgorithm end\nconst Yours = Mine\n") == [:R20]
+        @test rules("src/a.jl" => "struct Mine{T} <: AbstractEstimationAlgorithm end\nconst Yours{T} = Mine{T}\n") == [:R20]
+        # a constant of another kind, and a type alias of a result, are not aliases of an algorithm
+        @test quiet("src/a.jl" => "const N = 3\nconst R{M} = FitResult{M}\nconst G = sqrt\n")
+    end
+
+    @testset "R9: a call form ending in `(` matches with its argument" begin
+        call = "ran" * "sac("
+        @test call in NC.RETIRED_NAMES
+        @test rules("docs/src/a.md" => "Run `$(call)problem, scoring)`.\n") == [:R9]
+        @test rules("src/a.jl" => "x = $(call)p, s)\n") == [:R9]
+        # the word itself, the algorithm and an internal step stay
+        @test quiet("docs/src/a.md" => "The ran" * "sac loop; `Ransac(; scoring)`; `RansacConfig`.\n")
+        @test quiet("src/a.jl" => "x = _$(call)p, s)\n")
+    end
+
     @testset "R21: a FitResult by field, its contract quantities by function (parsed code)" begin
         # the retired accessors, called on a result
         for f in ("estimate", "iterations", "converged", "retcode", "metadata", "stop_rule")
@@ -192,22 +239,22 @@ end
         @test rules("src/a.jl" => "struct S\n    step::Int\nend\n") == [:R5]
         # no `fit_*` anchors a `<fit>_step` any longer: an algorithm's model update is its `update_model!`
         @test rules(
-            "src/fit.jl" => "fit_lo(x) = x\nfit_division_camera(x) = x\n",
+            "test/fit.jl" => "fit_lo(x) = x\nfit_widget_camera(x) = x\n",
             "src/a.jl" => "lo_step(x) = x\n_division_camera_step!(x) = x\n"
         ) == [:R5]
         @test quiet("src/a.jl" => "update_model!(s, m, p, θ) = θ\nstep_solver!(x) = x\n")
         # SciMLBase's counter, in every binding
         @test quiet("src/a.jl" => "struct SolveStats\n    nsteps::Int\nend\nf(; nsteps = 0) = (n = nsteps; k = :nsteps; n)\n")
         # a local named like a fit update is still a local
-        @test rules("src/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lo_step = 1\n") == [:R5]
+        @test rules("test/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lo_step = 1\n") == [:R5]
         # a bound name holds the word even when it is joined to another: only
         # the exact `<fit>_step` form is a fit update
         @test rules("src/a.jl" => "lostep = 1\n") == [:R5]
         @test rules("src/a.jl" => "const MAXSTEPS = 3\n") == [:R5]
         @test rules("src/a.jl" => "g(x; stepsize = 1) = x\n") == [:R5]
         @test rules("src/a.jl" => "struct Footsteps end\n") == [:R5]
-        @test rules("src/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lostep(x) = x\n") == [:R5]
-        @test rules("src/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lo_steps(x) = x\n") == [:R5]
+        @test rules("test/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lostep(x) = x\n") == [:R5]
+        @test rules("test/fit.jl" => "fit_lo(x) = x\n", "src/a.jl" => "lo_steps(x) = x\n") == [:R5]
         # prose is not a binding: the word is not banned there
         @test quiet("src/a.jl" => "x = 1   # a stepsize; a footstep\n", "docs/a.md" => "A stepsize.\n")
         # Manopt.jl's name of the driver's one cycle is the one other function
@@ -342,8 +389,8 @@ end
         # the robot-world/hand-eye names stand; the bare robot-world ones trip
         @test :R9 in rules("src/a.jl" => "x = " * "fit_robot" * "_world(m)\n")
         @test quiet(
-            "docs/a.md" => "`fit_robot_world_hand_eye`, `refine_robot_world_hand_eye`, " *
-                "`RobotWorldHandEyeCalibration`, `RobotWorldHandEyeMetadata`, `find_hand_eye`.\n"
+            "docs/a.md" => "`RobotWorldHandEyeProblem`, " *
+                "`RobotWorldHandEyeCalibration`, `RobotWorldHandEyeMetadata`, `HandEyeProblem`.\n"
         )
         # a rig's target member: the retired type trips; its successor, its
         # accessors and the stereo pair's destination stand
@@ -466,9 +513,9 @@ end
     @testset "R13: the one parameter-holding keyword is `fixed`" begin
         FR = "fr" * "ee"     # the spellings, built so this file is no finding of its own
         for kw in (FR, "fix", "fixed_params", "hold")
-            @test rules("src/a.jl" => "r = refine_camera_and_poses(cam, P, v; $(kw) = (:k1,))\n") == [:R13]   # a call
-            @test rules("src/a.jl" => "fit_x(a; $(kw) = ()) = a\n") == [:R13]                                 # a signature
-            @test rules("configs/a.toml" => "[refine_camera_and_poses]\n$(kw) = [\"k1\"]\n") == [:R13]       # a refine table's key
+            @test rules("test/a.jl" => "r = refine_board(cam, P, v; $(kw) = (:k1,))\n") == [:R13]   # a call
+            @test rules("test/a.jl" => "fit_x(a; $(kw) = ()) = a\n") == [:R13]                                 # a signature
+            @test rules("configs/a.toml" => "[refine_board]\n$(kw) = [\"k1\"]\n") == [:R13]       # a refine table's key
         end
         @test rules("test/a.jl" => "VgtkEstimation.refine_x(a; $(FR) = ())\n") == [:R13]                 # qualified
         @test rules("configs/a.toml" => "[pipeline.lm]\nfix = [\"cx\"]\n") == [:R13]
@@ -476,9 +523,9 @@ end
         @test rules("configs/a.toml" => "[camera]\ntarget = { lens = \"division\", coefficients = 2, $(FR) = [\"d1\"] }\n") == [:R13]
         @test isempty(rules("src/a.jl" => "LensSpec(family::Symbol; fixed = (), $(FR) = RetiredKeyword(), kw...) = nothing\n"))
         # the keyword itself, its refusal slot and the test of the refusal are no finding
-        @test isempty(rules("src/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
-        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = RetiredKeyword()) end\n"))
-        @test isempty(rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR) = VgtkCore.RetiredKeyword()) end\n"))
+        @test isempty(rules("test/a.jl" => "refine_x(a; fixed = (:k1,))\n"))
+        @test isempty(rules("test/a.jl" => "function refine_x(a; fixed = (), $(FR) = RetiredKeyword()) end\n"))
+        @test isempty(rules("test/a.jl" => "function refine_x(a; fixed = (), $(FR) = VgtkCore.RetiredKeyword()) end\n"))
         @test isempty(rules("test/a.jl" => "@test_throws ArgumentError refine_x(a; $(FR) = ())\n"))
         # an interpolated qualified callee (`@eval M.$f(…) = …`, a port's generated methods) names nothing: no finding, no error
         @test isempty(rules("src/a.jl" => "for f in (:lo_tag,)\n    @eval VgtkCore.\$f(::Int) = 1\nend\n"))
@@ -490,8 +537,8 @@ end
         @test isempty(rules("src/a.jl" => "struct M\n    $(FR)::Tuple\nend\nallocate(n; $(FR) = true)\n"))
         @test isempty(rules("configs/a.toml" => "[slurm]\n$(FR) = 4\nhold = true\n"))
         # a typed keyword with no default is the keyword too
-        @test rules("src/a.jl" => "fit_x(a; $(FR)::Tuple) = a\n") == [:R13]
-        @test rules("src/a.jl" => "function refine_x(a; fixed = (), $(FR)::Tuple) end\n") == [:R13]
+        @test rules("test/a.jl" => "fit_x(a; $(FR)::Tuple) = a\n") == [:R13]
+        @test rules("test/a.jl" => "function refine_x(a; fixed = (), $(FR)::Tuple) end\n") == [:R13]
         # a TOML finding is at its line in ITS table, not at the first such key of the file
         v = only(filter(v -> v.rule === :R13, findings("configs/a.toml" => "[slurm]\n$(FR) = 4\n\n[pipeline.lm]\n$(FR) = [\"cx\"]\n")))
         @test v.line == 5
@@ -634,7 +681,7 @@ end
         # quoted Julia symbols: a name the stack spells as a value
         @test rules("src/a.jl" => "k = :zstep\n") == [:R5]
         @test rules("src/a.jl" => "k = :update_prior\n") == [:R3]
-        @test rules("src/a.jl" => "fit_lo(x) = x\nk = :lo_step\n") == [:R5]
+        @test rules("test/a.jl" => "fit_lo(x) = x\nk = :lo_step\n") == [:R5]
     end
 
     @testset "scope" begin

@@ -118,18 +118,18 @@ const RETIRED_NAMES = String[
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
     "chisq" * "_median",
     # one metadata record of the reweighted fits (the owner's ruling on the duplication audit's item 11, 2026-11-12):
-    # fit_linear, fit_rotation and fit_rigid_alignment return `FitMetadata{L, W}` (VisualGeometryToolkitEstimation)
+    # the reweighted fits (`ReweightedLeastSquares`) return `FitMetadata{L, W}` (VisualGeometryToolkitEstimation)
     "LinearFit" * "Metadata", "RotationFit" * "Metadata", "RigidAlignment" * "Metadata",
-    # one optimization-strategy family (the owner's ruling, 2026-11-11): `find_*`/`ransac`/`locally_optimize` take
+    # one optimization-strategy family (the owner's ruling, 2026-11-11): the RANSAC algorithms (`Ransac`, `LocalOptimization`) take
     # `local_optimization_strategy`, `refine_*`/`fit_*` `optimization_strategy`, read by `optimization_strategy_from_toml`
     "AbstractLocal" * "Optimization", "local_optimization" * "_from_toml",
     "NoLocal" * "Optimization",   # no local optimization is `nothing` (TOML "none")
-    "_check_local" * "_optimization",   # refine_camera_and_poses' strategy check is the refine contract's (`bundle_loss`)
+    "_check_local" * "_optimization",   # the camera-and-poses refine's strategy check is the refine contract's (`bundle_loss`)
     "default_local" * "_optimization",   # the ransac keyword's default: `default_local_optimization_strategy(scoring)` (VisualGeometryToolkitEstimation)
     "_fit_local" * "_optimization",      # a fit's `optimization_strategy` default: `_fit_strategy_default(fit)` (VisualGeometryToolkitEstimation)
     # the verb states the kind (conventions/naming.md): a seeded bundle is a refine, the filtered averaging a fit
-    "bundle_refine" * "_relpose",        # `refine_relative_pose(pose, K1, K2, cs)` (VisualGeometryToolkitEstimation)
-    "filtered_rotation" * "_averaging",  # `fit_filtered_rotation_averaging(vg; cycle_tol, orientation_tol)` (VisualGeometryToolkitEstimation)
+    "bundle_refine" * "_relpose",        # `RelativePoseProblem(K1, K2, cs)`'s refine (VisualGeometryToolkitEstimation)
+    "filtered_rotation" * "_averaging",  # `FilteredRotationAveraging(; cycle_tol, orientation_tol)` (VisualGeometryToolkitEstimation)
     "LO" * "_TAGS",                      # the strategy registry: `OPTIMIZATION_STRATEGY_TAGS` (VisualGeometryToolkitEstimation; the owner's ruling)
     # the robust-estimation contract (2026-11-11): a width multiple is the efficiency constant, always the PLAIN
     # multiple of the noise scale (the half-weight and Barron currencies are retired, their values migrated)
@@ -173,8 +173,8 @@ const RETIRED_NAMES = String[
     "_placed" * "_point",                     # a placed target's point: the composed map `_target_map` (2026-11)
     "image" * "_origin",                    # the pixel-frame keyword of `CameraModel(K; …)`: `pixel_frame` (2026-11)
     "_radially" * "_symmetric",             # a lens's radial symmetry is a Holy trait: `RadialSymmetry` (`RadiallySymmetric()` / `RadiallyAsymmetric()`) (2026-11)
-    "_check" * "_refinable",                # refine_camera_and_poses routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
-    "bundle" * "_adjust",                   # PoseLib's alias of its absolute-pose refinement, a second name: `refine_absolute_pose` (2026-11)
+    "_check" * "_refinable",                # the camera-and-poses refine routes by Core's `IntrinsicsRole` (a SplineLens camera refines; no refusal): `_refine_camera_and_poses(::GaugeIntrinsics, …)` (2026-11)
+    "bundle" * "_adjust",                   # PoseLib's alias of its absolute-pose refinement, a second name of it (2026-11)
     "Tensor" * "Vignetting",                  # a tensor-PRODUCT B-spline surface, not a tensor: `TensorProductVignetting` (2026-11)
     "ShapeMatrix" * "Scale",                  # the trait dispatches on `shape_factor`: `ShapeFactorScale` (2026-11)
     "moment" * "_matrix",                   # M is a region's shape, not its second moment: `shape_matrix` (0.7; the factor is `shape_factor`)
@@ -394,9 +394,9 @@ const RETIRED_NAMES = String[
     "_REFINE_ROBOT_WORLD" * "_MAX_MARKERS",  # VisualGeometryToolkitEstimation: the robot-world refinement's 4-marker cap, removed (2026-10-01)
     # robot-world/hand-eye calibration is named as such (VisualGeometryToolkitEstimation,
     # 2026-10-01): AX = YB, eye-to-hand; "hand_eye" is two tokens
-    "fit_robot" * "_world", "refine_robot" * "_world",   # `fit_robot_world_hand_eye`, `refine_robot_world_hand_eye`
+    "fit_robot" * "_world", "refine_robot" * "_world",   # the robot-world fit and refine (`ReweightedLeastSquares`, `RobotWorldHandEyeProblem`)
     "RobotWorld" * "Calibration", "RobotWorld" * "Metadata", "RobotWorld" * "RefinementMetadata",   # `RobotWorldHandEye…`
-    "find_hand" * "eye",                     # `find_hand_eye`
+    "find_hand" * "eye",                     # the hand-eye find (its name then; since Estimation 0.13 `Ransac` on a `HandEyeProblem`)
     # the robust-loss vocabulary (2026-10-01): a robust loss is a LOSS, never a
     # "kernel"; one full name per width quantity (rule 10)
     "AbstractKernel" * "Shape", "Deployed" * "Kernel", "Annealed" * "Kernel",
@@ -430,7 +430,7 @@ const RETIRED_NAMES = String[
     "a_to" * "_tau", "tau_to" * "_a",                    # `outlier_halfwidth_to_loss_width`, `loss_width_to_outlier_halfwidth`
     "log_outlier" * "_width",                            # `outlier_halfwidth(scoring)`
     "log" * "2a",                                        # `log_two_outlier_halfwidth` (and `StudentTUniformScoring.outlier_halfwidth`)
-    "simfitpp" * "_threshold", "simfitpp" * "_kernel",   # `simfitpp_loss_width`, `simfitpp_loss`
+    "simfitpp" * "_threshold", "simfitpp" * "_kernel",   # the SIMFIT++ loss width (since Estimation 0.13 the `SimFitPP` algorithm), `simfitpp_loss`
     "_MAGSAC" * "_K",                                    # `_MAGSAC_EFFICIENCY_CONSTANT`
     # VisualGeometryToolkitEstimation: the loss vocabulary and the full width names
     "Kernel" * "PlainWeights", "strategy" * "_kernel", "lo" * "_kernel", "_lift" * "_kernel",   # `LossPlainWeights`, `strategy_loss`, `lo_loss`, `_lift_loss`
@@ -528,7 +528,7 @@ const RETIRED_NAMES = String[
     # composition), the thin-plate kinds hold no plane part; `TargetManifold`
     # has no `free` keyword
     "gauge" * "_names", "gauge" * "_directions",
-    # one model-to-model regression, `fit_camera(T, source, region)` (a lens
+    # one model-to-model regression, `CameraRegression` on `CameraRegressionProblem(T, source, region)` (a lens
     # family, a spline lens and its forward spline), and its `CameraFitMetadata`
     # (VisualGeometryToolkitEstimation 0.6.0, 2026-11-04)
     "fit" * "_lens", "LensFit" * "Metadata",
@@ -589,6 +589,48 @@ const RETIRED_NAMES = String[
     "posterior" * "_weights!",               # internal `_posterior_weights!` (public: `mixture_ecm!`, `update_scale!`)
     "posterior_inlier" * "_probs!",          # internal `_posterior_inlier_probs!` (public: `inlier_probabilities!` of the scoring contract)
     "soft_posterior" * "_weights!",          # internal `_soft_posterior_weights!` (public: `mixture_ecm!`)
+    # the contract hooks with a reserved kind prefix, renamed (Core 0.14 / VisualGeometryToolkitEstimation 0.13, spec §5)
+    "refine" * "_external!",                 # Core's external refit: `external_refit!(ws, lo, problem, θ, width, scoring)`
+    "refine" * "_workspace",                 # Core's refit scratch: `refit_workspace(P, n)`
+    "refine" * "_width",                     # Core's refine width: `refit_width(lo, scale, width, d)`
+    "fit" * "_hypothesis",                   # VisualGeometryToolkitEstimation: `sample_hypothesis(problem, θ, idx)`
+    "locally" * "_optimize_rescored!",       # VisualGeometryToolkitEstimation: `rescore_and_optimize!(L, lo, problem, θ, buf, scoring)`
+    # VisualGeometryToolkitEstimation 0.13: the RANSAC entries and the finds and refines are algorithms (spec §5). The
+    # loop's call forms only (`Ransac`, `RansacConfig`, the `[ransac]` table and the word itself stay)
+    "ran" * "sac(", "VgtkEstimation" * ".ransac",            # `solve(EstimationProblem(f, p), Ransac(; scoring, local_optimization_strategy, config); rng)`
+    "ran" * "sac!(", "VgtkEstimation" * ".ransac!",          # `init(EstimationProblem(f, p), Ransac(…); rng)` → `solve!(cache)`
+    "locally" * "_optimize",                 # `solve(RefineProblem(f, θ₀, p), LocalOptimization(strategy; scoring, score_guard))` (the contract step `locally_optimize!` stays)
+    "find" * "_homography", "find" * "_fundmat", "find" * "_essential", "find" * "_absolute_pose", "find" * "_hand_eye",
+    "find" * "_radial_homography", "find" * "_radial_camera", "find" * "_rotation", "find" * "_circle", "find" * "_ellipse",
+                                             # `solve(EstimationProblem(XProblem(data…), p), Ransac(…); rng)`, `p = (; extent)` or none
+    "refine" * "_homography", "refine" * "_fundmat", "refine" * "_essential", "refine" * "_absolute_pose", "refine" * "_hand_eye",
+    "refine" * "_radial_homography", "refine" * "_radial_camera", "refine" * "_rotation", "refine" * "_circle", "refine" * "_ellipse",
+                                             # `solve(RefineProblem(XProblem(data…), θ₀), LevenbergMarquardt(; optimization_strategy); scale | width)`
+    "pooled" * "_noise_scale",               # `solve(EstimationProblem(NoiseScale, results | scales => dofs), PooledScale())`
+    "simfitpp" * "_loss_width", "simfitpp" * "_select",   # `SimFitPP`, an algorithm (`supports_solve_rng`; `rng` the solve keyword)
+    "unbiased" * "_median_variance",         # internal to SimFitPP (`_unbiased_median_variance`)
+    "approximate" * "_camera",               # deleted: a two-solve recipe, the camera regression's fit, then its LevenbergMarquardt refine
+    # VisualGeometryToolkitEstimation 0.13: the camera fits and the camera-and-poses bundles are algorithms (spec §5)
+    "fit" * "_camera",                       # `solve(EstimationProblem(CameraRegressionProblem(T, source, region; …)), CameraRegression(; …))`
+    "refine" * "_camera",                    # `solve(RefineProblem(CameraRegressionProblem(source, region; …), guess), LevenbergMarquardt(); stops)`
+    "optical" * "_axis(",                    # `solve(EstimationProblem(CameraRegressionProblem(camera[, region])), OpticalAxis())` (the `[optical_axis]` table is its tag)
+    "pspline" * "_grid",                     # `PSpline(; grid_size)` on a CameraRegressionProblem
+    "fit_forward" * "_spline",               # `ForwardSpline(; tolerance)` on `CameraRegressionProblem(camera)`
+    "fit_radial" * "_camera",                # `solve(EstimationProblem(RadialCamera, cs, (; center)), RadialCameraFit(; iterations))`
+    "fit_division" * "_camera",              # `solve(EstimationProblem(CameraModel, (radial_cameras, views), p), DivisionCameraFit(; …))`
+    "division_camera" * "_step",             # internal: `_keyed_focal_solve` (one iteration of DivisionCameraFit; no `step` identifier)
+    "refine_camera_and" * "_poses",          # `solve(RefineProblem(CameraPosesProblem(correspondences; …), (; camera, poses[, board_poses | views])), LevenbergMarquardt(…); scale | width, stops)`
+    # VisualGeometryToolkitEstimation 0.13: the reweighted fits, the averagings, the robot-world fit and refine, the mixture
+    "fit" * "_rotation",                     # `solve(EstimationProblem(RotMatrix{3}, cs), ReweightedLeastSquares(…); scale | width)`
+    "fit" * "_linear",                       # `solve(EstimationProblem(LinearModel, (A, y[, prior])), ReweightedLeastSquares(…); scale | width)`
+    "fit_rigid" * "_alignment",              # `solve(EstimationProblem(EuclideanMap{3}, cs), ReweightedLeastSquares(…); scale | width)`
+    "fit_robot" * "_world_hand_eye",         # `solve(EstimationProblem(RobotWorldHandEyeCalibration, markers, p), ReweightedLeastSquares(…))`
+    "refine_robot" * "_world_hand_eye",      # `solve(RefineProblem(RobotWorldHandEyeProblem(camera, markers), guess), LevenbergMarquardt(…); scale | width)`
+    "fit_rotation_aver" * "aging",           # `solve(EstimationProblem(AbsoluteRotations, graph), RotationAveraging(; seed, …))`
+    "fit_filtered_rotation" * "_averaging",  # `solve(EstimationProblem(AbsoluteRotations, graph), FilteredRotationAveraging(; cycle_tol, orientation_tol))`
+    "fit_residual" * "_mixture",             # `solve(EstimationProblem(PosteriorWeightState, distances, (; model_dof)), ResidualMixture(; weighting))`
+    "refine_relative" * "_pose",             # `solve(RefineProblem(RelativePoseProblem(K1, K2, cs), pose), LevenbergMarquardt())` (a FitResult)
+    "fit" * "_line",                         # internal: `_heteroscedastic_line` (the uncertain points' weighted line)
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -625,11 +667,19 @@ const FOREIGN_FORMAT_TOKENS = [
         "artifact (Zenodo record 23240469): a published name is data", accepted_in = :format_literal),
     "central" * "_generic" => (; owner = "the `--model` value of Schöps et al.'s camera_calibration program (its central generic model), " *
         "in the shell drivers that run it and the TOML provenance that quotes their command line", accepted_in = :cli_argument),
+    # VisualGeometryToolkitEstimation's configuration version 1 (0.12 and earlier) named these tables after the retired
+    # functions: a stored file's table names, read by the package's converter (`ESTIMATION_CONFIG_VERSIONS`, `migrate_config`)
+    [name => (; owner = "a table of VisualGeometryToolkitEstimation's configuration version 1, renamed by its converter " *
+        "(`ESTIMATION_CONFIG_VERSIONS`): a stored file's name is data", accepted_in = :format_literal)
+      for name in ("fit_division" * "_camera", "refine_robot" * "_world_hand_eye", "refine_camera_and" * "_poses",
+                   "refine" * "_camera", "fit" * "_rotation", "fit" * "_linear", "fit_rigid" * "_alignment",
+                   "fit_rotation_aver" * "aging")]...,
 ]
 # Whether every hit of `re` on a Julia `line` is inside a string literal (`strings`, the line's literal text).
 _all_in_strings(re, line, strings) = count(re, line) == count(re, strings)
 _is_c_source(f) = any(e -> endswith(f, e), _C_SOURCE_EXTENSIONS)
-_is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json")) || basename(f) == "Artifacts.toml"   # an Artifacts.toml's keys are its artifacts' published names
+_is_data_fixture(f) = any(e -> endswith(f, e), (".yaml", ".yml", ".json")) || basename(f) == "Artifacts.toml" ||   # an Artifacts.toml's keys are its artifacts' published names
+    occursin(r"(^|/)test/fixtures/stored_configs/[^/]+\.toml$", f)   # a stored configuration of an earlier version (a converter's test input)
 # Whether `name` is a registered stored-format token (a data fixture's key may spell one).
 _is_format_token(name) = any(t -> first(t) == name && last(t).accepted_in === :format_literal, FOREIGN_FORMAT_TOKENS)
 # Whether the retired-name hit `r` on `line` (its string-literal text `strings`, a
@@ -1546,6 +1596,9 @@ function _name_rules(name::AbstractString, kind::Symbol; julia::Bool = true)
     lw = push!(lowercase.(words), join(lowercase.(words)))   # each word, and the name joined (a term split across words: `KeyPoint`, `key_point`)
     (any(w -> any(t -> occursin(t, w), _RETIRED_TERMS), lw) ||
      (kind !== :symbol && any(w -> occursin(_PROVENANCE_ONLY, w), lw))) && push!(rules, :R14)
+    # rule 19: `solve` is the one estimation verb (CommonSolve's): no binding is a second one, `solve_<something>`
+    # (an iterative algorithm's block update is `update_<block>!`; a value spelled so — a quoted symbol — is a value)
+    kind !== :symbol && startswith(name, "solve_") && push!(rules, :R19)
     # rule 10: an abbreviation is never a binding; a letter is not a TOML key
     (_is_width_abbreviation(name) || (kind === :key && name in _WIDTH_LETTERS)) && push!(rules, :R10)
     if julia && kind === :function                          # the hooks are Julia's
@@ -1680,6 +1733,18 @@ Rule R13: the one parameter-holding keyword is `fixed`. `free`, `fix`,
 signature (typed or not, with a default or without), or as a key of a
 refine/target/LM TOML table (at its line in that table), are flagged; the bare
 word (comments, locals, fields, other functions) is not (see `_fixed_keyword_rules!`).
+
+Rules R15–R20 hold the estimation interface (`solve(problem, algorithm)`, Core 0.14; conventions/naming.md). R15:
+the kind words name kinds, never functions — no function the package's own code (`src/`, `ext/`) defines, exports
+or declares public begins `fit_`, `find_` or `refine_`, except a task verb of `TASK_VERBS` (each with its reason);
+a name beginning `_` is an internal step and exempt. R19: no binding begins `solve_` (`solve` is CommonSolve's one
+estimation verb; an iterative algorithm's block update is `update_<block>!`); a quoted symbol is a value and
+stands. R20: no `const` aliases an estimation-algorithm type (the package's own or any loaded) or a solve verb
+(`solve`, `init`, `solve!`, `__solve`, `__init`), and none holds an algorithm value (`const X = DLT()`): one name
+per thing, and an algorithm's configuration is its fields. Rules R16–R18 read the loaded methods and are
+`check_algorithm_traits`' (no `CommonSolve.solve`/`init` method outside Core; a `__solve`/`__init` method's
+algorithm type owned by its module; an `rng` keyword only where the pair `supports_solve_rng`); R17 (every
+algorithm has an `estimator_kind`) is too.
 """
 function check_naming(pkgdir::AbstractString)
     (; files) = naming_scope(pkgdir)
@@ -1717,13 +1782,17 @@ function check_naming(pkgdir::AbstractString)
     # even where it equals a retired function's name (PhotonTransfer's table is its tag, the retired estimator's name).
     algorithm_tags = Set{String}(snake_case(String(t)) for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes))
 
-    # A retired name stands alone: no letter, digit, `_` or `!` on either side.
+    # A retired name stands alone: no letter, digit, `_` or `!` on either side — a call form ending in `(` (a function
+    # whose bare name is also a word) has no right side to check, its argument follows.
     # One alternation screens each line; only a hit is resolved name by name.
     # A name is matched literally: `!`, a file suffix's `.` and a call's `()` are escaped.
-    retired_word(p) = Regex("(?<![\\p{L}\\p{N}_!])" * p * "(?![\\p{L}\\p{N}_!])")
+    bound_right(p) = endswith(p, "(") ? "" : "(?![\\p{L}\\p{N}_!])"
+    retired_word(p) = Regex("(?<![\\p{L}\\p{N}_!])" * escaped(p) * bound_right(p))
     escaped(r) = replace(r, r"([!.()])" => s"\\\1")
-    retired = [(r, retired_word(escaped(r))) for r in RETIRED_NAMES]
-    any_retired = retired_word("(?:" * join(escaped.(RETIRED_NAMES), "|") * ")")
+    retired = [(r, retired_word(r)) for r in RETIRED_NAMES]
+    calls = filter(r -> endswith(r, "("), RETIRED_NAMES); words = filter(r -> !endswith(r, "("), RETIRED_NAMES)
+    any_retired = Regex("(?<![\\p{L}\\p{N}_!])(?:(?:" * join(escaped.(words), "|") * ")(?![\\p{L}\\p{N}_!])|" *
+                        join(escaped.(calls), "|") * ")")
     out = NamingViolation[]
     for f in files
         src = sources[f]
@@ -1779,6 +1848,19 @@ function check_naming(pkgdir::AbstractString)
     end
     for f in jl
         _fitresult_rules!(out, f, parsed[f])
+    end
+    # rule 15: the kind words name kinds, never functions (in the package's own code: src/, ext/)
+    for f in jl
+        (startswith(f, "src/") || startswith(f, "ext/")) || continue
+        for (n, line, kind) in names[f]
+            kind === :function && _r15_name(String(n)) && push!(out, NamingViolation(f, line, String(n), :R15))
+        end
+        _r15_publications!(out, f, parsed[f])
+    end
+    # rule 20: no alias of an estimation algorithm or of the solve verbs, and no algorithm value held in a constant
+    algorithms = union(Set(t for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes)), _loaded_algorithm_names())
+    for f in jl
+        _alias_rules!(out, f, parsed[f], algorithms)
     end
     unique!(v -> (v.file, v.line, v.text, v.rule), out)
     sort!(out; by = v -> (v.file, v.line, v.rule))
@@ -2124,6 +2206,85 @@ function _fitresult_rules!(out, f, ex)
         return nothing
     end
     walk(ex)
+    return out
+end
+
+# -----------------------------------------------------------------------------
+# Rule 15: `fit_`, `find_` and `refine_` name KINDS, never functions
+# -----------------------------------------------------------------------------
+# An estimator is `solve(problem, algorithm)` (Core 0.14): its kind is its algorithm's `estimator_kind`, so no package
+# defines, exports or declares public a function whose name begins `fit_`, `find_` or `refine_` — in its own code
+# (`src/`, `ext/`; a test, a script or a doc defines no API). A name beginning `_` is an internal step, not an
+# estimator's name, and is exempt; so are the task verbs (`TASK_VERBS`): a pipeline over images or a session, named
+# for its job, which composes estimators (conventions/naming.md, "Images or a session in → a task verb").
+const _KIND_PREFIXES = ("fit_", "find_", "refine_")
+"""
+    TASK_VERBS
+
+The task verbs that begin with a kind word and are not estimators (check_naming R15), each with its reason: a
+pipeline over images or a session that composes the stack's estimators and does none of its own.
+"""
+const TASK_VERBS = Dict{String, String}(
+    "find" * "_boards" => "BlobBoards: every board of a gallery in an image — detection, matching and a per-board find composed; the answer per board IS a RANSAC's model and inliers",
+    "find" * "_board" => "BlobBoards: one board of a gallery in an image, the same pipeline for one board",
+    "find" * "_board_cameras" => "CaliBlobs: the camera of every frame of a capture from its boards — detection and the per-board finds composed",
+)
+_r15_name(n::AbstractString) = any(p -> startswith(n, p), _KIND_PREFIXES) && !haskey(TASK_VERBS, n)
+function _r15_publications!(out, f, ex)
+    line = Ref(0)
+    _visit_lines(ex, line) do x
+        x.head in (:export, :public) || return
+        for a in x.args
+            a isa Symbol && _r15_name(String(a)) && push!(out, NamingViolation(f, line[], String(a), :R15))
+        end
+    end
+    return out
+end
+# `f(x)` on every Expr of `ex`, with `line[]` the line of the last LineNumberNode seen before it.
+function _visit_lines(f, ex, line::Ref{Int})
+    walk(x) = (x isa LineNumberNode ? (line[] = x.line) : x isa Expr ? (f(x); foreach(walk, x.args)) : nothing; nothing)
+    walk(ex)
+    return nothing
+end
+
+# -----------------------------------------------------------------------------
+# Rule 20: no alias of an estimation algorithm or of the solve verbs; no algorithm value in a constant
+# -----------------------------------------------------------------------------
+# One name per thing (decision 3; the design record's D9: SciML ships `const SimpleGaussNewton = SimpleNewtonRaphson`,
+# the stack refuses it): a `const` whose right side is an estimation-algorithm type or a solve verb (`solve`, `init`,
+# `solve!`, `__solve`, `__init`) — bare, qualified or parameterized — is an alias, and one whose right side CALLS an
+# algorithm type is an algorithm value held as a constant (a second spelling of a configuration that is the algorithm's
+# fields). The algorithm types are the package's own (its declarations descending from `AbstractEstimationAlgorithm` or
+# `MinimalSolver`) and every one loaded (`_loaded_algorithm_names`). Limits: an alias through a non-`const` global, or
+# of a value built by a function, is not seen.
+const _SOLVE_VERBS = (:solve, :init, :solve!, :__solve, :__init)
+# The names of the estimation-algorithm types of every loaded module (the stack's, whoever runs the check).
+function _loaded_algorithm_names()
+    out = Set{Symbol}()
+    A = VisualGeometryToolkitCore.AbstractEstimationAlgorithm
+    for M in Base.loaded_modules_array(), n in names(M; all = true)
+        isdefined(M, n) || continue
+        T = getfield(M, n)
+        T isa Type && T !== A && T !== Union{} && T <: A && (U = Base.unwrap_unionall(T)) isa DataType && push!(out, nameof(U))
+    end
+    return out
+end
+_last_name(x::Symbol) = x
+_last_name(x::QuoteNode) = x.value isa Symbol ? x.value : nothing
+_last_name(x::Expr) = x.head === :. && length(x.args) == 2 ? _last_name(x.args[2]) : x.head === :curly ? _last_name(x.args[1]) : nothing
+_last_name(_) = nothing
+function _alias_rules!(out, f, ex, algorithms)
+    line = Ref(0)
+    _visit_lines(ex, line) do x
+        x.head === :const && length(x.args) == 1 && x.args[1] isa Expr && x.args[1].head === :(=) || return
+        rhs = x.args[1].args[2]
+        n = rhs isa Expr && rhs.head === :call ? _last_name(rhs.args[1]) : _last_name(rhs)
+        n === nothing && return
+        called = rhs isa Expr && rhs.head === :call
+        if (n in algorithms) || (!called && n in _SOLVE_VERBS)
+            push!(out, NamingViolation(f, line[], string(n, called ? "(…)" : ""), :R20))
+        end
+    end
     return out
 end
 

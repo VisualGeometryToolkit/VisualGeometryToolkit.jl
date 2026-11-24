@@ -9,13 +9,14 @@ back-projection, star or gravity directions — rather than pixels. They work on
 the sphere throughout (VisualGeometryToolkitCore `conventions/bearings.md`), so
 rays at and past 90° from the optical axis, as a fisheye or omnidirectional
 camera sees them, are ordinary data. (A camera pose from a guess and pixels is
-[`refine_absolute_pose`](@ref)`(pose, camera, pairs)`, on the PnP problem's
-pixel rows — [P3P and Absolute Pose](p3p.md).)
+`solve(RefineProblem(AbsolutePoseProblem(camera, pairs), pose), LevenbergMarquardt())`,
+on the PnP problem's pixel rows — [P3P](p3p.md).)
 
 ## Camera pose from bearings
 
-`refine_absolute_pose(pose, cs)` with `cs` world points paired with UNIT
-bearings is the pose of a camera the caller back-projects itself — a grid or
+`solve(RefineProblem(BearingPoseProblem(cs), pose), LevenbergMarquardt(); scale | width)`
+with `cs` world points paired with UNIT bearings is the pose of a camera the caller
+back-projects itself — a grid or
 non-central lens the stack holds no `CameraModel` of — on the tangent-plane
 residual of the sphere, optionally from per-ray origins (a generalized camera)
 and whitened into pixels by the back-projection Jacobians. Its problem:
@@ -34,24 +35,20 @@ pixel_whitening_defect
 
 ## Rotation from direction pairs
 
-`fit_rotation` is the robust rotation `R` with `b ≈ R·a` from direction pairs
-with gross outliers: VisualGeometryToolkitCore's `kabsch`, reweighted by a stack
-loss shape at ONE width, `efficiency_constant × scale` from the caller's
-`scale` (or its `width`), never re-estimated.
+`solve(EstimationProblem(RotMatrix{3}, a .=> b), ReweightedLeastSquares(…); scale | width)`
+is the robust rotation `R` with `b ≈ R·a` from direction pairs with gross
+outliers: VisualGeometryToolkitCore's `Kabsch`, reweighted by a stack loss shape at
+ONE width, `efficiency_constant × scale` from the solve's `scale` (or its
+`width`), never re-estimated. Its metadata is the reweighted fits'
+[`FitMetadata`](@ref).
+
+`solve(EstimationProblem(AbsoluteRotations, relative), RotationAveraging(…); scale | width)`
+is the absolute rotations of a set of frames from the relative rotations of a view
+graph, some of them wrong: VisualGeometryToolkitCore's spectral seed, then a
+reweighted first-order Lie-algebra least squares over every edge (Chatterjee &
+Govindu), each a sparse linear solve, at one fixed loss width.
 
 ```@docs
-fit_rotation
-```
-
-Its metadata is the reweighted fits' [`FitMetadata`](@ref).
-
-`fit_rotation_averaging` is the absolute rotations of a set of frames from the
-relative rotations of a view graph, some of them wrong: VisualGeometryToolkitCore's
-spectral seed, then a reweighted first-order Lie-algebra least squares over
-every edge (Chatterjee & Govindu), each a sparse linear solve, at one fixed
-loss width.
-
-```@docs
-fit_rotation_averaging
+RotationAveraging
 RotationAveragingMetadata
 ```

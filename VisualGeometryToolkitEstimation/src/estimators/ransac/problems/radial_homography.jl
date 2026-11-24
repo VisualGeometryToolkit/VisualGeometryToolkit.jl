@@ -60,7 +60,7 @@ codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialHomography}}) = 2  # d
 # `CorrespondenceNormalization(RadialHomography, cs; center)`.
 
 # The minimal sample size of each hypothesis path — the one statement of it
-# (the constructor's `K` and `find_radial_homography`'s early exit).
+# (the constructor's `K` and a find's too-few exit).
 function _radial_sample_size(minimal::Symbol)
     minimal === :radial && return 5
     minimal === :homography && return 4
@@ -100,6 +100,7 @@ function RadialHomographyProblem(
         extra_check::Union{Nothing, Bool} = nothing,
         minimal::Symbol = :radial
     )
+    _refuse_physical_plane(pairs, "RadialHomographyProblem")
     K = _radial_sample_size(minimal)
     minimal === :homography && extra_check !== nothing && throw(
         ArgumentError(
@@ -231,7 +232,7 @@ _radial_chart(H₀, k₀, c) = minimal_manifold(
 
 # The refit's model in the problem's type (`RadialHomography{T, 1}`, as `solve`
 # returns): a Float32 problem's LO result converts back into its workspace.
-function _model_at(::RadialHomographyProblem{T}, ch) where {T <: AbstractFloat}
+function chart_model(::RadialHomographyProblem{T}, ch) where {T <: AbstractFloat}
     m = model(ch)
     return VgtkCore.RadialHomography{T}(
         HomographyMat{T}(Tuple(homography(m))), T(division_coeff(m)), Point2{T}(center(m)[1], center(m)[2])

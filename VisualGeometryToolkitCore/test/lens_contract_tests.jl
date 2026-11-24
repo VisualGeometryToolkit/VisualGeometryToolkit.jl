@@ -254,7 +254,7 @@
                 push!(pts, SVector(X, Y) => distort_division(f0 * PerspectiveMap()(P), k0))
             end
             # the exact radial camera: rows 1–2 of the true homography (its fit lives in
-            # VisualGeometryToolkitEstimation, `fit_radial_camera`)
+            # VisualGeometryToolkitEstimation, `RadialCameraFit`)
             Pc = RadialCamera(HomographyMat{Float64}(Tuple(H)))
             @test Pc isa RadialCamera
             a = vec(Pc.P)

@@ -121,7 +121,9 @@ function signature_mismatches(M::Module)
                     # A docstring that also shows a SIBLING's signature is fine when the sibling
                     # has its own docstring; otherwise the sibling is documented only here — or
                     # this docstring sits on the wrong definition.
-                    if isdefined(S, sig.name) && !has_docstring(docs, S, sig.name)
+                    # (a sibling imported from its owner — `solve` shown on a package's `__solve` method — is
+                    # documented by its owner)
+                    if isdefined(S, sig.name) && Base.binding_module(S, sig.name) === S && !has_docstring(docs, S, sig.name)
                         push!(out, "$(b.var): its docstring shows $(sig.name), which has none of its own: $l")
                     end
                 elseif !any(m -> accepts(m, sig), ms)

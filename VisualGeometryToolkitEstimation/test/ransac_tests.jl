@@ -1,7 +1,9 @@
 @testitem "ransac" begin
+    using VisualGeometryToolkitCore: dof, weights
+    using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode, init, solve!, reinit!
     using VisualGeometryToolkitCore: retcode_symbol
     using VisualGeometryToolkitCore: Irls
-    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
 using Test
@@ -10,23 +12,23 @@ using StaticArrays
 using Random
 using StableRNGs
 using VisualGeometryToolkitCore: Attributed
-using VisualGeometryToolkitCore: consensus_order, decision_boundary, ThresholdScoringWorkspace   # the scoring contract (VGC)
-using VisualGeometryToolkitCore: converged, estimate, iterations, retcode   # VGC accessors (public)
-using VisualGeometryToolkitCore: FitResult, FixedModels   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: MsacScoring, RansacScoring, TLSShape   # owned and exported by VisualGeometryToolkitCore
-using VisualGeometryToolkitEstimation: AbstractRansacProblem, GaussianSampler, inlier_ratio   # public, not exported
+using VisualGeometryToolkitCore: consensus_order, decision_boundary, ThresholdScoringWorkspace
+
+using VisualGeometryToolkitCore: FitResult, FixedModels
+using VisualGeometryToolkitCore: MsacScoring, RansacScoring, TLSShape
+using VisualGeometryToolkitEstimation: AbstractRansacProblem, GaussianSampler, inlier_ratio
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: minimal_sample_size, LineFittingProblem
 using VisualGeometryToolkitCore: Line2D, Point2, coeffs
 using VisualGeometryToolkitEstimation: RansacWorkspace, draw_sample!
 using VisualGeometryToolkitEstimation: InhomLineFittingProblem, HandEyeProblem, RelposeBundleProblem, UniformSampler, Rigid3
 using VisualGeometryToolkitCore: EssentialMat, model_type
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore   # the scoring contract the test scorer below extends
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore
 
 # The problem under the generic loop: the package's own 2D line problem
 # (`LineFittingProblem`, points with identity covariances — the residual is the
 # signed distance, the model a `Line2D`).
-_line_coeffs(r) = coeffs(estimate(r))
+_line_coeffs(r) = coeffs(r.u)
 
 # A scorer with a workspace of its own type (only what the entry check reads).
 struct _WorkspaceTestScoring <: VgtkCore.AbstractScoring end
@@ -72,7 +74,7 @@ VgtkCore.data_size(p::_PairRecordingProblem) = length(p.x)
 VgtkCore.codimension(::Type{_PairRecordingProblem}) = 1
 VgtkCore.model_type(::Type{_PairRecordingProblem}) = Float64
 VgtkEstimation.sampler(p::_PairRecordingProblem) = p.sampler
-function VgtkCore.solve(p::_PairRecordingProblem, idx::AbstractVector{Int})
+function VgtkEstimation.sample_models(p::_PairRecordingProblem, idx::AbstractVector{Int})
     push!(p.seen, (idx[1], idx[2]))
     return FixedModels{1, Float64}(1, ((p.x[idx[1]] + p.x[idx[2]]) / 2,))
 end
@@ -122,15 +124,15 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         problem = LineFittingProblem(points)
         scoring = MsacScoring(problem; threshold = 0.5)
         cfg = RansacConfig(max_trials = 500, min_trials = 200)
-        run_seeded(seed) = ransac(problem, scoring; config = cfg, rng = Xoshiro(seed))
+        run_seeded(seed) = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config = cfg); rng = Xoshiro(seed))
         r1 = run_seeded(7)
         r2 = run_seeded(7)
-        @test estimate(r1) == estimate(r2)                    # bitwise-identical model
+        @test r1.u == r2.u                    # bitwise-identical model
         @test inlier_mask(r1) == inlier_mask(r2)
         # Ambient RNG state must be irrelevant when `rng` is supplied.
         Random.seed!(0xDEAD)
         r3 = run_seeded(7)
-        @test estimate(r3) == estimate(r1)
+        @test r3.u == r1.u
         @test inlier_mask(r3) == inlier_mask(r1)
         # Sampler protocol: rng-leading draw is deterministic per seed.
         s = VgtkEstimation.UniformSampler(50)
@@ -214,9 +216,8 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         # RANSAC counting runs the same loop to the same line.
         points, true_model, _ = make_line_data(n_inliers = 200, n_outliers = 50)
         problem = LineFittingProblem(points)
-        r = ransac(problem, RansacScoring(problem; threshold = 0.5); local_optimization_strategy = Irls{TLSShape}(),
-                   config = RansacConfig(max_trials = 2000, min_trials = 100), rng = StableRNG(144))
-        @test converged(r)
+        r = solve(EstimationProblem(problem), Ransac(; scoring = RansacScoring(problem; threshold = 0.5), local_optimization_strategy = Irls{TLSShape}(), config = RansacConfig(max_trials = 2000, min_trials = 100)); rng = StableRNG(144))
+        @test successful_retcode(r)
         model = _line_coeffs(r)
         dot(model, true_model) < 0 && (model = -model)
         @test model ≈ true_model atol = 0.1
@@ -227,13 +228,9 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         problem = LineFittingProblem(points)
 
         scoring = MsacScoring(problem; threshold = 0.5)
-        result = ransac(
-            problem, scoring;
-            config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = StableRNG(145)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config = RansacConfig(max_trials = 2000, min_trials = 100)); rng = StableRNG(145))
 
-        @test converged(result)
+        @test successful_retcode(result)
         model = _line_coeffs(result)
         if dot(model, true_model) < 0
             model = -model
@@ -250,13 +247,9 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         problem = LineFittingProblem(points)
 
         scoring = MsacScoring(problem; threshold = 0.5)
-        result = ransac(
-            problem, scoring;
-            config = RansacConfig(max_trials = 10_000, min_trials = 500),
-            rng = StableRNG(146)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config = RansacConfig(max_trials = 10_000, min_trials = 500)); rng = StableRNG(146))
 
-        @test converged(result)
+        @test successful_retcode(result)
         model = _line_coeffs(result)
         if dot(model, true_model) < 0
             model = -model
@@ -270,25 +263,21 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         problem = LineFittingProblem(points)
 
         scoring = MsacScoring(problem; threshold = 0.5)
-        result = ransac(
-            problem, scoring;
-            config = RansacConfig(max_trials = 500),
-            rng = StableRNG(147)
-        )
+        result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config = RansacConfig(max_trials = 500)); rng = StableRNG(147))
 
         @test result isa FitResult
-        @test estimate(result) isa Line2D{Float64}
+        @test result.u isa Line2D{Float64}
         @test retcode_symbol(result) === :converged
-        @test converged(result) == true
+        @test successful_retcode(result) == true
         @test inlier_mask(result) isa BitVector
         # Default workspace storage is Float32: per-point vectors come back
         # narrow; the scalar statistics (quality, scale) are always Float64.
-        @test result.residuals isa Vector{Float32}
-        @test result.weights isa Vector{Float32}
-        @test result.quality isa Float64
+        @test result.resid isa Vector{Float32}
+        @test weights(result) isa Vector{Float32}
+        @test result.metadata.quality isa Float64
         @test noise_scale(result) isa Float64 && scale_source(result) == ScaleEstimated
-        @test iterations(result) isa Int
-        @test iterations(result) > 0
+        @test result.stats.nsteps isa Int
+        @test result.stats.nsteps > 0
     end
 
     @testset "dof and scale fields" begin
@@ -297,19 +286,15 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         p = minimal_sample_size(problem)
 
         scoring = MsacScoring(problem; threshold = 0.5)
-        result = ransac(
-            problem, scoring;
-            config = RansacConfig(max_trials = 2000, min_trials = 100),
-            rng = StableRNG(148)
-        )
-        @test converged(result)
-        @test result.dof > 0
-        @test result.dof == sum(inlier_mask(result)) - p
+        result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config = RansacConfig(max_trials = 2000, min_trials = 100)); rng = StableRNG(148))
+        @test successful_retcode(result)
+        @test dof(result) > 0
+        @test dof(result) == sum(inlier_mask(result)) - p
 
         # scale is s = √(RSS/ν), the unbiased estimate
         n_in = sum(inlier_mask(result))
         RSS = sum(
-            result.residuals[i]^2 for i in 1:length(result.residuals)
+            result.resid[i]^2 for i in 1:length(result.resid)
                 if inlier_mask(result)[i]
         )
         nu = n_in - p
@@ -353,43 +338,29 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
         # and max_trials = 3 would cap it; the exhaustive run tries every pair once
         x = [1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 1.0]
         p = _PairRecordingProblem(x)
-        r = ransac(p, MsacScoring(p; threshold = 0.5); config = cfg)
-        @test iterations(r) == binomial(7, 2)
+        r = solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 0.5), local_optimization_strategy = nothing, config = cfg))
+        @test r.stats.nsteps == binomial(7, 2)
         @test sort(p.seen) == [(i, j) for i in 1:7 for j in (i + 1):7]
-        @test converged(r) && estimate(r) == 1.0
+        @test successful_retcode(r) && r.u == 1.0
         @test inlier_mask(r) == (x .== 1.0)
     end
 
     @testset "a threshold scorer's workspace grows and shrinks with the problem" begin
         # MSAC's tables are width- and size-free (a consensus order), so a
-        # workspace built for a small problem serves a larger one — the same run
-        # as on a fresh workspace — and a smaller problem reuses a larger one.
+        # cache built on a small problem serves a larger one (`reinit!` with new data) — the same run as a fresh
+        # solve's — and a smaller problem reuses a larger one's
         small, _, _ = make_line_data(n_inliers = 20, n_outliers = 5)
         large, _, _ = make_line_data(n_inliers = 200, n_outliers = 50)
         sc = MsacScoring(2; threshold = 0.5)
         lo = Irls{TLSShape}()
-        ws = RansacWorkspace(LineFittingProblem(small), sc, lo)
-        r_ws = ransac(LineFittingProblem(large), sc; local_optimization_strategy = lo, workspace = ws, rng = StableRNG(149))
-        r_fresh = ransac(LineFittingProblem(large), sc; local_optimization_strategy = lo, rng = StableRNG(149))
-        @test converged(r_ws) && estimate(r_ws) == estimate(r_fresh) && inlier_mask(r_ws) == inlier_mask(r_fresh)
-        wl = RansacWorkspace(LineFittingProblem(large), sc)
-        @test converged(ransac(LineFittingProblem(small), sc; workspace = wl, rng = StableRNG(150)))
+        alg = Ransac(; scoring = sc, local_optimization_strategy = lo)
+        c = init(EstimationProblem(LineFittingProblem(small)), alg; rng = StableRNG(149))
+        r_ws = solve!(reinit!(c; f = LineFittingProblem(large)))
+        r_fresh = solve(EstimationProblem(LineFittingProblem(large)), alg; rng = StableRNG(149))
+        @test successful_retcode(r_ws) && r_ws.u == r_fresh.u && inlier_mask(r_ws) == inlier_mask(r_fresh)
+        @test successful_retcode(solve!(reinit!(c; f = LineFittingProblem(small))))
     end
 
-    @testset "another scorer's workspace is refused at entry" begin
-        # Handed MSAC's workspace, a scorer with a workspace of its own type is
-        # refused once at entry, by name — not a MethodError deep in `score!`.
-        p = LineFittingProblem(first(make_line_data(n_inliers = 20, n_outliers = 5)))
-        ws = RansacWorkspace(p, MsacScoring(p; threshold = 0.5), Irls{TLSShape}())
-        err = try
-            ransac(p, _WorkspaceTestScoring(); workspace = ws)
-        catch e
-            e
-        end
-        @test err isa ArgumentError
-        # MSAC's workspace is every threshold scorer's (Core's AbstractThresholdScoring)
-        @test occursin("built for AbstractThresholdScoring", err.msg) && occursin("for _WorkspaceTestScoring", err.msg)
-    end
 
     # The traits a pre-allocated workspace reads are defined on the TYPE, so
     # `RansacWorkspace(P, n)` works for every problem, not only the

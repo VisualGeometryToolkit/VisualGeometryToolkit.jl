@@ -1,4 +1,6 @@
 @testitem "ransac_mc_calibration" setup = [PoseScenes, DivisionBoards, Cameras] begin
+    using VisualGeometryToolkitCore: solve
+    using VisualGeometryToolkitEstimation: sample_hypothesis
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # Monte Carlo calibration of VgtkEstimation's covariance-bearing paths, through VGC's
@@ -28,13 +30,13 @@
 #       The naive Vᵢ = I is pinned miscalibrated: the model term carries signal.
 #   (c) stress scenes: narrow (f = 2000) and wide (f = 150) FOV, forward
 #       motion (the epipole inside the image), and a near-planar scene for F.
-#   (d) the line fits: fit_line's reported covariance, weighted by per-point
+#   (d) the line fits: the heteroscedastic line's reported covariance, weighted by per-point
 #       covariances — its SHAPE (JᵀWJ)⁻¹, its scale
 #       s², and the reported product's exact 2·F(2, n−2) law —
 #       LineFittingProblem's per-point Σ̃ₓ whitening (residuals at the truth, and
 #       a held-out point under the weighted fit), and the inhomogeneous line's
 #       solver covariance (parameter and predictive).
-#   (e) fit_division_camera: its whitened residuals in calibrated pixel units,
+#   (e) DivisionCameraFit: its whitened residuals in calibrated pixel units,
 #       and what it reports as their scale (ŝ, gated) and tail (ν: gated on
 #       Gaussian inliers, its t-tail bias pinned); under contamination — the
 #       ray-aligned mismatches per-board validation leaves, and unvalidated
@@ -49,10 +51,7 @@
 using Test, LinearAlgebra, Random, StaticArrays
 using StableRNGs
 using Rotations: AngleAxis, RotMatrix
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, estimate, minimal_manifold, unit_normalize, whitened_constraint_rows, retract, model,
-    constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat,
-    EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine,
-    transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, minimal_manifold, unit_normalize, whitened_constraint_rows, retract, model, constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat, EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine, transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: RadialCamera, Line2DManifold, local_coordinates
 using Statistics: median, quantile
@@ -62,10 +61,12 @@ using VisualGeometryToolkitCore.Synthetic: sample_homography_scene, sample_twovi
     pnp_trial, h_transfer_trial, epipolar_band_trial, reprojection_trial,
     run_calibration, is_calibrated, run_containment, containment_nominal,
     fundmat_norm_xform, F_NORM_SCALE   # VGC's MC calibration harness (public)
-using VisualGeometryToolkitCore: solver_covariance   # the constraint-problem contract (VGC)
+using VisualGeometryToolkitCore: solver_covariance
 using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, HandEyeProblem, board_sq_residuals
 using VisualGeometryToolkitCore: refine!
 using VisualGeometryToolkitCore: CameraModel, px
+using VisualGeometryToolkitCore: EstimationProblem
+using VisualGeometryToolkitEstimation: DivisionCameraFit
 const VgtkEstimation = VisualGeometryToolkitEstimation
 
 _unit_scale(M::T) where {T} = T(Tuple(SMatrix{3, 3, Float64, 9}(M) / norm(SMatrix{3, 3, Float64, 9}(M))))
@@ -220,7 +221,7 @@ end
 # Hand-eye under the noise model its constraint DECLARES (G_x = I₆: unit noise
 # on the 6-vector g itself): each motion's A is perturbed so that g at the true
 # X is exactly (δa, δt) ~ N(0, σ²I₆). The hypothesis is the one RANSAC scores:
-# Tsai–Lenz (`solve`) fitted on its two motions (`fit_hypothesis`); one
+# Tsai–Lenz (`sample_models`) fitted on its two motions (`sample_hypothesis`); one
 # held-out motion (χ²₆).
 function _predictive_trial_hand_eye(; σ, m = 12, L = 0.5)
     return function (rng)
@@ -242,9 +243,9 @@ function _predictive_trial_hand_eye(; σ, m = 12, L = 0.5)
             return nothing
         end
         VgtkEstimation.test_sample(p, [1, 2]) || return nothing
-        hyp = VgtkEstimation.solve(p, [1, 2])
+        hyp = VgtkEstimation.sample_models(p, [1, 2])
         hyp.count == 0 && return nothing
-        X̂ = VgtkEstimation.fit_hypothesis(p, first(hyp), [1, 2])          # the hypothesis RANSAC scores
+        X̂ = sample_hypothesis(p, first(hyp), [1, 2])          # the hypothesis RANSAC scores
         X̂ === nothing && return nothing
         return _held_out(rng, p, X̂, [1, 2], 2, m, σ)
     end
@@ -429,7 +430,7 @@ end
     @test rn.nees_median_ratio > 3
     # Hand-eye: `solver_covariance` is the Gauss–Newton (sandwich) covariance of
     # the two motions' 12 constraint rows, and the hypothesis is that estimator
-    # (Tsai–Lenz fitted on its sample, `fit_hypothesis`; the bare Tsai–Lenz
+    # (Tsai–Lenz fitted on its sample, `sample_hypothesis`; the bare Tsai–Lenz
     # solve measured 2.42× in median before it). Calibrated at both noise
     # levels (6.02/6 and 5.76/6) now that the problem admits only motions
     # rotating ≥ `min_rel_angle` (the [robot_world_hand_eye] authority). Before
@@ -467,7 +468,7 @@ end
         for _ in 1:nsamples
             idx = randperm(rng, n)[1:k]
             VgtkEstimation.test_sample(p, idx) || continue
-            for θ in VgtkEstimation.solve(p, idx)
+            for θ in VgtkEstimation.sample_models(p, idx)
                 seen += 1
                 solver_covariance(p, θ, idx) === nothing && (cnt += 1)
             end
@@ -491,8 +492,8 @@ end
     end
 end
 
-@testset "(d) line fits: the weighted fit_line and the inhomogeneous line" begin
-    # WEIGHTED fit_line and LineFittingProblem: heteroscedastic, anisotropic
+@testset "(d) line fits: the weighted heteroscedastic line and the inhomogeneous line" begin
+    # the WEIGHTED heteroscedastic line and LineFittingProblem: heteroscedastic, anisotropic
     # points — point i drawn with covariance σ²Σ̃ᵢ, Σ̃ᵢ a random unit-scale shape
     # (log-normal eigenvalues, random orientation) — carried as Uncertain(xᵢ, Σ̃ᵢ).
     function _shape(rng)
@@ -509,7 +510,7 @@ end
     end
     # the estimate in the chart of the true line n·x + d = 0: (normal angle, offset)
     _line_error(est, nv, d) = Vector(local_coordinates(Line2DManifold(Line2D(nv[1], nv[2], d)), VgtkCore.geom(est)))
-    _weighted_fit(pts, Σ̃) = VgtkEstimation.fit_line([Uncertain(pts[i], CovMat(Σ̃[i])) for i in eachindex(pts)])
+    _weighted_fit(pts, Σ̃) = VgtkEstimation._heteroscedastic_line([Uncertain(pts[i], CovMat(Σ̃[i])) for i in eachindex(pts)])
     # The reported covariance is s²·(JᵀWJ)⁻¹ with s² estimated on ν = n − 2, so
     # its NEES is 2·F(2, ν), not χ²₂ (mean 2ν/(ν−2) = 2.154 at n = 30: the χ²
     # gate fails it at ~3000 trials — measured 2.214, 1.4 SE from the F law).
@@ -520,21 +521,21 @@ end
         return function (rng)
             nv, d, pts, Σ̃ = _hetero_line(rng, n, σ)
             res = _weighted_fit(pts, Σ̃)
-            return _line_error(estimate(res), nv, d), (σ^2 / res.s²) .* Matrix(VgtkCore.cov(estimate(res)))
+            return _line_error(res.u, nv, d), (σ^2 / res.metadata.s²) .* Matrix(VgtkCore.cov(res.u))
         end
     end
     function fit_line_scale_trial(; σ = 0.02, n = 30)
         return function (rng)
             _, _, pts, Σ̃ = _hetero_line(rng, n, σ)
             res = _weighted_fit(pts, Σ̃)
-            c = 2 / (9 * res.ν)
-            return [((res.s² / σ^2)^(1 / 3) - (1 - c)) / sqrt(c)], ones(1, 1)
+            c = 2 / (9 * res.metadata.ν)
+            return [((res.metadata.s² / σ^2)^(1 / 3) - (1 - c)) / sqrt(c)], ones(1, 1)
         end
     end
     function fit_line_reported_trial(; σ = 0.02, n = 30)
         return function (rng)
             nv, d, pts, Σ̃ = _hetero_line(rng, n, σ)
-            est = estimate(_weighted_fit(pts, Σ̃))
+            est = _weighted_fit(pts, Σ̃).u
             return _line_error(est, nv, d), Matrix(VgtkCore.cov(est))
         end
     end
@@ -562,7 +563,7 @@ end
         return function (rng)
             _, _, pts, Σ̃ = _hetero_line(rng, n + 1, σ)
             upts = [Uncertain(pts[i], CovMat(Σ̃[i])) for i in 1:(n + 1)]
-            est = estimate(VgtkEstimation.fit_line(upts[1:n]))
+            est = VgtkEstimation._heteroscedastic_line(upts[1:n]).u
             l̂ = VgtkCore.geom(est); Σθ = SMatrix{2, 2}(VgtkCore.cov(est))
             r, Gw = whitened_constraint_rows(VgtkEstimation.LineFittingProblem(upts), l̂, n + 1)
             return [r], fill(σ^2 + dot(Gw, Σθ * Gw), 1, 1)
@@ -579,7 +580,7 @@ end
             xs = 4 .* rand(rng, 12) .- 2
             pts = [SVector(x, a + b * x + σ * randn(rng)) for x in xs]
             p = VgtkEstimation.InhomLineFittingProblem(pts)
-            hyp = VgtkEstimation.solve(p, [1, 2]); hyp.count == 0 && return nothing
+            hyp = VgtkEstimation.sample_models(p, [1, 2]); hyp.count == 0 && return nothing
             θ̂ = first(hyp)
             Σ̃ = solver_covariance(p, θ̂, [1, 2]); Σ̃ === nothing && return nothing
             predictive || return Vector(θ̂ - SVector(a, b)), σ^2 .* Matrix(Σ̃)
@@ -655,8 +656,8 @@ end
     @test _undefined_rate(_predictive_trial(:F; σ_px = 0.5, regime = :near_planar), StableRNG(322), 100) >= 0.75
 end
 
-@testset "(e) fit_division_camera: the residual currency, its scale ŝ and tail ν" begin
-    # The fit_division_camera item's stack — 6 boards × 25 points at very
+@testset "(e) DivisionCameraFit: the residual currency, its scale ŝ and tail ν" begin
+    # The DivisionCameraFit item's stack — 6 boards × 25 points at very
     # different depths, a division lens — with board rotations jittered per
     # trial, and `noisy_board_views`' pixel noise σ (Gaussian, or a multivariate
     # Student-t of ν₀ dof and scale σ), a fraction ε of 30 px gross outliers and
@@ -668,14 +669,14 @@ end
         boards, inl = noisy_board_views(rng, cams; σ, ε, ν0, ρ)
         return Dict(enumerate(RadialCamera.(cams))), Dict(enumerate(boards)), inl   # keyed by board index
     end
-    _dc_ok(res) = res !== nothing && abs(first(focal_length(intrinsics(estimate(res)))) - f0) / f0 < 0.02
+    _dc_ok(res) = res !== nothing && abs(first(focal_length(intrinsics(res.u))) - f0) / f0 < 0.02
     # centred pixels of a 4000 × 3000 image: half-diagonal 2500, so the default
     # seed (f = 1 normalized) is 2× the true f₀ = 1226.3 px
     _DC_SIZE = (4000, 3000)
     # a stack whose iteration has no system to solve is a failed fit, like one that diverged
     function _dc_fit(Hs, boards; focal_seed = nothing)
         return try
-            VgtkEstimation.fit_division_camera(Hs, boards; image_size = _DC_SIZE, focal_seed)
+            solve(EstimationProblem(CameraModel, (Hs, boards), (; image_size = _DC_SIZE, focal_seed)), DivisionCameraFit())
         catch e
             e isa VgtkEstimation.DivisionCameraError || rethrow()
             nothing
@@ -692,8 +693,8 @@ end
             Hs, boards, inl = _dc_scene(rng; σ, ε, ρ)
             res = _dc_fit(Hs, boards)
             _dc_ok(res) || return nothing
-            sqd = board_sq_residuals(res.state)
-            sq = reduce(vcat, [sqd[id] for id in res.state.ids]); idx = findall(inl)   # `inl` is in board order
+            sqd = board_sq_residuals(res.metadata.state)
+            sq = reduce(vcat, [sqd[id] for id in res.metadata.state.ids]); idx = findall(inl)   # `inl` is in board order
             j = idx[rand(rng, 1:length(idx))]
             s = scale === :true ? σ : VisualGeometryToolkitCore.noise_scale(res)
             return [sqrt(sq[j]), 0.0], s^2 * Matrix(1.0I, 2, 2)
@@ -703,7 +704,7 @@ end
         return map(1:N) do _
             Hs, boards, _ = _dc_scene(rng; kw...)
             res = _dc_fit(Hs, boards; focal_seed)
-            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = VisualGeometryToolkitCore.noise_scale(res), ν = res.ν)
+            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = VisualGeometryToolkitCore.noise_scale(res), ν = res.metadata.ν)
         end
     end
     # GATE — the currency: the Sampson-whitened residuals are in calibrated
@@ -724,7 +725,7 @@ end
     # stacks, median at the 10⁴ cap). PIN (c): on t₄ inliers ν̂ is estimated
     # but biased up — median 5.49 (q05 3.5, q75 7.5) against ν₀ = 4 — because
     # the uniform outlier component absorbs part of the t tail. (Until RSDR
-    # df38454 + bc9586e ν never left its 10⁴ seed: the ν Newton update's (now `next_nu`) Hessian was
+    # df38454 + bc9586e ν never left its 10⁴ seed: the ν Newton update's (now `update_nu!`) Hessian was
     # correct only for d_g = 1, and the √2 ŝ made every tail look light.)
     @test quantile([x.ν for x in gauss], 0.05) > 10
     @test 4.5 < median(x.ν for x in t4) < 7
@@ -745,8 +746,8 @@ end
     # GATE the TAIL too — is_calibrated: NEES mean 1.02 × dof, coverage
     # .485/.90/.95, q95 5.65, q99 8.2, none above 20 — the oracle's (these
     # stacks with the mismatch rows removed: the same). It was a CLASS (b) PIN —
-    # fixable, on the estimator side — until fit_division_camera's BRANCH AUDIT
-    # (division_camera_step.jl): each board's pose branch (its radial camera's
+    # fixable, on the estimator side — until DivisionCameraFit's BRANCH AUDIT
+    # (division_camera_stack.jl): each board's pose branch (its radial camera's
     # tilt ambiguity) was chosen on iteration 0 from its own solve with f free, which
     # cannot tell the tilt pair apart by residual, and kept; a mismatch pushed
     # along its ray through the centre tipped it (104 of 642 boards carrying one

@@ -3,8 +3,8 @@
 # =============================================================================
 #
 # Implements the weighted orthogonal-distance fit:
-#   - fit_line(uncertain_points)        — weighted by projected covariances
-# (The unweighted total least squares is VisualGeometryToolkitCore's `tls_line`: one
+#   - _heteroscedastic_line(uncertain_points)        — weighted by projected covariances
+# (The unweighted total least squares is VisualGeometryToolkitCore's `TotalLeastSquares`: one
 # algebraic step, so an algorithm name, not a fit — estimator taxonomy v2.)
 #
 # Line parametrization: n⊤p + d = 0, n = (cos φ, sin φ)
@@ -18,7 +18,7 @@
 # =============================================================================
 
 # Dependencies: StaticArrays (SVector, SMatrix)
-#               VGC: Line2D, Point2, Uncertain, normal, tls_line, tls_line_statistics
+#               VGC: Line2D, Point2, Uncertain, normal, TotalLeastSquares, tls_line_statistics
 
 # =============================================================================
 # Result Type
@@ -27,16 +27,16 @@
 """
     LineFitMetadata{T}
 
-`FitResult` metadata of [`fit_line`](@ref). The core carries the fitted
-line — `estimate` is an `Uncertain{Line2D{T}, <:CovMat{2,T}}` with the
-(φ, d) parameter covariance — the record `(ReturnCode.Success, ClosedForm)`, `iterations = 1` (the one
+`FitResult` metadata of `_heteroscedastic_line`. The core carries the fitted
+line — `u` is an `Uncertain{Line2D{T}, <:CovMat{2,T}}` with the
+(φ, d) parameter covariance — the record `(ReturnCode.Success, ClosedForm)`, `stats.nsteps = 1` (the one
 covariance reweight-and-solve cycle after the total-least-squares seed), and
 `rms`, the root-mean-square orthogonal residual over the `n` points. Here:
 
 - `s²::T`: estimated residual variance of the whitened residuals, `S/(n-2)`
 - `ν::Int`: degrees of freedom, `n - 2`
 
-Both forward as properties: `result.s²`, `result.ν`.
+Read by field: `result.metadata.s²`, `result.metadata.ν`.
 """
 struct LineFitMetadata{T}
     s²::T
@@ -44,7 +44,7 @@ struct LineFitMetadata{T}
 end
 
 # =============================================================================
-# The covariance-weighted line step (shared by fit_line and the LO refit)
+# The covariance-weighted line step (shared by _heteroscedastic_line and the LO refit)
 # =============================================================================
 
 # One reweight: `w[i] = prior[i]/σᵢ²` at the normal `nv` (a zero prior drops the
@@ -69,7 +69,7 @@ end
 
 The covariance-weighted line of `points` from the seed normal `nv₀`: point
 `i` weighs `prior[i]/σᵢ²`, `σᵢ² = nᵀΣᵢn` its variance along the current
-normal, `prior[i] ≥ 0` a caller's weight (`1` for [`fit_line`](@ref), the LO's
+normal, `prior[i] ≥ 0` a caller's weight (`1` for `_heteroscedastic_line`, the LO's
 robust weight for `refine!(…, ::LineFittingProblem, …)`; `0` drops the point).
 One reweight-and-solve cycle, each solve VisualGeometryToolkitCore's fixed-weight
 total-least-squares step (`tls_line_statistics`): weights at `nv₀` → weighted
@@ -92,39 +92,39 @@ function _weighted_line(points::AbstractVector, cov_shapes::AbstractVector, prio
 end
 
 # =============================================================================
-# fit_line (per-point covariances)
+# _heteroscedastic_line (per-point covariances)
 # =============================================================================
 
 """
-    fit_line(points::AbstractVector{<:Uncertain{<:Point2}}) -> FitResult{Uncertain{Line2D}, LineFitMetadata}
+    _heteroscedastic_line(points::AbstractVector{<:Uncertain{<:Point2}}) -> FitResult{Uncertain{Line2D}, LineFitMetadata}
 
 Fit a 2D line with per-point covariance weighting.
 
 Each point carries a 2×2 covariance matrix Σᵢ. The projected variance along the
 line normal is σᵢ² = n⊤Σᵢn, giving weight wᵢ = 1/σᵢ².
 
-Seeds the normal with VisualGeometryToolkitCore's unweighted [`tls_line`](@ref), then
+Seeds the normal with VisualGeometryToolkitCore's unweighted `TotalLeastSquares`, then
 runs one reweight-and-solve cycle: weights at the seed normal → weighted
 scatter → refined normal → weights recomputed → weighted offset. The (φ, d)
 covariance is `s²·(JᵀWJ)⁻¹` at the final normal. Throws `ArgumentError` for
 fewer than 3 points, or when a point has no variance along the normal.
 """
-function fit_line(points::AbstractVector{<:Uncertain{<:Point2}})
+function _heteroscedastic_line(points::AbstractVector{<:Uncertain{<:Point2}})
     n = length(points)
-    n >= 3 || throw(ArgumentError("fit_line requires at least 3 points, got $n"))
+    n >= 3 || throw(ArgumentError("the heteroscedastic line requires at least 3 points, got $n"))
 
     # The problem's constructor is the one conversion of uncertain points into
     # (points, covariance shapes); the fit reads its storage.
     lp = LineFittingProblem(points)
     T = eltype(eltype(lp.points))
-    nv₀ = SVector{2, T}(normal(geom(tls_line(lp.points))))
+    nv₀ = SVector{2, T}(normal(geom(solve(EstimationProblem(Line2D, lp.points), TotalLeastSquares()).u)))
     out = _weighted_line(lp.points, lp.cov_shapes, ones(T, n), nv₀)
     out === nothing && throw(
-        ArgumentError("fit_line: a point's covariance has zero variance along the line normal")
+        ArgumentError("the heteroscedastic line: a point's covariance has zero variance along the line normal")
     )
     line, S, JtWJ = out
 
     ν = residual_dof(LineFittingProblem, n)   # (n − 2)·1
     s² = S / ν
-    return FitResult(Uncertain(line, CovMat(s² * inv(JtWJ))), ReturnCode.Success, ClosedForm, 1, sqrt(S / n), n, LineFitMetadata(s², ν))
+    return FitResult(Uncertain(line, CovMat(s² * inv(JtWJ))), ReturnCode.Success, ClosedForm, SolveStats(; nsteps = 1), sqrt(S / n), n, LineFitMetadata(s², ν))
 end

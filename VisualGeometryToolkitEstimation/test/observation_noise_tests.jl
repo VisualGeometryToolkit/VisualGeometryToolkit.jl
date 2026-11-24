@@ -4,7 +4,7 @@
 # scoring, the chart rows of the refit, the normalization and the maps.
 @testitem "observation_noise" setup = [HomographyScenes] begin
     import VisualGeometryToolkitCore as VgtkCore; using VisualGeometryToolkitCore: warm_allocated
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test
@@ -14,11 +14,9 @@
     using StableRNGs
     using Rotations: RotMatrix, RotX
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: correspondences, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!,
-        source_map, destination_map, sampson_distance, mahalanobis_distance, mahalanobis_distances!,
-        converged, estimate, MsacScoring, TLSShape
+    using VisualGeometryToolkitCore: correspondences, exact, Uncertain, CovMat, pair_covariance, whitened_residuals!, source_map, destination_map, sampson_distance, mahalanobis_distance, mahalanobis_distances!, MsacScoring, TLSShape
     using VisualGeometryToolkitEstimation
-    using VisualGeometryToolkitEstimation: locally_optimize, RadialHomographyProblem
+    using VisualGeometryToolkitEstimation: RadialHomographyProblem
     using VisualGeometryToolkitCore: Irls
 
     rng = StableRNG(5)
@@ -54,8 +52,8 @@
         @test (@allocated mahalanobis_distances!(r, p, H)) == 0
         # the chart-LM refit and its lift descend the same pixel residual
         Hs = HomographyMat{Float64}(Tuple(SMatrix{3, 3, Float64, 9}(H) .* (1 .+ 1.0e-3 .* SMatrix{3, 3, Float64, 9}(1, -2, 1, 2, -1, 1, -1, 1, 0))))
-        lr = locally_optimize(p, Hs; scoring = MsacScoring(p; threshold = 3.0), local_optimization_strategy = Irls{TLSShape}())
-        @test max_transfer_error(estimate(lr), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 0.3
+        lr = solve(RefineProblem(p, Hs), LocalOptimization(Irls{TLSShape}(); scoring = MsacScoring(p; threshold = 3.0)))
+        @test max_transfer_error(lr.u, H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 0.3
         # the solver covariance takes the singular (exact-side) noise shape
         C = VgtkEstimation.solver_covariance(p, H, collect(1:n))
         @test C !== nothing && all(isfinite, C)
@@ -104,9 +102,9 @@
         for k in 1:8
             bad[k] = bad[k] + SA[40.0 * randn(rng), 40.0 * randn(rng)]
         end
-        res = find_homography(correspondences(exact.(board), bad); rng = StableRNG(1))
-        @test converged(res)
+        res = solve(EstimationProblem(HomographyProblem(correspondences(exact.(board), bad))), Ransac(); rng = StableRNG(1))
+        @test successful_retcode(res)
         @test !any(inlier_mask(res)[1:8])
-        @test max_transfer_error(estimate(res), H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
+        @test max_transfer_error(res.u, H, [SA[0.01, 0.01], SA[0.04, 0.02], SA[0.025, 0.045]]) < 1.0
     end
 end

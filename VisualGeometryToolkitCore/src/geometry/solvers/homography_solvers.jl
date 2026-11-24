@@ -159,27 +159,23 @@ _pixel_extent(x) = Float64(strip_pixels(x))   # a plain number or px; a length i
 
 Apply a normalization strategy: the affine map `x ↦ σ·(x − c)` it
 prescribes (a `Diagonal` linear part, uniform scale). For Hartley the centre
-and scale come from `points` — `mask` (a `BitVector`) and `weights` restrict
-and weight the statistics, an empty selection gives the identity; the
+and scale come from `points` — `weights` weight the statistics (a zero weight
+leaves a point out; no positive weight gives the identity); the
 diagonal strategy needs no data. Hartley applies to image points (mean
 distance √2) and to 3-D points (`StaticVector{3}`: about their centroid, mean
 distance √3 — the normalization of a least squares over lengths, such as
 translations); the diagonal strategy is 2-D.
 """
 CoordinateTransformations.AffineMap(
-    s::HartleyNormalization, pts::AbstractVector{<:StaticVector},
-    mask::Union{Nothing, BitVector} = nothing, w::Union{Nothing, AbstractVector} = nothing
-) = _hartley_strategy_map(s, pts, mask, w)
-CoordinateTransformations.AffineMap(s::HartleyNormalization, pts::AbstractVector{<:StaticVector}, w::AbstractVector) =
-    _hartley_strategy_map(s, pts, nothing, w)
+    s::HartleyNormalization, pts::AbstractVector{<:StaticVector}, w::Union{Nothing, AbstractVector} = nothing
+) = _hartley_strategy_map(s, pts, w)
 # The dimension is dispatched here, behind the same AffineMap methods (no further method
 # of a CoordinateTransformations constructor): image points (the radial models' known
 # centre allowed), or 3-D points (a least squares over lengths: translations, world
 # points) about their centroid at mean distance √3.
-_hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{2}}, mask, w) = _hartley_map(pts, _selection(mask, pts, pts), w, s.center)
-function _hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{3}}, mask, w)
+_hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{2}}, w) = _hartley_map(pts, eachindex(pts), w, s.center)
+function _hartley_strategy_map(s, pts::AbstractVector{<:StaticVector{3}}, w)
     s.center === nothing || throw(ArgumentError("HartleyNormalization: a known centre is two-dimensional; 3-D points normalize about their centroid"))
-    mask === nothing || throw(ArgumentError("HartleyNormalization: 3-D points take weights, not a mask"))
     return _hartley_map_3d(pts, w)
 end
 CoordinateTransformations.AffineMap(d::DiagonalNormalization) =
@@ -262,7 +258,7 @@ end
 
 """
     CorrespondenceNormalization(T_src::AffineMap, T_dst::AffineMap)
-    CorrespondenceNormalization(src::Normalization, dst::Normalization, cs[, mask, weights])
+    CorrespondenceNormalization(src::Normalization, dst::Normalization, cs[, weights])
     CorrespondenceNormalization(M::Type, cs; center)
 
 The normalization of a correspondence set as a first-class value: the
@@ -274,8 +270,9 @@ the correspondences' sources and targets, or by MODEL TYPE — the strategy
 each model class needs:
 
 - `HomographyMat` / `AbstractFundMat` (F and E): Hartley at the centroid on
-  both sides (the classic DLT data normalization), over the `mask`'s
-  correspondences and weighted by the `weights` column when there is one;
+  both sides (the classic DLT data normalization), over every correspondence
+  and weighted by the `weights` column when there is one (a selection is the
+  set's own indexing, `cs[idx]`, and an influence its weights);
 - `RadialHomography`: Hartley at the centroid on the sources, Hartley about
   the known distortion `center` (required) on the targets — the origin the
   5-point kernel is written about.
@@ -308,22 +305,15 @@ function CorrespondenceNormalization(T_src::AffineMap, T_dst::AffineMap)
     )
 end
 
-# `mask` is any selection `_selection` reads (nothing, a Bool mask, an index
-# list), resolved once and walked by both sides.
-function CorrespondenceNormalization(src::HartleyNormalization, dst::HartleyNormalization, cs, mask = nothing, weights = nothing)
+# Every correspondence, both sides walked in order; a selection is the caller's `cs[idx]`, an influence the weights.
+function CorrespondenceNormalization(src::HartleyNormalization, dst::HartleyNormalization, cs, weights = nothing)
     u₁ = sources(cs); u₂ = targets(cs)
-    sel = _selection(mask, u₁, u₂)
+    sel = eachindex(u₁, u₂)
     return CorrespondenceNormalization(_hartley_map(u₁, sel, weights, src.center), _hartley_map(u₂, sel, weights, dst.center))
 end
 
-CorrespondenceNormalization(::Type{<:Union{HomographyMat, AbstractFundMat}}, cs; mask = nothing) =
-    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(), cs, mask, weights_column(cs))
-
-# A selection as a BitVector (an index list expanded once), for callers that
-# hold one; the DLT normalization walks an index list as given (`_selection`).
-_bitmask(::Nothing, n) = nothing
-_bitmask(mask::BitVector, n) = mask
-_bitmask(idx, n) = (b = falses(n); b[idx] .= true; b)
+CorrespondenceNormalization(::Type{<:Union{HomographyMat, AbstractFundMat}}, cs) =
+    CorrespondenceNormalization(HartleyNormalization(), HartleyNormalization(), cs, weights_column(cs))
 
 """
     source_map(f::CorrespondenceNormalization) -> AffineMap

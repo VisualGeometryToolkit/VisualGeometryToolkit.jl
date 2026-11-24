@@ -31,7 +31,6 @@
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitEstimation, VisualGeometryToolkitCore
 using StaticArrays, LinearAlgebra
-using VisualGeometryToolkitEstimation: RansacWorkspace
 using VisualGeometryToolkitCore: MsacScoring
 
 const OUT = ARGS[1]
@@ -62,7 +61,6 @@ const PROBS = [problem_of(pr) for pr in PAIRS]
 const POOL_PX = HALFWIDTH / 20.0
 const THRESHOLD = VgtkEstimation._dflt("pipelines.essential", "scoring")["threshold"] * POOL_PX   # its scorer table (since 0.10)
 const SCORINGS = [MsacScoring(EssentialProblem; threshold = THRESHOLD) for _ in PROBS]
-const WORKSPACES = [RansacWorkspace(PROBS[i], SCORINGS[i]) for i in eachindex(PROBS)]
 const NCALLS = call_set_size(PAIRS)
 
 
@@ -71,4 +69,4 @@ const NCALLS = call_set_size(PAIRS)
 
 # each arm compiled and its task-local buffers warmed (two runs) before it is measured: call_set.jl's lo_call_set_arm
 write_bench_record(OUT, "test/lo_timing/bench.jl", NCALLS, REPS,
-                   [name => lo_call_set_arm(ctor, PROBS, SCORINGS, WORKSPACES, PAIRS, REPS) for (name, ctor) in ARMS])
+                   [name => lo_call_set_arm(ctor, PROBS, SCORINGS, PAIRS, REPS) for (name, ctor) in ARMS])

@@ -52,11 +52,16 @@ end
 const SEEDS = (1, 2, 3)
 
 """
-    ReplayCase(id, fixture, run, map, fixture_map)
+    ReplayCase(id, fixture, run, map, fixture_map, fixture_view)
 
 The replacement's side of a recorded case: `run(fixture)` calls the NEW entry, and `map` (a `FieldMap`) states
 how its result's fields map onto the recorded ones. `fixture_map` does the same for the fixture, which differs
 from the recorded one only where a fixture holds an upstream result (a find's result seeding a refine).
+`fixture_view` is what the fixture is COMPARED as (`run` still gets the fixture itself): `identity`, or — for a
+fixture holding an ARRAY of upstream results, which a record stores as one digest of its leaves in the old field
+order, so no field mapping can reach it — a function that rebuilds the OLD leaf sequence from the new values (each
+result as a tuple of its old fields, in their old order), so the array's digest is compared bit for bit. A view
+never drops or loosens a leaf: every old leaf must be rebuilt, from the value that replaces it.
 """
 struct ReplayCase
     id::String
@@ -64,16 +69,18 @@ struct ReplayCase
     run::Any
     map::FieldMap
     fixture_map::FieldMap
+    fixture_view::Any
 end
 
 """
-    replay!(cases, id, fixture, run; map = IDENTITY_MAP, fixture_map = IDENTITY_MAP)
+    replay!(cases, id, fixture, run; map = IDENTITY_MAP, fixture_map = IDENTITY_MAP, fixture_view = identity)
 
-Add the replacement of the recorded case `id`; a repeated id is an error.
+Add the replacement of the recorded case `id`; a repeated id is an error (`fixture_view`: [`ReplayCase`](@ref)).
 """
-function replay!(cases, id::AbstractString, fixture, run; map::FieldMap = IDENTITY_MAP, fixture_map::FieldMap = IDENTITY_MAP)
+function replay!(cases, id::AbstractString, fixture, run; map::FieldMap = IDENTITY_MAP, fixture_map::FieldMap = IDENTITY_MAP,
+                 fixture_view = identity)
     any(c -> c.id == id, cases) && error("replay case id `$id` is defined twice")
-    push!(cases, ReplayCase(String(id), fixture, run, map, fixture_map))
+    push!(cases, ReplayCase(String(id), fixture, run, map, fixture_map, fixture_view))
     return cases
 end
 
@@ -90,3 +97,7 @@ function golden_module(g)
     Core.eval(mod, :(using Main: case!, replay!, SEEDS, FieldMap, IDENTITY_MAP, bit_record, Case, ReplayCase))
     return mod
 end
+
+# The SHA-256 of a whole record (`path\ttype\tvalue` lines in walk order): a whole-case intended change's value
+# (replay.jl `whole_case_change`, digest.jl).
+_record_digest(rec) = bytes2hex(SHA.sha256(join(("$p\t$t\t$v" for (p, t, v) in rec), "\n")))

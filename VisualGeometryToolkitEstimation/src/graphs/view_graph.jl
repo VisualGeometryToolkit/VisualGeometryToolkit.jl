@@ -222,10 +222,10 @@ _m3(R) = SMatrix{3, 3, Float64, 9}(VgtkCore.geom(R))   # an Uncertain rotation's
 
 The view graph without the rotation edges that disagree with the absolute
 rotations `world_from` (a `Dict` view => `R_k`, `d = R_k·f_k`, as
-[`fit_rotation_averaging`](@ref) returns): an edge `(i, j)` goes when the angle of
+[`RotationAveraging`](@ref) returns): an edge `(i, j)` goes when the angle of
 `R_j·R_ij·R_iᵀ` exceeds `tol` radians (Theia's `FilterViewPairsFromOrientation`).
 An edge with a view missing from `world_from` stays. Each edge is a rotation, an
-`Uncertain` one, or an `Attributed` one of either (as [`fit_rotation_averaging`](@ref)
+`Uncertain` one, or an `Attributed` one of either (as [`RotationAveraging`](@ref)
 takes them; a covariance plays no part), and so may each `R_k`.
 """
 function filter_by_orientation(vg::ViewGraph{K, E}, world_from::AbstractDict; tol::Real) where {K, E}

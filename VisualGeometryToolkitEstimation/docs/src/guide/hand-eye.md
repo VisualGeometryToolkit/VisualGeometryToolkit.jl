@@ -501,7 +501,7 @@ intrinsics ``K``; loss ``\rho``, scale estimator, tolerance ``\tau``.
 !!! note "Note"
     Sections [1](@ref handeye-setup)–[6](@ref handeye-algo) derive the
     ``AX = YB`` form with both ``X`` and ``Y`` as unknowns. The implementation
-    (`find_hand_eye`, on the RANSAC problem `HandEyeProblem`) eliminates the
+    (`Ransac` on the RANSAC problem `HandEyeProblem`) eliminates the
     nuisance ``Y`` via the relative-motion ratio
 
     ```math
@@ -597,7 +597,7 @@ Applied componentwise:
 ```
 
 where ``w_i^{(k)}`` are the current Student-t/uniform posterior weights from
-the E-step (`soft_posterior_weights!` / `update_weights!`). Each LO iteration
+the E-step (`mixture_ecm!` / `update_weights!`). Each LO iteration
 runs:
 
 1. M-step (scale): ``(\hat\sigma_R, \hat\sigma_t)`` via (25).

@@ -21,8 +21,7 @@ using StableRNGs
 import VisualGeometryToolkitCore as VgtkCore
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: Point2, Line2D, GaussianShape, WelschShape, HuberShape, MsacScoring, estimate,
-    PosteriorWeightState, JeffreysPrior, deploy, update_weights!, robust_weight, inlier_weight, is_inlier
+using VisualGeometryToolkitCore: Point2, Line2D, GaussianShape, WelschShape, HuberShape, MsacScoring, PosteriorWeightState, JeffreysPrior, deploy, update_weights!, robust_weight, inlier_weight, is_inlier
 using VisualGeometryToolkitEstimation: RansacWorkspace
 
 # The line y = 0: 57 inliers (σ = 0.01), 8 finite outliers on one side (0.4 off,
@@ -40,15 +39,15 @@ off_line(line) = abs(signed_distance(line, Point2(28.0, 0.0)))
 @testset "Gaussian LO" begin
     @testset "improves its seed beside out-of-reach points" begin
         prob = scene(StableRNG(71); out_of_reach = true)
-        r = locally_optimize(prob, SEED; local_optimization_strategy = Irls{GaussianShape}(), scoring = MsacScoring(prob; threshold = 0.1))
-        @test estimate(r) != SEED
-        @test off_line(estimate(r)) < 0.005
+        r = solve(RefineProblem(prob, SEED), LocalOptimization(Irls{GaussianShape}(); scoring = MsacScoring(prob; threshold = 0.1)))
+        @test r.u != SEED
+        @test off_line(r.u) < 0.005
     end
     @testset "fits the consensus set, not the outliers" begin
         # Least squares over every point would sit 8·0.4/65 ≈ 0.05 off.
         prob = scene(StableRNG(72); out_of_reach = false)
-        r = locally_optimize(prob, SEED; local_optimization_strategy = Irls{GaussianShape}(), scoring = MsacScoring(prob; threshold = 0.1))
-        @test off_line(estimate(r)) < 0.005
+        r = solve(RefineProblem(prob, SEED), LocalOptimization(Irls{GaussianShape}(); scoring = MsacScoring(prob; threshold = 0.1)))
+        @test off_line(r.u) < 0.005
     end
 end
 
@@ -62,7 +61,7 @@ end
     ws = RansacWorkspace(prob, sc, lo)
     _, k = VgtkCore.score_model!(ws.buf, sc, prob, SEED)
     est = VgtkEstimation._lo_on_partition!(ws, prob, SEED, sc, k, lo)
-    @test off_line(estimate(est)) < off_line(SEED)
+    @test off_line(est.u) < off_line(SEED)
     w = ws.lo_ws.posterior_w
     @test all(isfinite, w)
     @test all(>(0), w[58:65])          # the finite outliers: weighed, out of the consensus set
@@ -124,8 +123,8 @@ using LinearAlgebra
 using StaticArrays
 using StableRNGs
 using VisualGeometryToolkitCore, VisualGeometryToolkitEstimation
-using VisualGeometryToolkitCore: Point2, Circle, Triggs, GaussianShape, CauchyShape, MsacScoring, estimate
-using VisualGeometryToolkitEstimation: CircleProblem, locally_optimize
+using VisualGeometryToolkitCore: Point2, Circle, Triggs, GaussianShape, CauchyShape, MsacScoring
+using VisualGeometryToolkitEstimation: CircleProblem
 import VisualGeometryToolkitEstimation as VgtkEstimation
 import VisualGeometryToolkitCore as VgtkCore
 
@@ -143,7 +142,7 @@ function circle_points(rng; outliers::Bool, out_of_reach::Bool)
 end
 const SEED = Circle(Point2(100.2, 79.9), 50.15)
 circle_error(c) = max(norm(SVector(c.center...) - SVector(100.0, 80.0)), abs(c.r - 50))
-fit(pts, lo) = (p = CircleProblem(pts); estimate(locally_optimize(p, SEED; local_optimization_strategy = lo, scoring = MsacScoring(p; threshold = 1.0))))
+fit(pts, lo) = (p = CircleProblem(pts); solve(RefineProblem(p, SEED), LocalOptimization(lo; scoring = MsacScoring(p; threshold = 1.0))).u)
 
 @testset "Gaussian Triggs" begin
     @testset "improves its seed beside out-of-reach points" begin

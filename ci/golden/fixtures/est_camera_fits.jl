@@ -1,8 +1,8 @@
 # Fixtures of the camera fits of VisualGeometryToolkitEstimation's suite: the lens-family cases and the synthetic
-# fisheyes of fit_camera_testsetups.jl (FitCameraLensCases, FitCameraFisheye, FitCameraNoncentral), the icra2026
+# fisheyes of camera_regression_testsetups.jl (FitCameraLensCases, FitCameraFisheye, FitCameraNoncentral), the icra2026
 # fisheye of camera_verbs_tests.jl, optical_axis_tests.jl's OffAxisSpline and FoldingSources, the RC siemens start
 # camera (test/fixtures/rc_siemens_start_camera.jl), the DivisionBoards scenes (synthetic_scenes()), and
-# refine_camera_and_poses_tests.jl's CameraPoseScenes, SplineCameraPoseScenes, BoardScenes and RotationCenterScenes.
+# camera_poses_tests.jl's CameraPoseScenes, SplineCameraPoseScenes, BoardScenes and RotationCenterScenes.
 # Every function here builds data only; no estimator of the group is called.
 using Test, StableRNGs, StaticArrays, Random
 using LinearAlgebra: norm, normalize
@@ -160,7 +160,7 @@ ecf_board_views(rng; σ = 0.4, ε = 0.0) = Dict(enumerate(first(_ECF_DB.noisy_bo
 ecf_first_board_pixels() = _ECF_DB.board_pixels(_ECF_DB.board_camera(Rotations.RotXYZ(_ECF_DB.BOARD_ANGLES[1]...), _ECF_DB.BOARD_TS[1]))
 
 # ---------------------------------------------------------------------------------------------------------------
-# CameraPoseScenes, SplineCameraPoseScenes, BoardScenes, RotationCenterScenes (refine_camera_and_poses_tests.jl)
+# CameraPoseScenes, SplineCameraPoseScenes, BoardScenes, RotationCenterScenes (camera_poses_tests.jl)
 # ---------------------------------------------------------------------------------------------------------------
 # the scenes (`pinhole_camera`, `fisheye_camera`, `truth_poses`, `perturbed_pose`, `views_of`, `spline_truth`,
 # `perturbed_controls`, `spline_views`, `board_points`, `truth_boards`, `view_poses`, `board_views`, `nudged`,

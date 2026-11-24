@@ -21,9 +21,9 @@
 # robustified per datum; and a multi-block problem (`LmProblem`: heterogeneous
 # variables and residual blocks, each with its own robustifier — the bundles).
 # VisualGeometryToolkitEstimation's LO refits (H: N = 8, F: 7, E: 5, PnP and hand-eye: 6,
-# the radial homography: 9, the radial camera: 5), its `fit_camera` and its
-# `refine_ellipse` run the chart LM; its block-structured fits (the relative-pose
-# bundle, the camera-and-poses refines, `refine_robot_world_hand_eye`) the
+# the radial homography: 9, the radial camera: 5), its camera regression and its
+# ellipse refine run the chart LM; its block-structured fits (the relative-pose
+# bundle, the camera-and-poses refines, the robot-world refine) the
 # multi-block one.
 #
 # The adapter presents a linearization state as an NLLSsolver problem: one
@@ -1195,6 +1195,22 @@ function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, car
         end
     end
     return (F, f2, carried, S2)
+end
+
+"""
+    nlls_rows(blocks, variables) -> Vector{Float64}
+
+The rows of NLLSsolver residual `blocks` at `variables`, in block order: [`nlls_rows_and_jacobian`](@ref)'s rows
+without assembling its sparse Jacobian. They are `NLLSsolver.computeresjac`'s (the rows the LM itself evaluated, the
+value part of its derivative), not `computeresidual`'s, which an autodiff block rounds differently in the last bits.
+"""
+function nlls_rows(blocks, variables::AbstractVector)
+    rows = Float64[]
+    for c in blocks
+        vi = NLLSsolver.varindices(c)
+        append!(rows, first(NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)))
+    end
+    return rows
 end
 
 """

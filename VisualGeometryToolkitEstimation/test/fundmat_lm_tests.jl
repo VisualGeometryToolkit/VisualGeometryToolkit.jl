@@ -1,4 +1,5 @@
 @testitem "fundmat_lm" setup = [EpipolarScenes] begin
+    using VisualGeometryToolkitCore: solve, RefineProblem
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # fundmat_lm_tests.jl — Bartoli–Sturm orthonormal F refit (NonlinLsq, PAMI'04).
@@ -9,11 +10,11 @@ using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using Rotations: RotMatrix, MRP
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: estimate   # VGC accessors (public)
+
 using VisualGeometryToolkitCore: EssentialMat, FundMat
 using VisualGeometryToolkitCore.Synthetic: projective_distance
-using VisualGeometryToolkitCore: FundMatManifold7, retract   # the F chart (public)
-using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: FundMatManifold7, retract
+using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation
 const VgtkEstimation = VisualGeometryToolkitEstimation
 
@@ -49,17 +50,14 @@ const VgtkEstimation = VisualGeometryToolkitEstimation
     @test cost(F_ref) < 0.5 * cost(F_seed)
     @test cost(F_ref) < 1.5 * cost(VgtkEstimation.FundMat(Tuple(F_gt)))   # near the GT optimum
 
-    # The core's static Welsch IRLS on the same chart: locally_optimize must run
+    # The core's static Welsch IRLS on the same chart: LocalOptimization must run
     # on FundMatProblem and improve the cost from the perturbed seed. (The
     # joint-(θ,z) Welsch HQ lift on F is LocalOptimizationDoneRight's test.)
     sc = MsacScoring(typeof(prob); threshold = 0.05)   # outlier-free scene: wide enough for the perturbed seed's consensus
     ws = VgtkEstimation.RansacWorkspace(prob, sc)
-    rlift = VgtkEstimation.locally_optimize(
-        prob, F_seed; local_optimization_strategy = VgtkCore.Irls{VgtkCore.WelschShape}(max_iter = 25, efficiency_constant = 1.5),
-        scoring = sc, workspace = ws
-    )
-    @test estimate(rlift) !== nothing
-    @test cost(estimate(rlift)) < cost(F_seed)
+    rlift = solve(RefineProblem(prob, F_seed), LocalOptimization(VgtkCore.Irls{VgtkCore.WelschShape}(max_iter = 25, efficiency_constant = 1.5); scoring = sc))
+    @test rlift.u !== nothing
+    @test cost(rlift.u) < cost(F_seed)
 end
 
 # The rows' degeneracy rule (a zero row, never a floor) is VGC's

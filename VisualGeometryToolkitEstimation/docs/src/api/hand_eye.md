@@ -11,22 +11,23 @@ HandEyeProblem
 Rigid3
 ```
 
-## Fitting Pipeline
+## Find and refine
 
-```@docs
-find_hand_eye
-refine_hand_eye
-```
+`solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng)` is the find
+(`[pipelines.hand_eye]`: MSAC at `0.01·L`) and
+`solve(RefineProblem(HandEyeProblem(A .=> B), X₀), LevenbergMarquardt(); scale | width)`
+the refine. Physical (metre) poses are stripped at construction and the estimate
+comes back in metres.
 
 ## Result Type
 
-`find_hand_eye` returns a `FitResult{Rigid3, RansacMetadata}`
-(`RansacEstimate{Rigid3}`, with [`Rigid3`](@ref) an unlabeled `EuclideanMap{3, Float64}`). The `.estimate` field is the recovered rigid
+The find returns a `FitResult{Rigid3, RansacMetadata}`
+(`RansacEstimate{Rigid3}`, with [`Rigid3`](@ref) an unlabeled `EuclideanMap{3, Float64}`). Its `u` is the recovered rigid
 transform `X = T_RP` (pattern in rig). The nuisance camera-in-world
 transform `Y = T_WC` is **not** returned — it drops out of the AX = XB
-formulation. The remaining diagnostics (`inlier_mask(result)`, `.residuals`,
-`weights(result)`, `.iterations` — for RANSAC the number of trials, hypotheses
-drawn — `.converged`, …) match the standard `RansacEstimate` surface.
+formulation. The remaining diagnostics (`inlier_mask(result)`, `result.resid`,
+`weights(result)`, `result.stats.nsteps` — for RANSAC the number of trials, hypotheses
+drawn — `result.retcode`, …) match the standard `RansacEstimate` surface.
 
 ## Formulation
 
@@ -67,7 +68,7 @@ chart about the current `X` — `R_X = exp(δω)·R₀` plus an additive update
 (NLLSsolver, through `lmsolve_chart!`) with a ForwardDiff Jacobian of the explicit residual: that
 `Gθ` is only the near-optimum approximation of `∂g/∂δ`, so the refit does not
 use it. Each RANSAC hypothesis is Tsai–Lenz fitted on its own two motions by
-the same refit (`fit_hypothesis`), the estimator the solver covariance
+the same refit (`sample_hypothesis`), the estimator the solver covariance
 describes.
 
 ## Identifiability
@@ -80,7 +81,7 @@ leaves the component of `X` about that axis unobservable.
 
 `HandEyeProblem` admits only relative motions that rotate at least
 `min_rel_angle` (`configs/default.toml` `[robot_world_hand_eye]` `min_rel_angle_deg` —
-the same authority `fit_robot_world_hand_eye`'s init reads): its constructor is the one
+the same authority the robot–world fit's init reads): its constructor is the one
 gate, so every motion a sample draws has succeeded at it. `test_sample` then rejects a
 minimal sample whose two axes lie within ~2.5° of each other. Both ill-condition
 `X`, and near-identity motions put a tail on the hypotheses' scatter that their
@@ -94,7 +95,7 @@ result.
 * **No reprojection refinement here**: because `Y = T_WC` is eliminated,
   this pipeline cannot refine on pixel reprojection error (that requires `Y`
   to project pattern points into pixels). The robot-world form below keeps
-  `Y`: `fit_robot_world_hand_eye` then `refine_robot_world_hand_eye` minimizes
+  `Y`: its staged fit then its reprojection refine minimizes
   `Σ ‖uᵢⱼ − project(camera, Y⁻¹ ∘ Aᵢ ∘ Xₘ (Pⱼ))‖²` over `Y` and every `Xₘ`.
 * **Single global characteristic length**: the default `L` is a scalar
   set from the data; the rotation-vs-translation trade-off is not
@@ -105,10 +106,12 @@ result.
 ## Robot-World Calibration (Y kept)
 
 `A_i X_m = Y B_i^m` with one shared `Y = T_WC` and per-marker `X_m = T_RPm`:
-`fit_robot_world_hand_eye` is the staged linear solve from per-(frame, marker) poses
+`solve(EstimationProblem(RobotWorldHandEyeCalibration, markers, (; σ_rot, σ_trans)), ReweightedLeastSquares(…); scale | width)`
+is the staged linear solve from per-(frame, marker) poses
 (its covariance is the first-order covariance of the staged estimator itself,
 propagated through each stage's stationarity conditions by the implicit
-function theorem, and `Inf` along unobservable directions); `refine_robot_world_hand_eye` refines it
+function theorem, and `Inf` along unobservable directions);
+`solve(RefineProblem(RobotWorldHandEyeProblem(camera, markers), calibration), LevenbergMarquardt(); scale | width)` refines it
 against the markers' features — the reprojection error, camera and rig poses
 fixed — on `M + 1` `RigidExpManifold6` charts with NLLSsolver's
 Levenberg–Marquardt (one pose block per marker and one residual block per
@@ -121,31 +124,27 @@ held-out reprojection, frame count, field of view, marker count and a poor
 seed).
 
 The staged fit takes the robust-estimation contract's fixed-scale IRLS:
-`optimization_strategy = Irls{K}()` with `σ_rot`, `σ_trans` (the whitening)
-and exactly one of `scale` or `width` on the whitened 6-residual. Each stage is
+`ReweightedLeastSquares(; optimization_strategy = Irls{K}())` with `σ_rot`, `σ_trans`
+(the whitening, in the problem's context) and exactly one of `scale` or `width` on
+the whitened 6-residual. Each stage is
 reweighted (Kabsch pairs, chordal means, the translation least squares), so a
 handful of gross poses — sparse frames a registration placed tens of degrees
 wrong — get weight ≈ 0 instead of tilting `Y` and every `X_m`.
 
 ```@docs
-fit_robot_world_hand_eye
-refine_robot_world_hand_eye
+RobotWorldHandEyeProblem
 RobotWorldHandEyeCalibration
 RobotWorldHandEyeMetadata
 ```
 
 ## Rigid Alignment of Point Sets (ATE)
 
-`fit_rigid_alignment` is the rigid `T` with `b ≈ R·a + t` from point pairs: the
-alignment an absolute trajectory error is measured after. Least squares (the
-classical Kabsch on weighted centroids) by default; with
-`optimization_strategy = Irls{K}()` and a `scale` (the trajectory's noise per
-axis) or a `width`, the same at one fixed loss width, so a few gross centres do
-not tilt the alignment.
-
-```@docs
-fit_rigid_alignment
-```
+`solve(EstimationProblem(EuclideanMap{3}, a .=> b), ReweightedLeastSquares(…))` is the
+rigid `T` with `b ≈ R·a + t` from point pairs: the alignment an absolute trajectory
+error is measured after. Least squares (the classical Kabsch on weighted centroids)
+by default; with `optimization_strategy = Irls{K}()` and a `scale` (the trajectory's
+noise per axis) or a `width`, the same at one fixed loss width, so a few gross
+centres do not tilt the alignment. Physical points come back as a physical map.
 
 Its metadata is the reweighted fits' [`FitMetadata`](@ref).
 

@@ -48,7 +48,7 @@ using VisualGeometryToolkitCore: Rigid, ThinPlateSpline, HeightField, Lens, Pers
 
 export golden_line, read_goldens, golden_value, target_cases, lens_cases, design_points, physical_points,
     rays, image_points, jacobian_count, KIND_LETTERS, case_members, target_blocks, lens_blocks, block_permutation, ulps,
-    expected_core_value, compare_value, scaled_comparison, solve_condition, value_precision, printed_value, MAX_ULPS
+    expected_core_value, compare_value, scaled_comparison, linear_condition, value_precision, printed_value, MAX_ULPS
 
 # -----------------------------------------------------------------------------
 # The line format
@@ -278,7 +278,7 @@ function scaled_comparison(key::AbstractString, V)
 end
 
 """
-    solve_condition(key) -> Union{Float64, Nothing}
+    linear_condition(key) -> Union{Float64, Nothing}
 
 The condition number κ of the linear system a golden is solved from, when its
 last bits follow the CPU (OpenBLAS's core type); `nothing` for every other
@@ -302,7 +302,7 @@ magnitude is a tenth of the largest or less); GitHub's ubuntu-26.04 runner
 19200 ulps of the worst entry. The bound, 4κ ≈ 1.2e4 ulps of the largest
 entry, holds all of them with a margin of 300.
 """
-function solve_condition(key::AbstractString, V = (;))
+function linear_condition(key::AbstractString, V = (;))
     haskey(V, :lens_inverse_lm) && V.lens_inverse_lm && _is_lens_inverse(key) && return 2.0
     key in ("target/T/jacobian_theta", "target/H/jacobian_theta") || return nothing
     nodes = spline_nodes()
@@ -344,7 +344,7 @@ Names, texts and flags exactly; Float64 arrays of the same shape within
 `MAX_ULPS`. With `scaled`, within `MAX_ULPS` ulps of the array's largest entry
 instead (`scaled_comparison`): for values whose rounding moves with the order
 of an SVD's input, where an entry that is zero to rounding has no ulp. With
-`condition = κ` (`solve_condition`), within `MAX_ULPS · κ` ulps of the
+`condition = κ` (`linear_condition`), within `MAX_ULPS · κ` ulps of the
 array's largest entry: for values solved from a system whose LAPACK rounding
 follows the CPU.
 

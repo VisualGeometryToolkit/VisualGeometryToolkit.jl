@@ -1,7 +1,7 @@
 # Robot–World Hand–Eye Calibration
 
-*The `fit_robot_world_hand_eye` estimator: staged linear robot–world /
-multi-marker hand–eye calibration.*
+*The robot–world fit, `solve(EstimationProblem(RobotWorldHandEyeCalibration, markers, p),
+ReweightedLeastSquares(…))`: staged linear robot–world / multi-marker hand–eye calibration.*
 
 ## [1. Problem](@id rwhe-problem)
 
@@ -134,5 +134,6 @@ objective: minimize the reprojection error of the extracted image features
 (blob centroids, tag corners) over ``(Y, X_1,\dots,X_M)``, initialized at the
 staged linear solution. Per-feature pixel residuals make heteroscedasticity
 automatic (each board contributes as many residuals as it has features) and
-remove PnP as an intermediate estimator entirely. This is the objective
-`refine_robot_world_hand_eye` minimizes.
+remove PnP as an intermediate estimator entirely. This is the objective the
+robot–world refine, `solve(RefineProblem(RobotWorldHandEyeProblem(camera, markers), guess),
+LevenbergMarquardt(…); scale | width)`, minimizes.

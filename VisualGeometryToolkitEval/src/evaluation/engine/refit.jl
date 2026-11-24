@@ -16,7 +16,7 @@
 #                   scale), or from an absolute scale `s2` the caller supplies
 #                   (`with_width(lo, fixed_width(lo, s2))`).
 #   ExternalRefit — a third-party solver's model → model refine at an absolute
-#                   loss width (VisualGeometryToolkitCore's `refine_external!`, on its
+#                   loss width (VisualGeometryToolkitCore's `external_refit!`, on its
 #                   per-pair `external_workspace`): PoseLib's truncated refiners
 #                   (LocalOptimizationDoneRight's PoseLib extension), RansacLib's
 #                   classical LO (a paper project's).
@@ -32,7 +32,7 @@ same marginal that seeded it) does not drop below the seed's
 the optimizer descends a different objective.
 
 Its `RefitFamily` and the external-refit bracket (`external_workspace`,
-`prepare_external!`, `refine_external!`) are `inner`'s, as on
+`prepare_external!`, `external_refit!`) are `inner`'s, as on
 VisualGeometryToolkitEstimation's `CountedLO` and `TerminalLO`: a guarded external
 arm is routed, prepared and refined as the bare arm. The guard is
 `score_guard` on the native path, so an external refit is forwarded unguarded.
@@ -46,8 +46,8 @@ VgtkCore.external_workspace(g::ScoreGuarded, problem, frame, scoring) =
 VgtkCore.prepare_external!(ws, g::ScoreGuarded, problem, θ, width, scoring) =
     prepare_external!(ws, g.inner, problem, θ, width, scoring)
 # (A fixed noise scale reaches the `LossWidth` method through VGC's `FixedS2` default.)
-VgtkCore.refine_external!(ws, g::ScoreGuarded, problem, θ, width::LossWidth, scoring) =
-    refine_external!(ws, g.inner, problem, θ, width, scoring)
+VgtkCore.external_refit!(ws, g::ScoreGuarded, problem, θ, width::LossWidth, scoring) =
+    external_refit!(ws, g.inner, problem, θ, width, scoring)
 # Identity + interface traits are forwarded to the guarded strategy.
 VgtkCore.optimization_path(g::ScoreGuarded) = optimization_path(g.inner)
 VgtkCore.scale_interface(g::ScoreGuarded) = scale_interface(g.inner)
@@ -174,7 +174,7 @@ end
 The execution path of one `RefitFamily` (VisualGeometryToolkitCore's Holy trait:
 `NativeRefit`, `ExternalRefit`). [`refit_imc!`](@ref)`(ctx, lo, seed, nat′; …)`
 resolves the keywords and calls this with `RefitFamily(lo)`. A new strategy
-plugs in through the contracts (`locally_optimize!`, or `refine_external!`
+plugs in through the contracts (`locally_optimize!`, or `external_refit!`
 with its `external_workspace`), never by a method here.
 """
 function refit_imc!(ctx, ::NativeRefit, lo, seed, nat′, scoring, fallback, bundle, s2)
@@ -248,7 +248,7 @@ function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, b
     ws = get!(() -> external_workspace(lo, prob, ctx.geom, scoring), ctx.lo_ws,
               Symbol(:ext_, _template_tag(ctx, scoring), :_, nameof(typeof(_unwrap_lo(lo)))))
     prepare_external!(ws, lo, prob, seed, width, scoring) || return (fallback, Int64(0))
-    guarded_refit(() -> refine_external!(ws, lo, prob, seed, width, scoring),
+    guarded_refit(() -> external_refit!(ws, lo, prob, seed, width, scoring),
                   m -> model_imc(m, ctx), fallback; warn_label = "external refine ($(nameof(typeof(lo))))")
 end
 
@@ -281,7 +281,7 @@ OutlierHalfwidth(outlier_halfwidth))`.
 
 In the loop, each call re-scores the model under the refit scoring in the
 loop's own buffers and runs the loop's own Phase-2 step on that consensus set
-(VisualGeometryToolkitEstimation's `locally_optimize_rescored!`): at `outlier_halfwidth` =
+(VisualGeometryToolkitEstimation's `rescore_and_optimize!`): at `outlier_halfwidth` =
 the selection's it is the score the loop just ran, so the wrapped arm
 reproduces the bare arm exactly. The refined model goes back to the loop, which
 re-scores it under the SELECTION scoring and keeps it only if it beats the
@@ -310,5 +310,5 @@ function VgtkCore.locally_optimize!(L, r::RefitHalfwidth, problem, model,
                                               ::ConsensusSet, buf::ScoreBuffers, _scoring)
     # Model-certain scoring only: the re-score scores the PLAIN model; a
     # predictive scoring would need its covariance-wrapped form.
-    return locally_optimize_rescored!(L, r.lo, problem, model, buf, r.scoring_of(problem))
+    return rescore_and_optimize!(L, r.lo, problem, model, buf, r.scoring_of(problem))
 end

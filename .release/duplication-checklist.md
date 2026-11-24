@@ -151,7 +151,7 @@ green on it.
 | launch then reduce, on the device | Estimation's `_LensRegressionLm`, RC's `_RadiometryLm` | `reduce_normal_equations(row!, …)`/`reduce_cost(row!, …)` (0.9.7 port) | the 0.9.7 tests | [x] |
 | IoU below a bound | BlobBoards' `_iou_below` | `iou_below` | `check_duplication` with the wave stack paths | [x] |
 | README-test helpers | BlobBoards' and CaliBlobs' restated helpers | `page_examples`, `install_lines` | `check_duplication` with the wave stack paths | [x] |
-| the refine width rule and the unit-bearing check | PoseLib's and Estimation's copies (review E11, E12) | `refine_width`, `assert_unit_bearings` | `check_duplication` | [x] |
+| the refine width rule and the unit-bearing check | PoseLib's and Estimation's copies (review E11, E12) | `refit_width`, `assert_unit_bearings` | `check_duplication` | [x] |
 | the module walk of the quality gates | `check_naming`'s supertype table and QualityExt each walked the modules | Core's `_module_tree` | `check_splat` (Core `:enforce`) | [x] |
 | the 2D/3D target point containers | `TargetPoints2D/3D` beside `TargetDetections` | `TargetObservations` | `check_naming` retired names | [x] |
 | the stopping rule's record | per-package rule tables (LODR) | `stop_rule(criterion, method)` | the contract generic | [x] |

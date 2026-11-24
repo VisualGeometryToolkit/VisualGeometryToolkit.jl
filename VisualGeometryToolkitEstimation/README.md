@@ -9,12 +9,14 @@ VisualGeometryToolkitEstimation provides robust estimation for geometric
 vision: one generic RANSAC loop and the estimation problems of the
 VisualGeometryToolkit packages, from lines, homographies, fundamental and
 essential matrices and absolute pose to radial cameras and hand-eye
-calibration. Every `find_*` pipeline runs MSAC scoring and refits the model on
-the inliers by default (least squares for most problems), and other scorers
-and local optimizers plug in by keyword. A camera model is regressed onto
-another camera by three verbs: `fit_camera` (one linear solve, no guess),
-`refine_camera` (the exact pixel least squares from a guess) and
-`approximate_camera` (the two).
+calibration. Every estimator is `solve(problem, algorithm)`: a family problem
+such as `HomographyProblem(correspondences)` is the problem's data, `Ransac()`
+finds a model in contaminated data (MSAC scoring and a refit on the inliers by
+default, other scorers and local optimizers as its fields),
+VisualGeometryToolkitCore's `LevenbergMarquardt()` refines a guess, and each
+fit is an algorithm of its own. A camera model is regressed onto another camera
+by `CameraRegression()` (one linear solve, no guess) and refined from a guess
+by `LevenbergMarquardt()` on the same `CameraRegressionProblem`.
 
 ## Installation
 
@@ -44,14 +46,15 @@ for i in 1:8                                                # replace 8 with out
     dst[i] = Point2(640rand(rng), 480rand(rng))
 end
 
-result = find_homography(correspondences(src, dst))   # MSAC at 3 px, the default
+problem = EstimationProblem(HomographyProblem(correspondences(src, dst)))
+result = solve(problem, Ransac())             # MSAC at 3 px, the class default
 count(inlier_mask(result))                    # 32, the true correspondences
 
-H = Matrix(estimate(result))
+H = Matrix(result.u)
 H ./ H[3, 3] ≈ Matrix(H_true)                 # true
 
-result_2px = find_homography(correspondences(src, dst);   # a scorer overrides the class's
-                           scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0))
+result_2px = solve(problem,                   # a scorer overrides the class's
+                   Ransac(; scoring = VisualGeometryToolkitCore.MsacScoring(HomographyProblem; threshold = 2.0)))
 ```
 
 The [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/getting-started/)
@@ -60,10 +63,10 @@ guide continues from here.
 ## Documentation
 
 - [Getting Started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/getting-started/):
-  a first pipeline, composing a scorer and a local optimizer, and calling
-  `ransac` directly.
+  a first find, composing a scorer and a local optimizer, refining the result,
+  and reusing a workspace through `init` and `solve!`.
 - [Fitting Algorithms](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/fitting/):
-  every `find_*` and `fit_*` pipeline with its default threshold.
+  every family problem and fit algorithm, with its default threshold.
 - [Extending](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/extending/):
   writing a new RANSAC problem.
 - [Architecture](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEstimation/stable/guide/architecture/):

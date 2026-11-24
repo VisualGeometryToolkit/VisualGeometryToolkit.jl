@@ -1,5 +1,5 @@
 @testitem "noiseless_ransac" setup = [EpipolarScenes, HomographyScenes] begin
-    using VisualGeometryToolkitCore: inlier_mask   # the robust contract's accessors
+    using VisualGeometryToolkitCore: inlier_mask
 using Test
 using Rotations: RotY
 using StaticArrays
@@ -9,9 +9,9 @@ using StableRNGs
 using LinearAlgebra
 
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: converged, found_model, estimate   # VGC accessors (public)
-using VisualGeometryToolkitCore: minimal_sample_size   # the constraint-problem contract (VGC)
-using VisualGeometryToolkitCore: MsacScoring   # owned and exported by VisualGeometryToolkitCore
+using VisualGeometryToolkitCore: found_model
+using VisualGeometryToolkitCore: minimal_sample_size
+using VisualGeometryToolkitCore: MsacScoring
 using VisualGeometryToolkitEstimation
 
 # =============================================================================
@@ -39,7 +39,7 @@ end
     rng = StableRNG(42)
     cs = noiseless_fundmat_pairs(rng, 100, 0)
 
-    F_est = fundamental_dlt(cs)
+    F_est = solve(EstimationProblem(FundMat, cs), DLT()).u
 
     max_sampson = 0.0
     for i in eachindex(cs)
@@ -75,10 +75,10 @@ end
             config = RansacConfig(; max_trials = 10_000, success_prob = 0.9999, min_trials = 100)
             # The problem form: the codimension (2 for H) from the problem.
             scoring = MsacScoring(problem; threshold = 1.0e-4)
-            result = ransac(problem, scoring; config, rng = StableRNG(421))
+            result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config); rng = StableRNG(421))
 
-            @test converged(result)
-            H_est_n = estimate(result) / estimate(result)[3, 3]
+            @test successful_retcode(result)
+            H_est_n = result.u / result.u[3, 3]
             H_ref = H_true / H_true[3, 3]
             @test norm(H_est_n - H_ref) / norm(H_ref) < 1.0e-8
             @test sum(inlier_mask(result)) >= n_in
@@ -101,10 +101,10 @@ end
             problem = FundMatProblem(cs)
             config = RansacConfig(; max_trials = 200_000, success_prob = 0.9999, min_trials = 500)
             scoring = MsacScoring(problem; threshold = 1.0e-4)
-            result = ransac(problem, scoring; config, rng = StableRNG(422))
+            result = solve(EstimationProblem(problem), Ransac(; scoring, local_optimization_strategy = nothing, config); rng = StableRNG(422))
 
             @test found_model(result)          # a model found (a search at its trial budget did not converge)
-            F_est = estimate(result)
+            F_est = result.u
             @test sum(inlier_mask(result)) >= n_in
 
             max_sampson = 0.0

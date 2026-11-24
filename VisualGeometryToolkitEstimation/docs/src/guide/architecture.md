@@ -6,7 +6,7 @@
 
 ```
 AbstractBlockCoordinateMethod (VGC)          model block of block_coordinate_descent!
-├── PosteriorIrlsMethod                      weighted-refit IRLS (Irls{K}, fit_residual_mixture, …)
+├── PosteriorIrlsMethod                      weighted-refit IRLS (Irls{K}, ResidualMixture, …)
 └── (LocalOptimizationDoneRight)             joint-(θ,z) loss lifts (HQ{K}) and GNC (Gnc{S})
 
 AbstractWeightPolicy (VGC)                   nuisance + weight updates driven by block_coordinate_descent!
@@ -18,7 +18,7 @@ dispatches on an `AbstractBlockCoordinateMethod` and a weight policy
 (`AbstractWeightPolicy`). `PosteriorIrlsMethod` is the weighted-refit plug-in:
 paired with `PosteriorLikelihood` and VisualGeometryToolkitCore's
 `PosteriorWeightState` it is the Student-t + uniform EM of
-`fit_residual_mixture` and `fit_division_camera` (and of
+[`ResidualMixture`](@ref) and [`DivisionCameraFit`](@ref) (and of
 LocalOptimizationDoneRight's `StudentTUniform`); `Irls{K}` runs the same
 method under a loss weight policy. The half-quadratic lifts and GNC are
 LocalOptimizationDoneRight's and bring their own methods and policies.
@@ -57,7 +57,7 @@ one `solver_covariance`, the constraint sandwich over an index set).
 ```
 AbstractScoring (VGC)                        the scoring contract
 ├── MsacScoring{DG, T}, RansacScoring{DG, T} VGC's baseline scorers at a threshold
-│                                            (MSAC is every find_*'s default)
+│                                            (MSAC is every class's default)
 └── StudentTUniformScoring{P, DG}            VisualGeometryToolkitCore's Student-t + uniform marginal
                                              (one downstream implementation)
 ```
@@ -78,7 +78,7 @@ RansacWorkspace{K, M, T, W, L}             built once, reused across trials and 
 ├── buf::ScoreBuffers{T, W}                residuals, per-point scores, consensus mask,
 │                                          the scorer's workspace W, a freshness epoch
 ├── lo_ws::L                               lo_workspace(P, T, lo, n): for the core strategies a
-│                                          LoBuffers (refine_workspace(P, n) + posterior buffers)
+│                                          LoBuffers (refit_workspace(P, n) + posterior buffers)
 └── best_* / sample_indices                the incumbent (model, residuals, scores, mask, order)
 ```
 
@@ -102,8 +102,20 @@ live in other packages.
 **Dispatch is static.** `RansacWorkspace{K, M, T, W, L}` carries the type of
 the scorer's workspace `W` and of the local optimizer's workspace `L`. The
 loop compiles once for each combination of problem, scorer and local
-optimizer, with no runtime dispatch. On a reused workspace, `ransac!` does not
-allocate.
+optimizer, with no runtime dispatch. On a reused workspace (`init` → `solve!`),
+a run does not allocate.
+
+**Finds and refines are algorithms on Core's problems.** VisualGeometryToolkitCore
+owns `solve`/`init` (the kind law, the default algorithm, the problem recorded on
+the result); this package adds `__init` for its [`Ransac`](@ref) and
+[`LocalOptimization`](@ref) and the cache's `solve!`/`reinit!`
+([`RansacCache`](@ref VisualGeometryToolkitEstimation.RansacCache)). Its family problems are the problems' `f`: they hold
+the data and their construction context, and implement VisualGeometryToolkitCore's
+chart contract (`model_chart`, `chart_rows`, `chart_model`, `chart_size`,
+`default_optimization_strategy`), so Core's one host `LevenbergMarquardt`
+refines them; the bundles implement its block contract (`block_refit`). A
+problem's class (`[pipelines.<class>]`, `[refine.<class>]`) names its
+configuration of record.
 
 **A width is resolved once.** A strategy that carries a loss width, such as
 `Irls{K, W}`, has one of three width modes. With no width it follows the
@@ -114,7 +126,7 @@ threshold is refused at entry by `check_composition`.
 
 **Local optimization goes through `refine!`.** A problem implements
 VisualGeometryToolkitCore's `refine!(ws, problem, θ, weights)` on the workspace
-`refine_workspace(P, n)`. It is the weighted refit from the current model, and
+`refit_workspace(P, n)`. It is the weighted refit from the current model, and
 the problem's `refit_kind` trait routes it. For the homography, fundamental
 matrix, essential matrix, absolute pose and hand-eye problems, the refit is
 Levenberg–Marquardt on a minimal chart about the current model. The chart is
@@ -138,12 +150,12 @@ VisualGeometryToolkitCore's local-optimization contract:
 scoring)` on the strategy's workspace `L`, returning `lo_estimate(θ′, code, rule;
 iterations, residuals_current)` (its termination record). The core strategies are:
 
-- `nothing` — no local optimization anywhere; the default of
-  `ransac(problem, scoring)`. When selected, `_finalize` does **not** run LO
-  either — the contract is "no LO, period."
+- `nothing` — no local optimization anywhere; the default of a problem without
+  a class. When selected, `_finalize` does **not** run LO either — the
+  contract is "no LO, period."
 - `Irls{K}` — static IRLS on a VGC loss shape `K` at a frozen width.
   `Irls{TLSShape}()` with no width (it follows the scorer's
-  `decision_boundary`) is the default of every `find_*` pipeline
+  `decision_boundary`) is `Ransac()`'s class default for most classes
   (`[pipelines.<class>]` in `configs/default.toml`).
 
 Every other strategy — the half-quadratic lifts `HQ{K}`, `Gnc{S}`, the
@@ -173,7 +185,7 @@ minimal chart anchored at `θ`:
 - `HomographyProblem`: 8-dof sl(3) chart, whitened transfer residual with
   the Sampson shape `Σ̃_{gᵢ}` computed from the current `θ` and frozen for
   the solve; VisualGeometryToolkitCore's chart LM, NLLSsolver through `lmsolve_chart!` (workspace:
-  `ManifoldLmWorkspace{8}`, `refine_workspace(P, n)`, held in the local
+  `ManifoldLmWorkspace{8}`, `refit_workspace(P, n)`, held in the local
   optimizer's workspace).
 - `FundMatProblem`: 7-dof Bartoli–Sturm chart, signed Sampson residual; the
   same core (workspace: `ManifoldLmWorkspace{7}`).
@@ -182,7 +194,7 @@ minimal chart anchored at `θ`:
 - `HandEyeProblem`: 6-dof decoupled chart (VGC `RigidExpManifold6`, the chart
   of its constraint and covariance); the same core with a ForwardDiff Jacobian
   (workspace: `ManifoldLmWorkspace{6}`). Each hand-eye hypothesis is Tsai–Lenz
-  fitted on its two motions (`fit_hypothesis`).
+  fitted on its two motions (`sample_hypothesis`).
 
 The posterior-weight buffers (`posterior_w`, `posterior_inlier`,
 `posterior_sq_r`) live on the core strategies' `LoBuffers`, beside the refit
@@ -196,12 +208,13 @@ shapes (the `AbstractLossShape` family: `WelschShape`, `GemanMcclureShape`,
 `CauchyShape`, `SmoothTLSShape`, `TLSShape`, `HuberShape`, `GaussianShape`,
 `BarronShape`) and the generic block-coordinate-descent loop (`block_coordinate_descent!`,
 `robust/block_coordinate_descent.jl`) from VGC. It extends VGC's `test_model`,
-`test_sample`, `test_consensus`, `constraint_with_jacobians`, `solve` and the
-loop's extension verbs with new methods. The loss shapes and the
+`test_sample`, `test_consensus`, `constraint_with_jacobians`, the estimation
+interface's `__init` (for its own algorithms), the refine's chart contract and
+the loop's extension verbs with new methods. The loss shapes and the
 local-optimization trait vocabulary (`ScaleInterface`, `optimization_path`, …)
 are VGC's, exported by VGC; RVG re-exports nothing. The problem protocol
 (`data_size`, `codimension`, `minimal_sample_size`, `mahalanobis_distances!`, `refine!`,
-`refine_workspace`), the scoring and local-optimization contracts, the baseline
+`refit_workspace`), the scoring and local-optimization contracts, the baseline
 scorers and the Student-t / posterior-weighting toolkit are VGC's too; RVG
 implements them for its problems and strategies.
 
@@ -217,6 +230,6 @@ VisualGeometryToolkitEstimation              RANSACScoringDoneRight     LocalOpt
  Irls{K}, Triggs{K})
 ```
 
-The user composes them: `find_*(…; scoring = <a RANSACScoringDoneRight scorer>,
+The user composes them: `Ransac(; scoring = <a RANSACScoringDoneRight scorer>,
 local_optimization_strategy = <a LocalOptimizationDoneRight strategy>)`. VisualGeometryToolkitEstimation depends on
 neither downstream package.

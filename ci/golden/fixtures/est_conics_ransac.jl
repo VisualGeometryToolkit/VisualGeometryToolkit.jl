@@ -73,9 +73,9 @@ function cr_ellipse_refine_fixtures()
         "perturbed_outl40_1000" => (VgtkCore.Ellipse(VgtkCore.Point2(515.0, 399.0), 303.0, 177.0, 0.62), first(ellipse_scene(Xoshiro(42), 1000))),
         "truth_clean_200" => (E₀, first(ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0))),
         "e0_exact_30" => (CR_e0, p30),
-        "direct_exact_30" => (VgtkCore.direct_ellipse(p30), p30),
-        "direct_noisy_60" => (VgtkCore.direct_ellipse(p60), p60),
-        "direct_noisy_arc_60" => (VgtkCore.direct_ellipse(p60arc), p60arc),
+        "direct_exact_30" => (VgtkCore.solve(VgtkCore.EstimationProblem(VgtkCore.Ellipse, p30), VgtkCore.DirectEllipse()).u, p30),
+        "direct_noisy_60" => (VgtkCore.solve(VgtkCore.EstimationProblem(VgtkCore.Ellipse, p60), VgtkCore.DirectEllipse()).u, p60),
+        "direct_noisy_arc_60" => (VgtkCore.solve(VgtkCore.EstimationProblem(VgtkCore.Ellipse, p60arc), VgtkCore.DirectEllipse()).u, p60arc),
         "e0_too_few_4" => (CR_e0, Point2{Float64}.(ellipse_boundary_points(StableRNG(1), CR_e0, 4))),
         "too_few_4" => (VgtkCore.Ellipse(VgtkCore.Point2(0.0, 0.0), 2.0, 1.0, 0.0), few_points(4)),
     ]

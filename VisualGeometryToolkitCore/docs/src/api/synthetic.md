@@ -12,7 +12,7 @@ submodule), and the Monte Carlo calibration of the uncertainty propagation.
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras, VisualGeometryToolkitCore.Synthetic]
 Private = false
-Pages = ["synthetic/synthetic.jl", "synthetic/conics.jl", "synthetic/evaluation.jl", "synthetic/augmentation.jl"]
+Pages = ["synthetic/synthetic.jl", "synthetic/conics.jl", "synthetic/evaluation.jl", "synthetic/augmentation.jl", "synthetic/surfaces.jl"]
 ```
 
 ## Monte Carlo calibration of the uncertainty propagation

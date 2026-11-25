@@ -5,6 +5,28 @@
 - Under review for the next breaking minor: the name of an uncertain frame's point observation, `center(u)` (an
   `Uncertain{Point2}`), beside `centroid` (a shape's centre, a plain point).
 
+## 0.13.4
+
+### Added
+- **The per-backend choices of one KernelAbstractions implementation, each stated once** (base/device.jl, public), so a
+  downstream kernel's caller asks Core rather than branching on the backend itself. The host/GPU predicate is
+  KernelAbstractions' own `isgpu(backend)`; Core's own backend tests (`device_free_bytes`, `reclaim_device!`, `ka_upload`,
+  `OnBackend`'s one-item rule, `gpu_tier`, `gpu_problem`) now read it, and their three `DUPLICATION.toml` exceptions are gone.
+  - `kernel_float(backend)`: `Float32` on a GPU, `Float64` on the host.
+  - `dual_chunk(backend, slots, device_chunk)`: a Jacobian's ForwardDiff chunk, `device_chunk` on a GPU, all `slots` (at least
+    1) on the host.
+  - `OnBackend(backend; workgroupsize, host_workgroupsize = workgroupsize)`: the workgroup on the host, where heavy work items
+    want a small group (KernelAbstractions gives each CPU thread whole groups).
+  - `device_resident_threads(backend)`: the host's resident threads without a kernel, `Threads.nthreads()` (an `ArgumentError`
+    on a GPU, whose count is its kernel's occupancy); the kernel form's host method is it.
+  - `device_names(backend)`: on the host one entry, `"CPU (<Sys.CPU_NAME>, <n> threads)"`; on a GPU `device_names()`.
+  - `on_device(T, device, x; from)`: a structure in `T` on `device`, `x` itself on the host when `T === from`, else
+    `adapt(device, convert_eltype(T, x))`.
+- `Synthetic.saddle_height(𝐛)` (public): the stack's synthetic saddle warping of a board, the height at a chart position.
+  Core's height-surface fixture generator calls it (its private copy is gone), as RadiometricCamera's test scenes will.
+
+No value changes: every existing call computes what it did.
+
 ## 0.13.3
 
 ### Added

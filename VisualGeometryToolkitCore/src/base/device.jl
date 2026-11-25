@@ -92,7 +92,7 @@ Free memory on the KernelAbstractions backend `dev`, in bytes: the host's for
 chunks from it then does not chunk).
 """
 function device_free_bytes(dev)
-    dev isa KA.CPU && return Int(Sys.free_memory())
+    KA.isgpu(dev) || return Int(Sys.free_memory())
     q = _DEVICE_MEMORY[]
     f = q === nothing ? nothing : q.free(dev)
     f === nothing || return Int(f)
@@ -112,13 +112,28 @@ arguments, at the workgroup size the launch takes.
   (CUDA's `active_blocks` at the launch's block size, the size the backend picks for a dynamic workgroup) times the
   block size times the multiprocessors. Never the device's raw maximum of threads per multiprocessor: a kernel that
   uses 255 registers a thread fits about an eighth of it.
-- The host (`KA.CPU()`): `Threads.nthreads()`, the threads its kernels run on.
+- The host (`KA.CPU()`): `Threads.nthreads()`, the threads its kernels run on, whatever the kernel
+  ([`device_resident_threads`](@ref)`(backend)`).
 - Another backend: an `ArgumentError` (no query; a caller must not guess a capacity).
+
+---
+
+    device_resident_threads(backend) -> Int
+
+The resident threads of every kernel on `backend` when they do not depend on the kernel: on the host (any backend
+that is not a GPU, `!KernelAbstractions.isgpu(backend)`), `Threads.nthreads()`. A GPU's count is its compiled
+kernel's occupancy, so a GPU backend without a kernel is an `ArgumentError`: ask
+`device_resident_threads(kernel, args...; ndrange)` there.
 """
 device_resident_threads(kernel::KA.Kernel, args...; ndrange) = Int(_resident_threads(KA.backend(kernel), kernel, args, ndrange))
+function device_resident_threads(backend::KA.Backend)
+    KA.isgpu(backend) &&
+        throw(ArgumentError("device_resident_threads: a $(typeof(backend))'s resident threads are its kernel's occupancy: ask with the kernel and its launch"))
+    return Threads.nthreads()
+end
 # One method per backend: the host's threads here; an accelerator extension adds its backend's method (CUDA:
 # ext/VisualGeometryToolkitCoreCUDAExt.jl, the compiled kernel's occupancy); any other backend has no query.
-_resident_threads(::KA.CPU, kernel, args, ndrange) = Threads.nthreads()
+_resident_threads(backend::KA.CPU, kernel, args, ndrange) = device_resident_threads(backend)
 _resident_threads(backend::KA.Backend, kernel, args, ndrange) =
     throw(ArgumentError("device_resident_threads: no occupancy query for a $(typeof(backend)) kernel"))
 
@@ -130,7 +145,7 @@ so an allocator outside that pool (ONNX Runtime's) can use it; nothing for the h
 or a backend without a pool query.
 """
 function reclaim_device!(dev)
-    dev isa KA.CPU && return nothing
+    KA.isgpu(dev) || return nothing
     q = _DEVICE_MEMORY[]
     q === nothing || q.reclaim(dev)
     return nothing
@@ -154,11 +169,41 @@ free_device_buffers!(x::AbstractArray, xs::AbstractArray...) = (_free_device_buf
 
 """
     device_names() -> Vector{String}
+    device_names(backend) -> Vector{String}
 
 The names of the accelerator devices this process sees (the extension's query: CUDA's
 devices when CUDA is functional); none without an accelerator extension.
+
+With a `backend`: the devices a run on it uses. On the host (`!KernelAbstractions.isgpu(backend)`)
+one entry, the CPU with its thread count, `"CPU (<Sys.CPU_NAME>, <n> threads)"`; on a GPU,
+`device_names()`, the default device first (a benchmark's header names `first(device_names(backend))`).
 """
 device_names() = (q = _DEVICE_MEMORY[]; q === nothing ? String[] : q.names())
+device_names(backend::KA.Backend) =
+    KA.isgpu(backend) ? device_names() : ["CPU ($(Sys.CPU_NAME), $(device_resident_threads(backend)) threads)"]
+
+"""
+    kernel_float(backend) -> Type{Float32} | Type{Float64}
+
+The float type of a computation that runs ONE KernelAbstractions implementation on every backend
+and is free to choose its precision: `Float32` on a GPU (`KernelAbstractions.isgpu(backend)`: a
+device's single-precision throughput, and the only float some devices have), `Float64` on the host
+(no throughput to gain, and the reference values). The stack's one statement of that choice: a
+kernel's caller converts its data with `convert_eltype(kernel_float(backend), x)` (or
+[`on_device`](@ref)`(kernel_float(backend), backend, x; from)`), never by a branch of its own.
+"""
+kernel_float(backend::KA.Backend) = KA.isgpu(backend) ? Float32 : Float64
+
+"""
+    dual_chunk(backend, slots::Integer, device_chunk::Integer) -> Int
+
+The ForwardDiff partials per dual number (the chunk) of a Jacobian of `slots` columns computed by
+one kernel on `backend`: on a GPU `device_chunk` (a dual's partials live in registers: a wide chunk
+spills them, so a GPU kernel sweeps the columns `device_chunk` at a time), on the host all `slots`
+in one chunk (at least 1: no registers to spill, and one sweep over the data instead of
+`⌈slots / device_chunk⌉`). The values do not depend on the chunk.
+"""
+dual_chunk(backend::KA.Backend, slots::Integer, device_chunk::Integer) = KA.isgpu(backend) ? Int(device_chunk) : max(Int(slots), 1)
 
 # =============================================================================
 # Moving arrays to a device and back — ONE upload for the package family
@@ -190,9 +235,9 @@ device by one KernelAbstractions kernel, `T(x)` per element, on every backend
 (the CPU's included): bit for bit the host's `T.(A)`, at `sizeof(eltype(A))`
 bytes a pixel moved instead of `sizeof(T)`.
 """
-ka_upload(::Type{T}, dev::KA.CPU, A::AbstractArray) where {T} = _narrow_upload(T, eltype(A)) ? _convert_on(T, dev, A) : Array{T}(A)
 function ka_upload(::Type{T}, dev, A::AbstractArray) where {T}
     _narrow_upload(T, eltype(A)) && return _convert_on(T, dev, A)
+    KA.isgpu(dev) || return Array{T}(A)
     d = KA.allocate(dev, T, size(A)...)
     # A dense array of `T` is copied as it is, and so is a host wrapper that IS a dense array's
     # memory in column-major order (`_host_contiguous`: BlobBoards' `reinterpret(N0f8, ::Matrix{Gray{N0f8}})`,
@@ -252,6 +297,19 @@ on_device(::Type{T}, dev, A::AbstractArray) where {T} = _same_memory(get_backend
 # not copied here; CUDA's own access rules apply to it).
 _same_memory(a, b) = typeof(a) === typeof(b)
 on_device(dev, A::AbstractArray) = on_device(eltype(A), dev, A)
+
+"""
+    on_device(T, device, x; from::Type) -> x′
+
+A structure `x` (not an array: a board, a camera, a functor's state; anything `convert_eltype`
+and Adapt.jl's `adapt` take) with its numbers in `T` on `device`, `from` the float type `x`
+holds now: `x` itself on the host (`!KernelAbstractions.isgpu(device)`) when `T === from` (no
+copy of its arrays), else `adapt(device, convert_eltype(T, x))` — the arrays it holds moved to
+`device`'s memory, its numbers converted. The form a kernel's argument takes,
+`on_device(kernel_float(backend), backend, x; from)`.
+"""
+on_device(::Type{T}, dev, x; from::Type) where {T} =
+    !KA.isgpu(dev) && T === from ? x : Adapt.adapt(dev, convert_eltype(T, x))
 
 """
     device_zeros(T, device, dims...) -> array

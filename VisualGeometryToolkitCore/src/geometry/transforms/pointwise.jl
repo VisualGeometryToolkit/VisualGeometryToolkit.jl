@@ -13,7 +13,7 @@
 # comes back NaN (`all(isfinite, out[i])` is its validity), never a throw.
 
 """
-    OnBackend(backend; workgroupsize = nothing)
+    OnBackend(backend; workgroupsize = nothing, host_workgroupsize = workgroupsize)
     (exec::OnBackend)(kernel[, ndrange]) -> KernelAbstractions.Kernel
 
 The stack's ONE kernel-launch policy. Called on a KernelAbstractions `@kernel`,
@@ -39,6 +39,14 @@ CUDA extension compiles every CUDA launch with `always_inline = true`, the
 - any other size (a kernel's tile, a measured device size): that size, on
   every backend.
 
+`host_workgroupsize` replaces `workgroupsize` on the host (a backend that is not
+a GPU, `!KernelAbstractions.isgpu(backend)`): a kernel whose device group is set
+by its register budget, and whose work items are heavy, takes a small group on
+the CPU, where KernelAbstractions gives each thread whole workgroups — its
+default 1024-item group leaves a launch of a few thousand heavy items to a few
+threads (RadiometricCamera's per-pixel kernels: 16 pixels a group on the CPU,
+the device's own size on a GPU). The values do not depend on the group.
+
 A static `ndrange` instantiates a statically sized kernel at `workgroupsize`
 as given (the CPU's allocation-free one-item launch). Every stack kernel is
 instantiated here.
@@ -54,7 +62,8 @@ struct OnBackend{B <: KernelAbstractions.Backend, W}
     OnBackend(backend::KernelAbstractions.Backend, workgroupsize) =
         (b = _launch_backend(backend); new{typeof(b), typeof(workgroupsize)}(b, workgroupsize))
 end
-OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing) = OnBackend(backend, workgroupsize)
+OnBackend(backend::KernelAbstractions.Backend; workgroupsize = nothing, host_workgroupsize = workgroupsize) =
+    OnBackend(backend, KernelAbstractions.isgpu(backend) ? workgroupsize : host_workgroupsize)
 # The backend value a launch compiles for: one per backend TYPE, whatever value the caller holds, so a kernel on the same
 # data compiles once (one cache entry) whether the caller gave `default_device()` or `get_backend(array)`, which never
 # reports compiler options. Every backend as it is, except where an accelerator extension sets its type's launch options
@@ -68,7 +77,7 @@ _launch_backend(backend::KernelAbstractions.Backend) = backend
 @inline function (p::OnBackend)(kernel)
     w = p.workgroupsize
     w === nothing && return kernel(p.backend)
-    !(p.backend isa KernelAbstractions.CPU) && all(isone, w) && return kernel(p.backend, 32)
+    KernelAbstractions.isgpu(p.backend) && all(isone, w) && return kernel(p.backend, 32)
     return kernel(p.backend, w)
 end
 @inline (p::OnBackend)(kernel, ndrange) = kernel(p.backend, p.workgroupsize, ndrange)

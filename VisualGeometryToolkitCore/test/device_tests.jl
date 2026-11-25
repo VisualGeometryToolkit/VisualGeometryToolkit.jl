@@ -383,8 +383,8 @@ end
     @test device_names(cpu) == ["CPU ($(Sys.CPU_NAME), $(Threads.nthreads()) threads)"]
     @test device_names(gpu) == device_names()
     intr = LogicalIntrinsics(CameraCalibrationMat(SVector(500.0, 0, 0, 0, 500.0, 0, 320.0, 240.0, 1)))
-    @test on_device(Float64, cpu, intr; from = Float64) === intr          # the host at its own float: itself, no copy
-    i32 = on_device(Float32, cpu, intr; from = Float64)
+    @test on_device(Float64, Float64, cpu, intr) === intr          # the host at its own float: itself, no copy
+    i32 = on_device(Float32, Float64, cpu, intr)
     @test eltype(i32.K) === Float32 && i32.K == convert_eltype(Float32, intr).K
     # the synthetic saddle: zero at the centre, its quadratic elsewhere
     @test saddle_height(SVector(0.5, 0.5)) == 0

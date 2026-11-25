@@ -190,7 +190,7 @@ and is free to choose its precision: `Float32` on a GPU (`KernelAbstractions.isg
 device's single-precision throughput, and the only float some devices have), `Float64` on the host
 (no throughput to gain, and the reference values). The stack's one statement of that choice: a
 kernel's caller converts its data with `convert_eltype(kernel_float(backend), x)` (or
-[`on_device`](@ref)`(kernel_float(backend), backend, x; from)`), never by a branch of its own.
+[`on_device`](@ref)`(kernel_float(backend), S, backend, x)`), never by a branch of its own.
 """
 kernel_float(backend::KA.Backend) = KA.isgpu(backend) ? Float32 : Float64
 
@@ -299,17 +299,17 @@ _same_memory(a, b) = typeof(a) === typeof(b)
 on_device(dev, A::AbstractArray) = on_device(eltype(A), dev, A)
 
 """
-    on_device(T, device, x; from::Type) -> x′
+    on_device(T, S, device, x) -> x′
 
 A structure `x` (not an array: a board, a camera, a functor's state; anything `convert_eltype`
-and Adapt.jl's `adapt` take) with its numbers in `T` on `device`, `from` the float type `x`
-holds now: `x` itself on the host (`!KernelAbstractions.isgpu(device)`) when `T === from` (no
-copy of its arrays), else `adapt(device, convert_eltype(T, x))` — the arrays it holds moved to
-`device`'s memory, its numbers converted. The form a kernel's argument takes,
-`on_device(kernel_float(backend), backend, x; from)`.
+and Adapt.jl's `adapt` take) that holds its numbers in `S`, with its numbers in `T` on `device`:
+`x` itself on the host (`!KernelAbstractions.isgpu(device)`) when `T === S` (no copy of its
+arrays), else `adapt(device, convert_eltype(T, x))` — the arrays it holds moved to `device`'s
+memory, its numbers converted. The form a kernel's argument takes,
+`on_device(kernel_float(backend), S, backend, x)`.
 """
-on_device(::Type{T}, dev, x; from::Type) where {T} =
-    !KA.isgpu(dev) && T === from ? x : Adapt.adapt(dev, convert_eltype(T, x))
+on_device(::Type{T}, ::Type{S}, dev, x) where {T, S} =
+    !KA.isgpu(dev) && T === S ? x : Adapt.adapt(dev, convert_eltype(T, x))
 
 """
     device_zeros(T, device, dims...) -> array

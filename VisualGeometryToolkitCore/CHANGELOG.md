@@ -20,7 +20,7 @@
   - `device_resident_threads(backend)`: the host's resident threads without a kernel, `Threads.nthreads()` (an `ArgumentError`
     on a GPU, whose count is its kernel's occupancy); the kernel form's host method is it.
   - `device_names(backend)`: on the host one entry, `"CPU (<Sys.CPU_NAME>, <n> threads)"`; on a GPU `device_names()`.
-  - `on_device(T, device, x; from)`: a structure in `T` on `device`, `x` itself on the host when `T === from`, else
+  - `on_device(T, S, device, x)`: a structure holding `S`, in `T` on `device`: `x` itself on the host when `T === S`, else
     `adapt(device, convert_eltype(T, x))`.
 - `Synthetic.saddle_height(𝐛)` (public): the stack's synthetic saddle warping of a board, the height at a chart position.
   Core's height-surface fixture generator calls it (its private copy is gone), as RadiometricCamera's test scenes will.

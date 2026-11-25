@@ -14,6 +14,11 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   module: `check_naming(M::Module)` (`test_naming(M)`) adds every module-level `const` whose value is a concrete type of a
   stack package under another name, a computed `const X = typeof(…)` included. Every hit in the monorepo is removed
   (below).
+- RETIRED_NAMES gains PanoramaStitching 0.12's retired names (`refine_rotations`, `refine_camera_and_rotations`,
+  `fit_vignetting`, `ring_pair_vignetting`, `fit_additive_level`, `sweep_up`), each with its replacement.
+- RETIRED_NAMES gains RadiometricCamera 0.4.0's retired names (`start_calibration`, `refine_calibration!`, the
+  `solve_*!` block solvers, `fit_channels`, `PRINT_PLANE`), each with its replacement, so every stack package's naming
+  check refuses them.
 - RETIRED_NAMES gains VisualGeometryToolkitIO 0.11's `fit_record_json` and `fit_record_from_json` (removed in 0.12; and the
   never-released interim `fit_result_json`, `fit_result_from_json`): a FitResult's termination record is IO's style's
   `JSON.lower`/`JSON.lift`.
@@ -95,6 +100,21 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   (PoseLib implements it). `successful_retcode` is now exported.
 
 ### Changed
+- `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports
+  (ColorTypes' `Gray`) is no stack type (`const X = Gray{N0f8}` is allowed, as the run-time check already held).
+  TASK_VERBS gains BlobBoards' `find_boards_python`, `find_boards`' entry for Python callers.
+- `check_duplication` treats `_TOML_DEFAULTS` as per-package infrastructure, beside `CONTRACT_GENERICS`: the binding
+  name `parse_defaults` prescribes for each package's own parsed configuration, never shared code. The monorepo's
+  DUPLICATION.toml entry for it is gone.
+- `check_naming` R9 leaves a foreign package's function alone: a retired name that a file imports explicitly from a
+  package outside the stack (`using DelaunayTriangulation: triangulate`) and calls unqualified, or qualifies by a module
+  it brings in from one (`import DelaunayTriangulation`; `DelaunayTriangulation.triangulate`), is that package's, not
+  the stack's retired name (a method keeps its owner's name). A field (`cfg.name`), a stack module and a stack
+  package's alias never excuse a hit. The downstream packages that follow the conventions (RadiometricCamera,
+  CaliBlobs, PanoramaStitching, the VisualRadiometryToolkit packages) count as stack packages here.
+- `check_naming`'s binding walks (the loaded algorithm names behind R20, and R20's run-time check) never read a
+  deprecated binding (`Base.isdeprecated`): reading one, GeometryBasics' `Tesselation` for one, threw under
+  `--depwarn=error`, the release gate's flag, and failed every package's naming item.
 - **`FitResult{U, M, R, Prob, Alg, Orig}`** has the fields `u, resid, retcode, stats::SolveStats, prob, alg,
   original, stop_rule, rms, n, metadata`, built as `FitResult(u, retcode, stop_rule, stats, rms, n, metadata; resid,
   prob, alg, original)` (was `FitResult(estimate, code, rule, iterations, rms, n, metadata)`). Its own data are read

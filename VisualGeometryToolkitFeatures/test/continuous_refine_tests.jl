@@ -53,6 +53,11 @@
     @test VgtkCore.successful_retcode(inside[4]) && abs(inside[1][1] - truth[1]) < 2.0e-3
     cut = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (128, H))
     @test cut[5] == VgtkCore.LeftBasin && cut[1] == v3
+    # one refinement, Core's device LM through `solve`, allocates nothing (its kernel's work item on the CPU path;
+    # the CUDA item below compiles the same code for the device); a function barrier keeps the test's globals out
+    refine_allocs(w, v, σ, S, cfg, ext) = @allocated VgtkFeatures._refine_dog_extremum(w, v, σ, S, cfg, ext)
+    refine_allocs(wins[1], v3, 3.36, S, cfg, (W, H))
+    @test refine_allocs(wins[1], v3, 3.36, S, cfg, (W, H)) == 0
     # the LM's stop settings are Core's (StaticLmStops, [lm]): the refinement's own are retired, refused by name
     for kw in ((; max_iter = 10), (; converged_tol2 = 1.0e-12), (; cost_floor = 0.0))
         err = try VgtkFeatures.ContinuousRefinement(; kw...) catch e; e end

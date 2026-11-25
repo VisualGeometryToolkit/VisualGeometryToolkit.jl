@@ -4,7 +4,7 @@
 #
 # The frames' per-pixel maximum, resampled on a log-polar grid about the image centre (Core's warp), each angle's
 # significant drops in log brightness the rim's candidates, and the RANSAC ellipse or circle through them
-# (VisualGeometryToolkitEstimation's `find_ellipse` / `find_circle`: the weak-dependency extension
+# (VisualGeometryToolkitEstimation's `Ransac` on an `EllipseProblem` / `CircleProblem`: the weak-dependency extension
 # VisualGeometryToolkitFeaturesEstimationExt): the lens COVERAGE, where its light ends (image_circle_rim.jl). A RAW frame
 # is measured on its green cells and the result taken to the raw's pixels by the cells' `raw_frame_map`.
 # =============================================================================
@@ -21,7 +21,8 @@ COLMAP pixel frame: the lens COVERAGE, where its light ends. No lens model predi
 MODEL is valid, not where the field stop or the lens's own image circle cuts the light). The lit region is not
 necessarily round: it is fitted as the model type `T`, Core's `Ellipse` (the default) or `Circle`.
 
-The fit is VisualGeometryToolkitEstimation's `find_ellipse` / `find_circle`, through this package's extension on it:
+The fit is VisualGeometryToolkitEstimation's `Ransac` on an `EllipseProblem` / `CircleProblem`
+(`solve(EstimationProblem(EllipseProblem(candidates)), Ransac(; scoring); rng)`), through this package's extension on it:
 `using VisualGeometryToolkitEstimation` first (without it the call is an `ArgumentError` naming the package).
 
 The frames are gray images (anything `Colors.gray` reads: `Gray`, a real) or camera RAW images, never both:
@@ -74,7 +75,8 @@ the measuring:
    noise-free image: the data's noise is 0) is used as it is, with no floor: every positive drop is then significant,
    each edge's uncertainty is 0 (so the `:auto` rule's floor on the rms is 0; its grid term remains), and the log is
    floored at the angle's darkest level (at least `floatmin`);
-4. the model: `find_ellipse(candidates; scoring, rng)` for `Ellipse`, `find_circle(…)` for `Circle` — RANSAC with the
+4. the model: `solve(EstimationProblem(EllipseProblem(candidates)), Ransac(; scoring); rng)` for `Ellipse`, the
+   `CircleProblem`'s for `Circle` — RANSAC with the
    robustified-LM local optimization, scored by the Student-t + uniform marginal (the inlier scale marginalized; the
    outliers uniform over ±`outlier_halfwidth`; its priors the stack's default, VisualGeometryToolkitEstimation's
    `scoring_from_toml` of `student_t_uniform`), on ONE candidate per angle, so the support counts angles and an angle
@@ -87,10 +89,10 @@ Returns `nothing` when no model is found (fewer than 5 candidates, or no consens
 has no rim) or the model contains the whole frame (its light covers the sensor). Otherwise:
 - `circle`: the lens coverage, an `Ellipse{Float64}` or a `Circle{Float64}` (`T`), COLMAP pixels (a RAW frame's: raw
   pixels);
-- `fit`: the second RANSAC's `RansacEstimate`, on one candidate per angle that has any (each angle's edge nearest the
+- `fit`: the second RANSAC's result (a `FitResult`), on one candidate per angle that has any (each angle's edge nearest the
   first model, in angle order); `inlier_mask(fit)` indexes those points. For RAW frames the RANSAC ran
-  on the green cells: its estimate is mapped to raw pixels (Core's `map_estimate`, `estimate(fit) == circle`), but its
-  `rms` and every residual or scale in its metadata stay in GREEN-CELL pixels (raw pixels ÷ 2);
+  on the green cells: its estimate is mapped to raw pixels (Core's `map_estimate`, `fit.u == circle`), but its
+  `rms`, `resid`, `prob` and every scale in its metadata stay in GREEN-CELL pixels (raw pixels ÷ 2);
 - `contour`: the rim's points, `Vector{Point2{Float64}}`, in `circle`'s pixels: per angle bin with one, the inlier
   candidate nearest the coverage (`rim.edge`);
 - `cut`: whether the coverage reaches past the frame (an APS-C lens on the full frame: the rim is seen in arcs);
@@ -155,7 +157,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; outlier_halfwi
         v === nothing || Base.depwarn("detect_image_circle: `$k` is deprecated: it was the hull fit's keyword and is ignored since " *
                                       "VisualGeometryToolkitFeatures 0.9.2 (the coverage is measured on the rim's profiles)", :detect_image_circle)
     end
-    require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
+    require_extension(_missing_fit,
                       @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
     upper, S, sat, variance, nframes = _frame_maximum(frames)          # 1. the per-pixel maximum
     H, W = size(upper)
@@ -166,7 +168,7 @@ function detect_image_circle(rng::AbstractRNG, ::Type{T}, frames; outlier_halfwi
                                  band = (Float64(rim_band[1]), Float64(rim_band[2])),
                                  significance = Float64(significance), outlier_halfwidth = Float64(outlier_halfwidth), device)
     fit === nothing && return nothing
-    circle = estimate(fit)
+    circle = fit.u
     corners = (Point2(0.0, 0.0), Point2(W, 0.0), Point2(0.0, H), Point2(W, H))
     all(q -> norm(q - circle.center) <= _model_radius(circle, (q - circle.center) / norm(q - circle.center)), corners) &&
         return nothing                                                 # its light covers the sensor: no rim
@@ -240,8 +242,9 @@ end
 # before any work, naming the package to load (VisualGeometryToolkitCore's `require_extension`); the fallbacks name it
 # too, or raise the MethodError of arguments the loaded extension does not take.
 _missing_extension(pkg, what) = ArgumentError("detect_image_circle: $what needs `using $pkg` (its package extension is not loaded)")
+_missing_fit() = _missing_extension("VisualGeometryToolkitEstimation", "the fit (Ransac on an EllipseProblem / CircleProblem)")
 _fit_image_circle(T::Type, contour; outlier_halfwidth, rng) =
-    require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the fit (find_ellipse / find_circle)"),
+    require_extension(_missing_fit,
                       _fit_image_circle, (T, contour), @__MODULE__, :VisualGeometryToolkitFeaturesEstimationExt)
 _coverage_covariance(m, pts) =
     require_extension(() -> _missing_extension("VisualGeometryToolkitEstimation", "the coverage's covariance"),

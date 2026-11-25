@@ -101,7 +101,7 @@ end
     err = try variance_stabilize(L; electrons_per_dn = 2.5, read_noise = 3.0) catch e; e end
     @test err isa ArgumentError && occursin("`electrons_per_dn` is retired", err.msg)
     @test_throws ArgumentError variance_stabilize(L)
-    # an estimated gain (photon_transfer's source) stabilizes the same way
+    # an estimated gain (PhotonTransfer's source) stabilizes the same way
     est = pg_model(2.5, σr; source = VisualGeometryToolkitCore.SensorSource.estimated)
     @test variance_stabilize(LinearRaw(m; mode = :green_cells, sensor_model = est), est).image == variance_stabilize(L, model).image
 end

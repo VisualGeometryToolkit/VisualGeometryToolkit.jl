@@ -15,7 +15,7 @@
 #     Lagrange polynomial through five slices, C^∞ in s. Its local B-spline
 #     coefficients come from ONE KernelAbstractions kernel (`_dog_spline_coefficients!`,
 #     CPU and GPU alike) for all of an octave's detections;
-#   • the iteration — Core's ONE device-side LM (`static_lm`, the spline lenses'
+#   • the iteration — Core's ONE device-side LM (`StaticLevenbergMarquardt`, the spline lenses'
 #     inverse at N = 3: Marquardt-scaled, bounded, explicit fused products), IN the
 #     kernel (`_dog_extrema_kernel!`, one detection per work item), on the rows
 #     r(θ) = ∇_θ D/|D(v₀)|, θ the scale-normalised displacement, with Jacobian
@@ -34,7 +34,7 @@
 # =============================================================================
 
 using VisualGeometryToolkitCore: ReturnCode, StopRule, successful_retcode, LeftBasin, ShapeGate, NonFinite,
-    static_lm, static_lm_termination, StaticLmStops, RetiredKeyword, refuse_retired_keyword, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
+    solve, RefineProblem, StaticLevenbergMarquardt, StaticLmStops, RetiredKeyword, refuse_retired_keyword, cubic_bspline_weights, cubic_bspline_weight_derivatives, cubic_bspline_prefilter_taps,
     spline_window_sums, is_positive_definite, parse_defaults, toml_default
 
 const _CR_DEFAULTS = parse_defaults(joinpath(dirname(dirname(@__DIR__)), "configs", "continuous_refinement.toml"))
@@ -281,13 +281,13 @@ end
 
 Refine the DoG extremum near `v0` = (x, y, s) (1-based level coordinates) on the
 continuous response `model` (`_dog_response`) with Core's device LM
-(`static_lm`) on the rows r = ∇_θ D/|D(v₀)|, θ = t ⊙ (v − v₀) with the scale
+(`StaticLevenbergMarquardt`) on the rows r = ∇_θ D/|D(v₀)|, θ = t ⊙ (v − v₀) with the scale
 t = (1/σ, 1/σ, ln2/S) (σ the start's scale in level pixels), solved for the
-displacement v − v₀ with `t` as `static_lm`'s per-coordinate scale; its box the displacement
+displacement v − v₀ with `t` as its stops' per-coordinate scale; its box the displacement
 bound (|Δx|, |Δy| ≤ `spatial_bound`, |Δs| ≤ `scale_bound`) within the model's
 domain and the level's extent `(W, H)` (1 ≤ x ≤ W, 1 ≤ y ≤ H: the detector's keep
 test, so a refined point never leaves the level; the window's mirrored border
-samples are no image). The §14 record: the LM's (`static_lm_termination`); a solve that did not
+samples are no image). The §14 record: the LM's (its result's `retcode` and `stop_rule`); a solve that did not
 converge with the point on the box is `LeftBasin`; a converged point that is not
 an extremum of the start's type, or whose curvature −sign(D)·H_θ/|D| has an
 eigenvalue below `min_curvature`, is `ShapeGate`. Every failure returns the start
@@ -304,7 +304,7 @@ detection on the CPU and any GPU.
     lo = max.(mlo, v0 - b, SVector(1.0, 1.0, -Inf)); hi = min.(mhi, v0 + b, SVector(Float64(extent[1]), Float64(extent[2]), Inf))
     all(lo .<= v0 .<= hi) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin
     ia = 1 / abs(Float64(D0))
-    # The LM runs on the displacement u = v − v₀ (level px, level px, slices), its scale `t` handed to static_lm as
+    # The LM runs on the displacement u = v − v₀ (level px, level px, slices), its scale `t` handed to the LM's stops as
     # its per-coordinate scale `s` (its step and damping floors read there): the rows are r = ∇_θ D/|D(v₀)|, the
     # gradient in the scaled coordinates θ = t ⊙ u, so ∂r/∂u = H ./ t (row i by tᵢ) /|D(v₀)|. The closure's locals
     # are its own (Du, gu, Hu): reusing D or H, assigned below, would box them (inference: Any).
@@ -313,8 +313,8 @@ detection on the CPU and any GPU.
         (SVector{3, Float64}(gu) ./ t .* ia, SMatrix{3, 3, Float64}(Hu) ./ t .* ia, Float64(Du), SMatrix{3, 3, Float64}(Hu))
     end
     lb = lo - v0; ub = hi - v0
-    u, ok, _, e, rule = static_lm(fj, zero(SVector{3, Float64}), lb, ub, StaticLmStops(t))   # Core's stop settings, `t` the scale
-    code, rule = static_lm_termination(ok, rule)
+    sol = solve(RefineProblem(fj, zero(SVector{3, Float64}); lb, ub), StaticLevenbergMarquardt(); stops = StaticLmStops(t))   # Core's stop settings, `t` the scale
+    u, e, code, rule = sol.u, sol.metadata.evaluation, sol.retcode, sol.stop_rule
     # a point on the box is no extremum of the response, whatever the LM's verdict: Core's success rule counts a
     # point a bound holds as stationary (its descent leaves the box), but the extremum lies beyond the box — outside
     # the displacement bound or the level — so the start is returned, LeftBasin

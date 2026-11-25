@@ -16,7 +16,7 @@ using KernelAbstractions: @kernel, @index, @Const
 using LinearAlgebra: norm
 using Statistics: median
 using Distributions: Normal, pdf, cdf
-using VisualGeometryToolkitCore: logpolar_map, transform_deriv, mad_scale, ambient_coordinates, scale, retract_jacobian, EllipseManifold
+using VisualGeometryToolkitCore: logpolar_map, transform_deriv, EstimationProblem, NoiseScale, MedianNormScale, solve, ambient_coordinates, scale, retract_jacobian, EllipseManifold
 
 """
     SensorModelNoise()
@@ -30,7 +30,7 @@ struct SensorModelNoise end
     EmpiricalNoise()
 
 A [`RimProfile`](@ref)'s noise statistics (its `statistics`) when the frames carry no variances: each angle's noise is
-the data's own, Core's `mad_scale` of the profile's drops across 2 px, each over its noise per unit pixel noise (the
+the data's own, Core's `MedianNormScale` of the profile's drops across 2 px, each over its noise per unit pixel noise (the
 bins' pixels).
 """
 struct EmpiricalNoise end
@@ -87,9 +87,6 @@ end
 Base.show(io::IO, r::RimProfile) = print(io, "RimProfile(", length(r.angles), " angles, ", count(==(:ok), r.reason),
     " with an edge; ", length(r.radii), " radii ", round(first(r.radii); digits = 1), "…", round(last(r.radii); digits = 1),
     " px; ", nameof(typeof(r.statistics)), ")")
-
-# The robust noise scale of scalar deviations: Core's mad_scale (median |d| / median of χ₁), the stack's one MAD rule.
-_scalar_scale(d) = mad_scale([SVector{1, Float64}(x) for x in d])
 
 # The radius of `model` along the unit direction `u` from its centre (the model's AffineMap carries the unit circle onto
 # it: the radius is 1 / ‖A⁻¹u‖ for its linear part A).
@@ -323,7 +320,7 @@ _bin_noise(::SensorModelNoise, pscale, counts, s, a, σ₁) = view(pscale, a, :)
 _bin_noise(::EmpiricalNoise, pscale, counts, s, a, σ₁) = σ₁ ./ sqrt.(counts[a] .* s.pixels)
 
 # Each angle's noise per pixel σ₁: the sensor model's (the median over the angle of its bins' noise times √(their
-# pixels)), or the data's (the profile's drops across the stencil, each over its noise for σ₁ = 1, `unit` (`_unit_drop_noise`): mad_scale of those,
+# pixels)), or the data's (the profile's drops across the stencil, each over its noise for σ₁ = 1, `unit` (`_unit_drop_noise`): MedianNormScale of those,
 # the rim's few drops leaving the median alone).
 function _rim_noise(stat::SensorModelNoise, profile, pscale, counts, s, a, unit)
     v = filter(isfinite, view(pscale, a, :) .* sqrt.(counts[a] .* s.pixels))
@@ -331,8 +328,8 @@ function _rim_noise(stat::SensorModelNoise, profile, pscale, counts, s, a, unit)
 end
 function _rim_noise(stat::EmpiricalNoise, profile, pscale, counts, s, a, unit)
     p, σD = view(profile, a, :), unit[counts[a]]
-    d = [x for x in (_stencil_ends(-, p, s, j) / σD[j] for j in eachindex(p)) if isfinite(x)]
-    return isempty(d) ? NaN : _scalar_scale(d)
+    d = [SVector{1, Float64}(x) for x in (_stencil_ends(-, p, s, j) / σD[j] for j in eachindex(p)) if isfinite(x)]
+    return isempty(d) ? NaN : solve(EstimationProblem(NoiseScale, d), MedianNormScale()).u   # median |d| / median of χ₁
 end
 
 # Each column's drop noise across its stencil at unit pixel noise (`_bin_noise` at σ₁ = 1 through `_stencil_ends`), per
@@ -459,21 +456,21 @@ function _rim_at(rng, ::Type{T}, s, stat, c, initial, nbins; significance, outli
     # (1) the RANSAC on each wedge's OUTERMOST edge (where its light ends); (2) every wedge's edge NEAREST that model
     # (any of its edges: an outermost one that is stray light, or a step off the model, gives way to
     # the wedge's consistent edge); (3) the RANSAC on those, the coverage, and each wedge's edge an inlier of it.
-    function fit_on(pick)
+    function consensus_on(pick)
         as = [a for a in 1:nbins if pick[a] > 0]
         pts = [ray(a, first(cand[a])[pick[a]]) for a in as]
         trial = length(pts) >= 5 ? _fit_image_circle(T, pts; outlier_halfwidth, rng = copy(rng)) : nothing
         return (trial === nothing || !found_model(trial)) ? (nothing, as, pts) : (trial, as, pts)
     end
     outer = [isempty(first(cand[a])) ? 0 : argmax(first(cand[a])) for a in 1:nbins]
-    fit, as, pts = fit_on(outer)
+    fit, as, pts = consensus_on(outer)
     edge, edge_scale = fill(NaN, nbins), fill(NaN, nbins)
     reason = [isempty(first(cand[a])) ? :no_candidate : :no_inlier for a in 1:nbins]
     if fit !== nothing
-        m = estimate(fit)
+        m = fit.u
         off(q) = (d = q - m.center; abs(norm(d) - _model_radius(m, d / norm(d))))
         nearest = [isempty(first(cand[a])) ? 0 : argmin(r -> off(ray(a, r)), first(cand[a])) |> r -> findfirst(==(r), first(cand[a])) for a in 1:nbins]
-        fit2, as2, pts2 = fit_on(nearest)
+        fit2, as2, pts2 = consensus_on(nearest)
         if fit2 !== nothing
             fit, as, pts = fit2, as2, pts2
             inl = inlier_mask(fit)

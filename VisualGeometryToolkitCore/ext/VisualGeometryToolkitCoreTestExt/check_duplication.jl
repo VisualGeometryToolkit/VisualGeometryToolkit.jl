@@ -356,8 +356,10 @@ function _module_tree(M::Module)
 end
 
 # Julia's per-module names, and the stack's per-package conventions: every package declares
-# its own `CONTRACT_GENERICS` (the functions others may add methods to; `contract_generic_violations`).
-const _INFRASTRUCTURE_NAMES = (:eval, :include, :__init__, :CONTRACT_GENERICS)
+# its own `CONTRACT_GENERICS` (the functions others may add methods to; `contract_generic_violations`) and
+# binds its own parsed configuration as `_TOML_DEFAULTS` (the name `parse_defaults` prescribes: each package's
+# own data, read through Core's one `parse_defaults`/`toml_default`).
+const _INFRASTRUCTURE_NAMES = (:eval, :include, :__init__, :CONTRACT_GENERICS, :_TOML_DEFAULTS)
 
 # A function, data type or module whose own module is not `S` (a Union has none: its binding decides).
 function _defined_elsewhere(v, S)

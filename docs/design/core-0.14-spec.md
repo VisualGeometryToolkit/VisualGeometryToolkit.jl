@@ -734,3 +734,23 @@ These are done in Core 0.14, each with its own commit:
     through the name tuples (type-stable; an unknown name is an `ArgumentError` listing the names); `_yaml_value` throws
     its own refusal (the Schöps and Kalibr readers are one-line wrappers), and an indented key's indent is spaces or
     tabs only (`[ \t]+`, was `\s+`, which could cross a blank line).
+- 2026-11-25 (Features agent, the Features milestone):
+  - VisualGeometryToolkitFeatures 0.10.0 requires Core "0.14" and (weak) Estimation "0.13"; its test, docs, examples and
+    validation environments too (examples/validation also Features "0.10", stale since the 0.10.0 bump).
+  - `detect_image_circle` keeps its name, keywords and result; its fit (VisualGeometryToolkitFeaturesEstimationExt) is
+    `solve(EstimationProblem(EllipseProblem(candidates) | CircleProblem(candidates)), Ransac(; scoring); rng)`, the
+    scorer unchanged (Estimation's `default_student_t_uniform_scoring` on the problem type). `res.fit` is the RANSAC's
+    FitResult, read by field (`res.fit.u`, was `estimate(res.fit)`).
+  - The continuous DoG refinement calls Core's device LM through `solve(RefineProblem(fj, u₀; lb, ub),
+    StaticLevenbergMarquardt(); stops = StaticLmStops(t))` inside its KernelAbstractions kernel (CPU and CUDA items
+    pass; allocations unchanged), replacing the retired `static_lm`/`static_lm_termination` pair; the rim's MAD scale
+    is `MedianNormScale` (was `mad_scale`). Same kernels, same bits.
+  - Features defines no algorithm type, so check_algorithm_traits does not apply. check_naming's first run on Features
+    under Core 0.14 found R9 `static_lm` (a config comment), R9 `photon_transfer` (an error message, a test comment)
+    and R15 on a local closure `fit_on` (renamed `consensus_on`); all fixed.
+  - Golden: replay/features_image_circle.jl, 141/141 `===` in package-image and --pkgimages=no modes, no intended
+    entry.
+- 2026-11-25 (lead): check_naming's binding walks skip deprecated bindings (`_bindings`; a read is an error under
+  `--depwarn=error`, found by the LODR port), and R9 leaves a foreign package's function alone: a retired name a file
+  imports explicitly from a non-stack package (`using M: name`) or qualifies by one (`M.name`) is that package's
+  (DelaunayTriangulation's, in RC's experiments). RETIRED_NAMES gains RadiometricCamera 0.4.0's retired names.

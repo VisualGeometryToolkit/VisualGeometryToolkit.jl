@@ -17,11 +17,6 @@
 
 [[name]]
 module = "VisualGeometryToolkitEval"
-name = "_TOML_DEFAULTS"
-reason = "not code but each package's own data: Eval's parsed configs/default.toml and Estimation's are different files with different tables (experiment defaults vs RANSAC defaults); both are parsed and read through Core's one `parse_defaults`/`toml_default`"
-
-[[name]]
-module = "VisualGeometryToolkitEval"
 name = "Pools"
 reason = "different contents: Eval.Pools reads and writes pool FILES (pool_io.jl); Core.Pools defines the pool RECORD types (PoolPair) Eval.Pools builds; no function of one restates the other"
 

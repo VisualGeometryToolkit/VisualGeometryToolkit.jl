@@ -50,7 +50,7 @@ scale_bound = 1.0
 # amplify the response's own interpolation error (≤ 1e-4 relative) past 0.1 level px.
 min_curvature = 1.0e-3
 
-# Core's device LM (`static_lm`) on the rows r(θ) = ∇_θ D/|D(start)| with Jacobian ∇²_θ D/|D(start)|: an
+# Core's device LM (`StaticLevenbergMarquardt`) on the rows r(θ) = ∇_θ D/|D(start)| with Jacobian ∇²_θ D/|D(start)|: an
 # undamped step is Newton's, the Marquardt damping and the box safeguard it. Its stop settings are Core's, the
 # stack's one owner (`StaticLmStops`, configs/default.toml `[lm]`): no key here (`max_iter`, `converged_tol2` and
 # `cost_floor` are retired). Success is Core's one rule: the point is stationary.

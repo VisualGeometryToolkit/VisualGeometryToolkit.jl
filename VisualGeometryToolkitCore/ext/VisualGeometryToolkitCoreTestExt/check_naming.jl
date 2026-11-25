@@ -647,6 +647,21 @@ const RETIRED_NAMES = String[
     # `r.stats.nsteps`. `fit_result_*` were the never-released interim names.
     "fit_record" * "_json", "fit_result" * "_json",           # `JSON.lower(style::VgioStyle, r::FitResult)` (`write_kind` lowers a body's result)
     "fit_record" * "_from_json", "fit_result" * "_from_json", # `JSON.lift(style::VgioStyle, FitResult, record) -> FitResult{Nothing, Nothing}`
+    # RadiometricCamera 0.4.0 (the solve interface): the calibration is an algorithm, the block updates update_<block>!
+    "start" * "_calibration",                # `init(EstimationProblem(CalibrationEstimate, (geometry, photographs)), RadiometricCalibration(options))`
+    "refine" * "_calibration!",              # `solve!(cache)`, or `solve(EstimationProblem(CalibrationEstimate, state), RadiometricCalibration(options))`
+    "solve_Θ" * "_l!", "solve_Θ" * "_v!", "solve" * "_μ!",   # `update_lighting!`, `update_vignetting!`, `update_diffuse_weight!`
+    "solve_linear" * "_blocks!",             # `update_radiometry!` (the composite block)
+    "solve_radiometry" * "_gn!",             # `radiometry_lmsolve!` (the joint LM, a step named by its mechanism)
+    "fit" * "_channels",                     # RadiometricCamera's `residual_channels(s)`
+    "PRINT" * "_PLANE",                      # R20: spell `TargetPlaneFrame{:board}`
+    # PanoramaStitching 0.12 (the solve interface)
+    "refine" * "_rotations",                 # `RotationBundleProblem(camera, tracks)` refined on `rotations` (`LevenbergMarquardt`)
+    "refine_camera_and" * "_rotations",      # `RotationBundleProblem(tracks; fixed)` refined on `(; camera, rotations)`
+    "fit" * "_vignetting",                   # `VignettingSelfCalibration` on `EstimationProblem(AbstractVignetting, frames, p)`
+    "ring_pair" * "_vignetting",             # `RingPairMedians()` on `EstimationProblem(RingVignetting, pc, p)`
+    "fit_additive" * "_level",               # `LevelBisection(; bounds, tolerance, max_iter)` on `EstimationProblem(AdditiveLevel, pc, p)`
+    "sweep" * "_up",                         # `RollFreeUp()` on `EstimationProblem(SweepUp, rotations)`
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -713,6 +728,35 @@ function _foreign_token(f, r, re, line, strings)
     _is_data_fixture(f) && return true
     endswith(f, ".toml") && return _toml_string_value(re, line)
     return endswith(f, ".jl") && _all_in_strings(re, line, strings)
+end
+# A retired name that a file takes from a package outside the stack is that package's function, not the stack's (a
+# method keeps its owner's name). An unqualified hit is excused when the file imports the name explicitly from a
+# non-stack package (`external`, the file's `_external_imports`: `using Foreign: name`); a qualified hit when the
+# qualifier's root is a module the file brings in from a non-stack package (`modules`, `_foreign_modules`: `import
+# Foreign`, `import Foreign as F`), so a field (`cfg.name`) or a stack module (`VgtkCore.name`) is never excused.
+function _foreign_function(r, re, line, external, modules)
+    hits = collect(eachmatch(re, line))
+    return !isempty(hits) && all(hits) do h
+        q = match(r"([A-Za-z_][\w.]*)\.$", line[1:prevind(line, h.offset)])
+        q === nothing ? Symbol(rstrip(r, '(')) in external : Symbol(first(split(q.captures[1], '.'))) in modules
+    end
+end
+# The module names a parsed file binds from packages outside `stack`: `using Foreign`, `import Foreign`, `import
+# Foreign.Sub` (binds `Sub`), `import Foreign as F` (binds `F`).
+function _foreign_modules(ex, stack)
+    out = Set{Symbol}()
+    _visit(ex) do e
+        e.head in (:import, :using) || return
+        for clause in e.args
+            path = clause isa Expr && clause.head === :as ? clause.args[1] : clause
+            path isa Expr && path.head === :. && !isempty(path.args) || continue
+            root = path.args[1]
+            root isa Symbol && root !== :. && !(root in stack) || continue   # an interpolated path (`@eval import $pkg`) is no module
+            bound = clause.head === :as ? clause.args[2] : path.args[end]
+            bound isa Symbol && push!(out, bound)
+        end
+    end
+    return out
 end
 # Whether every hit of `re` on a TOML `line` is inside a quoted string VALUE (`key = "…/token"`, or an array
 # element on its own line): not in a key, a table header or a comment.
@@ -797,6 +841,8 @@ const _STACK_PACKAGES = Set([
     :VisualGeometryToolkitCore, :VisualGeometryToolkitEstimation, :VisualGeometryToolkitEval,
     :RANSACScoringDoneRight, :BlobBoards, :VisualGeometryToolkitFeatures, :VisualGeometryToolkitIO,
     :PoseLib, :LocalOptimizationDoneRight,
+    # the downstream packages that follow the conventions (a name imported from one is the stack's, never foreign)
+    :RadiometricCamera, :CaliBlobs, :PanoramaStitching, :VisualRadiometryToolkitCore, :VisualRadiometryToolkitIO,
 ])
 
 # -----------------------------------------------------------------------------
@@ -1652,7 +1698,9 @@ use of such a name is not a binding. Julia comments and strings, and all other
 in-scope files ([`naming_scope`](@ref)), are scanned word by word for the
 banned words and the retired phrases, and every line of every file for the
 retired names — except a `CHANGELOG.md`, whose job is to record what each
-release removed. The lists live in this function's file and nowhere else.
+release removed, and a foreign package's function of a retired name (imported
+from, or qualified by, a package outside the stack: its owner's name). The lists
+live in this function's file and nowhere else.
 
 Rule 7's trial/iteration split is checked both ways. In prose, a retired
 phrase (`RETIRED_PHRASES`, whole words in a contiguous run) names a random
@@ -1774,6 +1822,7 @@ function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
     parsed = Dict(f => Meta.parseall(sources[f]; filename = f) for f in jl)
 
     stack = _stack_modules!(copy(_STACK_PACKAGES), values(parsed))
+    modules = Dict(f => _foreign_modules(parsed[f], union(stack, keys(_PACKAGE_ALIASES))) for f in jl)   # R9's foreign functions
     names = Dict{String, Vector{Tuple{Symbol, Int, Symbol}}}()
     quoted = Dict{String, Vector{Tuple{Symbol, Int}}}()
     ctxs = Dict{String, _NamingContext}()
@@ -1856,6 +1905,7 @@ function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
             strings = endswith(f, ".jl") ? get(literals[], k, "") : ""
             for (r, re) in retired
                 occursin(r, text) && occursin(re, text) && !_foreign_token(f, r, re, text, strings) &&
+                    !(haskey(ctxs, f) && _foreign_function(r, re, text, ctxs[f].external, modules[f])) &&
                     !_algorithm_tag(f, r, re, text, strings, algorithm_tags) &&
                     push!(out, NamingViolation(f, k, r, :R9))
             end
@@ -2149,7 +2199,7 @@ end
 
 # Rule 7 on one line of prose: a banned word, and a retired phrase.
 # -----------------------------------------------------------------------------
-# Rule 9's one structural exception: an algorithm's tag
+# Rule 9's structural exceptions: an algorithm's tag (here) and a foreign package's function (`_foreign_function`)
 # -----------------------------------------------------------------------------
 # The estimation-algorithm types: the package's declarations (`supertypes`, collected by `_walk_names!`) that descend,
 # through any intermediate abstract type, from `AbstractEstimationAlgorithm` or `MinimalSolver` (a minimal solver is an
@@ -2249,6 +2299,7 @@ const TASK_VERBS = Dict{String, String}(
     "find" * "_boards" => "BlobBoards: every board of a gallery in an image — detection, matching and a per-board find composed; the answer per board IS a RANSAC's model and inliers",
     "find" * "_board" => "BlobBoards: one board of a gallery in an image, the same pipeline for one board",
     "find" * "_board_cameras" => "CaliBlobs: the camera of every frame of a capture from its boards — detection and the per-board finds composed",
+    "find" * "_boards_python" => "BlobBoards: `find_boards`'s entry for Python callers (juliacall), the same task verb behind a Python-friendly signature",
 )
 _r15_name(n::AbstractString) = any(p -> startswith(n, p), _KIND_PREFIXES) && !haskey(TASK_VERBS, n)
 function _r15_publications!(out, f, ex)
@@ -2283,9 +2334,7 @@ const _SOLVE_VERBS = (:solve, :init, :solve!, :__solve, :__init)
 function _loaded_algorithm_names()
     out = Set{Symbol}()
     A = VisualGeometryToolkitCore.AbstractEstimationAlgorithm
-    for M in Base.loaded_modules_array(), n in names(M; all = true)
-        isdefined(M, n) || continue
-        T = getfield(M, n)
+    for M in Base.loaded_modules_array(), (n, T) in _bindings(M)
         T isa Type && T !== A && T !== Union{} && T <: A && (U = Base.unwrap_unionall(T)) isa DataType && push!(out, nameof(U))
     end
     return out
@@ -2329,9 +2378,11 @@ const _PACKAGE_ALIASES = Dict(:VgtkCore => :VisualGeometryToolkitCore, :VgtkIO =
     :VgtkEstimation => :VisualGeometryToolkitEstimation)
 # The root module names of the stack's packages (the keys of `stack_dependencies()`).
 _stack_roots() = Set(Symbol.(keys(VisualGeometryToolkitCore.stack_dependencies())))
+# Every defined, non-deprecated binding of `M` itself, as `(name, value)`. A deprecated binding is never read: reading
+# one is a deprecation warning, an error under `--depwarn=error` (the release gate; GeometryBasics' `Tesselation`).
+_bindings(M::Module) = ((n, getfield(M, n)) for n in names(M; all = true) if isdefined(M, n) && !Base.isdeprecated(M, n))
 # Every module-level binding of `M` and its submodules, as `(module, name, value)`.
-_module_bindings(M::Module) = ((N, n, getfield(N, n)) for N in VisualGeometryToolkitCore._module_tree(M)
-                               for n in names(N; all = true) if isdefined(N, n) && !Base.isdeprecated(N, n))
+_module_bindings(M::Module) = ((N, n, T) for N in VisualGeometryToolkitCore._module_tree(M) for (n, T) in _bindings(N))
 function _stack_type_arities(parsed, jl, pkg::Symbol, stack)
     arities = Dict{Tuple{Symbol, Symbol}, Int}()
     for M in Base.loaded_modules_array()
@@ -2342,7 +2393,8 @@ function _stack_type_arities(parsed, jl, pkg::Symbol, stack)
             while U isa UnionAll
                 k += 1; U = U.body
             end
-            U isa DataType && !isabstracttype(U) && (arities[(nameof(M), n)] = k)
+            # a type the stack module only imports or re-exports (ColorTypes' `Gray`) is not a stack type
+            U isa DataType && !isabstracttype(U) && Base.moduleroot(parentmodule(U)) === M && (arities[(nameof(M), n)] = k)
         end
     end
     for f in jl

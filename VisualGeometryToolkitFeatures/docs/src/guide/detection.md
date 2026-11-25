@@ -138,7 +138,7 @@ detector exactly as without the option.
 
 `asift_detect(img; refinement = ContinuousRefinement())` refines each detection again after the
 detector's one-step quadratic refinement. The detection candidates are the same. The second
-refinement is an iterative solve, Core's device Levenberg–Marquardt `static_lm`, run inside a
+refinement is an iterative solve, Core's device Levenberg–Marquardt `StaticLevenbergMarquardt`, run inside a
 kernel on the CPU and on a GPU, and it works on a continuous model of the DoG response in
 `(x, y, log σ)`. With `uncertainty = FeatureCovariance()`, each refined detection's covariance is
 recomputed at the refined point from that model's own derivatives. A detection whose continuous
@@ -179,7 +179,8 @@ their light.
    inside the disc is followed by light again. A log drop is a ratio, so it
    does not depend on the exposure.
 4. The model, an `Ellipse` (the default) or a `Circle`, is a RANSAC fit on one
-   candidate per angle, scored by the Student-t + uniform marginal at the
+   candidate per angle (VisualGeometryToolkitEstimation's `Ransac` on an
+   `EllipseProblem` or a `CircleProblem`), scored by the Student-t + uniform marginal at the
    caller's `outlier_halfwidth`: first each angle's outermost edge, then each
    angle's edge nearest that model, fitted again. The scene's own edges are
    candidates too, and they lose the vote.
@@ -199,6 +200,9 @@ using Random: Xoshiro
 res = detect_image_circle(Xoshiro(1), frames; outlier_halfwidth = 1000)
 res === nothing || (res.circle, res.axes_scale, res.rim_gap < π)   # the coverage, its σ, the rim seen all round
 ```
+
+`res.fit` is the RANSAC's `FitResult`, read by field (`res.fit.u == res.circle`,
+`res.fit.retcode`) and by Core's contract functions (`inlier_mask(res.fit)`).
 
 A RAW frame (a `LinearRaw` or a `RawMosaic`) is measured on its green cells, the
 geometry image, with the keywords in green-cell pixels. Only the result is

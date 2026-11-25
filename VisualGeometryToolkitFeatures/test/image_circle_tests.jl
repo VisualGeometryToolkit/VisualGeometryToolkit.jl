@@ -54,7 +54,7 @@ end
         abs(rc.circle.r - r) < 0.5 && rc.covariance === nothing && all(isnan, rc.axes_scale)   # the circle problem provides no covariance
     @test detect_image_circle(VgtkCore.Circle, frames; outlier_halfwidth = a).circle isa VgtkCore.Circle &&
         detect_image_circle(frames; outlier_halfwidth = a).circle isa VgtkCore.Ellipse
-    @test VgtkCore.converged(res.fit) && length(res.contour) == count(==(:ok), res.rim.reason) <= count(VgtkCore.inlier_mask(res.fit))
+    @test VgtkCore.successful_retcode(res.fit) && length(res.contour) == count(==(:ok), res.rim.reason) <= count(VgtkCore.inlier_mask(res.fit))
     # the contour is the rim's points (per angle the inlier candidate nearest the coverage), within a pixel of the true
     # circle; the scene regions inside the disc do not move it
     @test all(p -> abs(hypot(p[1] - c[1], p[2] - c[2]) - r) < 1.0, res.contour)
@@ -188,7 +188,7 @@ end
     raw = detect_image_circle(Xoshiro(1), cells; outlier_halfwidth = a / 2)
     @test raw.circle === green
     @test raw.contour == [VgtkCore.Point2{Float64}(S(SVector{2, Float64}(p[1], p[2]))) for p in by_hand.contour] && raw.cut == by_hand.cut && raw.rim_gap === by_hand.rim_gap
-    @test VgtkCore.estimate(raw.fit) === green && VgtkCore.inlier_mask(raw.fit) == VgtkCore.inlier_mask(by_hand.fit)
+    @test raw.fit.u === green && VgtkCore.inlier_mask(raw.fit) == VgtkCore.inlier_mask(by_hand.fit)
     @test all(raw.axes_scale .≈ 2 .* by_hand.axes_scale) && all(raw.center_scale .≈ 2 .* by_hand.center_scale)   # raw px: the cells' scale 2
     # a mosaic is read as its green cells, and frames may stream; a cell image of another mode is refused
     @test detect_image_circle(Xoshiro(1), (m for m in mosaics); outlier_halfwidth = a / 2).circle === green

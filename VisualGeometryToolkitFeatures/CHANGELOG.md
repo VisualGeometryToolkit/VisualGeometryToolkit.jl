@@ -2,8 +2,10 @@
 
 ## 0.10.0 (unreleased)
 
-Breaking: a public name is removed. `[compat]` on VisualGeometryToolkitCore stays `"0.13.1"` until this package's own
-Core 0.14 migration (it does not load against Core 0.14 yet).
+A breaking release on VisualGeometryToolkitCore 0.14 (`[compat]` VisualGeometryToolkitCore `"0.14"`, the weak dependency
+VisualGeometryToolkitEstimation `"0.13"`), whose estimators are `solve(problem, algorithm)`. A public name is removed.
+The numbers are unchanged: the golden records of `detect_image_circle` (`ci/golden/`, group `features_image_circle`)
+replay bit for bit.
 
 ### Changed (breaking)
 
@@ -11,6 +13,22 @@ Core 0.14 migration (it does not load against Core 0.14 yet).
   `Attributed{Correspondence{Int, Int}, NNMatchMeta}`, built `Attributed(Correspondence{Int, Int}(i, j),
   NNMatchMeta(score, ratio))` (was `NNMatch(i, j, score, ratio)`); its fields read as before (`m.first`, `m.score`, …).
   VisualGeometryToolkitCore's `Pinhole` is `Lens(Perspective())`. In RETIRED_NAMES.
+- **`detect_image_circle`'s `fit` is read by field** (VisualGeometryToolkitCore 0.14's `FitResult`): `res.fit.u` (was
+  `estimate(res.fit)`), `res.fit.retcode`, `successful_retcode(res.fit)` (was `converged`), `res.fit.stats.nsteps` (was
+  `iterations`), the per-candidate residuals `res.fit.resid`; `inlier_mask(res.fit)` is unchanged. The task verb, its
+  keywords and its result's other fields are unchanged.
+
+### Changed
+
+- The fit of `detect_image_circle` (VisualGeometryToolkitFeaturesEstimationExt) is VisualGeometryToolkitEstimation
+  0.13's `solve(EstimationProblem(EllipseProblem(candidates)), Ransac(; scoring); rng)` (the `CircleProblem`'s for a
+  `Circle`); it was `find_ellipse` / `find_circle`, deleted there. The scorer is the same (`scoring_from_toml` of
+  `student_t_uniform`).
+- The continuous DoG refinement (`ContinuousRefinement`) runs Core's device LM through its algorithm,
+  `solve(RefineProblem(fj, u₀; lb, ub), StaticLevenbergMarquardt(); stops)`, inside the kernel (was `static_lm`, deleted
+  in Core 0.14); the rim's noise scale is Core's `MedianNormScale` (was `mad_scale`). Same kernels, same bits.
+- The test, docs, examples and validation environments require VisualGeometryToolkitCore `"0.14"` (and the test
+  environment VisualGeometryToolkitEstimation `"0.13"`); examples and validation take this package's `"0.10"`.
 
 ## 0.9.11
 

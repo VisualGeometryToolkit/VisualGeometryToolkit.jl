@@ -76,6 +76,33 @@ end
         @test rules("src/alg.jl" => alg, "configs/a.toml" => "[$(other)]\nx = 1\n") == [:R9]
     end
 
+    @testset "R9: a foreign package's function of a retired name is its owner's" begin
+        tri = "triang" * "ulate"                     # a retired stack name, and DelaunayTriangulation's function
+        @test tri in NC.RETIRED_NAMES
+        # imported explicitly from a non-stack package (one line, several lines) or qualified by one: its calls are that package's
+        @test quiet("src/a.jl" => "using DelaunayTriangulation: $(tri), each_solid_triangle\nt = $(tri)(nodes)\n")
+        @test quiet("src/a.jl" => "using DelaunayTriangulation: each_solid_triangle,\n    $(tri)\nt = $(tri)(nodes)\n")
+        @test quiet("src/a.jl" => "import DelaunayTriangulation\nt = DelaunayTriangulation.$(tri)(nodes)\n")
+        @test quiet("src/a.jl" => "using DelaunayTriangulation\nt = DelaunayTriangulation.$(tri)(nodes)\n")
+        # from a stack package, by an alias, or unqualified without a foreign import, it is the retired name
+        @test rules("src/a.jl" => "using VisualGeometryToolkitCore: $(tri)\n") == [:R9]
+        @test rules("src/a.jl" => "x = VgtkCore.$(tri)(f, g)\n") == [:R9]
+        @test rules("src/a.jl" => "x = VisualGeometryToolkitCore.Sub.$(tri)(f, g)\n") == [:R9]   # a stack submodule
+        @test rules("src/a.jl" => "using DelaunayTriangulation: each_solid_triangle\nt = $(tri)(nodes)\n") == [:R9]
+        # a qualifier excuses a hit only when it is a module the file brings in from a non-stack package: never a field,
+        # a stack module, a stack package's alias, or a downstream stack package
+        @test rules("src/a.jl" => "y = cfg.$(tri)\n") == [:R9]
+        @test rules("src/a.jl" => "using DelaunayTriangulation: $(tri)\nx = VgtkCore.$(tri)(f, g)\n") == [:R9]
+        @test rules("src/a.jl" => "import VisualGeometryToolkitCore as VGC\nx = VGC.$(tri)(f, g)\n") == [:R9]
+        @test quiet("src/a.jl" => "import DelaunayTriangulation as DT\nt = DT.$(tri)(nodes)\n")
+        @test quiet("src/a.jl" => "for pkg in (:A, :B)\n    @eval import \$pkg\nend\n")   # an interpolated import parses
+        sc = "start" * "_calibration"
+        @test rules("src/a.jl" => "using RadiometricCamera: $(sc)\n") == [:R9]
+        @test rules("src/a.jl" => "import RadiometricCamera\nc = RadiometricCamera.$(sc)(g, p)\n") == [:R9]
+        # a file importing it from a foreign package does not excuse another file
+        @test rules("src/a.jl" => "using DelaunayTriangulation: $(tri)\n", "src/b.jl" => "t = $(tri)(x)\n") == [:R9]
+    end
+
     @testset "R15: the kind words name kinds, never functions" begin
         k = "fit" * "_"; fd = "find" * "_"; rf = "refine" * "_"
         @test rules("src/a.jl" => "$(k)thing(x) = x\n") == [:R15]
@@ -123,6 +150,8 @@ end
         @test quiet("src/a.jl" => "struct Pt{T}\n    x::T\nend\nconst PtLine{T} = Pt{T}\nconst PtAny = Pt{<:Real}\n" *
                     "const PtW = Pt{T} where {T}\nconst Partial = VgtkCore.EuclideanMap{3, Float64}\nconst E = Float64\n")
         # a UnionAll application (an alias whose body keeps free variables) and an abstract type are no concrete type
+        # a foreign type a stack module merely re-exports is not a stack type (ColorTypes' `Gray` through Core)
+        isdefined(VisualGeometryToolkitCore, :Gray) && @test quiet("src/a.jl" => "const PX = Gray{N0f8}\n")
         @test quiet("src/a.jl" => "const P = PlainEuclideanMap{3, Float64}\nconst Q = VgtkCore.PlainEuclideanMap{2, Float64}\n" *
                     "abstract type Abs{T} end\nconst AbsF = Abs{Float64}\nconst AM = VgtkCore.AbstractMatrixMap\n")
         # at run time, a computed alias (`typeof(…)`) of a concrete stack type; a value, a type of another package and a
@@ -142,6 +171,15 @@ end
         Core.eval(M2, :(const Lens = typeof(VgtkCore.Lens(VgtkCore.Equidistant()))))
         own = NC._concrete_type_bindings(M2)
         @test length(own) == 1 && startswith(own[1].text, "Lens = ")
+        # a deprecated binding is never read (an error under `--depwarn=error`, the release gate): the binding walk of
+        # both the algorithm-name scan and the run-time check skips it
+        M3 = Module(:R20Deprecated)
+        Core.eval(M3, :(import VisualGeometryToolkitCore as VgtkCore))
+        Core.eval(M3, :(const New = typeof(VgtkCore.Lens(VgtkCore.Equidistant()))))
+        Core.eval(M3, :(Base.@deprecate_binding Old New))
+        @test Base.isdeprecated(M3, :Old)
+        @test :Old ∉ first.(collect(NC._bindings(M3))) && :New in first.(collect(NC._bindings(M3)))
+        @test all(f -> !startswith(f.text, "Old"), NC._concrete_type_bindings(M3))
     end
 
     @testset "R9: a call form ending in `(` matches with its argument" begin

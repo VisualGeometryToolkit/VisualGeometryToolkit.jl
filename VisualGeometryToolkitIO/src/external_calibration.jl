@@ -282,7 +282,7 @@ Read an OpenCV calibration export: `fx, fy, cx, cy`; the distortion vector by
 name — `k1`, `k2`, `p1`, `p2` required, `k3`–`k6`, `s1`–`s4` and the tilt
 `tilt_x`, `tilt_y` (OpenCV's τx, τy) as the file names them — read as the lens computing OpenCV's
 model for the shortest distortion vector holding every named coefficient
-([`opencv_lens`](@ref)), the unnamed ones zero; an unknown key is refused,
+(VisualGeometryToolkitCore's `opencv_lens`, re-exported here), the unnamed ones zero; an unknown key is refused,
 never ignored (a dropped tilt would be a different camera); `rms`
 in pixels; `poses`, one `{rvec, tvec}` per image (`null` allowed); and
 `images`, the name of each pose's image, when the file names them (this
@@ -427,11 +427,7 @@ function _kalibr_block(yml::AbstractString, cam::AbstractString, path)
     j = findnext(l -> !isempty(strip(l)) && !startswith(l, ' ') && !startswith(l, '\t') && !startswith(strip(l), '#'), lines, i + 1)
     return join(lines[(i + 1):(j === nothing ? end : j - 1)], '\n')
 end
-function _kalibr_field(block::AbstractString, key::AbstractString, path)
-    mt = match(Regex("^\\s+$(key)\\s*:\\s*(.*?)\\s*\$", "m"), block)
-    mt === nothing && throw(ArgumentError("$(path): the camera has no `$(key)`"))
-    return String(something(mt.captures[1]))
-end
+_kalibr_field(block, key, path) = _yaml_value(block, key, path, "not in the camera's block"; indented = true)   # the one YAML line reader (schoeps.jl)
 function _kalibr_numbers(block::AbstractString, key::AbstractString, path)
     s = _kalibr_field(block, key, path)
     mt = match(r"^\[(.*)\]$", s)

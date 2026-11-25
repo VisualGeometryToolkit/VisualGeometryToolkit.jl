@@ -420,3 +420,32 @@ function JSON.lift(s::VgioStyle, ::Type{T}, x::_ParsedObject, tags::NamedTuple =
     r isa T || throw(ArgumentError("a region read as $(T): the record holds $(typeof(r))"))
     return r
 end
+
+# THE TERMINATION RECORD of a FitResult, `{"retcode", "stop_rule", "iterations", "rms", "n"}`: its return code and stop
+# rule by name, its loop count `r.stats.nsteps` (persisted as `iterations`), its RMS and residual count. The one record
+# a kind that stores a fit's outcome embeds, by `body_spec(FitResult)` (kind_spec.jl); the estimate, the metadata and
+# the other work counters are not part of it. A change of its keys is a version step.
+const _RETCODES = instances(VgtkCore.ReturnCode.T)
+const _STOP_RULES = instances(VgtkCore.StopRule)
+const _RETCODE_NAMES = map(c -> String(Symbol(c)), _RETCODES)
+const _STOP_RULE_NAMES = map(r -> String(Symbol(r)), _STOP_RULES)
+const _FIT_RECORD = _CheckedSpec(
+    _Obj(:retcode => _Named(in(_RETCODE_NAMES), "a ReturnCode name"), :stop_rule => _Named(in(_STOP_RULE_NAMES), "a StopRule name"),
+         :iterations => _Int(), :rms => _Real(), :n => _Int()),
+    x -> (x[:iterations] >= 0 && x[:n] >= 0 && x[:rms] >= 0) ? nothing : "a fit's iterations, rms and n are ≥ 0";
+    rule = "iterations, rms and n are ≥ 0",
+    schema = [Dict("properties" => Dict("iterations" => Dict("minimum" => 0), "n" => Dict("minimum" => 0), "rms" => Dict("minimum" => 0)))],
+)
+JSON.lower(::VgioStyle, r::FitResult) = (retcode = String(Symbol(r.retcode)), stop_rule = String(Symbol(r.stop_rule)),
+                                         iterations = r.stats.nsteps, rms = r.rms, n = r.n)
+# …and back, a `FitResult{Nothing, Nothing}`: `stats` is `SolveStats(; nsteps = iterations)` (the other counters `0`).
+JSON.lift(::VgioStyle, ::Type{<:FitResult}, x::Record) =
+    FitResult(nothing, _named_instance(_RETCODES, _RETCODE_NAMES, x.retcode::String, "ReturnCode"),
+              _named_instance(_STOP_RULES, _STOP_RULE_NAMES, x.stop_rule::String, "StopRule"),
+              SolveStats(; nsteps = x.iterations::Integer), x.rms::Real, x.n::Integer, nothing)
+# The instance of an enum whose name is `name` (`names` the instances' names, in their order).
+function _named_instance(instances, names, name::String, what::String)
+    i = findfirst(==(name), names)
+    i === nothing && throw(ArgumentError("$(repr(name)) is no $(what) name (one of $(join(names, ", ")))"))
+    return instances[i]
+end

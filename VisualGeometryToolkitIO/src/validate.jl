@@ -482,44 +482,6 @@ const _GENERATOR = _Obj(Pair{Symbol, _Spec}[:name => _NonEmpty(), :version => _P
                         Pair{Symbol, _Spec}[:caller => _PACKAGE_ID])
 const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 
-# THE TERMINATION RECORD of a fit (VisualGeometryToolkitCore's `FitResult` core, the robust-estimation contract §14):
-# `{"retcode": <ReturnCode name>, "stop_rule": <StopRule name>, "iterations": n ≥ 0, "rms": r ≥ 0, "n": m ≥ 0}` —
-# why it stopped, which rule fired, the loop count, the RMS of the residuals (in the residuals' own unit) and their
-# number. The ONE record every kind that stores a fit's outcome embeds (PanoramaStitching's panorama: its bundle); its
-# estimate and metadata are the kind's own fields. Read back as a `FitResult{Nothing, Nothing}`. Another package's kind
-# embeds it by `body_spec(FitResult)`, `fit_record_json` and `fit_record_from_json` (kind_spec.jl).
-const _RETCODE_NAMES = Tuple(String(Symbol(c)) for c in instances(VgtkCore.ReturnCode.T))
-const _STOP_RULE_NAMES = Tuple(String(Symbol(r)) for r in instances(VgtkCore.StopRule))
-const _FIT_RECORD = _CheckedSpec(
-    _Obj(:retcode => _Named(in(_RETCODE_NAMES), "a ReturnCode name"), :stop_rule => _Named(in(_STOP_RULE_NAMES), "a StopRule name"),
-         :iterations => _Int(), :rms => _Real(), :n => _Int()),
-    x -> (x[:iterations] >= 0 && x[:n] >= 0 && x[:rms] >= 0) ? nothing : "a fit's iterations, rms and n are ≥ 0";
-    rule = "iterations, rms and n are ≥ 0",
-    schema = [Dict("properties" => Dict("iterations" => Dict("minimum" => 0), "n" => Dict("minimum" => 0), "rms" => Dict("minimum" => 0)))],
-)
-"""
-    fit_record_json(r::FitResult) -> NamedTuple
-
-The termination record of a fit, the one every kind that stores a fit's outcome
-embeds: `(; retcode, stop_rule, iterations, rms, n)` — VisualGeometryToolkitCore's
-`ReturnCode` and `StopRule` by name, the loop count, the RMS of the residuals (in
-their own unit) and their number. The estimate and the metadata of `r` are not
-part of it (they are the embedding kind's own fields). Its table is
-[`body_spec`](@ref)`(FitResult)`; [`fit_record_from_json`](@ref) reads it back.
-"""
-fit_record_json(r::FitResult) = (retcode = String(Symbol(VgtkCore.retcode(r))), stop_rule = String(Symbol(VgtkCore.stop_rule(r))),
-                                  iterations = VgtkCore.iterations(r), rms = VgtkCore.rms(r), n = getfield(r, :n))
-"""
-    fit_record_from_json(record) -> FitResult{Nothing, Nothing}
-
-The fit a termination record ([`fit_record_json`](@ref)'s, parsed: read by
-property access) states: its return code, stop rule, iterations, RMS and
-residual count, its estimate and metadata `nothing`.
-"""
-fit_record_from_json(x) = FitResult(nothing, getproperty(VgtkCore.ReturnCode, Symbol(x.retcode::String)),
-                                     only(r for r in instances(VgtkCore.StopRule) if String(Symbol(r)) == x.stop_rule),
-                                     Int(x.iterations::Integer), Float64(x.rms::Real), Int(x.n::Integer), nothing)
-
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];

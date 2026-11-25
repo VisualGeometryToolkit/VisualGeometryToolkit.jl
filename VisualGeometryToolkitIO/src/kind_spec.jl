@@ -144,8 +144,9 @@ package that embeds it:
 - `body_spec(Trajectory)`: the trajectory body, a `vgio/trajectory` file
   without its envelope (`JSON.lower(style, trajectory)`,
   `JSON.lift(style, Trajectory, body)`);
-- `body_spec(FitResult)`: a fit's termination record
-  ([`fit_record_json`](@ref), [`fit_record_from_json`](@ref));
+- `body_spec(FitResult)`: a fit's termination record, `{retcode, stop_rule,
+  iterations, rms, n}` (`JSON.lower(style, result)`, `JSON.lift(style,
+  FitResult, body)`; `iterations` is the result's `stats.nsteps`);
 - `body_spec(PixelFrame)`: a pair of pixel coordinates `[x, y]`, in the file's
   `units.pixel`.
 """

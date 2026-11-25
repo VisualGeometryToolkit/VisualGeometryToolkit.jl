@@ -642,6 +642,11 @@ const RETIRED_NAMES = String[
     "Uncertain" * "Pixel", "Uncertain" * "Point3",   # `Uncertain{SVector{N, Float64}, CovMat{N, Float64, SMatrix{N, N, Float64, N²}, UnlabeledFrame{N}}}`
     "NN" * "Match",                          # VisualGeometryToolkitFeatures: `Attributed{Correspondence{Int, Int}, NNMatchMeta}`, built `Attributed(Correspondence{Int, Int}(i, j), NNMatchMeta(score, ratio))`
     "SCHOEPS" * "_PIXEL_FRAME", "CANONICAL" * "_PIXEL_FRAME",   # VisualGeometryToolkitIO: `PixelFrame{:colmap}`
+    # VisualGeometryToolkitIO 0.12: a FitResult's termination record goes through IO's style, as every embedded value
+    # (owner, 2026-11-25: no named function, no R15 exception); the persisted keys are unchanged, `iterations` is
+    # `r.stats.nsteps`. `fit_result_*` were the never-released interim names.
+    "fit_record" * "_json", "fit_result" * "_json",           # `JSON.lower(style::VgioStyle, r::FitResult)` (`write_kind` lowers a body's result)
+    "fit_record" * "_from_json", "fit_result" * "_from_json", # `JSON.lift(style::VgioStyle, FitResult, record) -> FitResult{Nothing, Nothing}`
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

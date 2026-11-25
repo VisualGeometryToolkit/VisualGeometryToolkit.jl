@@ -14,6 +14,9 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   module: `check_naming(M::Module)` (`test_naming(M)`) adds every module-level `const` whose value is a concrete type of a
   stack package under another name, a computed `const X = typeof(…)` included. Every hit in the monorepo is removed
   (below).
+- RETIRED_NAMES gains VisualGeometryToolkitIO 0.11's `fit_record_json` and `fit_record_from_json` (removed in 0.12; and the
+  never-released interim `fit_result_json`, `fit_result_from_json`): a FitResult's termination record is IO's style's
+  `JSON.lower`/`JSON.lift`.
 - **`LevenbergMarquardt(backend; optimization_strategy, damping)`**: the one host LM carries a solver backend, as `DLT`
   and the minimal solvers do (`LevenbergMarquardt{B, S, D}`, the backend `B <: AbstractSolverBackend` first, default
   `NativeSolver()`, so a method on one backend reads `LevenbergMarquardt{NativeSolver}`). Core's refines of a problem

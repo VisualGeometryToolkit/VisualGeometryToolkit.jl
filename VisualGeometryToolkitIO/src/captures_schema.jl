@@ -626,7 +626,7 @@ A Schöps et al. camera_calibration `dataset.bin` (recognized by its
 image (its name in `images`), each detection a point of `target` — which the
 file does not name, so the caller states it — its index the feature id + 1
 (the reference's ids are 0-based; this importer converts), typed in
-[`PixelFrame{:colmap}`](@ref). A `target` beside a vgio file is refused (it
+`PixelFrame{:colmap}`. A `target` beside a vgio file is refused (it
 names its own).
 """
 function load(::Type{TargetObservations}, path::AbstractString; target::Union{Nothing, Symbol} = nothing)

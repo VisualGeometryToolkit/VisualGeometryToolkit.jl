@@ -8,7 +8,6 @@
 
 @testitem "schoeps: central intrinsics0.yaml" setup = [VGIoFixtures, SchoepsReference] begin
     using VisualGeometryToolkitCore: backproject, model, valid_domain
-    using VisualGeometryToolkitIO: 
     path = joinpath(FIXTURES, "central_intrinsics0.yaml")
     bc = load(BoundedCamera, path)
     cam = model(bc)
@@ -19,7 +18,6 @@
     @test all(isapprox.((va.origin..., va.widths...), (4, 3, 56, 42); atol = 1.0e-9))
     C = cam.lens.backward.controls
     @test size(C) == (4, 5)                                           # [gy, gx]
-    @test PixelFrame{:colmap} === PixelFrame{:colmap}     # the corner convention, read as stored
 
     cp = schoeps_raw_grid(path, "grid", 5, 4)
     for gy in 1:4, gx in 1:5                             # the layout: entry y·gw + x lands at [gy, gx]
@@ -76,7 +74,6 @@ end
 
 @testitem "schoeps: dataset.bin to TargetObservations" setup = [VGIoFixtures, SchoepsReference] begin
     using VisualGeometryToolkitCore: TargetObservations, convert_frame, sources, targets
-    using VisualGeometryToolkitIO: 
     path = joinpath(FIXTURES, "dataset.bin")
     @test_throws ArgumentError load(TargetObservations, path)                     # the target is the caller's to state
     obs = load(TargetObservations, path; target = :pattern)

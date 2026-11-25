@@ -146,9 +146,11 @@ The algorithm docstrings carry the old functions' documentation. The kernels kee
   (`ClosedFormKind`).
 - **Features:** the internal callers migrate. `detect_image_circle` keeps its name (a task verb). Its internals call
   the new circle and ellipse finds.
-- **IO:** `fit_record_json` → `fit_result_json`, `fit_record_from_json` → `fit_result_from_json`. These serialize a
-  `FitResult` (the `fit_` prefix is reserved). The persisted record keeps its schema keys; a version step maps
-  `estimate`/`iterations` if the schema changes.
+- **IO:** `fit_record_json` and `fit_record_from_json` are deleted with no named replacement (owner ruling
+  2026-11-25, §9: a `fit_result_*` name would need an R15 exception, and there are none). A `FitResult` goes through
+  IO's style codec, as every embedded value: `JSON.lower(::VgioStyle, r::FitResult)` and `JSON.lift(::VgioStyle,
+  FitResult, record)`; a kind's body holds the result itself. The persisted record keeps its schema keys
+  (`iterations` is `r.stats.nsteps`); a version step would map them if the schema changed.
 
 ## 7. Decision 9, 11, 13 items
 
@@ -676,8 +678,9 @@ These are done in Core 0.14, each with its own commit:
   Not hits, by the rule's stack-type criterion and with no special case: `BaseQuantity` (FlexUnits'
   `Quantity{Float64, Dimensions{FixRat32}}`), `_Metres` (FlexUnits' `Units`), `_UnitWeights` (FillArrays' `Fill`),
   `_PoolCorrespondences` (a StructArrays `StructVector`) — names for one concrete type of a package outside the stack.
-  PENDING the owner: whether R20 extends to foreign types (then these four are spelled out; `BaseQuantity` is the stored
-  field type of ~20 Core sites, IO, Eval and VRTK's IO, and conventions/units.md names it).
+  Owner ruling (2026-11-24): R20 stays limited to stack types; these four stay. A `const` naming a concrete type of
+  another package names a type that has no name of its own there, so it is no second name for one of ours
+  (conventions/naming.md, R20).
 - 2026-11-24 (PoseLib agent, the milestone's review round; code-review and simplify findings applied):
   - `LevenbergMarquardt{B, S, D}`: the backend parameter first, so a method on one backend is
     `LevenbergMarquardt{NativeSolver}` (Core's two refines of a problem, `_refine_spec`); Core's forwarder of a raw-data
@@ -701,3 +704,33 @@ These are done in Core 0.14, each with its own commit:
   - Features 0.10.0 and IO 0.12.0 (public names removed: `NNMatch`; `SCHOEPS_PIXEL_FRAME`, `CANONICAL_PIXEL_FRAME`);
     their Core compat stays until their own migrations (neither loads against Core 0.14); IO's writer fixtures name
     their generator 0.12.0. Eval removes no public name: unchanged. `ci/Project.toml`'s Core compat is "0.14".
+- 2026-11-25 (IO agent, the IO milestone):
+  - §6's `fit_result_json` / `fit_result_from_json` are refused by R15 (the `fit_` prefix). Owner ruling (2026-11-25):
+    no exception; the record goes through IO's existing generic mechanism. So `fit_record_json` and
+    `fit_record_from_json` are deleted with no named replacement: `JSON.lower(::VgioStyle, r::FitResult)` and
+    `JSON.lift(::VgioStyle, ::Type{FitResult}, record::Record)`, the style's codec every embedded value uses (a camera, a
+    trajectory, a region); a kind's body holds the result itself and `write_kind` lowers it. RETIRED_NAMES lists the two
+    old names and the never-released interim `fit_result_json`, `fit_result_from_json`, each with the replacement.
+    The codec reads the fields (`r.retcode`, `r.stop_rule`, `r.stats.nsteps`, `r.rms`, `r.n`); the reader builds
+    `SolveStats(; nsteps)` (the other counters `0`: never stored). The persisted record keeps its schema keys
+    byte for byte, `{"retcode", "stop_rule", "iterations", "rms", "n"}` (`iterations` on disk is `stats.nsteps`; a
+    test pins the on-disk record), so no version step is needed. `estimate` was never part of the record.
+  - IO's suite had never run since the PoseLib milestone's source-only edits; fixed: two `using VisualGeometryToolkitIO:`
+    lines left empty and a tautological `PixelFrame{:colmap} === PixelFrame{:colmap}` test (schoeps_tests), three
+    items missing a `PixelFrame` import (target_homographies_tests), broken markdown (``` ``PixelFrame{:colmap}`` ```,
+    ``TargetObservations{`PixelFrame{:colmap}`}``, a `[`PixelFrame{:colmap}`](@ref)`) and two stale comments; the
+    test fixtures' undefined `Chain` import removed.
+  - Found by this first run, older than the milestone: the SplineLens export refusal named the retired
+    `approximate_camera` (now Estimation's `solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, camera,
+    region)), CameraRegression())`); the duplication checker's similarity rule found `_kalibr_field` ⇔ `_schoeps_field`
+    (now one `_yaml_value`, schoeps.jl); two docstrings `@ref`'d `opencv_lens`, which is Core's since 0.12.0 (IO's docs
+    hold no Core docstrings: named in prose); the non-finite-length test edited the first `2.0` in the file, which the
+    0.12.0 generator version now holds (it targets the translation's number).
+  - Compat: IO (and its test, docs, benchmark projects) Core "0.14"; IO's benchmark IO "0.12". Eval keeps IO "0.11"
+    (its Core compat is still 0.13, so "0.12" could not resolve; Eval's milestone moves both). The stale Core "0.13" of
+    PoseLib's docs and Core's two benchmark projects is "0.14".
+  - Review round (code-review, simplify): the FitResult codec sits in core_json.jl beside the other Core-value codecs;
+    the lift is on `::Type{<:FitResult}` (a concrete `FitResult{Nothing, Nothing}` reaches it) and reads both enums
+    through the name tuples (type-stable; an unknown name is an `ArgumentError` listing the names); `_yaml_value` throws
+    its own refusal (the Schöps and Kalibr readers are one-line wrappers), and an indented key's indent is spaces or
+    tabs only (`[ \t]+`, was `\s+`, which could cross a blank line).

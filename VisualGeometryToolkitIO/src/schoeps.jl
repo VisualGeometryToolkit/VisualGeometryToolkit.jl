@@ -22,11 +22,10 @@
 #
 # THE PIXEL FRAME. Schöps' convention puts the origin at the top-left CORNER
 # of the top-left pixel, so the centre of pixel (i, j) is (i + ½, j + ½):
-# that IS `PixelFrame{:colmap}` (pixel-origins.md), the identity
-# `EuclideanMap(PixelFrame{:colmap}, PixelFrame{:colmap})` — no half pixel is
-# added anywhere. ``PixelFrame{:colmap}`` names it once: the spline models are
-# defined in it (VGC's own types are COLMAP-frame by construction), and the
-# detections come back typed in it (`TargetObservations{`PixelFrame{:colmap}`}`),
+# that IS `PixelFrame{:colmap}` (pixel-origins.md), the frame a
+# `CameraModel`'s K is in, so no half pixel is added anywhere. The spline
+# models are defined in it (VGC's own types are COLMAP-frame by construction), and the
+# detections come back typed in it (`TargetObservations{PixelFrame{:colmap}}`),
 # so moving them to another convention is `convert_frame`, explicitly.
 #
 # What the files do NOT declare is the reader's argument, as for the OpenCV and
@@ -38,9 +37,6 @@
 #               per file), and the ids' 0-based numbering becomes the
 #               1-based point index of a `TargetObservations` set (`index = id + 1`).
 # =============================================================================
-
-# The pixel frame of Schöps et al.'s camera_calibration files is `PixelFrame{:colmap}` exactly: origin at the top-left
-# corner of the top-left pixel, so pixel `(i, j)`'s centre is `(i + ½, j + ½)`.
 
 # The form of a file, by its content: `:json` (a vgio file), `:calib_data` (a
 # Schöps dataset.bin) or `:yaml` (anything else: a Schöps intrinsics YAML). A
@@ -72,12 +68,15 @@ _yaml_text(path::AbstractString) = _strip_bom(read(path, String))
 # intrinsics0.yaml
 # -----------------------------------------------------------------------------
 
-# One `key : value` line of the YAML (the reference writes exactly this shape).
-function _schoeps_field(yml::AbstractString, key::AbstractString, path)
-    mt = match(Regex("^$(key)\\s*:\\s*(.*?)\\s*\$", "m"), yml)
-    mt === nothing && throw(ArgumentError("$(path): no `$(key)` — not a Schöps camera_calibration intrinsics file"))
-    return mt.captures[1]
+# THE one `key : value` line reader of the YAML files read by hand (Schöps' intrinsics file at the top level, a Kalibr
+# camchain's camera block indented: external_calibration.jl): the value, stripped; a missing key is an ArgumentError
+# naming `path` and the key, then `refusal`.
+function _yaml_value(text::AbstractString, key::AbstractString, path, refusal::AbstractString; indented::Bool)
+    mt = match(Regex("^$(indented ? "[ \\t]+" : "")$(key)\\s*:\\s*(.*?)\\s*\$", "m"), text)
+    mt === nothing && throw(ArgumentError("$(path): no `$(key)` — $(refusal)"))
+    return String(something(mt.captures[1]))
 end
+_schoeps_field(yml, key, path) = _yaml_value(yml, key, path, "not a Schöps camera_calibration intrinsics file"; indented = false)
 function _schoeps_int(yml, key, path)
     v = tryparse(Int, _schoeps_field(yml, key, path))
     v === nothing && throw(ArgumentError("$(path): `$(key)` is not an integer"))

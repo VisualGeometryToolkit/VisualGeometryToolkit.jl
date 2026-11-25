@@ -219,10 +219,10 @@ after its file.
 | COLMAP model directory (`.bin` or `.txt`) | `ColmapModel`, an adapter; `camera_model` and `rigid_transform(image, contract)` convert its records | `load(ColmapModel, dir; contract)`; supply `contract = UnknownScale()` for an SfM model with no metric scale | `save(dir, m; format)` |
 | OpenCV or MATLAB calibration export | `ExternalCalibration`, an adapter holding VGC values | `load_opencv_calibration([file_frame,] path; file_unit)`, `load_matlab_calibration([file_frame,] path; file_unit)`; `convert_opencv_calibration` and `convert_matlab_calibration` convert one to native files | `save_opencv_calibration([to_frame,] path, cal; to_unit, images)` |
 | Kalibr camchain (`camchain.yaml`) | `BoundedCamera` | `load_kalibr_camchain([file_frame,] path; camera = "cam0")` | — |
-| Schöps et al.'s camera_calibration `intrinsics0.yaml` | `BoundedCamera` of a `SplineLens` camera (central) or of a `NoncentralSplineModel` (the file's corner pixel convention is ``PixelFrame{:colmap}``, COLMAP's; K the lattice's gauge) | `load(BoundedCamera, path; file_unit)`: the form is told from the content; a non-central point grid's unit is the caller's | read-only (`save` writes a `vgio/cameras` store) |
+| Schöps et al.'s camera_calibration `intrinsics0.yaml` | `BoundedCamera` of a `SplineLens` camera (central) or of a `NoncentralSplineModel` (the file's corner pixel convention is `PixelFrame{:colmap}`, COLMAP's; K the lattice's gauge) | `load(BoundedCamera, path; file_unit)`: the form is told from the content; a non-central point grid's unit is the caller's | read-only (`save` writes a `vgio/cameras` store) |
 | Schöps et al.'s pattern YAML (`create_calibration_pattern.py`) | `PlanarTarget(SchoepsPattern(…); canvas)`, the page its canvas | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`): the form is told from the content | read-only (`save` writes `vgio/target/v6.0`, the layout as a record) |
 | Kalibr's target YAML of an `aprilgrid` | `PlanarTarget(AprilGrid(…))`, the gap `tagSize · tagSpacing` (Kalibr's `tagSpacing` is a ratio) | `load(PlanarTarget, path)` (or `load(AbstractTarget, path)`) | read-only (`save` writes `vgio/target/v6.0`) |
-| Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetObservations{`PixelFrame{:colmap}`}`: per image, the points of `target`, each indexed by its feature id + 1 | `load(TargetObservations, path; target)`: the target the ids index is the caller's | read-only |
+| Schöps et al.'s camera_calibration `dataset.bin` (`calib_data` v0) | `TargetObservations{PixelFrame{:colmap}}`: per image, the points of `target`, each indexed by its feature id + 1 | `load(TargetObservations, path; target)`: the target the ids index is the caller's | read-only |
 | COLMAP `database.db` | a lazy read handle | `ColmapDatabase(path)`, with the accessors `detections`, `descriptors`, `raw_matches`, `verified_matches` and others (public, so qualify them) | read-only |
 
 See [Third-Party Calibrations](third-party.md) for the OpenCV and MATLAB
@@ -514,7 +514,7 @@ frames.
 | `Ellipse`, `Circle`, `Rect2` | `Ellipse`, `Circle`, `Rect2` | `[cx, cy, a, b, θ]`, `[cx, cy, r]`, `[x, y, w, h]`, in the value's own numbers |
 | a region: `Rect2`, `Ellipse`, `Circle`, `PolygonRegion`, `RegionIntersection` (nested), `WholePlane` | the region type, or a `Union` of them | THE region body, `{"rect": […]}` \| `{"ellipse": […]}` \| `{"circle": […]}` \| `{"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}` \| `{"intersection": [<region>, <region>]}` \| `{"whole_plane": {}}`, in pixels of `units.pixel`; a polygon is Core's star polygon (the valid domain of a lens that is not radially symmetric, at least 3 vertices, star-shaped about its centre: refused otherwise on read) and is not a leaf, so never a lens coverage; an intersection is BINARY, Core's `RegionIntersection`: exactly two parts, in order, so every document reads back as one exact type (more parts nest: `[a, {"intersection": [b, c]}]`; a list of another length is refused); a leaf field asks for it by the tag `(; region = true)` (an intersection and the whole plane lower to it by the two-argument form) |
 | VisualRadiometryToolkitCore's vignetting fields, binned radial profile and environment light | (VisualRadiometryToolkitIO's methods on this style) | the `vgio/vignetting`, `vgio/radial_profile` and `vgio/environment_light` bodies, as up to IO 0.10 |
-| a fit's termination (`FitResult`) | [`fit_record_from_json`](@ref VisualGeometryToolkitIO.fit_record_from_json) | `{"retcode", "stop_rule", "iterations", "rms", "n"}`, by [`fit_record_json`](@ref VisualGeometryToolkitIO.fit_record_json) |
+| a fit's termination (`FitResult`) | `FitResult` (a `FitResult{Nothing, Nothing}`: the record holds no estimate or metadata) | `{"retcode", "stop_rule", "iterations", "rms", "n"}`, `iterations` the result's `stats.nsteps` |
 | `GaussianBlur` | `GaussianBlur` | `{"pixel_frame": "colmap" \| "frame": "image:<id>" \| "target:<id>", "covariance": …}` in the storage it holds: px² on a sensor, `units.length`² on a print (read back as m² quantities); the plane is the blur's `CovMat` frame, read back with it |
 
 A target's calibration is written and read as part of its target's body, not
@@ -632,9 +632,10 @@ that embeds a camera or a trajectory body of IO 0.9 carries it over with
 positions of its own moves them between its frame and the file's with
 [`pixel_frame`](@ref VisualGeometryToolkitIO.pixel_frame) and
 [`pixel_frame_offset`](@ref VisualGeometryToolkitIO.pixel_frame_offset), and a
-kind that stores a fit embeds
-[`fit_record_json`](@ref VisualGeometryToolkitIO.fit_record_json) /
-[`fit_record_from_json`](@ref VisualGeometryToolkitIO.fit_record_from_json).
+kind that stores a fit holds the `FitResult` itself in its body (written by
+the style, like a camera or a trajectory) and reads it back with
+`JSON.lift(style, FitResult, record)`; its table is
+[`body_spec`](@ref VisualGeometryToolkitIO.body_spec)`(FitResult)`.
 
 VisualRadiometryToolkitIO's kinds (the vignetting, the environment light, the
 radial profile) and PanoramaStitching's panorama are written this way. They

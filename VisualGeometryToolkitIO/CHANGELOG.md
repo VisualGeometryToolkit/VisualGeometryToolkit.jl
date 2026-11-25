@@ -2,15 +2,28 @@
 
 ## 0.12.0 (unreleased)
 
-Breaking: two public names are removed. `[compat]` on VisualGeometryToolkitCore stays `"0.13"` until this package's own
-Core 0.14 migration (it does not load against Core 0.14 yet). The fixtures a writer reproduces byte for byte name their
-generator 0.12.0.
+Breaking: on VisualGeometryToolkitCore 0.14 (`[compat]` `"0.14"`), whose `FitResult` is SciML's solution, read by field;
+four public names are removed, each in RETIRED_NAMES with its replacement and none aliased. The fixtures a writer
+reproduces byte for byte name their generator 0.12.0.
 
 ### Changed (breaking)
+- **`fit_record_json` and `fit_record_from_json` are removed**: a `FitResult`'s termination record goes through this
+  package's style, as every other value a kind embeds (a camera, a trajectory). `JSON.lower(style::VgioStyle,
+  r::FitResult)` writes it (a kind's body may hold the result itself: `write_kind` lowers it), and `JSON.lift(style,
+  FitResult, record)` reads it back as a `FitResult{Nothing, Nothing}` whose `stats` is `SolveStats(; nsteps)` (the other
+  work counters `0`: they are not stored). The record is a `Record`, a parsed `JSON.Object` or a `NamedTuple` (as for
+  every lift on the style), and any `FitResult` type may be named (`FitResult{Nothing, Nothing}` too); an unknown
+  `retcode` or `stop_rule` name is an `ArgumentError` listing the names. They read Core 0.14's fields: `r.retcode`, `r.stop_rule`, the loop count
+  `r.stats.nsteps`, `r.rms` and `r.n`. **The persisted record is unchanged**: its keys stay `{"retcode", "stop_rule",
+  "iterations", "rms", "n"}` (the loop count is `iterations` on disk), so `body_spec(FitResult)` and every file a kind
+  wrote with the old pair read as before, and no version step is needed.
 - `SCHOEPS_PIXEL_FRAME` and `CANONICAL_PIXEL_FRAME` (check_naming R20: a `const` naming one concrete type, owner
-  2026-11-24): both are `PixelFrame{:colmap}`, written as that type. In RETIRED_NAMES.
+  2026-11-24): both are `PixelFrame{:colmap}`, written as that type.
 
 ### Changed
+- A SplineLens camera's export refusal names VisualGeometryToolkitEstimation 0.13's camera regression,
+  `solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, camera, region)), CameraRegression())`, as the route
+  to a parametric lens (it named the retired two-stage function).
 - `opencv_lens` is VisualGeometryToolkitCore's now (its one owner: OpenCV's distortion vector as a Core lens); this
   package re-exports it beside its inverse `opencv_coefficients`. Bit-identical.
 

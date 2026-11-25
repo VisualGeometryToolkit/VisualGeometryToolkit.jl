@@ -6,7 +6,7 @@
 
 @testitem "kind spec: a toy kind's table checks what is written and what is read" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO
-    using VisualGeometryToolkitCore: FitResult, ReturnCode, StopRule, Trajectory, CameraFrame, WorldFrame
+    using VisualGeometryToolkitCore: FitResult, SolveStats, ReturnCode, StopRule, thrown_message, Trajectory, CameraFrame, WorldFrame
     # the table: every combinator, a body of this package's (a camera, a trajectory, a fit), a cross-field check
     tone(self) = ["flat" => VgtkIO.object_spec(:type => VgtkIO.token_spec("flat"), :level => VgtkIO.real_spec()),
                   "log" => VgtkIO.object_spec(:type => VgtkIO.token_spec("log"), :of => self)]
@@ -27,14 +27,14 @@
     cam = BoundedCamera(CameraModel(K; lens = KannalaBrandt(0.1, -0.02, 0.003, -0.0004), pixel_frame = :colmap), Size2(640, 480))
     z = [0.0, 0.0, 0.0] .* m
     rots = Trajectory(CameraFrame, WorldFrame, Dict(1 => EuclideanMap(QuatRotation(1.0, 0.0, 0.0, 0.0, false), z)); images = Dict(1 => "a.png"))
-    fit = FitResult(nothing, ReturnCode.Success, first(instances(StopRule)), 12, 0.41, 31580, nothing)
+    fit = FitResult(nothing, ReturnCode.Success, first(instances(StopRule)), SolveStats(; nsteps = 12, nf = 13), 0.41, 31580, nothing)
     style = VgtkIO.VgioStyle(; pixel_frame = PixelFrame{:opencv})
     @test VgtkIO.pixel_frame(style) === PixelFrame{:opencv}
     @test VgtkIO.pixel_frame_offset(PixelFrame{:colmap}, PixelFrame{:opencv}) == SVector(-0.5, -0.5)
     @test VgtkIO.pixel_frame_offset(PixelFrame{:opencv}, PixelFrame{:colmap}) == SVector(0.5, 0.5)
     body(; kw...) = merge((camera = VgtkIO.camera_json(cam, VgtkIO.pixel_frame(style)), rotations = rots, gains = [[1.0, 1.0, 1.0]], frames = 1,
                            mode = "still", tone = (type = "log", of = (type = "flat", level = 0.5)), window = (center = [3.5, 4.0],),
-                           fit = VgtkIO.fit_record_json(fit)), (; kw...))
+                           fit = fit), (; kw...))   # the result itself: write_kind lowers it on the style
     mktempdir() do dir
         p = joinpath(dir, "sweep.json")
         @test VgtkIO.write_kind(p, SWEEP, body(); style, provenance = (run = "a",)) === nothing
@@ -48,8 +48,16 @@
         @test VgtkIO.pixel_frame(s) === PixelFrame{:opencv} && r.frames == 1 && r.tone.of.level == 0.5
         @test VgtkIO.camera_from_json(BoundedCamera, r.camera, VgtkIO.pixel_frame(s)) isa BoundedCamera
         @test JSON.lift(s, Trajectory, r.rotations) isa Trajectory
-        back = VgtkIO.fit_record_from_json(r.fit)
-        @test back isa FitResult{Nothing, Nothing} && VgtkIO.fit_record_json(back) == VgtkIO.fit_record_json(fit)
+        back = JSON.lift(s, FitResult, r.fit)
+        @test back isa FitResult{Nothing, Nothing} && JSON.lower(s, back) == JSON.lower(s, fit)
+        @test JSON.lower(s, JSON.lift(s, FitResult{Nothing, Nothing}, r.fit)) == JSON.lower(s, fit)   # a concrete type reaches it too
+        @test occursin("ReturnCode", thrown_message(() -> JSON.lift(s, FitResult, merge(JSON.lower(s, fit), (retcode = "Bogus",)))))
+        @test occursin("StopRule", thrown_message(() -> JSON.lift(s, FitResult, merge(JSON.lower(s, fit), (stop_rule = "Bogus",)))))
+        # the persisted record keeps its schema keys: the loop count `stats.nsteps` is `iterations` on disk, the other
+        # work counters are not stored
+        @test d["fit"] == Dict("retcode" => "Success", "stop_rule" => String(Symbol(fit.stop_rule)), "iterations" => 12,
+                               "rms" => 0.41, "n" => 31580)
+        @test back.stats == SolveStats(; nsteps = 12) && back.rms === 0.41 && back.n == 31580 && back.u === nothing
         # the writer checks the very bytes: a record its reader would refuse is not written, the refusal names the key
         q = joinpath(dir, "refused.json")
         refusal(f) = try f(); "" catch e; e isa ArgumentError ? e.msg : rethrow() end

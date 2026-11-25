@@ -154,6 +154,8 @@ so the CHANGELOG sections are "Unreleased".
   the nine `*_spec` combinators and `body_spec`, `migrate_file`, `migrate_body`, `fit_record_json`,
   `fit_record_from_json`, `pixel_frame`, `pixel_frame_offset`, `length_unit`, `matrix_rows`, `rows_matrix`,
   `renamed_key`, `MOVED_NAMES`.
+  (`fit_record_json` and `fit_record_from_json` were removed in IO 0.12: a FitResult goes through the style codec,
+  `JSON.lower`/`JSON.lift`.)
 - Estimation: no name added or removed (`optical_axis` and the exact resample of `fit_camera(SplineLens, …)` on a
   CUDA device).
 

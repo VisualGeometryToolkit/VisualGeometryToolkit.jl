@@ -64,7 +64,11 @@ prior fit) are outside this rule.
   Line2D{T} = Hyperplane{2, 3, T}`), which stays allowed. The parsed rule sees a
   type applied to all its free parameters; the module form, `check_naming(M)`
   (every package's quality test), sees the loaded bindings, a computed one
-  included. A type of a package outside the stack is not a stack type.
+  included. A type of a package outside the stack is not a stack type, and the
+  rule leaves it alone (owner, 2026-11-24): a `const` naming a concrete type of
+  another package — `BaseQuantity` (FlexUnits' stored quantity), a `Units`, a
+  `Fill`, a `StructVector` — gives a name to a type that has none of its own in
+  its package, so it is no second name for one of ours.
 - R21: a [`FitResult`](@ref) is read by field (`r.u`, `r.retcode`,
   `r.stats.nsteps`, `r.stop_rule`, `r.rms`, `r.metadata`) and
   `successful_retcode(r)`, its cross-type quantities only by their functions

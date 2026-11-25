@@ -186,13 +186,14 @@ end
         @test !isfile(p)
         good = joinpath(dir, "good.json")
         save(good, [relabel(WorldFrame, CameraFrame, EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 2.0, 3.0) .* mm))])
+        # the translation's 2.0, a number of its own on its line (the generator's version, "0.12.0", holds the text too)
         for (text, field) in (("NaN", "translation[2]"), ("Infinity", "translation[2]"), ("-Infinity", "translation[2]"), ("1e400", "translation[2]"))
-            write(p, replace(read(good, String), r"2\.0" => text; count = 1))
+            write(p, replace(read(good, String), r"(?<=\s)2\.0(?=,)" => text; count = 1))
             @test occursin(field, thrown_message(() -> load(Vector{EuclideanMap}, p)))
             @test occursin(field, thrown_message(() -> VgtkIO.validate(p)))
         end
         # integers in a hand-written file are lengths like any other number
-        write(p, replace(read(good, String), "2.0" => "-2"; count = 1))
+        write(p, replace(read(good, String), r"(?<=\s)2\.0(?=,)" => "-2"; count = 1))
         @test ustrip(m, translation(only(load(Vector{EuclideanMap}, p)))[2]) === -0.002
     end
 end

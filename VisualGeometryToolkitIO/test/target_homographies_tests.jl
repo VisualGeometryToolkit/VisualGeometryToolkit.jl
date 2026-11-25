@@ -72,7 +72,7 @@ end
 end
 
 @testitem "target_homographies/v2.0: the writer stores the canonical H" setup = [TargetHomographiesFixtures] begin
-    using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, sign_normalize, to_homogeneous
+    using VisualGeometryToolkitCore: TargetHomographies, HomographyMap, HomographyMat, PixelFrame, sign_normalize, to_homogeneous
     using StaticArrays: SMatrix
     using LinearAlgebra: norm
     M = HomographyMat{Float64}(Tuple(-37.5 .* SMatrix{3, 3, Float64}(3, 1, 0.2, 0.5, 2, 0.1, 100, 80, 1)))   # scaled, wrong sign
@@ -95,7 +95,7 @@ end
 end
 
 @testitem "target_homographies/v2.0: refusals name the path" setup = [TargetHomographiesFixtures] begin
-    using VisualGeometryToolkitCore: TargetHomographies
+    using VisualGeometryToolkitCore: TargetHomographies, PixelFrame
     th = sample()
     mktempdir() do dir
         base = joinpath(dir, "base.json")
@@ -151,7 +151,7 @@ end
 end
 
 @testitem "target_homographies/v2.0: an Uncertain homography keeps its 8×8 covariance in its storage" setup = [TargetHomographiesFixtures] begin
-    using VisualGeometryToolkitCore: TargetHomographies, Uncertain, CovMat, geom, to_homogeneous
+    using VisualGeometryToolkitCore: TargetHomographies, PixelFrame, Uncertain, CovMat, geom, to_homogeneous
     import VisualGeometryToolkitCore
     using StaticArrays: SMatrix
     using JSON: JSON

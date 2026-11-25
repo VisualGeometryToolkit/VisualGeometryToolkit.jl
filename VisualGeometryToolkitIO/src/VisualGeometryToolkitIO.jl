@@ -127,7 +127,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
     Point2, FeatureFrame, PointFrame, Disc, OrientedDisc, EllipticFrame, AffineFrame, AbstractDetection,
     relabel, ids, pose, extrinsics, reference_frame, model, extent, points
 import VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: FitResult   # a fit's termination record (validate.jl, `_FIT_RECORD`)
+using VisualGeometryToolkitCore: FitResult, SolveStats   # a fit's termination record and its loop count (core_json.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
 using VisualGeometryToolkitCore: SensorCharacterisation   # sensor_characterisation/v2.0
 
@@ -286,7 +286,6 @@ public matrix_rows, rows_matrix   # a matrix as a record holds it (its rows), an
 public renamed_key               # a record with one key renamed: a version step's move
 public MOVED_NAMES               # the names retired by a move to another package (the duplication check reads it)
 public object_spec, token_spec, integer_spec, real_spec, array_spec, named_spec, checked_spec, if_key_spec, tagged_spec, body_spec
-public fit_record_json, fit_record_from_json   # a fit's termination record, the one a kind that stores a fit embeds
 public length_unit                    # a style's length unit (its record's `units.length`)
 public pixel_frame, pixel_frame_offset   # a style's pixel frame; the translation between two pixel frames
 public migrate_record                 # an earlier version's record as the current one, in memory: the version steps a reader runs

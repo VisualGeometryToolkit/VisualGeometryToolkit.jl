@@ -52,8 +52,8 @@
 # valid pixel frames: VGC owns the registered set (the offset table behind the
 # `PixelFrame` conversion factory), and a second list here could only agree
 # with it or drift from it. Validity is therefore decided by ASKING VGC, whose
-# refusal already names the registered options. (``PixelFrame{:colmap}``, the
-# frame a `CameraModel`'s K is in, is stated once, in style.jl.)
+# refusal already names the registered options. (`PixelFrame{:colmap}` is the
+# frame a `CameraModel`'s K is in, and every default `pixel_frame` here.)
 
 """
     pixel_frame_name(::Type{<:PixelFrame}) -> String
@@ -674,7 +674,8 @@ end
 _refuse_spline_export(::SplineLens) = throw(
     ArgumentError(
         "a SplineLens camera has no OpenCV/COLMAP form; store it as a vgio camera record (VisualGeometryToolkitIO.save), " *
-            "or approximate it by a parametric lens first, `VisualGeometryToolkitEstimation.approximate_camera(KannalaBrandt{4}, camera, region)` " *
+            "or approximate it by a parametric lens first, VisualGeometryToolkitEstimation's camera regression " *
+            "`solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, camera, region)), CameraRegression())` " *
             "(any lens family; the region of its image to fit over)"
     )
 )

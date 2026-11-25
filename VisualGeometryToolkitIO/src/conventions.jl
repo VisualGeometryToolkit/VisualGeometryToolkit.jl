@@ -88,7 +88,7 @@ end
 
 OpenCV's calibration — the camera matrix `K` (pixels, `cx, cy` in `file_frame`,
 OpenCV's own frame by default; no skew) and the distortion vector `dist`
-([`opencv_lens`](@ref): 4, 5, 8, 12 or 14 entries) — as a VGC
+(VisualGeometryToolkitCore's `opencv_lens`: 4, 5, 8, 12 or 14 entries) — as a VGC
 `CameraModel(LogicalIntrinsics(K′), lens)` with `K′`'s principal point in the
 canonical COLMAP frame, moved by `EuclideanMap(file_frame, PixelFrame{:colmap})`.
 Inverse of [`opencv_parameters`](@ref).

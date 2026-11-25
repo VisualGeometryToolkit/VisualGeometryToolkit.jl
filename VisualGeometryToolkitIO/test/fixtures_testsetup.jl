@@ -19,7 +19,7 @@ using StaticArrays: SVector, SMatrix
 using LinearAlgebra: norm
 using Rotations: QuatRotation, RotMatrix
 using VisualGeometryToolkitCore: mm, m, px, CameraModel, CameraCalibrationMat, Lens, Perspective,
-    LiftLens, Equidistant, Radial, Tangential, ThinPrism, Additive, Chain,
+    LiftLens, Equidistant, Radial, Tangential, ThinPrism, Additive,
     KannalaBrandt, Scaramuzza, Division, EuclideanMap,
     AbstractLensModel, Size2, extent, DoubleSphere, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, PixelFrame,
     lens_record, lens_from_record, parameters, parameter_vector
@@ -31,7 +31,7 @@ export quantity, ustrip, parse_unit, unit_string
 export JSON, parse_json, ColmapModel, ColmapImage, canonical_qvec, load, save
 export SVector, SMatrix, norm, QuatRotation, RotMatrix
 export mm, m, px, CameraModel, CameraCalibrationMat, 
-    Lens, LiftLens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Additive, Chain,
+    Lens, LiftLens, Perspective, Equidistant, Radial, Tangential, ThinPrism, Additive,
     KannalaBrandt, Scaramuzza, Division, EuclideanMap,
     AbstractLensModel, Size2, extent, DoubleSphere, SplineLens, NoncentralSplineModel, ChartSpline, BoundedCamera, PixelFrame,
     lens_record, lens_from_record, parameters, parameter_vector

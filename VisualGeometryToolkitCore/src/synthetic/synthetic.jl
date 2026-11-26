@@ -94,6 +94,11 @@ export normalize_map, perspective_augmentation
 public perturbed_pose
 
 # -----------------------------------------------------------------------------
+# 2b. SURFACES - the synthetic warpings of a planar target (surfaces.jl)
+# -----------------------------------------------------------------------------
+public saddle_height
+
+# -----------------------------------------------------------------------------
 # 3. MONTE-CARLO CALIBRATION of the uncertainty-propagation chain (calibration.jl):
 #    public, not exported — reached as `Synthetic.run_calibration` or imported
 # -----------------------------------------------------------------------------
@@ -113,5 +118,6 @@ include("conics.jl")
 include("evaluation.jl")
 include("augmentation.jl")
 include("calibration.jl")
+include("surfaces.jl")
 
 end # module Synthetic

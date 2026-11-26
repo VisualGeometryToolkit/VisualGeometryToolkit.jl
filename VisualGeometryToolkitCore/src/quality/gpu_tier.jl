@@ -39,7 +39,7 @@ GPU tier; each GPU item then starts with [`require_gpu`](@ref)`(prefix)`.
 """
 function gpu_tier(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30)
     dev = default_device()
-    functional = !(dev isa KA.CPU)                     # the backend the GPU items will be handed (require_gpu's)
+    functional = KA.isgpu(dev)                         # the backend the GPU items will be handed (require_gpu's)
     opted_out = get(ENV, _gpu_env(prefix, "TEST_GPU"), "1") == "0"
     free = functional ? device_free_bytes(dev) : 0
     ok = functional && !opted_out && free >= min_free_bytes
@@ -65,7 +65,7 @@ function gpu_problem(prefix::AbstractString; min_free_bytes::Integer = 20 * 2^30
     get(ENV, decided, "0") == "1" ||
         return "the GPU items run only in the GPU tier the test runner decided on (`gpu_tier`; $(decided)=1 is not set)"
     dev = default_device()
-    dev isa KA.CPU && return "the runner decided to run the GPU tier, but this worker's default device is the CPU (is CUDA loaded and functional?)"
+    KA.isgpu(dev) || return "the runner decided to run the GPU tier, but this worker's default device is the CPU (is CUDA loaded and functional?)"
     free = device_free_bytes(dev)
     free >= min_free_bytes ||
         return "the runner decided to run the GPU tier, but this worker sees only $(round(free / 2^30; digits = 1)) GiB free (< $(round(min_free_bytes / 2^30; digits = 1)) GiB)"

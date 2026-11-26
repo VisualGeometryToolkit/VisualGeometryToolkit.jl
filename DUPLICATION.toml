@@ -26,11 +26,6 @@ function = "__init__"
 reason = "not a CPU/GPU twin of any code: the CUDA extension registers the device queries (free memory, reclaim) a KernelAbstractions backend cannot answer, and answers them for its own backend only; the policy's allowed device-query helpers"
 
 [[backend]]
-file = "VisualGeometryToolkitCore/src/geometry/transforms/pointwise.jl"
-function = "p::OnBackend"
-reason = "not a CPU/GPU twin of any computation: the stack's one kernel-launch policy (the owner's ruling, 2026-11-12) instantiates the SAME kernel on every backend and chooses only its workgroup per backend — a one-item kernel runs one item per workgroup on the CPU (every thread busy) and one warp per workgroup on a device (one item there would idle 31 of 32 lanes)"
-
-[[backend]]
 file = "VisualGeometryToolkitFeatures/src/asift/driver.jl"
 function = "_chunk_warps"
 reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay resident (an allocation), and only the free memory differs by backend — the host's on the CPU, the device's less the room the ONNX Runtime CUDA sessions' arenas may still take on a GPU (those arenas are device memory; the CPU's warps share no device with them); the same kernels run on every backend"
@@ -39,16 +34,6 @@ reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay re
 file = "VisualGeometryToolkitFeatures/src/onnx_runtime.jl"
 function = "_onnx_device_free"
 reason = "not a CPU/GPU twin of any computation: it reads the free device memory around an ONNX Runtime CUDA session's creation and runs, to measure what that session's arena took; on the host there is no device memory to read (an arena is device memory), so it reads nothing"
-
-[[backend]]
-file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
-function = "gpu_tier"
-reason = "not a CPU/GPU twin of any computation: the test runner's one decision whether a GPU tier runs at all reads which backend the default device is (the backend require_gpu hands the GPU items); no kernel or arithmetic is chosen by it"
-
-[[backend]]
-file = "VisualGeometryToolkitCore/src/quality/gpu_tier.jl"
-function = "gpu_problem"
-reason = "not a CPU/GPU twin of any computation: a GPU-tier worker's re-check that its default device is still an accelerator, so the GPU items error rather than run on the CPU path"
 
 # check_splat's exceptions (a splat of a collection whose length is data, VisualGeometryToolkitCore's `check_splat`):
 # each is a splat whose length is fixed by a type or bounded by construction, or an API with no collection form.

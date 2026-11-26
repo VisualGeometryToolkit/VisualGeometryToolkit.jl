@@ -88,7 +88,8 @@ makedocs(;
         # api/optimization_strategies.md. Split on 2026-11-14 (api/robust_statistics.html
         # measured 206 KiB with the LM damping types): the chart rows and the LM core to api/lm_core.md.
         # Split on 2026-11-23 (api/types.html measured 201 KiB with Core 0.14's interface): the estimation interface
-        # and the FitResult to api/estimation.md.
+        # and the FitResult to api/estimation.md. Split on 2026-11-26 (api/core.html measured 201.67 KiB with Core 0.13.4's
+        # per-backend kernel choices): base/device.jl to api/devices.md.
         size_threshold_warn = 150 * 2^10,
         # The search index crossed the 500 KiB default with the 0.14
         # docstring additions (the shim-block docstrings moved into src plus
@@ -166,6 +167,7 @@ makedocs(;
             "The Estimation Interface" => "api/estimation.md",
             "Termination Record" => "api/termination.md",
             "Core" => "api/core.md",
+            "Devices & Kernels" => "api/devices.md",
             "Artifact Store" => "api/artifacts.md",
             "Synthetic Data" => "api/synthetic.md",
         ],

@@ -218,6 +218,32 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   `p3p(model, cs)` → `solve(MinimalProblem(Extrinsics3, cs, 1:3, model), P3P())`, the camera the context `p`. The
   positional kernels (`homography_4pt`, `p3p(rays, X)`, `p3p(backend, x, X)`, …) stay.
 
+### From 0.13.4 (forward-ported)
+
+VisualGeometryToolkitCore 0.13.4 (VGTK main 6fceffd6), merged into 0.14.0; additions only.
+
+- **The per-backend choices of one KernelAbstractions implementation, each stated once** (base/device.jl, public), so a
+  downstream kernel's caller asks Core rather than branching on the backend itself. The host/GPU predicate is
+  KernelAbstractions' own `isgpu(backend)`; Core's own backend tests (`device_free_bytes`, `reclaim_device!`, `ka_upload`,
+  `OnBackend`'s one-item rule, `gpu_tier`, `gpu_problem`) now read it, and their three `DUPLICATION.toml` exceptions are gone.
+  - `kernel_float(backend)`: `Float32` on a GPU, `Float64` on the host.
+  - `dual_chunk(backend, slots, device_chunk)`: a Jacobian's ForwardDiff chunk, `device_chunk` on a GPU, all `slots` (at least
+    1) on the host.
+  - `OnBackend(backend; workgroupsize, host_workgroupsize = workgroupsize)`: the workgroup on the host, where heavy work items
+    want a small group (KernelAbstractions gives each CPU thread whole groups).
+  - `device_resident_threads(backend)`: the host's resident threads without a kernel, `Threads.nthreads()` (an `ArgumentError`
+    on a GPU, whose count is its kernel's occupancy); the kernel form's host method is it.
+  - `device_names(backend)`: on the host one entry, `"CPU (<Sys.CPU_NAME>, <n> threads)"`; on a GPU `device_names()`.
+  - `on_device(T, S, device, x)`: a structure holding `S`, in `T` on `device`: `x` itself on the host when `T === S`, else
+    `adapt(device, convert_eltype(T, x))`.
+- `Synthetic.saddle_height(𝐛)` (public): the stack's synthetic saddle warping of a board, the height at a chart position.
+  Core's height-surface fixture generator calls it (its private copy is gone), as RadiometricCamera's test scenes will.
+
+- The forward port moves base/device.jl's docstrings from the Core API page to their own page, Devices & Kernels
+  (`docs/src/api/devices.md`): with them the Core page measured 201.67 KiB, over Documenter's 200 KiB limit.
+
+No value changes: every existing call computes what it did.
+
 ## Unreleased (planned)
 
 - Under review for the next breaking minor: the name of an uncertain frame's point observation, `center(u)` (an

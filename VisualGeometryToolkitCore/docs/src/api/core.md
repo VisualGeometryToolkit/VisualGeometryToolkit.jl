@@ -6,7 +6,8 @@ CurrentModule = VisualGeometryToolkitCore
 
 The package docstring, units and quantities, utilities, the benchmark pool
 record, and the visualization stubs. The core composition and uncertainty
-types are on the [Core Types API](types.md) page, synthetic data and the Monte
+types are on the [Core Types API](types.md) page, the devices and the per-backend choices of a kernel on the
+[Devices & Kernels API](devices.md) page, synthetic data and the Monte
 Carlo calibration on the [Synthetic Data API](synthetic.md) page.
 
 ## The Package
@@ -32,7 +33,7 @@ VisualGeometryToolkitCore.StackUnits
 ```@autodocs
 Modules = [VisualGeometryToolkitCore, VisualGeometryToolkitCore.Primitives, VisualGeometryToolkitCore.Cameras]
 Private = false
-Pages = ["base/utils.jl", "base/canonical.jl", "base/geometry_utils.jl", "base/device.jl", "base/duals.jl"]
+Pages = ["base/utils.jl", "base/canonical.jl", "base/geometry_utils.jl", "base/duals.jl"]
 ```
 
 Drawing into an array without Makie (masks, debug frames; public, not

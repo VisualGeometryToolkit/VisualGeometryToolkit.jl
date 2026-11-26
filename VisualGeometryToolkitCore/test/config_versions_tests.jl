@@ -38,6 +38,24 @@
     @test_throws ArgumentError migrate_config(Dict{String, Any}(CONFIG_VERSION_KEY => 2,
         "est" => Dict{String, Any}("adapt_scale" => true)), vv)                              # the old form in a current file
 
+    # delegated tables: another package's tables in this file migrate by THEIR owner, from its version in [config_versions]
+    owner = ConfigVersions("Owner", ConfigMigration(; tables = ["find"], renames = ["find.old_key" => "find.new_key"]); tables = ["find"])
+    host = ConfigVersions("Host", ConfigMigration(; tables = ["run", "find"], renames = ["run.a" => "run.b"]);
+                          tables = ["run", "find"], delegates = ["find" => owner])
+    d0 = Dict{String, Any}("run" => Dict{String, Any}("a" => 1), "find" => Dict{String, Any}("old_key" => 2))   # both at v1
+    m0 = migrate_config(d0, host)
+    @test m0 == Dict{String, Any}(CONFIG_VERSION_KEY => 2, "run" => Dict{String, Any}("b" => 1),
+                                  "find" => Dict{String, Any}("new_key" => 2), "config_versions" => Dict{String, Any}("Owner" => 2))
+    @test migrate_config(m0, host) == m0                                                  # current stays current
+    d1 = Dict{String, Any}(CONFIG_VERSION_KEY => 2, "run" => Dict{String, Any}("b" => 1),
+                           "find" => Dict{String, Any}("old_key" => 2))                   # host current, owner at v1
+    @test migrate_config(d1, host)["find"] == Dict{String, Any}("new_key" => 2)
+    @test migrate_config(Dict{String, Any}("run" => Dict{String, Any}("a" => 1)), host) ==
+          Dict{String, Any}(CONFIG_VERSION_KEY => 2, "run" => Dict{String, Any}("b" => 1))  # no delegated table: no entry
+    @test_throws ArgumentError migrate_config(merge(m0, Dict{String, Any}("config_versions" => Dict{String, Any}("Owner" => 3))), host)
+    @test_throws ArgumentError migrate_config(merge(m0, Dict{String, Any}("config_versions" => Dict{String, Any}("Other" => 1))), host)
+    @test_throws ArgumentError migrate_config(Dict{String, Any}("config_versions" => Dict{String, Any}("Owner" => 1)), vv)
+
     # the mechanism over two migrations: renames move whole tables (into new parents), versions chain, refusals name the key
     v = ConfigVersions("Pkg",
         ConfigMigration(; tables = ["a", "b"], renames = ["a" => "x.a"]),

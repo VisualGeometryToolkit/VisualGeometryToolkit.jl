@@ -921,3 +921,6 @@ These are done in Core 0.14, each with its own commit:
   one shape is token-identical. Narrower than "the same callees": a shared operator, constructor or recursion keeps a
   pair (RC's `plain` beside Core's `toml_value` stays a finding). Stack scan before/after (monorepo + BB, RC, LODR,
   RSDR, VRTK): 127 → 123 findings, the 4 removed all one-expression pairs with disjoint callees, none added.
+- 2026-11-26 (lead, BB/CB Q1): a configuration holding another package's tables delegates them to the owner's
+  converter (`ConfigVersions`' `delegates`), the owner's version recorded in the top-level `[config_versions]` table by
+  package name. One owner per table: CaliBlobs never restates BlobBoards' steps.

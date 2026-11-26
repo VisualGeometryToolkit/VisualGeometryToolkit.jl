@@ -372,22 +372,37 @@ ConfigMigration(; tables, renames = Pair{String, String}[], values = Pair{String
                     Pair{String, Any}[String(first(r)) => last(r) for r in values])
 
 """
-    ConfigVersions(package, migrations::ConfigMigration...; tables)
+    ConfigVersions(package, migrations::ConfigMigration...; tables, delegates = [])
 
 A package's configuration converter: `tables` are the current version's top-level tables (every one: an unknown table
 of a current file is refused, as of an earlier one), and `migrations[v]` reads version `v` and writes version `v + 1`,
 so the current version is `length(migrations) + 1` ([`current_config_version`](@ref)). A package declares ONE, beside its
 `configs/default.toml`, which states the current version under [`CONFIG_VERSION_KEY`](@ref); its defaults are read
 through it (`parse_defaults(path; versions)`), and a caller migrates a stored file with
-[`migrate_config`](@ref).
+[`migrate_config`](@ref). `delegates` are `table => owner` pairs for the top-level tables of the file that belong to
+ANOTHER package's converter (a CaliBlobs run file holding BlobBoards' `[find_boards]`): each is migrated by its owner,
+from the owner's version under [`CONFIG_VERSIONS_KEY`](@ref), and never restated here. List a delegated table in
+`tables` and in every migration's `tables` that reads it; a migration of this package never renames it.
 """
 struct ConfigVersions
     package::String
     tables::Vector{String}
     migrations::Vector{ConfigMigration}
+    delegates::Vector{Pair{String, ConfigVersions}}
 end
-ConfigVersions(package::AbstractString, migrations::ConfigMigration...; tables) =
-    ConfigVersions(String(package), collect(String, tables), collect(ConfigMigration, migrations))
+ConfigVersions(package::AbstractString, migrations::ConfigMigration...; tables,
+               delegates = Pair{String, ConfigVersions}[]) =
+    ConfigVersions(String(package), collect(String, tables), collect(ConfigMigration, migrations),
+                   Pair{String, ConfigVersions}[String(first(t)) => last(t) for t in delegates])
+
+"""
+    CONFIG_VERSIONS_KEY = "config_versions"
+
+The top-level table of a configuration that holds another package's tables (a [`ConfigVersions`](@ref)'s `delegates`):
+the version of each such owner's tables, keyed by the owner's package name (`[config_versions] BlobBoards = 2`). An
+owner without an entry is at its version 1.
+"""
+const CONFIG_VERSIONS_KEY = "config_versions"
 
 """
     current_config_version(versions::ConfigVersions) -> Int
@@ -415,6 +430,26 @@ function migrate_config(d::AbstractDict, v::ConfigVersions; source::AbstractStri
         "$source: $(v.package) configuration version $ver is newer than this package's ($cur): update $(v.package)"))
     out = Dict{String, Any}(deepcopy(d))
     delete!(out, CONFIG_VERSION_KEY)
+    owners = Dict{String, Any}(get(out, CONFIG_VERSIONS_KEY, Dict{String, Any}()))
+    delete!(out, CONFIG_VERSIONS_KEY)
+    isempty(v.delegates) && !isempty(owners) && throw(ArgumentError(
+        "$source: [$CONFIG_VERSIONS_KEY] holds another package's versions, and $(v.package)'s configuration delegates no table"))
+    for owner in unique(last.(v.delegates))   # an owner's tables migrate together, from its one stored version
+        held = [t for (t, o) in v.delegates if o === owner && haskey(out, t)]
+        isempty(held) && continue
+        sub = Dict{String, Any}(t => out[t] for t in held)
+        sub[CONFIG_VERSION_KEY] = get(owners, owner.package, 1)
+        migrated = migrate_config(sub, owner; source = "$source ($(owner.package)'s tables)")
+        foreach(t -> delete!(out, t), held)
+        for (t, x) in migrated   # the owner's tables at its current version (a table it renamed, under its new name)
+            t == CONFIG_VERSION_KEY || (out[t] = x)
+        end
+        owners[owner.package] = migrated[CONFIG_VERSION_KEY]
+    end
+    for k in keys(owners)
+        any(o -> last(o).package == k, v.delegates) || throw(ArgumentError(
+            "$source: [$CONFIG_VERSIONS_KEY] names $k, which owns no table of $(v.package)'s configuration"))
+    end
     for k in ver:(cur - 1)
         mig = v.migrations[k]
         for key in sort!(collect(keys(out)))
@@ -454,6 +489,7 @@ function migrate_config(d::AbstractDict, v::ConfigVersions; source::AbstractStri
                 join(v.tables, ", ") * ")"))
     end
     out[CONFIG_VERSION_KEY] = cur
+    isempty(owners) || (out[CONFIG_VERSIONS_KEY] = owners)
     return out
 end
 

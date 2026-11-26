@@ -212,6 +212,10 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - `ConfigMigration(; tables, renames, values)`: a `values` step converts a key whose stored value changes form
   (`"table.old_key" => f`, `f(value) -> (new_path => new_value)`), after the renames; a current file holding the old
   form, or a taken new path, is refused. A stored `Bool` that becomes a type's tag is a converter step, never a refusal.
+- `ConfigVersions(…; delegates = [table => owner])` and `CONFIG_VERSIONS_KEY` (`[config_versions]`): a configuration that
+  holds another package's tables (a CaliBlobs run file holding BlobBoards' `[find_boards]`) migrates them by their owner's
+  converter, from the owner's version recorded under `[config_versions]` (absent: its version 1); one owner per table,
+  no restated steps. An unknown owner, or an owner's version newer than its package's, is refused.
 
 ### Changed
 - `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports

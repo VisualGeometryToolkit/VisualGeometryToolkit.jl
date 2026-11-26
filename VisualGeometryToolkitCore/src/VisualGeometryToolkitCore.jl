@@ -938,7 +938,7 @@ public stack_ci, workspace_packages, workspace_settings, affected_packages, regi
 public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
     toml_field_name, parse_defaults
-public CONFIG_VERSION_KEY, ConfigMigration, ConfigVersions, current_config_version, migrate_config, CONFIG_VERSIONS   # the versioned configuration converter (base/config_toml.jl), Core's own
+public CONFIG_VERSION_KEY, CONFIG_VERSIONS_KEY, ConfigMigration, ConfigVersions, current_config_version, migrate_config, CONFIG_VERSIONS   # the versioned configuration converter (base/config_toml.jl), Core's own
 public install_artifact, huggingface_token, is_published_url   # the one install of a published artifact (base/artifacts.jl)
 public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
     store_name_clashes, migrate_artifacts, install_built_artifact   # the artifact store: its resolution, the one wrapper of Pkg's override, a single file, a built tree, depot → store

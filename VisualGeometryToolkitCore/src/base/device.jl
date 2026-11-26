@@ -57,6 +57,8 @@ Supplying `device =` explicitly always wins — this only decides what
 file header).
 """
 function default_device()
+    s = _SCOPED_DEVICE[]
+    s === nothing || return s
     d = _DEFAULT_DEVICE[]
     d === nothing || return d
     d = _DEVICE_RESOLVER[]()
@@ -73,15 +75,38 @@ first resolution.
 """
 reset_default_device!() = (_DEFAULT_DEVICE[] = nothing; nothing)
 
-"""
-    _DEVICE_MEMORY
+# The default device a `with_default_device` scope states (`nothing`: none; the memoized resolution then).
+const _SCOPED_DEVICE = Base.ScopedValues.ScopedValue{Any}(nothing)
 
-The accelerator extensions' device-memory queries, `(; free, reclaim, names)` or
-`nothing`: `free(dev)` the bytes free on a backend it defines (`nothing` for another),
-`reclaim(dev)` its pool handed back to the device, `names()` its devices' names.
-Assigned at load time, as `_DEVICE_RESOLVER` is (Core's CUDA extension).
 """
-const _DEVICE_MEMORY = Ref{Any}(nothing)
+    with_default_device(f, backend::KernelAbstractions.Backend)
+
+Run `f()` with [`default_device`](@ref)`()` returning `backend` — in `f`'s task and every task it spawns, for the
+duration of the call only (a `Base.ScopedValue`: nested scopes nest, and nothing outside the call, the memoized
+resolution included, changes). The one way to pin the default device for a block (a test's CPU path, a benchmark on
+one device); a call that supplies `device =` still wins.
+"""
+with_default_device(f, backend::KA.Backend) = Base.ScopedValues.with(f, _SCOPED_DEVICE => backend)
+
+"""
+    reduction_work_items(n::Integer) -> Int
+
+The work-item count of a partial-sum reduction over `n` rows (a device LM state's [`reduce_normal_equations`](@ref)
+partials, one column per work item): `n` up to 2048 items, at least 1. The stack's one such count, so two states that
+reduce the same rows sum in the same order.
+"""
+reduction_work_items(n::Integer) = max(1, min(Int(n), _REDUCTION_WORK_ITEMS))
+const _REDUCTION_WORK_ITEMS = 2048
+
+public with_default_device, reduction_work_items
+
+# The accelerator extensions' device-memory queries, one method per backend (Core's CUDA extension adds its
+# `CUDABackend`'s): the bytes free on a backend (`nothing`: no query), its pool handed back to the device, and the
+# names of the devices the process sees (none without an accelerator extension, which assigns the query of
+# its devices' names at load time, as `_DEVICE_RESOLVER`).
+_free_bytes(::KA.Backend) = nothing
+_reclaim!(::KA.Backend) = nothing
+const _ACCELERATOR_NAMES = Ref{Any}(() -> String[])
 
 """
     device_free_bytes(dev) -> Int
@@ -93,8 +118,7 @@ chunks from it then does not chunk).
 """
 function device_free_bytes(dev)
     KA.isgpu(dev) || return Int(Sys.free_memory())
-    q = _DEVICE_MEMORY[]
-    f = q === nothing ? nothing : q.free(dev)
+    f = _free_bytes(dev)
     f === nothing || return Int(f)
     @warn "no free-memory query for $(typeof(dev)): tilt and score chunking are disabled" maxlog = 1
     return typemax(Int)
@@ -146,8 +170,7 @@ or a backend without a pool query.
 """
 function reclaim_device!(dev)
     KA.isgpu(dev) || return nothing
-    q = _DEVICE_MEMORY[]
-    q === nothing || q.reclaim(dev)
+    _reclaim!(dev)
     return nothing
 end
 
@@ -178,7 +201,7 @@ With a `backend`: the devices a run on it uses. On the host (`!KernelAbstraction
 one entry, the CPU with its thread count, `"CPU (<Sys.CPU_NAME>, <n> threads)"`; on a GPU,
 `device_names()`, the default device first (a benchmark's header names `first(device_names(backend))`).
 """
-device_names() = (q = _DEVICE_MEMORY[]; q === nothing ? String[] : q.names())
+device_names() = _ACCELERATOR_NAMES[]()::Vector{String}
 device_names(backend::KA.Backend) =
     KA.isgpu(backend) ? device_names() : ["CPU ($(Sys.CPU_NAME), $(device_resident_threads(backend)) threads)"]
 

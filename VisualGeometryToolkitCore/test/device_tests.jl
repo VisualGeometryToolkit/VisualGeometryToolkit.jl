@@ -346,20 +346,20 @@ end
     end
 end
 
-@testitem "_matvec!: a matrix (or its adjoint) times a vector on the arrays' backend (CUDA availability-gated)" begin
+@testitem "matvec!: a matrix (or its adjoint) times a vector on the arrays' backend (CUDA availability-gated)" begin
     using LinearAlgebra, Random
     import VisualGeometryToolkitCore as VgtkCore
     rng = Xoshiro(3)
     J = randn(rng, 4000, 7); f = randn(rng, 4000); Jw = permutedims(J)
-    @test VgtkCore._matvec!(zeros(7), J', f) == J' * f && VgtkCore._matvec!(zeros(7), Jw, f) == Jw * f
+    @test VgtkCore.matvec!(zeros(7), J', f) == J' * f && VgtkCore.matvec!(zeros(7), Jw, f) == Jw * f
     using CUDA: CUDA
     if CUDA.functional()
         Jd, fd, Jwd = CUDA.CuArray(J), CUDA.CuArray(f), CUDA.CuArray(Jw)
-        g = VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jd', fd)
+        g = VgtkCore.matvec!(CUDA.zeros(Float64, 7), Jd', fd)
         @test g isa CUDA.CuVector && isapprox(Array(g), J' * f; rtol = 1.0e-13)
-        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), transpose(Jd), fd)) ≈ J' * f rtol = 1.0e-13
-        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 7), Jwd, fd)) ≈ Jw * f rtol = 1.0e-13
-        @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 4000), Jd, CUDA.CuArray(f[1:7]))) ≈ J * f[1:7] rtol = 1.0e-13
+        @test Array(VgtkCore.matvec!(CUDA.zeros(Float64, 7), transpose(Jd), fd)) ≈ J' * f rtol = 1.0e-13
+        @test Array(VgtkCore.matvec!(CUDA.zeros(Float64, 7), Jwd, fd)) ≈ Jw * f rtol = 1.0e-13
+        @test Array(VgtkCore.matvec!(CUDA.zeros(Float64, 4000), Jd, CUDA.CuArray(f[1:7]))) ≈ J * f[1:7] rtol = 1.0e-13
     end
 end
 
@@ -390,4 +390,18 @@ end
     # the synthetic saddle: zero at the centre, its quadratic elsewhere
     @test saddle_height(SVector(0.5, 0.5)) == 0
     @test saddle_height(SVector(1.0, 0.0)) ≈ 0.08 * 0.25 + 0.04 * 0.25 + 0.06 * 0.25
+end
+
+@testitem "with_default_device: a scoped default; reduction_work_items: the one partial-sum count" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    import KernelAbstractions as KA
+    using Test
+    memo = VgtkCore.default_device()
+    @test VgtkCore.with_default_device(() -> VgtkCore.default_device(), KA.CPU()) === KA.CPU()
+    @test VgtkCore.with_default_device(KA.CPU()) do
+        fetch(Threads.@spawn VgtkCore.default_device())      # a spawned task inherits the scope
+    end === KA.CPU()
+    @test VgtkCore.default_device() === memo                 # nothing outside the call changes
+    @test VgtkCore.reduction_work_items(0) == 1 && VgtkCore.reduction_work_items(7) == 7
+    @test VgtkCore.reduction_work_items(2048) == 2048 && VgtkCore.reduction_work_items(10^6) == 2048
 end

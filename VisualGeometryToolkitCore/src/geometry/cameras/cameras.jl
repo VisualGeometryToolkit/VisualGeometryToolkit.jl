@@ -594,6 +594,12 @@ camera = BoundedCamera(8mm, sensor; lens = Lens(DoubleSphere(0.25, 0.4)))   # 40
 BoundedCamera(f::FlexUnits.Quantity, sensor::Sensor; lens = Lens(Perspective()), lens_coverage = nothing) =
     BoundedCamera(CameraModel(f, sensor.pitch, centroid(Rect(sensor)) .* px; lens), sensor; lens_coverage)
 
+# A bounded camera's batched projection is its camera's (the bound limits nothing a projection reads): the forward
+# below, stated for the batched signature so it, not the generic batched `project(::AbstractCamera, rays, seeds)`,
+# answers a bounded camera.
+project(cam::BoundedCamera, rays::AbstractVector{<:StaticVector{3}}, seeds::Union{Nothing, AbstractVector}; kwargs...) =
+    project(cam.camera, rays, seeds; kwargs...)
+
 """
     metric_focal_length(camera::BoundedCamera) -> length
 

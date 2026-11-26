@@ -52,6 +52,8 @@ workspace holds, hence the `!`. An extension point: the method's package adds
 the method.
 """
 function init_state! end
+init_state!(method::AbstractBlockCoordinateMethod, _prob, _θ₀) =
+    _no_method(method, init_state!, "BlockCoordinateDescent builds its state with it")
 """
     update_model!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> θ′ | nothing
 
@@ -435,24 +437,7 @@ function block_coordinate_descent!(
         state, likelihood::AbstractWeightPolicy, method::AbstractBlockCoordinateMethod,
         prob, θ₀; max_iter::Int
     )
-    criterion = StopWhenSolveFailed() | stopping_criterion(method) | StopAfterIteration(max_iter)
-    θ = θ₀
-    iter = 0
-    reason, rule = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
-    while reason === :continue
-        iter += 1
-        θ_old = θ
-        θ_new = step_solver!(state, likelihood, method, prob, θ, iter)
-        if isnothing(θ_new)
-            # A failed model block ends the run on the last model; the reason is
-            # StopWhenSolveFailed's (first in the criterion).
-            reason, rule = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
-            break
-        end
-        θ = θ_new
-        reason, rule = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
-    end
-    return block_coordinate_result(_bare(state), method, prob, θ, reason, iter, rule)
+    return _block_coordinate_descent!(state, likelihood, method, prob, θ₀, StopAfterIteration(max_iter))
 end
 
 # =============================================================================
@@ -474,3 +459,81 @@ allocation-free: the caller stores the result.
     improved = cost < best.cost
     return (improved ? Attributed{M, @NamedTuple{cost::Float64}}(θ, (; cost = Float64(cost))) : best), improved
 end
+
+# =============================================================================
+# The front end — BlockCoordinateDescent, solved through solve/init
+# =============================================================================
+
+"""
+    BlockCoordinateDescent(method::AbstractBlockCoordinateMethod; likelihood = FrozenNuisance())
+
+Block coordinate descent as an algorithm, a [`RefineKind`](@ref): it refines the guess `θ₀` of a problem `prob`
+(`RefineProblem(prob, θ₀)`) by the loop of [`block_coordinate_descent!`](@ref)'s blocks — the `method`'s model block
+and bookkeeping, the `likelihood`'s nuisance and weight blocks:
+
+    solve(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))
+    c = init(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops)   # the state built once
+    solve!(c); reinit!(c, θ₀′; f = prob′, alg = BlockCoordinateDescent(method′; likelihood′))
+
+`stops` (a [`StoppingCriterion`](@ref), required: the budget, `StopAfterIteration(max_iter)`, or a composition) runs
+after the method's own [`stopping_criterion`](@ref): the run's criterion is
+`StopWhenSolveFailed() | stopping_criterion(method) | stops`. The state is the method's `init_state!(method, prob, θ₀)`,
+built by `init` and again by each `reinit!`; the result is the method's `block_coordinate_result`.
+"""
+struct BlockCoordinateDescent{M <: AbstractBlockCoordinateMethod, L <: AbstractWeightPolicy} <: AbstractEstimationAlgorithm
+    method::M
+    likelihood::L
+end
+BlockCoordinateDescent(method::AbstractBlockCoordinateMethod; likelihood::AbstractWeightPolicy = FrozenNuisance()) =
+    BlockCoordinateDescent(method, likelihood)
+estimator_kind(::BlockCoordinateDescent) = RefineKind()
+
+mutable struct _BcdCache{F, U, A <: BlockCoordinateDescent, C <: StoppingCriterion, S}
+    f::F
+    u0::U
+    alg::A
+    stops::C
+    state::S
+end
+__init(prob::RefineProblem{<:Any, <:Any, NullParameters}, alg::BlockCoordinateDescent; stops::StoppingCriterion) =
+    _bcd_cache(prob, alg, stops)
+# The cache, its state the method's `init_state!` (a front-end method holds no buffers of its own: the state does).
+function _bcd_cache(prob::RefineProblem, alg::BlockCoordinateDescent, stops::StoppingCriterion)
+    _refuse_box(prob, :BlockCoordinateDescent)
+    return _BcdCache(prob.f, prob.u0, alg, stops, init_state!(alg.method, prob.f, prob.u0))
+end
+solve!(c::_BcdCache) = _block_coordinate_descent!(c.state, c.alg.likelihood, c.alg.method, c.f, c.u0, c.stops)
+function reinit!(c::_BcdCache{F, U, A, C}, u0 = c.u0; f = c.f, p = NullParameters(), alg = nothing,
+        stops::C = c.stops) where {F, U, A, C}
+    p isa NullParameters || throw(ArgumentError("reinit!: BlockCoordinateDescent reads no context `p`"))
+    alg === nothing || (c.alg = alg)
+    c.f = f; c.u0 = u0; c.stops = stops
+    c.state = init_state!(c.alg.method, f, u0)
+    return c
+end
+
+# THE loop, on a criterion `stops` after the method's own (the front end's, and `block_coordinate_descent!`'s with
+# `StopAfterIteration(max_iter)`).
+function _block_coordinate_descent!(state, likelihood::AbstractWeightPolicy, method::AbstractBlockCoordinateMethod,
+        prob, θ₀, stops::StoppingCriterion)
+    criterion = StopWhenSolveFailed() | stopping_criterion(method) | stops
+    θ = θ₀
+    iter = 0
+    reason, rule = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
+    while reason === :continue
+        iter += 1
+        θ_old = θ
+        θ_new = step_solver!(state, likelihood, method, prob, θ, iter)
+        if isnothing(θ_new)
+            # A failed model block ends the run on the last model; the reason is
+            # StopWhenSolveFailed's (first in the criterion).
+            reason, rule = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
+            break
+        end
+        θ = θ_new
+        reason, rule = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
+    end
+    return block_coordinate_result(_bare(state), method, prob, θ, reason, iter, rule)
+end
+
+public BlockCoordinateDescent

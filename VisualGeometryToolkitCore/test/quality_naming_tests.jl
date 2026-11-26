@@ -50,6 +50,12 @@ end
     quiet(files::Pair...) = isempty(findings(files...))
 
     NC = Base.get_extension(VisualGeometryToolkitCore, :VisualGeometryToolkitCoreTestExt)   # the checker (loads with Test)
+    # The units rule's allowance (R11) names exactly the two files that must spell what it bans — the rule's own lists
+    # and the units module's own tests — and nothing else: a new allowance fails here (owner, 2026-11-26: no exemptions).
+    @test Set(keys(NC._UNIT_RULE_ALLOW)) == Set([
+        ("VisualGeometryToolkitCore", "ext/VisualGeometryToolkitCoreTestExt/check_naming.jl"),
+        ("VisualGeometryToolkitCore", "test/units_tests.jl"),
+    ])
     P = NC._STEM                                 # the banned stem, from the checker
     Cap = uppercasefirst(P)
     old = NC.RETIRED_NAMES[1]                    # any retired name

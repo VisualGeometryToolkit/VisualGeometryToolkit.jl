@@ -918,6 +918,23 @@ function project(
     return (; px = on_device(get_backend(rays), px), ok = on_device(get_backend(rays), ok))
 end
 
+"""
+    project(camera::AbstractCamera, rays::AbstractVector{<:StaticVector{3}}, seeds; device = default_device()) -> (; px, ok)
+
+The batched projection of the camera-frame points `rays` through any camera — the one batched form, whatever the
+camera: a SplineLens camera's solve per ray warm-started at the pixel `seeds[i]` (the method above); every other
+camera's closed-form scalar [`project`](@ref) per ray, one [`pointwise!`](@ref) kernel on `device`, its `seeds` read
+by none (`nothing` allowed). `px` the pixels in the rays' array kind (NaN where the camera does not image the point),
+`ok` the mask of the finite ones.
+"""
+function project(cam::AbstractCamera, rays::AbstractVector{<:StaticVector{3}}, ::Union{Nothing, AbstractVector};
+        device::KA.Backend = default_device())
+    px = on_device(device, Vector{SVector{2, Float64}}(undef, length(rays)))
+    isempty(rays) || pointwise!(X -> SVector{2, Float64}(project(cam, X)), px, on_device(device, _concrete_points(rays)))
+    back = get_backend(rays)
+    return (; px = on_device(back, px), ok = on_device(back, map(p -> all(isfinite, p), px)))
+end
+
 # A batch of points as the kernels take it: of a concrete element type. A host vector
 # of an abstract one (`Vector{StaticVector{2}}`, which the batched signatures admit) is
 # converted to `SVector`s of its elements' promoted number type; any other batch is

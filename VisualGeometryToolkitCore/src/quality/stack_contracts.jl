@@ -164,10 +164,11 @@ const CONTRACT_GENERICS = (
     # the LevenbergMarquardt refine's contracts (robust/refine.jl): the chart contract a chart problem's author
     # implements, its class's strategy of record, and the block contract of a bundle
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
-    block_refit, with_robustifier, default_stops,
+    block_refit, with_robustifier, default_stops, chart_result,
+    block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
     # and refine of raw data (robust/lm_core.jl, robust/refine.jl)
-    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine,
+    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine, honoured_stops,
     # the per-datum weights, residual dof and variance a metadata answers otherwise (base/fit_result.jl)
     weights, dof, s2,
     # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):

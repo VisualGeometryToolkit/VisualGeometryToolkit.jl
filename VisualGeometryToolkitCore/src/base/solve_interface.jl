@@ -201,6 +201,14 @@ end
 @inline RefineProblem(f::F, u0::U, p::P = NullParameters(); lb::LB = nothing, ub::UB = nothing) where {F, U, P, LB, UB} =
     RefineProblem{F, U, P, LB, UB}(f, u0, p, lb, ub)
 
+# The refusal of a box by an unbounded host algorithm (its name `alg`): a RefineProblem's `lb`/`ub` is the device LM's.
+_refuse_box(prob::RefineProblem, alg::Symbol) = (prob.lb === nothing && prob.ub === nothing) || throw(ArgumentError(
+    string(alg, " is unbounded: a RefineProblem's `lb`/`ub` is StaticLevenbergMarquardt's (the device LM)")))
+
+# THE refusal of a contract generic `g` that the type of `x` implements no method of, and what needs it (`need`).
+@noinline _no_method(x, g, need::AbstractString) =
+    throw(ArgumentError(string("a ", nameof(typeof(x)), " implements no `", nameof(g), "` method: ", need)))
+
 """
     MinimalProblem(M::Type, data, sample, p = NullParameters())
 

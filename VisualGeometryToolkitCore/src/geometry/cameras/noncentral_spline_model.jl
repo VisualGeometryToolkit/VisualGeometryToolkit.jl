@@ -329,5 +329,5 @@ project(m::NoncentralSplineModel, X) = _noncentral_project(m, X, _cold_start(_di
     Du = _pixel_affine(m.intrinsics).linear * (inv(Jp) * vcat(transpose(t1), transpose(t2)))
     return _dual_pixel(D, u, Du, X)
 end
-project(m::NoncentralSplineModel, X, p₀) =
+project(m::NoncentralSplineModel, X::AbstractVector{<:Number}, p₀) =
     _noncentral_project(m, X, SVector{2, Float64}(normalized_point(m.intrinsics, SVector{2, Float64}(p₀[1], p₀[2]))))

@@ -17,9 +17,6 @@ to ≲1e-12 relative over every width and depth in use.
 function truncated_log_normaliser(shape::AbstractLossShape, sq_loss_width::Float64, depth::Float64, r_max::Float64)
     c = sqrt(sq_loss_width)
     knots = [0.0; [c * 4.0^k for k in 0:60 if c * 4.0^k < r_max]; r_max]
-    Z, _ = quadgk(
-        r -> exp(-depth * ρ(shape, r * r / sq_loss_width, 1.0)), knots...;
-        rtol = 1.0e-12
-    )
+    Z, _ = quadgk(r -> exp(-depth * ρ(shape, r * r / sq_loss_width, 1.0)), knots; rtol = 1.0e-12)   # the knots as a vector: QuadGK's point-list form
     return log(2.0 * Z)
 end

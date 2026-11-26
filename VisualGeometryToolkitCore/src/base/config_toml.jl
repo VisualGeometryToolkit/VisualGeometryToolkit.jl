@@ -245,6 +245,34 @@ function read_table(::Type{T}, d::AbstractDict; skip = (), from_toml = _convert_
     return kw
 end
 
+"""
+    construct_from_table(::Type{T}, d::AbstractDict; skip = (), section = string(nameof(T)), from_toml) -> T
+
+THE construction of a `T` from its TOML table `d`, by keyword: `T(; f => from_toml(T, Val(f), v)…)` for every key of `d`
+not in `skip` (a `type` discriminator, say), each key's field named by [`toml_field_name`](@ref) (the ASCII spelling of
+a Greek field read back) — never by field order: `T` takes its fields as keywords (`@kwdef`, or a keyword constructor
+of its own), and a field the table omits falls to that constructor's default. `from_toml` converts one value (the
+default: [`convert_field`](@ref) to the field's type, the key named). Unknown keys are [`check_keys`](@ref)' job (with
+[`allowed_keys`](@ref)), before this call; a missing required key and a value the constructor refuses are an
+`ArgumentError` naming `section`.
+"""
+function construct_from_table(::Type{T}, d::AbstractDict; skip = (), section::AbstractString = string(nameof(T)),
+        from_toml = _convert_from_toml) where {T}
+    kws = Pair{Symbol, Any}[]
+    for (k, v) in d
+        k in skip && continue
+        f = toml_field_name(String(k))
+        push!(kws, f => from_toml(T, Val(f), v))
+    end
+    try
+        return T(; kws...)
+    catch e
+        e isa UndefKeywordError && throw(ArgumentError("[$section] needs `$(toml_key(T, e.var))`"))
+        e isa ArgumentError && throw(ArgumentError("[$section]: $(e.msg)"))
+        rethrow()
+    end
+end
+
 # read_table's default converter: the value in its field's type, the key named.
 _convert_from_toml(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v, toml_key(T, F))
 
@@ -329,8 +357,8 @@ const CONFIG_VERSION_KEY = "config_version"
 
 One version change of a package's configuration: `tables` are the top-level tables of the version it reads (every
 one of them: a table of that version that is not listed is unknown, and refused); `renames` are `old => new`
-dotted table paths (`"old_table" => "family.new_table"`), each table moved whole, its keys and
-sub-tables kept.
+dotted paths (`"old_table" => "family.new_table"`, `"table.key" => "other.table.key"`), applied in order, each table
+moved whole (its keys and sub-tables kept) and each key with its value.
 """
 struct ConfigMigration
     tables::Vector{String}
@@ -415,10 +443,18 @@ end
 """
     CONFIG_VERSIONS
 
-VisualGeometryToolkitCore's configuration converter ([`ConfigVersions`](@ref)): `configs/default.toml` is version 1,
-the first versioned one, with no earlier migration.
+VisualGeometryToolkitCore's configuration converter ([`ConfigVersions`](@ref)): `configs/default.toml` is version 2.
+Version 1 → 2 moves the LM's `[lm]` table to `[levenberg_marquardt.stops]` and its `device_max_iter` and
+`device_acceptance` keys to `[static_levenberg_marquardt.stops]` as `max_iter` and `acceptance`.
 """
-const CONFIG_VERSIONS = ConfigVersions("VisualGeometryToolkitCore"; tables = ["lm", "optimization_strategy", "photon_transfer"])
+const CONFIG_VERSIONS = ConfigVersions("VisualGeometryToolkitCore",
+    # version 1 → 2 (Core 0.14): an algorithm's stops live in `[<algorithm>.stops]` — the host LM's
+    # `[levenberg_marquardt.stops]`, the device LM's `[static_levenberg_marquardt.stops]` (its keys lose `device_`)
+    ConfigMigration(; tables = ["lm", "optimization_strategy", "photon_transfer"],
+        renames = ["lm.device_max_iter" => "static_levenberg_marquardt.stops.max_iter",
+                   "lm.device_acceptance" => "static_levenberg_marquardt.stops.acceptance",
+                   "lm" => "levenberg_marquardt.stops"]);
+    tables = ["levenberg_marquardt", "static_levenberg_marquardt", "optimization_strategy", "photon_transfer"])
 
 # The table at a dotted path, or `nothing`: `toml_default`'s one dotted lookup, its KeyError for a missing table read
 # as absence.
@@ -431,11 +467,19 @@ function _config_get(d::AbstractDict, path::AbstractString)
         nothing
     end
 end
+# Pop the value at a dotted path; a parent table the pop leaves empty goes with it (up the path), so a move out of
+# `[schemes.<tag>]` leaves no `[schemes]` behind for the current version to refuse.
 function _config_pop!(d::AbstractDict, path::AbstractString)
     segs = split(path, '.')
     parent = length(segs) == 1 ? d : _config_get(d, join(segs[1:(end - 1)], '.'))
     parent isa AbstractDict && haskey(parent, segs[end]) || return nothing
-    return pop!(parent, segs[end])
+    x = pop!(parent, segs[end])
+    for k in (length(segs) - 1):-1:1
+        t = _config_get(d, join(segs[1:k], '.'))
+        t isa AbstractDict && isempty(t) || break
+        k == 1 ? delete!(d, segs[1]) : delete!(_config_get(d, join(segs[1:(k - 1)], '.')), segs[k])
+    end
+    return x
 end
 function _config_put!(d::AbstractDict, path::AbstractString, x)
     segs = split(path, '.')
@@ -481,3 +525,5 @@ function write_toml(path::AbstractString, body::AbstractDict; header::AbstractSt
     end
     return path
 end
+
+public construct_from_table

@@ -9,15 +9,15 @@
 
 # The version of this file's layout (`migrate_config`, `CONFIG_VERSIONS`): a stored file of an earlier version is read
 # through the converter, so the code sees the current names only.
-config_version = 1
+config_version = 2
 
 [optimization_strategy.irls]
 max_iter = 25
 
-# The stack's Levenberg–Marquardt stop settings, their ONE owner (src/robust/lm_core.jl: `LmStops`, which
-# every host fit hands to `lmsolve_chart!`, and `StaticLmStops`, the device LM `StaticLevenbergMarquardt`'s). A fit overrides a
+# The stack's Levenberg–Marquardt stop settings, their ONE owner (src/robust/lm_core.jl: `LmStops`, the solve keyword `stops` of every host
+# `LevenbergMarquardt`; `StaticLmStops`, the device LM `StaticLevenbergMarquardt`'s, below). A fit overrides a
 # value only from its own configuration table, never with a literal.
-[lm]
+[levenberg_marquardt.stops]
 # The iteration cap: accepted iterations (NLLSsolver's outer iterations, one ACCEPTED step each; an iteration's
 # damping loop may reject ~8–10 candidate steps first), so the cap bounds accepted steps, not work.
 max_iter = 1000
@@ -30,7 +30,7 @@ xtol = 1.0e-10
 # The RELATIVE step tolerance (Core 0.10.11), Ceres' parameter tolerance: stop once ‖Δx‖ ≤ xtol_rel·(‖x‖ + xtol_rel)
 # (Euclidean, over the free variables; a step-size stop: converged, Core 0.11.0). 0: none — every
 # fit of record stops on ftol and the absolute xtol alone, as before 0.10.11, bit for bit; a fit whose unknowns sit far
-# from the origin (where an absolute 1e-10 step is below their rounding) states its own in its [lm] table.
+# from the origin (where an absolute 1e-10 step is below their rounding) states its own in its own stops table.
 xtol_rel = 0.0
 # THE stationarity postcondition: the device LM's success rule and the host LM's verdict at a stop of no tolerance —
 # the rejection cap, or NLLSsolver's bit 10 alone (Core 0.11.1); a host tolerance stop is converged without it
@@ -43,13 +43,15 @@ xtol_rel = 0.0
 # the two stall reproductions of the suite (a wrong-sign Jacobian, a NaN wall) 1.0. The value sits in the gap
 # between the last two.
 stationarity_tol = 0.05
+
+[static_levenberg_marquardt.stops]
 # The device LM's (`StaticLevenbergMarquardt`) iteration cap: the spline lenses' projection and the mapped surfaces' ray hit
 # (the reference routine's 100).
-device_max_iter = 100
+max_iter = 100
 # The device LM's acceptance, the cost a solution must be below besides being stationary: `inf` — success by the
 # stationarity rule alone, unless the problem itself bounds its residual (a root-finding solve: a projection, a
 # lens inverse, a ray hit) and gives its own bound.
-device_acceptance = inf
+acceptance = inf
 
 # The photon-transfer estimators' default family-wise significance (src/raw/sensor_estimators.jl: `PhotonTransfer`'s
 # `significance`): one frame's μ² test level; the series' range searches' Bonferroni family (each test at

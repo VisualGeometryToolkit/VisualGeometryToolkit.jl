@@ -163,14 +163,16 @@ end
 end
 
 @testset "the stop settings: one owner, mapped once" begin
-    # every default is Core's configuration of record, configs/default.toml [lm]
-    lm_table = VgtkCore._CORE_DEFAULTS["lm"]
+    # every default is Core's configuration of record, configs/default.toml [levenberg_marquardt.stops] and
+    # [static_levenberg_marquardt.stops]
+    lm_table = VgtkCore._CORE_DEFAULTS["levenberg_marquardt"]["stops"]
+    device_table = VgtkCore._CORE_DEFAULTS["static_levenberg_marquardt"]["stops"]
     d = LmStops()
     @test (d.max_iter, d.ftol, d.xtol, d.stationarity_tol) == (lm_table["max_iter"], lm_table["ftol"], lm_table["xtol"], lm_table["stationarity_tol"])
-    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0).max_iter == lm_table["device_max_iter"]
+    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0).max_iter == device_table["max_iter"]
     @test VgtkCore.StaticLmStops(SVector(1.0f0); acceptance = 1).stationarity_tol === Float32(lm_table["stationarity_tol"])
     @test isbits(VgtkCore.StaticLmStops(SVector(1.0, 1.0); acceptance = 1.0))
-    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0)).acceptance == lm_table["device_acceptance"] == Inf   # stationarity alone
+    @test VgtkCore.StaticLmStops(SVector(1.0, 1.0)).acceptance == device_table["acceptance"] == Inf   # stationarity alone
     o = VgtkCore._nlls_options(LmStops(; max_iter = 7, ftol = 1.0e-9, xtol = 1.0e-11), VgtkCore.MarquardtDamping())
     @test o.maxiters == 7 && o.reldcost == 1.0e-9 && o.dstep == 1.0e-11 && o.absdcost == 0.0 && o.maxfails == 3
     @test NLLSsolver.dynamic(o.iterator) === :levenbergmarquardt_dtd                  # Marquardt's damping, the default's

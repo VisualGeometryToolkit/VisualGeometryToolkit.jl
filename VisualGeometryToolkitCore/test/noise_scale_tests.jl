@@ -55,7 +55,10 @@
         @test @inferred(median_norm_scale(rs)) == r.u
         @test VgtkCore.estimator_kind(MedianNormScale()) === ClosedFormKind()
         @test median_norm_scale(rs) === VgtkCore._mad_scale_norms(; norms = [5.0, 1.0, 10.0], codimension = 2)   # the internal norms form
-        @test_throws MethodError solve(EstimationProblem(NoiseScale, [5.0, 1.0, 10.0], (; codimension = 2)), MedianNormScale())   # no public norms form
+        # the norms form (public by ruling): the residuals' norms and their codimension, the vector form's scale bit for bit
+        rn = solve(EstimationProblem(NoiseScale, [5.0, 1.0, 10.0], (; codimension = 2)), MedianNormScale())
+        @test rn.u === r.u && rn.n == r.n && rn.retcode === r.retcode
+        @test_throws MethodError solve(EstimationProblem(NoiseScale, [5.0, 1.0, 10.0]), MedianNormScale())   # norms name their codimension
         @test median_norm_scale(SVector{1}.([-2.0, 1.0, 3.0])) == 2.0 / sqrt(quantile(Chisq(1), 0.5))   # d = 1: |r|, no centring
         @test median_norm_scale([SVector(1.0f0, 0.0f0), SVector(0.0f0, 2.0f0), SVector(0.0f0, 3.0f0)]) ≈ 2 / sqrt(quantile(Chisq(2), 0.5))
         x = 0.37 .* randn(MersenneTwister(7), 20_001) .+ 0.9

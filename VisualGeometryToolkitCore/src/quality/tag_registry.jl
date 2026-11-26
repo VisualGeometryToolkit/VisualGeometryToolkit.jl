@@ -372,7 +372,16 @@ function tag_table_violations(dir::AbstractString)
     return out
 end
 
-# Every leaf of a parsed TOML document as `"dotted.path[i]" => value`.
+"""
+    toml_leaves(doc) -> Vector{Pair{String, Any}}
+
+Every leaf of a parsed TOML document `doc` as `"dotted.path[i]" => value`: tables walked in sorted key order, an
+array's elements as `path[i]` (counted from 1), the paths a [`TagRegistry`](@ref)'s `paths` are matched against. The
+stack's one TOML leaf walk.
+"""
+toml_leaves(doc) = _toml_leaves(doc, "", Pair{String, Any}[])
+public toml_leaves
+
 function _toml_leaves(x, prefix::String, out::Vector{Pair{String, Any}})
     if x isa AbstractDict
         for k in sort!(collect(keys(x)))

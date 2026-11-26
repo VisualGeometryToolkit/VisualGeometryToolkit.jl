@@ -159,6 +159,32 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - `SolveStats(; nsteps, nf, njacs, nfactors, nsolve)`, a result's work counters (SciMLBase's names, immutable and
   isbits); `essential_8pt(backend, cs)`, the contract generic of the 8-point kernel under `DLT(PoseLibSolver())`
   (PoseLib implements it). `successful_retcode` is now exported.
+- The refine caches: `init`/`solve!`/`reinit!` for the chart, row and block LevenbergMarquardt refines
+  (`AbstractRowProblem`: a linearization state refined as `RefineProblem(f, u0)`; the block contract
+  `block_variables`, `residual_blocks`, `fixed_variables`, `residual_summary` (`CodimensionRows()` |
+  `RowsWithJacobian()` | `nothing`), `block_result`). The cache keeps its workspace and its NLLSsolver run across
+  `reinit!(c, u0′; f, stops, weights, alg)`. `stops.max_iter == 0` evaluates once, `(MaxIters, IterationCap)`.
+- `callback`, a refine's solve keyword: `callback(state::LmIterationState) -> Bool` per iteration (`true` stops the
+  solve, `(Terminated, Callback)`). `LmIterationState` carries `iteration`, `cost`, `best_cost`, `u`, `damping`,
+  `linear_solves` and `scaling`. `nothing` gives the solve as without it, bit for bit.
+- `BlockCoordinateDescent(method; likelihood = FrozenNuisance())`, a `RefineKind` algorithm on
+  `RefineProblem(prob, θ₀)` with `stops::StoppingCriterion`, via `solve`/`init`/`reinit!`.
+- The numerics behind `solve`: `CGLS()` on `PenalizedLeastSquaresProblem`, `NormalCG()` on `NormalEquationsProblem`,
+  `GridBrent()` on `BracketedMinimizationProblem`, and `ToleranceStops(; max_iter, rtol)`, the one stops type of a
+  Krylov solve and a bisection.
+- `EnsembleProblem(prob_func, N)` / `EnsembleProblem(batch, N)` with `EnsembleKernel(backend)` and the
+  struct-of-arrays `EnsembleResult`: one kernel launch of N kernel-lawful solves (`StaticLevenbergMarquardt`).
+- A backend LM on a family problem: `__solve(RefineProblem{<:AbstractConstraintProblem}, LevenbergMarquardt{<:backend})`
+  routes to `lm_backend_refine`. `honoured_stops(backend)` / `check_honoured_stops` say which `LmStops` fields a backend
+  honours, and `BackendRefit(alg, stops)` is an `ExternalRefit` strategy.
+- `with_default_device(f, backend)`, a scoped default device (a `ScopedValue` read before the memo), and
+  `reduction_work_items(n)`.
+- `construct_from_table(T, table)` builds a type by keyword from a TOML table. `migrate_config` drops a parent table
+  that a move empties. `matvec!` and `toml_leaves` are public.
+- The norms form of `MedianNormScale`: `solve(EstimationProblem(NoiseScale, norms, (; codimension)), MedianNormScale())`,
+  the vector form's scale bit for bit.
+- The batched `project(camera, rays, seeds; device)` for any camera (one `pointwise!` kernel; a SplineLens camera's
+  warm-started solve), with a `BoundedCamera` forward.
 
 ### Changed
 - `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports
@@ -219,6 +245,18 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - The naming rules: an algorithm's model-block update is its `update_model!` (conventions/naming.md item 5); R5's
   `<fit>_step` exception is gone and SciMLBase's `nsteps` is the one exempt counter beside Manopt's `step_solver!`.
   Mechanism tokens (`lm`, `gn`, `irls`) may name contract steps, never estimators.
+- Configuration version 2 (C16): `[lm]` → `[levenberg_marquardt.stops]`, the device keys → `[static_levenberg_marquardt.stops]`
+  (`device_max_iter` → `max_iter`, `device_acceptance` → `acceptance`). `CONFIG_VERSIONS` migrates a version-1 file
+  value for value.
+- The LM kernels return `FitResult`s internally. The arithmetic is unchanged, and the golden replay is 5086/5086 `===`.
+- The CUDA extension's device-memory queries dispatch per backend (`_free_bytes` / `_reclaim!` for `CUDABackend`), with
+  no `isa` branch. The `[[backend]] __init__` exemption is gone.
+- The two `[[splat]]` exemptions (`truncated_log_normaliser`, `test_scoring_contract`) are gone: named arguments.
+- One box refusal (`_refuse_box(prob, alg)`) and one refusal of an unimplemented contract generic (`_no_method`)
+  replace their per-algorithm copies (duplication gate). A bundle's route to `block_refit` is chosen by dispatch, not by
+  `which`: a block solve allocates 14 / 16 at N = 100 / 1000 (RelposeBundle; it was 42 / 44 on the reflection route).
+- `project`'s batched form no longer overlaps `BoundedCamera`'s forward or `NoncentralSplineModel`'s scalar seed form:
+  no method ambiguity.
 
 ### Removed
 - **The concrete-type aliases** (check_naming R20, owner 2026-11-24), each in RETIRED_NAMES: `Pinhole` →

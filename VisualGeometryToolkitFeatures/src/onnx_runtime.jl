@@ -388,7 +388,8 @@ end
 function _measure_growth(f, free::Function)
     before = free()
     out = f()
-    after = before === nothing ? nothing : free()
+    before === nothing && return out, nothing
+    after = free()
     return out, (after === nothing ? nothing : before - after)
 end
 

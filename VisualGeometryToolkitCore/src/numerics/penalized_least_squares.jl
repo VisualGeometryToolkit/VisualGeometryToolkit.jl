@@ -320,3 +320,93 @@ function _jacobi_inverse(diagonal, dev, n)
     all(>(0), d) || throw(ArgumentError("the Jacobi diagonal must be positive (the normal matrix's diagonal)"))
     return 1 ./ d
 end
+
+# =============================================================================
+# The front end — the penalized least squares as problems solved through `solve`
+# =============================================================================
+
+"""
+    ToleranceStops(; max_iter = 500, rtol = 1e-6)
+
+The stop settings of an iteration with an iteration cap and a relative tolerance — the stack's Krylov least squares
+([`CGLS`](@ref), [`NormalCG`](@ref)) and a bisection: the solve keyword `stops`. `max_iter` is the iteration cap
+(`0`: no iteration, the start judged as it is); `rtol` the relative tolerance the solver states (CGLS and CG: the
+normal-equation residual relative to the right-hand side's). Isbits.
+"""
+struct ToleranceStops
+    max_iter::Int
+    rtol::Float64
+end
+function ToleranceStops(; max_iter::Integer = 500, rtol::Real = 1.0e-6)
+    max_iter >= 0 || throw(ArgumentError("ToleranceStops: max_iter is a count of iterations, ≥ 0; got $max_iter"))
+    rtol >= 0 || throw(ArgumentError("ToleranceStops: rtol is a tolerance, ≥ 0; got $rtol"))
+    return ToleranceStops(Int(max_iter), Float64(rtol))
+end
+
+# The parent of the numerics' problems: solved by a fit-kind algorithm (iterative, from its own start).
+abstract type _NumericsProblem <: AbstractEstimationProblem end
+@inline _check_kind(::_NumericsProblem, ::FitKind, alg) = nothing
+@inline _check_kind(::_NumericsProblem, ::EstimatorKind, alg) = throw(ArgumentError(
+    "$(nameof(typeof(alg))) is no solver of a numerics problem: CGLS() solves a PenalizedLeastSquaresProblem, " *
+        "NormalCG() a NormalEquationsProblem, GridBrent() a BracketedMinimizationProblem"))
+
+"""
+    PenalizedLeastSquaresProblem(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, u0 = nothing)
+
+The penalized least squares `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` of `op`'s `A` and `D` (`w` a weight per penalty row,
+or one for all; `h` the penalty's target, `nothing` for 0; `diagonal` the normal matrix's diagonal `diag(AᵀA + DᵀWD)`,
+the Jacobi preconditioner, `nothing` none; `u0` a start, `nothing` for 0). Solved by [`CGLS`](@ref)`()`:
+`solve(PenalizedLeastSquaresProblem(op, b; w), CGLS(); stops = ToleranceStops(; rtol, max_iter))`.
+"""
+struct PenalizedLeastSquaresProblem{O, B, W, H, D, U} <: _NumericsProblem
+    op::O
+    b::B
+    w::W
+    h::H
+    diagonal::D
+    u0::U
+end
+PenalizedLeastSquaresProblem(op::PenalizedOperator, b::AbstractVector; w = 1.0, h = nothing, diagonal = nothing, u0 = nothing) =
+    PenalizedLeastSquaresProblem(op, b, w, h, diagonal, u0)
+
+"""
+    NormalEquationsProblem(N, g; diagonal = nothing, u0 = nothing)
+
+The normal equations `N x = g` of a penalized least squares whose rows are never stored, `N` APPLIED (a function
+`N(y, x)` writing `y = N x`, or an operator with `mul!`), `diagonal` its diagonal (the Jacobi preconditioner, `nothing`
+none), `u0` a start (`nothing`: 0). Solved by [`NormalCG`](@ref)`()`.
+"""
+struct NormalEquationsProblem{N, G, D, U} <: _NumericsProblem
+    N::N
+    g::G
+    diagonal::D
+    u0::U
+end
+NormalEquationsProblem(N, g::AbstractVector; diagonal = nothing, u0 = nothing) = NormalEquationsProblem(N, g, diagonal, u0)
+
+"""
+    CGLS()
+    NormalCG()
+
+The stack's Krylov solvers of a penalized least squares, fit-kind algorithms: `CGLS()` (Krylov.jl's `cgls` on the
+stacked operator `[A; √W D]`, its rows applied, never the normal matrix formed) solves a
+[`PenalizedLeastSquaresProblem`](@ref); `NormalCG()` (Krylov.jl's `cg` on the applied normal operator) a
+[`NormalEquationsProblem`](@ref). Both stop at `stops = `[`ToleranceStops`](@ref)`(; rtol, max_iter)` — the
+normal-equation residual relative to the right-hand side's, `‖C sₖ‖ ≤ rtol · ‖C g‖` (`C` the Jacobi scaling) — and
+return a `FitResult`: `u` the solution (on the operator's device), `(Success, ToleranceMet)` when the rule is met
+within the cap, else `(MaxIters, IterationCap)`, `stats.nsteps` the iterations, `metadata = (; relres)` the final
+relative residual.
+"""
+struct CGLS <: AbstractEstimationAlgorithm end
+@doc (@doc CGLS) struct NormalCG <: AbstractEstimationAlgorithm end
+estimator_kind(::CGLS) = FitKind()
+estimator_kind(::NormalCG) = FitKind()
+
+_krylov_result(s) = FitResult(s.x, s.converged ? ReturnCode.Success : ReturnCode.MaxIters, s.converged ? ToleranceMet : IterationCap,
+    SolveStats(; nsteps = s.iterations), NaN, 0, (; relres = s.relres))
+__solve(prob::PenalizedLeastSquaresProblem, ::CGLS; stops::ToleranceStops = ToleranceStops()) =
+    _krylov_result(cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+__solve(prob::NormalEquationsProblem, ::NormalCG; stops::ToleranceStops = ToleranceStops()) =
+    _krylov_result(normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+
+public ToleranceStops, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG

@@ -86,3 +86,32 @@ function _brent(f, a::Float64, b::Float64, h::Float64)
     end
     return x, fx, a, b
 end
+
+# =============================================================================
+# The front end — a bracketed scalar minimization solved through `solve`
+# =============================================================================
+
+"""
+    BracketedMinimizationProblem(f, xs::AbstractRange; periodic = false)
+    GridBrent()
+
+The minimum of the scalar function `f` over the evenly spaced grid `xs` (`periodic`: `f` periodic, the neighbours
+wrap), and the stack's one 1-D minimizer, a fit-kind algorithm: the grid scanned in its order, the least value refined
+by Brent's method between its neighbours (no tolerance: Brent stops at its own floor). `solve(BracketedMinimizationProblem(f, xs), GridBrent())`
+returns a `FitResult`: `u` the minimizer, `(Success, ToleranceMet)`, `metadata = (; value, at_end)` the least value and
+whether the minimum lies at an end of a linear grid (the bracket's edge).
+"""
+struct BracketedMinimizationProblem{F, X <: AbstractRange} <: _NumericsProblem
+    f::F
+    xs::X
+    periodic::Bool
+end
+BracketedMinimizationProblem(f, xs::AbstractRange; periodic::Bool = false) = BracketedMinimizationProblem(f, xs, periodic)
+@doc (@doc BracketedMinimizationProblem) struct GridBrent <: AbstractEstimationAlgorithm end
+estimator_kind(::GridBrent) = FitKind()
+function __solve(prob::BracketedMinimizationProblem, ::GridBrent)
+    m = grid_brent_minimum(prob.f, prob.xs; periodic = prob.periodic)
+    return FitResult(m.x, ReturnCode.Success, ToleranceMet, SolveStats(), NaN, 0, (; m.value, m.at_end))
+end
+
+public BracketedMinimizationProblem, GridBrent

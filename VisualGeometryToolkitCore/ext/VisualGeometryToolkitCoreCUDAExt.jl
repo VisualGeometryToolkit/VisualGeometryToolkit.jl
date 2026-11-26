@@ -26,13 +26,13 @@ VgtkCore._launch_backend(b::CUDABackend) = CUDABackend(; prefer_blocks = b.prefe
 function __init__()
     VgtkCore._DEVICE_RESOLVER[] =
         () -> CUDA.functional() ? VgtkCore._launch_backend(CUDABackend()) : KA.CPU()
-    VgtkCore._DEVICE_MEMORY[] = (;
-        free = dev -> dev isa CUDABackend ? Base.invokelatest(_cuda_function(:free_memory)) : nothing,
-        reclaim = dev -> (dev isa CUDABackend && Base.invokelatest(_cuda_function(:reclaim)); nothing),
-        names = () -> CUDA.functional() ? String[string(CUDA.name(d)) for d in CUDA.devices()] : String[],
-    )
+    VgtkCore._ACCELERATOR_NAMES[] = () -> CUDA.functional() ? String[string(CUDA.name(d)) for d in CUDA.devices()] : String[]
     return nothing
 end
+
+# The device-memory queries of the CUDA backend (Core's per-backend hooks: the host and any other backend keep Core's).
+VgtkCore._free_bytes(::CUDABackend) = Base.invokelatest(_cuda_function(:free_memory))
+VgtkCore._reclaim!(::CUDABackend) = (Base.invokelatest(_cuda_function(:reclaim)); nothing)
 
 # `device_resident_threads` on the CUDA backend (Core's `_resident_threads`, one method per backend): the threads of a
 # KernelAbstractions kernel resident on the device at once: the kernel compiled as the CUDA backend
@@ -56,9 +56,9 @@ function VgtkCore._resident_threads(backend::CUDABackend, obj::KA.Kernel, args, 
     return CUDA.active_blocks(k.fun, threads) * threads * sms
 end
 
-# `_matvec!` on CUDA arrays: y = A x as a one-column matrix product (gemm), not CUBLAS's gemv.
+# `matvec!` on CUDA arrays: y = A x as a one-column matrix product (gemm), not CUBLAS's gemv.
 const _CuMatrixOrAdjoint = Union{CUDA.AnyCuMatrix, LinearAlgebra.Adjoint{<:Any, <:CUDA.AnyCuMatrix}, LinearAlgebra.Transpose{<:Any, <:CUDA.AnyCuMatrix}}
-VgtkCore._matvec!(y::CUDA.AnyCuVector, A::_CuMatrixOrAdjoint, x::CUDA.AnyCuVector) =
+VgtkCore.matvec!(y::CUDA.AnyCuVector, A::_CuMatrixOrAdjoint, x::CUDA.AnyCuVector) =
     (LinearAlgebra.mul!(reshape(y, :, 1), A, reshape(x, :, 1)); y)
 
 # A stored sparse operator on CUDA is cuSPARSE's CSR matrix of the `CSRMatrix`'s arrays, multiplied by its reproducible

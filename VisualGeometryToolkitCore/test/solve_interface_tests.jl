@@ -116,8 +116,9 @@ end
     @test LevenbergMarquardt(VgtkCore.NativeSolver()) === LevenbergMarquardt()
     @test VgtkCore.default_damping(VgtkCore.NativeSolver()) === VgtkCore.MarquardtDamping()
     @test LevenbergMarquardt(VgtkCore.PoseLibSolver(); damping = VgtkCore.LevenbergDamping()).backend === VgtkCore.PoseLibSolver()
-    @test_throws MethodError solve(RefineProblem(_Family(), 1.0),
-                                   LevenbergMarquardt(VgtkCore.PoseLibSolver(); damping = VgtkCore.LevenbergDamping()))
+    # a constraint problem refined by another backend runs that backend's `lm_backend_refine`: none here
+    @test_throws ArgumentError solve(RefineProblem(_Family(), 1.0),
+                                     LevenbergMarquardt(VgtkCore.PoseLibSolver(); damping = VgtkCore.LevenbergDamping()))
     # a backend whose package implements no LM: one ArgumentError, from the constructor's default damping and from a
     # raw-data refine alike, naming the backend and the contract generics its package implements
     struct _NoLmBackend <: VgtkCore.AbstractSolverBackend end
@@ -375,4 +376,42 @@ end
     # no default where a default would guess: the radial camera's centre, a refine with no LM solve yet
     @test_throws ArgumentError default_algorithm(MinimalProblem(RadialCamera, Pair{SVector{2, Float64}, SVector{2, Float64}}[], 1:5))
     @test_throws ArgumentError default_algorithm(RefineProblem(x -> x, SVector(0.0, 0.0)))
+end
+
+# The front end's cache wrapper adds nothing per solve: `reinit!` (a new guess, data, algorithm configuration or run
+# setting) and `solve!` on an `EstimationCache` allocate what the owner's own methods do — zero for an owner that
+# allocates nothing (a streaming selector's per-pair reuse is pinned at zero downstream).
+@testitem "solve interface: EstimationCache's reinit! and solve! allocate nothing of their own" begin
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test, Random
+    using VisualGeometryToolkitCore: EstimationProblem, init, solve!, reinit!, FitResult, ReturnCode, ClosedForm, SolveStats
+    struct _ZeroAlg <: VgtkCore.AbstractEstimationAlgorithm
+        k::Int
+    end
+    VgtkCore.estimator_kind(::_ZeroAlg) = VgtkCore.FitKind()
+    VgtkCore.supports_solve_rng(::EstimationProblem, ::_ZeroAlg) = true
+    mutable struct _ZeroCache{R}
+        data::Vector{Float64}
+        alg::_ZeroAlg
+        rng::R
+    end
+    VgtkCore.__init(prob::EstimationProblem, alg::_ZeroAlg; rng = Random.default_rng()) = _ZeroCache(prob.f, alg, rng)
+    VgtkCore.solve!(c::_ZeroCache) = FitResult(c.data[1], ReturnCode.Success, ClosedForm, SolveStats(), NaN, 0, nothing)
+    function VgtkCore.reinit!(c::_ZeroCache; f = c.data, p = VgtkCore.NullParameters(), alg = c.alg, rng = c.rng)
+        c.data = f; c.alg = alg; c.rng = rng
+        return c
+    end
+    c = init(EstimationProblem(Float64, [1.0, 2.0]), _ZeroAlg(1); rng = Xoshiro(1))
+    plain(c) = @allocations reinit!(c)
+    with_alg(c, a, rng) = @allocations reinit!(c; alg = a, rng)
+    with_data(c, d) = @allocations reinit!(c; f = d)
+    run(c) = @allocations solve!(c)
+    a, x, d = _ZeroAlg(2), Xoshiro(2), [3.0, 4.0]
+    for _ in 1:2
+        plain(c); with_alg(c, a, x); with_data(c, d); run(c)
+    end
+    @test plain(c) == 0
+    @test with_alg(c, a, x) == 0
+    @test with_data(c, d) == 0
+    @test run(c) == 0
 end

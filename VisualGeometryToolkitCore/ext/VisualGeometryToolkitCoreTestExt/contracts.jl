@@ -62,7 +62,10 @@ function test_scoring_contract(scoring, residuals::AbstractVector; n::Integer = 
     return Test.@testset "scoring contract: $(nameof(typeof(scoring)))" begin
         W = scoring_workspace(scoring, n, d_g)
         sc = Vector{Float64}(undef, n)
-        S = Test.@inferred score!(W, scoring, sc, residuals, n; sample)
+        # each keyword call inferred through a keyword-free closure (`@inferred` of a keyword call splats its gathered
+        # arguments back)
+        score_call() = score!(W, scoring, sc, residuals, n; sample)
+        S = Test.@inferred score_call()
         Test.@test S isa Float64
         score!(W, scoring, sc, residuals, n; sample)
         Test.@test (@allocated score!(W, scoring, sc, residuals, n; sample)) == 0
@@ -74,9 +77,11 @@ function test_scoring_contract(scoring, residuals::AbstractVector; n::Integer = 
         Test.@test_throws ArgumentError check_workspace(scoring, _ForeignWorkspace())
         order = consensus_order(scoring, W)
         Test.@test sort!(collect(order[1:n])) == 1:n
-        cs = Test.@inferred consensus_set(scoring, W, residuals; model_dof = 1, d_g, epoch = 1)
+        consensus_call() = consensus_set(scoring, W, residuals; model_dof = 1, d_g, epoch = 1)
+        cs = Test.@inferred consensus_call()
         Test.@test VgtkCore.inlier_count(cs) == k
-        Test.@test (Test.@inferred consensus_s2(scoring, residuals, order, k; model_dof = 1, d_g)) isa Float64
+        s2_call() = consensus_s2(scoring, residuals, order, k; model_dof = 1, d_g)
+        Test.@test (Test.@inferred s2_call()) isa Float64
         if has_decision_boundary(scoring)
             buf = ScoreBuffers{eltype(residuals)}(n, W)
             Test.@test decision_boundary(scoring, buf) isa Float64

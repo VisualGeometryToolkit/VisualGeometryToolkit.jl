@@ -572,20 +572,21 @@ its median `1.1774σ`, a scalar residual's `0.6745σ`; reading 2-D norms as
 d = 1 returns 1.745× the true σ, and every downstream width inherits it. A
 scalar residual is a `StaticVector{1}`; plain numbers are refused (`MethodError`).
 
-There is no public norms form: a reader of a norms form could not tell whether
-the norms are re-centred. A kernel that truly holds only the norms (an angle
-residual, a lift workspace's norms) calls the stack-internal
-`_mad_scale_norms(; norms, codimension)` (the owner's ruling, 2026-11-11).
+A kernel that holds only the residuals' NORMS (an angle residual, a lift
+workspace's norms) states them as norms of model residuals and their codimension:
+`solve(EstimationProblem(NoiseScale, norms::AbstractVector{<:Real}, (; codimension)), MedianNormScale())`
+— the same median, never re-centred (a norm has no centre).
 """
 struct MedianNormScale <: AbstractEstimationAlgorithm end
 estimator_kind(::MedianNormScale) = ClosedFormKind()
 __solve(prob::EstimationProblem{NoiseScale, <:AbstractVector{<:StaticVector{D}}, NullParameters}, ::MedianNormScale) where {D} =
     closed_form_result(_mad_scale_norms(; norms = (LinearAlgebra.norm(r) for r in prob.f), codimension = D), length(prob.f))
+__solve(prob::EstimationProblem{NoiseScale, <:AbstractVector{<:Real}, <:NamedTuple{(:codimension,)}}, ::MedianNormScale) =
+    closed_form_result(_mad_scale_norms(; norms = prob.f, codimension = prob.p.codimension), length(prob.f))
 
-# STACK-INTERNAL entry point (not public; VisualGeometryToolkitEstimation calls it
-# qualified, the one sanctioned `_` name it reaches): `MedianNormScale`'s scale of residuals of
-# codimension `codimension` given only their NORMS, named at the call so nothing
-# reads as re-centred; the inner loops' form. Residual vectors go through `MedianNormScale`.
+# Core-internal: `MedianNormScale`'s scale of residuals of codimension `codimension` given only their NORMS (Core's
+# own inner loops); another package states the norms through the front end, `EstimationProblem(NoiseScale, norms,
+# (; codimension))`.
 _mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(Distributions.quantile(Distributions.Chisq(codimension), 0.5))
 
 # =============================================================================

@@ -52,6 +52,7 @@ abstract type AbstractConstraintProblem end
 Total number of data points the problem scores over.
 """
 function data_size end
+data_size(p::AbstractConstraintProblem) = _no_method(p, data_size, "the constraint-problem protocol needs it")
 
 """
     codimension(problem) -> Int

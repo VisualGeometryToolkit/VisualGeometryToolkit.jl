@@ -128,3 +128,22 @@
         end
     end
 end
+
+@testitem "config_toml: construct_from_table builds by keyword" begin
+    using Test
+    using VisualGeometryToolkitCore: construct_from_table
+    Base.@kwdef struct _KwTable
+        a::Int
+        μ::Float64 = 0.5
+        name::Symbol = :x
+    end
+    @test construct_from_table(_KwTable, Dict{String, Any}("name" => "y", "a" => 3)) === _KwTable(3, 0.5, :y)   # key order is irrelevant
+    @test construct_from_table(_KwTable, Dict{String, Any}("a" => 1, "mu" => 2)) === _KwTable(1, 2.0, :x)      # the ASCII key of a Greek field
+    @test construct_from_table(_KwTable, Dict{String, Any}("type" => "t", "a" => 1); skip = ("type",)) === _KwTable(1, 0.5, :x)
+    msg = try
+        construct_from_table(_KwTable, Dict{String, Any}("mu" => 1.0); section = "s.t"); ""
+    catch e
+        e isa ArgumentError ? e.msg : rethrow()
+    end
+    @test occursin("[s.t] needs `a`", msg)
+end

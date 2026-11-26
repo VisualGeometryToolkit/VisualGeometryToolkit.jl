@@ -863,3 +863,15 @@ These are done in Core 0.14, each with its own commit:
 - KNOWN REMAINING (owner ruling G-f): PoseLib's family-problem refines cover HomographyProblem, FundMatProblem and
   RelativePoseProblem; EssentialProblem is left out (its unit bearings would take PoseLib's bearing C route and move
   LODR's recorded bits): an E refine on pixels is the RelativePoseProblem form, the cheirality seed the caller's step.
+- 2026-11-26 (1A): the refine caches (`init`/`solve!`/`reinit!`) for the chart, row and block LMs. A chunked
+  continuation is the caller's loop of `solve!` and `reinit!(c, u′; stops)` (no callback type). `weights` is a
+  cache setting of the chart refine (`reinit!(c, θ; weights)`), not a solve keyword. `callback` joins §0's keyword list
+  (`LmIterationState`; `iteration` is 1-based, SciML's).
+- 2026-11-26 (1A): stops types. BlockCoordinateDescent's, IRLS's and the LO strategies' `stops` reuse
+  `StoppingCriterion`, run after the method's own criterion (`StopWhenSolveFailed() | stopping_criterion(method) |
+  stops`). Krylov solves and bisections use ONE type, `ToleranceStops(; max_iter, rtol)` (Q1).
+- 2026-11-26 (1A): `EnsembleProblem` has two forms, an isbits `prob_func` (one KA launch) and an algorithm owner's batch
+  value (BB's IRLS, Q2). Core adds no segmented container.
+- 2026-11-26 (1A): configuration version 2 (C16), `[levenberg_marquardt.stops]` and `[static_levenberg_marquardt.stops]`.
+- 2026-11-26 (1A): no reflection on a hot path. The transitional `block_refit` route is chosen by a dispatch sentinel
+  (`block_variables`' default), not by `which`, which cost 28 allocations per solve.

@@ -1,14 +1,14 @@
 @testitem "ConsensusScale: the consensus scale of a model under a scorer" begin
     using Test, Random, StableRNGs, StaticArrays
     using VisualGeometryToolkitCore: solve, init, solve!, reinit!, EstimationProblem, SquaredScale, MsacScoring, ReturnCode,
-        ClosedForm, NoRule, HomographyMat, correspondences, successful_retcode, ClosedFormKind, estimator_kind
+        ClosedForm, NoRule, HomographyMat, HomographyMap, PerspectiveMap, correspondences, successful_retcode, ClosedFormKind, estimator_kind
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: ConsensusScale, HomographyProblem, RansacWorkspace
     import VisualGeometryToolkitEstimation as VgtkEstimation
 
     rng = StableRNG(7)
     H = SMatrix{3, 3, Float64}(1.02, 0.01, 1.0e-5, -0.02, 0.98, 2.0e-5, 3.0, -2.0, 1.0)
-    apply(x) = (y = H * SVector(x[1], x[2], 1.0); SVector(y[1] / y[3], y[2] / y[3]))
+    apply = PerspectiveMap() ∘ HomographyMap(H)
     src = [SVector(640 * rand(rng), 480 * rand(rng)) for _ in 1:120]
     tgt = [i <= 90 ? apply(x) + 0.5 * SVector(randn(rng), randn(rng)) : SVector(640 * rand(rng), 480 * rand(rng))
            for (i, x) in enumerate(src)]

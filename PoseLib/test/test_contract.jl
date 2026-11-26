@@ -187,8 +187,8 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         end
         @test_throws MethodError H((; local_optimization = Irls{TLSShape}(), width = 2.0))
         @test_throws MethodError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
-        # the stops are Core's LmStops: PoseLib applies `max_iter` (default 1000) and refuses any other stop setting it
-        # cannot apply, naming it; PoseLib's LM damps by λ·I, so another damping is refused
+        # the stops are Core's LmStops: PoseLib honours `max_iter` (default 1000; `honoured_stops`), and Core refuses any
+        # other stop setting, naming it; PoseLib's LM damps by λ·I, so another damping is refused
         lsq = LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing)
         hom = (d.hom, HomographyMat(d.H0))
         @test solve(RefineProblem(hom...), lsq).stats.nsteps == solve(RefineProblem(hom...), lsq; stops = LmStops(; max_iter = 1000)).stats.nsteps
@@ -196,7 +196,8 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         for (name, stops) in (("ftol", LmStops(; ftol = 1.0e-3)), ("xtol", LmStops(; xtol = 1.0e-3)), ("xtol_rel", LmStops(; xtol_rel = 1.0e-3)),
                               ("stationarity_tol", LmStops(; stationarity_tol = 0.5)), ("max_time", LmStops(; max_time = 1.0)),
                               ("residual_resolution", LmStops(; residual_resolution = 1.0)))
-            @test occursin("`$name = ", msg(() -> solve(RefineProblem(hom...), lsq; stops)))
+            m = msg(() -> solve(RefineProblem(hom...), lsq; stops))
+            @test occursin("PoseLibSolver honours only max_iter", m) && occursin(name, m)
         end
         @test occursin("λ·I", msg(() -> solve(RefineProblem(hom...),
             LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing, damping = MarquardtDamping()))))
@@ -244,7 +245,8 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test VgtkCore.expected_tag(reg, LeZach) == "le_zach"
         # its identity, as the registry row states it
         @test VgtkCore.loss_family(LeZach()) == VgtkCore.loss_family(TLSShape)
-        @test VgtkCore.optimization_path(LeZach()) === :irls && VgtkCore.lo_label(LeZach()) == "TLS-LZ"
+        @test VgtkCore.optimization_path(LeZach()) === :gnc && VgtkCore.loss_family(LeZach()) === :tls &&
+            VgtkCore.lo_label(LeZach()) == "TLS-LZ"
         @test VgtkCore.lo_efficiency_constant_shape(LeZach) === TLSShape
         @test !VgtkCore.lo_parametric(LeZach) && !VgtkCore.lo_takes_width(LeZach)
         # merged with the core strategies' registry: one family, no clash

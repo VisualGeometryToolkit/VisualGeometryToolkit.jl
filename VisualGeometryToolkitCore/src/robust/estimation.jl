@@ -223,7 +223,7 @@ Default `:unspecified`, so registries can detect a strategy that has not
 declared its identity. Drives [`lo_marker`](@ref) (marker shape = path) and
 the path half of a composed [`lo_label`](@ref).
 """
-optimization_path(::AbstractOptimizationStrategy) = :unspecified
+optimization_path(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = :unspecified
 optimization_path(::Nothing) = :seed   # no local optimization: the seed stands
 
 "The display suffix of an optimization path (the `-IRLS` / `-HQ` / `-GNC` / `-BCD` / `-LO` half of a method name)."
@@ -280,7 +280,7 @@ DERIVED from its width mode ([`lo_width`](@ref)): `EfficiencyConstant` →
 `FollowsScorer()`. Default `UnspecifiedScale()` so registries can detect an
 undeclared strategy.
 """
-scale_interface(::AbstractOptimizationStrategy) = UnspecifiedScale()
+scale_interface(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = UnspecifiedScale()
 scale_interface(::Nothing) = NoScale()
 
 """
@@ -292,7 +292,7 @@ lookup table, so legends cannot drift. The marker companion is
 [`lo_marker`](@ref). A concrete `lo_label` returns the BASE name (e.g.
 `raw"Welsch-HQ"`, i.e. Loss-Path).
 """
-lo_label(::AbstractOptimizationStrategy) = "LO"
+lo_label(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = "LO"
 lo_label(::Nothing) = "seed"
 
 """
@@ -303,7 +303,7 @@ optimization path` rule, derived from [`optimization_path`](@ref) through
 [`path_marker`](@ref). Override only for a strategy that must stand apart
 from its path (ℓ₂ uses `:x`).
 """
-lo_marker(lo::Union{Nothing, AbstractOptimizationStrategy}) = path_marker(optimization_path(lo))
+lo_marker(lo::Union{Nothing, AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = path_marker(optimization_path(lo))
 
 """
     loss_family(lo::AbstractOptimizationStrategy) -> Symbol
@@ -314,7 +314,7 @@ share the "uniform mixtures" column). Determines the color HUE facet in the
 paper registry. Default `:unspecified` so registries can detect a strategy
 that has not declared its identity.
 """
-loss_family(::AbstractOptimizationStrategy) = :unspecified
+loss_family(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = :unspecified
 loss_family(::Nothing) = :none
 
 # -----------------------------------------------------------------------------

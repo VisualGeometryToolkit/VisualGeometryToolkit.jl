@@ -137,7 +137,8 @@ function _definition_name(node)
     return replace(String(_JS.sourcetext(target)), r"\s+" => "")
 end
 
-# One definition: where it is, its token count and its shingle set (sorted hashes).
+# One definition: where it is, its token count and its shingle set (sorted hashes), and for a one-expression body the
+# names of the functions it calls, in order (`nothing` for a longer body).
 struct _Definition
     file::String       # the finding's path: repository-relative, `<Repository>:<path>` elsewhere
     own::Bool          # in the package being checked
@@ -145,6 +146,34 @@ struct _Definition
     name::String
     ntokens::Int
     shingles::Vector{UInt64}
+    callees::Union{Nothing, Vector{String}}
+end
+
+# The callees of a ONE-EXPRESSION body (a short-form definition, or a long form of one statement): every call's
+# function as its source text, in source order (an infix call's operator; a call of the definition itself, a
+# recursion, as `<self>`, so two recursive copies under two names still pair); `nothing` for any other body. The tokens a
+# shingle hashes normalize identifiers, so two one-line compositions of the same shape — `f(a, b) = g(a, h(a, b))` —
+# are token-identical however unrelated the functions they forward to; their callees tell them apart.
+function _one_expression_callees(node, name::AbstractString)
+    cs = _JS.children(node)
+    (cs === nothing || length(cs) != 2) && return nothing
+    b = cs[2]
+    if _JS.kind(b) == _JS.K"block"
+        bc = _JS.children(b)
+        (bc === nothing || length(bc) != 1) && return nothing
+        b = bc[1]
+    end
+    return _callees!(String[], b, name)
+end
+function _callees!(out, node, name)
+    cs = _JS.children(node)
+    if _JS.kind(node) in (_JS.K"call", _JS.K"dotcall") && cs !== nothing && !isempty(cs)
+        f = _JS.is_infix_op_call(_JS.head(node)) && length(cs) >= 2 ? cs[2] : cs[1]
+        callee = replace(String(_JS.sourcetext(f)), r"\s+" => "")
+        push!(out, callee == name ? "<self>" : callee)
+    end
+    cs === nothing || foreach(c -> _callees!(out, c, name), cs)
+    return out
 end
 
 function _shingles(ids::AbstractVector{Int}, k::Int)
@@ -175,7 +204,9 @@ function _scan_julia!(defs, files, path, label, own, ids, k)
         hi = searchsortedlast(toks.starts, _JS.last_byte(node))
         hi < lo && continue
         norm = [get!(ids, toks.normalized[i], length(ids) + 1) for i in lo:hi]
-        push!(defs, _Definition(label, own, _JS.source_line(node), _definition_name(node), length(norm), _shingles(norm, k)))
+        name = _definition_name(node)
+        push!(defs, _Definition(label, own, _JS.source_line(node), name, length(norm), _shingles(norm, k),
+                                _one_expression_callees(node, name)))
     end
     return
 end
@@ -502,6 +533,12 @@ function _similar_pairs(defs, similarity)
             A, B = defs[a], defs[b]
             c = count[b]; count[b] = 0
             A.file == B.file && continue
+            # two one-expression bodies that call no function in common restate nothing: their shapes alone are
+            # token-identical for every one-line forward of the form `f(a, b) = g(a, h(a, b))`, to whatever functions
+            # (one shared callee — an operator, a constructor, a recursion — keeps the pair a candidate, and so does a
+            # body that calls nothing)
+            A.callees !== nothing && B.callees !== nothing && !isempty(A.callees) && !isempty(B.callees) &&
+                isdisjoint(A.callees, B.callees) && continue
             cross = match(_EXTERNAL_ID, B.file) !== nothing
             nA, nB = cross ? (n_any[a], n_any[b]) : (n_own[a], n_own[b])
             min(nA, nB) >= _MIN_INFORMATIVE || continue   # a definition of idioms only is no evidence of a copy

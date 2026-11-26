@@ -48,6 +48,20 @@ No refined number changes: the golden records of 3d8a06da replay bit for bit (`c
 
 ### Added
 
+- **`PoseLibEstimationExt`** (a weak dependency on VisualGeometryToolkitEstimation): PoseLib's refines of the
+  two-view family problems, so a RANSAC's local optimization can be Core's
+  `BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy), LmStops(; max_iter))`.
+  `solve(RefineProblem(HomographyProblem(cs), H), LevenbergMarquardt(PoseLibSolver(); …))` (and a `FundMatProblem`'s)
+  is the raw-data refine on the problem's correspondences, bit for bit (a homography with observation maps is
+  refused); an `EssentialProblem`'s refit decomposes the hypothesis by the fast cheirality vote on a strided subsample
+  of its bearings (`BackendRefit`'s `cheirality_vote_points`) and refines the pose camera-aware on the two-view
+  frame's calibrations and pixels (`external_workspace`: `frame.Kc1`, `frame.Kc2`, `frame.cs`) — the body
+  LocalOptimizationDoneRight's truncated arms ran, bit for bit.
+- `LeZach()`'s optimization path is `:gnc` (it was `:irls`), its loss family `:tls` and label `TLS-LZ`: the identity
+  LocalOptimizationDoneRight's TLS-LZ arm reports, read through a `BackendRefit` by VisualGeometryToolkitEval's labels and markers.
+- `honoured_stops(::PoseLibSolver) = (:max_iter,)`: Core's front end refuses any other `LmStops` field set away from
+  its default, naming it (`check_honoured_stops`); PoseLib's own refusal of those fields is deleted (one refusal, Core's;
+  its message is Core's).
 - `VisualGeometryToolkitCore.default_damping(::PoseLibSolver) = LevenbergDamping()` and
   `VisualGeometryToolkitCore.lm_backend_refine(::PoseLibSolver, …)` (the refines).
 

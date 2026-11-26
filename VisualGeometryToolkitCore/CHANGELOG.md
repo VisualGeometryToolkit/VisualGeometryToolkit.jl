@@ -176,7 +176,23 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   struct-of-arrays `EnsembleResult`: one kernel launch of N kernel-lawful solves (`StaticLevenbergMarquardt`).
 - A backend LM on a family problem: `__solve(RefineProblem{<:AbstractConstraintProblem}, LevenbergMarquardt{<:backend})`
   routes to `lm_backend_refine`. `honoured_stops(backend)` / `check_honoured_stops` say which `LmStops` fields a backend
-  honours, and `BackendRefit(alg, stops)` is an `ExternalRefit` strategy.
+  honours, and `BackendRefit(alg, stops; cheirality_vote_points = 256)` is THE `ExternalRefit` strategy of any
+  refine algorithm (`estimator_kind(alg) === RefineKind()`, else an `ArgumentError`): its `external_refit!` returns the
+  refined model, `solve(…).u`, whatever the record (a budgeted `(MaxIters, IterationCap)` stop is normal; it returned
+  the `FitResult`, a contract bug). `cheirality_vote_points` is the essential route's decomposition subsample
+  (PoseLib.jl's `PoseLibEstimationExt`); its default, 256, is LocalOptimizationDoneRight's configuration of record.
+  `cheiral_pose_fast(E, cs::AbstractVector{<:Correspondence}; vote_points)` is the vote on the strided subsample
+  `1:max(1, n ÷ vote_points):n` of `cs`'s bearing pairs as a plain `EuclideanMap` (the three-argument vote on its
+  views, bit for bit): the one start of a relative-pose refit from an essential hypothesis. Its identity traits (`optimization_path`, `scale_interface`, `loss_family`,
+  `lo_label`, `lo_marker`) are its algorithm's, a Levenberg–Marquardt's its `optimization_strategy`'s, with
+  `scale_interface` `FixedScale()` (the refit is given its width); they fell to the defaults (`:unspecified`). The
+  defaults cover a refine algorithm (`AbstractEstimationAlgorithm`) as they cover a strategy.
+- `check_duplication`'s `[similar]` check: two ONE-EXPRESSION bodies (a short-form definition, or a long form of one
+  statement) whose calls share no function — a recursion read as the definition itself — are no candidate pair. Their
+  normalized tokens are identical for every one-line forward of one shape (`f(a, b) = g(a, h(a, b))`), so two
+  unrelated forwards scored Jaccard 1.0. A pair with one callee in common, or a body that calls nothing, is compared
+  as before; over the monorepo and the BB, RC, LODR, RSDR and VRTK trees the check drops 4 findings (127 → 123), all
+  such pairs, and adds none.
 - `with_default_device(f, backend)`, a scoped default device (a `ScopedValue` read before the memo), and
   `reduction_work_items(n)`.
 - `construct_from_table(T, table)` builds a type by keyword from a TOML table. `migrate_config` drops a parent table

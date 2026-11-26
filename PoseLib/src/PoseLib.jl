@@ -444,8 +444,8 @@ optimized by the iteratively reweighted least-squares scheme of Le and Zach
 `TRUNCATED_LE_ZACH` loss. It selects how the truncated loss is optimized, so it
 takes the same `width` as `Irls{TLSShape}`. Like TLS it has no efficiency
 constant, so it takes `width`, not `scale`. A member of the stack's one
-optimization-strategy family: its loss family is TLS's, its path IRLS and its
-label `TLS-LZ`.
+optimization-strategy family: its loss family is TLS's (`:tls`), its path the
+continuation `:gnc` (as LocalOptimizationDoneRight's TLS-LZ arm reports it) and its label `TLS-LZ`.
 
 On PoseLib's backend an `optimization_strategy` selects PoseLib's own robust loss, its C loss enum, not Core's
 reweighting loop: `Irls{TLSShape}()`, `Irls{HuberShape}()` and `Irls{CauchyShape}()` are PoseLib's robustified
@@ -461,7 +461,7 @@ const _POSELIB_STRATEGY_DEFAULTS = Dict{String, Any}("le_zach" => Dict{String, A
 
 #   type     tag        path    scale    family   label        shape     parametric
 const _POSELIB_STRATEGY_ROWS = (
-    (LeZach, "le_zach", :irls,  nothing, nothing, raw"TLS-LZ", TLSShape, false),
+    (LeZach, "le_zach", :gnc,   nothing, nothing, raw"TLS-LZ", TLSShape, false),
 )
 
 """
@@ -525,25 +525,15 @@ public PoseLibRefineMetadata
 # PoseLib's Levenberg–Marquardt, `LevenbergMarquardt(PoseLibSolver(); …)`: its damping is PoseLib's λ·I.
 VgtkCore.default_damping(::PoseLibSolver) = LevenbergDamping()
 
-# The iteration budget PoseLib runs, from the solve's `stops`: PoseLib's wrapper sets `max_iter` and nothing else, so
-# a stop setting is APPLIED or REFUSED, never ignored. Every other field must be `===` to `LmStops()`'s (the defaults
-# of record): `stops === LmStops(; max_iter = stops.max_iter)`, which also covers a field added to LmStops later; the
-# `ArgumentError` names the field that differs.
+# The LmStops field PoseLib's wrapper applies: `max_iter` alone (its tolerances are PoseLib's own). Core's front end
+# refuses any other field set away from its default before a refine runs (`check_honoured_stops`, naming the field),
+# so a stop setting is APPLIED or REFUSED, never ignored.
+VgtkCore.honoured_stops(::PoseLibSolver) = (:max_iter,)
+
+# The iteration budget PoseLib runs, from the solve's `stops` (already checked by Core against `honoured_stops`).
 function _poselib_max_iter(stops::LmStops)
-    stops === LmStops(; max_iter = stops.max_iter) || throw(_unapplied_stop(stops))
     stops.max_iter <= typemax(Cint) || throw(ArgumentError("PoseLib's max_iter is a C int, ≤ $(typemax(Cint)); got $(stops.max_iter)"))
     return stops.max_iter
-end
-@noinline function _unapplied_stop(stops::LmStops)
-    d = LmStops()
-    for (name, set, default) in (("ftol", stops.ftol, d.ftol), ("xtol", stops.xtol, d.xtol), ("xtol_rel", stops.xtol_rel, d.xtol_rel),
-                                 ("stationarity_tol", stops.stationarity_tol, d.stationarity_tol),
-                                 ("max_time", stops.max_time, d.max_time), ("residual_resolution", stops.residual_resolution, d.residual_resolution))
-        set === default || return ArgumentError(string("PoseLib's Levenberg–Marquardt applies only `max_iter` of its LmStops ",
-            "(its tolerances are PoseLib's own); `", name, " = ", set, "` cannot be applied: leave it at its default"))
-    end
-    return ArgumentError("PoseLib's Levenberg–Marquardt applies only `max_iter` of its LmStops (its tolerances are " *
-        "PoseLib's own): leave every other field at its default")
 end
 
 # The algorithm's strategy and damping, admitted (a missing strategy is named first); returns the strategy.

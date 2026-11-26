@@ -115,5 +115,13 @@
         # every pair is in front under the winner
         @test all(test_cheirality(EuclideanMap(Rv, tv), a, b) for (a, b) in zip(f₁, f₂))
         @test_throws DimensionMismatch cheiral_pose_fast(E, f₁, f₂[1:5])
+        # the vote on a strided subsample of a Correspondences, as a plain pose: the inline form, bit for bit
+        cs = correspondences(f₁, f₂)
+        for vote_points in (1, 7, 16, 40, 256)
+            idx = 1:max(1, length(f₁) ÷ vote_points):length(f₁)
+            R0, t0 = cheiral_pose_fast(E, view(f₁, idx), view(f₂, idx))
+            @test cheiral_pose_fast(E, cs; vote_points) === EuclideanMap(R0, Vec3{Float64}(t0))
+        end
+        @test_throws ArgumentError cheiral_pose_fast(E, cs; vote_points = 0)
     end
 end

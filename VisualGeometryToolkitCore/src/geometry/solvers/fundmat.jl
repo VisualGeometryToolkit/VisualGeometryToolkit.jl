@@ -263,6 +263,23 @@ function cheiral_pose_fast(E, f₁::AbstractVector, f₂::AbstractVector)
     return bestR, bestt
 end
 
+"""
+    cheiral_pose_fast(E, cs::AbstractVector{<:Correspondence}; vote_points::Integer) -> EuclideanMap{3}
+
+The cheirality vote on a strided subsample of the bearing pairs `cs` — the pairs `1:max(1, n ÷ vote_points):n`, about
+`vote_points` of the `n` — as the plain pose `EuclideanMap(R, t)` of the winning candidate: the start a relative-pose
+refine takes from an essential hypothesis (Core's `BackendRefit` essential route, PoseLib.jl's `PoseLibEstimationExt`;
+LocalOptimizationDoneRight's adaptive arm). The vote is the three-argument form's on `view`s of the pairs' sources and
+targets, bit for bit.
+"""
+function cheiral_pose_fast(E, cs::AbstractVector{<:Correspondence}; vote_points::Integer)
+    vote_points >= 1 || throw(ArgumentError("cheiral_pose_fast: vote_points must be ≥ 1, got $vote_points"))
+    f₁, f₂ = sources(cs), targets(cs)
+    idx = 1:max(1, length(f₁) ÷ vote_points):length(f₁)
+    R0, t0 = cheiral_pose_fast(E, view(f₁, idx), view(f₂, idx))
+    return EuclideanMap(R0, Vec3{Float64}(t0))
+end
+
 # =============================================================================
 # The epipolar and homography constraints' observations: one element type
 # =============================================================================

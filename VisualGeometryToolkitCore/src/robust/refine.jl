@@ -621,20 +621,44 @@ function check_honoured_stops(backend::AbstractSolverBackend, stops::LmStops)
 end
 
 """
-    BackendRefit(alg::LevenbergMarquardt, stops::LmStops)
+    BackendRefit(alg, stops::LmStops; cheirality_vote_points = 256)
 
-The external local optimization of a RANSAC by a Levenberg–Marquardt `alg` (any backend: `LevenbergMarquardt(PoseLibSolver();
-optimization_strategy)`) at its `stops`: an `AbstractOptimizationStrategy` of the [`ExternalRefit`](@ref) family, whose
-refit of a hypothesis `θ` of `problem` at the absolute loss width `w` is
-`solve(RefineProblem(problem, θ), alg; stops, width = w)` ([`external_refit!`](@ref)).
+The external local optimization of a RANSAC by a refine algorithm `alg` (an algorithm whose
+[`estimator_kind`](@ref) is [`RefineKind`](@ref): `LevenbergMarquardt(PoseLibSolver(); optimization_strategy)`, or a
+package's own refine) at its `stops`: the ONE `AbstractOptimizationStrategy` of the [`ExternalRefit`](@ref) family that
+runs a refine algorithm. Its refit of a hypothesis `θ` of `problem` at the absolute loss width `w` is
+`solve(RefineProblem(problem, θ), alg; stops, width = w).u` ([`external_refit!`](@ref)): the refined model whatever the
+record — a refine that spends its budget (`(MaxIters, IterationCap)` at `stops.max_iter`) is a normal budgeted stop,
+and the local optimization's own scoring decides whether the model is kept. An algorithm of another kind is an
+`ArgumentError`.
+
+`cheirality_vote_points` is the size of the strided subsample on which a refit that starts from a relative pose
+decomposes an essential hypothesis (`cheiral_pose_fast`; PoseLib.jl's essential route), about that many points; its
+default, 256, is LocalOptimizationDoneRight's configuration of record (`[optimization_strategy.poselib]`).
 """
-struct BackendRefit{A <: LevenbergMarquardt} <: AbstractOptimizationStrategy
+struct BackendRefit{A <: AbstractEstimationAlgorithm} <: AbstractOptimizationStrategy
     alg::A
     stops::LmStops
+    cheirality_vote_points::Int
+    function BackendRefit(alg::A, stops::LmStops; cheirality_vote_points::Integer = 256) where {A <: AbstractEstimationAlgorithm}
+        estimator_kind(alg) === RefineKind() || throw(ArgumentError(string("BackendRefit runs a refine algorithm (",
+            "estimator_kind RefineKind()); a ", nameof(A), " is ", nameof(typeof(estimator_kind(alg))))))
+        cheirality_vote_points >= 1 || throw(ArgumentError("BackendRefit: cheirality_vote_points must be ≥ 1, got $cheirality_vote_points"))
+        return new{A}(alg, stops, Int(cheirality_vote_points))
+    end
 end
 RefitFamily(::BackendRefit) = ExternalRefit()
+# Its identity (the evaluation's labels and markers, the scale it consumes) is its algorithm's; a Levenberg–Marquardt's
+# is its `optimization_strategy`'s, its scale `FixedScale()` (the refit is given its loss width).
+for trait in (:optimization_path, :scale_interface, :loss_family, :lo_label, :lo_marker)
+    @eval $trait(lo::BackendRefit) = $trait(lo.alg)
+end
+for trait in (:optimization_path, :loss_family, :lo_label, :lo_marker)
+    @eval $trait(lo::BackendRefit{<:LevenbergMarquardt}) = $trait(lo.alg.optimization_strategy)
+end
+scale_interface(::BackendRefit{<:LevenbergMarquardt}) = FixedScale()
 external_refit!(_ws, lo::BackendRefit, problem, θ, width::LossWidth, _scoring) =
-    solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width))
+    solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width)).u
 
 public honoured_stops, check_honoured_stops, BackendRefit
 

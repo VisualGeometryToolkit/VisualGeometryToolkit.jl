@@ -188,6 +188,17 @@
     @test checks(ext._name_violations(planted, [VisualGeometryToolkitCore], "", [excuse, stale_name])) == [:stale_exception]
     # Core is the bottom of the stack: nothing is upstream of it
     @test isempty(ext._stack_upstream(VisualGeometryToolkitCore))
+
+    # one-expression bodies: their shingles normalize identifiers, so every one-line forward of one shape is
+    # token-identical; a pair that calls no function in common restates nothing. Two unrelated forwards (VRTK's
+    # vignetting coefficients and a target's albedo: Jaccard 1.0 at 29 tokens) are no duplicate ...
+    fwd1 = "active_coefficients(v::RadialVignetting{T}, u::AbstractVector) where {T} = _profile_active(v, coefficient_jacobian(v, u))\n"
+    fwd2 = "physical_albedo(bd::TexturedTarget{T}, b::AbstractVector) where {T} = printed_albedo(bd, design_chart(bd, b))\n"
+    @test isempty(check_duplication(repo("src/a.jl" => fwd1, "src/b.jl" => fwd2); stack = String[]))
+    # ... while the same forward under other argument names still is
+    same = "vignetting_coefficients(w::RadialVignetting{T}, x::AbstractVector) where {T} = _profile_active(w, coefficient_jacobian(w, x))\n"
+    v = only(check_duplication(repo("src/a.jl" => fwd1, "src/b.jl" => same); stack = String[]))
+    @test v.check == :similar && occursin("active_coefficients", v.text) && occursin("vignetting_coefficients", v.other)
 end
 
 # The owner's policy (2026-11-11): a GPU branch's CPU branch is the SAME

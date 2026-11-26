@@ -889,3 +889,35 @@ These are done in Core 0.14, each with its own commit:
 - 2026-11-26 (lead, LODR L10): a configuration value that changes FORM (LODR's `adapt_scale::Bool` becoming the
   `scale_interface` tag) is a step of the package's versioned converter: `ConfigMigration`'s `values`, one owner in
   Core, run after the renames. Never a refusal; the old form in a current file is refused with its version named.
+- 2026-11-26 (1B set 2, coordinator's rulings for the LODR port): PoseLib's PoseLib-specific arms are Core's
+  `BackendRefit` over `LevenbergMarquardt(PoseLibSolver(); optimization_strategy)`, through PoseLib's weak extension
+  `PoseLibEstimationExt` (on VisualGeometryToolkitEstimation; the allow-list row adds it): `lm_backend_refine` on a
+  `HomographyProblem`/`FundMatProblem` forwards to the raw-data refine on `problem.cs` (a mapped homography refused),
+  and the `EssentialProblem` route is `external_workspace` (`frame.Kc1`, `frame.Kc2`, `frame.cs`) plus `external_refit!`
+  — the cheirality vote on a strided subsample (`BackendRefit`'s `cheirality_vote_points`, default 256 =
+  LocalOptimizationDoneRight's `[optimization_strategy.poselib] cheirality_vote_points`), then the camera-aware pose
+  refine — LODR's E body, bit for bit.
+- 2026-11-26 (1B set 2): `BackendRefit{A <: AbstractEstimationAlgorithm}` is THE external refit of any refine
+  algorithm: construction refuses an algorithm whose `estimator_kind` is not `RefineKind()` (`ArgumentError`). Its
+  `external_refit!` returns `solve(…).u` whatever the record: a budgeted `(MaxIters, IterationCap)` stop is normal,
+  and the scoring decides whether the model is kept (it returned the `FitResult`, a contract bug).
+- 2026-11-26 (1B set 2): `honoured_stops(::PoseLibSolver) = (:max_iter,)`; Core's `check_honoured_stops` is the one
+  refusal of an unhonoured `LmStops` field, and PoseLib's own (`_unapplied_stop`) is deleted.
+- 2026-11-26 (1B set 2, item 6): a `BackendRefit`'s identity traits (`optimization_path`, `scale_interface`,
+  `loss_family`, `lo_label`, `lo_marker`) are its algorithm's, a `LevenbergMarquardt`'s its `optimization_strategy`'s,
+  and its `scale_interface` is `FixedScale()` (the refit is given its loss width); Eval's labels and markers read them
+  (before, the defaults: `path_marker(:unspecified)` threw). The traits' defaults (`:unspecified`, `UnspecifiedScale()`,
+  `"LO"`) cover a refine algorithm (`AbstractEstimationAlgorithm`) as they cover a strategy, so a package's refine that
+  declares none falls to them through its `BackendRefit`. PoseLib's `LeZach()` reports the path `:gnc` (it reported
+  `:irls`), its loss family `:tls` and label `TLS-LZ`, as LocalOptimizationDoneRight's TLS-LZ arm does.
+- 2026-11-26 (1B set 2, item 7): `cheiral_pose_fast(E, cs::AbstractVector{<:Correspondence}; vote_points::Integer)` is Core's one
+  cheirality seed of a relative-pose refit: the vote on the strided subsample `1:max(1, n ÷ vote_points):n` of `cs`'s
+  bearing pairs, returned as `EuclideanMap(R0, Vec3{Float64}(t0))`, bit for bit the inline form PoseLibEstimationExt's
+  essential route and LocalOptimizationDoneRight's adaptive arm each wrote. `BackendRefit`'s default
+  `cheirality_vote_points` is 256, LocalOptimizationDoneRight's `[optimization_strategy.poselib]` of record.
+- 2026-11-26 (1B set 2, item 8, lead's ruling): `check_duplication`'s `[similar]` check reads a ONE-EXPRESSION body's
+  callees (every call's function in source order; a recursion as `<self>`): two such bodies that call no function in
+  common (both non-empty) are no candidate pair, since a shingle normalizes identifiers and every one-line forward of
+  one shape is token-identical. Narrower than "the same callees": a shared operator, constructor or recursion keeps a
+  pair (RC's `plain` beside Core's `toml_value` stays a finding). Stack scan before/after (monorepo + BB, RC, LODR,
+  RSDR, VRTK): 127 → 123 findings, the 4 removed all one-expression pairs with disjoint callees, none added.

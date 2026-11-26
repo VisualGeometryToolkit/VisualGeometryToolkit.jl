@@ -57,6 +57,9 @@ include("refine_shim.jl")   # poselib_refine, shared with the golden replay
     # The robust-estimation contract (optimization_strategy, scale/width, FitResult) and the bit-identical baselines.
     include("test_contract.jl")
 
+    # PoseLibEstimationExt: the family problems' backend refines (BackendRefit's H, F and E routes).
+    include("test_estimation_ext.jl")
+
     # The stack's naming rules (VisualGeometryToolkitCore.check_naming).
     include("test_quality_naming.jl")
 end

@@ -181,7 +181,7 @@ end
         "VisualGeometryToolkitIO" => ["VisualGeometryToolkitCore"],
         "VisualGeometryToolkitFeatures" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"],
         "VisualGeometryToolkitEval" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitIO", "VisualGeometryToolkitEstimation"],
-        "PoseLib" => ["VisualGeometryToolkitCore"],
+        "PoseLib" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"],
         "VisualGeometryToolkitEstimation" => ["VisualGeometryToolkitCore"],
         "RANSACScoringDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation"],
         "LocalOptimizationDoneRight" => ["VisualGeometryToolkitCore", "VisualGeometryToolkitEstimation", "PoseLib"],

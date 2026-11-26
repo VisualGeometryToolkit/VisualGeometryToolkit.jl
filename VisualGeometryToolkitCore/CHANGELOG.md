@@ -8,6 +8,11 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- `reinit!(cache[, u0]; f, p, alg, settings...)`: `alg` is a new configuration of the cache's algorithm (the same
+  concrete type; another type is an `ArgumentError` before anything changes), which the owner re-resolves against the
+  kept workspaces; a run setting such as `rng` replaces the cache's. `EstimationCache.alg` is no longer `const` and
+  records the new algorithm. A result of `solve!` may alias the cache's buffers until the next `solve!` (SciML's
+  rule): copy what you keep.
 - **check_naming R20 refuses a concrete-type alias** (owner, 2026-11-24): a `const` whose name takes no parameters and
   whose right side names ONE concrete instantiation of a stack type (every free parameter given, none bounded, no
   `where`) is a second name for one type; a parametric alias with free variables stays. It also runs on the loaded

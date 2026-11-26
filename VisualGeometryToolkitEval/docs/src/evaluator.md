@@ -10,7 +10,7 @@ implement VisualGeometryToolkitCore's contracts:
 - a scoring, which implements `score!`, `select_on_grid!` and `with_width`;
 - a local optimization, whose `RefitFamily` routes it to one of two paths.
   `NativeRefit` runs `locally_optimize!` inside VisualGeometryToolkitEstimation's
-  RANSAC loop. `ExternalRefit` hands the model to a third-party refiner that
+  RANSAC loop (a seeded refit is its `LocalOptimization` algorithm). `ExternalRefit` hands the model to a third-party refiner that
   maps a model to a model (`external_refit!`).
 
 The evaluator holds no scorer or optimizer of its own. A project that
@@ -26,7 +26,7 @@ supplies their values.
 | [`LoRefitSpec`](@ref), [`apply_lo_refits`](@ref) | turns a selection sweep into post-LO error matrices (pairs by grid columns) |
 | [`stream_selections`](@ref) | streams the scenes: it stages each scene, runs `select_on_grid!` per grid, then one `apply_lo_refits` |
 | [`SampleBudgetMethodSpec`](@ref), [`LossWidthSpec`](@ref), [`evaluate_sample_budget`](@ref) | the sample-budget engine: running-best selectors and LO checkpoints along each pair's hypothesis stream |
-| [`live_runs`](@ref), [`live_row`](@ref) | end-to-end `ransac` runs on pool pairs, with a problem the caller builds per pair |
+| [`live_runs`](@ref), [`live_row`](@ref) | end-to-end RANSAC finds (`solve(EstimationProblem(f), Ransac(…); rng)`) on pool pairs, with a problem the caller builds per pair |
 | [`ComposedSpec`](@ref), [`SoloSpec`](@ref), [`Roster`](@ref), [`deployed_arm_settings`](@ref), [`audit_operating_points`](@ref) | a paper's arms, and the gated readers of their tuned operating points |
 
 "MSAC" is the M-estimator sample consensus score, the truncated-quadratic

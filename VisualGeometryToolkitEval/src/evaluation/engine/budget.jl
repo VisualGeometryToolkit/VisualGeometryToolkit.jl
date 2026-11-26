@@ -456,7 +456,7 @@ function _warmup_lo_startup(problem_type, methods, pairs, loss_width_specs, cfg,
     ctx = build_pair_ctx(problem_type, pairs[1]; scoring = refit_scoring)
     seed_E = refit_seed(ctx, ctx.pair.models[1])   # problem-family seed decode
     # Active-LO path (any cfg.lo_strategy: IRLS-family, the E-track lifts and
-    # GNC arms — all native locally_optimize since the 2026-07-18 port; shared
+    # GNC arms — all native local optimizations since the 2026-07-18 port; shared
     # by all scoring columns + the oracle column). Route the native through
     # `consumed_native` at cfg.nat_axis — identity for the :ig IRLS/GNC consumers,
     # outlier half-width → loss width for the truncated consumers — so the warm

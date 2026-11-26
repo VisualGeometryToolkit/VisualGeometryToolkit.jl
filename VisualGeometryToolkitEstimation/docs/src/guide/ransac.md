@@ -24,8 +24,10 @@ result = solve(EstimationProblem(f), alg; rng = Xoshiro(1))
 `init(EstimationProblem(f), alg; rng)` → `solve!(cache)` is the allocation-free
 form: the cache holds the composed `RansacWorkspace` and the result buffers, and
 `reinit!(cache; f = HomographyProblem(other_cs))` points it at new data, keeping
-them (rebuilt only when the new data outgrow them). The result's `resid` and
-weights ARE the cache's buffers, overwritten by the next `solve!`. `Ransac(Float64; …)`
+them (rebuilt only when the new data outgrow them); `reinit!(cache; alg, rng)` gives
+it a new configuration of the same `Ransac` type (a scorer at another width) or a new
+rng (of the same type), re-resolved against the kept workspace. The result's `resid` and
+weights ARE the cache's buffers, overwritten by the next `solve!`: copy what you keep. `Ransac(Float64; …)`
 stores the per-point buffers in `Float64` (the default is `Float32`).
 
 ## Scoring Functions

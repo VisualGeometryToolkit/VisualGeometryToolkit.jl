@@ -166,13 +166,17 @@
         E = refit_model(ctx.ep, seed, irls(), MsacScoring(1; threshold = a))
         @test E !== nothing && E != seed
         @test e === model_imc(E, ctx) && ns > 0               # the template rebuilt at nat′ = a
-        @test haskey(ctx.lo_ws, :ep_refit_Irls)                # one cached workspace per (problem, template, LO)
+        # one LocalOptimization cache per (problem, template, algorithm type, seed type), reinit!'d per call
+        @test length(ctx.lo_ws) == 1 && only(keys(ctx.lo_ws))[1:2] == (:ep, :refit)
+        cache = only(values(ctx.lo_ws))
         @test refit_imc!(ctx, irls(), seed, a)[1] === e        # the cached workspace changes nothing
         @test refit_imc!(ctx, irls(), seed, 10a)[1] !== e      # the native moves the refit
-        # the solo template: its own workspace key, the same arithmetic here
+        @test refit_imc!(ctx, irls(), seed, 10a)[1] === model_imc(refit_model(ctx.ep, seed, irls(), MsacScoring(1; threshold = 10a)), ctx)
+        @test refit_imc!(ctx, irls(), seed, a)[1] === e && only(values(ctx.lo_ws)) === cache   # back: the same cache
+        # the solo template and another template at the same width: their own caches, the same arithmetic here
         @test refit_imc!(ctx, irls(), seed, a; scoring = ctx.solo_scoring)[1] === e
         @test refit_imc!(ctx, irls(), seed, a; scoring = template(7.0))[1] === e
-        @test any(k -> startswith(String(k), "ep_sc"), keys(ctx.lo_ws))
+        @test any(k -> startswith(String(k[2]), "sc"), keys(ctx.lo_ws))
         # s2: the strategy deployed at an absolute scale (its efficiency constant at √s2)
         s2 = (0.004)^2
         e_s2 = first(refit_imc!(ctx, irls_sm(), seed, a; s2))
@@ -568,7 +572,7 @@
         # finalize: extras only when asked, one per pair, in the pair's slot
         fin = run(; finalize = (j, r) -> (j, VgtkCore.found_model(r)))
         @test fin.err == base.err && fin.extras == [(j, true) for j in 1:8]
-        # the guard is forwarded to ransac and still yields a model per pair
+        # the guard is the Ransac's score_guard and still yields a model per pair
         guarded = run(; score_guard = true)
         @test all(isfinite, guarded.err)
         # cancellation: polled before each pair; nothing runs

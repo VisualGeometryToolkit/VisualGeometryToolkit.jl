@@ -43,13 +43,11 @@ using StaticArrays: SMatrix, SVector
 using Rotations: RotMatrix, rotation_angle
 using StableRNGs: StableRNG
 
-# --- The core contracts (VisualGeometryToolkitCore) and the core loop (VisualGeometryToolkitEstimation)
-# NOTE (Core 0.14 / Estimation 0.13 migration): `estimate`, `iterations`, `ransac` and `locally_optimize` below are
-# retired upstream (`r.u`, `r.stats.nsteps`, `solve(EstimationProblem(f), Ransac(…); rng)`, `solve(RefineProblem(f, θ),
-# LocalOptimization(…))`). Their imports fail until Eval's own migration milestone moves these call sites; expected.
+# --- The core contracts (VisualGeometryToolkitCore) and the core loop (VisualGeometryToolkitEstimation): a live run
+# is `solve(EstimationProblem(f), Ransac(…); rng)`, a native refit a `LocalOptimization` cache (`init`, `reinit!`, `solve!`)
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimizationStrategy, NativeRefit,
     ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Correspondences, Point2, sources, targets,
-    found_model, estimate, iterations, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
+    EstimationProblem, RefineProblem, solve, init, solve!, reinit!, found_model, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,
     score!, external_workspace, prepare_external!, external_refit!, select_on_grid!, stage_selection,
@@ -57,7 +55,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimization
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
-    locally_optimize, ransac, RansacConfig, RansacWorkspace,
+    Ransac, LocalOptimization, RansacConfig,
     rescore_and_optimize!, AbstractRansacProblem, CountedLO, TerminalLO
 using VisualGeometryToolkitCore: fixed_width   # the strategy's frozen width (robust/strategies.jl)
 import VisualGeometryToolkitEstimation: reset!   # the running-best selectors' reset

@@ -23,6 +23,12 @@ optimization, `RefitFamily`, `external_refit!`, `select_on_grid!`), never
 against a paper scorer or strategy: RANSACScoringDoneRight,
 LocalOptimizationDoneRight and PoseLib must not appear in its deps, weakdeps,
 extras or test target. The projects that evaluate those depend on it.
+Its estimation goes through VisualGeometryToolkitCore's `solve(problem, algorithm)`:
+a live run is `solve(EstimationProblem(f), Ransac(…); rng)`, a native refit
+`solve(RefineProblem(f, seed), LocalOptimization(lo; scoring, score_guard))`, and
+the scale prior's `PriorSpec` is a closed-form algorithm of its own
+(`solve(EstimationProblem(IGPrior, σ²s), spec)`); a result is read by field
+(`r.u`, `r.stats.nsteps`) and `found_model(r)`.
 Each submodule's API is reached through it (`using
 VisualGeometryToolkitEval.Pools: load_pool`); the top module exports the submodules
 and the driver CLI (`cli_option`, `start_output_flush!`).

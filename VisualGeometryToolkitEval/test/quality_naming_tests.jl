@@ -15,6 +15,16 @@
     VgtkCore.test_naming(VisualGeometryToolkitEval)
 end
 
+@testitem "quality: the estimation interface's declarations" begin
+    # check_naming's run-time rules (R16–R18): `PriorSpec` has its kind, and every solve method is a `__solve` of an
+    # algorithm this package owns.
+    import VisualGeometryToolkitCore as VgtkCore
+    using Test, VisualGeometryToolkitEval
+    found = VgtkCore.check_algorithm_traits(VisualGeometryToolkitEval)
+    isempty(found) || foreach(println, found)
+    @test isempty(found)
+end
+
 @testitem "quality: no duplication" begin
     # One implementation per concept (VisualGeometryToolkitCore's check_duplication): names
     # an upstream stack package owns, restated function bodies, copied files and retired

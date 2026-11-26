@@ -662,6 +662,8 @@ const RETIRED_NAMES = String[
     "ring_pair" * "_vignetting",             # `RingPairMedians()` on `EstimationProblem(RingVignetting, pc, p)`
     "fit_additive" * "_level",               # `LevelBisection(; bounds, tolerance, max_iter)` on `EstimationProblem(AdditiveLevel, pc, p)`
     "sweep" * "_up",                         # `RollFreeUp()` on `EstimationProblem(SweepUp, rotations)`
+    # VisualGeometryToolkitEval 0.12: the scale-prior fit is an algorithm (spec §6)
+    "fit" * "_prior",                        # `solve(EstimationProblem(IGPrior, σ²s), spec)`, `PriorSpec(family, fitting)` the algorithm (ClosedFormKind)
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

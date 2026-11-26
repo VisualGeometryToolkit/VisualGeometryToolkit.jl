@@ -166,7 +166,9 @@ _is_static_path(s::AbstractString) = !occursin('\\', s) && !occursin('#', s) && 
 _looks_like_data_file(s::AbstractString) =
     _is_static_path(s) && !occursin(r"\s", strip(s)) && occursin(r"(\.[A-Za-z0-9]+$)|/", strip(s))
 
-function _resolve(base::AbstractString, ref::AbstractString, exts, search_dirs)
+# The file a tex reference `ref` names, relative to `base` or a search directory, with each default extension tried
+# when it has none: `(path, true)`, or the first candidate and `false` when no file exists.
+function _tex_reference_path(base::AbstractString, ref::AbstractString, exts, search_dirs)
     ref = strip(ref)
     cands = String[]
     for d in ("", search_dirs...)
@@ -246,7 +248,7 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
             continue
         end
         exts = _cap(m, 1) == "includestandalone" ? (".tex", ".pdf") : (".tex",)
-        path, ok = _resolve(base, ref, exts, search)
+        path, ok = _tex_reference_path(base, ref, exts, search)
         push!(assets, PaperAsset(rel(path), :tex, src, line, labs(m.offset), ok))
         ok && endswith(path, ".tex") &&
             _walk_tex(path, base, labs(m.offset), visited, assets, labels, unresolved, graphicspath, search, rel)
@@ -258,7 +260,7 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
             push!(unresolved, (src, line, String(m.match)))
             continue
         end
-        path, ok = _resolve(base, ref, _GRAPHICS_EXTS, vcat(graphicspath, search))
+        path, ok = _tex_reference_path(base, ref, _GRAPHICS_EXTS, vcat(graphicspath, search))
         push!(assets, PaperAsset(rel(path), :graphics, src, line, labs(m.offset), ok))
     end
     # pgfplots / tikz data files
@@ -269,7 +271,7 @@ function _walk_tex(file, base, inherited, visited, assets, labels, unresolved, g
         for m in eachmatch(re, text)
             ref = _cap(m, 1)
             _looks_like_data_file(ref) || continue
-            path, ok = _resolve(base, ref, ("",), search)
+            path, ok = _tex_reference_path(base, ref, ("",), search)
             push!(assets, PaperAsset(rel(path), :data, src, _line_of(text, m.offset), labs(m.offset), ok))
         end
     end

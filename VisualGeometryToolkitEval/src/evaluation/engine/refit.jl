@@ -8,7 +8,7 @@
 # contracts only:
 #
 #   NativeRefit   — the default: the strategy runs in VisualGeometryToolkitEstimation's
-#                   production `locally_optimize` (VisualGeometryToolkitCore's
+#                   production `LocalOptimization` (VisualGeometryToolkitCore's
 #                   `locally_optimize!`), seeded by the refit scoring at the
 #                   refit's own outlier half-width — the caller's scoring
 #                   TEMPLATE rebuilt `with_width(template, OutlierHalfwidth(nat′))`.
@@ -183,16 +183,18 @@ function refit_imc!(ctx, ::NativeRefit, lo, seed, nat′, scoring, fallback, bun
     prob = bundle ? (ctx.bp === nothing ?
                      error("refit_imc!: bundle=true needs build_pair_ctx(...; bundle=true)") :
                      ctx.bp) : ctx.ep
-    sc = with_width(scoring, OutlierHalfwidth(nat′))
-    ws = _ctx_workspace!(ctx, _ws_key(Symbol(bundle ? :bp_ : :ep_, _template_tag(ctx, scoring)), lo), prob, sc)
-    # Function barrier: `sc` and `ws` arrive abstractly typed; inside
-    # `_native_refit_imc` they are concrete, so `locally_optimize` specializes
-    # statically per (problem, scoring, LO) triple.
-    _native_refit_imc(prob, seed, lo, sc, m -> model_imc(m, ctx), fallback, ws,
-                      s2 === nothing ? nothing : Float64(s2))
+    alg = _refit_algorithm(lo, with_width(scoring, OutlierHalfwidth(nat′)), s2 === nothing ? nothing : Float64(s2))
+    # One cache per (problem variant, scoring template, algorithm type, seed type), built once per pair outside the
+    # bracket and `reinit!`'d per call with the call's seed and algorithm (the scorer at its width): the workspace is
+    # reused, as SciML's `init`/`reinit!`/`solve!`.
+    key = (bundle ? :bp : :ep, _template_tag(ctx, scoring), typeof(alg), typeof(seed))
+    cache = get!(() -> init(RefineProblem(prob, seed), alg), ctx.lo_ws, key)
+    # Function barrier: the cache arrives abstractly typed; inside `_native_refit_imc` it is concrete, so the local
+    # optimization specializes statically per (problem, scoring, LO) triple.
+    _native_refit_imc(cache, seed, alg, m -> model_imc(m, ctx), fallback, lo)
 end
 
-# The workspace-key tag of a refit's scoring template: the context's refit
+# The cache-key tag of a refit's scoring template: the context's refit
 # template, its solo template, or another (keyed by its value at unit width).
 # A scorer's workspace may depend on its configuration (the marginal's log Γ
 # table on its prior), so templates never share one.
@@ -201,40 +203,38 @@ _template_tag(ctx, scoring) =
     scoring === ctx.solo_scoring ? :solo :
     Symbol(:sc, hash(with_width(scoring, OutlierHalfwidth(1.0))))
 
-# Reusable per-pair workspaces (see PairCtx.lo_ws). Keyed by problem variant ×
-# scoring template × LO TYPE — buffers are size/type-only, so any refit of the
-# same (problem, scoring template, strategy) reuses them; every call re-scores
-# its seed.
-_ws_key(base::Symbol, lo) = Symbol(base, :_, nameof(typeof(_unwrap_lo(lo))))
-_ctx_workspace!(ctx, key::Symbol, prob, sc) =
-    get!(() -> RansacWorkspace(prob, sc), ctx.lo_ws, key)
-
 """
-    refit_model(problem, seed, lo, scoring; workspace = nothing, s2 = nothing)
-        -> Union{Nothing, model}
+    refit_model(problem, seed, lo, scoring; s2 = nothing) -> Union{Nothing, model}
 
-The native (`locally_optimize`) refit of the refit layer, returning the refined
-MODEL — `nothing` when the strategy produced none. `lo` may be `ScoreGuarded`
-(the guard becomes `score_guard`). `s2` deploys the same strategy at an
-absolute squared scale (`with_width(lo, fixed_width(lo, s2))`; the scoring
-sweep is untouched, only the LO's width moves); `nothing` keeps the strategy's
-own width mode. The refit layer's imc rows wrap exactly this in
-`guarded_refit`; a caller that needs the refined model itself (a polish warm
-start) calls it directly.
+The native refit of the refit layer — `solve(RefineProblem(problem, seed),
+LocalOptimization(lo; scoring, score_guard))`, VisualGeometryToolkitEstimation's
+seeded local optimization — returning the refined MODEL, `nothing` when the
+strategy produced none. `lo` may be `ScoreGuarded` (the guard becomes
+`score_guard`). `s2` deploys the same strategy at an absolute squared scale
+(`with_width(lo, fixed_width(lo, s2))`; the scoring sweep is untouched, only
+the LO's width moves); `nothing` keeps the strategy's own width mode. The
+refit layer's imc rows wrap exactly this in `guarded_refit`; a caller that
+needs the refined model itself (a polish warm start) calls it directly.
 """
 function refit_model(prob, seed, lo::Union{Nothing, AbstractOptimizationStrategy}, sc;
-                     workspace = nothing, s2::Union{Nothing,Real} = nothing)
-    lo_run = _unwrap_lo(lo)
-    lo_run = (s2 === nothing || lo_run === nothing) ? lo_run : with_width(lo_run, fixed_width(lo_run, Float64(s2)))   # no LO has no width to fix
-    r = locally_optimize(prob, seed; local_optimization_strategy = lo_run, scoring = sc,
-                         workspace, score_guard = _is_guarded(lo))
-    return found_model(r) ? estimate(r) : nothing
+                     s2::Union{Nothing,Real} = nothing)
+    r = solve(RefineProblem(prob, seed), _refit_algorithm(lo, sc, s2 === nothing ? nothing : Float64(s2)))
+    return found_model(r) ? r.u : nothing
 end
 
-function _native_refit_imc(prob, seed, lo, sc, imcf::F, fallback::Float64, ws,
-                           s2_fixed::Union{Nothing,Float64}) where {F}
-    opt = () -> refit_model(prob, seed, lo, sc; workspace = ws, s2 = s2_fixed)
-    guarded_refit(opt, imcf, fallback; warn_label = "locally_optimize ($(nameof(typeof(lo))))")
+# The native refit's algorithm: `lo` (its guard as `score_guard`) under the scorer `sc`, at the absolute squared scale
+# `s2` when one is given (`with_width(lo, fixed_width(lo, s2))`; no LO has no width to fix).
+function _refit_algorithm(lo, sc, s2::Union{Nothing, Float64})
+    lo_run = _unwrap_lo(lo)
+    lo_run = (s2 === nothing || lo_run === nothing) ? lo_run : with_width(lo_run, fixed_width(lo_run, s2))
+    return LocalOptimization(lo_run; scoring = sc, score_guard = _is_guarded(lo))
+end
+
+# The bracketed call: the pair's cache pointed at this seed and algorithm, solved; the model read before the cache's
+# next solve! overwrites what its result aliases.
+function _native_refit_imc(cache, seed, alg, imcf::F, fallback::Float64, lo) where {F}
+    opt = () -> (r = solve!(reinit!(cache, seed; alg)); found_model(r) ? r.u : nothing)
+    guarded_refit(opt, imcf, fallback; warn_label = "local optimization ($(nameof(typeof(lo))))")
 end
 
 # --- ExternalRefit: the solver's own model → model refine at an absolute loss

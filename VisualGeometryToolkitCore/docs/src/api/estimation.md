@@ -13,7 +13,9 @@ estimators on Raw Images). The design record is `docs/design/sciml-mapping.md` i
 
 Every estimator of the stack is a typed ALGORITHM solving a PROBLEM, under SciML's interface and CommonSolve.jl's
 verbs: `solve(problem, algorithm; settings...)`, or `init(problem, algorithm; settings...)` and `solve!(cache)` for
-an algorithm that keeps workspaces (`reinit!(cache[, u0]; p, f)` points the cache at new data). The problem says
+an algorithm that keeps workspaces (`reinit!(cache[, u0]; p, f, alg, rng)` points the cache at new data, a new
+configuration of the same algorithm type or a new rng; a result may alias the cache's buffers until the next
+`solve!`). The problem says
 what is estimated, from which data and in which context `p` — [`EstimationProblem`](@ref) (from scratch),
 [`RefineProblem`](@ref) (from a required guess), [`MinimalProblem`](@ref) (every root of a minimal sample); the
 algorithm says how, its configuration its fields ([`DLT`](@ref)`()`, [`LevenbergMarquardt`](@ref)`()`, a minimal

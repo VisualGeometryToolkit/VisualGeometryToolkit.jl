@@ -1,8 +1,8 @@
 # =============================================================================
 # prior_specs.jl — the scale-PRIOR strategy layer of a tuning: the
-# ScalePriorFamily × PriorFitting axes (`PriorSpec`, `fit_prior`,
-# `family_tag`/`fitting_tag`, `prior_label`, `ALL_PRIOR_SPECS`), fitting
-# VisualGeometryToolkitCore's `IGPrior` from per-pair σ̂² samples. Moved from
+# ScalePriorFamily × PriorFitting axes (`PriorSpec`, the closed-form algorithm
+# that fits VisualGeometryToolkitCore's `IGPrior` from per-pair σ̂² samples,
+# `family_tag`/`fitting_tag`, `prior_label`, `ALL_PRIOR_SPECS`). Moved from
 # RANSACScoringDoneRight's eval_strategy.jl (K+, 2026-10-09): it is tuning
 # policy, consumed by the paper projects' tunings.
 # =============================================================================
@@ -22,9 +22,10 @@
 #                        RobustFit (median-based) or MLE (closed-form on
 #                        Gamma(1/σ²)) for InverseGamma.
 #
-# `PriorSpec(family, fitting)` bundles them. `fit_prior(spec, σ²s)` dispatches
-# to the right (family, fitting) combination and returns an `IGPrior`. Illegal
-# combinations (e.g. Jeffreys + MLE) error at dispatch time.
+# `PriorSpec(family, fitting)` bundles them, and is the estimation algorithm:
+# `solve(EstimationProblem(IGPrior, σ²s), spec)` dispatches on the (family,
+# fitting) combination and returns a FitResult whose `u` is the `IGPrior`.
+# Illegal combinations (e.g. Jeffreys + MLE) error at dispatch time.
 
 """
     ScalePriorFamily
@@ -53,8 +54,8 @@ struct InverseGamma <: ScalePriorFamily end
     PriorFitting
 
 Abstract supertype for "how do we derive `(α₀, β₀)` from the per-pair σ̂²
-data?" Concrete subtypes implement [`fit_prior`](@ref) for one or more
-[`ScalePriorFamily`](@ref) values.
+data?" Each concrete subtype is one [`PriorSpec`](@ref)'s fitting for one or
+more [`ScalePriorFamily`](@ref) values.
 """
 abstract type PriorFitting end
 
@@ -88,15 +89,28 @@ struct MLE <: PriorFitting end
 """
     PriorSpec(family::ScalePriorFamily, fitting::PriorFitting)
 
-Compound spec: the prior family + the algorithm that turns σ̂² data into its
-parameters. The named specs are the constructor functions
-[`JeffreysPriorSpec`](@ref) and [`IGRobustSpec`](@ref); the set a sweep
-iterates is [`ALL_PRIOR_SPECS`](@ref).
+The scale-prior fit, a VisualGeometryToolkitCore `ClosedFormKind` algorithm: the prior
+family and the fitting that turns σ̂² data into its parameters.
+`solve(EstimationProblem(IGPrior, σ²s), spec)` returns a `FitResult` whose `u` is the fitted
+`IGPrior` (VisualGeometryToolkitCore):
+
+- `PriorSpec(Jeffreys(), Unfitted())` — `IGPrior(0, 0)`; the data are not read (`n = 0`; they may be `nothing`);
+- `PriorSpec(InverseGamma(), RobustFit(α₀))` — fixed shape `α₀`, scale `β₀ = α₀ · median(σ̂²)`;
+- `PriorSpec(InverseGamma(), MLE())` — the inverse-gamma MLE through the Gamma reparameterisation.
+
+`n` is the number of σ̂² values a fit read, `rms` NaN. Too few data for a fitting (none for `RobustFit`, fewer than
+two for `MLE`) is degenerate: `u = nothing`, `(InitialFailure, NoRule)`, `n = 0`. An illegal combination
+(`Jeffreys` with a fitting, `InverseGamma` unfitted) is an `ErrorException` at the solve. An `IGPrior` problem has no
+default algorithm: the spec is the experiment's decision.
+
+The named specs are the constructor functions [`JeffreysPriorSpec`](@ref) and [`IGRobustSpec`](@ref); the set a
+sweep iterates is [`ALL_PRIOR_SPECS`](@ref).
 """
-struct PriorSpec{F<:ScalePriorFamily, S<:PriorFitting}
+struct PriorSpec{F<:ScalePriorFamily, S<:PriorFitting} <: AbstractEstimationAlgorithm
     family::F
     fitting::S
 end
+estimator_kind(::PriorSpec) = ClosedFormKind()
 
 """Improper Jeffreys prior — equivalent to `PriorSpec(Jeffreys(), Unfitted())`."""
 JeffreysPriorSpec() = PriorSpec(Jeffreys(), Unfitted())
@@ -104,10 +118,6 @@ JeffreysPriorSpec() = PriorSpec(Jeffreys(), Unfitted())
 """Robust IG prior with shape `α₀` and scale fit from `median(σ̂²)`."""
 IGRobustSpec(alpha0::Float64=1.0) = PriorSpec(InverseGamma(), RobustFit(alpha0))
 
-# fit_prior dispatches on (family, fitting). Defined here at the header (no body
-# yet — the InverseGamma methods need `fit_mle(Gamma, …)` from Distributions,
-# imported later in the file).
-function fit_prior end
 """
     prior_label(spec::PriorSpec) -> String
 
@@ -115,17 +125,17 @@ The display label of a legal prior spec: `"Jeffreys"`, `"IG-Robust"`, `"IG-MLE"`
 """
 function prior_label end
 
-# Parameterless family — Jeffreys returns IGPrior(0, 0) ignoring data.
-fit_prior(::Jeffreys, ::Unfitted, _) = IGPrior(0.0, 0.0)
+# The fits, one `__solve` per (family, fitting). The result type of a fitting that can be degenerate.
+const _MaybePrior = Union{IGPrior, Nothing}
+
+# Parameterless family — Jeffreys returns IGPrior(0, 0) and reads no data.
+__solve(::EstimationProblem{IGPrior}, ::PriorSpec{Jeffreys, Unfitted}) = closed_form_result(IGPrior(0.0, 0.0), 0)
 
 # Illegal combinations — caught at dispatch time rather than via runtime checks.
-fit_prior(::Jeffreys, fit::PriorFitting, _) =
-    error("Jeffreys family is parameterless; got fitting=$(typeof(fit)). Use Unfitted().")
-fit_prior(::InverseGamma, ::Unfitted, _) =
+__solve(::EstimationProblem{IGPrior}, alg::PriorSpec{Jeffreys}) =
+    error("Jeffreys family is parameterless; got fitting=$(typeof(alg.fitting)). Use Unfitted().")
+__solve(::EstimationProblem{IGPrior}, ::PriorSpec{InverseGamma, Unfitted}) =
     error("InverseGamma family requires a non-trivial fitting (RobustFit or MLE).")
-
-# Convenience: dispatch on a PriorSpec to delegate.
-fit_prior(spec::PriorSpec, sigma2s) = fit_prior(spec.family, spec.fitting, sigma2s)
 
 # Display labels — keyed on the (family, fitting) combination via PriorSpec
 # so labels stay synchronised with the spec roster.
@@ -173,39 +183,33 @@ Single source of truth for the prior specs a sweep iterates.
 """
 const ALL_PRIOR_SPECS = (JeffreysPriorSpec(),)
 
-"""
-    fit_prior(::InverseGamma, ::MLE, σ²s) -> IGPrior
-
-MLE of the inverse-gamma shape/scale (α, β). Distributions.jl does not
-implement `fit_mle(InverseGamma, ·)` directly, so we use the closed-form
-transformation
-
-    X ~ InverseGamma(α, β)  ⇔  1/X ~ Gamma(shape = α, scale = 1/β)
-
-and call `fit_mle(Gamma, 1 ./ x)`. Returns `nothing` for n < 2.
-"""
-function fit_prior(::InverseGamma, ::MLE, sigma2s)
-    length(sigma2s) < 2 && return nothing
+# MLE of the inverse-gamma shape/scale (α, β). Distributions.jl does not
+# implement `fit_mle(InverseGamma, ·)` directly, so we use the closed-form
+# transformation
+#
+#     X ~ InverseGamma(α, β)  ⇔  1/X ~ Gamma(shape = α, scale = 1/β)
+#
+# and call `fit_mle(Gamma, 1 ./ x)`. Degenerate (`u = nothing`) for n < 2.
+function __solve(prob::EstimationProblem{IGPrior}, ::PriorSpec{InverseGamma, MLE})
+    sigma2s = prob.f
+    length(sigma2s) < 2 && return closed_form_result(_MaybePrior, nothing, 0)
     g = fit_mle(Gamma, 1 ./ sigma2s)
     α = shape(g)
     β = 1 / scale(g)
-    return IGPrior(α, β)
+    return closed_form_result(_MaybePrior, IGPrior(α, β), length(sigma2s))
 end
 
-"""
-    fit_prior(::InverseGamma, fit::RobustFit, σ²s) -> IGPrior
-
-Robust empirical prior: fixed shape `α₀ = fit.alpha0`, scale `β₀ = α₀ · median(σ̂²)`.
-The IG prior mean is `β₀/(α₀−1)`; with `α₀=1` the mean is undefined but the
-mode `β₀/(α₀+1) = α₀ · median(σ̂²) / 2` anchors near the data median.
-
-Used for HEB-like datasets where per-pair `σ̂²` estimates are heavy-tailed
-(low-`n_in` pairs and non-planar GT-inlier sets contaminate MLE Gamma fits).
-The median is unaffected by individual outlier `σ̂²` values, so the prior
-location stays stable even with single-digit val-pool sizes.
-"""
-function fit_prior(::InverseGamma, fit::RobustFit, sigma2s)
-    isempty(sigma2s) && return nothing
-    β = fit.alpha0 * median(sigma2s)
-    return IGPrior(fit.alpha0, β)
+# Robust empirical prior: fixed shape `α₀ = fit.alpha0`, scale `β₀ = α₀ · median(σ̂²)`.
+# The IG prior mean is `β₀/(α₀−1)`; with `α₀=1` the mean is undefined but the
+# mode `β₀/(α₀+1) = α₀ · median(σ̂²) / 2` anchors near the data median.
+#
+# Used for HEB-like datasets where per-pair `σ̂²` estimates are heavy-tailed
+# (low-`n_in` pairs and non-planar GT-inlier sets contaminate MLE Gamma fits).
+# The median is unaffected by individual outlier `σ̂²` values, so the prior
+# location stays stable even with single-digit val-pool sizes.
+function __solve(prob::EstimationProblem{IGPrior}, alg::PriorSpec{InverseGamma, RobustFit})
+    sigma2s = prob.f
+    isempty(sigma2s) && return closed_form_result(_MaybePrior, nothing, 0)
+    β = alg.fitting.alpha0 * median(sigma2s)
+    return closed_form_result(_MaybePrior, IGPrior(alg.fitting.alpha0, β), length(sigma2s))
 end

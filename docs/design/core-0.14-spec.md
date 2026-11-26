@@ -783,3 +783,17 @@ These are done in Core 0.14, each with its own commit:
       the 2026-11-24 pin whose leaf came back to its record are gone.
   - Not pinned: the PnP, camera-model and hand-eye algebra; Estimation's mapped-homography product (Estimation cannot
     reach Core's private helpers); the ellipse's `sincos`; GPU contraction.
+- 2026-11-26 (owner, then Eval agent): SciML's cache reuse, `reinit!(cache[, u0]; f, p, alg, rng)`.
+  - `alg` must be the cache's concrete algorithm type, for type stability. Any other type is an `ArgumentError`, raised
+    before anything changes.
+  - The owner re-resolves the scorer, strategy and config against the kept workspace, and rebuilds it only for capacity.
+  - Results alias the cache's buffers until the next `solve!`.
+  - Core forwards `alg` and settings only when they are given.
+  - The configuration-dependent workspace check (`check_workspace`, which uses reflection) stays where every run is, at
+    `solve!`'s `_entry_workspace`, not in `reinit!`. It cost about 57 allocations per swap.
+- 2026-11-26 (Eval agent): Eval's refit layer keeps one `LocalOptimization` cache per (pair, problem variant, scoring
+  template, algorithm type, seed type).
+  - The cache is built with `init` once, outside the timed bracket. Each call is `reinit!(cache, seed; alg)`.
+  - Its refits are bit-identical to a fresh solve, with 0.12's allocation profile: 5.2 KB and 79 allocations per call.
+  - `PairCtx.lo_ws` is a `Dict{Any,Any}`.
+  - Owner ruling: `IGPrior` has no default algorithm (2026-11-26).

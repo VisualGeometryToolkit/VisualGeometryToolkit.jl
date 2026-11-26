@@ -4,7 +4,7 @@
 #
 #     solve(EstimationProblem(f, p), Ransac(; scoring, local_optimization_strategy, config); rng)
 #     solve(RefineProblem(f, θ₀, p), LocalOptimization(strategy; scoring, score_guard))
-#     init(problem, algorithm; rng) → solve!(cache), reinit!(cache[, θ₀]; f, p)
+#     init(problem, algorithm; rng) → solve!(cache), reinit!(cache[, θ₀]; f, p, alg, rng)
 #
 # `f` is a RANSAC family problem (`HomographyProblem(cs)`, …: the public `f`s, which carry the data and their
 # own construction context); `p` the solve's context, `(; extent)` or `NullParameters()`. Core owns `solve`/`init` (the
@@ -193,9 +193,10 @@ Fields (configuration):
 Solve keyword (run setting): `rng`, the source of every random draw (`supports_solve_rng`); a seeded rng
 (`StableRNG(seed)`) makes the run bit-reproducible, the default is the task-local `Random.default_rng()`.
 
-Workspace reuse is `init(problem, Ransac(…); rng)` → `solve!(cache)` → `reinit!(cache; f)` with new data: the cache
-holds the composed workspace and the result buffers, and the returned estimate's `resid` and weights ARE those
-buffers (overwritten by the next `solve!`). Fewer data than a minimal sample: the `:no_model` result of a search that
+Workspace reuse is `init(problem, Ransac(…); rng)` → `solve!(cache)` → `reinit!(cache; f, alg, rng)` with new data,
+a new configuration of the same `Ransac` type or a new rng: the cache holds the composed workspace and the result
+buffers, and the returned estimate's `resid` and weights ARE those buffers, overwritten by the next `solve!` (a caller
+that keeps a result across solves copies it). Fewer data than a minimal sample: the `:no_model` result of a search that
 drew no trial (`stats.nsteps` 0).
 """
 struct Ransac{T, S, L, I, H} <: AbstractEstimationAlgorithm
@@ -242,6 +243,10 @@ validates the refined model over a region, as for [`Ransac`](@ref).
 The strategy receives its loss width through its width mode (VGC `loss_at`): a consensus-anchored strategy
 (`EfficiencyConstant(m)`) reads the consensus set's ŝ², an absolute one (`LossWidth`, `with_width`) runs at the
 caller's width with the scoring untouched, and a strategy with no width follows the scorer's `decision_boundary`.
+
+Workspace reuse is `init(RefineProblem(f, θ₀), LocalOptimization(…))` → `solve!(cache)` → `reinit!(cache, θ₁; alg)`,
+a new seed and a new configuration of the same type (the scorer at another width: the refit layer of an evaluation);
+the result's `resid` and weights ARE the cache's buffers until the next `solve!` (copy what you keep).
 """
 struct LocalOptimization{L, S} <: AbstractEstimationAlgorithm
     strategy::L
@@ -267,8 +272,11 @@ The cache of [`Ransac`](@ref) and [`LocalOptimization`](@ref) (`init`'s): the pr
 applied), the scorer and local optimization resolved for the problem (from the
 algorithm's fields, `ClassDefault()` against the problem's class and data), the composed `RansacWorkspace`, the result
 buffers, the rng and the seed (`nothing` for a find). `solve!` runs it — a find on fewer data than a minimal sample is
-the `:no_model` result of no trial; `reinit!(cache[, θ₀]; f, p)` points it at a new seed, context or data, keeping its
-workspace (grown only when the new data outgrow it).
+the `:no_model` result of no trial; `reinit!(cache[, θ₀]; f, p, alg, rng)` points it at a new seed, context, data,
+algorithm configuration or rng, keeping its workspace (grown only when the new data outgrow it).
+
+A result of `solve!` ALIASES the cache's result buffers — its `resid` and weights ARE them — until the next `solve!`
+(SciML's cache rule): a caller that keeps a result across solves copies what it keeps.
 """
 mutable struct RansacCache{P, S, L, W, R, G, A, Q}
     problem::P
@@ -277,7 +285,7 @@ mutable struct RansacCache{P, S, L, W, R, G, A, Q}
     ws::W
     result::R
     rng::G
-    const alg::A
+    alg::A
     seed::Q
 end
 
@@ -328,22 +336,35 @@ _seed_run!(c::RansacCache, θ₀) = _locally_optimize_seed!(c.ws, c.problem, c.s
     _seed_model(c.problem, θ₀); score_guard = c.alg.score_guard, result = c.result)
 
 """
-    reinit!(cache::RansacCache[, θ₀]; f, p) -> cache
+    reinit!(cache::RansacCache[, θ₀]; f, p, alg = cache's, rng = cache's) -> cache
 
 Point a find's or a local optimization's cache at new data `f` (a family problem of the same type), a new context `p`
-(the caller's form: Core's `reinit!(::EstimationCache)` hands over both, the cache's problem's where the call names none) or
-(a local optimization) a new seed `θ₀`. The scorer
-and local optimization are re-resolved from the algorithm's fields for the new data (a class width can read the data)
-and checked against the problem; the workspace and result buffers are kept, and grown only when the new data outgrow
-them.
+(the caller's form: Core's `reinit!(::EstimationCache)` hands over both, the cache's problem's where the call names none),
+(a local optimization) a new seed `θ₀`, a new algorithm `alg` or (a find) a new `rng`.
+
+`alg` is a new configuration of the cache's algorithm — a value of its concrete type (a `Ransac` or
+`LocalOptimization` of other field types is an `ArgumentError`): a scorer at another width, another strategy setting,
+another `config`. The scorer and local optimization are re-resolved from the (new) algorithm's fields for the (new) data
+(a class width can read the data) and checked against the problem; the workspace and result buffers are kept, and grown only when the new data
+outgrow them. `rng` replaces a find's rng (of the same type; a local optimization draws nothing and takes none). Every
+refusal of the call's arguments comes before anything changes. A scorer whose workspace tables depend on its
+configuration (a scale prior's) is checked against the kept workspace where every run is, at the next `solve!`
+(`check_workspace`, an `ArgumentError`: init a new cache for it).
+
+The next `solve!`'s result aliases the cache's result buffers until the solve after it.
 """
-function reinit!(c::RansacCache, θ₀...; f, p)
+function reinit!(c::RansacCache{P, S, L, W, R, G, A}, θ₀...; f, p, alg = c.alg, rng = c.rng) where {P, S, L, W, R, G, A}
     length(θ₀) <= (c.seed === nothing ? 0 : 1) || throw(ArgumentError("reinit!: a find's cache takes no seed"))
-    problem, scoring, lo = _resolve(c.alg, f, p)
+    alg isa A || throw(ArgumentError(string("reinit!: the cache was initialized for a ", A, "; the new algorithm is a ",
+        typeof(alg), " (init a new cache for an algorithm of another type)")))
+    rng === c.rng || rng isa G || throw(ArgumentError(c.rng === nothing ?
+        "reinit!: a local optimization draws nothing and takes no rng" :
+        string("reinit!: the cache's rng is a ", G, "; the new one is a ", typeof(rng), " (init a new cache)")))
+    problem, scoring, lo = _resolve(alg, f, p)
     n = data_size(problem)
     n > _capacity(c.ws) && (c.ws = RansacWorkspace(_storage(c), problem, scoring, lo))
     length(c.result.residuals) == n || (c.result = _result_buffers(c.ws, problem))
-    c.problem, c.scoring, c.lo = problem, scoring, lo
+    c.problem, c.scoring, c.lo, c.alg, c.rng = problem, scoring, lo, alg, rng
     isempty(θ₀) || (c.seed = only(θ₀))
     return c
 end

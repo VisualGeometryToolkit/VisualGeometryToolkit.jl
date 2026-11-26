@@ -140,16 +140,6 @@ function _site_profile(spec::AbstractString, g)
 end
 const _SITE_CACHE = Dict{String, Tuple{Float64, Any}}()
 
-# `read(path)` once per change of the file (its mtime), kept in `cache`; the caches are shared by a driver's threads.
-const _CACHE_LOCK = ReentrantLock()
-function _cached_read(read::Function, cache::AbstractDict, path::AbstractString)
-    t = mtime(path)
-    @lock _CACHE_LOCK begin
-        c = get(cache, path, nothing)
-        (c === nothing || c[1] != t) && (c = cache[path] = (t, read(path)))
-        return c[2]
-    end
-end
 
 # The site VGTK_SITE names: its name (the profile's; VGTK_SITE as given for a site the stage graph alone knows,
 # `[sites.<site>]`), its profile or `nothing`, and the bound project's graph `graph()`, read only with VGTK_SITE set;

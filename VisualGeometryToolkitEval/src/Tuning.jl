@@ -42,8 +42,10 @@ using TOML: TOML
 using JLD2: JLD2
 import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step: migrate_schema, migrate_record (persist.jl)
 using Statistics: median                      # MedianError's objective; RobustFit's prior scale
-using Distributions: Gamma, fit_mle, scale, shape   # fit_prior(::InverseGamma, ::MLE)
-using VisualGeometryToolkitCore: IGPrior
+using Distributions: Gamma, fit_mle, scale, shape   # PriorSpec(InverseGamma(), MLE())'s solve
+using VisualGeometryToolkitCore: IGPrior, EstimationProblem, AbstractEstimationAlgorithm, ClosedFormKind,
+    closed_form_result
+import VisualGeometryToolkitCore: __solve, estimator_kind   # PriorSpec, a closed-form algorithm (prior_specs.jl)
 using VisualGeometryToolkitCore: @fieldwise   # field-wise ==, isequal and hash (the spec types, ListedGrid)
 using VisualGeometryToolkitCore.Synthetic: maa_score   # unit_statistics of the mAA criterion
 using ..Stats: finite_median, lower_median, scale_bounds, scene_mean, scene_mean_median, stable_seed,
@@ -79,8 +81,8 @@ export
     unit_statistics, bootstrap_argmin,
     # corruption.jl — the miscalibration protocol's deployment corruption
     corrupt_native,
-    # prior_specs.jl — the scale-prior strategy of a tuning
-    PriorSpec, fit_prior
+    # prior_specs.jl — the scale-prior strategy of a tuning (an algorithm of `solve(EstimationProblem(IGPrior, σ²s), spec)`)
+    PriorSpec
 
 public TUNING_DEFAULTS, TUNING_DEFAULTS_PATH, RNG_ALGORITHMS, SPLIT_REGISTRY, SPLIT_REGISTRY_PATH,
     tune_objective, stats_objective, tuning_criterion_label

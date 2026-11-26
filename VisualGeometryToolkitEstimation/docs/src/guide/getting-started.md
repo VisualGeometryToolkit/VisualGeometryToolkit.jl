@@ -135,6 +135,12 @@ reinit!(cache; f = HomographyProblem(cs₂))
 r₂ = solve!(cache)
 ```
 
+`reinit!(cache; alg, rng)` swaps in a new configuration of the same algorithm type
+— for a cache built with `Ransac(; scoring = MsacScoring(f; threshold = 2.0))`, the
+same scorer at another threshold (a `Ransac()` of class defaults is another type) — or a
+new rng; `r₁`'s `resid` was overwritten by the second `solve!`, so a result kept across
+solves is copied first.
+
 A local optimization from a caller's seed — a scorer, its consensus set and the
 strategy anchored on it, no sampling — is [`LocalOptimization`](@ref):
 

@@ -129,15 +129,15 @@ struct PairCtx{P,EP,BP,S,S2}
     problem_type::Type
     scoring::S
     solo_scoring::S2
-    # Reusable workspace cache (RansacWorkspaces of the native refits, the
-    # external refiners' workspaces), keyed by (problem variant, scoring kind, LO type).
-    # A fresh workspace is ~1.4 MB of buffers; the refit layer runs thousands
-    # of `locally_optimize` calls per pair (refit spec × column), so reuse is the
-    # difference between ~20 KB/call and ~1.4 MB/call of GC pressure. Safe:
-    # the workspace holds SIZE-typed buffers only (no scoring values baked);
-    # every refit re-scores its seed, refreshing all state. One ctx is used by
-    # exactly one thread (apply_lo_refits threads over pairs).
-    lo_ws::Dict{Symbol,Any}
+    # Reusable per-pair workspaces: the native refits' `LocalOptimization`
+    # caches (`init` once, `reinit!` per call with the call's seed and scorer
+    # width), keyed by (problem variant, scoring template, algorithm type, seed
+    # type), and the external refiners' `external_workspace`s, keyed by
+    # (scoring template, LO type). The refit layer runs thousands of refits per
+    # pair (refit spec × column), so reuse is the difference between ~20 KB/call
+    # and a workspace per call. One ctx is used by exactly one thread
+    # (apply_lo_refits threads over pairs).
+    lo_ws::Dict{Any,Any}
 end
 
 """
@@ -160,7 +160,7 @@ function build_pair_ctx(problem_type::Type, pair::PoolPair;
     geom = PairGeom(Kc1, Kc2, SMatrix{3,3,Float64,9}(R_gt), SVector{3,Float64}(t_gt),
                     _pair_correspondences(pair))
     bp = bundle ? RelposeBundleProblem(Kc1, Kc2, pair.correspondences) : nothing
-    return PairCtx(pair, ep, bp, geom, problem_type, scoring, solo_scoring, Dict{Symbol,Any}())
+    return PairCtx(pair, ep, bp, geom, problem_type, scoring, solo_scoring, Dict{Any,Any}())
 end
 
 model_imc(model, ctx::PairCtx) = model_imc(model, ctx.geom)

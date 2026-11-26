@@ -1,5 +1,35 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.12.0
+
+**Breaking: on VisualGeometryToolkitCore 0.14 and VisualGeometryToolkitEstimation 0.13**, whose estimators are
+`solve(problem, algorithm)` (`[compat]` VisualGeometryToolkitCore `"0.14"`, VisualGeometryToolkitIO `"0.12"`,
+VisualGeometryToolkitEstimation `"0.13"`). The scale-prior fit is an algorithm of that interface. Numerics are
+unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`) replay bit for bit.
+
+### Changed (breaking)
+- **`fit_prior` is deleted: a `PriorSpec` is the algorithm.** `fit_prior(spec, σ²s)` →
+  `solve(EstimationProblem(IGPrior, σ²s), spec)`, a `ClosedFormKind` whose result's `u` is the `IGPrior`;
+  `fit_prior(family, fitting, σ²s)` → `solve(EstimationProblem(IGPrior, σ²s), PriorSpec(family, fitting))`. A result
+  reads `r.u` (was the bare prior); too few data (none for `RobustFit`, fewer than two for `MLE`) give `u = nothing`
+  with `(InitialFailure, NoRule)` (was a bare `nothing`). `n` is the number of σ̂² values the fit read (0 for
+  Jeffreys, which reads none). The illegal combinations are the same `ErrorException`s, now at the solve. An `IGPrior`
+  problem has no default algorithm.
+- **`refit_model(problem, seed, lo, scoring; s2)` loses its `workspace` keyword**: it is
+  `solve(RefineProblem(problem, seed), LocalOptimization(lo; scoring, score_guard))`, VisualGeometryToolkitEstimation's
+  seeded local optimization (was `locally_optimize`). The refit layer (`refit_imc!`) keeps one `LocalOptimization`
+  cache per pair, problem variant, scoring template, algorithm type and seed type, `init` once and
+  `reinit!(cache, seed; alg)` per call with the call's scorer width (VisualGeometryToolkitCore 0.14's `reinit!` with a
+  new algorithm): the workspace reuse of 0.11, bit-identical refits. `PairCtx.lo_ws` is a `Dict{Any, Any}` (its keys
+  are tuples for the native caches, `Symbol`s for the external refiners' workspaces).
+- `live_runs` runs `solve(EstimationProblem(f), Ransac(; scoring, local_optimization_strategy, config,
+  on_improvement, score_guard); rng)` (was `ransac`); `trials` reads `r.stats.nsteps`. Same runs.
+
+### Internal
+- The duplication gate's findings: one file reader cached by mtime (`_cached_read`, code_identity.jl) serves the data
+  catalog's entries and Experiments' site profiles and stage graphs (the catalog restated it); Reproduce's tex
+  reference lookup is `_tex_reference_path` (its `_resolve` shared a name with VisualGeometryToolkitEstimation's).
+
 ## 0.11.0
 
 **Breaking: a top-level `[render]` in a `Product` record is an error** (it keyed nothing: a product that read it was

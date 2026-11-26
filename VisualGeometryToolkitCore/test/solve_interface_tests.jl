@@ -150,6 +150,58 @@ end
     @test_throws MethodError solve(EstimationProblem(Float64, [1.0]), _Nothing())
 end
 
+@testitem "solve interface: reinit! with a new algorithm or rng; results alias the cache" begin
+    using Test, Random
+    using VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: ReturnCode
+    # a configured algorithm that draws: its cache holds a buffer the result aliases (as a RANSAC's `resid`)
+    struct _Jitter <: AbstractEstimationAlgorithm
+        width::Float64
+    end
+    struct _Other <: AbstractEstimationAlgorithm end
+    VgtkCore.estimator_kind(::Union{_Jitter, _Other}) = FitKind()
+    VgtkCore.supports_solve_rng(::EstimationProblem, ::_Jitter) = true
+    mutable struct _JitterCache{G}
+        data::Vector{Float64}
+        resid::Vector{Float64}
+        width::Float64
+        rng::G
+    end
+    VgtkCore.__init(prob::EstimationProblem{Float64}, alg::_Jitter; rng = Xoshiro(0)) =
+        _JitterCache(prob.f, similar(prob.f), alg.width, rng)
+    function VgtkCore.solve!(c::_JitterCache)
+        c.resid .= c.data .+ c.width .* randn(c.rng, length(c.data))
+        return FitResult(sum(c.resid), ReturnCode.Success, VgtkCore.ClosedForm, SolveStats(), NaN, length(c.data),
+                         nothing; resid = c.resid)
+    end
+    function VgtkCore.reinit!(c::_JitterCache{G}; f, p, alg::_Jitter = _Jitter(c.width), rng::G = c.rng) where {G}
+        c.data = f; length(c.resid) == length(f) || resize!(c.resid, length(f))
+        c.width = alg.width; c.rng = rng
+        return c
+    end
+    prob = EstimationProblem(Float64, [1.0, 2.0, 6.0])
+    c = init(prob, _Jitter(1.0); rng = Xoshiro(1))
+    solve!(c)
+    # an algorithm swap: the same run as a fresh init with that algorithm (and the same rng state)
+    VgtkCore.reinit!(c; alg = _Jitter(0.5), rng = Xoshiro(7))
+    r = solve!(c)
+    fresh = solve!(init(prob, _Jitter(0.5); rng = Xoshiro(7)))
+    @test r.u === fresh.u && r.resid == fresh.resid && r.alg === _Jitter(0.5) && c.alg === _Jitter(0.5)
+    # an rng swap alone keeps the algorithm
+    VgtkCore.reinit!(c; rng = Xoshiro(3))
+    @test solve!(c).u === solve!(init(prob, _Jitter(0.5); rng = Xoshiro(3))).u && c.alg === _Jitter(0.5)
+    # another algorithm type is refused before anything changes
+    prob_before = c.prob
+    @test_throws ArgumentError VgtkCore.reinit!(c; alg = _Other(), f = [9.0])
+    @test c.alg === _Jitter(0.5) && c.prob === prob_before && c.cache.data == [1.0, 2.0, 6.0]
+    # results alias the cache: the next solve! overwrites a kept result's resid; a caller that keeps one copies it
+    r1 = solve!(c); kept = copy(r1.resid)
+    VgtkCore.reinit!(c; rng = Xoshiro(11))
+    r2 = solve!(c)
+    @test r1.resid === r2.resid === c.cache.resid && r1.resid != kept
+end
+
 @testitem "solve interface: init, solve!, reinit!; the front end records problem and algorithm" begin
     using Test
     using VisualGeometryToolkitCore

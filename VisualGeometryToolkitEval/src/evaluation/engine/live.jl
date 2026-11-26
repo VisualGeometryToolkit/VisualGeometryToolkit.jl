@@ -2,7 +2,7 @@
 # evaluation/engine/live.jl — LIVE (end-to-end) RANSAC on stored pool pairs.
 #
 # The pool protocol re-scores a stored hypothesis pool; a live run instead runs
-# the production `ransac` loop (real minimal-sample resampling, adaptive
+# the production RANSAC find, `Ransac` (real minimal-sample resampling, adaptive
 # termination, in-loop LO) on the same pairs, in the same pool frame, on the
 # problem the caller builds for each pair (a paper's: the pool-frame problem
 # with the pool generator's own sampler, for sampler parity).
@@ -19,29 +19,30 @@
               cancelled = () -> false, finalize = nothing)
         -> (; err, trials, wall_s)            # plus `extras` when `finalize !== nothing`
 
-Run one live production `ransac` per pair context `ctxs[j]`, threaded over pairs.
+Run one live production RANSAC find, `solve(EstimationProblem(f), Ransac(…); rng)`, per pair context `ctxs[j]`,
+threaded over pairs.
 Each run uses the caller's problem of the pair, `problem_of(ctxs[j].pair)`, the
 selection `scoring`, the LO strategy `lo`, adaptive termination under `config`. Each pair's stream is `StableRNG(seed_of(j))`,
-handed to `ransac` explicitly, so a run is independent of the thread schedule,
+handed to the solve as its `rng`, so a run is independent of the thread schedule,
 identical across calls that share `seed_of` (`seed_of` should be a `stable_seed`). Per pair: `err[j]` the imc pose error
 [deg] of the final model, `Inf` when the run yielded no model (`found_model`
-false) or the pair was cancelled; `trials[j]` the trials drawn; `wall_s[j]` the wall clock of the
-`ransac` call alone. `warmup` first runs one short solve on pair 1 (result
+false) or the pair was cancelled; `trials[j]` the trials drawn (`r.stats.nsteps`); `wall_s[j]` the wall clock of the
+solve alone. `warmup` first runs one short solve on pair 1 (result
 discarded) so no bracket pays JIT.
 
 The keywords below default so that the result is exactly the plain run's.
 - `lo_of(j)` returns the LO strategy of pair `j`, overriding `lo`. The warmup
   uses `lo_of(1)` (an LO holds no recorded state).
-- `on_improvement_of(j)` returns the `ransac` improvement callback
-  (`on_improvement(trial, score, ws)`, fired when the incumbent improves). It is
+- `on_improvement_of(j)` returns the `Ransac` improvement callback (its `on_improvement` field,
+  `on_improvement(trial, score, ws)`, fired when the incumbent improves). It is
   called with `j = 0` once for the warmup (return a throwaway callback of the same
   type as for real pairs, writing to scratch storage, so the loop compiles once
   and the warmup records nothing) and with `j = 1:n` for the pairs.
-- `score_guard` is forwarded to `ransac`: per-candidate ScoreGuarded acceptance.
+- `score_guard` is the `Ransac`'s: per-candidate ScoreGuarded acceptance.
 - `cancelled()` is polled before each pair; a cancelled pair is not run and keeps
   `err = Inf`, `trials = 0`, `wall_s = NaN`. Pairs are threaded, so a pair already
   started finishes. [`VisualGeometryToolkitEval.Experiments.cancelled`](@ref) is the kaimon-aware poll.
-- `finalize(j, r)` runs after pair `j`'s `ransac` result `r`, on the pair's
+- `finalize(j, r)` runs after pair `j`'s find result `r` (a FitResult), on the pair's
   thread and outside its wall bracket; its values come back as
   `extras::Vector{Any}` (`nothing` for a pair not run). Without `finalize` the
   result has no `extras` field.
@@ -55,9 +56,8 @@ function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ct
     lo_at(j) = lo_of === nothing ? lo : lo_of(j)
     cb_at(j) = on_improvement_of === nothing ? nothing : on_improvement_of(j)
     if warmup && n > 0
-        ransac(problem_at(1), scoring; local_optimization_strategy = lo_at(1),
-               config = RansacConfig(max_trials = 100, min_trials = 1),
-               on_improvement = cb_at(0), score_guard)
+        solve(EstimationProblem(problem_at(1)), Ransac(; scoring, local_optimization_strategy = lo_at(1),
+              config = RansacConfig(max_trials = 100, min_trials = 1), on_improvement = cb_at(0), score_guard))
     end
     err = fill(Inf, n); trials = zeros(Int, n); wall_s = fill(NaN, n)
     extras = Any[nothing for _ in 1:n]
@@ -67,11 +67,11 @@ function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ct
         rng = StableRNG(seed_of(j))
         loj = lo_at(j); cb = cb_at(j)
         t0 = time_ns()
-        r = ransac(prob, scoring; local_optimization_strategy = loj, config,
-                   on_improvement = cb, score_guard, rng)
+        r = solve(EstimationProblem(prob), Ransac(; scoring, local_optimization_strategy = loj, config,
+                  on_improvement = cb, score_guard); rng)
         wall_s[j] = (time_ns() - t0) / 1e9
-        trials[j] = iterations(r)
-        err[j] = found_model(r) ? Float64(model_imc(estimate(r), ctxs[j])) : Inf
+        trials[j] = r.stats.nsteps
+        err[j] = found_model(r) ? Float64(model_imc(r.u, ctxs[j])) : Inf
         finalize === nothing || (extras[j] = finalize(j, r))
     end
     return finalize === nothing ? (; err, trials, wall_s) : (; err, trials, wall_s, extras)

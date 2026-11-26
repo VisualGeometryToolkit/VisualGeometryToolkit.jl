@@ -287,8 +287,8 @@ solve(prob::AbstractEstimationProblem; kwargs...) = solve(prob, default_algorith
 
 The cache of an algorithm that holds workspaces (CommonSolve's `init`), after the kind law: an
 [`EstimationCache`](@ref) of the algorithm's own (`__init`'s) with the problem and the algorithm. `solve!(cache)` runs
-it and records them on the result; `reinit!(cache[, u0]; p, f)` points it at a new guess, context or data. The only
-way a workspace is reused across solves.
+it and records them on the result; `reinit!(cache[, u0]; f, p, alg, settings...)` points it at a new guess, context,
+data, algorithm configuration or run setting. The only way a workspace is reused across solves.
 """
 function init(prob::AbstractEstimationProblem, alg::AbstractEstimationAlgorithm; kwargs...)
     check_kind(prob, alg)
@@ -300,23 +300,36 @@ end
 
 What [`init`](@ref) returns: the algorithm's own `cache` (its `__init`'s) with the problem and the algorithm, so that
 `solve!(c)` records them on the result as `solve` does ([`with_problem`](@ref): ONE place for both paths). Its
-`solve!` runs the cache's owner's `solve!(c.cache)`; its `reinit!(c[, u0]; p, f)` forwards to the owner's
-`reinit!(c.cache[, u0]; f, p)` with BOTH of the new problem's (the caller's as given, each kept from the cache's problem
-where the call names none) and records the problem it now solves.
+`solve!` runs the cache's owner's `solve!(c.cache)`; its `reinit!(c[, u0]; f, p, alg, settings...)` forwards to the
+owner's `reinit!(c.cache[, u0]; f, p[, alg][, settings...])` with BOTH of the new problem's (the caller's as given,
+each kept from the cache's problem where the call names none), the new algorithm and run settings only where the call
+names them, and records the problem and the algorithm it now solves.
+
+A result of `solve!(c)` may ALIAS the cache's buffers (its owner documents which: a RANSAC result's `resid` and
+weights), valid until the next `solve!` of the same cache, as SciML's caches: a caller that keeps a result across
+solves copies it.
 """
 mutable struct EstimationCache{C, Prob <: AbstractEstimationProblem, A <: AbstractEstimationAlgorithm}
     const cache::C
     prob::Prob
-    const alg::A
+    alg::A
 end
 solve!(c::EstimationCache) = with_problem(solve!(c.cache), c.prob, c.alg)
-function reinit!(c::EstimationCache{C, Prob}, u0...; kwargs...) where {C, Prob}
-    # the new problem first, checked against the cache's problem type, so a refusal leaves both sides as they were
-    prob = _reprob(c.prob, u0...; kwargs...)
+function reinit!(c::EstimationCache{C, Prob, A}, u0...; alg = nothing, f = c.prob.f, p = c.prob.p,
+                 settings...) where {C, Prob, A}
+    # every refusal first, so a refused call leaves both sides as they were: an algorithm of another concrete type
+    # (the cache, its workspaces and every result type are built for A), then a problem of another type
+    alg === nothing || alg isa A || throw(ArgumentError(string("reinit!: the cache was initialized for a ", A,
+        "; the new algorithm is a ", typeof(alg), " (init a new cache for an algorithm of another type)")))
+    prob = _reprob(c.prob, u0...; f, p)
     prob isa Prob || throw(ArgumentError(string("reinit!: the cache was initialized for a ", Prob, "; the new ",
         "guess, context or data make a ", typeof(prob), " (init a new cache for a problem of another type)")))
-    reinit!(c.cache, u0...; f = prob.f, p = prob.p)   # the owner sees the whole new problem: the caller's f and p as given
+    # the owner sees the whole new problem (the caller's f and p as given), and a new algorithm or run setting only
+    # where the call names one
+    alg === nothing ? reinit!(c.cache, u0...; f = prob.f, p = prob.p, settings...) :
+        reinit!(c.cache, u0...; f = prob.f, p = prob.p, alg, settings...)
     c.prob = prob
+    alg === nothing || (c.alg = alg)
     return c
 end
 # The problem with a new guess `u0`, context `p` or interface `f`, every other field as it was.
@@ -326,11 +339,16 @@ _reprob(prob::MinimalProblem{M}; f = prob.f, p = prob.p) where {M} = MinimalProb
 init(prob::AbstractEstimationProblem; kwargs...) = init(prob, default_algorithm(prob); kwargs...)
 
 """
-    reinit!(cache[, u0]; p, f) -> cache
+    reinit!(cache[, u0]; f, p, alg, settings...) -> cache
 
 Point a solve's cache at a new guess `u0`, context `p` or problem interface `f` (new data: a new family problem),
 keeping its workspaces (SciMLBase's `reinit!(cache[, u0]; p)`, extended by `f` because the stack's data live in
-`f`, the design record's D8). The cache's owner adds the methods; a keyword it does not take is a `MethodError`.
+`f`, the design record's D8). `alg` is a new configuration of the SAME algorithm: a value of the cache's algorithm's
+concrete type (another type is an `ArgumentError`, refused before anything changes), which the owner re-resolves
+against the kept workspaces (a scorer at a new width); a run setting (`rng`) replaces the cache's. The cache's owner
+adds the methods; a keyword it does not take is a `MethodError`.
+
+What the next `solve!` returns may alias the cache's buffers until the solve after it ([`EstimationCache`](@ref)).
 """
 function reinit! end
 

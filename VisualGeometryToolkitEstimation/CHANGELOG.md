@@ -14,6 +14,11 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   Vec3(t))`. Bit-identical.
 
 ### Changed (breaking)
+- `reinit!(cache[, θ₀]; f, p, alg, rng)` on a `Ransac` or `LocalOptimization` cache (owner ruling 2026-11-26): a new
+  algorithm of the same concrete type re-resolves its scorer, strategy and config against the kept workspace (rebuilt
+  only when the data outgrow it), and an rng of the same type replaces a find's. Another type is an `ArgumentError`
+  before anything changes; a local optimization takes no rng. A result's `resid` and weights ARE the cache's buffers
+  until the next `solve!`.
 
 - **Finds are `Ransac`.** `find_homography`, `find_fundmat`, `find_essential`, `find_absolute_pose`, `find_hand_eye`,
   `find_radial_homography`, `find_radial_camera`, `find_rotation`, `find_circle` and `find_ellipse` are deleted:

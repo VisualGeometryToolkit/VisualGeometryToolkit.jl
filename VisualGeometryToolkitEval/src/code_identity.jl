@@ -637,17 +637,22 @@ function catalog_results_mount(catalog::AbstractString)
     return t -> haskey(entries, t) && get(entries[t], "mount", "") == "results" ? _entry_mount_dir(entries[t]) : nothing
 end
 
-# A data catalog's `[artifacts]` entries, parsed once per change of the file (every tier lookup reads them).
-const _CATALOG_CACHE = Dict{String, Tuple{Float64, Dict{String, Any}}}()
-const _CATALOG_LOCK = ReentrantLock()
-function _catalog_entries(catalog::AbstractString)
-    t = mtime(catalog)
-    @lock _CATALOG_LOCK begin
-        c = get(_CATALOG_CACHE, catalog, nothing)
-        (c === nothing || c[1] != t) &&
-            (c = _CATALOG_CACHE[catalog] = (t, Dict{String, Any}(get(TOML.parsefile(catalog), "artifacts", Dict{String, Any}()))))
+# `read(path)` once per change of the file (its mtime), kept in `cache`; the caches are shared by a driver's threads
+# (the data catalog's entries here, Experiments' site profiles and stage graphs).
+const _CACHE_LOCK = ReentrantLock()
+function _cached_read(read::Function, cache::AbstractDict, path::AbstractString)
+    t = mtime(path)
+    @lock _CACHE_LOCK begin
+        c = get(cache, path, nothing)
+        (c === nothing || c[1] != t) && (c = cache[path] = (t, read(path)))
         return c[2]
     end
+end
+
+# A data catalog's `[artifacts]` entries, parsed once per change of the file (every tier lookup reads them).
+const _CATALOG_CACHE = Dict{String, Tuple{Float64, Dict{String, Any}}}()
+_catalog_entries(catalog::AbstractString) = _cached_read(_CATALOG_CACHE, catalog) do path
+    Dict{String, Any}(get(TOML.parsefile(path), "artifacts", Dict{String, Any}()))
 end
 
 # A relative path of non-empty segments, none `.` or `..` (a product's experiment, a product input's names).

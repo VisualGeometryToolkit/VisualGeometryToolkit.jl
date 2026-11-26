@@ -12,8 +12,8 @@
     using VisualGeometryToolkitCore: thrown_message
     using Test, Random
     using VisualGeometryToolkitEval
-    using VisualGeometryToolkitEval.Pools
-    using VisualGeometryToolkitEval.Pools: synthetic_e_pool_pair, GT_CONVENTION
+    using VisualGeometryToolkitEval.PoolFiles
+    using VisualGeometryToolkitEval.PoolFiles: synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitCore: FundMat
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models
 

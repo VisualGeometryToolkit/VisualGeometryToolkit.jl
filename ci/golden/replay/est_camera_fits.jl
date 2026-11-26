@@ -1,6 +1,6 @@
 # The camera fits on Core 0.14 (record/est_camera_fits.jl, case for case): CameraRegression, PSpline, ForwardSpline and
 # OpticalAxis on a CameraRegressionProblem; its LevenbergMarquardt refine; the old two-in-one (the linear fit, then its
-# refine: the suite's `fit_then_refine`, test/fixtures/camera_recipes.jl); DivisionCameraFit, RadialCameraFit; and the
+# refine: `CameraRegression(; refine = LevenbergMarquardt())`); DivisionCameraFit, RadialCameraFit; and the
 # LevenbergMarquardt refine of a CameraPosesProblem (the views form, the board form, the rotation-centre form).
 #
 # Each old call is translated below, keyword by keyword, into the new solve: the problem's settings (support, fixed,
@@ -11,6 +11,7 @@ using VisualGeometryToolkitCore: parameter_names, FitResult, ReturnCode, ClosedF
     HuberShape, WelschShape, TLSShape, StudentTUniformScoring, JeffreysPrior, FlatLabelPrior, MsacScoring, CorrespondenceNormalization,
     with_unit, HomographyMat, ClassDefault, LmStops, RadialCamera
 using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline, OpticalAxis, CameraPosesProblem,
+    ImageMeasure, SolidAngleMeasure,
     DivisionCameraFit, RadialCameraFit, RadialCameraProblem, mixture_em_from_toml,
     default_config_path, scoring_from_toml, DivisionCameraProblem, MixtureEmConfig, KeepModel, NoImprovementStop, TerminalLO,
     BearingResidual, ReprojectionResidual, held_parameters, RotationCenterViews
@@ -32,7 +33,9 @@ function refcam(g, s, r; optimization_strategy = ClassDefault(), max_iter = noth
     return solve(RefineProblem(CameraRegressionProblem(s, r; _drop(kw, (:scale, :width, :local_optimization))...), g),
                  LevenbergMarquardt(; optimization_strategy); run...)
 end
-approx(L, s, r; max_iter = nothing, kw...) = max_iter === nothing ? fit_then_refine(L, s, r; kw...) : fit_then_refine(L, s, r; stops = LmStops(; max_iter), kw...)
+approx(L, s, r; max_iter = nothing, kw...) = max_iter === nothing ?
+    solve(EstimationProblem(CameraRegressionProblem(L, s, r; kw...)), CameraRegression(; refine = LevenbergMarquardt())) :
+    solve(EstimationProblem(CameraRegressionProblem(L, s, r; kw...)), CameraRegression(; refine = LevenbergMarquardt()); stops = LmStops(; max_iter))
 axis(c; kw...) = solve(EstimationProblem(CameraRegressionProblem(c; kw...)), OpticalAxis())
 axis(c, r; kw...) = solve(EstimationProblem(CameraRegressionProblem(c, r; kw...)), OpticalAxis())
 pspl(T, s, r, gs; kw...) = solve(EstimationProblem(CameraRegressionProblem(T, s, r; kw...)), PSpline(; grid_size = gs))
@@ -59,9 +62,11 @@ md_of(r) = r.metadata
 # every case: the result's mapping (a refusal's message names the old entries: its type is compared, its text not); a
 # fixture slot that holds an upstream result (the bundle's `rd`, the centre bundle's `upstream`) mapped as a result
 # (the bundles' metadata spell the stack's one `s2` and `dof`, read by `s2(r)`/`dof(r)`: the old `s²` and `ν`)
+# (the sample density `metadata.weight` was a Symbol, `:image`; it is the measure singleton of that tag, `ImageMeasure()`)
 const ECF_MAP = FieldMap(; renames = [RESULT_MAP.renames; "metadata.s2" => "metadata.s²"; "metadata.dof" => "metadata.ν"],
-                         new_only = RESULT_MAP.new_only, retyped = RESULT_MAP.retyped)
-const ECF_REFUSAL = FieldMap(; renames = ECF_MAP.renames, new_only = ECF_MAP.new_only, retyped = ECF_MAP.retyped, ignored = ["exception.msg"])
+                         new_only = RESULT_MAP.new_only, retyped = RESULT_MAP.retyped, retagged = ["metadata.weight" => "Measure"])
+const ECF_REFUSAL = FieldMap(; renames = ECF_MAP.renames, new_only = ECF_MAP.new_only, retyped = ECF_MAP.retyped, ignored = ["exception.msg"],
+                             retagged = ECF_MAP.retagged)
 # the recorded refusals whose message named an old entry though their id does not say "refused" (a family's linear fit)
 const ECF_OLD_MESSAGE = ("lensfit/DSL_rlit/linear", "lensfit/DSL_rcorner/linear")
 function rp!(cases, id, fx, run)
@@ -70,7 +75,7 @@ function rp!(cases, id, fx, run)
 end
 
 # the configured DivisionCameraFit EM table at another iteration cap (`em_at`): the suite's fixture file; the two-solve
-# recipes (`fit_then_refine`, `poses_stops`): the suite's too
+# recipes (`poses_stops`): the suite's too
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "division_camera_em.jl"))
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "VisualGeometryToolkitEstimation", "test", "fixtures", "camera_recipes.jl"))
 ecf_em() = mixture_em_from_toml(TOML.parsefile(default_config_path())["division_camera_fit"]["mixture_em"]; section = "division_camera_fit.mixture_em")
@@ -97,8 +102,8 @@ function _replay_ecf_lens!(cases)
         rp!(cases, "lensapprox/$name/default", (m, region), ((m, region),) -> approx(L, m, region))
     end
     md = (mdiv, disc(mdiv, rc))
-    rp!(cases, "lensfit/KB4_mdiv/weight_image", md, ((m, r),) -> fitcam(ECF_KB4, m, r; weight = :image))
-    rp!(cases, "lensfit/KB4_mdiv/weight_solid_angle", md, ((m, r),) -> fitcam(ECF_KB4, m, r; weight = :solid_angle))
+    rp!(cases, "lensfit/KB4_mdiv/weight_image", md, ((m, r),) -> fitcam(ECF_KB4, m, r; weight = ImageMeasure()))
+    rp!(cases, "lensfit/KB4_mdiv/weight_solid_angle", md, ((m, r),) -> fitcam(ECF_KB4, m, r; weight = SolidAngleMeasure()))
     rp!(cases, "lensfit/KB4_mdiv/refused_weight_pixels", md, ((m, r),) -> fitcam(ECF_KB4, m, r; weight = :pixels))
     rp!(cases, "lensfit/orthographic_mdiv/refused_view_angle", md, ((m, r),) -> fitcam(typeof(Lens(Orthographic())), m, r))
     rp!(cases, "lensfit/Division1_mdiv/linear", md, ((m, r),) -> fitcam(Division{1}, m, r))
@@ -217,8 +222,8 @@ function _replay_ecf_lens!(cases)
     rp!(cases, "lensapprox/KB4_grid_bounded/default", (fe.GRID_BOUNDED, fe.REGION), ((m, r),) -> approx(ECF_KB4, m, r))
     rp!(cases, "lensapprox/KB4_grid/default", (fe.GRID, fe.REGION), ((m, r),) -> approx(ECF_KB4, m, r))
     rp!(cases, "lensfit/KB4_grid/linear", (fe.GRID, fe.REGION), ((m, r),) -> fitcam(ECF_KB4, m, r))
-    rp!(cases, "lensfit/KB4_grid/refused_solid_angle", (fe.GRID, fe.REGION), ((m, r),) -> fitcam(ECF_KB4, m, r; weight = :solid_angle))
-    rp!(cases, "lensapprox/KB4_grid/refused_solid_angle", (fe.GRID, fe.REGION), ((m, r),) -> approx(ECF_KB4, m, r; weight = :solid_angle))
+    rp!(cases, "lensfit/KB4_grid/refused_solid_angle", (fe.GRID, fe.REGION), ((m, r),) -> fitcam(ECF_KB4, m, r; weight = SolidAngleMeasure()))
+    rp!(cases, "lensapprox/KB4_grid/refused_solid_angle", (fe.GRID, fe.REGION), ((m, r),) -> approx(ECF_KB4, m, r; weight = SolidAngleMeasure()))
     # a non-central source: not supported yet
     nc = ecf_zero_noncentral()
     rp!(cases, "lensfit/KB4_noncentral/refused", (nc, fe.REGION), ((m, r),) -> fitcam(ECF_KB4, m, r))
@@ -273,7 +278,7 @@ function _replay_ecf_spline!(cases)
     rp!(cases, "splinefit/kb500_whole_sensor/tol1e-3", (wide, Rect(0, 0, 1000, 1000)), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-3))
     rp!(cases, "splinefit/grid_bounded_whole_sensor/tol1e-3", (gb, Rect(0, 0, 1000, 1000)), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-3))
     rp!(cases, "splinefit/grid_bounded_disc/tol1e-7_out_of_reach", (gb, R), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-7))
-    rp!(cases, "splinefit/grid_bounded_disc/refused_weight", (gb, R), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-3, weight = :image))
+    rp!(cases, "splinefit/grid_bounded_disc/refused_weight", (gb, R), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-3, weight = ImageMeasure()))
     # a backward lattice from a parametric model
     bc = fe.BC
     rp!(cases, "splinefit/fisheye_bounded_disc/tol1e-4_backward", (bc, R), ((s, r),) -> fitcam(SplineLens, s, r; tolerance = 1.0e-4, forward = false))

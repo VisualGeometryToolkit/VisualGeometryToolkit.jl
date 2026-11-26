@@ -16,7 +16,7 @@ using VisualGeometryToolkitEval: VisualGeometryToolkitEval
 
 module EngineFixtures
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models
-    using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION
+    using VisualGeometryToolkitEval.PoolFiles: PoolResiduals, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
         tuning_table, EfficiencyConstantWindow, PairUnit
     using VisualGeometryToolkitCore: width_axis_name
@@ -30,7 +30,7 @@ module EngineFixtures
         epair(rng) -> (pair, residuals)
 
     THE synthetic E pool pair of the engine tests: 30 noisy correspondences, 12
-    single-model minimal samples, σ̂² = `EPAIR_GT_VARIANCE` (Pools'
+    single-model minimal samples, σ̂² = `EPAIR_GT_VARIANCE` (PoolFiles'
     `synthetic_e_pool_pair`), with its residual matrix.
     """
     epair(rng) = synthetic_e_pool_pair(rng; sibling_counts = fill(1, 12), noise = 0.002, δ_rot = 0.2,

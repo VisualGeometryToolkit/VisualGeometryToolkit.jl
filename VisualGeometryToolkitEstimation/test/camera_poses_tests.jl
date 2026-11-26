@@ -381,7 +381,7 @@ end
 # back-projection (`CameraRegression(SplineLens, …)`, `PSpline`) or held (`fixed = (:controls,)`).
 @testitem "CameraPosesProblem: a SplineLens camera's free controls are refused by name — refined only by back-projection, or held" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitEstimation: CameraPosesProblem
+    using VisualGeometryToolkitEstimation: CameraPosesProblem, GeneralizedCrossValidation
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
@@ -392,7 +392,7 @@ end
     @test_throws r"`fixed = \(\)`" solve(RefineProblem(CameraPosesProblem(views), (; camera = bounded(cam0), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
     @test_throws r"fixed = \(:controls,\)" solve(RefineProblem(CameraPosesProblem(views), (; camera = bounded(cam0), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))  # the remedy named
     # that route's smoothness weight, in any form, with the camera held or not
-    for penalty in (:gcv, 1.0e-8, 0)
+    for penalty in (GeneralizedCrossValidation(), 1.0e-8, 0)
         @test_throws refusal solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), penalty), (; camera = bounded(cam0), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
         @test_throws r"a `penalty`" solve(RefineProblem(CameraPosesProblem(views; penalty), (; camera = bounded(cam0), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
     end
@@ -553,13 +553,15 @@ end
     @test perr(rs) < perr(ls) / 3
 end
 
-@testitem "gcv_curve, gcv_select: the stack's one GCV of a penalty weight" begin
+@testitem "gcv_curve, GeneralizedCrossValidation: the stack's one GCV of a penalty weight" begin
     using VisualGeometryToolkitCore: dof
     using LinearAlgebra: I, Symmetric, eigvals, tr
     using Random: Xoshiro, randn
     using SparseArrays: sparse
     using VisualGeometryToolkitCore: difference_rows
-    using VisualGeometryToolkitEstimation: gcv_curve, gcv_select, gcv_score, check_penalty_weight
+    using VisualGeometryToolkitEstimation: gcv_curve, gcv_score, check_penalty_weight, Hyperparameter, GeneralizedCrossValidation
+    using VisualGeometryToolkitCore: solve, EstimationProblem, ReturnCode, ToleranceMet, IterationCap, FitKind, estimator_kind
+    gcv(score, scale; kw...) = solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation(; kw...))
     # the closed-form curve equals the direct solve at every λ: rss of the penalized fit and tr H
     rng = Xoshiro(3)
     J = randn(rng, 40, 8); r = randn(rng, 40); Dm = Matrix(difference_rows((1, 8), 3)); c = zeros(size(Dm, 1))
@@ -608,18 +610,22 @@ end
     # the search, a coarse scan and Brent's method: a minimum inside the bracket to Brent's floor (no tolerance to
     # choose), in a handful of evaluations past the scan; one at an end reported there
     calls = Ref(0)
-    s = gcv_select(λ -> (calls[] += 1; (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0)), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test abs(log10(s.β) + 2.3) < 1.0e-7 && !s.at_bracket_end && s.λ == s.β && calls[] <= 25 + 12
-    e = gcv_select(λ -> (; gcv = log10(λ), rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test e.at_bracket_end && e.β == 1.0e-8
+    @test estimator_kind(GeneralizedCrossValidation()) === FitKind()
+    s = gcv(λ -> (calls[] += 1; (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0)), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s.u) + 2.3) < 1.0e-7 && !s.metadata.at_bracket_end && s.metadata.λ == s.u && calls[] <= 25 + 12
+    @test s.retcode === ReturnCode.Success && s.stop_rule === ToleranceMet && s.stats.nf == calls[]
+    e = gcv(λ -> (; gcv = log10(λ), rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test e.metadata.at_bracket_end && e.u == 1.0e-8 && e.retcode === ReturnCode.MaxIters && e.stop_rule === IterationCap
+    @test gcv(λ -> (; gcv = (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0).u === s.u        # the defaults: (-8, 4), 25 points
     # a minimum inside the scan's first interval, sampled lowest at the scan's end: refined there and interior
-    s1 = gcv_select(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test abs(log10(s1.β) - 3.8) < 1.0e-7 && !s1.at_bracket_end
+    s1 = gcv(λ -> (; gcv = (log10(λ) - 3.8)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s1.u) - 3.8) < 1.0e-7 && !s1.metadata.at_bracket_end
     # a weight the caller cannot evaluate (Inf) is never the minimum, even beside the basin
-    s2 = gcv_select(λ -> (; gcv = log10(λ) < -3 ? Inf : (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
-    @test abs(log10(s2.β) + 2.3) < 1.0e-7 && isfinite(s2.gcv)
+    s2 = gcv(λ -> (; gcv = log10(λ) < -3 ? Inf : (log10(λ) + 2.3)^2, rss = 0.0, dof = 0.0), 1.0; log10_bracket = (-8.0, 4.0), points = 25)
+    @test abs(log10(s2.u) + 2.3) < 1.0e-7 && isfinite(s2.metadata.gcv)
     @test gcv_score(40, 2.0, 8.0) == 40 * 2.0 / 32^2
-    @test check_penalty_weight(:gcv, "w") === :gcv && check_penalty_weight(0.5, "w") == 0.5
+    @test check_penalty_weight(GeneralizedCrossValidation(), "w") === GeneralizedCrossValidation() && check_penalty_weight(0.5, "w") == 0.5
+    @test_throws ArgumentError check_penalty_weight(:gcv, "w")                                  # no Symbol choice: the algorithm value
     @test_throws ArgumentError check_penalty_weight(nothing, "w")                              # RC's options: no `nothing`
     @test_throws r"`allow_nothing` is retired" check_penalty_weight(nothing, "w"; allow_nothing = true)   # an inert knob, no caller
     @test_throws ArgumentError check_penalty_weight(-1.0, "w")

@@ -133,7 +133,7 @@ edge_margin = 1
 criterion = { type = "finite_median" }
 axes = {}
 
-# The bootstrap tuning harness (Evaluation WindowedGridMethod).
+# The bootstrap tuning harness (Evaluation ValidationErrors; this scheme's solve is each draw's selection).
 [schemes.windowed_bootstrap]
 criterion = { type = "median_error" }
 

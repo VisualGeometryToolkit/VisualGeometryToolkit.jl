@@ -19,7 +19,10 @@ the `block_coordinate_descent!` loop through this interface, and a new one does 
 
 The RANSAC LO refinement uses the loop via [`PosteriorIrlsMethod`](@ref)
 (the iteration of [`Irls`](@extref VisualGeometryToolkitCore.Irls), [`posterior_irls!`](@ref); downstream,
-LocalOptimizationDoneRight's Student-t + uniform IRLS). Its model block is a bound, named update —
+LocalOptimizationDoneRight's Student-t + uniform IRLS). `posterior_irls!` is a contract step for strategy
+authors, called only inside a `locally_optimize!` method; outside RANSAC the posterior weighting is
+`solve(EstimationProblem(PosteriorWeightState, d, (; model_dof)), ResidualMixture())` (a held model's residuals) or
+`solve(RefineProblem(f, θ), LocalOptimization(strategy; scoring))` (a seeded local optimization). Its model block is a bound, named update —
 [`WeightedRefine`](@ref) (the problem's weighted `refine!`, the default) or
 [`KeepModel`](@ref) (the model held: EM of the noise model on fixed residuals,
 stopping on the mixture NLL) — its stop rule a value too —
@@ -85,8 +88,10 @@ is seeded from a consensus set:
   the scorer's; a scorer without one is refused
   ([`required_outlier_halfwidth`](@ref)).
 
-[`consensus_s2!`](@ref) gives the consensus set's scale alone — the scale a
-consensus-anchored loss runs at — for a refiner outside the loop.
+[`ConsensusScale`](@ref) gives the consensus set's scale alone — the scale a
+consensus-anchored loss runs at — for a refiner outside the loop:
+`solve(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(scoring))`,
+its cache reused across models with `reinit!(cache; p = (; model))`.
 
 [`PosteriorLikelihood`](@ref) updates the three nuisance parts — the scale, the
 inlier prior and the Student-t dof — each under its policy: `Estimated()`, or
@@ -98,7 +103,7 @@ PosteriorLikelihood
 consensus_posterior
 posterior_irls!
 required_outlier_halfwidth
-consensus_s2!
+ConsensusScale
 ```
 
 ## The reweighted fits' termination record
@@ -106,13 +111,14 @@ consensus_s2!
 Every reweighted fit ([`ReweightedLeastSquares`](@ref) on a linear model, a
 rotation, a rigid alignment and a robot–world calibration;
 [`RotationAveraging`](@ref)) records its stop through
-one function, as an LM does through VisualGeometryToolkitCore's one LM,
+one pair of functions, `irls_retcode` and `irls_stop_rule`, as an LM does through VisualGeometryToolkitCore's one LM,
 `lmsolve_chart!`; a
 downstream reweighted loop calls it too.
 
 ```@docs
 ReweightedLeastSquares
-irls_termination
+irls_retcode
+irls_stop_rule
 ```
 
 ## Posterior Weighting

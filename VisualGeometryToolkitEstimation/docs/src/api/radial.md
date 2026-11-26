@@ -115,15 +115,18 @@ One convention for a penalty's weight across the stack: `λ = β · energy / N /
 (VisualGeometryToolkitCore's `penalty_scale`), β relative to the data's energy
 per parameter and to the penalty operator's mean positive eigenvalue `m̄`
 (Core's `mean_positive_eigenvalue`), so β = 1 weighs the penalty like the data.
-`gcv_select` chooses β by generalized cross-validation from a score of λ — a
-coarse scan of log₁₀ β, then Brent's method — the score the closed-form curve
-of one penalized least squares (`gcv_curve`: every λ from one generalized
-eigendecomposition). A nonlinear fit evaluates it on its linearization (one
-solve at β = 1, the curve, one final solve). Public, not exported.
+`solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation())`
+chooses β by generalized cross-validation from a score of λ — a coarse scan of
+log₁₀ β, then Brent's method — the score the closed-form curve of one penalized
+least squares (`gcv_curve`: every λ from one generalized eigendecomposition). A
+nonlinear fit evaluates it on its linearization (one solve at β = 1, the curve,
+one final solve). The curve, the score and the weight's check are public, not
+exported.
 
 ```@docs
+Hyperparameter
+GeneralizedCrossValidation
 VisualGeometryToolkitEstimation.gcv_curve
-VisualGeometryToolkitEstimation.gcv_select
 VisualGeometryToolkitEstimation.gcv_score
 VisualGeometryToolkitEstimation.check_penalty_weight
 ```
@@ -181,6 +184,10 @@ camera-and-poses refine's refit run).
 
 ```@docs
 CameraRegressionProblem
+AbstractImageMeasure
+ImageMeasure
+SolidAngleMeasure
+UniformMeasure
 CameraRegression
 PSpline
 ForwardSpline

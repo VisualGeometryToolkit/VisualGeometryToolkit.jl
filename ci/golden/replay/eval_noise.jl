@@ -2,17 +2,16 @@
 # spec)`, the `PriorSpec` the closed-form algorithm; the three-argument form `fit_prior(family, fitting, σ²s)` →
 # `PriorSpec(family, fitting)`. A bare `IGPrior` (or `nothing`, too few data) → a FitResult whose `u` it is.
 using VisualGeometryToolkitCore: EstimationProblem, IGPrior, solve
-using VisualGeometryToolkitEval.Tuning: PriorSpec, Jeffreys, InverseGamma, MLE, RobustFit, Unfitted, JeffreysPriorSpec,
-    IGRobustSpec
+using VisualGeometryToolkitEval.Tuning: PriorSpec, Jeffreys, InverseGamma, MLE, RobustFit, Unfitted
 
 # A closed form that returned a bare value: `u` is it, every other field new.
 const _EN_BARE = FieldMap(; renames = ["u" => ""],
     new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original", "stop_rule", "rms", "n", "metadata"])
 
 const EVAL_NOISE_SPECS = [
-    "jeffreys" => JeffreysPriorSpec(),
-    "ig_robust_alpha1" => IGRobustSpec(),
-    "ig_robust_alpha2.5" => IGRobustSpec(2.5),
+    "jeffreys" => PriorSpec(Jeffreys(), Unfitted()),
+    "ig_robust_alpha1" => PriorSpec(InverseGamma(), RobustFit(1.0)),
+    "ig_robust_alpha2.5" => PriorSpec(InverseGamma(), RobustFit(2.5)),
     "ig_mle" => PriorSpec(InverseGamma(), MLE()),
 ]
 
@@ -34,7 +33,7 @@ function replay_eval_noise(cases)
             map = _EN_BARE)
     replay!(cases, "scale_prior/six_heavy_tail/ig_robust_family_form", x,
             x -> _en_prior(PriorSpec(InverseGamma(), RobustFit(2.5)), x); map = _EN_BARE)
-    # the illegal combinations, refused at dispatch: the same exception and message
+    # the illegal combinations, refused where the spec is built (an ArgumentError, the same message)
     replay!(cases, "scale_prior/refused/jeffreys_mle", x, x -> _en_prior(PriorSpec(Jeffreys(), MLE()), x))
     replay!(cases, "scale_prior/refused/jeffreys_robust", x, x -> _en_prior(PriorSpec(Jeffreys(), RobustFit()), x))
     replay!(cases, "scale_prior/refused/ig_unfitted", x, x -> _en_prior(PriorSpec(InverseGamma(), Unfitted()), x))

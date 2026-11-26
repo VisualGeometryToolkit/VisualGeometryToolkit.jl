@@ -1,18 +1,26 @@
 # =============================================================================
-# cv_probe_tests.jl — THE coarse-fine search (Evaluation cv_probe.jl): its
-# scalar forms under a `coarse_fine` spec (coarse expand-on-boundary probe →
-# fine free argmin → read-side refusal) and the joint search under a
-# `joint_coarse_fine` spec. Every parameter (coarse spacing, extension npts /
+# cv_probe_tests.jl — THE coarse-fine search (Evaluation cv_probe.jl, the schemes' solve on `Hyperparameter`):
+# one axis under a `coarse_fine` spec (coarse expand-on-boundary probe → fine free argmin → read-side refusal) and
+# the joint search under a `joint_coarse_fine` spec. Every parameter (coarse spacing, extension npts /
 # max_rounds, edge margin, fine spacing, criterion, expensive) is the spec's.
 # =============================================================================
 
 @testitem "cv_probe" setup = [TuningFixtures] begin
     using Test, Logging
-    using VisualGeometryToolkitEval.Evaluation: probe_curve, fine_stage, coarse_fine_cv, enforce_probe_interior
+    using VisualGeometryToolkitEval.Evaluation: enforce_probe_interior
+    import VisualGeometryToolkitEval.Evaluation as Evaluation
     using VisualGeometryToolkitEval.Tuning: tuning_spec, SpacedGrid, LogCount, LogPerDecade, grid, extend
+    using VisualGeometryToolkitCore: solve, EstimationProblem, ReturnCode, ToleranceMet, IterationCap, FitKind, estimator_kind
+    using VisualGeometryToolkitEstimation: Hyperparameter
 
     cf(over = Dict()) = fixture_spec(merge(Dict{String,Any}("type" => "coarse_fine"), over); name = "p").scheme
     scheme = cf()
+    @test estimator_kind(scheme) === FitKind()
+    # one scalar search (key :c, axis x) of a point-wise objective: the coarse stage alone (the package's own
+    # internal stage), and the whole search (the scheme's solve)
+    pointwise(obj) = pts -> Dict(k => [obj(p.x) for p in ps] for (k, ps) in pts)
+    coarse_rec(obj, g, sc) = only(values(Evaluation._coarse_search(pointwise(obj), Dict(:c => (; x = g)), sc)))
+    search(obj, g, sc) = solve(EstimationProblem(Hyperparameter, pointwise(obj), (; cells = Dict(:c => (; x = g)))), sc)
 
     @testset "single CV path (cv_probe)" begin
         quiet(f) = with_logger(f, NullLogger())
@@ -22,73 +30,74 @@
 
         @testset "interior argmin — no extension" begin
             coarse = SpacedGrid(0.1, 100.0, LogCount(21))
-            rec = quiet(() -> probe_curve(obj, coarse, scheme; method_name = :t))
-            @test rec[:boundary_hit] == false
-            @test rec[:n_extensions] == 0
-            @test rec[:coarse_spec] == coarse
-            @test isapprox(log10(rec[:x_star]), 0.3; atol = 0.2)
-            @test length(grid(rec[:coarse_spec])) == 21 == length(rec[:curve_ys])
-            @test rec[:tuning_criterion] === :median
-            @test enforce_probe_interior(rec; context = "t") === nothing
+            rec = quiet(() -> coarse_rec(obj, coarse, scheme))
+            @test rec.boundary_hit.x == false
+            @test sum(rec.n_extensions) == 0
+            @test only(rec.coarse) == coarse
+            @test isapprox(log10(rec.coarse_argmin.x), 0.3; atol = 0.2)
+            @test length(grid(only(rec.coarse))) == 21 == length(rec.coarse_objective)
+            @test enforce_probe_interior(rec.boundary_hit.x; context = "t") === nothing
         end
 
         @testset "expand-on-boundary recovers a low optimum" begin
             lowobj(x) = [(log10(x) + 1.6)^2]          # optimum at 10^-1.6
             coarse = SpacedGrid(0.1, 10.0, LogPerDecade(4))    # 9 points, quarter decades
-            rec = quiet(() -> probe_curve(lowobj, coarse, scheme; method_name = :lo))
-            @test rec[:n_extensions] >= 1
-            @test rec[:boundary_hit] == false
-            @test isapprox(log10(rec[:x_star]), -1.6; atol = 0.3)
+            rec = quiet(() -> coarse_rec(lowobj, coarse, scheme))
+            n_ext = sum(rec.n_extensions)
+            @test n_ext >= 1
+            @test rec.boundary_hit.x == false
+            @test isapprox(log10(rec.coarse_argmin.x), -1.6; atol = 0.3)
             # the extension is recorded in the spec and continues the quarter-decade lattice
-            s = rec[:coarse_spec]
-            @test s.n_lo == rec[:n_extensions] * scheme.extension.npts && s.n_hi == 0
+            s = only(rec.coarse)
+            @test s.n_lo == n_ext * scheme.extension.npts && s.n_hi == 0
             xs = grid(s)
-            @test length(xs) == 9 + rec[:n_extensions] * scheme.extension.npts == length(rec[:curve_ys])
+            @test length(xs) == 9 + n_ext * scheme.extension.npts == length(rec.coarse_objective)
             @test issorted(xs) && all(isapprox.(diff(log10.(xs)), 0.25; atol = 1e-12))
             @test xs[s.n_lo+1:end] ≈ grid(coarse)               # the probed points, by index
         end
 
         @testset "budget exhaustion flags boundary_hit; readers refuse" begin
             farobj(x) = [log10(x)]                    # monotone — no interior optimum
-            rec = quiet(() -> probe_curve(farobj, SpacedGrid(1.0, 100.0, LogCount(9)), scheme; method_name = :far))
-            @test rec[:boundary_hit] == true
-            @test rec[:n_extensions] == scheme.extension.max_rounds   # low side exhausted
-            @test_throws ErrorException enforce_probe_interior(rec; context = "far")
-            @test_logs (:warn, r"FORENSIC") enforce_probe_interior(rec; context = "far", allow_edge = true)
+            rec = quiet(() -> coarse_rec(farobj, SpacedGrid(1.0, 100.0, LogCount(9)), scheme))
+            @test rec.boundary_hit.x == true
+            @test sum(rec.n_extensions) == scheme.extension.max_rounds   # low side exhausted
+            @test_throws ErrorException enforce_probe_interior(rec.boundary_hit.x; context = "far")
+            @test_logs (:warn, r"FORENSIC") enforce_probe_interior(rec.boundary_hit.x; context = "far", allow_edge = true)
             @test enforce_probe_interior(false; context = "flag") === nothing
             @test_throws ErrorException enforce_probe_interior(true; context = "flag")
+            # the solve's record: a clipped window is the iteration cap
+            r = quiet(() -> search(farobj, SpacedGrid(1.0, 100.0, LogCount(9)), scheme))
+            @test r.retcode === ReturnCode.MaxIters && r.stop_rule === IterationCap
             # the budget is the spec's: one more round allowed, one more extension made
             more = cf(Dict("extension" => Dict("max_rounds" => 3)))
-            rec3 = quiet(() -> probe_curve(farobj, SpacedGrid(1.0, 100.0, LogCount(9)), more; method_name = :far))
-            @test rec3[:n_extensions] == 3
+            rec3 = quiet(() -> coarse_rec(farobj, SpacedGrid(1.0, 100.0, LogCount(9)), more))
+            @test sum(rec3.n_extensions) == 3
         end
 
         @testset "edge margin is the spec's" begin
             # the argmin one point inside the edge extends at margin 1, not at margin 0
             nearobj(x) = [(log10(x) - log10(grid(SpacedGrid(1.0, 100.0, LogCount(9)))[2]))^2]
-            r1 = quiet(() -> probe_curve(nearobj, SpacedGrid(1.0, 100.0, LogCount(9)), scheme; method_name = :m))
-            r0 = quiet(() -> probe_curve(nearobj, SpacedGrid(1.0, 100.0, LogCount(9)),
-                                         cf(Dict("edge_margin" => 0)); method_name = :m))
-            @test r1[:n_extensions] >= 1 && r0[:n_extensions] == 0
+            r1 = quiet(() -> coarse_rec(nearobj, SpacedGrid(1.0, 100.0, LogCount(9)), scheme))
+            r0 = quiet(() -> coarse_rec(nearobj, SpacedGrid(1.0, 100.0, LogCount(9)), cf(Dict("edge_margin" => 0))))
+            @test sum(r1.n_extensions) >= 1 && sum(r0.n_extensions) == 0
         end
 
-        @testset "fine stage + coarse_fine_cv" begin
+        @testset "the fine stage: the scheme's solve" begin
             coarse = SpacedGrid(0.1, 100.0, LogCount(21))
-            rec = quiet(() -> probe_curve(obj, coarse, scheme; method_name = :t))
-            fs = fine_stage(obj, rec, scheme)
-            @test length(fs.grid) == scheme.fine.n == length(fs.curve)
-            @test fs.spec == SpacedGrid(fs.bracket..., scheme.fine) && collect(grid(fs.spec)) == fs.grid
-            @test fs.bracket[1] < fs.x_star < fs.bracket[2]
-            @test 1 < fs.idx < length(fs.grid)
-            @test isapprox(log10(fs.x_star), 0.3; atol = 0.02)
+            r = quiet(() -> search(obj, coarse, scheme))
+            @test r.retcode === ReturnCode.Success && r.stop_rule === ToleranceMet
+            rec = r.metadata.records[:c]
+            f = only(rec.fine); ys = vec(rec.fine_objective); xs = collect(grid(f))
+            @test length(xs) == scheme.fine.n == length(ys)
+            @test f == SpacedGrid(f.lo, f.hi, scheme.fine)
+            @test f.lo < r.u[:c].x < f.hi && r.u[:c] == rec.selected
+            @test 1 < argmin(ys) < length(xs)
+            @test isapprox(log10(r.u[:c].x), 0.3; atol = 0.02)
             s50 = cf(Dict("fine" => Dict("n" => 50)))
-            cv = quiet(() -> coarse_fine_cv(obj, coarse, s50; method_name = :t))
-            @test cv[:x_star_fine] ≈ fine_stage(obj, rec, s50).x_star
-            @test length(grid(cv[:fine_spec])) == 50
+            @test length(grid(only(quiet(() -> search(obj, coarse, s50)).metadata.records[:c].fine))) == 50
         end
 
-        @testset "batched form == point-wise, cell for cell" begin
-            using VisualGeometryToolkitEval.Evaluation: coarse_fine_cv_batched
+        @testset "several searches in one solve == one solve each, cell for cell" begin
             # three cells with different fates: interior, a low optimum that
             # extends, a monotone objective that exhausts its budget
             objs = Dict(:mid => obj, :low => x -> [(log10(x) + 1.6)^2], :far => x -> [log10(x)])
@@ -96,23 +105,26 @@
                           :low => SpacedGrid(0.1, 10.0, LogPerDecade(4)),
                           :far => SpacedGrid(1.0, 100.0, LogCount(9)))
             calls = Ref(0); asked = Ref(0)
-            curvesfn(xs_of) = (calls[] += 1; asked[] += sum(length, values(xs_of));
-                               Dict(k => [objs[k](x) for x in xs] for (k, xs) in xs_of))
-            cv = quiet(() -> coarse_fine_cv_batched(curvesfn, coarse, scheme))
+            errorsfn(pts) = (calls[] += 1; asked[] += sum(length, values(pts));
+                             Dict(k => [objs[k](p.x) for p in ps] for (k, ps) in pts))
+            r = quiet(() -> solve(EstimationProblem(Hyperparameter, errorsfn,
+                                                    (; cells = Dict(k => (; x = g) for (k, g) in coarse))), scheme))
+            recs = r.metadata.records
             for k in keys(objs)
-                ref = quiet(() -> coarse_fine_cv(objs[k], coarse[k], scheme; method_name = k))
-                for f in (:coarse_spec, :x_star, :boundary_hit, :n_extensions, :curve_ys,
-                          :fine_spec, :fine_curve, :fine_idx, :fine_bracket, :x_star_fine)
-                    @test cv[k][f] == ref[f]
+                ref = quiet(() -> search(objs[k], coarse[k], scheme)).metadata.records[:c]
+                for f in (:coarse, :coarse_objective, :n_extensions, :coarse_argmin, :boundary_hit, :fine, :fine_objective, :selected)
+                    @test getfield(recs[k], f) == getfield(ref, f)
                 end
             end
+            @test r.retcode === ReturnCode.MaxIters                       # :far's window is clipped
             # one call per round (the slowest cell's rounds) plus one fine call,
             # and every point evaluated exactly once
-            @test calls[] == 1 + maximum(cv[k][:n_extensions] for k in keys(objs)) + 1
-            @test asked[] == sum(length(cv[k][:curve_ys]) + length(cv[k][:fine_curve]) for k in keys(objs))
-            # a curvesfn that drops a cell is refused, never silently skipped
-            @test_throws ErrorException quiet(() -> coarse_fine_cv_batched(
-                xs_of -> Dict{Symbol,Any}(), coarse, scheme))
+            @test calls[] == 1 + maximum(sum(recs[k].n_extensions) for k in keys(objs)) + 1
+            @test asked[] == sum(length(recs[k].coarse_objective) + length(recs[k].fine_objective) for k in keys(objs))
+            @test r.stats.nf == asked[]
+            # an objective that drops a cell is refused, never silently skipped
+            @test_throws ErrorException quiet(() -> solve(EstimationProblem(Hyperparameter, pts -> Dict{Symbol,Any}(),
+                (; cells = Dict(k => (; x = g) for (k, g) in coarse))), scheme))
         end
 
     end
@@ -120,9 +132,12 @@ end
 
 @testitem "joint coarse-fine search" setup = [TuningFixtures] begin
     using Test, Logging
-    using VisualGeometryToolkitEval.Evaluation: coarse_search, coarse_fine_search, coarse_fine_cv
+    import VisualGeometryToolkitEval.Evaluation as Evaluation
     using VisualGeometryToolkitEval.Tuning: SpacedGrid, LogPerDecade, LinearCount, LogCount, grid, grid_spec
+    using VisualGeometryToolkitCore: solve, EstimationProblem
+    using VisualGeometryToolkitEstimation: Hyperparameter
     quiet(f) = with_logger(f, NullLogger())
+    search(errorsfn, cells, s) = solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), s).metadata.records
 
     axis(lo, hi, spacing, fine; expensive = false, max_rounds = 3) = Dict{String,Any}(
         "coarse" => Dict{String,Any}("type" => "spaced", "window" => Dict{String,Any}("type" => "fixed", "lo" => lo, "hi" => hi),
@@ -140,7 +155,7 @@ end
                                Dict("type" => "linear_count", "n" => 9))))
 
     @testset "extends the clipped axis only, then a free argmin of the fine product" begin
-        r = quiet(() -> coarse_fine_search(ps -> Dict(k => bowl.(v) for (k, v) in ps), cells(s), s))[:c]
+        r = quiet(() -> search(ps -> Dict(k => bowl.(v) for (k, v) in ps), cells(s), s))[:c]
         @test r.names == (:a, :b)
         @test r.n_extensions[1, 1] >= 1 && r.n_extensions[2, :] == [0, 0]   # a extended low, b never
         @test r.boundary_hit == (a = false, b = false)
@@ -160,7 +175,7 @@ end
         seen = Float64[]
         errfn(ps) = (p = only(values(ps)); @test allequal(q.a for q in p); push!(seen, first(p).a);
                      Dict(k => bowl.(v) for (k, v) in ps))
-        r = quiet(() -> coarse_fine_search(errfn, cells(se), se))[:c]
+        r = quiet(() -> search(errfn, cells(se), se))[:c]
         # one call per expensive value per stage; the fine stage's 3 values
         # are the coarse argmin and its neighbours (a caller's run per value
         # is reused across them)
@@ -170,7 +185,7 @@ end
 
     @testset "a boundary hit is per axis" begin
         mono(p) = [log10(p.a) + (p.b - 0.42)^2]                             # no interior optimum in a
-        r = quiet(() -> coarse_search(ps -> Dict(k => mono.(v) for (k, v) in ps), cells(s), s))[:c]
+        r = quiet(() -> Evaluation._coarse_search(ps -> Dict(k => mono.(v) for (k, v) in ps), cells(s), s))[:c]
         @test r.boundary_hit == (a = true, b = false) && r.n_extensions[1, :] == [3, 0]
     end
 
@@ -185,21 +200,22 @@ end
             "spacing" => Dict{String,Any}("type" => "log_per_decade", "per_decade" => 4)),
             "fine" => Dict{String,Any}("type" => "log_count", "n" => 9),
             "extension" => Dict{String,Any}("npts" => sc.extension.npts, "max_rounds" => sc.extension.max_rounds))))
-        rs = quiet(() -> coarse_fine_cv(obj, grid_spec(sc.coarse), sc; method_name = :x))
-        rj = quiet(() -> coarse_fine_search(ps -> Dict(k => [obj(p.x) for p in v] for (k, v) in ps),
-                                            Dict(:c => (x = grid_spec(sj.axes["x"].coarse),)), sj))[:c]
-        @test rs[:x_star_fine] == rj.selected.x && rs[:curve_ys] == vec(rj.coarse_objective)
-        @test rs[:fine_curve] == vec(rj.fine_objective) && rs[:n_extensions] == sum(rj.n_extensions)
+        pointwise = ps -> Dict(k => [obj(p.x) for p in v] for (k, v) in ps)
+        rs = quiet(() -> search(pointwise, Dict(:c => (x = grid_spec(sc.coarse),)), sc))[:c]
+        rj = quiet(() -> search(pointwise, Dict(:c => (x = grid_spec(sj.axes["x"].coarse),)), sj))[:c]
+        @test rs.selected.x == rj.selected.x && vec(rs.coarse_objective) == vec(rj.coarse_objective)
+        @test vec(rs.fine_objective) == vec(rj.fine_objective) && sum(rs.n_extensions) == sum(rj.n_extensions)
     end
 
     @testset "the cells must name the spec's axes" begin
-        @test_throws ArgumentError coarse_search(ps -> Dict(), Dict(:c => (a = grid_spec(s.axes["a"].coarse),)), s)
+        @test_throws ArgumentError Evaluation._coarse_search(ps -> Dict(), Dict(:c => (a = grid_spec(s.axes["a"].coarse),)), s)
     end
 end
 
 @testitem "incumbent rule" setup = [TuningFixtures] begin
     using Test, Logging, StableRNGs
-    using VisualGeometryToolkitEval.Evaluation: coarse_fine_search
+    using VisualGeometryToolkitCore: solve, EstimationProblem
+    using VisualGeometryToolkitEstimation: Hyperparameter
     using VisualGeometryToolkitEval.Stats: stable_seed
     using VisualGeometryToolkitEval.Tuning: grid_spec, tuning_hash, tuning_table
     quiet(f) = with_logger(f, NullLogger())
@@ -224,8 +240,8 @@ end
     errs(p) = base .* (1 + 3abs(log(p.a / 2)) + 4abs(p.b - 0.5)) .*
               (1 .+ rand(StableRNG(stable_seed(noise_seed, p.a, p.b)), 40))
     cells(s) = Dict(:c => (a = grid_spec(s.axes["a"].coarse), b = grid_spec(s.axes["b"].coarse)))
-    run(s; seen = []) = quiet(() -> coarse_fine_search(ps -> (push!(seen, only(values(ps))); Dict(k => errs.(v) for (k, v) in ps)),
-                                                     cells(s), s))[:c]
+    run(s; seen = []) = quiet(() -> solve(EstimationProblem(Hyperparameter,
+        ps -> (push!(seen, only(values(ps))); Dict(k => errs.(v) for (k, v) in ps)), (; cells = cells(s))), s)).metadata.records[:c]
 
     @testset "a clear gain adopts the selection" begin
         r = run(spec(Dict("a" => 12.0, "b" => 0.95)))

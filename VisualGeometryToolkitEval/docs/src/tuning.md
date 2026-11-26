@@ -241,7 +241,7 @@ test = { type = "exhaustive" }
 
 ## Schemes
 
-### `joint_coarse_fine`: `JointCoarseFine` (Evaluation `coarse_fine_search`)
+### `joint_coarse_fine`: `JointCoarseFine`
 
 The coarse-to-fine search over the product of named axes. It runs in four
 phases:
@@ -252,8 +252,12 @@ phases:
    `extension.max_rounds` per side) and only the new slab is scored;
 3. the product of each axis's `fine` spacing over the coarse argmin's two
    neighbours on that axis; its free argmin is the selection;
-4. `bootstrap_argmin` over the evaluated cells' `unit_statistics` gives the
+4. `SelectionBootstrap` over the evaluated cells' `unit_statistics` gives the
    joint selection's sampling distribution, read per axis.
+
+The scheme is the algorithm: `solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), scheme)`
+(VisualGeometryToolkitEstimation's `Hyperparameter`, the problem tag of every hyperparameter selection). Its result's
+`u` is the selection per search key, and `metadata.records` holds each key's search record.
 
 An axis still within the margin after its budget is a boundary hit, refused
 by the one reader `deployed_setting`. An `expensive` axis is asked for one
@@ -268,15 +272,14 @@ per value pays one run per value visited.
 | `criterion` | the objective (the errors at a cell; the criterion aggregates them) |
 | `cross_validation` | the scene split and the validation / test unit samplings |
 
-A new search backend (a surrogate model, say) is a new scheme whose search
-returns the same record (`selected`, `boundary_hit`, `evaluated`); the
+A new search backend (a surrogate model, say) is a new scheme whose solve
+records the same per-key record (`selected`, `boundary_hit`, `evaluated`); the
 artifact, the reader and the bootstrap serve it unchanged.
 
-### `coarse_fine`: `CoarseFine` (Evaluation `coarse_fine_cv`)
+### `coarse_fine`: `CoarseFine`
 
 The one-axis case of `joint_coarse_fine`, its axis spelled flat (the same
-search; `coarse_fine_cv` and its batched form return its record in the scalar
-keys).
+search, its solve on cells that name one axis).
 
 | field | meaning |
 |---|---|
@@ -284,10 +287,13 @@ keys).
 | `extension` | `npts` per extension, `max_rounds` per side |
 | `edge_margin` | extend when the argmin lies within this many points of an edge |
 | `fine` | the fine spacing over the coarse argmin's bracket |
-| `criterion` | the objective (`evalfn(x)` returns the errors; the criterion aggregates them) |
+| `criterion` | the objective (the errors at a cell; the criterion aggregates them) |
 | `cross_validation` | the scene split and the validation / test unit samplings |
 
-### `windowed_bootstrap`: `WindowedBootstrap` (Evaluation `WindowedGridMethod`)
+### `windowed_bootstrap`: `WindowedBootstrap` (Evaluation `ValidationErrors`, `compute_method_rows`)
+
+The algorithm of each draw's selection: `solve(EstimationProblem(Hyperparameter, errors::ValidationErrors, (; pairs,
+to_native)), scheme)`.
 
 | field | meaning |
 |---|---|

@@ -98,7 +98,7 @@ function __solve(prob::EstimationProblem{LinearModel, <:Tuple{AbstractMatrix{<:R
         iter += 1
         _irls_weights!(w, f, r)
         x_new = _weighted_lstsq(Af, yf, _solve_weights(p, w))
-        x_new === nothing && return _reweighted_failure(fill(NaN, n), optimization_strategy, f, m, w, irls_termination(false, false; linear_solve_failed = true))
+        x_new === nothing && return _reweighted_failure(fill(NaN, n), optimization_strategy, f, m, w, ReturnCode.InternalLinearSolveFailed, NoRule)
         Δ = maximum(abs, x_new .- x; init = 0.0)
         x = x_new
         r = yf .- Af * x
@@ -110,7 +110,7 @@ function __solve(prob::EstimationProblem{LinearModel, <:Tuple{AbstractMatrix{<:R
     _irls_weights!(w, f, r)                   # the metadata at the returned coefficients
     sw = _solve_weights(p, w)
     used, rms = weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(x, irls_termination(tol_met, f === nothing)..., SolveStats(; nsteps = iter), rms, used,
+    return FitResult(x, irls_retcode(tol_met, f === nothing), irls_stop_rule(tol_met, f === nothing), SolveStats(; nsteps = iter), rms, used,
                      FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 

@@ -57,7 +57,9 @@ transform for Poisson–Gaussian noise: the noise has σ ≈ 1 at every level, s
 ASIFT on it ([`asift_detect`](@ref) of a [`StabilizedImage`](@ref)) thresholds
 its DoG at `noise_sigmas` noise σ, in a dim interior as in a bright window, and
 masks the saturated pixels. A descriptor still reads a display rendering of the
-same cells: both are pixel-wise, so the positions coincide.
+same cells: both are pixel-wise, so the positions coincide. The mosaic detectors (`detect_sfop(m)`,
+`detect_foerstner(m, seeds)`) read the bilinear green image of the mosaic instead, [`bilinear_green`](@ref): each
+green photosite its own value, every other pixel the mean of its usable green neighbours.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitFeatures]

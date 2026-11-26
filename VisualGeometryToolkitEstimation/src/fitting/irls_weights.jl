@@ -48,7 +48,7 @@ solve's scale input, `scale = σ` (or an upstream result) or `width = w`, and is
 | `EstimationProblem(RobotWorldHandEyeCalibration, markers, p)` | the staged linear solve | the whitened pose residual (6) |
 
 The result is a `FitResult` with [`FitMetadata`](@ref) (the robot-world calibration's:
-[`RobotWorldHandEyeMetadata`](@ref)); its termination record is [`irls_termination`](@ref)'s,
+[`RobotWorldHandEyeMetadata`](@ref)); its termination record is [`irls_retcode`](@ref) and [`irls_stop_rule`](@ref)'s,
 `stats.nsteps` the reweighted iterations, `n` the support (data of positive solve weight) and `rms` the
 weight-weighted root mean square residual.
 """
@@ -198,24 +198,28 @@ _fit_max_iter(lo::Irls) = lo.max_iter
 # null estimate `u`, the record — before the loop a degenerate start `(InitialFailure, NoRule)`, inside it a weighted
 # solve that could not be solved `(InternalLinearSolveFailed, NoRule)` — no rms, no support, and the n weights `w`
 # with NaN residuals.
-_reweighted_failure(u, strategy, f, n, w, record::Tuple{ReturnCode.T, StopRule} = (ReturnCode.InitialFailure, NoRule)) =
-    FitResult(u, record..., SolveStats(), NaN, 0, FitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))
+_reweighted_failure(u, strategy, f, n, w, retcode::ReturnCode.T = ReturnCode.InitialFailure, stop_rule::StopRule = NoRule) =
+    FitResult(u, retcode, stop_rule, SolveStats(), NaN, 0, FitMetadata{typeof(strategy)}(w, fill(NaN, n), _fit_scale_record(f)...))
 
 """
-    irls_termination(converged, closed_form; linear_solve_failed = false) -> (ReturnCode.T, StopRule)
+    irls_retcode(converged, closed_form) -> ReturnCode.T
+    irls_stop_rule(converged, closed_form) -> StopRule
 
-THE termination record of the reweighted fits' loop ([`ReweightedLeastSquares`](@ref) on every problem it solves,
-[`RotationAveraging`](@ref)): its increment tolerance met, `(Success, IncrementSize)`;
-otherwise a least-squares run (`closed_form`) is a closed form, `(Success, ClosedForm)`, and a robust one reached its
-cap, `(MaxIters, IterationCap)`; a weighted solve that could not be solved inside the loop (too few rows of positive
-weight left) is SciMLBase's `(InternalLinearSolveFailed, NoRule)`.
+THE termination record of a reweighted loop, its two fields ([`ReweightedLeastSquares`](@ref) on every problem it
+solves, [`RotationAveraging`](@ref)): its increment tolerance met, `(Success, IncrementSize)`; otherwise a
+least-squares run (`closed_form`) is a closed form, `(Success, ClosedForm)`, and a robust one reached its cap,
+`(MaxIters, IterationCap)`. A weighted solve that could not be solved inside the loop (too few rows of positive weight
+left) is SciMLBase's `(InternalLinearSolveFailed, NoRule)`, which the loop records directly.
 
-Public (as Core's `lmsolve_chart!` records an LM's) so that a downstream reweighted loop records its stops in the
-same words: BlobBoards' per-blob IRLS (its relative parameter step below `rtol` is `IncrementSize`; a singular LU is
-`linear_solve_failed`). A stop the loop adds of its own (BlobBoards' shape gate, `ShapeGate`) stays its own.
+Public so that a downstream reweighted loop records its stops in the same words, through this one owner: BlobBoards'
+per-blob IRLS (its relative parameter step below `rtol` is `IncrementSize`). A stop the loop adds of its own
+(BlobBoards' shape gate, `ShapeGate`) stays its own.
 """
-function irls_termination(converged::Bool, closed_form::Bool; linear_solve_failed::Bool = false)
-    linear_solve_failed && return (ReturnCode.InternalLinearSolveFailed, NoRule)
-    converged && return (ReturnCode.Success, IncrementSize)
-    return closed_form ? (ReturnCode.Success, ClosedForm) : (ReturnCode.MaxIters, IterationCap)
-end
+irls_retcode(converged::Bool, closed_form::Bool) = converged || closed_form ? ReturnCode.Success : ReturnCode.MaxIters
+"""
+    irls_stop_rule(converged, closed_form) -> StopRule
+
+The stop rule of a reweighted loop's termination record: `IncrementSize`, `ClosedForm` or `IterationCap`
+(see [`irls_retcode`](@ref), its other field).
+"""
+irls_stop_rule(converged::Bool, closed_form::Bool) = converged ? IncrementSize : closed_form ? ClosedForm : IterationCap

@@ -17,7 +17,7 @@
     e = extremum_of(plan, d)
     @test e !== nothing && e.o == 0
     vA = SVector(e.X + e.off[2], e.Y + e.off[3], e.sl + e.off[1])
-    cfg = VgtkFeatures._continuous_refinement(:spline)
+    cfg = VgtkFeatures._continuous_refinement(VgtkFeatures._SplineResponse())
     ext, wins, _ = VgtkFeatures._refine_dog_extrema(KA.CPU(), plan.dogs[e.oi], [(vA..., 1)]; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg)
     r = ext[1]
     @test VgtkCore.successful_retcode(r.retcode)
@@ -50,9 +50,9 @@
     v3 = SVector(vA[1] - 0.6, vA[2], vA[3])
     S = plan.space.nb_scales
     inside = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (W, H))
-    @test VgtkCore.successful_retcode(inside[4]) && abs(inside[1][1] - truth[1]) < 2.0e-3
+    @test VgtkCore.successful_retcode(inside.retcode) && abs(inside.v[1] - truth[1]) < 2.0e-3
     cut = VgtkFeatures._refine_dog_extremum(wins[1], v3, 3.36, S, cfg, (128, H))
-    @test cut[5] == VgtkCore.LeftBasin && cut[1] == v3
+    @test cut.stop_rule == VgtkCore.LeftBasin && cut.v == v3
     # one refinement, Core's device LM through `solve`, allocates nothing (its kernel's work item on the CPU path;
     # the CUDA item below compiles the same code for the device); a function barrier keeps the test's globals out
     refine_allocs(w, v, σ, S, cfg, ext) = @allocated VgtkFeatures._refine_dog_extremum(w, v, σ, S, cfg, ext)
@@ -79,7 +79,7 @@ end
         es = filter(!isnothing, [extremum_of(plan, d) for d in ds])
         @test !isempty(es)
         tol = VgtkFeatures._cr("cpu_gpu_tolerance")                 # derived in configs/continuous_refinement.toml
-        for response in (:spline, :farid_simoncelli_spatial), oi in unique(e.oi for e in es)
+        for response in (VgtkFeatures._SplineResponse(), VgtkFeatures._FaridSimoncelliResponse()), oi in unique(e.oi for e in es)
             st = [(e.X + e.off[2], e.Y + e.off[3], e.sl + e.off[1], 1) for e in es if e.oi == oi]
             kw = (; seed_sigma = plan.space.seed_sigma, S = plan.space.nb_scales, cfg = VgtkFeatures._continuous_refinement(response))
             eg, _, _ = VgtkFeatures._refine_dog_extrema(CUDA.CUDABackend(), plan.dogs[oi], st; kw...)

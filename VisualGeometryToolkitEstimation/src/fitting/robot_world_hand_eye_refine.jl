@@ -264,7 +264,6 @@ function _robot_world_hand_eye_bundle(
     # 2k − 1, 2k; its columns those of Y and of its X_m), √ρ′-scaled under a robust strategy: the eigen-diagnostics and
     # the covariance are the weighted problem's
     J = Matrix(last(nlls_rows_and_jacobian(stationarity_blocks, charts)))
-    termination = (sol.code, sol.rule)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with observation Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -281,7 +280,7 @@ function _robot_world_hand_eye_bundle(
     r_raw = sol.residuals   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
-        termination, iterations = sol.iterations, rms_rows = n, strategy = lo, weights,
+        retcode = sol.code, stop_rule = sol.rule, iterations = sol.iterations, rms_rows = n, strategy = lo, weights,
         VgtkCore.scale_record(parsed)...
     )
 end

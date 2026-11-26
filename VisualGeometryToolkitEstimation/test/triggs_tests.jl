@@ -80,7 +80,7 @@ end
     pts = [Point2{Float64}(C₀ + R₀ * SVector(cos(t), sin(t)) + 0.3 * randn(rng, SVector{2})) for t in 2π .* rand(rng, 200)]
     g = Circle(Point2(C₀ + SVector(1.0, -0.8)), R₀ + 1.2)
     n_admitted = 0
-    for (K, tag) in VgtkCore._LOSS_TABLE   # the loss table is Core's (A2)
+    for (tag, K) in VgtkCore.LOSS_TAGS   # the loss registry is Core's (A2)
         # the same set as Irls: no narrower, no wider (Barron, whose shape carries its α, is refused by both)
         width = K === GaussianShape ? (;) : (; efficiency_constant = 2.5)
         @test admits(() -> Irls{K}()) == admits(() -> Triggs{K}(; width...))

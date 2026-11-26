@@ -7,6 +7,41 @@
 VisualGeometryToolkitEstimation `"0.13"`). The scale-prior fit is an algorithm of that interface. Numerics are
 unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`) replay bit for bit.
 
+### Conformance (no public estimator outside `solve`; one name per algorithm value)
+- **`VisualGeometryToolkitEval.Pools` is `VisualGeometryToolkitEval.PoolFiles`** (the pool FILE IO: `ScoringPool`,
+  `save_pool`, `load_pool`, `PoolResiduals`, `migrate_pool`, …): one `Pools` in the stack, VisualGeometryToolkitCore's
+  (the pool record types). The same functions under the new module name.
+- **`refit_model` is deleted**: a synonym of `solve` that dropped the result. Write
+  `solve(RefineProblem(problem, seed), LocalOptimization(lo; scoring, score_guard)).u`, reading `found_model(r)`.
+- **`JeffreysPriorSpec`, `IGRobustSpec` and `ALL_PRIOR_SPECS` are deleted**: second names of algorithm values, and a
+  `const` holding one. Write `PriorSpec(Jeffreys(), Unfitted())` and `PriorSpec(InverseGamma(), RobustFit(α₀))`.
+- **The sample-budget engine's score selection is VisualGeometryToolkitEstimation's `ScoreSelection`**:
+  `ScoreSelector(name, scoring, width, pool; lo, refinement_width)` holds its streaming cache, sized by `pool`
+  (`pair => R`, the largest pair), and reads the running best at each checkpoint (`reinit!(cache; p = (; budget))`),
+  each model scored once (was a hand-rolled argmax on a workspace and scratch the caller supplied). The same
+  selections.
+- **The refit problem is a type, not a `Bool`**: `refit_imc!(ctx, lo, seed, nat′; refit_on = ReprojectionBundle())`,
+  `LoRefitSpec(…; refit_on)` and `build_pair_ctx(…; refit_on)` (was `bundle = true`); the default
+  `PoolFrameProblem()` refits on the pair's pool-frame problem. A bundle refit on a context built without the bundle
+  problem is an `ArgumentError` (was an `ErrorException`).
+- **Hyperparameter selection is an estimation (owner ruling G-j): the tuning schemes are the algorithms.**
+  `TuningScheme <: AbstractEstimationAlgorithm`, on VisualGeometryToolkitEstimation's problem tag `Hyperparameter`:
+  - the coarse-fine search: `solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), scheme::CoarseFine |
+    JointCoarseFine)` (`FitKind`), `u` the selection per search key and `metadata.records` each key's record
+    (what `save_coarse_fine_artifact` persists); `(MaxIters, IterationCap)` for a clipped window. `coarse_search`,
+    `fine_search`, `coarse_fine_search`, `coarse_fine_cv`, `coarse_fine_cv_batched`, `probe_curve` and `fine_stage`
+    are deleted (the two stages are internal);
+  - the bootstrap harness's per-draw selection: `solve(EstimationProblem(Hyperparameter, ValidationErrors(label,
+    scene_errors, scene_sigma2, native_grid), (; pairs, to_native)), scheme::WindowedBootstrap)` (`ClosedFormKind`);
+    `bootstrap_trials(errors, scheme, protocol, n; to_native)` and `compute_method_rows(errors, scheme; protocol,
+    to_native)` take the data and the scheme. `WindowedGridMethod`, `BootstrapMethod`, `tune` and `evaluate` are
+    deleted;
+  - the bootstrap of a selection: `solve(EstimationProblem(Hyperparameter, stats), SelectionBootstrap(criterion;
+    n_resamples); rng)` (was `bootstrap_argmin`).
+  The same numbers: each solve runs the old function's body.
+- **An illegal `PriorSpec` is refused where it is built**: `Jeffreys` with a fitting, or `InverseGamma` unfitted, is an
+  `ArgumentError` from the constructor (was an `ErrorException` at the solve), with the same message.
+
 ### Changed (breaking)
 - **`fit_prior` is deleted: a `PriorSpec` is the algorithm.** `fit_prior(spec, σ²s)` →
   `solve(EstimationProblem(IGPrior, σ²s), spec)`, a `ClosedFormKind` whose result's `u` is the `IGPrior`;

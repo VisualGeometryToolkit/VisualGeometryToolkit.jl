@@ -4,10 +4,10 @@
 # live runs, arms and their roster, the selection stream; moved from
 # LocalOptimizationDoneRight, K+ 2026-10-09, and written against
 # VisualGeometryToolkitCore's contracts alone: any scorer, any local optimizer), and
-# the bootstrap tuning harness (evaluate_val.jl: BootstrapMethod /
-# FlatProtocol / WindowedGridMethod, bootstrap_trials, compute_method_rows,
-# the standardized window's `window_columns`) and the coarse-fine search
-# (cv_probe.jl). Every parameter they run under is a Tuning spec. Its statistics (reference scale, mAA rule, BCa CI) are Stats'. Absorbed from RANSACScoringDoneRight 2026-07-18;
+# the bootstrap tuning harness (evaluate_val.jl: FlatProtocol / ValidationErrors,
+# WindowedBootstrap's solve, bootstrap_trials, compute_method_rows, the standardized
+# window's `window_columns`) and the coarse-fine search (cv_probe.jl: CoarseFine's
+# and JointCoarseFine's solve). Every parameter they run under is a Tuning spec. Its statistics (reference scale, mAA rule, BCa CI) are Stats'. Absorbed from RANSACScoringDoneRight 2026-07-18;
 # it uses no scorer package and no optimizer package beyond the core
 # (VisualGeometryToolkitCore's contracts, VisualGeometryToolkitEstimation's loop and problems).
 #
@@ -28,9 +28,10 @@ optimizer (LO) on stored pool pairs ([`build_pair_ctx`](@ref),
 [`evaluate_sample_budget`](@ref), [`live_runs`](@ref), [`Roster`](@ref)). It is
 written against VisualGeometryToolkitCore's scoring and local-optimization
 contracts only, so it runs any scorer with any optimizer. The module also holds
-the coarse-to-fine search of every cross-validation
-([`coarse_fine_search`](@ref), [`coarse_fine_cv`](@ref)) and the bootstrap
-tuning harness ([`WindowedGridMethod`](@ref), [`compute_method_rows`](@ref)).
+the coarse-to-fine search of every cross-validation (the `CoarseFine` and
+`JointCoarseFine` schemes' solve on VisualGeometryToolkitEstimation's
+`Hyperparameter`) and the bootstrap tuning harness ([`ValidationErrors`](@ref),
+[`compute_method_rows`](@ref)).
 """
 module Evaluation
 
@@ -49,13 +50,13 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimization
     ExternalRefit, RefitFamily, EssentialMat, FundMat, HomographyMat, Correspondences, Point2, sources, targets,
     EstimationProblem, RefineProblem, solve, init, solve!, reinit!, found_model, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
-    outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension, scoring_workspace,
-    score!, external_workspace, prepare_external!, external_refit!, select_on_grid!, stage_selection,
+    outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension,
+    external_workspace, prepare_external!, external_refit!, select_on_grid!, stage_selection,
     selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
-    Ransac, LocalOptimization, RansacConfig,
+    Ransac, LocalOptimization, RansacConfig, PoolSelection, ScoreSelection,
     rescore_and_optimize!, AbstractRansacProblem, CountedLO, TerminalLO
 using VisualGeometryToolkitCore: fixed_width   # the strategy's frozen width (robust/strategies.jl)
 import VisualGeometryToolkitEstimation: reset!   # the running-best selectors' reset
@@ -65,41 +66,43 @@ import .._config_default   # configs/default.toml (config_defaults.jl)
 using ..Stats: bootstrap_ci, reference_scale, eligible_maa, maa_threshold, finite_median, pair_outcomes,
     stable_seed
 using ..Tuning: CoarseFine, CoarseFineAxis, Incumbent, JointCoarseFine, stats_objective, SpacedGrid, GridSpec,
-    EfficiencyConstantWindow, BudgetSampling, grid, extend, budget_rng, unit_statistics,
+    EfficiencyConstantWindow, BudgetSampling, WindowedBootstrap, grid, extend, budget_rng, unit_statistics,
     resampling_rng, _sample_indices,
     # the criteria and their objective: Tuning owns them since 2026-10-02
     # (they came from RSDR's eval_strategy.jl — see tuning/policies.jl).
-    TuningCriterion, MedianError, tune_objective,
+    MedianError, tune_objective,
     # the evaluator's tuned-point readers and deployment corruption
     TuningArtifact, load_tuning_artifact, corrupt_native, nearest_column,
     # the coarse-fine artifact (coarse_fine_artifact.jl)
     TuningSpec, SamplingUnit, save_tuning_artifact
-using ..Pools: residual_matrix, sample_ids
+using ..PoolFiles: residual_matrix, sample_ids
 using ..Render: lo_us_per_call
-# extended here (method added for the harness's own method types)
 import ..Tuning: tuning_criterion_label
+# The hyperparameter selections (the coarse-fine search, the windowed selection) are the Tuning schemes' solves, on
+# VisualGeometryToolkitEstimation's problem tag.
+using VisualGeometryToolkitEstimation: Hyperparameter
+import VisualGeometryToolkitCore: __solve
+using VisualGeometryToolkitCore: FitResult, ReturnCode, SolveStats, ClosedForm, NoRule, ToleranceMet, IterationCap
 
 export
-    # cv_probe.jl — the coarse-fine search (one function per stage), its
-    # scalar forms, and the boundary_hit refusal at read time
-    coarse_search, fine_search, coarse_fine_search, enforce_probe_interior,
-    coarse_fine_cv, coarse_fine_cv_batched, probe_curve, fine_stage,
+    # cv_probe.jl — the coarse-fine search (CoarseFine/JointCoarseFine's solve) and the boundary_hit refusal at
+    # read time
+    enforce_probe_interior,
     # rigid_invariance.jl — the rigid-target invariance criterion
     rigid_invariance_errors,
     # coarse_fine_artifact.jl — the coarse-fine tuning artifact: writer and gated reader
     save_coarse_fine_artifact, deployed_setting,
     # evaluate_val.jl — the bootstrap tuning harness
-    BootstrapMethod, FlatProtocol, WindowedGridMethod, window_columns,
-    tune, evaluate,
+    FlatProtocol, ValidationErrors, window_columns,
     bootstrap_trials, compute_method_rows,
     # engine/ — the composition evaluator
     # operating_point.jl
     OPERATING_EFFICIENCY_CONSTANT,
     # geometry.jl
-    problem_type, PairCtx, build_pair_ctx, model_imc, refit_seed, essential_bearings,
+    problem_type, PairCtx, RefitProblem, PoolFrameProblem, ReprojectionBundle, build_pair_ctx, model_imc, refit_seed, essential_bearings,
     perturbed_seed_E,
     # refit.jl
-    refit_imc!, refit_model, guarded_refit, NativeAxis, consumed_axis, consumed_native,
+    refit_imc!, guarded_refit, NativeAxis, consumed_axis, consumed_native,
     ScoreGuarded, RefitHalfwidth,
     # lo_matrix.jl
     LoRefitSpec, apply_lo_refits,

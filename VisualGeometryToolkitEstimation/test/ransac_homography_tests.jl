@@ -251,14 +251,16 @@ VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth,
         @test counted.iterations[] >= counted.calls[]
         # each call's record, beside the counters: its iterations, ReturnCode and StopRule
         recs = counted.call_records
-        @test recs isa Vector{@NamedTuple{iterations::Int, retcode::VgtkCore.ReturnCode.T, stop_rule::VgtkCore.StopRule}}
+        @test recs isa Vector{<:VgtkCore.FitResult{Nothing, Nothing, Nothing}}
         @test length(recs) == counted.calls[]
-        @test sum(r -> r.iterations, recs) == counted.iterations[]
+        @test sum(r -> r.stats.nsteps, recs) == counted.iterations[]
         # a seeded call's record is the termination record its result reports
         seeded = VgtkEstimation.CountedLO(inner)
         sc = MsacScoring(problem; threshold = 3.0)
         rs = solve(RefineProblem(problem, r_inner.u), LocalOptimization(seeded; scoring = sc))
-        @test seeded.call_records == [(iterations = seeded.iterations[], retcode = rs.metadata.lo_retcode, stop_rule = rs.metadata.lo_stop_rule)]
+        @test length(seeded.call_records) == 1
+        rec = only(seeded.call_records)
+        @test (rec.stats.nsteps, rec.retcode, rec.stop_rule) == (seeded.iterations[], rs.metadata.lo_retcode, rs.metadata.lo_stop_rule)
         @test VgtkCore.lo_width(counted) == VgtkCore.lo_width(inner)
         @test VgtkCore.lo_label(counted) == VgtkCore.lo_label(inner)
         @test VgtkCore.scale_interface(counted) == VgtkCore.scale_interface(inner)
@@ -298,7 +300,8 @@ VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth,
         @test threaded.calls[] == serial.calls[]
         @test threaded.iterations[] == serial.iterations[]
         @test length(threaded.call_records) == threaded.calls[]
-        @test sort(threaded.call_records) == sort(serial.call_records)     # the same calls, in the threads' order
+        by = r -> (r.stats.nsteps, r.retcode, r.stop_rule, r.rms, r.n)
+        @test sort(threaded.call_records; by) == sort(serial.call_records; by)     # the same calls, in the threads' order
         # Contention the sweep above rarely reaches: four tasks hammer one counter
         # with near-instant calls (a plain `Ref` loses increments here).
         sc = MsacScoring(problems[1]; threshold = 3.0)

@@ -89,27 +89,59 @@ lo_placement(::Union{Nothing, AbstractOptimizationStrategy}) = InLoopPlacement()
 lo_placement(::TerminalLO) = TerminalPlacement()
 
 """
-    consensus_s2!(ws::RansacWorkspace, problem, scoring, model) -> Union{Float64, Nothing}
+    ConsensusScale(scoring::AbstractScoring)
 
-The consensus scale ŝ² of `model` under `scoring`: its residuals and score on
-the workspace's buffers, then the consensus set's Student-t scale at a local
-optimizer's dof (`minimal_sample_size + 1`) — the scale a consensus-anchored
-loss runs at in the native loop (`scale_s2(consensus_set(…))`), floored at eps.
+A [`ClosedFormKind`](@extref VisualGeometryToolkitCore.ClosedFormKind): the consensus scale ŝ² of a model under a
+scorer, `solve(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(scoring))` on a family problem.
+The model's residuals are scored by `scoring`, and its consensus set's Student-t scale is taken at a local
+optimizer's dof (`minimal_sample_size + 1`): the scale a consensus-anchored loss runs at in the native loop
+(`scale_s2(consensus_set(…))`), floored at `eps()`. `u` is ŝ² (Core's
+[`SquaredScale`](@extref VisualGeometryToolkitCore.SquaredScale) tag: a squared scale), `n` the consensus count,
+`(Success, ClosedForm)`. A consensus set too thin to carry a scale (k* ≤ m + 1) is degenerate: `u = nothing`,
+`(InitialFailure, NoRule)`, `n = 0`.
 
-THE one scale source for engines that cannot run in the native loop (an
-external refiner's adaptive-width arm): never a loss-width-window plug-in.
-Returns `nothing` on a consensus set too thin to carry a scale
-(k* ≤ m + 1) — the caller bails with no refit call.
+The one scale source for an engine that cannot run in the native loop (an external refiner's adaptive-width arm),
+never a loss-width-window plug-in. Its workspace is the cache's: `c = init(prob, ConsensusScale(scoring))` once,
+then `solve!(reinit!(c; p = (; model), alg = ConsensusScale(scoring′)))` per model (`alg`: the same scorer type at
+another width).
 """
-function consensus_s2!(ws::RansacWorkspace, problem, scoring, model)
+struct ConsensusScale{S <: AbstractScoring} <: AbstractEstimationAlgorithm
+    scoring::S
+end
+estimator_kind(::ConsensusScale) = ClosedFormKind()
+
+# The cache: the problem, the scorer, the model and the RANSAC workspace the residuals and the score are written to.
+mutable struct ConsensusScaleCache{P, S, W, M}
+    problem::P
+    scoring::S
+    ws::W
+    model::M
+end
+__init(prob::EstimationProblem{SquaredScale, <:AbstractRansacProblem, <:NamedTuple{(:model,)}}, alg::ConsensusScale) =
+    ConsensusScaleCache(prob.f, alg.scoring, RansacWorkspace(prob.f, alg.scoring), prob.p.model)
+function reinit!(c::ConsensusScaleCache{P, S}; f = c.problem, p = (; model = c.model), alg = nothing) where {P, S}
+    f isa P || throw(ArgumentError("reinit!: the cache holds a $P; init a new cache for a $(typeof(f))"))
+    data_size(f) == data_size(c.problem) || throw(DimensionMismatch(
+        "reinit!: the cache's workspace holds $(data_size(c.problem)) data; init a new cache for $(data_size(f))"))
+    c.problem = f
+    c.model = p.model
+    alg === nothing || (c.scoring = (alg::ConsensusScale{S}).scoring)
+    return c
+end
+solve!(c::ConsensusScaleCache) = _consensus_scale!(c.ws, c.problem, c.scoring, c.model)
+
+# THE consensus scale (ConsensusScale's numerics) as its result: the model's residuals and score on the workspace's
+# buffers, its consensus set's Student-t scale at a local optimizer's dof, floored at eps; degenerate on a set too thin.
+function _consensus_scale!(ws::RansacWorkspace, problem, scoring, model)
     _prepare!(problem)
     buf = ws.buf
     _, k = score_model!(buf, scoring, problem, model)
     m = minimal_sample_size(problem) + 1
-    k > m || return nothing                                          # thin set — no stable ŝ²
+    k > m || return FitResult{Union{Float64, Nothing}}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)   # thin set — no stable ŝ²
     s2 = consensus_s2(scoring, buf.residuals, consensus_order(scoring, buf.scoring_ws), k;
                       model_dof = m, d_g = codimension(problem))
-    return max(s2, eps())
+    # one result type for both branches (a scale, or none): the cache's `solve!` is type-stable and allocates nothing
+    return FitResult{Union{Float64, Nothing}}(max(s2, eps()), ReturnCode.Success, ClosedForm, SolveStats(), NaN, k, nothing)
 end
 
 """

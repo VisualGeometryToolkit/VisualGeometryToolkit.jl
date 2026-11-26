@@ -194,7 +194,7 @@ const _ROBOT_WORLD_HAND_EYE_RANK_RTOL = 1.0e-12
 # covariance are the weighted problem's.
 function _robot_world_hand_eye_result(
         cal::RobotWorldHandEyeCalibration{K}, r::AbstractVector, J::AbstractMatrix, w::Int, counts, covariance,
-        σ_rot::S, σ_trans::S; termination::Tuple{ReturnCode.T, StopRule}, iterations::Int, rms_rows::Int,
+        σ_rot::S, σ_trans::S; retcode::ReturnCode.T, stop_rule::StopRule, iterations::Int, rms_rows::Int,
         strategy::L = nothing, weights::AbstractVector{Float64} = VgtkCore.unit_weights(length(r) ÷ w),
         scale::Float64 = NaN, scale_source::VgtkCore.ScaleSource = VgtkCore.ScaleNone, loss_width::Float64 = NaN
     ) where {K, S, L}
@@ -226,7 +226,7 @@ function _robot_world_hand_eye_result(
         res_norms, s2, dof, cov, SMatrix{6, 6, Float64, 36}(cov[1:6, 1:6]), λ_min, v_min, σ_rot, σ_trans,
         weights, scale, scale_source, loss_width
     )
-    return FitResult(cal, termination..., SolveStats(; nsteps = iterations), rms_value, support, md)
+    return FitResult(cal, retcode, stop_rule, SolveStats(; nsteps = iterations), rms_value, support, md)
 end
 
 # -----------------------------------------------------------------------------
@@ -589,10 +589,13 @@ const _PhysicalMarkers{K} = AbstractDict{K, <:AbstractVector{<:Correspondence{<:
 _robot_world_context(p) = VgtkCore.read_context(p, (), (; σ_rot = nothing, σ_trans = nothing,
     min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))), "ReweightedLeastSquares (robot-world hand-eye)")
 
-function __solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_PlainMarkers{K}}, alg::ReweightedLeastSquares;
-                 scale = nothing, width::Union{Nothing, Real} = nothing) where {K}
-    markers = prob.f
-    (; σ_rot, σ_trans, min_rel_angle) = _robot_world_context(prob.p)
+__solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_PlainMarkers{K}}, alg::ReweightedLeastSquares;
+        scale = nothing, width::Union{Nothing, Real} = nothing) where {K} = _robot_world_plain(prob.f, prob.p, alg; scale, width)
+
+# THE robot-world fit on plain poses (one kernel: the plain and the physical problem forms call it).
+function _robot_world_plain(markers::_PlainMarkers{K}, p, alg::ReweightedLeastSquares;
+                            scale = nothing, width::Union{Nothing, Real} = nothing) where {K}
+    (; σ_rot, σ_trans, min_rel_angle) = _robot_world_context(p)
     σ_rot isa Union{Nothing, Real} && σ_trans isa Union{Nothing, Real} || throw(ArgumentError(
         "ReweightedLeastSquares (robot-world hand-eye): σ_rot and σ_trans are plain numbers beside plain poses (or nothing)"))
     who = "ReweightedLeastSquares (robot-world hand-eye)"
@@ -661,7 +664,7 @@ function __solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_Plai
     end
     return _robot_world_hand_eye_report(
         cal, _robot_world_hand_eye_manifold(cal, Val(M + 1)), obs, counts, σ_rot, σ_trans;
-        f, strategy = optimization_strategy, termination = irls_termination(tol_met, false), iterations = iter
+        f, strategy = optimization_strategy, retcode = irls_retcode(tol_met, false), stop_rule = irls_stop_rule(tol_met, false), iterations = iter
     )
 end
 
@@ -689,14 +692,14 @@ function __solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_Phys
     plain = Dict(id => _map_correspondences(_plain_metres, _plain_metres, cs) for (id, cs) in prob.f)::_PlainMarkers{K}
     ctx = _robot_world_context(prob.p)
     p = (; σ_rot = ctx.σ_rot, σ_trans = _metres(ctx.σ_trans), min_rel_angle = ctx.min_rel_angle)
-    return _attach_metres(__solve(EstimationProblem(RobotWorldHandEyeCalibration, plain, p), alg; kwargs...))
+    return _attach_metres(_robot_world_plain(plain, p, alg; kwargs...))
 end
 
 # The report at the staged estimate, in its chart `P` (a function barrier: P's
 # type carries the M + 1 blocks): noise-scale profiling, the diagnostic
 # residual and its Jacobian, and the stage-condition covariance.
 function _robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::ProductManifold, obs, counts, σ_rot, σ_trans;
-                                          f = nothing, strategy = nothing, termination::Tuple{ReturnCode.T, StopRule} = (ReturnCode.Success, ClosedForm), iterations::Int = 0)
+                                          f = nothing, strategy = nothing, retcode::ReturnCode.T = ReturnCode.Success, stop_rule::StopRule = ClosedForm, iterations::Int = 0)
     p = tangent_size(P)
     n = length(obs.obs_marker)
     r0 = _robot_world_hand_eye_residuals(zeros(p), P, obs, 1.0, 1.0)
@@ -722,7 +725,7 @@ function _robot_world_hand_eye_report(cal::RobotWorldHandEyeCalibration, P::Prod
         return implicit_covariance(Fθ, Fε; Σx = fill(Σε, n))
     end
     return _robot_world_hand_eye_result(
-        cal, r, J, 6, counts, covariance, σr, σt; termination, iterations, rms_rows = length(r),
+        cal, r, J, 6, counts, covariance, σr, σt; retcode, stop_rule, iterations, rms_rows = length(r),
         strategy, weights = wts, (_robot_world_hand_eye_scale_record(f))...
     )
 end

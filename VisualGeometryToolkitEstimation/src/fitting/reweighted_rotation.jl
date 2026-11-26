@@ -94,7 +94,7 @@ function __solve(
         iter += 1
         _irls_weights!(w, f, r)
         sw = _solve_weights(prior, w)
-        count(>(0), sw) >= 2 || return _reweighted_failure(one(RotMatrix{3, Float64}), optimization_strategy, f, n, w, irls_termination(false, false; linear_solve_failed = true))
+        count(>(0), sw) >= 2 || return _reweighted_failure(one(RotMatrix{3, Float64}), optimization_strategy, f, n, w, ReturnCode.InternalLinearSolveFailed, NoRule)
         R_new = _weighted_kabsch(as, bs, sw)
         Δ = Rotations.rotation_angle(R_new * R')
         R = R_new
@@ -107,7 +107,7 @@ function __solve(
     _irls_weights!(w, f, r)                    # the metadata at the returned rotation
     sw = _solve_weights(prior, w)
     used, rms = weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(R, irls_termination(tol_met, f === nothing)..., SolveStats(; nsteps = iter), rms, used,
+    return FitResult(R, irls_retcode(tol_met, f === nothing), irls_stop_rule(tol_met, f === nothing), SolveStats(; nsteps = iter), rms, used,
                      FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 

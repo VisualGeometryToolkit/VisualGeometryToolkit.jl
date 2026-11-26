@@ -15,33 +15,13 @@
 # `sha256_hex`, because src/cli.jl includes it, and a project's runner launcher includes src/cli.jl by path from a bare
 # `julia` before the project's environment (and so VisualGeometryToolkitCore) exists; the digests are the same SHA-256.
 
-[[name]]
-module = "VisualGeometryToolkitEval"
-name = "Pools"
-reason = "different contents: Eval.Pools reads and writes pool FILES (pool_io.jl); Core.Pools defines the pool RECORD types (PoolPair) Eval.Pools builds; no function of one restates the other"
-
 [[backend]]
 file = "VisualGeometryToolkitCore/ext/VisualGeometryToolkitCoreCUDAExt.jl"
 function = "__init__"
 reason = "not a CPU/GPU twin of any code: the CUDA extension registers the device queries (free memory, reclaim) a KernelAbstractions backend cannot answer, and answers them for its own backend only; the policy's allowed device-query helpers"
 
-[[backend]]
-file = "VisualGeometryToolkitFeatures/src/asift/driver.jl"
-function = "_chunk_warps"
-reason = "not a CPU/GPU twin of any computation: it sizes how many warps stay resident (an allocation), and only the free memory differs by backend — the host's on the CPU, the device's less the room the ONNX Runtime CUDA sessions' arenas may still take on a GPU (those arenas are device memory; the CPU's warps share no device with them); the same kernels run on every backend"
-
-[[backend]]
-file = "VisualGeometryToolkitFeatures/src/onnx_runtime.jl"
-function = "_onnx_device_free"
-reason = "not a CPU/GPU twin of any computation: it reads the free device memory around an ONNX Runtime CUDA session's creation and runs, to measure what that session's arena took; on the host there is no device memory to read (an arena is device memory), so it reads nothing"
-
 # check_splat's exceptions (a splat of a collection whose length is data, VisualGeometryToolkitCore's `check_splat`):
 # each is a splat whose length is fixed by a type or bounded by construction, or an API with no collection form.
-[[splat]]
-file = "VisualGeometryToolkitEval/src/Experiments.jl"
-function = "run_isolated"
-reason = "Base's withenv takes its pairs only as varargs (no collection form); the count is the few variables one isolated driver run sets, so withenv is compiled once per such count, never per datum"
-
 [[splat]]
 file = "VisualGeometryToolkitEval/src/tuning/toml.jl"
 function = "_read_struct"
@@ -58,31 +38,9 @@ function = "test_scoring_contract"
 reason = "not this code's splat: Test's `@inferred` of a call with keywords expands to its arguments gathered in an `Any[…]` and splatted back, so the length is the call's written arity (fixed); the expansion carries the call's own line, so check_splat cannot tell it from a written one"
 
 [[splat]]
-file = "VisualGeometryToolkitEstimation/src/fitting/division_camera_step.jl"
-function = "CameraModel"
-reason = "`Division(k₁, …, k_Q)` takes the lens's coefficients as varargs (Core's one constructor) and Q is the division model's order, the fit's configured number of coefficients (1–3), fixed for a run, never a data length: `Division` is compiled once per order"
-
-[[splat]]
 file = "VisualGeometryToolkitEstimation/src/config_toml.jl"
 function = "_tagged_from_toml"
 reason = "a tagged TOML table builds its type `T` from its fields' values in field order: the arity is `fieldcount(T)`, fixed by the type, so `T` is compiled once per tag type"
-
-[[splat]]
-file = "VisualGeometryToolkitIO/src/migrate.jl"
-function = "write_staged"
-reason = "the public API's callback receives one staged path per output it names, `f(staged...)`: its arity is the caller's written number of outputs (1 or 2 at every call site, a fixed arity per call), and the outputs are varargs Pairs by design"
-
-[[splat]]
-file = "VisualGeometryToolkitIO/src/rig_schema.jl"
-function = "_rig_from_record"
-reason = "VisualGeometryToolkitCore's `Rig` holds its sensors as a Tuple (each sensor's type in the rig's type), so a rig read from a file is built from a tuple of its sensors: one length per rig layout, the length the type itself carries"
-
-# The sensor model's one black subtraction (owner rulings D1–D13, 2026-11-13): the LibRaw decoder hands LibRaw its own
-# per-channel black for the display demosaic; it subtracts nothing in the stack.
-[[pattern]]
-use = "black_subtraction"
-file = "VisualGeometryToolkitFeatures/ext/VisualGeometryToolkitFeaturesLibRawExt.jl"
-reason = "not a black subtraction: the decoder writes the mosaic's per-channel black back into LibRaw's `cblack` for LibRaw's own display demosaic (the :demosaic image), less the common black LibRaw keeps apart; no stack value is linearised there"
 
 [[pattern]]
 use = "sensor_component"

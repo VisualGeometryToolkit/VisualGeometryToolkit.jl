@@ -2,8 +2,8 @@
 # coarse_fine_artifact_tests.jl — the tuning path end to end: the
 # rigid-target invariance criterion (Evaluation rigid_invariance.jl), the
 # coarse-fine tuning artifact and its gated reader (coarse_fine_artifact.jl),
-# the bootstrap of the argmin over unit statistics (Tuning
-# bootstrap_argmin.jl) and the curve/surface tables (Render tuning_table.jl).
+# the bootstrap of the selection over unit statistics (Tuning
+# selection_bootstrap.jl) and the curve/surface tables (Render tuning_table.jl).
 # =============================================================================
 
 @testitem "rigid_invariance_errors" begin
@@ -62,8 +62,10 @@ end
 
 @testitem "coarse_fine_artifact" setup = [TuningFixtures] begin
     using Test, Logging, Random
-    using VisualGeometryToolkitEval.Evaluation: coarse_fine_search, save_coarse_fine_artifact, deployed_setting
-    using VisualGeometryToolkitEval.Tuning: bootstrap_argmin, unit_statistics, MeanAverageAccuracy, QueryUnit,
+    using VisualGeometryToolkitEval.Evaluation: save_coarse_fine_artifact, deployed_setting
+    using VisualGeometryToolkitCore: solve, EstimationProblem, ReturnCode, ClosedForm
+    using VisualGeometryToolkitEstimation: Hyperparameter
+    using VisualGeometryToolkitEval.Tuning: SelectionBootstrap, unit_statistics, MeanAverageAccuracy, QueryUnit,
         load_tuning_artifact, grid_spec, save_tuning_artifact, SpacedGrid, LogCount
     using VisualGeometryToolkitEval.Stats: eligible_maa
     using VisualGeometryToolkitEval.Render: tuning_slice, emit_tuning_table
@@ -80,7 +82,7 @@ end
     errs(p) = (E = base .* (1 + 3abs(log(p.w / 2)) + 4abs(p.s - 0.5)); E[:, 6] .= p.w > 8 ? Inf : E[:, 6]; E)
     cells = Dict(:c => (s = grid_spec(spec.scheme.axes["s"].coarse), w = grid_spec(spec.scheme.axes["w"].coarse)))
     rec = with_logger(NullLogger()) do
-        coarse_fine_search(ps -> Dict(k => errs.(v) for (k, v) in ps), cells, spec.scheme)[:c]
+        solve(EstimationProblem(Hyperparameter, ps -> Dict(k => errs.(v) for (k, v) in ps), (; cells)), spec.scheme).metadata.records[:c]
     end
     dir = mktempdir()
     path = save_coarse_fine_artifact(joinpath(dir, "w.jld2"), spec, rec; unit = QueryUnit(), code = ())
@@ -110,7 +112,10 @@ end
         @test -sum(S[:, 1]) / sum(S[:, 2]) ≈ -eligible_maa(vec(E); max_error = 10.0)
         art = load_tuning_artifact(path)
         Es = [errs(p) for p in first.(rec.evaluated)]
-        idx = bootstrap_argmin(MeanAverageAccuracy(10.0), art["unit_statistics"], Xoshiro(9); n_resamples = 200)
+        rb = solve(EstimationProblem(Hyperparameter, art["unit_statistics"]), SelectionBootstrap(MeanAverageAccuracy(10.0); n_resamples = 200);
+                   rng = Xoshiro(9))
+        @test rb.retcode === ReturnCode.Success && rb.stop_rule === ClosedForm && rb.n == 40 && rb.stats.nsteps == 200
+        idx = rb.u
         rr = Xoshiro(9)
         ref = map(1:200) do _
             rows = rand(rr, 1:40, 40)

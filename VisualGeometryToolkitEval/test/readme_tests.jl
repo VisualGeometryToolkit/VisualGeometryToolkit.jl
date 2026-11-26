@@ -14,17 +14,19 @@
 @testitem "readme" begin
     using Test
     import VisualGeometryToolkitCore as VgtkCore
-    import VisualGeometryToolkitEval
+    import VisualGeometryToolkitEval, VisualGeometryToolkitEstimation
     # The README's example, run as a reader runs it (VisualGeometryToolkitCore's
     # test_readme_example): one block shown on the landing page, its install line
     # adding exactly what it loads, run in an environment built from that line.
-    VgtkCore.test_readme_example(pkgdir(VisualGeometryToolkitEval); checks = """
+    VgtkCore.test_readme_example(pkgdir(VisualGeometryToolkitEval);
+        developed = Dict("VisualGeometryToolkitCore" => pkgdir(VgtkCore), "VisualGeometryToolkitEstimation" => pkgdir(VisualGeometryToolkitEstimation)),
+        checks = """
     # The values the example's comments state.
     @test readme.finite_median(readme.errors) == 1.0
     @test readme.eligible_maa(readme.errors; max_error = 10.0) ≈ 0.73 atol = 0.01
     lo, hi = readme.bootstrap_ci(readme.finite_median, readme.Xoshiro(1), readme.errors)
     @test lo <= 1.0 <= hi
-    @test readme.result[:x_star_fine] ≈ 2.0 rtol = 0.05
-    @test readme.result[:boundary_hit] == false
+    @test readme.result.u[:threshold].x ≈ 2.0 rtol = 0.05
+    @test readme.result.metadata.records[:threshold].boundary_hit.x == false
     """)
 end

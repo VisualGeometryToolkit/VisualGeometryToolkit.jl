@@ -136,9 +136,14 @@ RotationAveraging(; optimization_strategy = ClassDefault(), tol = ClassDefault()
     RotationAveraging(optimization_strategy, tol, seed)
 estimator_kind(::RotationAveraging) = FitKind()
 
-function __solve(prob::EstimationProblem{VgtkCore.AbsoluteRotations, <:AbstractDict{<:Tuple{K, K}}, NullParameters},
-                 alg::RotationAveraging; scale = nothing, width::Union{Nothing, Real} = nothing) where {K}
-    relative = prob.f
+__solve(prob::EstimationProblem{VgtkCore.AbsoluteRotations, <:AbstractDict{<:Tuple{K, K}}, NullParameters}, alg::RotationAveraging;
+        scale = nothing, width::Union{Nothing, Real} = nothing) where {K} = _rotation_averaging(prob.f, alg; scale, width)
+
+# THE averaging (one kernel for every problem form and for FilteredRotationAveraging's stages): the relative rotations
+# keyed by edge, the algorithm, the solve's scale input, and the view graph the edges came from (`nothing` for a plain
+# edge Dict), recorded in the metadata.
+function _rotation_averaging(relative::AbstractDict{<:Tuple{K, K}}, alg::RotationAveraging; scale = nothing,
+        width::Union{Nothing, Real} = nothing, graph = nothing) where {K}
     who = "RotationAveraging"
     optimization_strategy = alg.optimization_strategy isa ClassDefault ?
         _check_irls_strategy(who, _dflt_strategy("rotation_averaging", :rotation_averaging)) : alg.optimization_strategy
@@ -182,10 +187,10 @@ function __solve(prob::EstimationProblem{VgtkCore.AbsoluteRotations, <:AbstractD
     end
     _irls_weights!(w, f, _whitened_norms(_edge_whitening(Σrel, edges, R), r))   # the metadata at the returned rotations
     out = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64, 9}(Rotations.nearest_rotation(R[k])) for k in frames)
-    meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)...)
+    meta = RotationAveragingMetadata{K, typeof(optimization_strategy)}(edges, w, Dict(e => norm(r[q]) for (q, e) in enumerate(edges)), _fit_scale_record(f)..., graph)
     sw = _solve_weights(p, w)
     used, rms = weighted_support_rms(sw, (norm(x)^2 for x in r))                # a zero weight drops its edge
-    return FitResult(out, irls_termination(tol_met, false)..., SolveStats(; nsteps = iter), rms, used, meta)
+    return FitResult(out, irls_retcode(tol_met, false), irls_stop_rule(tol_met, false), SolveStats(; nsteps = iter), rms, used, meta)
 end
 
 _averaging_max_iter(::Nothing) = _dflt("rotation_averaging", "max_iter")::Int
@@ -320,7 +325,7 @@ end
 # A ViewGraph: its views must be connected (a view in no edge is refused), then its edges' averaging.
 function __solve(prob::EstimationProblem{VgtkCore.AbsoluteRotations, <:ViewGraph, NullParameters}, alg::RotationAveraging; kwargs...)
     require_connected(prob.f; what = "view graph")
-    return __solve(EstimationProblem(VgtkCore.AbsoluteRotations, prob.f.edges), alg; kwargs...)
+    return _rotation_averaging(prob.f.edges, alg; kwargs...)
 end
 
 """
@@ -354,19 +359,13 @@ estimator_kind(::FilteredRotationAveraging) = FitKind()
 
 function __solve(prob::EstimationProblem{VgtkCore.AbsoluteRotations, <:ViewGraph, NullParameters}, alg::FilteredRotationAveraging; kwargs...)
     vg = prob.f
-    graph = alg.cycle_tol === nothing ? vg :
+    graph = alg.cycle_tol === nothing ? require_connected(vg; what = "view graph") :
         require_connected(filter_cycles(vg; tol = alg.cycle_tol); what = "view graph after the cycle filter")
-    fit = __solve(EstimationProblem(VgtkCore.AbsoluteRotations, graph), alg.averaging; kwargs...)
-    alg.orientation_tol === nothing && return _with_graph(fit, graph)
+    fit = _rotation_averaging(graph.edges, alg.averaging; graph, kwargs...)
+    alg.orientation_tol === nothing && return fit
     kept = filter_by_orientation(graph, fit.u; tol = alg.orientation_tol)
-    nedges(kept) == nedges(graph) && return _with_graph(fit, graph)
+    nedges(kept) == nedges(graph) && return fit
     kept = require_connected(kept; what = "view graph after the orientation filter")
-    return _with_graph(__solve(EstimationProblem(VgtkCore.AbsoluteRotations, kept), alg.averaging; kwargs...), kept)
+    return _rotation_averaging(kept.edges, alg.averaging; graph = kept, kwargs...)
 end
 
-# The averaging's result with the graph it ran on recorded in its metadata.
-function _with_graph(r::FitResult{<:Any, <:RotationAveragingMetadata{K, L}}, graph) where {K, L}
-    m = r.metadata
-    md = RotationAveragingMetadata{K, L}(m.edges, m.weights, m.residuals, m.scale, m.scale_source, m.loss_width, graph)
-    return FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, md)
-end

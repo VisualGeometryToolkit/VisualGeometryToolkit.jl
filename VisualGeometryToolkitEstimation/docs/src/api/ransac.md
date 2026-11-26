@@ -16,6 +16,13 @@ LocalOptimization
 RansacCache
 ```
 
+Model selection between refines is [`LikelihoodRatioSelection`](@ref): several candidate starts, each refined by
+the same seeded local optimization, the most likely kept.
+
+```@docs
+LikelihoodRatioSelection
+```
+
 ## Problem Interface
 
 ```@docs
@@ -215,7 +222,7 @@ Used as the return type of every `sample_models` method:
 ## Benchmark pools
 
 A scoring pool (VisualGeometryToolkitCore `Pools.PoolPair`, stored in
-`NormalizedImageFrame`) is written here. `draw_hypotheses` repeats the RANSAC
+`NormalizedImageFrame`) is written here. Its hypotheses are drawn by the RANSAC
 trial — the same draw, sample gate, sample solve and model gate a `Ransac` run makes — with
 no scoring. The record's constructor `PoolPair(rng, problem, raw; target,
 max_trials, variance)` draws the hypotheses of a pixel-frame problem on a raw
@@ -226,8 +233,6 @@ one's sample gate reads 0.1 px through `pool_pixel_scale(pair)` (F's and H's
 read the scale-free tolerance on their normalized view).
 
 ```@docs
-draw_hypotheses
-Hypotheses
 PoolVariance
 InlierVariance
 TrackVariance

@@ -1,10 +1,16 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+VisualGeometryToolkitCore = "96820d6b-1dad-4e77-ad4a-8276f2ec1ce7"
+VisualGeometryToolkitEstimation = "9a478df9-9a37-4dc7-9070-58617efe7573"
 VisualGeometryToolkitEval = "86c88899-11c8-4b8e-8d7a-f01a8ab99b28"
 
 [sources]
+VisualGeometryToolkitCore = {path = "../../VisualGeometryToolkitCore"}
+VisualGeometryToolkitEstimation = {path = "../../VisualGeometryToolkitEstimation"}
 VisualGeometryToolkitEval = {path = ".."}
 
 [compat]
 julia = "1.13"
 Documenter = "1.20"
+VisualGeometryToolkitCore = "0.14"
+VisualGeometryToolkitEstimation = "0.13"

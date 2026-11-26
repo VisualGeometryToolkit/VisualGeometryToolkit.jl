@@ -378,7 +378,7 @@ _onnx_cuda_reserve() = @lock _ONNX_ARENA_LOCK sum(a -> a.cap - a.held, _live_are
 # The default backend's free device memory, or `nothing` on the host or without a query.
 function _onnx_device_free()
     d = default_device()
-    d isa KA.CPU && return nothing
+    KA.isgpu(d) || return nothing                  # the host has no device memory to read (the device policy's query)
     f = device_free_bytes(d)
     return f == typemax(Int) ? nothing : f
 end

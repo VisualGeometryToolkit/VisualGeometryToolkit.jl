@@ -58,7 +58,11 @@ A keyword the solve does not take is a `MethodError`, as for every algorithm.
 
 PoseLib's Levenberg–Marquardt weighs each residual by its loss weight `ρ′`
 alone, without the `ρ″` term, so its strategies are `Irls{K}`; a `Triggs{K}`
-(the `ρ″`-corrected LM of the stack's native refines) is refused. Each shape
+(the `ρ″`-corrected LM of the stack's native refines) is refused. On this
+backend a strategy SELECTS PoseLib's own robust loss (its C loss enum): an
+`Irls{K}` here is PoseLib's robustified Levenberg–Marquardt at that loss, not
+VisualGeometryToolkitCore's reweighting loop, and `LeZach()` exists for this
+backend only (every other backend refuses it). Each shape
 is parametrized by one width `w`, and PoseLib's own `loss_scale` parameter
 equals that width for every loss bound here. The width reaches PoseLib
 unchanged.

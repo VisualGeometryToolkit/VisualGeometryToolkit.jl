@@ -1,5 +1,5 @@
 # =============================================================================
-# Pools — the scoring-pool IO of the stack: the in-memory pool (`ScoringPool`
+# PoolFiles — the scoring-pool IO of the stack: the in-memory pool (`ScoringPool`
 # of VisualGeometryToolkitCore `PoolPair` records) and its residual matrices
 # (`PoolResiduals`), bound by the content key `pool_key`; the one writer and
 # reader of each (format 6 light files, format 1 residuals files: PLAIN data,
@@ -12,7 +12,7 @@
 # ImageFrame. Nothing here converts a frame.
 # =============================================================================
 """
-    Pools
+    PoolFiles
 
 Scoring-pool input and output. A pool ([`ScoringPool`](@ref)) holds
 VisualGeometryToolkitCore `PoolPair` records; its residual matrices
@@ -27,7 +27,7 @@ VisualGeometryToolkitCore `PoolPair` records; its residual matrices
 A scoring pool is stored in `NormalizedImageFrame` ([`frame`](@ref)) and a PnP
 pool in `ImageFrame`. Nothing here converts a frame.
 """
-module Pools
+module PoolFiles
 
 using LinearAlgebra: I, normalize
 using Printf: @sprintf
@@ -62,4 +62,4 @@ include("pools/pnp_pool.jl")
 include("pools/pixel_inputs.jl")
 include("pools/synthetic_pool.jl")
 
-end # module Pools
+end # module PoolFiles

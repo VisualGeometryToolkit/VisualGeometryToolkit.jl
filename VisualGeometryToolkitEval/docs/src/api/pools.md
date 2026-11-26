@@ -1,11 +1,11 @@
-# API: Pools
+# API: PoolFiles
 
 Scoring-pool input and output.
 
 ## Public names
 
 ```@autodocs
-Modules = [VisualGeometryToolkitEval.Pools]
+Modules = [VisualGeometryToolkitEval.PoolFiles]
 Private = false
 ```
 
@@ -14,6 +14,6 @@ Private = false
 These names are not public; they are listed for contributors.
 
 ```@autodocs
-Modules = [VisualGeometryToolkitEval.Pools]
+Modules = [VisualGeometryToolkitEval.PoolFiles]
 Public = false
 ```

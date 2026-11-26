@@ -61,11 +61,14 @@ weight), `rms` the weight-weighted root mean square distance — the ATE of the
 pairs the weighting keeps. Physical points (lengths) are read in metres and
 the transform comes back physical; the metadata are then in metres.
 """
-function __solve(
+__solve(
         prob::EstimationProblem{<:EuclideanMap{3}, <:AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}}, NullParameters},
         alg::ReweightedLeastSquares; scale = nothing, width::Union{Nothing, Real} = nothing,
-    )
-    cs = prob.f
+    ) = _rigid_alignment_plain(prob.f, alg; scale, width)
+
+# THE rigid alignment on plain points (one kernel: the plain and the physical problem forms call it).
+function _rigid_alignment_plain(cs::AbstractVector{<:Correspondence{<:StaticVector{3, <:Real}, <:StaticVector{3, <:Real}}},
+                                alg::ReweightedLeastSquares; scale = nothing, width::Union{Nothing, Real} = nothing)
     who = "ReweightedLeastSquares (rigid alignment)"
     n = length(cs)
     optimization_strategy, tol = _reweighted_settings(alg, "reweighted_least_squares.rigid_alignment", who; strategy = false)
@@ -89,7 +92,7 @@ function __solve(
         _irls_weights!(w, f, r)
         T_new = _weighted_rigid(as, bs, _solve_weights(prior, w))
         T_new === nothing && return _reweighted_failure(EuclideanMap(one(RotMatrix{3, Float64}), zero(SVector{3, Float64}); check = false),
-                                                    optimization_strategy, f, n, w, irls_termination(false, false; linear_solve_failed = true))
+                                                    optimization_strategy, f, n, w, ReturnCode.InternalLinearSolveFailed, NoRule)
         ΔR = Rotations.rotation_angle(RotMatrix{3, Float64}(rotation(T_new) * rotation(T)'))
         Δt = norm(translation(T_new) - translation(T))
         T = T_new
@@ -102,7 +105,7 @@ function __solve(
     _irls_weights!(w, f, r)                           # the metadata at the returned transform
     sw = _solve_weights(prior, w)
     used, rms = weighted_support_rms(sw, (abs2(x) for x in r))
-    return FitResult(T, irls_termination(tol_met, f === nothing)..., SolveStats(; nsteps = iter), rms, used,
+    return FitResult(T, irls_retcode(tol_met, f === nothing), irls_stop_rule(tol_met, f === nothing), SolveStats(; nsteps = iter), rms, used,
                      FitMetadata{typeof(optimization_strategy)}(w, r, _fit_scale_record(f)...))
 end
 
@@ -117,7 +120,7 @@ function __solve(
     w_col = VgtkCore.weights_column(cs)
     plain = w_col === nothing ? plain : withattrs(VgtkCore.Correspondences(sources(plain), targets(plain)); weights = w_col)
     s = scale isa Union{Nothing, FitResult} ? scale : _metres(scale)
-    return _attach_metres(__solve(EstimationProblem(EuclideanMap{3}, plain), alg; scale = s, width = _metres(width)))
+    return _attach_metres(_rigid_alignment_plain(plain, alg; scale = s, width = _metres(width)))
 end
 
 function _weighted_rigid(as, bs, w)

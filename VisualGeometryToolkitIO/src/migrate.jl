@@ -507,7 +507,7 @@ function write_staged(f, outs::Pair{<:AbstractString, <:AbstractString}...; dry_
     renamed = 0
     stage = dry_run ? mktempdir() : mktempdir(dir; prefix = _STAGE_PREFIX)
     try
-        staged = [joinpath(stage, name) for (_, name) in outs]
+        staged = map(((_, name),) -> joinpath(stage, name), outs)   # a tuple, one path per output: `f`'s arity is the caller's
         r = f(staged...)
         if !dry_run
             for (p, (out, _)) in zip(staged, outs)

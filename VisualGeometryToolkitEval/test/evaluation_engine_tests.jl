@@ -22,7 +22,7 @@
 #                          contract: its workspace keeps the two-view frame it
 #                          was built from; its refine is VisualGeometryToolkitEstimation's
 #                          `Irls{TLSShape}` at the absolute loss width it is
-#                          handed (through this package's `refit_model`); a
+#                          handed (`solve(RefineProblem, LocalOptimization)`); a
 #                          fixed scale `FixedS2(s2)` reaches it as the loss
 #                          width √s2 (the contract's default).
 #   RefusingRefit, ThrowingRefit   an external refiner whose `prepare_external!`
@@ -41,11 +41,12 @@
     using VisualGeometryToolkitEval.Evaluation
     using VisualGeometryToolkitEval.Evaluation: PairGeom, ScoreSelector, OracleSelector, update!, checkpoint, lo_error!,
         lo_iteration_budget, n_batches, n_los, batch_sample_counts, lo_sample_counts, deployed_ref
-    using VisualGeometryToolkitEval.Pools: PoolResiduals, ScoringPool, synthetic_e_pool_pair, sample_starts, GT_CONVENTION
+    using VisualGeometryToolkitEval.PoolFiles: PoolResiduals, ScoringPool, synthetic_e_pool_pair, sample_starts, GT_CONVENTION
     using VisualGeometryToolkitEval.Tuning: tuning_spec, GridSpec, SpacedGrid, LinearCount, grid, save_tuning_artifact,
         tuning_table, EfficiencyConstantWindow, PairUnit
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem
-    using VisualGeometryToolkitCore: Irls, fixed_width
+    using VisualGeometryToolkitCore: Irls, fixed_width, solve, RefineProblem, found_model
+    using VisualGeometryToolkitEstimation: LocalOptimization
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: AbstractScoring, AbstractOptimizationStrategy, ExternalRefit, NativeRefit, RefitFamily,
         MsacScoring, TLSShape, EfficiencyConstant, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
@@ -92,8 +93,9 @@
     function VgtkCore.external_refit!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
         ws.refined += 1
         lw = loss_width(w)
-        return refit_model(problem, θ, Irls{TLSShape}(lo.max_iter, LossWidth(lw)),
-                           MsacScoring(VgtkCore.codimension(problem); threshold = lw))
+        r = solve(RefineProblem(problem, θ), LocalOptimization(Irls{TLSShape}(lo.max_iter, LossWidth(lw));
+                                                               scoring = MsacScoring(VgtkCore.codimension(problem); threshold = lw)))
+        return found_model(r) ? r.u : nothing
     end
 
     struct RefusingRefit <: AbstractOptimizationStrategy end
@@ -140,7 +142,7 @@
         @test ctx.geom isa PairGeom && length(ctx.geom.cs) == num_points(pair)
         @test build_pair_ctx(P, pair).scoring === nothing          # a selection-only context
         @test build_pair_ctx(P, pair; scoring = template(), solo_scoring = template(2.0)).solo_scoring === template(2.0)
-        @test build_pair_ctx(P, pair; bundle = true).bp isa RelposeBundleProblem
+        @test build_pair_ctx(P, pair; refit_on = ReprojectionBundle()).bp isa RelposeBundleProblem
         # one imc, dispatched on the model: a pool model, its metric seed, the
         # stored lower bound under it
         for j in 1:num_models(pair)
@@ -163,15 +165,15 @@
         seed = refit_seed(ctx, pair.models[3])
         a = 0.01
         e, ns = refit_imc!(ctx, irls(), seed, a)
-        E = refit_model(ctx.ep, seed, irls(), MsacScoring(1; threshold = a))
+        E = solve(RefineProblem(ctx.ep, seed), LocalOptimization(irls(); scoring = MsacScoring(1; threshold = a))).u
         @test E !== nothing && E != seed
         @test e === model_imc(E, ctx) && ns > 0               # the template rebuilt at nat′ = a
         # one LocalOptimization cache per (problem, template, algorithm type, seed type), reinit!'d per call
-        @test length(ctx.lo_ws) == 1 && only(keys(ctx.lo_ws))[1:2] == (:ep, :refit)
+        @test length(ctx.lo_ws) == 1 && only(keys(ctx.lo_ws))[1:2] == (PoolFrameProblem(), :refit)
         cache = only(values(ctx.lo_ws))
         @test refit_imc!(ctx, irls(), seed, a)[1] === e        # the cached workspace changes nothing
         @test refit_imc!(ctx, irls(), seed, 10a)[1] !== e      # the native moves the refit
-        @test refit_imc!(ctx, irls(), seed, 10a)[1] === model_imc(refit_model(ctx.ep, seed, irls(), MsacScoring(1; threshold = 10a)), ctx)
+        @test refit_imc!(ctx, irls(), seed, 10a)[1] === model_imc(solve(RefineProblem(ctx.ep, seed), LocalOptimization(irls(); scoring = MsacScoring(1; threshold = 10a))).u, ctx)
         @test refit_imc!(ctx, irls(), seed, a)[1] === e && only(values(ctx.lo_ws)) === cache   # back: the same cache
         # the solo template and another template at the same width: their own caches, the same arithmetic here
         @test refit_imc!(ctx, irls(), seed, a; scoring = ctx.solo_scoring)[1] === e
@@ -180,9 +182,8 @@
         # s2: the strategy deployed at an absolute scale (its efficiency constant at √s2)
         s2 = (0.004)^2
         e_s2 = first(refit_imc!(ctx, irls_sm(), seed, a; s2))
-        @test e_s2 === model_imc(refit_model(ctx.ep, seed, irls_sm(), MsacScoring(1; threshold = a); s2), ctx)
-        @test e_s2 === model_imc(refit_model(ctx.ep, seed, with_width(irls_sm(), fixed_width(irls_sm(), s2)),
-                                             MsacScoring(1; threshold = a)), ctx)
+        @test e_s2 === model_imc(solve(RefineProblem(ctx.ep, seed), LocalOptimization(with_width(irls_sm(), fixed_width(irls_sm(), s2));
+                                                                                      scoring = MsacScoring(1; threshold = a))).u, ctx)
         @test first(refit_imc!(ctx, irls_sm(), seed, a; s2 = 400 * s2)) !== e_s2
         # the guard keeps the refit or the seed
         @test first(refit_imc!(ctx, ScoreGuarded(irls()), seed, a)) in (e, model_imc(seed, ctx))
@@ -193,7 +194,7 @@
         @test isnan(first(@test_logs (:warn,) match_mode = :any refit_imc!(ctx, ThrowingRefit(), seed, a; on_fail = NaN)))
         # refusals: no template, a bundle refit without the bundle problem
         @test_throws ArgumentError refit_imc!(build_pair_ctx(P, pair), irls(), seed, a)
-        @test_throws ErrorException refit_imc!(ctx, irls(), seed, a; bundle = true)
+        @test_throws ArgumentError refit_imc!(ctx, irls(), seed, a; refit_on = ReprojectionBundle())
         # the refit row's guarded bracket
         @test guarded_refit(() -> nothing, identity, 7.0)[1] === 7.0
         @test guarded_refit(() -> 3, x -> NaN, 7.0)[1] === 7.0
@@ -209,7 +210,7 @@
             e_native, ns = refit_imc!(ctx, lo, seed, w; on_fail = NaN)
             e_override, _ = refit_imc!(ctx, lo, seed, 0.123; on_fail = NaN, s2 = w^2)
             @test isfinite(e_native) && ns > 0 && e_native === e_override   # the two ports: one width, bitwise
-            E = refit_model(ctx.ep, seed, Irls{TLSShape}(25, LossWidth(w)), MsacScoring(1; threshold = w))
+            E = solve(RefineProblem(ctx.ep, seed), LocalOptimization(Irls{TLSShape}(25, LossWidth(w)); scoring = MsacScoring(1; threshold = w))).u
             @test e_native === model_imc(E, ctx)
         end
         ws = ctx.lo_ws[:ext_refit_WidthRefit]
@@ -246,7 +247,7 @@
         idxs = ones(Int32, 2, 3)
         s = LoRefitSpec("x", irls(), OutlierHalfwidth(), 1:3, idxs)
         @test s.grid == [1.0, 2.0, 3.0] && s.grid isa Vector{Float64} && s.idxs == idxs && s.axis === OutlierHalfwidth()
-        @test s.seedcols === s.natives === s.widths === s.fixed_s2s === s.columns === nothing && !s.bundle
+        @test s.seedcols === s.natives === s.widths === s.fixed_s2s === s.columns === nothing && s.refit_on === PoolFrameProblem()
         @test_throws "native axis" LoRefitSpec("x", nothing, EfficiencyConstant(), [1.0, 2.0, 3.0], idxs)
         @test_throws "mutually exclusive" LoRefitSpec("x", irls(), LossWidth(), [1.0, 2.0, 3.0], idxs;
                                                       natives = [1.0, 1.0, 1.0], widths = [1.0, 1.0, 1.0])
@@ -451,15 +452,16 @@
         n, M = num_points(pair), num_models(pair)
         ctx = build_pair_ctx(P, pair; scoring = template())
         sc = MsacScoring(1; threshold = 0.01)
-        sel = ScoreSelector(:msac, sc, 0.01, scoring_workspace(sc, n, 1), Vector{Float64}(undef, n))
+        sel = ScoreSelector(:msac, sc, 0.01, pair => R)
         cfg(nat_ref) = SampleBudgetConfig(; sample_cap = 12, batch_size = 12, lo_every = 12, budget_unit = :models,
                                           lo_strategy = irls(), nat_ref)
         @test checkpoint(sel, ctx.geom, pair) === (NaN32, Int32(0)) && lo_error!(ctx, sel, cfg(nothing)) === (NaN32, Int64(0))
         for j in 1:M
             update!(sel, ctx.geom, pair, R, j, view(pair.sample_indices, :, j), n)
         end
-        @test sel.best_idx == best_pool_model(sc, pair, R)
-        seed = refit_seed(ctx, pair.models[sel.best_idx])
+        best = Int(last(checkpoint(sel, ctx.geom, pair)))
+        @test best == best_pool_model(sc, pair, R)
+        seed = refit_seed(ctx, pair.models[best])
         at_w = first(refit_imc!(ctx, irls(), seed, 0.04)); at_a = first(refit_imc!(ctx, irls(), seed, 0.01))
         @test at_w != at_a                                      # the fixture separates the two widths
         @test first(lo_error!(ctx, sel, cfg(0.04))) === Float32(at_w)
@@ -769,7 +771,7 @@ end
     code = raw"""
         using Random: MersenneTwister
         using VisualGeometryToolkitEval.Evaluation: evaluate_sample_budget, SampleBudgetConfig, SampleBudgetMethodSpec, LossWidthSpec
-        using VisualGeometryToolkitEval.Pools: synthetic_e_pool_pair
+        using VisualGeometryToolkitEval.PoolFiles: synthetic_e_pool_pair
         using VisualGeometryToolkitEstimation: EssentialProblem
         import VisualGeometryToolkitCore as VgtkCore
         using VisualGeometryToolkitCore: AbstractScoring, MsacScoring, OutlierHalfwidth, Irls, TLSShape, scoring_workspace

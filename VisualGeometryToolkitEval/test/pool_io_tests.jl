@@ -10,9 +10,9 @@
     using VisualGeometryToolkitCore: thrown_message
     import VisualGeometryToolkitCore as VgtkCore
     using Test, Random, JLD2, StaticArrays
-    using VisualGeometryToolkitEval.Pools
+    using VisualGeometryToolkitEval.PoolFiles
     import VisualGeometryToolkitEval as VgtkEval
-    using VisualGeometryToolkitEval.Pools: frame, synthetic_e_pool_pair, GT_CONVENTION
+    using VisualGeometryToolkitEval.PoolFiles: frame, synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitCore: FundMat, HomographyMat, NormalizedImageFrame, correspondences, sources, targets
     using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, num_points, num_models
     using VisualGeometryToolkitEval.Tuning: sampling_unit, PairUnit

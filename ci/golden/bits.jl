@@ -173,6 +173,9 @@ paths whose TYPE the migration changes (a result's own type, a renamed metadata 
 struct's fields are still compared one by one, an array's leaf bits as a whole. Every recorded path must be matched by exactly one new path, with the
 same leaf type and the same bits. `ignored` lists recorded paths that are not compared at all — only an
 exception's message (`exception.msg`), whose wording names the old keywords; its type is always compared.
+`retagged` lists recorded paths (`path => suffix`) whose `Symbol` the migration replaced by a singleton of the same
+tag (a choice by type, not by Symbol): the recorded Symbol must equal the new singleton's tag — the stack's tag rule,
+`snake_case` of its type name with `suffix` stripped (VisualGeometryToolkitCore's), exactly; anything else differs.
 `intended` holds a case's deliberate behaviour changes (`intended_changes.toml`, by recorded path): such a
 leaf must equal the listed old bits in the record AND the listed new bits in the replacement, exactly; each one
 matched is pushed to `used`, so the replay can refuse an entry that matched nothing.
@@ -183,11 +186,21 @@ struct FieldMap
     retyped::Vector{String}
     ignored::Vector{String}
     aliases::Vector{Pair{String, String}}
+    retagged::Vector{Pair{String, String}}
 end
 FieldMap(renames, new_only, retyped, ignored) = FieldMap(renames, new_only, retyped, ignored, RETIRED_ALIAS_PRINTS)
+FieldMap(renames, new_only, retyped, ignored, aliases) = FieldMap(renames, new_only, retyped, ignored, aliases, Pair{String, String}[])
 FieldMap(; renames = Pair{String, String}[], new_only = String[], retyped = String[], ignored = String[],
-         aliases = RETIRED_ALIAS_PRINTS) =
-    FieldMap(collect(renames), collect(new_only), collect(retyped), collect(ignored), collect(aliases))
+         aliases = RETIRED_ALIAS_PRINTS, retagged = Pair{String, String}[]) =
+    FieldMap(collect(renames), collect(new_only), collect(retyped), collect(ignored), collect(aliases), collect(retagged))
+
+# The tag of a recorded singleton (its type's print), by the stack's tag rule: its type name, `suffix` stripped from
+# the end when present, in VisualGeometryToolkitCore's `snake_case`.
+function _singleton_tag(typeprint::AbstractString, suffix::AbstractString)
+    name = String(last(split(typeprint, '.')))
+    !isempty(suffix) && endswith(name, suffix) && length(name) > length(suffix) && (name = name[1:(end - length(suffix))])
+    return Main.VisualGeometryToolkitCore.snake_case(name)
+end
 
 # The type aliases the Core 0.14 migration retired (check_naming R20, owner 2026-11-24): a `const` that named one concrete
 # type. A recorded type printed through one names the IDENTICAL type that now prints without it, so a FieldMap's
@@ -249,8 +262,13 @@ function compare_record(old, new_record; map::FieldMap = IDENTITY_MAP, intended 
         p == "exception.msg" || error("FieldMap: only `exception.msg` may be ignored, got `$p`")
         delete!(want, p); delete!(got, p)
     end
+    retagged = Dict(map.retagged)
     for (p, (t, v)) in want
-        if haskey(intended, p) && haskey(got, p)
+        if haskey(retagged, p) && haskey(got, p)
+            # a declared Symbol → singleton change: the recorded Symbol is the singleton's tag, exactly
+            (t == "Symbol" && got[p][1] == "singleton" && _singleton_tag(got[p][2], retagged[p]) == v) ||
+                push!(diffs, "`$p`: retagged — recorded $t $v, new $(got[p][1]) $(got[p][2]) (its tag is not the recorded Symbol)")
+        elseif haskey(intended, p) && haskey(got, p)
             c = intended[p]   # a deliberate behaviour change (intended_changes.toml): exact old and new bits, or a failure
             if (t, v) == (c["old"]["type"], c["old"]["value"]) && got[p] == (c["new"]["type"], c["new"]["value"])
                 push!(used, p)

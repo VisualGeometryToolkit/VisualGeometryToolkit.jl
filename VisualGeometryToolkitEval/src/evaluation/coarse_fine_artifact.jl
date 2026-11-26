@@ -3,7 +3,7 @@
 # reader.
 #
 # A tuned setting — one scalar or a joint setting of several — is selected by
-# `coarse_fine_search` and deployed by reading its artifact. The writer fixes
+# the coarse-fine search (a scheme's solve) and deployed by reading its artifact. The writer fixes
 # the layout every reader relies on; the reader is the one place the
 # interior-argmin invariant is enforced: a search that hit its window's edge
 # on ANY axis is never consumed.
@@ -21,8 +21,8 @@
 """
     save_coarse_fine_artifact(path, spec::TuningSpec, rec; unit, code, data...) -> path
 
-Persist one search record `rec` ([`coarse_fine_search`](@ref), one key's
-NamedTuple) under its `coarse_fine` / `joint_coarse_fine` spec as a tuning
+Persist one search record `rec` (one key's NamedTuple of the coarse-fine search's
+`r.metadata.records`) under its `coarse_fine` / `joint_coarse_fine` spec as a tuning
 artifact ([`save_tuning_artifact`](@ref)): the grids `coarse|<axis>` and
 `fine|<axis>`, and
 

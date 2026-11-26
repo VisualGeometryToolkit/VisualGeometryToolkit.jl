@@ -35,6 +35,9 @@ reproduces byte for byte name their generator 0.12.0.
   too: `json_schema(kind)` is the schema of the one version written.
 
 ### Changed
+- Stack conformance (internal; no file, kind or public behavior changes): `write_staged` hands `f` its staged paths as
+  a `Tuple`, one per output, and a rig's sensors are read into a `Tuple` (`Rig{F}(Tuple(sensors))`), so neither
+  splats a collection of run-time length (their DUPLICATION.toml exemptions are deleted).
 - A SplineLens camera's export refusal names VisualGeometryToolkitEstimation 0.13's camera regression,
   `solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, camera, region)), CameraRegression())`, as the route
   to a parametric lens (it named the retired two-stage function).

@@ -34,7 +34,7 @@
 
     const _QG_M = VisualGeometryToolkitEval
     const _QG_MODS = (_QG_M, _QG_M.Stats, _QG_M.Tuning, _QG_M.Evaluation, _QG_M.Experiments,
-                      _QG_M.Render, _QG_M.Pools, _QG_M.Datasets, _QG_M.DataArtifacts,
+                      _QG_M.Render, _QG_M.PoolFiles, _QG_M.Datasets, _QG_M.DataArtifacts,
                       _QG_M.PaperProjects)
 
     @testset "quality gates" begin

@@ -16,9 +16,9 @@
 # Σϕ²), or a nonlinear refine's Gauss–Newton energy `tr JᵀJ` over its parameters (the
 # residuals of exact data vanish, so they cannot set a scale).
 #
-# THE SEARCH. `gcv_select(score, scale)`: `score(λ)` returns `(; gcv, rss, dof)` — a
-# closed-form curve of one Gauss–Newton system (`gcv_curve`), or a caller's own
-# evaluation — minimized over log₁₀ β by a coarse scan and Brent's method (Core's
+# THE SEARCH. `solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation())`:
+# `score(λ)` returns `(; gcv, rss, dof)` — a closed-form curve of one Gauss–Newton system (`gcv_curve`), or a
+# caller's own evaluation — minimized over log₁₀ β by a coarse scan and Brent's method (Core's
 # `grid_brent_minimum`), the scan evaluated from the largest β down.
 # =============================================================================
 
@@ -26,15 +26,15 @@
     check_penalty_weight(w, what) -> w
 
 A penalty weight as an option states it: a finite β ≥ 0 (no penalty is β = 0), or
-`:gcv` (chosen by [`gcv_select`](@ref)). An `ArgumentError` naming `what`
+a [`GeneralizedCrossValidation`](@ref) (β chosen by it). An `ArgumentError` naming `what`
 otherwise. The keyword `allow_nothing` (which also admitted `nothing`) is retired
 (0.11.0: no caller left), refused by name.
 """
 function check_penalty_weight(w, what::AbstractString; allow_nothing = RetiredKeyword())
     refuse_retired_keyword(allow_nothing, :allow_nothing, "β = 0 for no penalty")
-    w === :gcv && return w
+    w isa GeneralizedCrossValidation && return w
     w isa Real && isfinite(w) && w >= 0 && return w
-    throw(ArgumentError("$what = $(repr(w)) is not a finite weight β ≥ 0 or :gcv"))
+    throw(ArgumentError("$what = $(repr(w)) is not a finite weight β ≥ 0 or a GeneralizedCrossValidation()"))
 end
 
 """
@@ -148,29 +148,52 @@ function _gcv_pencil(G::AbstractMatrix, Q::AbstractMatrix)
 end
 
 """
-    gcv_select(score, scale; log10_bracket = (-8.0, 4.0), points = 25)
-        -> (; β, λ, gcv, rss, dof, log10_β_bracket, at_bracket_end)
+    Hyperparameter
 
-The penalty weight β minimizing GCV, `score(λ)` returning `(; gcv, rss, dof)` at
-`λ = β · scale` (Core's `penalty_scale`) — a [`gcv_curve`](@ref), or a caller's own
-evaluation: a coarse scan of `points` values of log₁₀ β, evenly spaced over
-`log10_bracket` and evaluated from the largest down, then Brent's method on the scan's
-interval around its best point, to Brent's own floor (Core's `grid_brent_minimum`; no
-tolerance to choose: each evaluation of a curve is closed form). GCV need not be
-unimodal over many decades: the scan picks the basin. A least value at a scan end is
-refined on its one neighbouring interval, and `at_bracket_end` says the result lies at
-that end (the bracket did not contain the minimum; never silently taken as interior).
-`gcv` is the least value evaluated, `dof` the effective number of parameters `tr H_λ`
-there. A score of `Inf` (a weight the caller could not evaluate) is never the minimum.
-(RadiometricCamera's scan-and-Brent search, adopted.)
+The model TAG of a hyperparameter's selection (abstract, never instantiated): the estimate is a setting of a
+hyperparameter — a penalty weight, a cross-validated scalar, or a `NamedTuple` of axis values — chosen by minimizing a
+criterion. `EstimationProblem(Hyperparameter, objective, p)`: the objective (a curve of the setting, a validation
+evaluator, a table of validation errors) is the problem's data, its context `p`. Solved by
+[`GeneralizedCrossValidation`](@ref) here, and by VisualGeometryToolkitEval's cross-validation schemes.
 """
-function gcv_select(score, scale::Real; log10_bracket::Tuple{Real, Real} = (-8.0, 4.0), points::Integer = 25)
-    lo, hi = Float64.(log10_bracket)
+abstract type Hyperparameter end
+
+"""
+    GeneralizedCrossValidation(; log10_bracket = (-8.0, 4.0), points = 25)
+
+A [`FitKind`](@extref VisualGeometryToolkitCore.FitKind) (a scan, then Brent's method):
+`solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation(; log10_bracket, points))`,
+the penalty weight β minimizing GCV, `score(λ)` returning `(; gcv, rss, dof)` at `λ = β · scale` (Core's
+`penalty_scale`) — a [`gcv_curve`](@ref), or a caller's own evaluation: a coarse scan of `points` values of log₁₀ β,
+evenly spaced over `log10_bracket` and evaluated from the largest down, then Brent's method on the scan's interval
+around its best point, to Brent's own floor (no tolerance to choose: each evaluation of a curve is closed form). GCV
+need not be unimodal over many decades: the scan picks the basin. A score of `Inf` (a weight the caller could not
+evaluate) is never the minimum.
+
+The result: `u = β`; `stats.nf` the score evaluations; `n = 0` and `rms` NaN (it reads a curve, not data);
+`metadata = (; λ, gcv, rss, dof, log10_β_bracket, at_bracket_end)`, `gcv` the least value evaluated and `dof` the
+effective number of parameters `tr H_λ` there. A least value inside the bracket is `(Success, ToleranceMet)`. One at a
+scan end is refined on its one neighbouring interval and is `(MaxIters, IterationCap)` with `at_bracket_end = true`: the
+bracket did not contain the minimum, which is never silently taken as interior. (RadiometricCamera's scan-and-Brent
+search, adopted.)
+"""
+struct GeneralizedCrossValidation <: AbstractEstimationAlgorithm
+    log10_bracket::Tuple{Float64, Float64}
+    points::Int
+end
+GeneralizedCrossValidation(; log10_bracket::Tuple{Real, Real} = (-8.0, 4.0), points::Integer = 25) =
+    GeneralizedCrossValidation((Float64(log10_bracket[1]), Float64(log10_bracket[2])), Int(points))
+estimator_kind(::GeneralizedCrossValidation) = FitKind()
+
+function __solve(prob::EstimationProblem{Hyperparameter, <:Any, <:NamedTuple{(:scale,)}}, alg::GeneralizedCrossValidation)
+    score = prob.f; scale = prob.p.scale
+    lo, hi = alg.log10_bracket
     seen = Dict{Float64, NamedTuple{(:gcv, :rss, :dof), NTuple{3, Float64}}}()
     g(t) = (c = get!(() -> _gcv_record(score(exp10(t) * scale)), seen, t); c.gcv)
-    found = VgtkCore.grid_brent_minimum(g, range(hi, lo; length = points))
+    found = VgtkCore.grid_brent_minimum(g, range(hi, lo; length = alg.points))
     c = seen[found.x]
-    return (; β = exp10(found.x), λ = exp10(found.x) * scale, c.gcv, c.rss, c.dof, log10_β_bracket = [lo, hi],
-        at_bracket_end = found.at_end)
+    meta = (; λ = exp10(found.x) * scale, c.gcv, c.rss, c.dof, log10_β_bracket = [lo, hi], at_bracket_end = found.at_end)
+    return FitResult(exp10(found.x), found.at_end ? ReturnCode.MaxIters : ReturnCode.Success,
+                     found.at_end ? IterationCap : ToleranceMet, SolveStats(; nf = length(seen)), NaN, 0, meta)
 end
 _gcv_record(c) = (; gcv = Float64(c.gcv), rss = Float64(c.rss), dof = Float64(c.dof))

@@ -1,5 +1,16 @@
 # SplineLens Fold-in Implementation Plan (plan 1b)
 
+> **Superseded (Core 0.14, the solve interface).** This is a historical plan, kept as written. The estimator calls it
+> names are retired:
+>
+> | in this plan | now |
+> |---|---|
+> | `fit_camera(L, source, region; …)` | `solve(EstimationProblem(CameraRegressionProblem(L, source, region; …)), CameraRegression(; tolerance, grid_size, forward))` |
+> | `fit_camera` then its refine | `solve(EstimationProblem(CameraRegressionProblem(L, source, region)), CameraRegression(; refine = LevenbergMarquardt()); stops)` |
+> | `refine_camera_and_poses(cam, poses, views)` | `solve(RefineProblem(CameraPosesProblem(views), (; camera, poses)), LevenbergMarquardt())` |
+>
+> See docs/design/core-0.14-spec.md for the full old → new map.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the central grid camera an ordinary `CameraModel(K, SplineLens(...))`. Delete `CentralGenericModel`, `SplineProjection` and `nominal_intrinsics` along with their roughly 70 parallel methods. Rebuild `NoncentralSplineModel` on the same `ChartSpline` machinery. Port IO and Estimation, so that Core/IO/Estimation 0.9 ships one grid implementation.

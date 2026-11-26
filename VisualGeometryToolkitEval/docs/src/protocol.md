@@ -7,7 +7,7 @@ state only what is specific to them: their command line, schemas and stages.
 The mechanisms live in this package's modules: `Tuning` (the cross-validation
 specification), `Stats` (the statistics), `Evaluation` (the composition
 evaluator and the single cross-validation path), `Experiments` (run records),
-`Render` (figures), and `Pools` and `Datasets` (data). Every parameter of
+`Render` (figures), and `PoolFiles` and `Datasets` (data). Every parameter of
 record is in `configs/default.toml`, `configs/tuning.toml` or
 `configs/splits.toml`.
 
@@ -100,8 +100,8 @@ hold. `d_g` has no default anywhere, and every tuning artifact persists it as
 ## 2. Tuning: the single CV path
 
 Every hyperparameter is cross-validated by one discipline, the coarse-to-fine
-search ([`coarse_fine_search`](@ref), with a `[tuning.<name>]` spec of scheme
-`joint_coarse_fine`, or `coarse_fine` for one scalar). It runs in three phases:
+search: `solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), spec.scheme)`, with a `[tuning.<name>]` spec of
+scheme `joint_coarse_fine`, or `coarse_fine` for one scalar. It runs in three phases:
 
 1. It evaluates a coarse product grid. Whenever the joint argmin lies within
    `edge_margin` points of a face, the grid extends that axis.
@@ -111,7 +111,7 @@ search ([`coarse_fine_search`](@ref), with a `[tuning.<name>]` spec of scheme
 
 Windows are located by expansion; they are never pinned or widened by hand.
 Several searches share one sweep of a staged validation pool (the search keys
-of one call, or [`coarse_fine_cv_batched`](@ref) for scalars), and an
+of one solve), and an
 expensive axis is evaluated one value at a time. The artifact
 ([`save_coarse_fine_artifact`](@ref)) stores the per-unit sufficient
 statistics of each cell, from which the bootstrap of the selection is exact;
@@ -150,8 +150,8 @@ spec's [`BudgetSampling`](@ref) ([`budget_units`](@ref)). Draw `r` of budget
 
 For each draw, the protocol computes the reference scale `ŝ(n)` of the drawn
 units, takes the free argmin inside the window at `ŝ(n)`, and evaluates the
-chosen point on the test data ([`WindowedGridMethod`](@ref),
-[`compute_method_rows`](@ref)). The reported point is the mean over draws of
+chosen point on the test data ([`ValidationErrors`](@ref) and the
+`WindowedBootstrap` scheme's solve, [`compute_method_rows`](@ref)). The reported point is the mean over draws of
 the per-draw test medians. The interval is a BCa interval over draws,
 resampled from `resampling_rng(budget, n)`, that is
 `rng(stable_seed(seed, "resampling", n))`, a stream of its own and never a

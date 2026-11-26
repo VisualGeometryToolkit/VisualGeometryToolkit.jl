@@ -136,7 +136,7 @@ end
 
 """
     refit_imc!(ctx::PairCtx, lo, seed, nat′::Float64;
-               scoring = ctx.scoring, on_fail = nothing, bundle::Bool = false,
+               scoring = ctx.scoring, on_fail = nothing, refit_on = PoolFrameProblem(),
                s2 = nothing) -> (imc::Float64, lo_ns::Int64)
 
 Refine the seed model `seed` with strategy `lo` at ITS native parameter `nat′`
@@ -149,8 +149,8 @@ plus the bracketed optimizer wall-clock.
   absolute-width (solo) refit.
 - `on_fail`: value on optimizer bail / non-finite refit. Default = the seed's
   own imc (never-worsen); the ladder supplies `NaN`.
-- `bundle`: route the native refit through `ctx.bp` (Schur reprojection bundle)
-  instead of the pose-only `ctx.ep`.
+- `refit_on`: the problem a native refit runs on, [`PoolFrameProblem`](@ref)`()` (`ctx.ep`, the pose-only
+  pool-frame problem) or [`ReprojectionBundle`](@ref)`()` (`ctx.bp`, the Schur reprojection bundle).
 - `s2`: an externally supplied squared scale — the one conduit for a
   non-consensus width:
   * NativeRefit: the strategy is deployed at the absolute width
@@ -161,14 +161,14 @@ plus the bracketed optimizer wall-clock.
     the loss width `√s2`).
 """
 function refit_imc!(ctx::PairCtx, lo::Union{Nothing, AbstractOptimizationStrategy}, seed, nat′::Float64;
-                    scoring = ctx.scoring, on_fail = nothing, bundle::Bool = false,
+                    scoring = ctx.scoring, on_fail = nothing, refit_on::RefitProblem = PoolFrameProblem(),
                     s2 = nothing)
     fallback = on_fail === nothing ? model_imc(seed, ctx) : Float64(on_fail)
-    refit_imc!(ctx, RefitFamily(lo), lo, seed, nat′, scoring, fallback, bundle, s2)
+    refit_imc!(ctx, RefitFamily(lo), lo, seed, nat′, scoring, fallback, refit_on, s2)
 end
 
 """
-    refit_imc!(ctx, family::RefitFamily, lo, seed, nat′, scoring, fallback, bundle, s2)
+    refit_imc!(ctx, family::RefitFamily, lo, seed, nat′, scoring, fallback, refit_on, s2)
         -> (imc::Float64, lo_ns::Int64)
 
 The execution path of one `RefitFamily` (VisualGeometryToolkitCore's Holy trait:
@@ -177,17 +177,15 @@ resolves the keywords and calls this with `RefitFamily(lo)`. A new strategy
 plugs in through the contracts (`locally_optimize!`, or `external_refit!`
 with its `external_workspace`), never by a method here.
 """
-function refit_imc!(ctx, ::NativeRefit, lo, seed, nat′, scoring, fallback, bundle, s2)
+function refit_imc!(ctx, ::NativeRefit, lo, seed, nat′, scoring, fallback, refit_on, s2)
     scoring === nothing && throw(ArgumentError(
         "refit_imc!: a native refit needs a scoring template (build_pair_ctx(…; scoring))"))
-    prob = bundle ? (ctx.bp === nothing ?
-                     error("refit_imc!: bundle=true needs build_pair_ctx(...; bundle=true)") :
-                     ctx.bp) : ctx.ep
+    prob = _refit_problem(ctx, refit_on)
     alg = _refit_algorithm(lo, with_width(scoring, OutlierHalfwidth(nat′)), s2 === nothing ? nothing : Float64(s2))
     # One cache per (problem variant, scoring template, algorithm type, seed type), built once per pair outside the
     # bracket and `reinit!`'d per call with the call's seed and algorithm (the scorer at its width): the workspace is
     # reused, as SciML's `init`/`reinit!`/`solve!`.
-    key = (bundle ? :bp : :ep, _template_tag(ctx, scoring), typeof(alg), typeof(seed))
+    key = (refit_on, _template_tag(ctx, scoring), typeof(alg), typeof(seed))
     cache = get!(() -> init(RefineProblem(prob, seed), alg), ctx.lo_ws, key)
     # Function barrier: the cache arrives abstractly typed; inside `_native_refit_imc` it is concrete, so the local
     # optimization specializes statically per (problem, scoring, LO) triple.
@@ -202,25 +200,6 @@ _template_tag(ctx, scoring) =
     scoring === ctx.scoring ? :refit :
     scoring === ctx.solo_scoring ? :solo :
     Symbol(:sc, hash(with_width(scoring, OutlierHalfwidth(1.0))))
-
-"""
-    refit_model(problem, seed, lo, scoring; s2 = nothing) -> Union{Nothing, model}
-
-The native refit of the refit layer — `solve(RefineProblem(problem, seed),
-LocalOptimization(lo; scoring, score_guard))`, VisualGeometryToolkitEstimation's
-seeded local optimization — returning the refined MODEL, `nothing` when the
-strategy produced none. `lo` may be `ScoreGuarded` (the guard becomes
-`score_guard`). `s2` deploys the same strategy at an absolute squared scale
-(`with_width(lo, fixed_width(lo, s2))`; the scoring sweep is untouched, only
-the LO's width moves); `nothing` keeps the strategy's own width mode. The
-refit layer's imc rows wrap exactly this in `guarded_refit`; a caller that
-needs the refined model itself (a polish warm start) calls it directly.
-"""
-function refit_model(prob, seed, lo::Union{Nothing, AbstractOptimizationStrategy}, sc;
-                     s2::Union{Nothing,Real} = nothing)
-    r = solve(RefineProblem(prob, seed), _refit_algorithm(lo, sc, s2 === nothing ? nothing : Float64(s2)))
-    return found_model(r) ? r.u : nothing
-end
 
 # The native refit's algorithm: `lo` (its guard as `score_guard`) under the scorer `sc`, at the absolute squared scale
 # `s2` when one is given (`with_width(lo, fixed_width(lo, s2))`; no LO has no width to fix).
@@ -242,7 +221,7 @@ end
 # the caller supplies one (by default the loss width `√s2`; an adaptive arm
 # reads the scale itself) — on its per-pair workspace. `prepare_external!` runs outside
 # the bracket (a consensus-scale bootstrap); `false` is no refit, no call.
-function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, bundle, s2)
+function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, refit_on, s2)
     prob = ctx.ep
     width = s2 === nothing ? LossWidth(Float64(nat′)) : FixedS2(Float64(s2))
     ws = get!(() -> external_workspace(lo, prob, ctx.geom, scoring), ctx.lo_ws,
@@ -272,7 +251,7 @@ _width_refit_imc!(ctx, ::ExternalRefit, lo, seed, w::Float64, nat′::Float64; k
 
 `lo` refitting under the refit scoring at ITS OWN outlier half-width instead of
 the selection's: the in-loop form of the refit layer's native port
-(`refit_imc!`'s `nat′`, `refit_model`). The self-scaled arms (Stu-tU IRLS, BCD)
+(`refit_imc!`'s `nat′`). The self-scaled arms (Stu-tU IRLS, BCD)
 read their half-width from the scoring the loop hands them, so inside a RANSAC
 loop they would otherwise refit at the SELECTION half-width — not the refit
 half-width their sequential CV tuned at the fixed a*. `scoring_of(problem)`

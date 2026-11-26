@@ -161,7 +161,7 @@ _search_record(s, reached::Bool) =
     reached ? (ReturnCode.Success, AdaptiveCount) : (ReturnCode.MaxIters, TrialBudget)
 
 # =============================================================================
-# _draw_trial! — ONE minimal-sample trial (shared by `ransac` and `draw_hypotheses`)
+# _draw_trial! — ONE minimal-sample trial (shared by `ransac` and `_draw_hypotheses`)
 # =============================================================================
 
 """
@@ -172,7 +172,7 @@ One minimal-sample trial: `draw_sample!` into `indices`, the problem's
 Every surviving model is folded into `acc` as `acc = f(acc, model)`, in solver
 order. `accepted` is whether `test_sample` accepted the sample; `n_solutions` the
 number of solver solutions (0 when it did not). The one trial of the stack:
-`ransac` folds its incumbent through it, `draw_hypotheses` the hypotheses it
+`ransac` folds its incumbent through it, `_draw_hypotheses` the hypotheses it
 keeps. A fold, not a closure over mutated locals, so the hot loop boxes nothing.
 """
 @inline function _draw_trial!(f::F, rng::Random.AbstractRNG, indices::AbstractVector{Int}, problem, acc) where {F}

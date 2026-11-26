@@ -9,7 +9,8 @@ Each part of the package is a submodule, and its names are imported from it:
 ```@example start
 using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa, bootstrap_ci, stable_seed
 using VisualGeometryToolkitEval.Tuning: tuning_spec, grid_spec, grid
-using VisualGeometryToolkitEval.Evaluation: coarse_fine_cv
+using VisualGeometryToolkitCore: solve, EstimationProblem
+using VisualGeometryToolkitEstimation: Hyperparameter
 using Random: Xoshiro
 using TOML
 nothing # hide
@@ -75,16 +76,18 @@ The coarse grid spans two decades at four points per decade:
 collect(grid(grid_spec(spec.scheme.coarse)))
 ```
 
-[`coarse_fine_cv`](@ref) runs the coarse-to-fine search on an objective. The
-objective returns the validation errors at a threshold `x`; the spec's
-criterion (the median error, by default) reduces them to one number. Here a
-stand-in objective is smallest at `x = 2`:
+The spec's scheme is the algorithm of the coarse-to-fine search:
+`solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), spec.scheme)`. The
+objective returns the validation errors at each cell it is asked for, keyed by
+search; the spec's criterion (the median error, by default) reduces them to one
+number. Here a stand-in objective is smallest at `x = 2`:
 
 ```@example start
 validation_errors(x) = [abs(log(x / 2)) + 0.1 * k for k in 1:5]
-result = coarse_fine_cv(validation_errors, grid_spec(spec.scheme.coarse), spec.scheme;
-                        method_name = :threshold)
-result[:x_star_fine]
+errorsfn(cells) = Dict(k => [validation_errors(c.x) for c in cs] for (k, cs) in cells)
+problem = EstimationProblem(Hyperparameter, errorsfn, (; cells = Dict(:threshold => (; x = grid_spec(spec.scheme.coarse)))))
+result = solve(problem, spec.scheme)
+result.u[:threshold].x
 ```
 
 The search first evaluates the coarse grid. When the best point lies near an
@@ -94,7 +97,7 @@ optimum is still on the boundary after every extension is flagged, and the
 readers of tuned values refuse it:
 
 ```@example start
-result[:boundary_hit]
+result.metadata.records[:threshold].boundary_hit.x
 ```
 
 ## Where to go next

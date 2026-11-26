@@ -54,29 +54,32 @@ derivation). The LM's stop settings are VisualGeometryToolkitCore's, the stack's
 its `[lm]` table); `max_iter`, `converged_tol2` and `cost_floor` are retired here. An isbits value, so a
 kernel takes it.
 """
-struct ContinuousRefinement{M}
+struct ContinuousRefinement{R}
+    response::R
     prefilter_halfwidth::Int
     spatial_bound::Float64
     scale_bound::Float64
     min_curvature::Float64
 end
-ContinuousRefinement(; kw...) = _continuous_refinement(:farid_simoncelli_spatial; kw...)
-# The refinement on response `M`: the recipe (`:farid_simoncelli_spatial`), or the plain spline response (`:spline`,
-# stage C: its exact derivatives) that the research benchmark (benchmark/continuous_refine) ablates against.
+ContinuousRefinement(; kw...) = _continuous_refinement(_FaridSimoncelliResponse(); kw...)
+# The response a refinement interpolates: the recipe (Farid–Simoncelli's matched first-derivative filters on the
+# prefiltered slices, spatial only), or the plain spline response (stage C: its exact derivatives) that the research
+# benchmark (benchmark/continuous_refine) ablates against. Singletons, so the configuration stays isbits.
+abstract type _DogResponse end
+struct _FaridSimoncelliResponse <: _DogResponse end
+struct _SplineResponse <: _DogResponse end
 function _continuous_refinement(
-        M::Symbol; prefilter_halfwidth::Integer = _cr("prefilter_halfwidth"),
+        response::_DogResponse; prefilter_halfwidth::Integer = _cr("prefilter_halfwidth"),
         spatial_bound::Real = _cr("spatial_bound"), scale_bound::Real = _cr("scale_bound"), min_curvature::Real = _cr("min_curvature"),
         max_iter = RetiredKeyword(), converged_tol2 = RetiredKeyword(), cost_floor = RetiredKeyword()
     )
     for (value, name) in ((max_iter, :max_iter), (converged_tol2, :converged_tol2), (cost_floor, :cost_floor))
         refuse_retired_keyword(value, name, "VisualGeometryToolkitCore's LM stop settings, the stack's one owner (`StaticLmStops`, `[lm]`)")
     end
-    M in (:spline, :farid_simoncelli_spatial) || throw(ArgumentError("the continuous refinement's response is :farid_simoncelli_spatial or :spline, got :$M"))
-    return ContinuousRefinement{M}(
-        Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature)
+    return ContinuousRefinement(
+        response, Int(prefilter_halfwidth), Float64(spatial_bound), Float64(scale_bound), Float64(min_curvature)
     )
 end
-_response(::ContinuousRefinement{M}) where {M} = M
 
 # ----- the cardinal cubic spline ---------------------------------------------
 
@@ -246,17 +249,20 @@ function _conv_taps(a::Vector{Float64}, b::Vector{Float64})
     end
     return c
 end
-function _field_taps(derivatives::Symbol, K::Integer)
+# The cardinal prefilter, full (2K + 1 taps), and the padding of a field's taps to 2K + 5.
+function _prefilter_full(K::Integer)
     h1 = cubic_bspline_prefilter_taps(K)
-    h = [reverse(h1[2:end]); h1]                        # full, 2K + 1
-    pad(c) = (L = 2K + 5; z = zeros(L); o = (L - length(c)) ÷ 2; z[(o + 1):(o + length(c))] .= c; z)
-    if derivatives === :spline
-        return reshape(pad(h), :, 1), reshape(pad(h), :, 1)
-    elseif derivatives === :farid_simoncelli_spatial
-        hp = _conv_taps(h, _FS_P); h1d = _conv_taps(h, _FS_D1)
-        return hcat(pad(h), h1d, hp), hcat(pad(h), hp, h1d)
-    end
-    throw(ArgumentError("the continuous refinement's response is :farid_simoncelli_spatial or :spline, got :$derivatives"))
+    return [reverse(h1[2:end]); h1]
+end
+_pad_taps(c, K::Integer) = (L = 2K + 5; z = zeros(L); o = (L - length(c)) ÷ 2; z[(o + 1):(o + length(c))] .= c; z)
+function _field_taps(::_SplineResponse, K::Integer)
+    h = _prefilter_full(K)
+    return reshape(_pad_taps(h, K), :, 1), reshape(_pad_taps(h, K), :, 1)
+end
+function _field_taps(::_FaridSimoncelliResponse, K::Integer)
+    h = _prefilter_full(K)
+    hp = _conv_taps(h, _FS_P); h1d = _conv_taps(h, _FS_D1)
+    return hcat(_pad_taps(h, K), _pad_taps(h1d, K), _pad_taps(hp, K)), hcat(_pad_taps(h, K), _pad_taps(hp, K), _pad_taps(h1d, K))
 end
 
 # ----- the refinement ----------------------------------------------------------
@@ -277,7 +283,7 @@ struct _DogExtremum
 end
 
 """
-    _refine_dog_extremum(model, v0, σ, S, cfg, extent) -> (v, D, H, code::ReturnCode.T, rule::StopRule)
+    _refine_dog_extremum(model, v0, σ, S, cfg, extent) -> _DogExtremum
 
 Refine the DoG extremum near `v0` = (x, y, s) (1-based level coordinates) on the
 continuous response `model` (`_dog_response`) with Core's device LM
@@ -297,12 +303,12 @@ detection on the CPU and any GPU.
 @inline function _refine_dog_extremum(model, v0::SVector{3, Float64}, σ::Float64, S::Int, cfg::ContinuousRefinement, extent::NTuple{2, Int})
     D0, _, H0 = _dog_response(model, v0)
     H0d = SMatrix{3, 3, Float64}(H0)
-    (isfinite(D0) && D0 != 0) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, NonFinite
+    (isfinite(D0) && D0 != 0) || return _DogExtremum(v0, Float64(D0), H0d, ReturnCode.InitialFailure, NonFinite)
     t = SVector(1 / σ, 1 / σ, 0.6931471805599453 / S)
     mlo, mhi = _model_box(model)
     b = SVector(cfg.spatial_bound, cfg.spatial_bound, cfg.scale_bound)
     lo = max.(mlo, v0 - b, SVector(1.0, 1.0, -Inf)); hi = min.(mhi, v0 + b, SVector(Float64(extent[1]), Float64(extent[2]), Inf))
-    all(lo .<= v0 .<= hi) || return v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin
+    all(lo .<= v0 .<= hi) || return _DogExtremum(v0, Float64(D0), H0d, ReturnCode.InitialFailure, LeftBasin)
     ia = 1 / abs(Float64(D0))
     # The LM runs on the displacement u = v − v₀ (level px, level px, slices), its scale `t` handed to the LM's stops as
     # its per-coordinate scale `s` (its step and damping floors read there): the rows are r = ∇_θ D/|D(v₀)|, the
@@ -318,15 +324,15 @@ detection on the CPU and any GPU.
     # a point on the box is no extremum of the response, whatever the LM's verdict: Core's success rule counts a
     # point a bound holds as stationary (its descent leaves the box), but the extremum lies beyond the box — outside
     # the displacement bound or the level — so the start is returned, LeftBasin
-    (any(u .<= lb) || any(u .>= ub)) && return v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin
-    successful_retcode(code) || return v0, Float64(D0), H0d, code, rule
+    (any(u .<= lb) || any(u .>= ub)) && return _DogExtremum(v0, Float64(D0), H0d, ReturnCode.Failure, LeftBasin)
+    successful_retcode(code) || return _DogExtremum(v0, Float64(D0), H0d, code, rule)
     v = v0 + u
     D = e[3]; H = e[4]
     sgn = D0 > 0 ? 1.0 : -1.0
-    (D > 0) == (D0 > 0) || return v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate
+    (D > 0) == (D0 > 0) || return _DogExtremum(v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate)
     Hn = (-sgn / abs(D)) .* (H + H') ./ (2 .* (t * t'))      # its symmetric part (the recipe's Jacobian is not symmetric)
-    is_positive_definite(Hn - cfg.min_curvature * one(Hn)) || return v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate
-    return v, D, H, code, rule
+    is_positive_definite(Hn - cfg.min_curvature * one(Hn)) || return _DogExtremum(v0, Float64(D0), H0d, ReturnCode.Failure, ShapeGate)
+    return _DogExtremum(v, D, H, code, rule)
 end
 
 # One detection per work item: its window (coefficients `coef[:, :, :, k]`, origin
@@ -339,12 +345,12 @@ end
         c = view(coef, :, :, :, :, k)
         m = _DogSplineWindow{N, F, typeof(c)}(c, Int(org[1, k]), Int(org[2, k]), Int(org[3, k]))
         v0 = SVector{3, Float64}(starts[1, k], starts[2, k], starts[3, k])
-        v, D, H, code, rule = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg, extent)
-        out[1, k] = v[1]; out[2, k] = v[2]; out[3, k] = v[3]; out[4, k] = D
+        e = _refine_dog_extremum(m, v0, Float64(starts[4, k]), S, cfg, extent)
+        out[1, k] = e.v[1]; out[2, k] = e.v[2]; out[3, k] = e.v[3]; out[4, k] = e.response
         for q in 1:9
-            out[4 + q, k] = H[q]
+            out[4 + q, k] = e.hessian[q]
         end
-        out[14, k] = Float64(Integer(code)); out[15, k] = Float64(Integer(rule))
+        out[14, k] = Float64(Integer(e.retcode)); out[15, k] = Float64(Integer(e.stop_rule))
     end
 end
 
@@ -363,7 +369,7 @@ function _refine_dog_extrema(
         dev, dog, starts::AbstractVector; seed_sigma::Real, S::Integer, cfg::ContinuousRefinement = ContinuousRefinement(),
         coefficients::Union{Nothing, AbstractArray{Float32, 5}} = nothing
     )
-    fx, fy = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
+    fx, fy = _field_taps(cfg.response, cfg.prefilter_halfwidth)
     F = size(fx, 2)
     n = length(starts)
     RC = _coef_halfwidth(cfg); K = cfg.prefilter_halfwidth
@@ -435,7 +441,7 @@ function _continuous_covariance(
         plan, oi::Integer, w::Integer, m::_DogSplineWindow, e::_DogExtremum, cfg::ContinuousRefinement = ContinuousRefinement();
         taps = [Array(t) for t in plan.space.taps],
         autocov = _canvas_autocov(plan.geo[w], plan.W, plan.H),
-        fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)
+        fields = _field_taps(cfg.response, cfg.prefilter_halfwidth)
     )
     S = plan.space.nb_scales
     upsample = _upsamplings(plan.space)
@@ -525,7 +531,7 @@ function _refined_covs!(plan, cfg::ContinuousRefinement, refined, r, nbefore::In
     fc = Array(view(plan.featcov, :, sl))
     taps = [Array(t) for t in plan.space.taps]
     ac = Dict(w => _canvas_autocov(plan.geo[r[w]], plan.W, plan.H) for w in unique(x[3] for x in refined))
-    fields = _field_taps(_response(cfg), cfg.prefilter_halfwidth)   # the configuration's, once for every detection
+    fields = _field_taps(cfg.response, cfg.prefilter_halfwidth)   # the configuration's, once for every detection
     Threads.@threads :dynamic for (col, oi, w, win, e) in refined
         Σ = _continuous_covariance(plan, oi, r[w], win, e, cfg; taps, autocov = ac[w], fields)
         i = col - nbefore

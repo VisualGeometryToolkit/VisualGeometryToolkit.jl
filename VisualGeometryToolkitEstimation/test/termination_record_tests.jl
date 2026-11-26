@@ -220,7 +220,7 @@ end
     held = record!(seen, :CameraRegressionRefine, solve(RefineProblem(CameraRegressionProblem(FISHEYE, REGION; fixed = Tuple(VgtkCore.parameter_names(lin.u))), lin.u), LevenbergMarquardt()))
     @test held.retcode == VgtkCore.ReturnCode.Success && held.stop_rule == VgtkCore.ClosedForm && successful_retcode(held) &&
         held.stats.nsteps == 0
-    record!(seen, :FitThenRefine, fit_then_refine(Division{2}, FISHEYE, REGION))
+    record!(seen, :FitThenRefine, solve(EstimationProblem(CameraRegressionProblem(Division{2}, FISHEYE, REGION)), CameraRegression(; refine = LevenbergMarquardt())))
     # the spline fits: the spacing search to a tolerance, the one lattice solve, and the optical axis
     rs = record!(seen, :CameraRegression, solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), CameraRegression(; tolerance = 1.0e-3)))
     capped = record!(seen, :CameraRegression, solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), CameraRegression(; tolerance = 1.0e-12, forward = false)))   # the finest spacing misses it
@@ -360,17 +360,17 @@ end
     end
 end
 
-# The reweighted fits' termination record is public (the owner's ruling on the BlobBoards duplication audit, ask 6):
-# a downstream reweighted loop (BlobBoards' per-blob IRLS) records its stops through it, an increment below its
-# tolerance as `IncrementSize`, a solve that failed as SciMLBase's `InternalLinearSolveFailed`.
-@testitem "irls_termination: the reweighted fits' one termination record, public" begin
+# The reweighted fits' termination record is public (the owner's ruling on the BlobBoards duplication audit, ask 6;
+# two scalar fields since the conformance work, no tuple): a downstream reweighted loop (BlobBoards' per-blob IRLS)
+# records its stops through them, an increment below its tolerance as `IncrementSize`.
+@testitem "irls_retcode, irls_stop_rule: the reweighted fits' one termination record, public" begin
     using Test
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: ReturnCode, IncrementSize, ClosedForm, IterationCap, NoRule
-    @test Base.ispublic(VgtkEstimation, :irls_termination)
-    @test !isdefined(VgtkEstimation, Symbol("_irls" * "_record"))
-    @test VgtkEstimation.irls_termination(true, false) === (ReturnCode.Success, IncrementSize)
-    @test VgtkEstimation.irls_termination(false, true) === (ReturnCode.Success, ClosedForm)
-    @test VgtkEstimation.irls_termination(false, false) === (ReturnCode.MaxIters, IterationCap)
-    @test VgtkEstimation.irls_termination(true, false; linear_solve_failed = true) === (ReturnCode.InternalLinearSolveFailed, NoRule)
+    using VisualGeometryToolkitCore: ReturnCode, IncrementSize, ClosedForm, IterationCap
+    @test Base.ispublic(VgtkEstimation, :irls_retcode) && Base.ispublic(VgtkEstimation, :irls_stop_rule)
+    record(c, cf) = (VgtkEstimation.irls_retcode(c, cf), VgtkEstimation.irls_stop_rule(c, cf))
+    @test record(true, false) === (ReturnCode.Success, IncrementSize)
+    @test record(true, true) === (ReturnCode.Success, IncrementSize)
+    @test record(false, true) === (ReturnCode.Success, ClosedForm)
+    @test record(false, false) === (ReturnCode.MaxIters, IterationCap)
 end

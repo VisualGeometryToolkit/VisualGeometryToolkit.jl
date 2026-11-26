@@ -446,6 +446,11 @@ takes the same `width` as `Irls{TLSShape}`. Like TLS it has no efficiency
 constant, so it takes `width`, not `scale`. A member of the stack's one
 optimization-strategy family: its loss family is TLS's, its path IRLS and its
 label `TLS-LZ`.
+
+On PoseLib's backend an `optimization_strategy` selects PoseLib's own robust loss, its C loss enum, not Core's
+reweighting loop: `Irls{TLSShape}()`, `Irls{HuberShape}()` and `Irls{CauchyShape}()` are PoseLib's robustified
+Levenberg–Marquardt at that loss, and `LeZach()` its Le–Zach scheme. `LeZach()` exists for this backend only: Core's
+native `LevenbergMarquardt()` and every other backend refuse it.
 """
 struct LeZach <: AbstractOptimizationStrategy end
 

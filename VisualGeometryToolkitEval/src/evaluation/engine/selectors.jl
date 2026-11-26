@@ -23,31 +23,31 @@ the shared refit layer ([`lo_error!`](@ref)).
 abstract type SampleSelector end
 
 """
-    ScoreSelector(name, scoring, width, ws, scores; lo = nothing, refinement_width = nothing)
+    ScoreSelector(name, scoring, width, pool; lo = nothing, refinement_width = nothing)
 
-Scoring-based selector: the running argmax of `scoring`'s score (VisualGeometryToolkitCore
-`score!` on the scorer's workspace `ws`, per-point scratch `scores`) over the
-pool models; `width` is the native width `scoring` selects at (its outlier
-half-width, or its threshold). Its running best is refit by the config's LO
-(`lo = nothing`) at the config's native (`nat_ref`, else `width`), or by its own
-LO `lo` at `refinement_width` (else the config's `nat_ref`, else `width`) — the
-MSAC + truncated-refiner columns.
+Scoring-based selector: the running best of `scoring`'s score over the pool models, read at each checkpoint —
+VisualGeometryToolkitEstimation's `ScoreSelection(scoring)` on `EstimationProblem(PoolSelection, pair => R, (; budget))`,
+its cache continued over the models seen so far (`reinit!(cache; p = (; budget))`), so every model is scored once.
+The selector holds the cache `init` returns; the fold and the checkpoint read allocate nothing once the front end's
+`reinit!` does (a Core gap, owned by Phase 1A).
+`pool` (`pair => R`) sizes the cache: the largest pair of the evaluation. `width` is the native width `scoring`
+selects at (its outlier half-width, or its threshold). Its running best is refit by the config's LO (`lo = nothing`)
+at the config's native (`nat_ref`, else `width`), or by its own LO `lo` at `refinement_width` (else the config's
+`nat_ref`, else `width`) — the MSAC + truncated-refiner columns.
 """
-mutable struct ScoreSelector{S, W, L} <: SampleSelector
+mutable struct ScoreSelector{S, C, L} <: SampleSelector
     name::Symbol
     scoring::S
     width::Float64
-    ws::W
-    scores::Vector{Float64}
+    cache::C
     lo::L
     refinement_width::Union{Nothing,Float64}
-    best_idx::Int
-    best_scr::Float64
+    seen::Int        # the models of the current pair folded in by `update!` (the selection's budget)
 end
-ScoreSelector(name::Symbol, scoring, width::Real, ws, scores::Vector{Float64};
+ScoreSelector(name::Symbol, scoring, width::Real, pool::Pair{<:PoolPair, <:AbstractMatrix};
               lo = nothing, refinement_width::Union{Nothing,Real} = nothing) =
-    ScoreSelector(name, scoring, Float64(width), ws, scores, lo,
-                  refinement_width === nothing ? nothing : Float64(refinement_width), 0, -Inf)
+    ScoreSelector(name, scoring, Float64(width), init(EstimationProblem(PoolSelection, pool, (; budget = 0)), ScoreSelection(scoring)),
+                  lo, refinement_width === nothing ? nothing : Float64(refinement_width), 0)
 
 """
     OracleSelector(name, outlier_halfwidth)
@@ -68,7 +68,7 @@ OracleSelector(name::Symbol, outlier_halfwidth::Real) =
     OracleSelector(name, Float64(outlier_halfwidth), 0, Inf)
 
 # Methods of VisualGeometryToolkitEstimation's `reset!` (its samplers' reset): fresh running-best state.
-reset!(s::ScoreSelector)  = (s.best_idx = 0; s.best_scr = -Inf; nothing)
+reset!(s::ScoreSelector)  = (s.seen = 0; nothing)
 reset!(s::OracleSelector) = (s.best_idx = 0; s.best_imc = Inf; nothing)
 
 """
@@ -79,15 +79,16 @@ into the selector's running best.
 """
 function update! end
 
-# The score of a stored pool model: `score!` of its residual column, its minimal
-# sample's points entering at zero residual (the stack's rule). A bounded-sum
-# scorer stops early once the model cannot beat the running best (an exact
-# test: the selection is the full sums' strict argmax).
+# Model `j` of the pair joins the selection's budget; the first model of a pair points the cache at its pool. The
+# models are scored when the selection is read (`_selected_model`, at a checkpoint), each once: ScoreSelection's bounded
+# `score!` fold, the stack's rule (the minimal sample's points at zero residual, the first strictly best model wins).
 @inline function update!(s::ScoreSelector, geom::PairGeom, pair, R::AbstractMatrix, j::Integer, col_j, n::Integer)
-    sc = score!(s.ws, s.scoring, s.scores, view(R, 1:n, j), n; sample = col_j, bound = s.best_scr)
-    sc > s.best_scr && (s.best_scr = sc; s.best_idx = j)
+    j == 1 && reinit!(s.cache; f = pair => R, p = (; budget = 0))
+    s.seen = j
     return nothing
 end
+# The selection over the models seen so far (its pool index, 0 for none): the cache continued to the budget `s.seen`.
+@inline _selected_model(s::ScoreSelector) = solve!(reinit!(s.cache; p = (; budget = s.seen))).u
 
 @inline function update!(s::OracleSelector, geom::PairGeom, pair, R::AbstractMatrix, j::Integer, col_j, n::Integer)
     # Prune: the stored lower bound on the imc (VgtkCore `pool_imc`) — a model whose
@@ -107,10 +108,10 @@ checkpoint; `(NaN32, 0)` before any model was folded in.
 """
 function checkpoint end
 
-@inline checkpoint(s::ScoreSelector, geom::PairGeom, pair) =
-    s.best_idx == 0 ?
-    (NaN32, Int32(0)) :
-    (Float32(model_imc(pair.models[s.best_idx], geom)), Int32(s.best_idx))
+@inline function checkpoint(s::ScoreSelector, geom::PairGeom, pair)
+    j = _selected_model(s)
+    return j == 0 ? (NaN32, Int32(0)) : (Float32(model_imc(pair.models[j], geom)), Int32(j))
+end
 @inline checkpoint(s::OracleSelector, geom::PairGeom, pair) = s.best_idx == 0 ?
     (NaN32, Int32(0)) :
     (Float32(s.best_imc), Int32(s.best_idx))
@@ -128,7 +129,7 @@ lo_error!(ctx::PairCtx, s::ScoreSelector, cfg) = _lo_error!(ctx, s, s.lo, cfg)
 lo_error!(ctx::PairCtx, s::OracleSelector, cfg) = _config_lo_error!(ctx, s.best_idx, s.outlier_halfwidth, cfg)
 
 # A selector refit by the config's LO.
-_lo_error!(ctx, s::ScoreSelector, ::Nothing, cfg) = _config_lo_error!(ctx, s.best_idx, s.width, cfg)
+_lo_error!(ctx, s::ScoreSelector, ::Nothing, cfg) = _config_lo_error!(ctx, _selected_model(s), s.width, cfg)
 
 function _config_lo_error!(ctx, best_idx::Int, width::Float64, cfg)
     best_idx == 0 && return (NaN32, Int64(0))
@@ -150,8 +151,9 @@ end
 # A selector with its own refiner (MSAC + a truncated refiner) refits at its
 # refinement width (else the config's `nat_ref`, else its selection width).
 function _lo_error!(ctx, s::ScoreSelector, lo, cfg)
-    s.best_idx == 0 && return (NaN32, Int64(0))
-    seed = refit_seed(ctx, ctx.pair.models[s.best_idx])
+    j = _selected_model(s)
+    j == 0 && return (NaN32, Int64(0))
+    seed = refit_seed(ctx, ctx.pair.models[j])
     refit_width = something(s.refinement_width, cfg.nat_ref, s.width)
     imc, lo_ns = refit_imc!(ctx, lo, seed, refit_width)
     return (Float32(imc), lo_ns)

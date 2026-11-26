@@ -975,8 +975,10 @@ end
 #
 # A COMMENT, not a docstring: `@doc` on a method extension of an imported
 # constructor fails precompilation ("cannot document the following expression").
+# The lens is the division model's lift, `Division(k₁, …, k_Q)`'s own form, built from the coefficients as a tuple
+# (no splat of the fitted vector).
 VgtkCore.CameraModel(st::DivisionCameraState) =
-    CameraModel(pixel_intrinsics(st.f, st.f, st.center), Division(_rescaled_coeffs(st.k, st.f)...))
+    CameraModel(pixel_intrinsics(st.f, st.f, st.center), LiftLens(Radial((), Tuple(_rescaled_coeffs(st.k, st.f)))))
 
 # The division coefficients in a frame whose coordinates are the old ones divided
 # by `s`: kₚ → kₚ·s^(2p), VGC's one radial-coefficient law (`rescale_radial_coeff`,

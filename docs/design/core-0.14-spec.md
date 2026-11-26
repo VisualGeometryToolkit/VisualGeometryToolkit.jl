@@ -814,3 +814,52 @@ These are done in Core 0.14, each with its own commit:
   - Its fields are `dark` and `series`; `photon_transfer` and `master_dark` are retired names (R9). `false_defects` is
     configuration, so it lives in the `dark` field.
   - It is the problem's `default_algorithm`, being its only algorithm.
+- 2026-11-26 (1B, owner ruling G-j): penalty-weight and hyperparameter selection are estimators. ONE problem tag,
+  Estimation's `Hyperparameter` (abstract): `EstimationProblem(Hyperparameter, objective, p)`.
+  - `GeneralizedCrossValidation(; log10_bracket, points)` (Estimation, FitKind) replaces `gcv_select`: `u = β`,
+    `metadata = (; λ, gcv, rss, dof, log10_β_bracket, at_bracket_end)`, `stats.nf` the score evaluations; a minimum at
+    the bracket end is `(MaxIters, IterationCap)`. `check_penalty_weight` takes the algorithm value (no `:gcv`).
+  - Eval's `TuningScheme <: AbstractEstimationAlgorithm`: `CoarseFine`/`JointCoarseFine` (FitKind) on
+    `(; cells)`, `u` the selection per key, `metadata.records` each key's record; `WindowedBootstrap` (ClosedFormKind)
+    the per-draw selection on `ValidationErrors`; `SelectionBootstrap(criterion; n_resamples)` (ClosedFormKind,
+    `supports_solve_rng`) the bootstrap of a selection. `Factorial` has `estimator_kind` only (no solve until a
+    consumer needs one). The scalar forms (`coarse_fine_cv`, `probe_curve`, …), `tune`/`evaluate`,
+    `WindowedGridMethod` and `bootstrap_argmin` are deleted.
+- 2026-11-26 (1B, G-m): `ConsensusScale(scoring)` (ClosedFormKind) on `EstimationProblem(SquaredScale, problem,
+  (; model))` replaces `consensus_s2!`; `u = ŝ²` (the SQUARED scale: Core's `SquaredScale`, not `NoiseScale`, whose `u`
+  is linear), degenerate `(InitialFailure, NoRule)` on a consensus too thin; an init/reinit! cache owns the workspace.
+- 2026-11-26 (1B, G-n, owner ruling Q3): `ScoreSelection(scoring)` (ClosedFormKind) on `EstimationProblem(PoolSelection,
+  pair => R | R)`: the best-scoring stored model (Core's `best_model_index` rule: first strictly best, non-finite
+  never wins). Streaming through `reinit!(c; p = (; budget))`: a budget ≥ the folded count continues, a smaller one or
+  new data starts over; the scratch is sized by the data `init` saw and grows only for more points. Eval's sample-budget
+  `ScoreSelector` reads it at each checkpoint.
+- 2026-11-26 (1B, G-o): `LikelihoodRatioSelection(refine::LocalOptimization)` (RefineKind) on `RefineProblem(f, (θ₁,
+  θ₂, …), p)`: each candidate refined by the same seeded LO (`solve`, recorded), the highest `metadata.quality` kept,
+  the first on a tie; `metadata = (; candidates, selected)` (`selected = 0` with no found model).
+- 2026-11-26 (1B, G-l): a staged algorithm calls `solve` (never `__solve`) for each stage, so every stage result is
+  recorded by the front end; it returns one stage's result as is (the front end relabels it with the outer prob/alg)
+  or its own FitResult with the stage results in its metadata, never an upstream result rebuilt. The first instance:
+  `CameraRegression(; refine = LevenbergMarquardt())`, the fit then its refine (the deleted `fit_then_refine` helper).
+- 2026-11-26 (1B, E4): no algorithm calls another `__solve`; a units or graph adapter of one estimation and the
+  estimation itself share one private kernel (rotation averaging, robot-world, rigid alignment, SimFitPP's pool form).
+- 2026-11-26 (1B, owner ruling Q7): `draw_hypotheses`/`Hypotheses` are internal (`_draw_hypotheses`): the generator
+  solves minimal problems, so it is an estimator, and only Estimation uses it (`PoolPair(rng, problem, raw; …)`).
+- 2026-11-26 (1B, E11, owner-approved): a camera regression's sample density is a type, `ImageMeasure()`,
+  `SolidAngleMeasure()`, `UniformMeasure()` <: `AbstractImageMeasure` (was a Symbol), in `CameraFitMetadata.weight`.
+  The golden FieldMap gains `retagged` (`path => suffix`): a recorded Symbol equals the new singleton's tag by the tag
+  rule, exactly (ci/golden/framework_tests.jl pins it). One retagged path, `metadata.weight`, 143 est_camera_fits cases.
+- 2026-11-26 (1B, E14, owner ruling): `irls_termination`'s tuple → `irls_retcode(converged, closed_form)` and
+  `irls_stop_rule(converged, closed_form)`, one public owner of the reweighted loops' record (BlobBoards calls both).
+- 2026-11-26 (1B, V6, owner-approved): an illegal `PriorSpec` is an `ArgumentError` from its constructor (was an
+  `ErrorException` at the solve), the same message; five eval_noise intended entries (type only).
+- 2026-11-26 (1B, V1/V5/V8/E15): Eval's `refit_model`, `JeffreysPriorSpec`, `IGRobustSpec` and `ALL_PRIOR_SPECS` are
+  deleted; the refit problem is `refit_on = PoolFrameProblem() | ReprojectionBundle()` (was `bundle::Bool`);
+  `CountedLO.call_records` is a `Vector` of model-free FitResults (the replay maps them to the recorded shape).
+- 2026-11-26 (1B, DUPLICATION ruling): Eval's `Pools` submodule is `PoolFiles` (one `Pools`: Core's).
+- 2026-11-26 (1B, F1/F2): Features' continuous refinement holds its response as a type (`_FaridSimoncelliResponse`,
+  `_SplineResponse`), and its kernel step returns its `_DogExtremum` record, not a tuple.
+- 2026-11-26 (1B, G-p): the LO timing bracket of one refit is `solve!(reinit!(cache, θ))`, the workspace built by
+  `init` outside it (LocalOptimization's docstring).
+- KNOWN REMAINING (owner ruling G-f): PoseLib's family-problem refines cover HomographyProblem, FundMatProblem and
+  RelativePoseProblem; EssentialProblem is left out (its unit bearings would take PoseLib's bearing C route and move
+  LODR's recorded bits): an E refine on pixels is the RelativePoseProblem form, the cheirality seed the caller's step.

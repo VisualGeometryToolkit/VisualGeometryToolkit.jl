@@ -13,6 +13,35 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   calibration its pose type (`RobotWorldHandEyeCalibration{K, P}`); build a pose as `EuclideanMap(RotMatrix{3}(R),
   Vec3(t))`. Bit-identical.
 
+### Conformance (no public estimator outside `solve`)
+- **`draw_hypotheses` and `Hypotheses` are internal** (`_draw_hypotheses`, `_Hypotheses`): the generator solves
+  minimal problems (`sample_models`), so it is an estimator, and only Estimation uses it. A pool record is
+  `PoolPair(rng, problem, raw; target, max_trials, variance)`, unchanged; its from-hypotheses form is internal.
+- **`CameraRegression(; refine)`**: the fit then its refine is one solve,
+  `solve(EstimationProblem(CameraRegressionProblem(L, source, region)), CameraRegression(; refine = LevenbergMarquardt()); stops)`.
+  It runs the linear fit (the family's anchor for a family with no linear form, or a failed fit), then the refine
+  over the part of the region a bounded source images; the refine's result is returned (bit-identical to the two
+  solves). The suite's `fit_then_refine` helper, which reached four internals, is deleted. `CameraRegression` reads
+  its own fields without reflection.
+- **`irls_termination` → `irls_retcode(converged, closed_form)` and `irls_stop_rule(converged, closed_form)`**: the
+  reweighted loops' one termination record as its two fields (no tuple result); the loop's failed weighted solve is
+  `(InternalLinearSolveFailed, NoRule)`, recorded directly. BlobBoards' per-blob IRLS calls both.
+- **`ScoreSelection(scoring)`** (new, `ClosedFormKind`): the best-scoring stored model of a hypothesis pool,
+  `solve(EstimationProblem(PoolSelection, pair => R | R), ScoreSelection(scoring))`, with a streaming cache
+  (`reinit!(c; p = (; budget))` continues a running best over a sampling budget): the sample-budget engine's
+  selection, formerly hand-rolled in VisualGeometryToolkitEval.
+- **`LikelihoodRatioSelection(refine)`** (new, `RefineKind`): model selection between refines,
+  `solve(RefineProblem(f, (θ₁, θ₂, …)), LikelihoodRatioSelection(LocalOptimization(…)))` keeps the candidate whose
+  seeded local optimization scores highest (the first on a tie); every candidate's result is in its metadata.
+- `posterior_irls!` is documented as what it is, a local-optimization contract step for strategy authors.
+- **A camera regression's sample density is a type, not a `Symbol`**: `CameraRegressionProblem(…; weight =
+  ImageMeasure() | SolidAngleMeasure() | UniformMeasure())` (was `:image`, `:solid_angle`, `:uniform`), recorded in
+  `CameraFitMetadata.weight`. Any other value is the same `ArgumentError`, naming the three. Bit-identical.
+- `CountedLO.call_records` holds one `FitResult` per call (its termination record: `retcode`, `stop_rule`, `stats`,
+  `rms`, `n`; no model), not a NamedTuple: read `r.stats.nsteps` for the call's iterations.
+- No algorithm calls another `__solve`: the view-graph and filtered rotation averaging, the physical robot-world and
+  rigid-alignment forms and SimFitPP's pool-record form share one private kernel each. Bit-identical.
+
 ### Changed (breaking)
 - `reinit!(cache[, θ₀]; f, p, alg, rng)` on a `Ransac` or `LocalOptimization` cache (owner ruling 2026-11-26): a new
   algorithm of the same concrete type re-resolves its scorer, strategy and config against the kept workspace (rebuilt

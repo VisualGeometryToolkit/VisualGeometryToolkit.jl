@@ -69,6 +69,14 @@ PoolSelection
 with_residual_unit
 ```
 
+A pool's best-scoring stored model under a scorer is [`ScoreSelection`](@ref) on the same tag,
+`solve(EstimationProblem(PoolSelection, pair => R), ScoreSelection(scoring))`; its cache continues a running best
+over a sampling budget (`reinit!(cache; p = (; budget))`), as the sample-budget engine reads it at each checkpoint.
+
+```@docs
+ScoreSelection
+```
+
 ## Scale priors
 
 The prior a scorer's consensus scale is computed under (`scale_prior`,

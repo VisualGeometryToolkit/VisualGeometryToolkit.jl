@@ -116,8 +116,21 @@ function _check_quincunx(m::RawMosaic)
     return nothing
 end
 
-# The bilinear green image of `m` on `device`, values in `T`, under the frame's `model`: `(; value, support, density,
-# photosite, saturated)` (H × W device arrays, `_bilinear_green!`'s planes).
+"""
+    bilinear_green([T = Float32,] m::RawMosaic; sensor_model = SensorModel(), device = default_device())
+        -> (; value, support, density, photosite, saturated)
+
+The green image of a Bayer mosaic, the one kernel the mosaic detectors read (`detect_sfop(m)`, `detect_foerstner(m,
+seeds)`): per pixel, a green photosite its own linear value and any other pixel the bilinear mean of its usable green
+neighbours, under the frame's `sensor_model` (its black, its defects); values in `T`, computed on `device`. The planes
+(H × W arrays on `device`): `value`; `support`, the count of usable greens the value read (0: none, no value);
+`density` and `photosite`, what the detectors' noise model reads; `saturated`, a green read at saturation. The greens
+of each 2×2 cell must lie on a diagonal (a Bayer quincunx): another pattern is an `ArgumentError`.
+"""
+bilinear_green(m::RawMosaic; kw...) = bilinear_green(Float32, m; kw...)
+bilinear_green(::Type{T}, m::RawMosaic; sensor_model::SensorModel = SensorModel(), device = default_device()) where {T} =
+    _bilinear_green(T, device, m, sensor_model)
+# The planes on `device` (`_bilinear_green!`'s), positional for the detectors' calls.
 function _bilinear_green(::Type{T}, device, m::RawMosaic, model::SensorModel) where {T}
     _check_quincunx(m)
     md = Adapt.adapt(device, m)                             # Core's device form of a mosaic: its photosites moved, the rest kept
@@ -151,7 +164,7 @@ of that amplitude (a known limit). `input_blur` and `upsample` are the image's a
 """
 function detect_sfop(m::RawMosaic; sensor_model::SensorModel = SensorModel(), device::KA.Backend = default_device(), kw...)
     _refuse_raw_grid_keywords("detect_sfop", kw)
-    g = _bilinear_green(Float32, device, m, sensor_model)
+    g = bilinear_green(Float32, m; sensor_model, device)
     variance = _propagated_status(sensor_model.noise) === nothing ? nothing : g.density
     return _detect_sfop(g.value, variance; device, input_blur = _BILINEAR_GREEN_BLUR, kw...)
 end
@@ -180,7 +193,7 @@ detect_foerstner(m::RawMosaic, seeds::AbstractVector{<:Detection}; kw...) = dete
 function detect_foerstner(::Type{T}, m::RawMosaic, seeds::AbstractVector{<:Detection}; sensor_model::SensorModel = SensorModel(),
                           device::KA.Backend = default_device(), kw...) where {T <: AbstractFloat}
     _check_precision(T); _check_seeds(seeds)                 # refused before the image is built
-    g = _bilinear_green(T, device, m, sensor_model)
+    g = bilinear_green(T, m; sensor_model, device)
     noise = _BilinearGreenNoise(g.support, g.photosite, g.density, _propagated_status(sensor_model.noise))
     return _detect_seeded(T, g.value, noise, seeds; device, kw...)
 end

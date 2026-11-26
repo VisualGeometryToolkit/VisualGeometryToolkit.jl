@@ -6,8 +6,8 @@
 @testitem "migrate_pools_script" begin
     # scripts/migrate_pools.jl: a tree of format-4 pools, dry run then in place
     using Test, Random, JLD2
-    using VisualGeometryToolkitEval.Pools
-    using VisualGeometryToolkitEval.Pools: synthetic_e_pool_pair, GT_CONVENTION
+    using VisualGeometryToolkitEval.PoolFiles
+    using VisualGeometryToolkitEval.PoolFiles: synthetic_e_pool_pair, GT_CONVENTION
     using VisualGeometryToolkitCore: FundMat
     using VisualGeometryToolkitCore.Pools: PoolPair
 

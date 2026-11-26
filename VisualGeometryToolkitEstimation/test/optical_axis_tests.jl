@@ -43,7 +43,7 @@ end
     @test r.metadata.symmetry_residual < 1.0e-3 && r.metadata.max_px < 0.05      # a symmetric lens: nothing azimuthal left
     # the fit-then-refine recipe's fit of the family it names, its decentering groups held, from the whole-order start: the same
     # axis and principal point (OpticalAxis reaches the order by continuation, 1 → 4 terms)
-    r2 = fit_then_refine(typeof(r.u.lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)); fixed = (:p, :sx, :sy))
+    r2 = solve(EstimationProblem(CameraRegressionProblem(typeof(r.u.lens), OFF_BOUNDED, imaged_region(with_lens_coverage(OFF_BOUNDED, DISC)); fixed = (:p, :sx, :sy))), CameraRegression(; refine = LevenbergMarquardt()))
     @test acosd(min(1.0, dot(rotation(r2.metadata.rotation)' * SVector(0.0, 0.0, 1.0), axis))) < 1.0e-4
     @test norm(SVector(calibration_matrix(r2.u)[1, 3], calibration_matrix(r2.u)[2, 3]) - pp) < 1.0e-3
     # the re-gauge: ẑ is the axis, the principal point its pixel; every image kept with the poses turned
@@ -81,7 +81,7 @@ end
     nc = NoncentralSplineModel(G.intrinsics, G.lens.backward, ChartSpline(G.lens.backward.area, fill(SVector(0.0, 0.0, 0.0), size(G.lens.backward.controls))))
     @test_throws r"not supported yet" solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, nc, REGION)), CameraRegression())
     @test_throws r"not supported yet" solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, BoundedCamera(nc, Size2(1000, 1000)), REGION)), CameraRegression())
-    @test_throws r"not supported yet" fit_then_refine(KannalaBrandt{4}, nc, REGION)
+    @test_throws r"not supported yet" solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, nc, REGION)), CameraRegression(; refine = LevenbergMarquardt()))
     @test_throws r"not supported yet" solve(RefineProblem(CameraRegressionProblem(nc, REGION), rp.u), LevenbergMarquardt())
 end
 
@@ -189,17 +189,17 @@ end
     # is compared on the host's samples, and the public call on a physical K, whose samples are its host-side profile.
     cpu = VC.KA.CPU()
     # a physical K: the samples are the lens's radial profile, on the host whatever the device
-    rc = fit_then_refine(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)
+    rc = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)), CameraRegression(; refine = LevenbergMarquardt()))
     @test retcode_symbol(rc) === :converged
     # a gauge K (the off-axis spline over its disc): the regression state built as the camera-regression refine builds it, its samples
     # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
     src = model(b); region = imaged_region(b); L = typeof(VE._AXIS_LENS); fixed = VE._AXIS_FIXED
     role = VC.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VE._offset_matrix(K0)
-    guess = VE._approximation_start(VE._linear_form(L), L, src, region, :image, fixed, cpu)
+    guess = VE._approximation_start(VE._linear_form(L), L, src, region, VE.ImageMeasure(), fixed, cpu)
     gl = lens(guess); moving = free_parameter_names(guess, fixed)
     start = VE._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = VE._profile_samples(role, L, src, region, K0, :image, cpu)
+    pr = VE._profile_samples(role, L, src, region, K0, VE.ImageMeasure(), cpu)
     P = VE._regression_manifold(role, VE._lens_family_manifold(role, gl, moving), start, moving)
     N = tangent_size(P)
     θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
@@ -218,7 +218,7 @@ end
         @test maximum(abs, g.x - c.x) < 1.0e-9                                                  # chart coordinates
         @test abs(g.rms - c.rms) < 1.0e-12 && abs(g.max_px - c.max_px) < 1.0e-12                 # px
         # the physical K's public call: the same samples on both backends, so the same comparison end to end
-        rg = fit_then_refine(KannalaBrandt{4}, FISHEYE, REGION; device = gpu)
+        rg = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, FISHEYE, REGION; device = gpu)), CameraRegression(; refine = LevenbergMarquardt()))
         @test retcode_symbol(rg) === :converged && rg.stats.nsteps == rc.stats.nsteps
         @test maximum(abs, calibration_matrix(rg.u) - calibration_matrix(rc.u)) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(rg.u))) - collect(parameter_vector(lens(rc.u)))) < 1.0e-9
@@ -294,7 +294,7 @@ end
         r = solve(EstimationProblem(CameraRegressionProblem(OFF_BOUNDED; device = cpu)), OpticalAxis())
         @test VC.successful_retcode(r)
         @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression()))
-        @test VC.successful_retcode(fit_then_refine(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu))
+        @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression(; refine = LevenbergMarquardt())))
         @test solve(RefineProblem(CameraRegressionProblem(OFF_AXIS, region; device = cpu), r.u), LevenbergMarquardt()).u isa VC.CameraModel   # from its own optimum: runs on `cpu`
         @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(SplineLens, OFF_BOUNDED, region; device = cpu)), CameraRegression(; tolerance = 1.0e-2)))   # its optical axis first
     finally
@@ -340,7 +340,7 @@ end
     support = Rect(1616.0, 593.0, 2159.0, 2321.0)   # the Schöps source's valid_domain
     # the whole sensor: refused by each fit at its entry, naming the fit
     for (who, f) in (("OpticalAxis", () -> solve(EstimationProblem(CameraRegressionProblem(cam; support)), OpticalAxis())),
-                     ("CameraRegression", () -> fit_then_refine(KannalaBrandt{4}, cam, imaged_region(cam); support)),
+                     ("CameraRegression", () -> solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, cam, imaged_region(cam); support)), CameraRegression(; refine = LevenbergMarquardt()))),
                      ("CameraRegression", () -> solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, cam, imaged_region(cam); support)), CameraRegression())))
         e = try f(); nothing catch err; err end
         @test e isa RegionBeyondSupport && e.who == who && e.support == support
@@ -448,7 +448,7 @@ end
     # the premise: the 4-term start folds past the region's widest angle, within the band a refit leaves out, and its
     # refine does not find the axis: it stalls (Core ≤ 0.10.11), or (a tolerance stop converged, Core 0.11) ends ~12 px off
     # with its lens folding outside the region, where no fold gate sees it
-    start = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), VgtkCore.model(src), part, :image, E._AXIS_FIXED,
+    start = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), VgtkCore.model(src), part, E.ImageMeasure(), E._AXIS_FIXED,
                                    VgtkCore.default_device())
     plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
     θfold, θmax = Float64(view_angle_limit(lens(start))), plain.metadata.family.θ_max
@@ -485,7 +485,7 @@ end
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
     # the direct lift: the 1-term linear start, then the 4-term refine at once
-    s1 = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), m, part, :image, (E._AXIS_FIXED..., E._axis_held(1)...),
+    s1 = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), m, part, E.ImageMeasure(), (E._AXIS_FIXED..., E._axis_held(1)...),
                                 VgtkCore.default_device())
     direct = E._refine_camera(s1, m, part; fixed = E._AXIS_FIXED)
     @test norm(axis_pixel(direct) - AXIS_PIXEL) > 1.0

@@ -1,5 +1,5 @@
 # =============================================================================
-# draw_hypotheses — minimal-sample hypotheses of a problem, no scoring
+# _draw_hypotheses — minimal-sample hypotheses of a problem, no scoring
 # =============================================================================
 #
 # The hypothesis generator of a benchmark pool: the RANSAC trial (`_draw_trial!`,
@@ -10,9 +10,9 @@
 # =============================================================================
 
 """
-    Hypotheses{M}
+    _Hypotheses{M}
 
-The minimal-sample hypotheses [`draw_hypotheses`](@ref) drew, in the problem's
+The minimal-sample hypotheses `_draw_hypotheses` drew, in the problem's
 model frame:
 
 - `models::Vector{M}`: every solution the problem's `test_model` accepted,
@@ -23,7 +23,7 @@ model frame:
 - `samples_accepted::Int`: draws that produced at least one model;
 - `n_solutions::Int`: solver solutions before `sample_hypothesis`/`test_model`.
 """
-struct Hypotheses{M}
+struct _Hypotheses{M}
     models::Vector{M}
     sample_indices::Matrix{Int}
     trials::Int
@@ -32,7 +32,7 @@ struct Hypotheses{M}
 end
 
 """
-    draw_hypotheses(rng, problem; target, max_trials) -> Hypotheses
+    _draw_hypotheses(rng, problem; target, max_trials) -> _Hypotheses
 
 Draw minimal samples with the problem's own sampler until `target` samples have
 each produced at least one model the problem's `test_model` accepts, or
@@ -58,7 +58,7 @@ the seed and the problem.
     A PROSAC sampler's growth horizon is now the run's `max_trials` (it was
     the generator's own `prosac_T_N`).
 """
-function draw_hypotheses(rng::Random.AbstractRNG, problem::AbstractRansacProblem;
+function _draw_hypotheses(rng::Random.AbstractRNG, problem::AbstractRansacProblem;
                          target::Integer, max_trials::Integer)
     target >= 0 || throw(ArgumentError("target must be non-negative, got $target"))
     max_trials >= 0 || throw(ArgumentError("max_trials must be non-negative, got $max_trials"))
@@ -79,5 +79,5 @@ function draw_hypotheses(rng::Random.AbstractRNG, problem::AbstractRansacProblem
         n_solutions += n
         kept > 0 && (accepted += 1)
     end
-    return Hypotheses{M}(models, reshape(flat, m, length(models)), trials, accepted, n_solutions)
+    return _Hypotheses{M}(models, reshape(flat, m, length(models)), trials, accepted, n_solutions)
 end

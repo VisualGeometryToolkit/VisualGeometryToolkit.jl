@@ -110,12 +110,26 @@ _refit_seed(::Type{<:EssentialProblem}, F, g::PairGeom) = EssentialMat(F, g.Kc1,
 _refit_seed(::Type{<:Union{FundMatProblem,HomographyProblem}}, model, ::PairGeom) = model
 
 """
+    RefitProblem
+
+Which of a pair's problems a native refit runs on: [`PoolFrameProblem`](@ref)`()`, its pool-frame problem
+([`PairCtx`](@ref)'s `ep`, the default), or [`ReprojectionBundle`](@ref)`()`, the two-view reprojection bundle (`bp`, a
+`RelposeBundleProblem`, E pools only). [`build_pair_ctx`](@ref) builds the bundle problem only for
+`ReprojectionBundle()`.
+"""
+abstract type RefitProblem end
+"A native refit on the pair's pool-frame problem ([`RefitProblem`](@ref)), the default."
+struct PoolFrameProblem <: RefitProblem end
+"A native refit on the pair's two-view reprojection bundle ([`RefitProblem`](@ref))."
+struct ReprojectionBundle <: RefitProblem end
+
+"""
     PairCtx
 
 Everything the refit layer needs about one pair.
 Built once per pair by [`build_pair_ctx`](@ref) and reused across every (LO
 refit spec × grid column), it holds the pair itself (a light `PoolPair`), its pool-frame problem (`ep`), the optional
-`RelposeBundleProblem` (`bp`, `nothing` unless `bundle=true`), the geometry,
+`RelposeBundleProblem` (`bp`, `nothing` unless built for a `ReprojectionBundle()` refit), the geometry,
 the problem class (`problem_type`) and the refit scoring TEMPLATES: `scoring`,
 the scoring every native refit is built from at its own outlier half-width
 (`with_width(scoring, OutlierHalfwidth(nat′))`), and `solo_scoring`, the one an
@@ -141,12 +155,12 @@ struct PairCtx{P,EP,BP,S,S2}
 end
 
 """
-    build_pair_ctx(problem_type, pair::PoolPair; scoring = nothing, solo_scoring = scoring, bundle = false) -> PairCtx
+    build_pair_ctx(problem_type, pair::PoolPair; scoring = nothing, solo_scoring = scoring, refit_on = PoolFrameProblem()) -> PairCtx
 
 Build the [`PairCtx`](@ref) of one pool pair, once. It holds the family's pool-frame problem
 (VisualGeometryToolkitEstimation's `EssentialProblem(pair)`, `FundMatProblem(pair)` or
 `HomographyProblem(pair)`), `Kc`, GT pose and pool-frame points; plus the Schur
-bundle problem when `bundle = true`. `problem_type` is the pool's track
+bundle problem when `refit_on = ReprojectionBundle()`. `problem_type` is the pool's track
 ([`problem_type`](@ref)`(pool.problem)`). `scoring` is the refit scoring
 template (any scoring with an outlier half-width: the caller's — a paper's
 Student-t + uniform marginal at its prior); `nothing` is a context that only
@@ -154,16 +168,21 @@ reads selections (no native refit).
 """
 function build_pair_ctx(problem_type::Type, pair::PoolPair;
                         scoring = nothing, solo_scoring = scoring,
-                        bundle::Bool = false)
+                        refit_on::RefitProblem = PoolFrameProblem())
     ep, Kc1, Kc2 = _pair_problems(problem_type, pair)
     R_gt, t_gt = gt_pose(pair)
     geom = PairGeom(Kc1, Kc2, SMatrix{3,3,Float64,9}(R_gt), SVector{3,Float64}(t_gt),
                     _pair_correspondences(pair))
-    bp = bundle ? RelposeBundleProblem(Kc1, Kc2, pair.correspondences) : nothing
+    bp = refit_on isa ReprojectionBundle ? RelposeBundleProblem(Kc1, Kc2, pair.correspondences) : nothing
     return PairCtx(pair, ep, bp, geom, problem_type, scoring, solo_scoring, Dict{Any,Any}())
 end
 
 model_imc(model, ctx::PairCtx) = model_imc(model, ctx.geom)
+
+# The problem a native refit of `ctx` runs on.
+_refit_problem(ctx::PairCtx, ::PoolFrameProblem) = ctx.ep
+_refit_problem(ctx::PairCtx, ::ReprojectionBundle) = ctx.bp === nothing ?
+    throw(ArgumentError("refit_imc!: a ReprojectionBundle() refit needs build_pair_ctx(...; refit_on = ReprojectionBundle())")) : ctx.bp
 
 """
     essential_bearings(ctx::PairCtx) -> (f₁, f₂)

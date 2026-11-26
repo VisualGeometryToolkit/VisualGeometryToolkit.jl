@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 # =============================================================================
 # migrate_pools.jl — every format-4 or -5 light pool under a directory tree,
-# carried to the current format IN PLACE, each by `Pools.migrate_pool`'s guarded pattern
+# carried to the current format IN PLACE, each by `PoolFiles.migrate_pool`'s guarded pattern
 # =============================================================================
 #
 #     julia --project=<VisualGeometryToolkitEval> scripts/migrate_pools.jl DIR            # dry run
@@ -26,7 +26,7 @@
 
 using JLD2: JLD2
 using VisualGeometryToolkitEval: ARTIFACT_FORMATS
-using VisualGeometryToolkitEval.Pools: migrate_pool
+using VisualGeometryToolkitEval.PoolFiles: migrate_pool
 using VisualGeometryToolkitIO: write_staged
 
 # The light pool's format stamp; `nothing` for a file that opens and is not a

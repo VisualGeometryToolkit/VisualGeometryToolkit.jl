@@ -812,7 +812,7 @@ function _chunk_warps(dev, nw::Int, warp_bytes::Int, chunk::Integer)
     chunk > 0 && return min(Int(chunk), nw)
     free = device_free_bytes(dev)
     free == typemax(Int) && return nw
-    dev isa KA.CPU || (free = max(free - _onnx_cuda_reserve(), 0))     # ONNX Runtime's CUDA arenas' room (onnx_runtime.jl)
+    KA.isgpu(dev) && (free = max(free - _onnx_cuda_reserve(), 0))     # ONNX Runtime's CUDA arenas' room on a GPU (onnx_runtime.jl): the device policy's query
     budget = floor(Int, _PYRAMID_BUDGET * free)
     return clamp(fld(budget, max(warp_bytes, 1)), 1, nw)
 end

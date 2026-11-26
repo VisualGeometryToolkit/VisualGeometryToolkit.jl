@@ -23,11 +23,11 @@
 #           4 — PLAIN data only (no stack type serialized): the light record,
 #               its residual matrices split into a `:pool_residuals` file bound
 #               to it by `pool_key`, the per-correspondence `snn` (2026-10-05;
-#               the format spec is Pools `save_pool`)
+#               the format spec is PoolFiles `save_pool`)
 #           5 — the destination map's pair key, `destination_map` (2026-10-26;
-#               `Pools.migrate_pool` carries a format-4 file over)
+#               `PoolFiles.migrate_pool` carries a format-4 file over)
 #           6 — the correspondences' pair key, `correspondences` (the
-#               terminology ruling, 2026-11-13; `Pools.migrate_pool` carries a
+#               terminology ruling, 2026-11-13; `PoolFiles.migrate_pool` carries a
 #               format-4 or -5 file over)
 #   pool_residuals
 #           1 — the residual matrices of a v4 pool, with `pool_key` and
@@ -87,13 +87,13 @@ key is version 1.
 const ARTIFACT_FORMATS = (
     pool = (version = 6,
             change = "the correspondences' pair key, correspondences",
-            remedy = "migrate a format-4 or -5 pool with Pools.migrate_pool (a tree: scripts/migrate_pools.jl); convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
+            remedy = "migrate a format-4 or -5 pool with PoolFiles.migrate_pool (a tree: scripts/migrate_pools.jl); convert an older one to format 4 first with accv2026 scripts/tools/convert_pools_v4.jl"),
     pool_residuals = (version = 1,
             change = "the residual matrices of a v4 pool",
             remedy = "convert its pool with accv2026 scripts/tools/convert_pools_v4.jl"),
     pool_samples = (version = 1,
             change = "the minimal-sample starts of a v4 pool",
-            remedy = "re-derive it with Pools.derive_sample_starts"),
+            remedy = "re-derive it with PoolFiles.derive_sample_starts"),
     pnp_pool = (version = 2,
             change = "the per-query pseudo-GT gt_variance",
             remedy = "rebuild it with its accv2026 pool builder"),

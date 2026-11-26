@@ -36,16 +36,16 @@
     wide = Rect(0, 0, 4256, 2848) ∩ Ellipse(SVector(2138.8425928470033, 1436.604235274649), 1400.0, 1400.0, 0.0)
     @test_throws VgtkEstimation.ViewAngleLimitError solve(EstimationProblem(CameraRegressionProblem(RAT, kb, wide)), CameraRegression())
     @test_throws r"perspective plane" solve(EstimationProblem(CameraRegressionProblem(RAT, kb, wide)), CameraRegression())
-    @test_throws r"Use a lift \(division\) model" fit_then_refine(RAT, kb, wide)
+    @test_throws r"Use a lift \(division\) model" solve(EstimationProblem(CameraRegressionProblem(RAT, kb, wide)), CameraRegression(; refine = LevenbergMarquardt()))
     # the fields: the region's angle about the source's axis (the KB profile's at 1400 px, radians) and the limit
-    e = try fit_then_refine(RAT, kb, wide); nothing catch err; err end
+    e = try solve(EstimationProblem(CameraRegressionProblem(RAT, kb, wide)), CameraRegression(; refine = LevenbergMarquardt())); nothing catch err; err end
     @test e isa VgtkEstimation.ViewAngleLimitError && e.family === RAT && e.limit == π / 2 - 1.0e-3
     @test e.field_angle ≈ Float64(view_angle(lens(kb), 1400.0 / 927.4663595958699)) rtol = 1.0e-6
     @test rad2deg(e.field_angle) > 90
     rk = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, kb, wide)), CameraRegression())
     @test retcode_symbol(rk) === :solved && rk.metadata.family.θ_source > π / 2 && rk.metadata.max_px < 1.0e-6
     # and the refine from it converges near it
-    ra = fit_then_refine(RAT, kb, region)
+    ra = solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region)), CameraRegression(; refine = LevenbergMarquardt()))
     @test retcode_symbol(ra) === :converged && abs(calibration_matrix(ra.u)[1, 1] - 921.9) < 10 && ra.rms <= r.rms
 end
 
@@ -84,7 +84,7 @@ end
     end
     # KB from a physical source: the polynomial's linear fit IS the integral's least squares, the refine's minimum
     r = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, rcorner))), CameraRegression())
-    ra = fit_then_refine(KB4, mdiv, disc(mdiv, rcorner))
+    ra = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, rcorner))), CameraRegression(; refine = LevenbergMarquardt()))
     @test abs(r.rms - ra.rms) <= 1.0e-6 * ra.rms
 end
 
@@ -99,7 +99,7 @@ end
         @test_throws r"RefineProblem\(CameraRegressionProblem" solve(EstimationProblem(CameraRegressionProblem(L, mdiv, disc(mdiv, 1500.0))), CameraRegression())
         @test_throws r"the family's anchor" solve(EstimationProblem(CameraRegressionProblem(L, mdiv, disc(mdiv, 1500.0))), CameraRegression())
     end
-    r = fit_then_refine(typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, 1500.0))
+    r = solve(EstimationProblem(CameraRegressionProblem(typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, 1500.0))), CameraRegression(; refine = LevenbergMarquardt()))
     @test retcode_symbol(r) === :converged
     # the refine's keywords: L2 only, no scale input
     g = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, 1500.0))), CameraRegression()).u
@@ -118,7 +118,7 @@ end
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     for (L, R) in ((KB4, rcorner), (SC3, rcorner), (Division{2}, 2500.0))
         region = disc(mdiv, R)
-        a = fit_then_refine(L, mdiv, region)
+        a = solve(EstimationProblem(CameraRegressionProblem(L, mdiv, region)), CameraRegression(; refine = LevenbergMarquardt()))
         best = a.u
         p = collect(parameter_vector(lens(best)))
         K = SMatrix{3, 3, Float64}(calibration_matrix(best))
@@ -131,7 +131,7 @@ end
         @test abs(r.rms - a.rms) <= 1.0e-6 * max(a.rms, 1.0e-9) + 1.0e-12
     end
     # a physical source's principal point is data: a guess that moves it is refused
-    g = fit_then_refine(KB4, mdiv, disc(mdiv, 1500.0)).u
+    g = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, 1500.0))), CameraRegression(; refine = LevenbergMarquardt())).u
     K = SMatrix{3, 3, Float64}(calibration_matrix(g))
     moved = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1], 0, 0, 0, K[2, 2], 0, K[1, 3] + 3, K[2, 3], 1); check = false)), lens(g))
     @test_throws r"principal point" solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), moved), LevenbergMarquardt())
@@ -162,9 +162,9 @@ end
     rd = solve(RefineProblem(CameraRegressionProblem(kb, region), g), LevenbergMarquardt())
     cd = parameters(lens(rd.u))
     @test cd.d1 != cg.d1 && rd.rms < rh.rms
-    @test fit_then_refine(RAT, kb, region).rms == rd.rms
+    @test solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region)), CameraRegression(; refine = LevenbergMarquardt())).rms == rd.rms
     # the fit-then-refine recipe forwards `fixed` to both stages: the linear start holds the denominator too
-    @test lens(fit_then_refine(RAT, kb, region; fixed = (:d,)).u) ==
+    @test lens(solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region; fixed = (:d,))), CameraRegression(; refine = LevenbergMarquardt())).u) ==
         lens(solve(RefineProblem(CameraRegressionProblem(kb, region; fixed = (:d,)), solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region; fixed = (:d,))), CameraRegression()).u), LevenbergMarquardt()).u)
     # everything held: the guess, unmoved
     r0 = solve(RefineProblem(CameraRegressionProblem(kb, region; fixed = (:f, :k, :d)), g), LevenbergMarquardt())
@@ -226,7 +226,7 @@ end
     for kw in (:free, :fix, :fixed_params, :hold)
         @test_throws r"give `fixed`" solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region; (kw => (:d,),)...)), CameraRegression())
     end
-    ra = fit_then_refine(RAT, kb, region; fixed = (:d,))
+    ra = solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region; fixed = (:d,))), CameraRegression(; refine = LevenbergMarquardt()))
     ca = parameters(lens(ra.u))
     @test (ca.d1, ca.d2, ca.d3) === (0.0, 0.0, 0.0) && ra.rms <= rh.rms * (1 + 1.0e-9)
 end
@@ -248,7 +248,7 @@ end
     moving = VgtkCore.free_parameter_names(guess, ())
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(mdiv)); M = VgtkEstimation._offset_matrix(K0)
     start = VgtkEstimation._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, :image, VgtkCore.default_device())
+    pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, VgtkEstimation.ImageMeasure(), VgtkCore.default_device())
     P = VgtkEstimation._regression_manifold(role, VgtkEstimation._lens_family_manifold(role, lens(guess), moving), start, moving)
     lm = VgtkEstimation._LensRegressionLm(VgtkCore.default_device(), P, false, Inf, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
     N = tangent_size(P)

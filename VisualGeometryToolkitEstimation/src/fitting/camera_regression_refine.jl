@@ -235,7 +235,7 @@ end
 # ==============================================================================
 
 """
-    solve(RefineProblem(CameraRegressionProblem(source, region; fixed = (), weight = :image, device, support), guess::CameraModel),
+    solve(RefineProblem(CameraRegressionProblem(source, region; fixed = (), weight = ImageMeasure(), device, support), guess::CameraModel),
           LevenbergMarquardt(; optimization_strategy = nothing); stops) -> FitResult{<:CameraModel, CameraFitMetadata}
 
 The camera of `guess`'s lens family polished onto `source` over `region` (a region of the source's sensor in its pixel
@@ -260,11 +260,11 @@ family's zero lens at the source's `K`).
   guess's principal point must be the source's (an `ArgumentError` otherwise) and `:aspect`, `:cx`, `:cy` are held, as
   are the decentering terms (tangential, thin prism) its azimuth-0 profile does not see. The samples are the source lens's radial profile (its
   radial part: decentering terms are stripped, warned when non-negligible) on Clenshaw–Curtis nodes, the exact
-  reduction of the image integral to `θ`, with the density `weight` (`:image`, `:solid_angle` or `:uniform`) and the
+  reduction of the image integral to `θ`, with the density `weight` (`ImageMeasure()`, `SolidAngleMeasure()` or `UniformMeasure()`) and the
   region's coverage of each radius (the region star-shaped about the principal point).
 - **A gauge `K`** (a SplineLens camera, a `CameraModel` or a `BoundedCamera` of one): the principal point, the aspect
   and the axis are free, from the guess's principal point and aspect and from the source's ẑ. The samples are the
-  camera's own rays on the image over the region, each pixel one sample of equal weight (the `:image` density; another
+  camera's own rays on the image over the region, each pixel one sample of equal weight (the `ImageMeasure()` density; another
   `weight` is an `ArgumentError`). The fitted camera's principal point is the axis's pixel, and `metadata.rotation` is
   the turn from the source's frame to the fitted one; `metadata.symmetry_residual` (px) is the azimuthal misfit no
   radially symmetric camera represents. [`OpticalAxis`](@ref) is this refine of the Fisheye624 form (4 radial terms).
@@ -301,7 +301,7 @@ end
 function _refine_camera(
         guess::CameraModel, source::CameraModel, region;
         fixed::Tuple{Vararg{Symbol}} = (),
-        weight::Symbol = :image, stops::LmStops = _CAMERA_REGRESSION_STOPS, damping::LmDamping = MarquardtDamping(), device = default_device(),
+        weight = ImageMeasure(), stops::LmStops = _CAMERA_REGRESSION_STOPS, damping::LmDamping = MarquardtDamping(), device = default_device(),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
@@ -514,7 +514,7 @@ end
 # last finite camera is). Returns the highest order's refine that holds (`_axis_fit_valid`; `nothing` when none does), the
 # linear start, and that order.
 function _axis_continuation(src::CameraModel, part, device)
-    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, :image,
+    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, ImageMeasure(),
                                  (_AXIS_FIXED..., _axis_held(_AXIS_START_TERMS)...), device)
     r, guess, fitted = nothing, start, 0
     for m in _AXIS_START_TERMS:_AXIS_TERMS
@@ -535,7 +535,7 @@ _axis_held(m::Int) = ntuple(i -> Symbol(:k, m + i), _AXIS_TERMS - m)
 # folding before the region's widest angle, or just past it, refitted inside the fold. Returns the last refine, the start's
 # fold when it folds inside the region (`nothing` otherwise), and whether the fit holds.
 function _axis_fold_refits(src::CameraModel, part, device)
-    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, :image, _AXIS_FIXED, device)
+    start = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, part, ImageMeasure(), _AXIS_FIXED, device)
     r = _refine_camera(start, src, part; fixed = _AXIS_FIXED, device)
     # a linear start that folds before the region's widest angle images no radius past its fold: the refine's residuals
     # are capped there, and it can stall with the axis unmoved (a rectilinear 14 mm lens to 62°, folding at 56°). Such a
@@ -551,7 +551,7 @@ function _axis_fold_refits(src::CameraModel, part, device)
     near = _INSIDE_FOLD * fold < r.metadata.family.θ_max
     while near && !_axis_fit_valid(r) && refits < _FOLD_REFITS
         inner = part ∩ _inside_fold(s, min(θ, r.metadata.family.θ_max))
-        s = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, inner, :image, _AXIS_FIXED, device)
+        s = _approximation_start(_linear_form(typeof(_AXIS_LENS)), typeof(_AXIS_LENS), src, inner, ImageMeasure(), _AXIS_FIXED, device)
         r = _refine_camera(s, src, inner; fixed = _AXIS_FIXED, device)
         θ = _fold_angle(s)
         refits += 1

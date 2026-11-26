@@ -385,10 +385,9 @@ function evaluate_sample_budget(problem_type::Type,
     # `@threads` loop may change mid-pair (it migrates), so two tasks could
     # share one tuple. A tuple's running best is reset per pair, so which tuple
     # a pair takes changes nothing it writes.
-    N_max = maximum(num_points, pairs)
+    largest = argmax(i -> num_points(pairs[i]), eachindex(pairs))   # the selectors' caches are sized for the largest pair
     nt    = Threads.maxthreadid()
-    _scorer(name, sc, width; kw...) =
-        ScoreSelector(name, sc, width, scoring_workspace(sc, N_max, dg), Vector{Float64}(undef, N_max); kw...)
+    _scorer(name, sc, width; kw...) = ScoreSelector(name, sc, width, pairs[largest] => residuals[largest]; kw...)
     _thread_tuple() = (
         Tuple(_scorer(m.name, m.scoring, _method_width(m)) for m in methods)...,
         # loss-width selection + its own refiner: one selector per spec.

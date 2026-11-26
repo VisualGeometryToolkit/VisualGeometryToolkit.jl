@@ -5,23 +5,24 @@
 # A `[tuning.<name>]` spec of scheme `joint_coarse_fine` (Tuning
 # `JointCoarseFine`: named axes, each a coarse axis, an extension rule, a fine
 # spacing and whether it is expensive) or `coarse_fine` (`CoarseFine`, its
-# one-axis case) carries every parameter. One function per stage:
+# one-axis case) carries every parameter, and is the algorithm:
+# `solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), scheme)`. One internal function per stage:
 #
-#   1. COARSE — `coarse_search`: the objective over the product of the axes'
+#   1. COARSE — `_coarse_search`: the objective over the product of the axes'
 #      coarse grids. While the joint argmin lies within `edge_margin` points
 #      of a face, that axis `extend`s by `extension.npts` points on that side
 #      (lo before hi, one side per axis per round, at most
 #      `extension.max_rounds` per side) and only the new slab is evaluated.
 #      Windows are located by expansion, never hand-widened; an axis whose
 #      argmin is still within the margin after its budget is a boundary hit.
-#   2. FINE — `fine_search`: the product of each axis's `fine` spacing over
+#   2. FINE — `_fine_search`: the product of each axis's `fine` spacing over
 #      the coarse argmin's two neighbours on that axis; its free argmin is the
 #      selection.
 #      With an incumbent declared, the selection replaces it only when a paired
 #      unit bootstrap puts the gain above zero with the spec's confidence.
-#   3. BOOTSTRAP — Tuning `bootstrap_argmin` over the evaluated cells' unit
+#   3. BOOTSTRAP — Tuning `SelectionBootstrap` over the evaluated cells' unit
 #      statistics: the sampling distribution of the joint selection, read per
-#      axis.
+#      axis (a solve of its own).
 #
 # Persisted by `save_coarse_fine_artifact`; deployed through one gated
 # reader, `deployed_setting`, which refuses a boundary hit on any axis
@@ -86,24 +87,13 @@ function _evaluate!(Y, ev, errorsfn, todo, gs, names, expensive, criterion)
     end
 end
 
-"""
-    coarse_search(errorsfn, cells::AbstractDict{K,<:NamedTuple}, scheme; label = string)
-        -> Dict{K,NamedTuple}
-
-Stage 1 of the coarse-fine search (module header): per search key `k`,
-`cells[k]` names each axis's coarse [`SpacedGrid`](@ref) (`grid_spec` of the
-spec's axis); the objective over their product, each axis extended on a side
-while the joint argmin lies within the spec's `edge_margin` of that face.
-`scheme` is a `JointCoarseFine` or a `CoarseFine` (one axis, named by the
-cells). Per key `(; names, coarse, coarse_objective, n_extensions,
-coarse_argmin, boundary_hit, evaluated)`: the axis names, the final coarse
-grid specs, the objective over their product (an `ndims = d` array), the
-extension rounds (`d × 2`, lo and hi), the argmin and the per-axis boundary
-flags as NamedTuples, and every evaluated `point => errors`.
-"""
-function coarse_search(errorsfn, cells::AbstractDict{K,<:NamedTuple}, scheme::Union{CoarseFine,JointCoarseFine};
-                       label = string) where {K}
-    isempty(cells) && throw(ArgumentError("coarse_search: no cells"))
+# Stage 1 of the coarse-fine search (module header): per search key `k`, `cells[k]` names each axis's coarse
+# `SpacedGrid`; the objective over their product, each axis extended on a side while the joint argmin lies within the
+# spec's `edge_margin` of that face. Per key `(; names, coarse, coarse_objective, n_extensions, coarse_argmin,
+# boundary_hit, evaluated)`.
+function _coarse_search(errorsfn, cells::AbstractDict{K,<:NamedTuple}, scheme::Union{CoarseFine,JointCoarseFine};
+                        label = string) where {K}
+    isempty(cells) && throw(ArgumentError("the coarse-fine search: no cells"))
     ax = _search_axes(scheme, keys(first(values(cells))))
     names = Tuple(first.(ax)); d = length(names); m = scheme.edge_margin
     specs = Dict{K,Vector{SpacedGrid}}(k => [c[n] for n in names] for (k, c) in cells)
@@ -142,19 +132,11 @@ function coarse_search(errorsfn, cells::AbstractDict{K,<:NamedTuple}, scheme::Un
         end for k in keys(cells))
 end
 
-"""
-    fine_search(errorsfn, coarse::AbstractDict{K,<:NamedTuple}, scheme) -> Dict{K,NamedTuple}
-
-Stage 2 of the coarse-fine search: per key, each axis's `fine` spacing over
-the two coarse neighbours of the coarse argmin on that axis, their product
-evaluated once (no extension), its free argmin the selection. Each record of
-[`coarse_search`](@ref) gains `fine` (the fine grid specs), `fine_objective`
-and `selected` (a NamedTuple of axis values); `evaluated` gains the fine
-cells. A spec's incumbent is evaluated (one more call) and the record gains
-`incumbent`, `incumbent_errors`, `gain` (`objective`, `p_gain`) and
-`kept_incumbent`; `selected` is the incumbent when kept.
-"""
-function fine_search(errorsfn, coarse::AbstractDict{K,<:NamedTuple}, scheme::Union{CoarseFine,JointCoarseFine}) where {K}
+# Stage 2 of the coarse-fine search: per key, each axis's `fine` spacing over the two coarse neighbours of the coarse
+# argmin on that axis, their product evaluated once (no extension), its free argmin the selection; each record gains
+# `fine`, `fine_objective` and `selected`, and with a spec's incumbent `incumbent`, `incumbent_errors`, `gain` and
+# `kept_incumbent` (`selected` the incumbent when kept).
+function _fine_search(errorsfn, coarse::AbstractDict{K,<:NamedTuple}, scheme::Union{CoarseFine,JointCoarseFine}) where {K}
     names = first(values(coarse)).names; d = length(names)
     ax = _search_axes(scheme, names)
     bracket(g, j, s) = (xs = grid(g); SpacedGrid(xs[max(j - 1, 1)], xs[min(j + 1, length(xs))], s))
@@ -195,89 +177,35 @@ function _keep_incumbent(r, p, E, inc::Incumbent, criterion)
                      gain = (objective = stats_objective(criterion, Si) - stats_objective(criterion, S), p_gain)))
 end
 
-"""
-    coarse_fine_search(errorsfn, cells, scheme; label = string) -> Dict{K,NamedTuple}
-
-The coarse-fine search, both stages: [`fine_search`](@ref) of
-[`coarse_search`](@ref).
-"""
-coarse_fine_search(errorsfn, cells::AbstractDict, scheme; label = string) =
-    fine_search(errorsfn, coarse_search(errorsfn, cells, scheme; label), scheme)
-
-# --- the scalar forms: a d = 1 search under a CoarseFine spec, its record in
-# the keys the scalar consumers (e.g. accv2026) read. `curvesfn`
-# takes the x values per cell (`Dict(k => xs)`), `evalfn` one x.
-
-_pointwise(evalfn) = xs_of -> Dict(k => [evalfn(x) for x in xs] for (k, xs) in xs_of)
-_scalar_errorsfn(curvesfn) = pts -> curvesfn(Dict(k => [only(p) for p in ps] for (k, ps) in pts))
-
-function _scalar_record(r, scheme::CoarseFine; method_name, label, param_name)
-    rec = Dict{Symbol,Any}(:method_name => method_name, :param_name => param_name,
-        :tuning_criterion => Symbol(tuning_criterion_label(scheme.criterion)), :label => String(label),
-        :coarse_spec => only(r.coarse), :x_star => only(r.coarse_argmin), :boundary_hit => only(r.boundary_hit),
-        :n_extensions => sum(r.n_extensions), :curve_ys => vec(r.coarse_objective))
-    haskey(r, :fine) && merge!(rec, Dict{Symbol,Any}(:fine_spec => only(r.fine), :fine_curve => vec(r.fine_objective),
-        :fine_idx => _argmin(vec(r.fine_objective)), :fine_bracket => [only(r.fine).lo, only(r.fine).hi],
-        :x_star_fine => only(r.selected)))
-    return rec
-end
+# A coarse-to-fine tuning problem: `f` maps a cells Dict to validation errors, `p` holds the start cells.
+const _CellsProblem = EstimationProblem{Hyperparameter, <:Any, <:NamedTuple{(:cells,)}}
 
 """
-    coarse_fine_cv_batched(curvesfn, coarse::AbstractDict{K,<:SpacedGrid}, scheme::CoarseFine;
-                           method_name = Symbol, label = string, param_name = :x, context_tag = "")
-        -> Dict{K,Dict{Symbol,Any}}
+    solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), scheme::Union{CoarseFine, JointCoarseFine})
 
-[`coarse_fine_search`](@ref) of one scalar per cell, `curvesfn(xs_of) ->
-Dict(k => [errors at x for x in xs_of[k]])`. Per cell the record
-`:coarse_spec`, `:x_star` (coarse), `:boundary_hit`, `:n_extensions`,
-`:curve_ys`, `:fine_spec`, `:fine_curve`, `:fine_idx`, `:fine_bracket`,
-`:x_star_fine` (the tuned value) and the identity fields.
-"""
-function coarse_fine_cv_batched(curvesfn, coarse::AbstractDict{K,<:SpacedGrid}, scheme::CoarseFine;
-                                method_name = k -> Symbol(k), label = k -> string(k),
-                                param_name::Symbol = :x, context_tag::AbstractString = "") where {K}
-    @info "[coarse_fine $(tuning_criterion_label(scheme.criterion))/$context_tag] $(length(coarse)) cells"
-    rs = coarse_fine_search(_scalar_errorsfn(curvesfn), Dict(k => NamedTuple{(param_name,)}((g,)) for (k, g) in coarse),
-                            scheme; label)
-    return Dict{K,Dict{Symbol,Any}}(k => _scalar_record(r, scheme; method_name = method_name(k), label = label(k), param_name)
-                                    for (k, r) in rs)
-end
+The coarse-fine search, both stages (module header): per search key `k` of `cells` — independent searches sharing
+one evaluation (the selectors of one validation sweep, the arms of one detection run) — `cells[k]` names each axis's
+coarse [`SpacedGrid`](@ref) (`grid_spec` of the spec's axis); `scheme` is a `JointCoarseFine` or a `CoarseFine` (one
+axis, named by the cells). `errorsfn(points)` is the objective (module header).
 
+`u` is `Dict(k => selected)`, each a NamedTuple of axis values; `metadata = (; records)`, per key the search's record
+`(; names, coarse, coarse_objective, n_extensions, coarse_argmin, boundary_hit, fine, fine_objective, selected,
+evaluated)` (plus the incumbent's fields with a declared incumbent), what [`save_coarse_fine_artifact`](@ref)
+persists; `stats.nf` the cells evaluated. The record is `(Success, ToleranceMet)`, or `(MaxIters, IterationCap)` when
+any key's coarse argmin stayed within the margin of a face after its extension budget (`boundary_hit`: a clipped
+window, which [`enforce_probe_interior`](@ref) refuses on read).
 """
-    coarse_fine_cv(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name, label, kwargs...) -> Dict
-
-[`coarse_fine_cv_batched`](@ref) of one cell and a point-wise `evalfn(x)`.
-"""
-coarse_fine_cv(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name::Symbol,
-               label::AbstractString = String(method_name), kwargs...) =
-    coarse_fine_cv_batched(_pointwise(evalfn), Dict(:cell => coarse), scheme;
-                           method_name = _ -> method_name, label = _ -> label, kwargs...)[:cell]
-
-"""
-    probe_curve(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name, label, param_name = :x) -> Dict
-
-The coarse stage alone ([`coarse_search`](@ref)) of one cell and a point-wise
-`evalfn(x)`: the record of [`coarse_fine_cv_batched`](@ref) without its fine
-keys.
-"""
-probe_curve(evalfn, coarse::SpacedGrid, scheme::CoarseFine; method_name::Symbol,
-            label::AbstractString = String(method_name), param_name::Symbol = :x) =
-    _scalar_record(coarse_search(_scalar_errorsfn(_pointwise(evalfn)), Dict(:cell => NamedTuple{(param_name,)}((coarse,))),
-                                 scheme; label = _ -> label)[:cell], scheme; method_name, label, param_name)
-
-"""
-    fine_stage(evalfn, rec, scheme::CoarseFine) -> (; x_star, idx, spec, grid, curve, bracket)
-
-The fine stage alone ([`fine_search`](@ref)) of a [`probe_curve`](@ref)
-record and a point-wise `evalfn(x)`.
-"""
-function fine_stage(evalfn, rec::AbstractDict, scheme::CoarseFine)
-    r = fine_search(_scalar_errorsfn(_pointwise(evalfn)),
-                    Dict(:cell => (; names = (Symbol(rec[:param_name]),), coarse = [rec[:coarse_spec]],
-                                   coarse_objective = Vector{Float64}(rec[:curve_ys]), evaluated = Pair{NamedTuple,Any}[])),
-                    scheme)[:cell]
-    f = only(r.fine); ys = vec(r.fine_objective)
-    return (; x_star = only(r.selected), idx = _argmin(ys), spec = f, grid = collect(grid(f)), curve = ys, bracket = (f.lo, f.hi))
+__solve(prob::_CellsProblem, scheme::CoarseFine) = _coarse_fine_solve(prob, scheme)
+__solve(prob::_CellsProblem, scheme::JointCoarseFine) = _coarse_fine_solve(prob, scheme)
+function _coarse_fine_solve(prob, scheme::Union{CoarseFine,JointCoarseFine})
+    errorsfn = prob.f
+    records = _fine_search(errorsfn, _coarse_search(errorsfn, prob.p.cells, scheme), scheme)
+    K = keytype(records)
+    selected = Dict{K,NamedTuple}(k => r.selected for (k, r) in records)
+    hit = any(r -> any(values(r.boundary_hit)), values(records))
+    nf = sum(r -> length(r.evaluated), values(records); init = 0)
+    return FitResult(selected, hit ? ReturnCode.MaxIters : ReturnCode.Success, hit ? IterationCap : ToleranceMet,
+                     SolveStats(; nf), NaN, 0, (; records))
 end
 
 """

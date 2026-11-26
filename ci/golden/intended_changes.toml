@@ -30625,3 +30625,83 @@ old    = { type = "VisualGeometryToolkitCore.StopRule", value = "03000000" }
 new    = { type = "VisualGeometryToolkitCore.StopRule", value = "02000000" }
 size   = "max relative difference 0.333 (2251799813685248 ulp) over 806 float leaves"
 reason = "the complete fma pin (owner, 2026-11-26): every product the Sampson layer reaches (each model's `constraint_with_jacobians`: the epipolar plane and bearing forms, the homography's transfer forms, the conic family, the radial camera; and the whitening, `_whitening_parts`) is an inlined explicit `fma` chain (Core base/fused_products.jl, owner 2026-11-25), so the residual a scorer reads and the residual the LM's Jacobian rows carry are one arithmetic, bit for bit, in every compiled copy; before it, StaticArrays' `muladd`s in the constraint fused per compiled context (max relative difference 0.333 (2251799813685248 ulp) over 806 float leaves)"
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_mle"
+field  = "exception"
+old    = { type = "type", value = "ErrorException" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "An illegal PriorSpec (Jeffreys with a fitting, InverseGamma unfitted) is refused where the algorithm is built, an ArgumentError from its constructor, as Core's algorithms refuse an illegal configuration (spec §9; owner-approved conformance change V6, 2026-11-26); it was an ErrorException at the solve. The message is unchanged."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_robust"
+field  = "exception"
+old    = { type = "type", value = "ErrorException" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "An illegal PriorSpec (Jeffreys with a fitting, InverseGamma unfitted) is refused where the algorithm is built, an ArgumentError from its constructor, as Core's algorithms refuse an illegal configuration (spec §9; owner-approved conformance change V6, 2026-11-26); it was an ErrorException at the solve. The message is unchanged."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/ig_unfitted"
+field  = "exception"
+old    = { type = "type", value = "ErrorException" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "An illegal PriorSpec (Jeffreys with a fitting, InverseGamma unfitted) is refused where the algorithm is built, an ArgumentError from its constructor, as Core's algorithms refuse an illegal configuration (spec §9; owner-approved conformance change V6, 2026-11-26); it was an ErrorException at the solve. The message is unchanged."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_mle_family_form"
+field  = "exception"
+old    = { type = "type", value = "ErrorException" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "An illegal PriorSpec (Jeffreys with a fitting, InverseGamma unfitted) is refused where the algorithm is built, an ArgumentError from its constructor, as Core's algorithms refuse an illegal configuration (spec §9; owner-approved conformance change V6, 2026-11-26); it was an ErrorException at the solve. The message is unchanged."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/ig_unfitted_family_form"
+field  = "exception"
+old    = { type = "type", value = "ErrorException" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "An illegal PriorSpec (Jeffreys with a fitting, InverseGamma unfitted) is refused where the algorithm is built, an ArgumentError from its constructor, as Core's algorithms refuse an illegal configuration (spec §9; owner-approved conformance change V6, 2026-11-26); it was an ErrorException at the solve. The message is unchanged."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_mle"
+field  = "exception.msg"
+old    = { type = "String", value = "Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted()." }
+new    = { type = "String", value = "ArgumentError: Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted()." }
+reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_robust"
+field  = "exception.msg"
+old    = { type = "String", value = "Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.RobustFit. Use Unfitted()." }
+new    = { type = "String", value = "ArgumentError: Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.RobustFit. Use Unfitted()." }
+reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/ig_unfitted"
+field  = "exception.msg"
+old    = { type = "String", value = "InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
+new    = { type = "String", value = "ArgumentError: InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
+reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/jeffreys_mle_family_form"
+field  = "exception.msg"
+old    = { type = "String", value = "Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted()." }
+new    = { type = "String", value = "ArgumentError: Jeffreys family is parameterless; got fitting=VisualGeometryToolkitEval.Tuning.MLE. Use Unfitted()." }
+reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."
+
+[[change]]
+group  = "eval_noise"
+case   = "scale_prior/refused/ig_unfitted_family_form"
+field  = "exception.msg"
+old    = { type = "String", value = "InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
+new    = { type = "String", value = "ArgumentError: InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
+reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."

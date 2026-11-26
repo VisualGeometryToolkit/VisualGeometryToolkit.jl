@@ -12,7 +12,7 @@
 # =============================================================================
 
 """
-    LoRefitSpec(label, lo, axis, grid, idxs; bundle=false)
+    LoRefitSpec(label, lo, axis, grid, idxs; refit_on = PoolFrameProblem())
 
 One post-LO refit of a selection sweep: refine the selected model
 `idxs[p, t]` with strategy `lo` at native parameter
@@ -61,7 +61,7 @@ struct LoRefitSpec
     axis::NativeAxis
     grid::Vector{Float64}
     idxs::Matrix{Int32}
-    bundle::Bool
+    refit_on::RefitProblem
     seedcols::Union{Nothing,Vector{Int}}
     natives::Union{Nothing,Vector{Float64}}
     widths::Union{Nothing,Vector{Float64}}
@@ -69,7 +69,7 @@ struct LoRefitSpec
     columns::Union{Nothing,Vector{Int}}
 end
 function LoRefitSpec(label::AbstractString, lo::Union{Nothing, AbstractOptimizationStrategy}, axis::WidthAxis,
-                     grid::AbstractVector, idxs::AbstractMatrix; bundle::Bool = false,
+                     grid::AbstractVector, idxs::AbstractMatrix; refit_on::RefitProblem = PoolFrameProblem(),
                      seedcols::Union{Nothing,AbstractVector} = nothing,
                      natives::Union{Nothing,AbstractVector} = nothing,
                      widths::Union{Nothing,AbstractVector} = nothing,
@@ -89,7 +89,7 @@ function LoRefitSpec(label::AbstractString, lo::Union{Nothing, AbstractOptimizat
     cols === nothing || all(c -> c in eachindex(g), cols) ||
         throw(ArgumentError("LoRefitSpec $label: `columns` outside the grid's " *
                             "$(eachindex(g)) — got $(filter(c -> !(c in eachindex(g)), cols))"))
-    LoRefitSpec(String(label), lo, axis, g, Matrix{Int32}(idxs), bundle,
+    LoRefitSpec(String(label), lo, axis, g, Matrix{Int32}(idxs), refit_on,
                 seedcols === nothing ? nothing : collect(Int, seedcols),
                 natives === nothing ? nothing : collect(Float64, natives),
                 widths === nothing ? nothing : collect(Float64, widths),
@@ -108,7 +108,7 @@ half-width), `solo_scoring` the absolute-width (`widths`) columns' template.
 The run is threaded `:greedy` over the flat (pair × spec)
 product so neither a subsampled validation side nor the arms' very uneven
 per-spec cost leaves threads idle (see the comment in the body), with one
-`PairCtx` built per task at exactly that spec's `bundle`. `pairs` are light pool
+`PairCtx` built per task at exactly that spec's `refit_on`. `pairs` are light pool
 records (`PoolPair`): a refit never reads a residual matrix. `on_fail = nothing` ⇒ seed-error fallback (LO never
 worsens the running best); supply `NaN` for the ladder convention (failed refit
 ≠ success). Returns `label => (P × T) imc matrix`.
@@ -151,7 +151,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
     # cost, and it is negligible by three orders of magnitude: the ctx is
     # O(#correspondences) — one back-projection of the correspondences plus a PairGeom —
     # against a spec's |columns| refits at ~1.6 ms each. It is also now built
-    # with exactly the `bundle` THIS spec needs, so a non-bundle spec never pays
+    # with exactly the `refit_on` THIS spec needs, so a pool-frame spec never pays
     # for a RelposeBundleProblem, which a per-pair or per-chunk `any(...)` made
     # it do.
     #
@@ -163,7 +163,7 @@ function apply_lo_refits(problem_type::Type, specs::AbstractVector{LoRefitSpec},
     tasks = vec([(p, i) for p in 1:P, i in eachindex(specs)])
     Threads.@threads :greedy for (p, i) in tasks
         spec = specs[i]
-        ctx = build_pair_ctx(problem_type, pairs[p]; scoring, solo_scoring, bundle = spec.bundle)
+        ctx = build_pair_ctx(problem_type, pairs[p]; scoring, solo_scoring, refit_on = spec.refit_on)
         # Function barrier: `spec.lo` is abstractly typed on the struct; the row
         # worker specializes the whole column loop on the CONCRETE LO type (one
         # dynamic dispatch per refit row, none per column).
@@ -210,9 +210,9 @@ function _apply_refit_row!(M::Matrix{Float64}, ctx::PairCtx, lo::AbstractOptimiz
         # LoRefitSpec doc); otherwise the refit template, at the fixed external
         # scale when set.
         M[p, t] = first(wv === nothing ?
-            refit_imc!(ctx, lo, seed_E, nat′; bundle = spec.bundle, on_fail,
+            refit_imc!(ctx, lo, seed_E, nat′; refit_on = spec.refit_on, on_fail,
                        s2 = fv === nothing ? nothing : fv[t]) :
-            _width_refit_imc!(ctx, RefitFamily(lo), lo, seed_E, wv[t], nat′; bundle = spec.bundle, on_fail))
+            _width_refit_imc!(ctx, RefitFamily(lo), lo, seed_E, wv[t], nat′; refit_on = spec.refit_on, on_fail))
     end
     return nothing
 end

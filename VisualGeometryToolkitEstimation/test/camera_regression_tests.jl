@@ -20,7 +20,7 @@
     worst = 0.0
     for (name, (L, m, _, region)) in LENS_CASES
         name in MOVED && continue
-        r = fit_then_refine(L, m, region)
+        r = solve(EstimationProblem(CameraRegressionProblem(L, m, region)), CameraRegression(; refine = LevenbergMarquardt()))
         @test r.metadata isa CameraFitMetadata
         p, s, max_px = RECORDED[name]
         q = parameter_vector(lens(r.u))
@@ -44,12 +44,12 @@ end
     for name in MOVED
         L, m, _, region = Dict(LENS_CASES)[name]
         @test_throws VgtkEstimation.ViewAngleLimitError solve(EstimationProblem(CameraRegressionProblem(L, m, region)), CameraRegression())
-        @test_throws VgtkEstimation.ViewAngleLimitError fit_then_refine(L, m, region)
+        @test_throws VgtkEstimation.ViewAngleLimitError solve(EstimationProblem(CameraRegressionProblem(L, m, region)), CameraRegression(; refine = LevenbergMarquardt()))
         @test_throws r"perspective plane" solve(EstimationProblem(CameraRegressionProblem(L, m, region)), CameraRegression())
     end
 end
 
-@testitem "CameraRegression: the :image density's dr/dθ is exact — the central difference it replaced to its truncation error" setup = [FitCameraLensCases] begin
+@testitem "CameraRegression: the ImageMeasure() density's dr/dθ is exact — the central difference it replaced to its truncation error" setup = [FitCameraLensCases] begin
     using Test
     using VisualGeometryToolkitCore: radial_part, lens, projected_radius, view_angle_limit
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -360,7 +360,7 @@ end
     using Test
     using StaticArrays: SA
     using VisualGeometryToolkitCore: SplineLens, CameraModel, BoundedCamera, Size2, KannalaBrandt, Rect, px
-    using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
+    using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, ImageMeasure
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     # the disc cut by the frame: a non-square region, anisotropic counts
     cut = Rect(0, 150, 1000, 700) ∩ DISC
@@ -390,7 +390,7 @@ end
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION)), CameraRegression(; tolerance = 1.0e-7))
     @test retcode_symbol(r) === :max_iterations && 1.0e-7 < r.metadata.family.forward.max_px < 1.0e-3 && r.metadata.max_px < 1.0e-9
     # the quadrature is on the image: a spline target takes no weight
-    @test_throws MethodError solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION; weight = :image)), CameraRegression(; tolerance = 1.0e-3))
+    @test_throws MethodError solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION; weight = ImageMeasure())), CameraRegression(; tolerance = 1.0e-3))
 end
 
 @testitem "CameraRegression(SplineLens): a backward lattice from a parametric model" setup = [FitCameraFisheye] begin
@@ -590,9 +590,9 @@ end
         src = CameraModel(; pp = (320.0, 240.0), focal = 300.0, lens = l)
         r = solve(EstimationProblem(CameraRegressionProblem(typeof(l), src, region)), CameraRegression())
         @test r.metadata.max_px < 1.0e-9 && r.rms < 1.0e-9
-        rc = fit_then_refine(typeof(l), src, region; device = VisualGeometryToolkitCore.KA.CPU())
+        rc = solve(EstimationProblem(CameraRegressionProblem(typeof(l), src, region; device = VisualGeometryToolkitCore.KA.CPU())), CameraRegression(; refine = LevenbergMarquardt()))
         @test rc.metadata.max_px < 1.0e-9 && rc.rms < 1.0e-9
-        rd = fit_then_refine(typeof(l), src, region)
+        rd = solve(EstimationProblem(CameraRegressionProblem(typeof(l), src, region)), CameraRegression(; refine = LevenbergMarquardt()))
         @test rd.metadata.max_px < 1.0e-9 && rd.rms < 1.0e-9
     end
 end
@@ -706,14 +706,14 @@ end
     using Test
     using VisualGeometryToolkitCore: lens, parameter_vector, calibration_matrix, KannalaBrandt, rotation
     using LinearAlgebra: I
-    using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
+    using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, SolidAngleMeasure
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     # A SplineLens camera has no OpenCV/COLMAP form: the exporters' refusal (VisualGeometryToolkitIO) says to fit a
     # parametric lens to it first, `the linear fit then its refine` — the bounded camera or its model.
     # Its K is a gauge, so its lens has no radial profile of its own: the fit samples the camera's rays. GRID is the
     # 40 × 40 SplineLens camera of a Kannala–Brandt fisheye (k₁ = −0.02, f = 300 px, its K kept).
     for src in (GRID_BOUNDED, GRID)
-        r = fit_then_refine(KannalaBrandt{4}, src, REGION)
+        r = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, src, REGION)), CameraRegression(; refine = LevenbergMarquardt()))
         kb = r.u
         @test lens(kb) isa KannalaBrandt{4}
         @test maximum(abs.(collect(parameter_vector(lens(kb))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-3
@@ -729,9 +729,9 @@ end
     rl = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, GRID, REGION)), CameraRegression())
     @test maximum(abs.(collect(parameter_vector(lens(rl.u))) .- [-0.02, 0.0, 0.0, 0.0])) <= 1.0e-2
     @test rotation(rl.metadata.rotation) == one(rotation(rl.metadata.rotation))
-    # the image samples carry the :image density only
-    @test_throws ArgumentError solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)), CameraRegression())
-    @test_throws ArgumentError fit_then_refine(KannalaBrandt{4}, GRID, REGION; weight = :solid_angle)
+    # the image samples carry the ImageMeasure() density only
+    @test_throws ArgumentError solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, GRID, REGION; weight = SolidAngleMeasure())), CameraRegression())
+    @test_throws ArgumentError solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, GRID, REGION; weight = SolidAngleMeasure())), CameraRegression(; refine = LevenbergMarquardt()))
 end
 
 @testitem "CameraRegression(SplineLens): the forward is fitted on the chart project evaluates it on" setup = [FitCameraFisheye] begin

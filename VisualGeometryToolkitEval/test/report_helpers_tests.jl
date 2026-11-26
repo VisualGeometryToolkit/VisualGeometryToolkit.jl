@@ -25,7 +25,7 @@
     using VisualGeometryToolkitEval.Tuning: tuning_spec, tuning_table, layer_tuning, layered_tuning_entry, TUNING_TAGS
     using VisualGeometryToolkitEval.Experiments: write_oracle_floor, oracle_floor_done, oracle_floor_source,
         oracle_floors_path
-    using VisualGeometryToolkitEval.Pools: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
+    using VisualGeometryToolkitEval.PoolFiles: export_pixel_inputs, ScoringPool, synthetic_e_pool_pair, GT_CONVENTION,
         load_pool
     using VisualGeometryToolkitCore: FundMat, sources, targets
     using VisualGeometryToolkitCore.Pools: PoolPair, pixel_correspondences
@@ -354,7 +354,7 @@
         end
         # a pair without correspondences is the layout's empty matrix
         empty_cs = VgtkCore.correspondences(SVector{2, Float64}[], SVector{2, Float64}[])
-        m0 = VgtkEval.Pools._match_matrix(empty_cs)
+        m0 = VgtkEval.PoolFiles._match_matrix(empty_cs)
         @test m0 isa Matrix{Float64} && size(m0) == (0, 4)
     end
 end

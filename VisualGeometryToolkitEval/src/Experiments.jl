@@ -165,6 +165,10 @@ function run_driver(script::AbstractString, args...;
     return nothing
 end
 
+# `f()` with each variable of `env` (`name => value` pairs) set for its duration and restored after: Base's `withenv`
+# once per variable, nested (its pairs are varargs only, so no collection is splatted into it).
+_with_env(f, env::AbstractVector{<:Pair}, i::Int = 1) = i > length(env) ? f() : withenv(() -> _with_env(f, env, i + 1), env[i])
+
 """
     run_isolated(path; args = String[], env = Dict{String,String}(),
                  bindings = Dict{Symbol,Any}()) -> Module
@@ -197,9 +201,7 @@ function run_isolated(path::AbstractString; args::AbstractVector{<:AbstractStrin
     try
         empty!(ARGS)
         append!(ARGS, args)
-        withenv((String(k) => String(v) for (k, v) in env)...) do
-            Base.include(m, path)
-        end
+        _with_env(() -> Base.include(m, path), [String(k) => String(v) for (k, v) in env])
     finally
         empty!(ARGS)
         append!(ARGS, saved)
@@ -216,7 +218,7 @@ end
 #       gridless and lives in src/render/axis_style.jl.
 #   F2  scientific-notation axis options — plain tick numbers only.
 #   F3  hand-rolled CV sweeps (LinRange() — every tune goes through the
-#       package coarse-fine search (coarse_fine_search and its scalar forms).
+#       package coarse-fine search, `solve(EstimationProblem(Hyperparameter, …), CoarseFine|JointCoarseFine)`).
 #   F4  local axis-style definitions (fonts belong to the package style module).
 # REQUIRED:
 #   R1  PGFPlots emitters consume the package style source (HOUSE_AXIS_COMMON)
@@ -272,8 +274,7 @@ function contract_violations(file::AbstractString)
     end
     if occursin("tuning_criterion", src) || occursin("x_star", src)
         # R2 — the single CV path only.
-        occursin("coarse_fine_search(", src) || occursin("coarse_fine_cv(", src) || occursin("probe_curve(", src) ||
-            occursin("fine_stage(", src) || occursin("deployed_", src) ||
+        occursin("EstimationProblem(Hyperparameter", src) || occursin("deployed_", src) ||
             occursin("thr_cv", src) ||   # readers of CV sidecars, not tuners
             push!(v, "R2: tunes a scalar off the single CV path")
     end

@@ -7,17 +7,19 @@
 """
     TuningScheme
 
-A family of cross-validation, with every parameter it runs under:
-[`CoarseFine`](@ref) and [`JointCoarseFine`](@ref) (the one coarse-fine
-search of Evaluation cv_probe.jl, in one and in N dimensions),
-[`WindowedBootstrap`](@ref), [`Factorial`](@ref).
+A family of cross-validation, with every parameter it runs under, and the
+ALGORITHM of a hyperparameter's selection (VisualGeometryToolkitCore's
+`AbstractEstimationAlgorithm`): `solve(EstimationProblem(Hyperparameter, objective, p), scheme)`, the problem tag
+VisualGeometryToolkitEstimation's `Hyperparameter`. [`CoarseFine`](@ref) and [`JointCoarseFine`](@ref) (the one
+coarse-fine search of Evaluation cv_probe.jl, in one and in N dimensions), [`WindowedBootstrap`](@ref) (the
+bootstrap harness's per-draw selection), [`Factorial`](@ref) (its axes read by downstream product-grid searches).
 
 A new search backend (a surrogate model over the same axes, say) is a new
-`TuningScheme` whose search returns the record of Evaluation `coarse_search` /
-`fine_search` — `selected`, `boundary_hit`, `evaluated` — so the artifact,
-its gated reader and the bootstrap serve it unchanged.
+`TuningScheme` whose solve's metadata holds the coarse-fine search's record per
+key — `selected`, `boundary_hit`, `evaluated` — so the artifact, its gated reader
+and the bootstrap serve it unchanged.
 """
-abstract type TuningScheme end
+abstract type TuningScheme <: AbstractEstimationAlgorithm end
 
 """
     CoarseFine(coarse, extension, edge_margin, fine, criterion, cross_validation)
@@ -86,8 +88,8 @@ The coarse-fine search over the product of named `axes`
 extended on a side while the joint argmin lies within `edge_margin` points of
 that face, then the product of each axis's fine bracket about the joint
 argmin and its free argmin. [`CoarseFine`](@ref) is its one-axis case. An
-optional [`Incumbent`](@ref) is kept unless the selection beats it (Evaluation
-`fine_search`). TOML tag `"joint_coarse_fine"`.
+optional [`Incumbent`](@ref) is kept unless the selection beats it (its
+solve). TOML tag `"joint_coarse_fine"`.
 """
 struct JointCoarseFine <: TuningScheme
     axes::Dict{String,CoarseFineAxis}
@@ -106,7 +108,8 @@ end
     WindowedBootstrap(efficiency_constant_window, outlier_halfwidth, loss_width,
                       efficiency_constant, criterion, cross_validation, budget_sampling)
 
-The bootstrap tuning harness (Evaluation `WindowedGridMethod`): per draw of
+The bootstrap tuning harness (Evaluation `ValidationErrors`, `compute_method_rows`), and the algorithm of its
+per-draw selection: per draw of
 `budget_sampling` from the validation units of `cross_validation`, the free argmin of `criterion` over the native-grid columns inside
 the efficiency-constant window at the draw's reference scale. `outlier_halfwidth`
 and `loss_width` are the native grids, `efficiency_constant` the standardized display
@@ -140,6 +143,11 @@ struct Factorial <: TuningScheme
     criterion::TuningCriterion
     cross_validation::CrossValidation
 end
+
+# The schemes' kinds: the coarse-fine searches iterate (their extension rounds); the windowed selection and a
+# factorial grid's argmin are selections among fixed candidates.
+estimator_kind(::Union{CoarseFine, JointCoarseFine}) = FitKind()
+estimator_kind(::Union{WindowedBootstrap, Factorial}) = ClosedFormKind()
 
 """
     TuningSpec(name, scheme)

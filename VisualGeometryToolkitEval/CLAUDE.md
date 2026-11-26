@@ -9,7 +9,7 @@ the composition evaluator of scorer + local-optimization arms
 refit layer `refit_imc!`, `LoRefitSpec`/`apply_lo_refits`, the sample-budget
 engine, `live_runs`, rosters and their gate-enforced readers,
 `stream_selections`), the stage and run-record framework (`Experiments`),
-figure and table rendering (`Render`), scoring-pool IO (`Pools`), the raw
+figure and table rendering (`Render`), scoring-pool IO (`PoolFiles`), the raw
 dataset readers (`Datasets`), the published-data catalog (`DataArtifacts`), the
 reproducible-figures contract (`Reproduce`: a paper project's REPRODUCE.md
 asset index checked against what its tex reads, and the one writer of a
@@ -30,7 +30,7 @@ the scale prior's `PriorSpec` is a closed-form algorithm of its own
 (`solve(EstimationProblem(IGPrior, σ²s), spec)`); a result is read by field
 (`r.u`, `r.stats.nsteps`) and `found_model(r)`.
 Each submodule's API is reached through it (`using
-VisualGeometryToolkitEval.Pools: load_pool`); the top module exports the submodules
+VisualGeometryToolkitEval.PoolFiles: load_pool`); the top module exports the submodules
 and the driver CLI (`cli_option`, `start_output_flush!`).
 
 ## Testing
@@ -106,8 +106,8 @@ The rule is the stack's (`conventions/frames.md`); how it lands here:
 
 ### The pool frame here
 
-A scoring pool (`Pools.ScoringPool`, VisualGeometryToolkitCore `PoolPair` records)
-is stored in `NormalizedImageFrame` and says so (`Pools.frame`); a PnP pool is
+A scoring pool (`PoolFiles.ScoringPool`, VisualGeometryToolkitCore `PoolPair` records)
+is stored in `NormalizedImageFrame` and says so (`PoolFiles.frame`); a PnP pool is
 in `ImageFrame`. The pool and residual files hold plain data with the stored
 maps (`source_map`, `destination_map`); a value leaves the pool frame only through
 those maps. Nothing in this package converts a frame. The raw readers

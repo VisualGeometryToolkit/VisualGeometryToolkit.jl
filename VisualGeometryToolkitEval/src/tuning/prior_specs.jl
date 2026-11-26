@@ -2,7 +2,7 @@
 # prior_specs.jl — the scale-PRIOR strategy layer of a tuning: the
 # ScalePriorFamily × PriorFitting axes (`PriorSpec`, the closed-form algorithm
 # that fits VisualGeometryToolkitCore's `IGPrior` from per-pair σ̂² samples,
-# `family_tag`/`fitting_tag`, `prior_label`, `ALL_PRIOR_SPECS`). Moved from
+# `family_tag`/`fitting_tag`, `prior_label`). Moved from
 # RANSACScoringDoneRight's eval_strategy.jl (K+, 2026-10-09): it is tuning
 # policy, consumed by the paper projects' tunings.
 # =============================================================================
@@ -25,7 +25,7 @@
 # `PriorSpec(family, fitting)` bundles them, and is the estimation algorithm:
 # `solve(EstimationProblem(IGPrior, σ²s), spec)` dispatches on the (family,
 # fitting) combination and returns a FitResult whose `u` is the `IGPrior`.
-# Illegal combinations (e.g. Jeffreys + MLE) error at dispatch time.
+# Illegal combinations (e.g. Jeffreys + MLE) are refused where the spec is built (ArgumentError).
 
 """
     ScalePriorFamily
@@ -100,23 +100,22 @@ family and the fitting that turns σ̂² data into its parameters.
 
 `n` is the number of σ̂² values a fit read, `rms` NaN. Too few data for a fitting (none for `RobustFit`, fewer than
 two for `MLE`) is degenerate: `u = nothing`, `(InitialFailure, NoRule)`, `n = 0`. An illegal combination
-(`Jeffreys` with a fitting, `InverseGamma` unfitted) is an `ErrorException` at the solve. An `IGPrior` problem has no
+(`Jeffreys` with a fitting, `InverseGamma` unfitted) is refused where the spec is built (an `ArgumentError`). An `IGPrior` problem has no
 default algorithm: the spec is the experiment's decision.
 
-The named specs are the constructor functions [`JeffreysPriorSpec`](@ref) and [`IGRobustSpec`](@ref); the set a
-sweep iterates is [`ALL_PRIOR_SPECS`](@ref).
 """
 struct PriorSpec{F<:ScalePriorFamily, S<:PriorFitting} <: AbstractEstimationAlgorithm
     family::F
     fitting::S
+    function PriorSpec(family::F, fitting::S) where {F<:ScalePriorFamily, S<:PriorFitting}
+        family isa Jeffreys && !(fitting isa Unfitted) && throw(ArgumentError(
+            "Jeffreys family is parameterless; got fitting=$(typeof(fitting)). Use Unfitted()."))
+        family isa InverseGamma && fitting isa Unfitted && throw(ArgumentError(
+            "InverseGamma family requires a non-trivial fitting (RobustFit or MLE)."))
+        return new{F, S}(family, fitting)
+    end
 end
 estimator_kind(::PriorSpec) = ClosedFormKind()
-
-"""Improper Jeffreys prior — equivalent to `PriorSpec(Jeffreys(), Unfitted())`."""
-JeffreysPriorSpec() = PriorSpec(Jeffreys(), Unfitted())
-
-"""Robust IG prior with shape `α₀` and scale fit from `median(σ̂²)`."""
-IGRobustSpec(alpha0::Float64=1.0) = PriorSpec(InverseGamma(), RobustFit(alpha0))
 
 """
     prior_label(spec::PriorSpec) -> String
@@ -130,12 +129,6 @@ const _MaybePrior = Union{IGPrior, Nothing}
 
 # Parameterless family — Jeffreys returns IGPrior(0, 0) and reads no data.
 __solve(::EstimationProblem{IGPrior}, ::PriorSpec{Jeffreys, Unfitted}) = closed_form_result(IGPrior(0.0, 0.0), 0)
-
-# Illegal combinations — caught at dispatch time rather than via runtime checks.
-__solve(::EstimationProblem{IGPrior}, alg::PriorSpec{Jeffreys}) =
-    error("Jeffreys family is parameterless; got fitting=$(typeof(alg.fitting)). Use Unfitted().")
-__solve(::EstimationProblem{IGPrior}, ::PriorSpec{InverseGamma, Unfitted}) =
-    error("InverseGamma family requires a non-trivial fitting (RobustFit or MLE).")
 
 # Display labels — keyed on the (family, fitting) combination via PriorSpec
 # so labels stay synchronised with the spec roster.
@@ -169,19 +162,6 @@ fitting_tag(::Unfitted)  = :unfitted
 fitting_tag(::RobustFit) = :robust
 fitting_tag(::MLE)       = :mle
 fitting_tag(s::PriorSpec) = fitting_tag(s.fitting)
-
-# NOTE: IG-Robust / IG-MLE dropped for the fair (oracle-free) comparison — both
-# fit the IG prior from GT σ̂² (empirical Bayes), an asymmetric advantage the
-# threshold baselines don't get.  Jeffreys (α₀=β₀=0) is the oracle-free IG: its
-# scale is the data's own consensus RMS (RSS/ν), selected by pose-error
-# free-argmin like every other method.  Re-add the two specs here to restore the
-# empirical-Bayes variants (then label them as GT-annotated references).
-"""
-    ALL_PRIOR_SPECS :: Tuple of canonical (family, fitting) specs probed + evaluated.
-
-Single source of truth for the prior specs a sweep iterates.
-"""
-const ALL_PRIOR_SPECS = (JeffreysPriorSpec(),)
 
 # MLE of the inverse-gamma shape/scale (α, β). Distributions.jl does not
 # implement `fit_mle(InverseGamma, ·)` directly, so we use the closed-form

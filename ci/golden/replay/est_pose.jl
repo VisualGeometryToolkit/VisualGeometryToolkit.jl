@@ -122,7 +122,7 @@ function replay_est_pose(cases)
     # ---------------------------------------------------------------- hand-eye
     hfind(cs; kw...) = ((p, rest) = _hand_eye(cs; kw...); ransac_solve(p; rest...))
     hrefine(cs, θ; kw...) = ((p, rest) = _hand_eye(cs; kw...); lm_solve(p, θ; rest...))
-    hprob(cs) = HandEyeProblem(cs; min_rel_angle = deg2rad(VgtkEstimation._dflt("robot_world_hand_eye", "min_rel_angle_deg")))
+    hprob(cs) = HandEyeProblem(cs)   # its minimum relative angle the default of record
     for (name, cs) in po_hand_eye_scenes()
         physical = occursin("metres", name) || occursin("millimetres", name)
         if name == "find_scene_30"

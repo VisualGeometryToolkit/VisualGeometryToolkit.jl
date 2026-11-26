@@ -169,13 +169,13 @@ _nobs(markers) = sum(length, values(markers))
         n = 4; N = 12
         r = randn(rng, 6n); J = randn(rng, 6n, N)
         res = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
-                                              termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
+                                              retcode = VgtkCore.ReturnCode.Success, stop_rule = VgtkCore.NoRule, iterations = 3, rms_rows = 6n,
                                               strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 0.5, 0.0, 0.0])
         md = res.metadata
         @test md.dof == 0 && isnan(md.s2) && all(isinf, md.cov)
         # with dof left, the weighted variance factor as before
         ok = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
-                                             termination = (VgtkCore.ReturnCode.Success, VgtkCore.NoRule), iterations = 3, rms_rows = 6n,
+                                             retcode = VgtkCore.ReturnCode.Success, stop_rule = VgtkCore.NoRule, iterations = 3, rms_rows = 6n,
                                              strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 1.0, 1.0, 0.5])
         @test VgtkCore.dof(ok) == 9 && isfinite(VgtkCore.s2(ok))
     end

@@ -246,7 +246,9 @@ caller's width with the scoring untouched, and a strategy with no width follows 
 
 Workspace reuse is `init(RefineProblem(f, θ₀), LocalOptimization(…))` → `solve!(cache)` → `reinit!(cache, θ₁; alg)`,
 a new seed and a new configuration of the same type (the scorer at another width: the refit layer of an evaluation);
-the result's `resid` and weights ARE the cache's buffers until the next `solve!` (copy what you keep).
+the result's `resid` and weights ARE the cache's buffers until the next `solve!` (copy what you keep). The timing
+bracket of one refit (the LO timing gate, an evaluation's per-call wall clock) is `solve!(reinit!(cache, θ₁))`:
+the workspace is built once by `init`, outside it.
 """
 struct LocalOptimization{L, S} <: AbstractEstimationAlgorithm
     strategy::L

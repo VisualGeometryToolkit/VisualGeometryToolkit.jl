@@ -12,7 +12,7 @@
 #     `FundMatProblem(pair)`, `HomographyProblem(pair)`: the problem every pool
 #     residual, σ̂² and pool-frame LO refit is computed on;
 #   - the record's construction, `PoolPair(rng, problem, raw; …)`: hypotheses of
-#     a PIXEL-frame problem (`draw_hypotheses`), carried into the pool frame once
+#     a PIXEL-frame problem (`_draw_hypotheses`), carried into the pool frame once
 #     by `pool_normalization(raw)`, with their pose errors, the GT mask, σ̂² and
 #     the residual matrix of the record's own pool-frame problem.
 #
@@ -286,11 +286,10 @@ end
 
 """
     PoolPair(rng, problem, raw::StereoRawPair; target, max_trials, variance) -> (pair, residuals)
-    PoolPair(hypotheses::Hypotheses, problem, raw::StereoRawPair; variance)   -> (pair, residuals)
 
 THE pool pair of a raw image pair: the hypotheses of `problem`, a PIXEL-frame
 `EssentialProblem`/`FundMatProblem`/`HomographyProblem` built on `raw`'s
-correspondences with the pool's sampler, drawn by [`draw_hypotheses`](@ref)
+correspondences with the pool's sampler, drawn by the RANSAC trial with no scoring
 (`target` accepted samples, at most `max_trials` draws), carried into the pool
 frame once by `pool_normalization(raw)`. Returns the light record
 `pair::PoolPair` (`NormalizedImageFrame`) and its residual matrix
@@ -312,17 +311,15 @@ frame once by `pool_normalization(raw)`. Returns the light record
   `EssentialProblem(pair)` for E, the plane Sampson of the pool-frame model for
   F and H, stored as `Float32(|r|)`.
 - **`snn`** is `pair_snn(raw)`.
-
-The second form assembles the record from hypotheses already drawn (in
-`problem`'s model frame, `problem` built on `raw`).
 """
 function PoolPair(rng::Random.AbstractRNG, problem::RelativeProblem, raw::StereoRawPair;
                   target::Integer, max_trials::Integer, variance::PoolVariance)
-    hyps = draw_hypotheses(rng, problem; target, max_trials)
-    return PoolPair(hyps, problem, raw; variance)
+    hyps = _draw_hypotheses(rng, problem; target, max_trials)
+    return _pool_pair(hyps, problem, raw; variance)
 end
 
-function PoolPair(hyps::Hypotheses, problem::RelativeProblem, raw::StereoRawPair; variance::PoolVariance)
+# The record assembled from hypotheses already drawn (in `problem`'s model frame, `problem` built on `raw`).
+function _pool_pair(hyps::_Hypotheses, problem::RelativeProblem, raw::StereoRawPair; variance::PoolVariance)
     cs_px = pair_correspondences(raw)
     data_size(problem) == length(cs_px) || throw(DimensionMismatch(
         "PoolPair: the problem holds $(data_size(problem)) correspondences, the raw pair $(length(cs_px))"))

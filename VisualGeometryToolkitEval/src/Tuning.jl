@@ -43,9 +43,10 @@ using JLD2: JLD2
 import VisualGeometryToolkitIO as VgtkIO    # a format-6 artifact's version step: migrate_schema, migrate_record (persist.jl)
 using Statistics: median                      # MedianError's objective; RobustFit's prior scale
 using Distributions: Gamma, fit_mle, scale, shape   # PriorSpec(InverseGamma(), MLE())'s solve
-using VisualGeometryToolkitCore: IGPrior, EstimationProblem, AbstractEstimationAlgorithm, ClosedFormKind,
-    closed_form_result
-import VisualGeometryToolkitCore: __solve, estimator_kind   # PriorSpec, a closed-form algorithm (prior_specs.jl)
+using VisualGeometryToolkitCore: IGPrior, EstimationProblem, AbstractEstimationAlgorithm, ClosedFormKind, FitKind,
+    closed_form_result, FitResult, ReturnCode, ClosedForm, SolveStats
+import VisualGeometryToolkitCore: __solve, estimator_kind, supports_solve_rng   # PriorSpec, a closed-form algorithm (prior_specs.jl); the schemes; SelectionBootstrap
+using VisualGeometryToolkitEstimation: Hyperparameter   # the problem tag of a hyperparameter's selection (the schemes', SelectionBootstrap's)
 using VisualGeometryToolkitCore: @fieldwise   # field-wise ==, isequal and hash (the spec types, ListedGrid)
 using VisualGeometryToolkitCore.Synthetic: maa_score   # unit_statistics of the mAA criterion
 using ..Stats: finite_median, lower_median, scale_bounds, scene_mean, scene_mean_median, stable_seed,
@@ -77,8 +78,8 @@ export
     resolve_tuning!, layer_tuning, layered_tuning_entry,
     # persist.jl — the tuning-artifact writer/reader
     TuningArtifact, save_tuning_artifact, load_tuning_artifact, code_identity,
-    # bootstrap_argmin.jl — the bootstrap of a tuned argmin over the units
-    unit_statistics, bootstrap_argmin,
+    # selection_bootstrap.jl — the bootstrap of a selection over the units
+    unit_statistics, SelectionBootstrap,
     # corruption.jl — the miscalibration protocol's deployment corruption
     corrupt_native,
     # prior_specs.jl — the scale-prior strategy of a tuning (an algorithm of `solve(EstimationProblem(IGPrior, σ²s), spec)`)
@@ -88,7 +89,7 @@ public TUNING_DEFAULTS, TUNING_DEFAULTS_PATH, RNG_ALGORITHMS, SPLIT_REGISTRY, SP
     tune_objective, stats_objective, tuning_criterion_label
 # The prior-strategy tags are public, not exported: `InverseGamma` is also
 # Distributions' exported distribution.
-public Jeffreys, InverseGamma, MLE, RobustFit, Unfitted, JeffreysPriorSpec, IGRobustSpec, ALL_PRIOR_SPECS,
+public Jeffreys, InverseGamma, MLE, RobustFit, Unfitted,
     prior_label, family_tag, fitting_tag, ScalePriorFamily, PriorFitting
 
 include("tuning/spacing.jl")
@@ -99,7 +100,7 @@ include("tuning/sampling.jl")
 include("tuning/schemes.jl")
 include("tuning/toml.jl")
 include("tuning/persist.jl")
-include("tuning/bootstrap_argmin.jl")
+include("tuning/selection_bootstrap.jl")
 include("tuning/corruption.jl")
 include("tuning/prior_specs.jl")
 

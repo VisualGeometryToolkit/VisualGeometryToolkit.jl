@@ -1,4 +1,4 @@
-@testitem "draw_hypotheses and PoolPair" begin
+@testitem "_draw_hypotheses and PoolPair" begin
     import VisualGeometryToolkitCore as VgtkCore
 using Test
 using LinearAlgebra
@@ -12,7 +12,7 @@ using VisualGeometryToolkitCore: CameraModel, EssentialMat, FundMat, HomographyM
 using VisualGeometryToolkitCore.Pools: PoolPair, StereoRawPair, pool_pixel_scale, pool_frame_calibrations,
     pool_normalization, num_models, num_points
 using VisualGeometryToolkitEstimation
-using VisualGeometryToolkitEstimation: draw_hypotheses, Hypotheses, InlierVariance, TrackVariance, UniformSampler, RansacConfig, mahalanobis_distances!
+using VisualGeometryToolkitEstimation: _draw_hypotheses, _Hypotheses, InlierVariance, TrackVariance, UniformSampler, RansacConfig, mahalanobis_distances!
 
 # A raw pair of the pool interface (pixels).
 struct TestRawPair <: StereoRawPair
@@ -48,25 +48,25 @@ function raw_scene(rng; n = 200, out = 0.3, planar = false, σ = 0.5)
     return raw, tA, tB
 end
 
-@testset "draw_hypotheses is the RANSAC trial" begin
+@testset "_draw_hypotheses is the RANSAC trial" begin
     raw, _, _ = raw_scene(Xoshiro(1); planar = true)
     p = HomographyProblem(raw.correspondences; sampler = UniformSampler(200))
     seen = Any[]
     r = solve(EstimationProblem(p), Ransac(; scoring = MsacScoring(p; threshold = 3.0), local_optimization_strategy = nothing, config = RansacConfig(max_trials = 400), on_hypothesis = (t, m) -> push!(seen, m)); rng = Xoshiro(5))
-    h = draw_hypotheses(Xoshiro(5), p; target = 10^6, max_trials = 400)
-    @test h isa Hypotheses{HomographyMat{Float64}}
+    h = _draw_hypotheses(Xoshiro(5), p; target = 10^6, max_trials = 400)
+    @test h isa _Hypotheses{HomographyMat{Float64}}
     # ransac stops adaptively; its hypotheses are a prefix of the same stream
     @test length(seen) <= length(h.models)
     @test all(isequal(SMatrix{3, 3}(seen[k]), SMatrix{3, 3}(h.models[k])) for k in eachindex(seen))
     @test h.trials == 400
     @test size(h.sample_indices) == (4, length(h.models))
     # stopping rule: `target` accepted samples
-    h2 = draw_hypotheses(Xoshiro(5), p; target = 25, max_trials = 400)
+    h2 = _draw_hypotheses(Xoshiro(5), p; target = 25, max_trials = 400)
     @test h2.samples_accepted == 25 && h2.trials < 400
     @test h2.models == h.models[1:length(h2.models)]      # one stream, cut at the target
-    @test draw_hypotheses(Xoshiro(5), p; target = 25, max_trials = 400).sample_indices == h2.sample_indices
+    @test _draw_hypotheses(Xoshiro(5), p; target = 25, max_trials = 400).sample_indices == h2.sample_indices
     @test h2.n_solutions >= length(h2.models)
-    @test_throws ArgumentError draw_hypotheses(Xoshiro(5), p; target = -1, max_trials = 10)
+    @test_throws ArgumentError _draw_hypotheses(Xoshiro(5), p; target = -1, max_trials = 10)
 end
 
 @testset "PoolPair: E, F, H into the pool frame" begin

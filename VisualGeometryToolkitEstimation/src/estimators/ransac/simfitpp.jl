@@ -190,10 +190,14 @@ function _msac_best_over(distances::AbstractMatrix, rows, loss_width::Real;
     return best_model_index(j -> score!(ws, sc, scores, view(distances, rows, j), m), size(distances, 2))
 end
 
-function __solve(prob::EstimationProblem{PoolSelection, <:AbstractMatrix}, cfg::SimFitPP;
-                 rng::Random.AbstractRNG = Random.default_rng())
-    (; initial_loss_width, num_previous_est) = _simfitpp_context(prob.p)
-    D = prob.f
+__solve(prob::EstimationProblem{PoolSelection, <:AbstractMatrix}, cfg::SimFitPP; rng::Random.AbstractRNG = Random.default_rng()) =
+    _simfitpp_pool(prob.f, prob.p, cfg, rng)
+__solve(prob::EstimationProblem{PoolSelection, <:PoolPair}, cfg::SimFitPP; rng::Random.AbstractRNG = Random.default_rng()) =
+    _simfitpp_pool(pixel_residuals(prob.f), prob.p, cfg, rng)
+
+# THE pool selection of SimFitPP (one kernel: the residual-matrix and the pool-record problem forms call it).
+function _simfitpp_pool(D::AbstractMatrix, p, cfg::SimFitPP, rng::Random.AbstractRNG)
+    (; initial_loss_width, num_previous_est) = _simfitpp_context(p)
     n = size(D, 1)
     (n == 0 || size(D, 2) == 0) &&
         return FitResult(0, ReturnCode.Failure, NoRule, SolveStats(), NaN, 0, (; loss_width = Float64(initial_loss_width)))
@@ -206,5 +210,3 @@ function __solve(prob::EstimationProblem{PoolSelection, <:AbstractMatrix}, cfg::
     return FitResult(_msac_best_over(D, 1:n, loss_width; ws, scores), success ? ReturnCode.Success : ReturnCode.Failure, rule,
                      SolveStats(; nsteps = rounds), NaN, n, (; loss_width))
 end
-__solve(prob::EstimationProblem{PoolSelection, <:PoolPair}, cfg::SimFitPP; rng::Random.AbstractRNG = Random.default_rng()) =
-    __solve(EstimationProblem(PoolSelection, pixel_residuals(prob.f), prob.p), cfg; rng)

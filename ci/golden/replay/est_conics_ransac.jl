@@ -32,6 +32,10 @@ end
 # hypotheses are unchanged values; a rescored refit is an `lo_estimate` (no residuals were in its metadata); a refine
 # moved its metadata to Core; a find, a RANSAC run and a seeded local optimization are RANSAC results — inside a tuple
 # when the case also returns its trace or counters. A fixture holding a find's result maps it as one.
+# A CountedLO's per-call termination records (FitResults holding no model) in the recorded shape
+# `(; iterations, retcode, stop_rule)`: the same values, the record's NamedTuple type.
+_call_records(c) = [(; iterations = r.stats.nsteps, retcode = r.retcode, stop_rule = r.stop_rule) for r in c.call_records]
+
 function cr_map(id)
     occursin("refused", id) && return REFUSAL_MAP
     (startswith(id, "solve/") || startswith(id, "fit_hypothesis/")) && return IDENTITY_MAP
@@ -186,7 +190,7 @@ function cr_ransac_replays!(cases, name, data, mk, thr; full = true, cfg = Ransa
         cr_replay!(cases, "$fam/counted_irls_welsch/seed$seed", data,
             d -> (p = mk(d); c = CountedLO(Irls{WelschShape}(efficiency_constant = 1.5));
                   r = rsolve(p, sc(p); local_optimization_strategy = c, config = cfg, rng = StableRNG(seed));
-                  (r, c.calls[], c.iterations[], c.call_records)))
+                  (r, c.calls[], c.iterations[], _call_records(c))))
     end
     return cases
 end
@@ -212,7 +216,7 @@ function cr_lo_replays!(cases, name, data, mk, thr)
                           lsolve(p, θ; scoring = sc, local_optimization_strategy = lo, workspace = RansacWorkspace(p, sc, lo))))
         cr_replay!(cases, "$fam/model_counted_irls_welsch/seed$seed", fx,
             ((d, θ),) -> (p = mk(d); c = CountedLO(Irls{WelschShape}(efficiency_constant = 1.5));
-                          r = lsolve(p, θ; scoring = MsacScoring(p; threshold = thr), local_optimization_strategy = c); (r, c.calls[], c.iterations[], c.call_records)))
+                          r = lsolve(p, θ; scoring = MsacScoring(p; threshold = thr), local_optimization_strategy = c); (r, c.calls[], c.iterations[], _call_records(c))))
         fx2 = (data, θ, θ2)
         for (lbl, lo) in ("none" => nothing, "irls_tls" => Irls{TLSShape}(), "triggs_welsch" => Triggs{WelschShape}(),
                           "irls_welsch_ec1.5" => Irls{WelschShape}(efficiency_constant = 1.5))
@@ -277,7 +281,7 @@ function replay_est_conics_ransac(cases)
     end
     # triggs_tests: every loss of Core's table as a Triggs at the plain multiple 2.5, from a perturbed guess
     g, pts = last(cr_circle_refine_fixtures()[4])
-    for (K, tag) in VgtkCore._LOSS_TABLE
+    for (tag, K) in VgtkCore.LOSS_TAGS
         cr_replay!(cases, "circle_refine/perturbed_noisy0.3_200/triggs_$(tag)_ec2.5_scale0.3", (g, pts),
             ((g, pts),) -> crefine(pts, g; optimization_strategy = Triggs{K}(efficiency_constant = 2.5), scale = 0.3))
     end

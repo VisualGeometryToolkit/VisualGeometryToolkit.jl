@@ -57,6 +57,23 @@
 # The rotation every fit reports, from the source's camera frame to the fitted camera's (`_source_to_fitted`): one
 # concrete type, so a fit's metadata is the same type whatever its source's K.
 
+"""
+    AbstractImageMeasure
+
+The density a camera regression's samples are weighted by over its region (`CameraRegressionProblem(…; weight)`):
+`ImageMeasure()` uniform on the image (the default), `SolidAngleMeasure()` uniform on the sphere (`sin θ`),
+`UniformMeasure()` uniform in the view angle `θ`. A lens family's radial profile takes any of them; a gauge-`K`
+source and the spline targets are sampled on the image, so `ImageMeasure()` only. Their tags are the type names in
+snake case without `Measure` (`"image"`, `"solid_angle"`, `"uniform"`).
+"""
+abstract type AbstractImageMeasure end
+"The density uniform on the image, the default ([`AbstractImageMeasure`](@ref)); its tag `\"image\"`."
+struct ImageMeasure <: AbstractImageMeasure end
+"The density uniform on the sphere, `sin θ` ([`AbstractImageMeasure`](@ref)); its tag `\"solid_angle\"`."
+struct SolidAngleMeasure <: AbstractImageMeasure end
+"The density uniform in the view angle `θ` ([`AbstractImageMeasure`](@ref)); its tag `\"uniform\"`."
+struct UniformMeasure <: AbstractImageMeasure end
+
 # Core's lazy all-ones weights of an L2 result (`unit_weights`): one concrete type.
 const _UnitWeights = typeof(VgtkCore.unit_weights(Float64, 0))
 
@@ -64,7 +81,7 @@ const _UnitWeights = typeof(VgtkCore.unit_weights(Float64, 0))
     CameraFitMetadata{R, F}
 
 `FitResult` metadata of [`CameraRegression`](@ref), the regression's refine ([`CameraRegressionProblem`](@ref)) and the linear fit then its refine: the `region`
-fitted over, the `weight` measure (`:image` for every target but a lens family), the round trip's error in pixels —
+fitted over, the `weight` measure ([`ImageMeasure`](@ref)`()` for every target but a lens family), the round trip's error in pixels —
 `residuals` (per sample), `max_px` (their maximum) and `max_px_edge` (their maximum within 100 px of the region's
 edge); √ of their weighted mean square, the objective's quantity, is the result's `rms` — the target family's own
 record `family`, a `NamedTuple`, and:
@@ -127,7 +144,7 @@ The family records:
 """
 struct CameraFitMetadata{R, F <: NamedTuple} <: AbstractFitMetadata{Nothing}
     region::R
-    weight::Symbol
+    weight::AbstractImageMeasure
     max_px::Float64
     max_px_edge::Float64
     family::F
@@ -157,15 +174,15 @@ const _REGION_AZIMUTHS = 720
 # ------------------------------------------------------------------------------
 
 """
-    CameraRegressionProblem(target, source, region; support, fixed = (), weight = :image, device = default_device())
-    CameraRegressionProblem(source, region; support, fixed = (), weight = :image, device = default_device())
+    CameraRegressionProblem(target, source, region; support, fixed = (), weight = ImageMeasure(), device = default_device())
+    CameraRegressionProblem(source, region; support, fixed = (), weight = ImageMeasure(), device = default_device())
     CameraRegressionProblem(camera[, region]; support, device = default_device())
 
 The `f` of every camera-from-camera regression: a camera model of the `target` (a lens family `L <: AbstractLensModel`,
 a lens INSTANCE whose `fixed` coefficients keep its values, `SplineLens` or `NoncentralSplineModel`) regressed onto
 `source` over `region` (pixels of the source's sensor). Its settings are the problem's: `support` (the source's
 calibrated support, its `valid_domain` by default), `fixed` (the parameters held, by name or group: Core's
-`free_parameter_names`), `weight` (the density, `:image`, `:solid_angle` or `:uniform`) and `device` (where the
+`free_parameter_names`), `weight` (the density, an [`AbstractImageMeasure`](@ref): `ImageMeasure()`, `SolidAngleMeasure()` or `UniformMeasure()`) and `device` (where the
 samples are back-projected); a setting a target does not read is refused at the solve (a `MethodError`), never
 ignored.
 
@@ -196,10 +213,10 @@ _regression_model_type(_target) = CameraModel
 
 # The settings a regression's algorithm states (its fields not `nothing`): handed to the target's fit with the problem's.
 _given(nt::NamedTuple) = NamedTuple{Tuple(k for k in keys(nt) if nt[k] !== nothing)}(nt)
-_given(alg) = _given(NamedTuple{fieldnames(typeof(alg))}(ntuple(i -> getfield(alg, i), fieldcount(typeof(alg)))))
 
 """
-    CameraRegression(; tolerance = nothing, grid_size = nothing, lattice_spacing = nothing, forward = nothing)
+    CameraRegression(; tolerance = nothing, grid_size = nothing, lattice_spacing = nothing, forward = nothing,
+                     refine = nothing)
 
 A [`FitKind`](@extref VisualGeometryToolkitCore.FitKind): `solve(EstimationProblem(CameraRegressionProblem(T, source, region)), CameraRegression(…))`,
 the camera model of type `T` regressed onto `source` over `region`, a region of
@@ -212,7 +229,7 @@ integrated squared pixel error of the round trip, `∫ ‖π_T(π⁻¹_source(u)
 over the region. The target type selects the family and the solve:
 
 - **a lens family `L <: AbstractLensModel`** (`CameraRegressionProblem(L, source::CameraModel,
-  region; weight = :image, fixed = ())`): a `CameraModel` with lens `L`, its focal rescale `s`
+  region; weight = ImageMeasure(), fixed = ())`): a `CameraModel` with lens `L`, its focal rescale `s`
   (`fx′ = s·fx₀`, the skew with it) and its coefficients from the samples' radial
   relation — radius `ρ` against view angle `θ` — in one solve. The family's class
   decides the linear system:
@@ -245,12 +262,12 @@ over the region. The target type selects the family and the solve:
     perspective plane, which ends at 90°) is a [`ViewAngleLimitError`](@ref) (the region's angle and the limit in its fields): the family cannot represent
     the source there, and it is never fitted over a clipped field. (The region's extent is measured along 720 azimuths: a corner between
     two of them is reached to within half an azimuth's arc.) `weight` is the density:
-    `:image` (uniform on the image), `:solid_angle` (`sin θ`) or `:uniform` (in `θ`).
+    `ImageMeasure()` (uniform on the image), `SolidAngleMeasure()` (`sin θ`) or `UniformMeasure()` (in `θ`).
   - A GAUGE `K` (a `SplineLens` camera source, a `CameraModel` or a `BoundedCamera` of one)
     has no radial profile of its own lens. The samples are the CAMERA's rays on the image
     over the region (the spline targets' quadrature, below, back-projected on the backend
     `device`, `default_device()` by default), each pixel one sample of equal
-    weight: the same image integral with the `:image` density (another `weight` is an
+    weight: the same image integral with the `ImageMeasure()` density (another `weight` is an
     `ArgumentError`). The linear fit reads their radii about the source's principal point
     and their angles about its ẑ; the principal point, the aspect and the axis are freed by
     the regression's refine ([`CameraRegressionProblem`](@ref)) ([`OpticalAxis`](@ref)). This is the route to a parametric
@@ -357,6 +374,14 @@ their held-out errors.
 The algorithm's fields are the spline targets' settings (`nothing`: not stated): `tolerance` (px, required by a
 spline target), `grid_size`, `lattice_spacing` and `forward`; a lens family reads none.
 
+**The fit then its refine.** `refine`, an algorithm of the refine (`LevenbergMarquardt()`), makes the regression the
+two-stage composition: the linear fit above — for a family with no linear form, or a linear fit that failed, the
+family's anchor (its zero lens at the source's `K`) — then `solve(RefineProblem(CameraRegressionProblem(camera,
+part), start), refine; stops)`, the exact pixel least squares from it. A bounded source is refined as its model over
+the part of the region it images, the region the fit ran over. The solve keyword `stops` is the refine's. The
+result is the refine's (`r.u` the refined camera, its termination record and metadata), recorded as this solve's.
+`Division` alone fits `Division{1}`.
+
 ```julia
 region = imaged_region(with_lens_coverage(camera, image_circle(camera, 8.0mm)))
 lin = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, model(camera), region)), CameraRegression())   # linearly
@@ -365,21 +390,46 @@ sl = solve(EstimationProblem(CameraRegressionProblem(SplineLens, camera, region)
 project(sl.u, ray)                                                     # its pixel through the forward, NaN outside the fitted chart
 ```
 """
-struct CameraRegression{T, G, S, F} <: AbstractEstimationAlgorithm
+struct CameraRegression{T, G, S, F, R} <: AbstractEstimationAlgorithm
     tolerance::T
     grid_size::G
     lattice_spacing::S
     forward::F
+    refine::R
 end
-CameraRegression(; tolerance = nothing, grid_size = nothing, lattice_spacing = nothing, forward = nothing) =
-    CameraRegression(tolerance, grid_size, lattice_spacing, forward)
+CameraRegression(; tolerance = nothing, grid_size = nothing, lattice_spacing = nothing, forward = nothing, refine = nothing) =
+    CameraRegression(tolerance, grid_size, lattice_spacing, forward, refine)
 estimator_kind(::CameraRegression) = FitKind()
-function __solve(prob::EstimationProblem{<:Any, <:CameraRegressionProblem, NullParameters}, alg::CameraRegression)
+# The regression's settings this algorithm states (its spline-target fields not `nothing`).
+_given(alg::CameraRegression) =
+    _given((; tolerance = alg.tolerance, grid_size = alg.grid_size, lattice_spacing = alg.lattice_spacing, forward = alg.forward))
+function __solve(prob::EstimationProblem{<:Any, <:CameraRegressionProblem, NullParameters}, alg::CameraRegression; stops = nothing)
     f = prob.f
     f.target === nothing && throw(ArgumentError(
         "CameraRegression: the problem names no target family: `CameraRegressionProblem(target, source, region)` " *
             "(a problem without one is a refine's, `RefineProblem(f, guess)`, or the optical axis's)"))
+    alg.refine === nothing || return _regression_then_refine(f.target, f.source, f.region, f.settings, alg, stops)
+    stops === nothing || throw(ArgumentError("CameraRegression: `stops` are the refine stage's: give `refine = LevenbergMarquardt()`"))
     return _fit_camera(f.target, f.source, f.region; f.settings..., _given(alg)...)
+end
+
+# The fit then its refine (`CameraRegression(; refine)`): the stages are solves, so each is recorded by the front end;
+# the refine's result is returned and the front end records it as the composed solve's.
+_regression_then_refine(::Type{Division}, source, region, settings, alg::CameraRegression, stops) = _regression_then_refine(Division{1}, source, region, settings, alg, stops)
+function _regression_then_refine(target, source, region, settings, alg::CameraRegression, stops)
+    camera, part = source isa BoundedCamera ? (model(source), _imaged_part(source, region)) : (source, region)
+    start = if _linear_form(target isa Type ? target : typeof(target)) isa _NoLinearForm
+        source isa BoundedCamera && (part = _bounded_part(source, region, get(settings, :support, VgtkCore.valid_domain(source)), "CameraRegression"))
+        _anchor_camera(target, camera)
+    else
+        fit = CameraRegression(alg.tolerance, alg.grid_size, alg.lattice_spacing, alg.forward, nothing)
+        lin = solve(EstimationProblem(CameraRegressionProblem(target, source, region; settings...)), fit)
+        part = lin.metadata.region
+        successful_retcode(lin) ? lin.u : _anchor_camera(target, camera)
+    end
+    refine = source isa BoundedCamera ? (; (k => v for (k, v) in pairs(settings) if k !== :support)..., support = part) : settings
+    f = CameraRegressionProblem(camera, part; refine...)
+    return stops === nothing ? solve(RefineProblem(f, start), alg.refine) : solve(RefineProblem(f, start), alg.refine; stops)
 end
 
 """
@@ -487,7 +537,7 @@ end
 _linear_form(::Type) = _NoLinearForm()
 
 function _fit_camera(
-        ::Type{L}, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        ::Type{L}, source::CameraModel, region; weight = ImageMeasure(), fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
         support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     ) where {L <: AbstractLensModel}
@@ -497,7 +547,7 @@ function _fit_camera(
 end
 # A target LENS (a family with values): the `fixed` coefficients keep its values, the others are solved.
 function _fit_camera(
-        target::AbstractLensModel, source::CameraModel, region; weight::Symbol = :image, fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
+        target::AbstractLensModel, source::CameraModel, region; weight = ImageMeasure(), fixed::Tuple{Vararg{Symbol}} = (), device = default_device(),
         support = VgtkCore.valid_domain(source),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
@@ -526,7 +576,7 @@ end
 # The one linear fit of the lens `target`'s family onto `source`: the coefficients and the focal rescale not `fixed`
 # (Core's `free_parameter_names` on the camera of the source's K and `target`: names and group stems), the `fixed`
 # ones at `target`'s values (its focal: the source's, `s = 1`). A gauge-K source's rays are sampled on `device`.
-function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, region, weight::Symbol, fixed, device)
+function _fit_lens_linear(form, target::AbstractLensModel, source::CameraModel, region, weight, fixed, device)
     L = typeof(target)
     role = VgtkCore.Cameras.IntrinsicsRole(lens(source))
     K0 = SMatrix{3, 3, Float64}(calibration_matrix(source))
@@ -739,7 +789,7 @@ end
 # A PHYSICAL K (a parametric lens): its principal point and its ẑ are data, so the samples are the lens's own radial
 # profile r(θ) — its radial part, decentering stripped — on the Clenshaw–Curtis nodes, the exact reduction of the
 # image integral to θ, each at azimuth 0: the ray `(sin θ, 0, cos θ)` and the point `(r(θ), 0)`.
-function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol, _device) where {L}
+function _profile_samples(::VgtkCore.Cameras.FreeIntrinsics, ::Type{L}, source, region, K0, weight, _device) where {L}
     src = lens(source)
     # Core's `RadialSymmetry` trait says whether anything is non-radial;
     # `_decentering` measures how much (a symmetric ∘ composition is not measured)
@@ -777,13 +827,13 @@ end
 # A GAUGE K (a SplineLens camera): its K is a choice of the normalized plane, so its lens has no radial profile of its
 # own, and its principal point and ẑ are where its frame put them, not its optical axis. The samples are the camera's
 # own rays on the image over the region (the spline targets' quadrature, the camera's batched `backproject`), each
-# pixel one sample of equal weight — the same image integral, the `:image` density by construction (the pixels are
+# pixel one sample of equal weight — the same image integral, the `ImageMeasure()` density by construction (the pixels are
 # uniform on the image) and the region's coverage exactly; the refine frees the principal point and the axis
 # (camera_regression_refine.jl's `_regression_manifold`), the linear fit reads the radii about the source's principal point and the
 # angles about its ẑ. The family's domain cap reads the view angle about the source's ẑ, the refine's start.
-function _profile_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source, region, K0, weight::Symbol, device) where {L}
-    weight === :image || throw(
-        ArgumentError("CameraRegression: a $(nameof(typeof(lens(source)))) source is sampled on the image, whose density is :image; got weight = :$weight")
+function _profile_samples(::VgtkCore.Cameras.GaugeIntrinsics, ::Type{L}, source, region, K0, weight, device) where {L}
+    weight isa ImageMeasure || throw(
+        ArgumentError("CameraRegression: a $(nameof(typeof(lens(source)))) source is sampled on the image, whose density is ImageMeasure(); got weight = $(repr(weight))")
     )
     q = _image_quadrature(source, region; device)   # the expensive step: every pixel back-projected, on `device`
     θ_all = map(r -> angle_between(r, SVector(0.0, 0.0, 1.0)), q.fit_rays)   # the ray's off-axis angle, the stack's one angle
@@ -939,25 +989,21 @@ _family_limit(::Type{<:Lens{F}}) where {F <: Union{Perspective, Equidistant, Ste
 _family_limit(::Type) = view_angle_limit(Lens(Equidistant()))
 
 # Clenshaw–Curtis nodes on [0, b] of the view angle, the source's radii there
-# and the density w (`:image`: r·|dr/dθ|, the radius differentiated exactly,
+# and the density w (`ImageMeasure()`: r·|dr/dθ|, the radius differentiated exactly,
 # ForwardDiff through the source's `projected_radius`). The radii are the plain
 # `projected_radius` — the regression's targets, bit for bit what a lens of the
-# source's own family gives back — and the Dual evaluation runs for `:image`
+# source's own family gives back — and the Dual evaluation runs for `ImageMeasure()`
 # only, for its dr/dθ.
-function _forward_samples(srcr, b::Float64, n::Int, weight::Symbol)
-    weight in (:image, :solid_angle, :uniform) ||
-        throw(ArgumentError("CameraRegression: weight must be :image, :solid_angle or :uniform, got :$weight"))
+function _forward_samples(srcr, b::Float64, n::Int, weight::AbstractImageMeasure)
     ts, qs = _clenshaw_curtis(n, b)
     rA = map(t -> Float64(projected_radius(srcr, t)), ts)
-    dens = if weight === :uniform
-        ones(length(ts))
-    elseif weight === :solid_angle
-        sin.(ts)
-    else
-        map((r, t) -> max(r * abs(last(_radius_with_jacobian(srcr, t))), 0.0), rA, ts)
-    end
-    return ts, qs, rA, dens
+    return ts, qs, rA, _sample_density(weight, srcr, rA, ts)
 end
+_forward_samples(_srcr, _b, _n, weight) = throw(ArgumentError(
+    "CameraRegression: weight must be ImageMeasure(), SolidAngleMeasure() or UniformMeasure(), got $(repr(weight))"))
+_sample_density(::UniformMeasure, _srcr, _rA, ts) = ones(length(ts))
+_sample_density(::SolidAngleMeasure, _srcr, _rA, ts) = sin.(ts)
+_sample_density(::ImageMeasure, srcr, rA, ts) = map((r, t) -> max(r * abs(last(_radius_with_jacobian(srcr, t))), 0.0), rA, ts)
 # The source's radius r(θ) and dr/dθ, exact, from ONE forward-mode Dual
 # evaluation of its `projected_radius` (the value part is the plain radius to
 # its rounding: a lens's Dual path may differ from its plain one in the last
@@ -1203,7 +1249,7 @@ end
 
 # (a lattice fit keeps the source's frame: the identity rotation; it measures no symmetry)
 _grid_metadata(r, g, extra::NamedTuple) = CameraFitMetadata(
-    g.region, :image, r.errors.max, r.errors.max_edge,
+    g.region, ImageMeasure(), r.errors.max, r.errors.max_edge,
     (; λ = r.λ, grid_size = r.grid_size, stride = g.q.stride, extra..., r.family...), _source_to_fitted(nothing), NaN, r.errors.values
 )
 
@@ -1411,7 +1457,7 @@ function _fit_camera(
     return FitResult(
         out, code..., SolveStats(), back.errors.rms, back.n,
         CameraFitMetadata(
-            region, :image, back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), forward = ff),
+            region, ImageMeasure(), back.errors.max, back.errors.max_edge, (; family..., tolerance = Float64(tolerance), forward = ff),
             gauge.rotation, gauge.symmetry_residual, back.errors.values,
         )
     )
@@ -1576,7 +1622,7 @@ function _exact_resample(m::CameraModel, source::BoundedCamera, region; toleranc
               extrapolated = sub.extrapolated, extrapolated_fraction = fraction, folds = ext.folds,
               stride = q.stride, outer_iterations = 0, n_held_out_dropped = 0, tolerance = Float64(tolerance), forward = ff)
     return FitResult(out, code..., SolveStats(), errors.rms, length(q.fit_px),
-                     CameraFitMetadata(region, :image, errors.max, errors.max_edge, family, axis.rotation, axis.symmetry_residual, errors.values))
+                     CameraFitMetadata(region, ImageMeasure(), errors.max, errors.max_edge, family, axis.rotation, axis.symmetry_residual, errors.values))
 end
 
 # The turned resample `cam` with its backward area re-anchored so that its `valid_domain` holds the extended lattice's

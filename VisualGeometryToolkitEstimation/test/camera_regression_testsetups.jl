@@ -123,10 +123,13 @@ const MODEL = model(SOURCE)
 end
 
 # -----------------------------------------------------------------------------
-# The two-solve recipes (the linear fit, then its refine; the bundle's stops of record): one copy, the golden replay's too
+# The camera regressions' one form (the linear fit, then its refine: `CameraRegression(; refine)`) and the bundle's
+# stops of record: one copy, the golden replay's too
 # -----------------------------------------------------------------------------
 @testsetup module CameraRecipes
 import VisualGeometryToolkitEstimation as VgtkEstimation
+using VisualGeometryToolkitCore: solve, EstimationProblem, LevenbergMarquardt
+using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
 include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "camera_recipes.jl"))
-export fit_then_refine, poses_stops
+export poses_stops, solve, EstimationProblem, LevenbergMarquardt, CameraRegressionProblem, CameraRegression
 end

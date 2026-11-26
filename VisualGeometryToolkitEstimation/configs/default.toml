@@ -1,9 +1,10 @@
 # =============================================================================
 # Default configuration — the config of record.
 #
-# `RansacConfig()`, every local-optimization strategy's keyword defaults and
-# every `find_*` pipeline's `scoring` and `local_optimization_strategy` default read
-# THIS file. There is no second set of Julia
+# `RansacConfig()`, every local-optimization strategy's keyword defaults and the
+# `ClassDefault()` resolutions of each family problem's algorithm fields (`Ransac`'s
+# `scoring` and `local_optimization_strategy`, `LevenbergMarquardt`'s
+# `optimization_strategy`) read THIS file. There is no second set of Julia
 # literals to drift from it (src/config_defaults.jl explains the mechanism;
 # test/config_toml_tests.jl asserts the file names every key a config struct
 # emits, so the completeness cannot rot).
@@ -29,8 +30,8 @@ max_trials     = 10000
 min_trials     = 100
 
 # -----------------------------------------------------------------------------
-# Per-pipeline defaults for the find_* and refine_* entry points: the scorer
-# (`scoring = { type = …, … }`, read by scoring_from_toml for the problem's
+# Per-problem-class defaults of `Ransac(; scoring = ClassDefault(), local_optimization_strategy = ClassDefault())`:
+# the scorer (`scoring = { type = …, … }`, read by scoring_from_toml for the problem's
 # type) and the local optimization (`local_optimization_strategy = { type = …, … }`,
 # read by optimization_strategy_from_toml) — the one robust-estimation schema.
 # Each scorer takes its OWN width key and the other's is refused: MSAC and
@@ -86,7 +87,7 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 
 [pipelines.bearing_pose]
 # the absolute-pose refine on caller-supplied bearings (a BearingPoseProblem; refine
-# only — no find_*). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
+# only — no Ransac find). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
 # bound, π (the largest angle between two rays) times the largest pixel
 # whitening gain, so the default 1.0 admits every correspondence to the
 # consensus set. With Irls{GaussianShape} the default local optimization is least squares
@@ -119,8 +120,8 @@ motion_pairs       = "consecutive"
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
 # -----------------------------------------------------------------------------
-# Per-class defaults of the refine_* entry points (the refine contract): the
-# strategy a refine runs from the caller's model — no scorer, no consensus set.
+# Per-problem-class defaults of `LevenbergMarquardt(; optimization_strategy = ClassDefault())` on
+# `RefineProblem(f, θ₀)`: the strategy a refine runs from the caller's model — no scorer, no consensus set.
 # Triggs{Welsch}, ONE robustified chart LM, is the stack's default (owner,
 # 2026-11-11; Huber where a fit has chosen it for accuracy). It has no width of
 # its own here: its loss width is efficiency_constant(Welsch, codimension) times

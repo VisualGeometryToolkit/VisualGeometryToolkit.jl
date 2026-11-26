@@ -33,8 +33,10 @@ const device = GPU ? CUDA.CUDABackend() : KA.CPU()
 const OUT = ARGS[1]
 const SMOKE = length(ARGS) > 1 && ARGS[2] == "smoke"
 const MODE = length(ARGS) > 2 ? Symbol(ARGS[3]) : :farid_simoncelli_spatial
+const RESPONSE = MODE === :spline ? VgtkFeatures._SplineResponse() : MODE === :farid_simoncelli_spatial ?
+    VgtkFeatures._FaridSimoncelliResponse() : error("the response is farid_simoncelli_spatial or spline, got $MODE")
 const S = 3; const σ0 = 1.6; const kS = 2.0^(1 / S)
-const CFG = VgtkFeatures._continuous_refinement(MODE)
+const CFG = VgtkFeatures._continuous_refinement(RESPONSE)
 md = IOBuffer()
 say(s...) = (println(md, s...); println(s...); flush(stdout))
 

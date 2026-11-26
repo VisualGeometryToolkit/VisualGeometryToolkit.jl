@@ -13,7 +13,7 @@ using VisualGeometryToolkitEval
 # imported from the first; a page cites the other one qualified.
 const SUBMODULES = (VisualGeometryToolkitEval.Stats, VisualGeometryToolkitEval.Tuning,
     VisualGeometryToolkitEval.Evaluation, VisualGeometryToolkitEval.Experiments, VisualGeometryToolkitEval.Render,
-    VisualGeometryToolkitEval.Pools, VisualGeometryToolkitEval.Datasets, VisualGeometryToolkitEval.DataArtifacts,
+    VisualGeometryToolkitEval.PoolFiles, VisualGeometryToolkitEval.Datasets, VisualGeometryToolkitEval.DataArtifacts,
     VisualGeometryToolkitEval.Reproduce, VisualGeometryToolkitEval.PaperProjects)
 for m in SUBMODULES, n in names(m)
     (n === nameof(m) || isdefined(Main, n)) && continue
@@ -63,7 +63,7 @@ makedocs(;
             "Evaluation" => "api/evaluation.md",
             "Experiments" => "api/experiments.md",
             "Render" => "api/render.md",
-            "Pools" => "api/pools.md",
+            "PoolFiles" => "api/pools.md",
             "Datasets" => "api/datasets.md",
             "DataArtifacts" => "api/data_artifacts.md",
             "Reproduce" => "api/reproduce.md",

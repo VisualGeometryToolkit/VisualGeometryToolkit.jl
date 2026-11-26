@@ -4,37 +4,14 @@
 # function of `n`.
 #
 # Per bootstrap trial: take the protocol's fixed val/test split
-# (`FlatProtocol`), tune on `n` val pairs (`tune`), evaluate the tuned column on
-# the test pool (`evaluate`). `bootstrap_trials` is method-agnostic;
-# `compute_method_rows` runs it over every `n` and summarizes with BCa CIs.
+# (`FlatProtocol`), select on `n` drawn val pairs (`solve(EstimationProblem(Hyperparameter, errors, (; pairs,
+# to_native)), scheme::WindowedBootstrap)`), read the selected column's errors on the test pool.
+# `compute_method_rows` runs `bootstrap_trials` over every `n` and summarizes with BCa CIs.
 #
-# Consumers: LocalOptimizationDoneRight's LO-sensitivity renderer (FlatProtocol +
-# WindowedGridMethod through `compute_method_rows`) and the standardized
-# window (`window_columns`). Every random draw is seeded by the run's
+# Consumers: LocalOptimizationDoneRight's LO-sensitivity renderer (FlatProtocol + ValidationErrors through
+# `compute_method_rows`) and the standardized window (`window_columns`). Every random draw is seeded by the run's
 # `BudgetSampling` (`budget_rng`).
 # =============================================================================
-
-# =============================================================================
-# Method abstraction — tune/evaluate dispatch
-# =============================================================================
-
-"""
-    BootstrapMethod
-
-A tuner the bootstrap harness runs ([`bootstrap_trials`](@ref)): it implements
-[`tune`](@ref) and [`evaluate`](@ref). [`WindowedGridMethod`](@ref) is the one
-in this package.
-"""
-abstract type BootstrapMethod end
-
-"""
-    tune(rng, method::BootstrapMethod, val_pairs, n) -> params
-
-Tune `method` on `n` validation pairs drawn by `rng` from `val_pairs` (the
-protocol's `(scene, pair)` indices); `params` is method-specific and is handed
-back to [`evaluate`](@ref).
-"""
-function tune end
 
 # =============================================================================
 # The protocol — a fixed val/test pair split
@@ -53,43 +30,67 @@ struct FlatProtocol
 end
 
 
-"""
-    evaluate(method::BootstrapMethod, test_pairs, params) -> Vector{Float64}
-
-The test errors of `method` at the tuned `params` on `test_pairs` (the
-protocol's `(scene, pair)` indices).
-"""
-function evaluate end
-
 # =============================================================================
 # Generic bootstrap loop — tune and evaluate are explicit, separate steps
 # =============================================================================
 
 """
-    bootstrap_trials(method, proto::FlatProtocol, budget::BudgetSampling, n;
-                     max_error = maa_threshold())
+    ValidationErrors(label, scene_errors, scene_sigma2, native_grid)
+
+The data of a windowed hyperparameter selection: precomputed post-LO validation errors on a fixed grid of native
+hyperparameter values.
+
+- `scene_errors[i]` — the (pairs × |`native_grid`|) error matrix of scene `i`;
+- `scene_sigma2[i][j]` — pair `(i, j)`'s noise variance `σ̂²` (e.g. `gt_variance`), which forms the
+  cardinality-tied scale `σ_med(n)`;
+- `label` — the method's name in the harness's rows.
+
+`solve(EstimationProblem(Hyperparameter, errors, (; pairs, to_native)), scheme::WindowedBootstrap)` selects on the
+drawn val `pairs` (`(scene, pair)` indices). `to_native(efficiency_constant, scale) -> native` is the eq-(28) map for
+this scoring, a closure over the caller's `native_map(axis; d_g)`, so this package stays decoupled from the
+scoring-spec types.
+"""
+struct ValidationErrors
+    label::String
+    scene_errors::Vector{Matrix{Float64}}
+    scene_sigma2::Vector{Vector{Float64}}
+    native_grid::Vector{Float64}
+    ValidationErrors(label, scene_errors, scene_sigma2, native_grid) =
+        new(String(label), scene_errors, scene_sigma2, collect(Float64, native_grid))
+end
+
+"""
+    bootstrap_trials(errors::ValidationErrors, scheme::WindowedBootstrap, proto::FlatProtocol, n;
+                     to_native, budget = scheme.budget_sampling, max_error = maa_threshold())
         -> (trial_meds, trial_maas, trial_idxs)
 
-The per-draw bootstrap: each of the `budget.n_draws` draws tunes the
-hyperparameter on `n` val pairs of `proto` (`tune`) and evaluates the tuned
-column on its test pairs (`evaluate`): the draw's median test error (a pair
-without a model counts as `Inf`) and its mAA@`max_error` (the eligibility
-rule, `eligible_maa`). Draw `r` uses `budget_rng(budget, n, r)`.
+The per-draw bootstrap: each of the `budget.n_draws` draws selects the hyperparameter's column on `n` val pairs of
+`proto` (drawn by `budget_rng(budget, n, r)`, then `solve(EstimationProblem(Hyperparameter, errors, (; pairs,
+to_native)), scheme)`) and evaluates that column on its test pairs: the draw's median test error (a pair without a
+model counts as `Inf`) and its mAA@`max_error` (the eligibility rule, `eligible_maa`). A draw with no finite σ̂² (or
+no val pairs) selects the first column.
 """
-function bootstrap_trials(method::BootstrapMethod, proto::FlatProtocol, budget::BudgetSampling, n::Int;
-                           max_error::Real = maa_threshold())
+function bootstrap_trials(errors::ValidationErrors, scheme::WindowedBootstrap, proto::FlatProtocol, n::Int;
+                          to_native, budget::BudgetSampling = scheme.budget_sampling, max_error::Real = maa_threshold())
     n_bootstrap = budget.n_draws
     trial_meds = Vector{Float64}(undef, n_bootstrap)
     trial_maas = Vector{Float64}(undef, n_bootstrap)
     trial_idxs = Vector{Int}(undef, n_bootstrap)
-    # The test statistics depend on the tuned column only: computed once per column.
+    # The test statistics depend on the selected column only: computed once per column.
     test_stats = Dict{Int,NTuple{2,Float64}}()
+    val = proto.val_pair_idx
     for b in 1:n_bootstrap
-        col = tune(budget_rng(budget, n, b), method, proto.val_pair_idx, n)
+        col = if isempty(val)
+            1
+        else
+            drawn = val[_sample_indices(budget_rng(budget, n, b), length(val), 1.0, n)]   # the draw of the budget sampling
+            r = solve(EstimationProblem(Hyperparameter, errors, (; pairs = drawn, to_native)), scheme)
+            something(r.u, 1)
+        end
         trial_idxs[b] = col
         trial_meds[b], trial_maas[b] = get!(test_stats, col) do
-            errors = evaluate(method, proto.test_pair_idx, col)
-            isempty(errors) ? (NaN, NaN) : (tune_objective(MedianError(), errors), eligible_maa(errors; max_error))
+            e = _test_errors(errors, proto.test_pair_idx, col)
+            isempty(e) ? (NaN, NaN) : (tune_objective(MedianError(), e), eligible_maa(e; max_error))
         end
     end
     return trial_meds, trial_maas, trial_idxs
@@ -120,62 +121,32 @@ function window_columns(window::EfficiencyConstantWindow, grid::AbstractVector{<
 end
 
 # =============================================================================
-# WindowedGridMethod — efficiency-constant tuning with cardinality-tied scale
+# ValidationErrors and the windowed selection (WindowedBootstrap's solve)
 # =============================================================================
 
+
 """
-    WindowedGridMethod(label, scene_errors, scene_sigma2, native_grid, window, to_native,
-                       criterion)
+    solve(EstimationProblem(Hyperparameter, errors::ValidationErrors, (; pairs, to_native)), scheme::WindowedBootstrap)
 
-Tunes on the **standardized efficiency-constant axis** (accv §common-cutoff,
-eq. 28) instead of the raw native grid, with the reference scale **estimated
-from the validation draw** so it tracks the validation cardinality `n` — the
-protocol of the `windowed_bootstrap` tuning scheme.
-
-- `scene_errors[i]` — precomputed (pairs × |`native_grid`|) post-LO error matrix
-  on a fixed grid of native hyperparameter values (`native_grid`).
-- `scene_sigma2[i][j]` — pair `(i,j)`'s noise variance `σ̂²` (e.g. `gt_variance`),
-  used to form the cardinality-tied scale `σ_med(n)`.
-- `to_native(efficiency_constant, scale) -> native` — the eq-(28) map for this
-  scoring, a closure over the caller's `native_map(axis; d_g)` so this package stays
-  decoupled from the scoring-spec types.
-- `window` — the spec's [`EfficiencyConstantWindow`](@ref); `criterion` — its
-  objective (no default: both are parameters of the tuning spec).
-
-Per trial, `tune` draws `n` val pairs, forms `σ_med(n)=√median σ̂²` over them,
-and takes the FREE ARGMIN of the val objective over every `native_grid` column
-inside the standardized window `[to_native(lo, σ_med), to_native(hi, σ_med)]`
-(the window's covered range at the drawn supplied scale — corrupting the
-scale slides the window, which is the miscalibration mechanism). `evaluate`
-reads the tuned column on the test pairs.
+One draw of the bootstrap tuning harness (accv §common-cutoff, eq. 28): on the **standardized efficiency-constant
+axis** instead of the raw native grid, with the reference scale **estimated from the drawn validation pairs**, so
+it tracks the validation cardinality. `σ_med = √median σ̂²` over the drawn pairs; the FREE ARGMIN of the scheme's
+`criterion` over every `native_grid` column inside the standardized window `[to_native(lo, σ_med),
+to_native(hi, σ_med)]` (the scheme's `efficiency_constant_window`; corrupting the scale slides the window, which is
+the miscalibration mechanism). `u` is the selected column, `n` the pairs with a finite σ̂², `(Success, ClosedForm)`;
+no finite σ̂² is degenerate, `u = nothing` with `(InitialFailure, NoRule)`.
 """
-struct WindowedGridMethod{F,C<:TuningCriterion} <: BootstrapMethod
-    label::String
-    scene_errors::Vector{Matrix{Float64}}
-    scene_sigma2::Vector{Vector{Float64}}
-    native_grid::Vector{Float64}
-    window::EfficiencyConstantWindow
-    to_native::F
-    criterion::C
-    WindowedGridMethod(label, scene_errors, scene_sigma2, native_grid, window::EfficiencyConstantWindow,
-                       to_native::F, criterion::C) where {F,C<:TuningCriterion} =
-        new{F,C}(label, scene_errors, scene_sigma2, collect(Float64, native_grid), window, to_native, criterion)
-end
-
-function tune(rng::AbstractRNG, m::WindowedGridMethod, val_pairs, n)
-    isempty(val_pairs) && return 1
-    drawn = val_pairs[_sample_indices(rng, length(val_pairs), 1.0, n)]          # the draw of the budget sampling
-    # s0(n) = √median σ̂² over the drawn val pairs — scale tied to cardinality n.
+function __solve(prob::EstimationProblem{Hyperparameter, ValidationErrors, <:NamedTuple{(:pairs, :to_native)}},
+                 scheme::WindowedBootstrap)
+    m = prob.f; drawn = prob.p.pairs
     s2 = Float64[]; sizehint!(s2, length(drawn))
     for (i, j) in drawn
         v = m.scene_sigma2[i][j]; isfinite(v) && push!(s2, v)
     end
-    isempty(s2) && return 1
-    # FREE ARGMIN within the standardized window at the drawn pairs' reference
-    # scale: every native-grid column inside it is a candidate, and the val
-    # objective is minimized freely over them. The WINDOW anchoring (what a
-    # scale corruption slides) is the whole mechanism.
-    cols = window_columns(m.window, m.native_grid, m.to_native, reference_scale(s2))
+    isempty(s2) && return FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+    # FREE ARGMIN within the standardized window at the drawn pairs' reference scale: every native-grid column inside
+    # it is a candidate. The WINDOW anchoring (what a scale corruption slides) is the whole mechanism.
+    cols = window_columns(scheme.efficiency_constant_window, m.native_grid, prob.p.to_native, reference_scale(s2))
     errbuf = Vector{Float64}(undef, length(drawn))
     best_obj = Inf; best_col = first(cols)
     @inbounds for col in cols
@@ -184,24 +155,19 @@ function tune(rng::AbstractRNG, m::WindowedGridMethod, val_pairs, n)
             v = m.scene_errors[i][j, col]; isfinite(v) && (nfin += 1; errbuf[nfin] = v)
         end
         nfin == 0 && continue
-        o = tune_objective(m.criterion, view(errbuf, 1:nfin))
+        o = tune_objective(scheme.criterion, view(errbuf, 1:nfin))
         o < best_obj && (best_obj = o; best_col = col)
     end
-    return best_col
+    return FitResult(best_col, ReturnCode.Success, ClosedForm, SolveStats(), NaN, length(s2), nothing)
 end
 
-# The test error at the tuned column is a precomputed lookup `scene_errors[i][j, col]`.
-evaluate(m::WindowedGridMethod, test_pairs, col::Int) =
-    Float64[m.scene_errors[i][j, col] for (i, j) in test_pairs]
+# The test errors at the selected column: a precomputed lookup `scene_errors[i][j, col]`.
+_test_errors(m::ValidationErrors, test_pairs, col::Int) = Float64[m.scene_errors[i][j, col] for (i, j) in test_pairs]
 # =============================================================================
 # Result reporting
 # =============================================================================
 
-tuning_criterion_label(m::WindowedGridMethod) = tuning_criterion_label(m.criterion)
-
-method_name(m::WindowedGridMethod) = m.label
-
-_grid_T(m::WindowedGridMethod) = isempty(m.scene_errors) ? 0 : size(m.scene_errors[1], 2)
+_grid_T(m::ValidationErrors) = isempty(m.scene_errors) ? 0 : size(m.scene_errors[1], 2)
 
 
 """
@@ -237,7 +203,8 @@ function _summarize_trials(rng::AbstractRNG, meds::AbstractVector,
 end
 
 """
-    compute_method_rows(method, budget::BudgetSampling; protocol, sizes = budget.sizes)
+    compute_method_rows(errors::ValidationErrors, scheme::WindowedBootstrap; protocol, to_native,
+                        budget = scheme.budget_sampling, sizes = budget.sizes)
         -> (summary::Vector{NamedTuple}, trials::Vector{NamedTuple})
 
 Per-method, per-`n` evaluation loop over the validation budgets `sizes` (the
@@ -255,17 +222,17 @@ DataFrame-friendly shape:
 decoupled `tune_protocol` path were pruned 2026-09-21 with their only
 caller, `evaluate_val`.)
 """
-function compute_method_rows(method::BootstrapMethod, budget::BudgetSampling;
-                              protocol::FlatProtocol, sizes = budget.sizes)
-    mname = method_name(method)
-    tname = tuning_criterion_label(method)
-    T = _grid_T(method)
+function compute_method_rows(errors::ValidationErrors, scheme::WindowedBootstrap; protocol::FlatProtocol, to_native,
+                             budget::BudgetSampling = scheme.budget_sampling, sizes = budget.sizes)
+    mname = errors.label
+    tname = tuning_criterion_label(scheme.criterion)
+    T = _grid_T(errors)
 
     summary = NamedTuple[]
     trials  = NamedTuple[]
     for n in sizes
         rng = resampling_rng(budget, n)
-        trial_meds, trial_maas, trial_idxs = bootstrap_trials(method, protocol, budget, n)
+        trial_meds, trial_maas, trial_idxs = bootstrap_trials(errors, scheme, protocol, n; to_native, budget)
         for b in eachindex(trial_meds)
             push!(trials, (method=mname, tuning_criterion=tname, n=n, trial=b,
                            trial_med=trial_meds[b],

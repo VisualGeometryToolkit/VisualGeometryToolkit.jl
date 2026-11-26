@@ -7,6 +7,14 @@ VisualGeometryToolkitEstimation `"0.13"`), whose estimators are `solve(problem, 
 The numbers are unchanged: the golden records of `detect_image_circle` (`ci/golden/`, group `features_image_circle`)
 replay bit for bit.
 
+### Conformance
+- **`bilinear_green([T = Float32,] m::RawMosaic; sensor_model, device)` is public** (new export): the green image of a
+  Bayer mosaic the mosaic detectors read, with its planes `(; value, support, density, photosite, saturated)`; the
+  detectors call it, so it is their one path (RadiometricCamera reached the internal kernel). Bit-identical.
+- `ContinuousRefinement`'s response is a type, not a `Symbol` type parameter (`ContinuousRefinement{R}` holds
+  `response::R`, Farid–Simoncelli by default; the plain-spline ablation of benchmark/continuous_refine is the internal
+  `_SplineResponse()`). The internal refinement returns its `_DogExtremum` record, not a tuple. Bit-identical.
+
 ### Changed (breaking)
 
 - **`NNMatch` is retired** (check_naming R20: a `const` naming one concrete type, owner 2026-11-24). A match is

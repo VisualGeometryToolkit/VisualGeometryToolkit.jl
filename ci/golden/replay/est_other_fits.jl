@@ -7,7 +7,7 @@ using VisualGeometryToolkitCore: Irls, Triggs, HuberShape, WelschShape, CauchySh
     MsacScoring, value_of, ClassDefault, LmStops, AbsoluteRotations, LossWidth, PosteriorWeightState, EuclideanMap,
     successful_retcode, weights
 using VisualGeometryToolkitEstimation: ReweightedLeastSquares, LinearModel, RotationAveraging, FilteredRotationAveraging,
-    RobotWorldHandEyeProblem, RobotWorldHandEyeCalibration, ResidualMixture, SimFitPP, PoolSelection, with_residual_unit,
+    RobotWorldHandEyeProblem, RobotWorldHandEyeCalibration, ResidualMixture, SimFitPP, PoolSelection, ScoreSelection, with_residual_unit,
     MixtureEmConfig, KeepModel, WeightedRefine, ParameterChangeStop, mixture_em_from_toml, RotationProblem, uncertain_rotation
 using Rotations: RotMatrix
 Base.include(@__MODULE__, joinpath(@__DIR__, "_common.jl"))
@@ -445,7 +445,7 @@ simfit_select(D, init, cfg = SimFitPP(); rng) =
     (r = solve(EstimationProblem(PoolSelection, D, (; initial_loss_width = init)), cfg; rng);
      (r.u, r.metadata.loss_width, successful_retcode(r)))
 function _eof_simfit!(cases)
-    msac(D) = (lw, train) -> VgtkEstimation._msac_best_over(D, train, lw)
+    msac(D) = (lw, train) -> solve(EstimationProblem(PoolSelection, D[train, :]), ScoreSelection(MsacScoring{1, Float64}(Float64(lw)))).u
     sq(D) = (j, val) -> Float64[Float64(D[i, j])^2 for i in val]
     for seed in SEEDS
         D = eof_simfit_pool(seed; σ = 1.0)

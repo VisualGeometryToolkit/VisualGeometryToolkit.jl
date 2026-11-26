@@ -330,6 +330,8 @@ still weighed out of reach costs Inf and is not accepted.
 
 The best iterate's residuals are handed back to `buf`
 (`residuals_current = true`), so the loop skips a redundant mahalanobis_distances!() sweep.
+
+A local-optimization contract step: a strategy author calls it inside a `locally_optimize!` method, never a user.
 """
 function posterior_irls!(
         likelihood::F, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
@@ -406,8 +408,10 @@ end
 Instrumentation wrapper: counts the `locally_optimize!` invocations (`calls[]`)
 and the iterations they report (`iterations[]`, the sum of
 `r.stats.nsteps`), and records each invocation's termination in
-`call_records`, a `Vector` of `(; iterations, retcode, stop_rule)` (the call's
-`r.stats.nsteps`, its `ReturnCode` and its `StopRule`), one entry per call.
+`call_records`, one `FitResult` per call holding its termination record: its
+`retcode`, `stop_rule`, `stats` (`stats.nsteps` its iterations), `rms` and `n`,
+with no model, residuals or metadata (`u`, `resid` and `metadata` are `nothing`: a
+local optimization's own result aliases its cache's buffers, so it is not kept).
 It answers every hook the RANSAC loop, the scorer
 composition check, the reporting and an external refit read on a strategy
 exactly as `inner` does — its `RefitFamily`, placement and external-refit
@@ -424,18 +428,18 @@ struct CountedLO{L <: Union{Nothing, AbstractOptimizationStrategy}} <: AbstractO
     inner::L
     calls::Threads.Atomic{Int}
     iterations::Threads.Atomic{Int}
-    call_records::Vector{@NamedTuple{iterations::Int, retcode::ReturnCode.T, stop_rule::StopRule}}
+    call_records::Vector{FitResult{Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}}
     call_records_lock::ReentrantLock
 end
 CountedLO(inner::Union{Nothing, AbstractOptimizationStrategy}) =
     CountedLO(inner, Threads.Atomic{Int}(0), Threads.Atomic{Int}(0),
-              @NamedTuple{iterations::Int, retcode::ReturnCode.T, stop_rule::StopRule}[], ReentrantLock())
+              FitResult{Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}[], ReentrantLock())
 
 function locally_optimize!(L, lo::CountedLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     r = locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
     Threads.atomic_add!(lo.calls, 1)
     Threads.atomic_add!(lo.iterations, r.stats.nsteps)
-    @lock lo.call_records_lock push!(lo.call_records, (; iterations = r.stats.nsteps, retcode = r.retcode, stop_rule = r.stop_rule))
+    @lock lo.call_records_lock push!(lo.call_records, FitResult(nothing, r.retcode, r.stop_rule, r.stats, r.rms, r.n, nothing))
     return r
 end
 

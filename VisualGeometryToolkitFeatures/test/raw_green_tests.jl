@@ -67,11 +67,11 @@ end
     H, W = 20, 24
     # a constant green field: a constant image, no ripple (red and blue photosites never read)
     raw = [green(i, j) ? UInt16(30000) : UInt16(rand(100:60000)) for i in 1:H, j in 1:W]
-    g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), SensorModel())
+    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = SensorModel(), device = KA.CPU())
     @test all(==(30000 / 65535), g.value) && count(>(0), g.photosite) == 0 && all(g.support .>= 1) && !any(g.saturated)
     # a ramp in the greens' codes: reproduced at every pixel whose four greens lie in the image
     ramp(i, j) = 1000.0 + 7i + 11j
-    g = VGF._bilinear_green(Float64, KA.CPU(), mosaic([UInt16(ramp(i, j)) for i in 1:H, j in 1:W]), SensorModel())
+    g = VGF.bilinear_green(Float64, mosaic([UInt16(ramp(i, j)) for i in 1:H, j in 1:W]); sensor_model = SensorModel(), device = KA.CPU())
     @test all(isapprox(g.value[i, j], ramp(i, j) / 65535; rtol = 1.0e-14) for i in 2:(H - 1), j in 2:(W - 1))
     @test g.value[1, 1] ≈ (ramp(1, 2) + ramp(2, 1)) / 2 / 65535        # a corner red: its two greens, renormalised
     # a saturated green (8, 7): CENSORED, a sample at 1, flagged with every pixel that reads it; a defect green (8, 5):
@@ -85,7 +85,7 @@ end
     cluster = ((14, 15), (13, 14), (15, 14), (13, 16), (15, 16))
     defects = (x = [5; [c for (_, c) in cluster]], y = [8; [r for (r, _) in cluster]], onset = fill(0.001s, 6), size = (H, W))
     model = sensor_fixture(; read_noise = (3.0, 3.0, 3.0, 3.0), defects).model
-    g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), model)
+    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = model, device = KA.CPU())
     @test g.value[8, 7] == 1 && g.saturated[8, 7] && g.saturated[8, 6] && g.saturated[8, 8] && !g.saturated[8, 9]
     @test g.value[8, 6] ≈ (10000 + 10000 + 65535) / 3 / 65535         # (8, 5) dropped, (8, 7) censored at 1
     @test g.value[8, 5] ≈ (20000 + 10000 + 20000 + 10000) / 4 / 65535 # the 3×3 fallback: (7, 4), (9, 4), (7, 6), (9, 6)
@@ -93,11 +93,11 @@ end
     @test isnan(g.value[14, 15]) && g.support[14, 15] == 0 && count(isnan, g.value) == 1
     @test g.support[13, 14] == (0x03 | VGF._SUPPORT_3X3)               # a cluster's green: three usable diagonal greens
     # a window of the mosaic (an odd offset: another colour phase): the defects are the visible raw's photosites
-    w = VGF._bilinear_green(Float64, KA.CPU(), view(mosaic(raw), 3:H, 2:W), model)
+    w = VGF.bilinear_green(Float64, view(mosaic(raw), 3:H, 2:W); sensor_model = model, device = KA.CPU())
     @test isnan(w.value[14 - 2, 15 - 1]) && count(isnan, w.value) == 1 && w.value[8 - 2, 5 - 1] == g.value[8, 5]
     # under a variance law the censored photosite carries the law's variance at 1 (never 0)
     pg = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0)).model
-    g = VGF._bilinear_green(Float64, KA.CPU(), mosaic(raw), pg)
+    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = pg, device = KA.CPU())
     @test g.photosite[8, 7] ≈ value_variance(linearview(mosaic(raw); sensor_model = pg), 8, 7, 1.0) > 0
     @test g.photosite[8, 5] > 0 && g.photosite[8, 6] == 0              # no defect here; a blue site carries none
 end
@@ -110,7 +110,7 @@ end
     model = pg_model(2.5, 3.0)
     rng = Xoshiro(3)
     n = 4000
-    draws = [VGF._bilinear_green(Float64, KA.CPU(), noisy_mosaic(rng, (i, j) -> 3000.0, 6, 6; electrons_per_dn = 2.5, read_dn = 3.0), model)
+    draws = [VGF.bilinear_green(Float64, noisy_mosaic(rng, (i, j) -> 3000.0, 6, 6; electrons_per_dn = 2.5, read_dn = 3.0); sensor_model = model, device = KA.CPU())
              for _ in 1:n]
     # Var Ī = Σw²σ²/(Σw)² = density/(2n) (the white-equivalent density twice the photosites' mean variance under the
     # cross, n its usable greens), the law's at each draw's value, averaged, against the draws' variance at a green site
@@ -132,8 +132,8 @@ end
     # equalises them — the image holds the two levels at the green sites and their mean at the red and blue ones
     H, W = 12, 12
     code(i, j) = (c = RGGB[mod1(i, 2), mod1(j, 2)]; c == 0x01 ? 20200 : c == 0x03 ? 20000 : 5000)
-    g = VGF._bilinear_green(Float64, KA.CPU(), RawMosaic(UInt16[code(i, j) for i in 1:H, j in 1:W], RGGB, (0.0, 0.0, 0.0, 0.0),
-                                                         65535.0, (0, 0), (H, W), (; model = "synthetic")), SensorModel())
+    g = VGF.bilinear_green(Float64, RawMosaic(UInt16[code(i, j) for i in 1:H, j in 1:W], RGGB, (0.0, 0.0, 0.0, 0.0),
+                                                         65535.0, (0, 0), (H, W), (; model = "synthetic")); sensor_model = SensorModel(), device = KA.CPU())
     interior = [g.value[i, j] * 65535 for i in 2:(H - 1), j in 2:(W - 1)]
     @test sort(unique(round.(interior; digits = 6))) == [20000.0, 20100.0, 20200.0]
 end
@@ -148,8 +148,8 @@ end
     # green photosites; ν = 2E²/Var against `_residual_dof` under that noise, and below the white input pixels' ν
     N = 1200
     raw = round.(UInt16, 8000 .+ 40 .* randn(Xoshiro(5), N, N))
-    g = VGF._bilinear_green(Float64, KA.CPU(), RawMosaic(raw, UInt8[0 1; 3 2], (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), (N, N), (;)),
-                            SensorModel()).value
+    g = VGF.bilinear_green(Float64, RawMosaic(raw, UInt8[0 1; 3 2], (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), (N, N), (;));
+                            sensor_model = SensorModel(), device = KA.CPU()).value
     doubled = zeros(2N, 2N)
     VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, N, N, 1); ndrange = size(doubled))
     seeds = [Detection(Disc(Point2(x, y), 3.0), (; precision = 1.0)) for x in 50:40:(N - 50) for y in 50:40:(N - 50)]

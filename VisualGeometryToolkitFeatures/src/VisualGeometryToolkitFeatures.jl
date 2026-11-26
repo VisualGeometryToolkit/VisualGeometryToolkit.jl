@@ -176,6 +176,7 @@ export srgb_image               # the one display encoding: exposure, white bala
 public srgb_to_linear, linear_to_srgb, box_downsample, gaussian_blur   # the sRGB decode and encode; gaussian_blur: the (masked) separable Gaussian of a linear image
 export load_raw, load_raw_mosaic   # a camera RAW file (or a mosaic) as linear values (:green_cells, :bin2; :demosaic for display), and its decoded mosaic
 export RawDecoder, LibRawDecoder
+export bilinear_green   # the green image of a Bayer mosaic (the mosaic detectors' one kernel)
 export variance_stabilize, StabilizedImage   # the detection image of a RAW: the generalized Anscombe transform (noise σ = 1), saturation masked
 # The sensor image (RawMosaic, LinearRaw, BayerCellFrame, raw_frame_map, bayer_plane_map, green_cell_sites,
 # raw_coordinates, raw_provenance, cfa_string, photosite_colors) is VisualGeometryToolkitCore's and exported by it only

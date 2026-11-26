@@ -69,7 +69,8 @@ lo = solve(RefineProblem(f, θ₀), LocalOptimization(Irls{TLSShape}(); scoring)
   `EuclideanMap{3}`, `LinearModel`, `RobotWorldHandEyeCalibration`),
   `RotationAveraging`, `FilteredRotationAveraging`, `ResidualMixture`,
   `RadialCameraFit`, `DivisionCameraFit`, `CameraRegression`, `PSpline`,
-  `ForwardSpline`, `OpticalAxis`, `SimFitPP`, `PooledScale`.
+  `ForwardSpline`, `OpticalAxis`, `SimFitPP`, `PooledScale`, `GeneralizedCrossValidation`,
+  `ConsensusScale`.
 - **Results** are read by field (`r.u`, `r.retcode`, `r.stop_rule`,
   `r.stats.nsteps`, `r.resid`, `r.rms`, `r.n`, `r.metadata.…`); a cross-type
   quantity by its Core function (`inlier_mask`, `weights`, `noise_scale`,
@@ -173,7 +174,7 @@ src/
 │   ├── scoring_glue.jl        # LO strategy types + width modes, PosteriorLikelihood, OPTIMIZATION_STRATEGY_TAGS
 │   ├── loop.jl                # the contract-only RANSAC loop (_ransac!, _try_model!, _finalize)
 │   ├── local_optimization.jl  # the hosted strategies' locally_optimize!, PosteriorIrlsMethod, consensus_posterior, rescore_and_optimize!
-│   ├── hypotheses.jl          # draw_hypotheses: the RANSAC trial, repeated, no scoring
+│   ├── hypotheses.jl          # _draw_hypotheses: the RANSAC trial, repeated, no scoring
 │   ├── extent_traits.jl       # ExtentTrait / BoundedProblem validity-region wrapper
 │   ├── problems/
 │   │   ├── correspondence.jl      # AbstractCorrespondenceProblem, MinimalSolveProblem + its aliases (Homography/FundMat/Essential/AbsolutePoseProblem)
@@ -200,7 +201,7 @@ src/
 │   ├── line.jl                # the covariance-weighted line fit and its step `_weighted_line`
 │   ├── radial_camera_fit.jl   # RadialCameraFit
 │   ├── division_camera_stack.jl  # DivisionCameraProblem, DivisionCameraState, DivisionCameraError: one iteration of DivisionCameraFit
-│   ├── gcv.jl                 # gcv_curve, gcv_select, gcv_score, check_penalty_weight
+│   ├── gcv.jl                 # Hyperparameter, GeneralizedCrossValidation, gcv_curve, gcv_score, check_penalty_weight
 │   ├── camera_regression.jl   # CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline, CameraFitMetadata
 │   ├── camera_regression_refine.jl  # the regression's LevenbergMarquardt refine (block_refit), OpticalAxis
 │   ├── pose.jl                # the absolute-pose and bearing-pose physical forms (strip at construction, reattach at solve)

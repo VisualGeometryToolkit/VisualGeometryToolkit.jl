@@ -299,6 +299,14 @@ const _OPENBAYER = Dict("RGGB" => 0x94, "BGGR" => 0x16, "GRBG" => 0x61, "GBRG" =
 
 VisualGeometryToolkitFeatures._decode_demosaic(::LibRawDecoder, m::RawMosaic) = _demosaic_mosaic(m)
 
+# The mosaic's black levels in LibRaw's form, THE one writer of them: the common black LibRaw keeps apart (`color.black`)
+# and each colour index's level above it (`cblack[0…3]`), whole codes. LibRaw's own display demosaic subtracts them; no
+# stack value is linearised here (the mosaic's linear values are Core's `LinearRaw`/`linearview`).
+function _libraw_levels(m::RawMosaic)
+    common = minimum(m.black)
+    return common, map(b -> UInt32(b - common), m.black)
+end
+
 function _demosaic_mosaic(m::RawMosaic)
     H, W = size(m)
     H >= 2 && W >= 2 || throw(ArgumentError("load_raw: a $(H)×$(W) mosaic holds no 2×2 cell to demosaic"))
@@ -310,7 +318,7 @@ function _demosaic_mosaic(m::RawMosaic)
     whole(x) = isinteger(x) && 0 <= x <= typemax(UInt16)
     all(whole, m.black) && whole(m.white) ||
         throw(ArgumentError("load_raw: LibRaw holds whole black and white levels (codes); this mosaic's are $(m.black) and $(m.white)"))
-    common = minimum(m.black)
+    common, cblack = _libraw_levels(m)
     buf = collect(reinterpret(UInt8, vec(permutedims(Array(parent(m))))))   # row-major, little-endian UInt16 (LibRaw's Bayer buffer)
     lr = @ccall libraw.libraw_init(0::Cuint)::Ptr{Cvoid}
     lr == C_NULL && error("load_raw: libraw_init failed")
@@ -328,7 +336,7 @@ function _demosaic_mosaic(m::RawMosaic)
                 unsafe_store!(Ptr{UInt32}(_fieldptr(color_p, ColorData, :maximum)), UInt32(m.white))
                 cb_p = Ptr{UInt32}(_fieldptr(color_p, ColorData, :cblack))
                 for c in 0:3                                         # cblack[c] of colour index c; no spatial pattern
-                    unsafe_store!(cb_p, UInt32(m.black[c + 1] - common), c + 1)
+                    unsafe_store!(cb_p, cblack[c + 1], c + 1)
                 end
                 unsafe_store!(cb_p, UInt32(0), 5); unsafe_store!(cb_p, UInt32(0), 6)
             end

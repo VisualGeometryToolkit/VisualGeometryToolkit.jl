@@ -1041,14 +1041,14 @@ load(::Type{Rig}, path::AbstractString; resolve = nothing, intrinsics::Union{Not
 function _rig_from_record(d; resolve = nothing)
     F = frame_from_name(d.frame::String)
     s = VgioStyle(d)
-    haskey(d, :targets) || return Rig{F}((_load_sensors(d, F, s)...,))
+    haskey(d, :targets) || return Rig{F}(Tuple(_load_sensors(d, F, s)))
     members = Dict{Symbol, PosedTarget}(
         Symbol(t.id::String) => PosedTarget(JSON.lift(s, AbstractTarget, t.target::Record; resolve), JSON.lift(s, EuclideanMap{3}, t.pose::Record))
             for t in d.targets::Vector{Any}
     )
     targets = Dict{Symbol, mapreduce(typeof, typejoin, values(members))}(members)
     haskey(d, :sensors) || return Rig{F}(targets)
-    return Rig{F}((_load_sensors(d, F, s)...,), targets)
+    return Rig{F}(Tuple(_load_sensors(d, F, s)), targets)
 end
 
 function _load_sensors(d, ::Type{F}, st::VgioStyle) where {F}

@@ -12,7 +12,7 @@ readers, and an evaluator that composes a RANSAC scorer with a local optimizer
 ## What it provides
 
 Each module's names are imported from it, for example
-`using VisualGeometryToolkitEval.Pools: load_pool`. The top module exports the
+`using VisualGeometryToolkitEval.PoolFiles: load_pool`. The top module exports the
 modules and the driver command line ([`cli_option`](@ref VisualGeometryToolkitEval.cli_option),
 [`start_output_flush!`](@ref VisualGeometryToolkitEval.start_output_flush!)).
 
@@ -23,7 +23,7 @@ modules and the driver command line ([`cli_option`](@ref VisualGeometryToolkitEv
 | [`Evaluation`](@ref VisualGeometryToolkitEval.Evaluation) | the coarse-to-fine search of every CV, the bootstrap tuning harness and the composition evaluator |
 | [`Experiments`](@ref VisualGeometryToolkitEval.Experiments) | the stage runner, run keys and run records, provenance, and the data layer of a paper project |
 | [`Render`](@ref VisualGeometryToolkitEval.Render) | PGFPlots figures and tables in the house style |
-| [`Pools`](@ref VisualGeometryToolkitEval.Pools) | the scoring pool, its residuals, and the perspective-n-point (PnP) pool file |
+| [`PoolFiles`](@ref VisualGeometryToolkitEval.PoolFiles) | the scoring pool, its residuals, and the perspective-n-point (PnP) pool file |
 | [`Datasets`](@ref VisualGeometryToolkitEval.Datasets) | raw readers of PhotoTourism, HEB, RoMa and SuperPoint+LightGlue correspondences, and of the depth-validated stereo datasets ETH3D, ScanNet1500, KITTI and 7-Scenes |
 | [`DataArtifacts`](@ref VisualGeometryToolkitEval.DataArtifacts) | a paper project's published input data as Julia artifacts |
 | [`Reproduce`](@ref VisualGeometryToolkitEval.Reproduce) | the reproducible-figures contract of a paper |
@@ -46,7 +46,7 @@ Its design principles:
 ## Installation
 
 ```julia-repl
-pkg> add VisualGeometryToolkitEval
+pkg> add VisualGeometryToolkitEval VisualGeometryToolkitCore VisualGeometryToolkitEstimation
 ```
 
 The package requires Julia 1.13 or later. It depends on
@@ -63,7 +63,8 @@ threshold by the package's coarse-to-fine cross-validation.
 ```julia
 using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa, bootstrap_ci
 using VisualGeometryToolkitEval.Tuning: tuning_spec, grid_spec
-using VisualGeometryToolkitEval.Evaluation: coarse_fine_cv
+using VisualGeometryToolkitCore: solve, EstimationProblem
+using VisualGeometryToolkitEstimation: Hyperparameter
 using Random: Xoshiro
 using TOML
 
@@ -83,12 +84,14 @@ config = TOML.parse("""
     """)
 spec = tuning_spec(config, "threshold")
 
-# A stand-in for the validation errors at threshold x; they are smallest at x = 2.
+# A stand-in for the validation errors at threshold x; they are smallest at x = 2. The search asks for the errors
+# at its cells, keyed by search (one search here, `:threshold`, over the axis `x`).
 validation_errors(x) = [abs(log(x / 2)) + 0.1 * k for k in 1:5]
-result = coarse_fine_cv(validation_errors, grid_spec(spec.scheme.coarse), spec.scheme;
-                        method_name = :threshold)
-result[:x_star_fine]                                # ≈ 2.0, the tuned threshold
-result[:boundary_hit]                               # false: the optimum is inside the window
+errorsfn(cells) = Dict(k => [validation_errors(c.x) for c in cs] for (k, cs) in cells)
+problem = EstimationProblem(Hyperparameter, errorsfn, (; cells = Dict(:threshold => (; x = grid_spec(spec.scheme.coarse)))))
+result = solve(problem, spec.scheme)                # the spec's scheme is the algorithm
+result.u[:threshold].x                              # ≈ 2.0, the tuned threshold
+result.metadata.records[:threshold].boundary_hit.x  # false: the optimum is inside the window
 ```
 
 ## Documentation

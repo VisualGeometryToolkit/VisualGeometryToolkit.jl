@@ -83,7 +83,7 @@ using VisualGeometryToolkitCore: HartleyNormalization, AffineMap   # the 3-D str
 import VisualGeometryToolkitCore.Pools: PoolPair
 using VisualGeometryToolkitCore.Pools: StereoRawPair, pair_correspondences, pair_snn, pair_K1, pair_K2,
     pair_R_gt, pair_t_gt, pair_gt_inliers, pool_normalization, pool_frame_calibrations, pool_pixel_scale,
-    pixel_residuals, best_model_index   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
+    pixel_residuals, best_model_index, check_residual_matrix   # SIMFIT++'s pool adapter: a pair's pixel residuals, the one pool argmax
 using VisualGeometryToolkitCore: sampson_distances!, sampson_distance, test_dlt_conditioning
 using VisualGeometryToolkitCore.Synthetic: optimistic_pose_error
 # VGC state is read through its accessors, never by field name (a by-field read
@@ -224,6 +224,7 @@ import VisualGeometryToolkitCore: __solve, __init, estimator_kind, supports_solv
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
     block_refit, with_robustifier, default_stops, reinit!
 import CommonSolve: solve!
+using VisualGeometryToolkitCore: SquaredScale   # ConsensusScale's problem tag (the squared scale)
 using VisualGeometryToolkitCore: solve, AbstractBlockProblem, AbstractFitMetadata,
     chart_refit, triggs_refit, lm_workspace, normalized_loss_weight,
     weighted_support_rms, block_lm, NoiseScale
@@ -300,7 +301,13 @@ export ReweightedLeastSquares, LinearModel   # the fixed-scale reweighted fits (
 export RotationAveraging, FilteredRotationAveraging   # robust rotation averaging on a view graph, and behind the view-graph filters
 export ResidualMixture        # the Student-t + uniform mixture of a held model's residuals (classification)
 export RobotWorldHandEyeProblem, RelativePoseProblem   # the reprojection refine of a robot-world calibration; the two-view bundle of a relative pose (block problems)
+export Hyperparameter, GeneralizedCrossValidation   # a hyperparameter's selection (its problem tag), and the penalty weight by generalized cross-validation
+export ConsensusScale   # the consensus scale ŝ² of a model under a scorer (EstimationProblem(SquaredScale, problem, (; model)))
+export LikelihoodRatioSelection   # model selection between refines: the most likely of several seeded local optimizations
+export ScoreSelection   # the best-scoring stored model of a hypothesis pool (EstimationProblem(PoolSelection, pair => R))
 export PoolSelection   # SimFitPP's tag of a pool's selected model (its loss-width problem's is Core's `LossWidth`)
+export ImageMeasure, SolidAngleMeasure, UniformMeasure   # a camera regression's sample density (CameraRegressionProblem(…; weight))
+public AbstractImageMeasure
 export CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline, OpticalAxis   # a camera model regressed onto a source over a region (its refine: LevenbergMarquardt on the problem)
 export CameraPosesProblem     # a camera and one pose per view from 3D → 2D correspondences (refined by LevenbergMarquardt)
 export RadialCameraFit, DivisionCameraFit   # one board's radial camera; the division camera from many boards' radial cameras
@@ -329,15 +336,15 @@ public with_residual_unit
 # -----------------------------------------------------------------------------
 # PUBLIC, not exported — the machinery
 # -----------------------------------------------------------------------------
-public gcv_select, gcv_curve, gcv_score, check_penalty_weight   # the one GCV of a penalty weight (RadiometricCamera's solves call it; its normalization is Core's penalty_scale, mean_positive_eigenvalue)
+public gcv_curve, gcv_score, check_penalty_weight   # the GCV curve of a penalized least squares, its score, and a penalty weight's check (RadiometricCamera's solves call them; the weight's normalization is Core's penalty_scale, mean_positive_eigenvalue)
 # Problem plumbing and RVG's own RANSAC-interface verbs. The LO refit an extender implements, `refine!`, is
 # VisualGeometryToolkitCore's.
 public AbstractRansacProblem, AbstractCorrespondenceProblem, MinimalSolveProblem, PoseContext, BearingPoseContext,
     BoundedProblem, with_extent, ExtentTrait, NoExtent, WithExtent, extent_trait,
     sample_models, sample_hypothesis, draw_sample!, residual_dof, oracle_residual_dof
-# Benchmark pools: the hypothesis generator, and how a pool record's σ̂² is
-# measured (`PoolPair(rng, problem, raw; …)` is a method of VGC's record type).
-public draw_hypotheses, Hypotheses, PoolVariance, InlierVariance, TrackVariance
+# Benchmark pools: how a pool record's σ̂² is measured (`PoolPair(rng, problem, raw; …)`, a method of VGC's
+# record type, draws its hypotheses with the RANSAC trial; the generator is internal).
+public PoolVariance, InlierVariance, TrackVariance
 # Samplers, and the protocol a new sampler implements (draw!, reset!).
 public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, ExhaustiveSampler, sampler,
     draw!, reset!, trial_budget, adapts
@@ -345,11 +352,12 @@ public AbstractSampler, UniformSampler, ProsacSampler, GaussianSampler, Exhausti
 public DltWorkspace, RansacWorkspace, RansacResultBuffers, LoBuffers
 # The result's metadata, the lean LO result, and posterior helpers. The last two
 # have a documented downstream consumer (LocalOptimizationDoneRight).
-public RansacMetadata, inlier_ratio, PooledScaleMetadata, PosteriorLikelihood, LossPlainWeights,
-    consensus_s2!
-# The posterior-weight iteration a caller can drive outside RANSAC: its method,
-# state and model updates, and the EM spec of `ResidualMixture` (its TOML
-# loader and tag tables), with that fit's metadata.
+public RansacMetadata, inlier_ratio, PooledScaleMetadata, PosteriorLikelihood, LossPlainWeights
+# The posterior-weight local optimization, for strategy authors: its method, state and model updates and its LO
+# contract step `posterior_irls!` (called only inside a `locally_optimize!` method: LocalOptimizationDoneRight's
+# strategies); and the EM spec of `ResidualMixture` (its TOML loader and tag tables), with that fit's metadata.
+# Outside RANSAC the posterior weighting is `solve(EstimationProblem(PosteriorWeightState, d, (; model_dof)),
+# ResidualMixture())`, or `solve(RefineProblem(f, θ), LocalOptimization(strategy; scoring))`.
 public PosteriorIrlsMethod, PosteriorIrlsState, WeightedRefine, KeepModel,
     posterior_irls!, consensus_posterior, required_outlier_halfwidth, rescore_and_optimize!,
     StopWhenNoImprovement, iterations_without_improvement,
@@ -366,7 +374,7 @@ public DivisionCameraState, DivisionCameraProblem, board_sq_residuals,
 public RobotWorldHandEyeCalibration, RobotWorldHandEyeMetadata
 public FitMetadata, RotationAveragingMetadata, CameraPosesRefineMetadata, DivisionCameraMetadata
 public RotationCenterRefineMetadata   # the rotation-centre refine's metadata (its dots without a bearing or a projection are its fields)
-public irls_termination   # the reweighted fits' termination record (ReturnCode, StopRule): Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
+public irls_retcode, irls_stop_rule   # the reweighted fits' termination record, its two fields: Estimation's IRLS fits and downstream ones (BlobBoards' per-blob IRLS)
 public uncertain_rotation   # a pairwise rotation fit as an averaging edge: Uncertain(R, noise_scale² × solver_covariance), rad²
 public RotationCenterViews, rotation_center_pose, AbstractViewResidual, BearingResidual, ReprojectionResidual   # CameraPosesProblem's rotation-centre view parametrization (its views and their data)
 public held_parameters   # the `fixed` that holds every parameter of a camera in a refine (the rotation-centre views require it)
@@ -403,7 +411,7 @@ include("estimators/ransac/interface.jl")
 include("estimators/ransac/scoring_glue.jl")   # LO strategy types + width modes, PosteriorLikelihood, the strategy registry
 include("estimators/ransac/loop.jl")
 include("estimators/ransac/local_optimization.jl")   # the hosted strategies' locally_optimize! (posterior IRLS, BCD)
-include("estimators/ransac/hypotheses.jl")   # draw_hypotheses: the RANSAC trial, repeated, no scoring
+include("estimators/ransac/hypotheses.jl")   # _draw_hypotheses: the RANSAC trial, repeated, no scoring
 include("estimators/ransac/extent_traits.jl")
 
 # RANSAC problem implementations
@@ -424,11 +432,13 @@ include("estimators/ransac/problems/line.jl")
 include("estimators/ransac/problems/hand_eye.jl")
 include("estimators/ransac/problems/pool.jl")   # the pool-frame problems of a pool record; PoolPair(rng, problem, raw)
 include("estimators/ransac/simfitpp.jl")        # SimFitPP: the SIMFIT++ loss width (Edstedt 2025) and its pool selection
+include("estimators/ransac/score_selection.jl") # ScoreSelection: the best-scoring stored model of a pool (its streaming cache)
 include("estimators/ransac/covariance.jl")   # the one model covariance: the constraint sandwich (all providers)
 # The chart-rows provider of every chart problem (VGC's rows contract; needs
 # the per-problem chart/residual helpers above).
 include("estimators/ransac/problems/manifold_providers.jl")
 include("estimators/ransac/solve.jl")   # the finds and the seeded local optimization as algorithms: Ransac, LocalOptimization, RansacCache, the class defaults (after the problems: their classes)
+include("estimators/ransac/likelihood_ratio_selection.jl")   # LikelihoodRatioSelection: model selection between seeded local optimizations
 
 # Fits
 # Provides the covariance-weighted line fit and its step `_weighted_line`,
@@ -436,7 +446,7 @@ include("estimators/ransac/solve.jl")   # the finds and the seeded local optimiz
 include("fitting/line.jl")
 include("fitting/radial_camera_fit.jl")        # RadialCameraFit: one board's radial camera, an iterative whitened fit
 include("fitting/division_camera_stack.jl")    # the stacked linear focal solve (one iteration of DivisionCameraFit) + its state and failure
-include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, gcv_select; the weight's normalization is Core's)
+include("fitting/gcv.jl")                       # the stack's one GCV of a penalty weight (gcv_curve, GeneralizedCrossValidation on Hyperparameter; the weight's normalization is Core's)
 include("fitting/camera_regression.jl")         # CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline: a camera model regressed onto a source over a region
 include("fitting/camera_regression_refine.jl")  # the regression's LevenbergMarquardt refine (the chart LM from a guess), OpticalAxis
 include("fitting/pose.jl")

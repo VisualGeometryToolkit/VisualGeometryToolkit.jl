@@ -16,7 +16,7 @@ stack, shared by the stack's research projects.
 ## Installation
 
 ```julia-repl
-pkg> add VisualGeometryToolkitEval
+pkg> add VisualGeometryToolkitEval VisualGeometryToolkitCore VisualGeometryToolkitEstimation
 ```
 
 The package requires Julia 1.13 or later.
@@ -29,7 +29,8 @@ threshold by the package's coarse-to-fine cross-validation.
 ```julia
 using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa, bootstrap_ci
 using VisualGeometryToolkitEval.Tuning: tuning_spec, grid_spec
-using VisualGeometryToolkitEval.Evaluation: coarse_fine_cv
+using VisualGeometryToolkitCore: solve, EstimationProblem
+using VisualGeometryToolkitEstimation: Hyperparameter
 using Random: Xoshiro
 using TOML
 
@@ -49,12 +50,14 @@ config = TOML.parse("""
     """)
 spec = tuning_spec(config, "threshold")
 
-# A stand-in for the validation errors at threshold x; they are smallest at x = 2.
+# A stand-in for the validation errors at threshold x; they are smallest at x = 2. The search asks for the errors
+# at its cells, keyed by search (one search here, `:threshold`, over the axis `x`).
 validation_errors(x) = [abs(log(x / 2)) + 0.1 * k for k in 1:5]
-result = coarse_fine_cv(validation_errors, grid_spec(spec.scheme.coarse), spec.scheme;
-                        method_name = :threshold)
-result[:x_star_fine]                                # ≈ 2.0, the tuned threshold
-result[:boundary_hit]                               # false: the optimum is inside the window
+errorsfn(cells) = Dict(k => [validation_errors(c.x) for c in cs] for (k, cs) in cells)
+problem = EstimationProblem(Hyperparameter, errorsfn, (; cells = Dict(:threshold => (; x = grid_spec(spec.scheme.coarse)))))
+result = solve(problem, spec.scheme)                # the spec's scheme is the algorithm
+result.u[:threshold].x                              # ≈ 2.0, the tuned threshold
+result.metadata.records[:threshold].boundary_hit.x  # false: the optimum is inside the window
 ```
 
 [Getting started](https://visualgeometrytoolkit.github.io/VisualGeometryToolkitEval/stable/getting-started/)

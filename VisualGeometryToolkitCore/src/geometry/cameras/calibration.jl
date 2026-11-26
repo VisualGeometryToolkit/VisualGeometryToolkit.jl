@@ -395,8 +395,8 @@ were measured in and no caller pre-centres them.
 @inline function constraint_with_jacobians(P::RadialCamera, X::StaticVector{2}, x::StaticVector{2})
     # Element types promote (Dual-safe: ForwardDiff differentiates these bodies).
     X̃ = SVector(X[1], X[2], one(eltype(X)))
-    p1 = dot(SVector(P.P[1, 1], P.P[1, 2], P.P[1, 3]), X̃)
-    p2 = dot(SVector(P.P[2, 1], P.P[2, 2], P.P[2, 3]), X̃)
+    p1 = _fma_dot(SVector(P.P[1, 1], P.P[1, 2], P.P[1, 3]), X̃)   # stated products (base/fused_products.jl)
+    p2 = _fma_dot(SVector(P.P[2, 1], P.P[2, 2], P.P[2, 3]), X̃)
     x1 = x[1] - P.center[1]
     x2 = x[2] - P.center[2]
     g = x1 * p2 - x2 * p1

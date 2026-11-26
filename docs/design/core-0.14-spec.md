@@ -754,3 +754,32 @@ These are done in Core 0.14, each with its own commit:
   `--depwarn=error`, found by the LODR port), and R9 leaves a foreign package's function alone: a retired name a file
   imports explicitly from a non-stack package (`using M: name`) or qualifies by one (`M.name`) is that package's
   (DelaunayTriangulation's, in RC's experiments). RETIRED_NAMES gains RadiometricCamera 0.4.0's retired names.
+- 2026-11-26 (owner, option (i)): the complete fma pin.
+  - Why the 2026-11-24 pin was incomplete:
+    - It stated `_jacobian_terms`' products only.
+    - Its `_fma_*` helpers never inlined: `Base.fma`'s typed body keeps the `have_fma` branch and the `fma_emulated`
+      call, so the inliner priced each fma as a call. The three calls per essential row kept the Jacobian loop from
+      vectorizing, and the essential IRLS LO ran 2× slower than in 0.12.
+    - The constraint's own StaticArrays `muladd`s still fused per compiled context: the scorer's residual and the LM
+      row's residual differed in their last bits on 243 of 300 bearing pairs.
+  - What the complete pin does:
+    - Every helper inlines (`Expr(:meta, :inline)`).
+    - Every product the Sampson layer reaches is a stated fma chain: each model's `constraint_with_jacobians` (F in the
+      plane, E on bearings, both transfer forms, ellipse, conic, radial camera).
+    - One whitening, `_whitening_parts` (`G·(Σ·Gᵀ)`, Cholesky, the closed-form `L⁻¹` for dg ≤ 2, the triangular solve
+      beyond, so hand-eye does not move), serves the Sampson factor, the Jacobian terms, the noise-whitened residual,
+      `whiten` and `whitening_factor`.
+    - The scorer's and the Jacobian row's residuals are `===` on every row (test/sampson_determinism_tests.jl, with a
+      typed-code audit: no `muladd_float`, no product call).
+    - The essential IRLS LO is back at 0.12's runtime.
+  - What moved, against the 2026-11-24 pin (identical in both modes):
+    - 923 golden cases (3658 leaves): 94 ≤ 1e-15, 455 in (1e-15, 1e-12], 162 in (1e-12, 1e-10], 112 in (1e-10, 1e-6],
+      34 in (1e-6, 1e-3], 66 > 1e-3.
+    - 23 change a discrete leaf: 14 iteration counts or stop rules, and 9 noise_scales pooled scales whose upstream
+      homography find changed an inlier count. One anytime trace changes length.
+    - The classes above 1e-3: the essential sign representative, the ellipse angle representative, the contaminated
+      ellipse consensus, rotation averaging on `edges5_*`, refines stopping one iteration apart, `radialcam/board1`.
+    - Each moved leaf is an intended change (reason "the complete fma pin (owner, 2026-11-26)"). The 503 entries of
+      the 2026-11-24 pin whose leaf came back to its record are gone.
+  - Not pinned: the PnP, camera-model and hand-eye algebra; Estimation's mapped-homography product (Estimation cannot
+    reach Core's private helpers); the ellipse's `sincos`; GPU contraction.

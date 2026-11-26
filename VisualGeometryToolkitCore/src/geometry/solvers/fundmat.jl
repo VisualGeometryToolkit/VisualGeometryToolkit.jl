@@ -387,10 +387,11 @@ Returns:
     s = _lift_image_point(u₁, T)
     d = _lift_image_point(u₂, T)
 
-    g = dot(d, F * s)
-
-    Fs = F * s     # epipolar line in image 2
-    Ftd = F' * d   # epipolar line in image 1
+    # Stated products (base/fused_products.jl): the residual a scorer reads and the Jacobian row an LM reads
+    # compute g and G_x with these same fma chains, so they agree bit for bit wherever they are compiled.
+    Fs = _fma_mul(F, s)      # epipolar line in image 2
+    Ftd = _fma_tmul(F, d)    # epipolar line in image 1
+    g = _fma_dot(d, Fs)
 
     G_x = SVector{4, T}(Ftd[1], Ftd[2], Fs[1], Fs[2])
     G_θ = SVector{9, T}(
@@ -447,11 +448,12 @@ in the z = 1 chart. Use that one for `FundMat` and this one for
     Em = SMatrix{3, 3, T, 9}(E)
     s = SVector{3, T}(f₁[1], f₁[2], f₁[3])
     d = SVector{3, T}(f₂[1], f₂[2], f₂[3])
-    Es = Em * s        # the epipolar plane normal seen in view 2
-    Etd = Em' * d      # and in view 1
-    g = dot(d, Es)
-    r1 = Etd' * M₁     # 1×2, pixels in view 1
-    r2 = Es' * M₂      # 1×2, pixels in view 2
+    # Stated products (base/fused_products.jl), as the plane form's: one rounding order for the scorer and the LM.
+    Es = _fma_mul(Em, s)       # the epipolar plane normal seen in view 2
+    Etd = _fma_tmul(Em, d)     # and in view 1
+    g = _fma_dot(d, Es)
+    r1 = _fma_tmul(M₁, Etd)    # (Eᵀd)ᵀM₁, pixels in view 1
+    r2 = _fma_tmul(M₂, Es)     # (Es)ᵀM₂, pixels in view 2
     G_x = SVector{4, T}(r1[1], r1[2], r2[1], r2[2])
     G_θ = SVector{9, T}(
         d[1] * s[1], d[2] * s[1], d[3] * s[1],

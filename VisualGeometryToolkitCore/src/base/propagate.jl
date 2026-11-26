@@ -109,7 +109,7 @@ end
     pd₁ = a > zero(a)
     l₁₁ = sqrt(ifelse(pd₁, a, one(a)))
     l₂₁ = Σ_g[1, 2] * inv(l₁₁)
-    b = muladd(-l₂₁, l₂₁', Σ_g[2, 2])
+    b = fma(-l₂₁, l₂₁', Σ_g[2, 2])                  # stated (base/fused_products.jl): one rounding wherever it is compiled
     pd₂ = b > zero(b)
     l₂₂ = sqrt(ifelse(pd₂, b, one(b)))
     L = LinearAlgebra.LowerTriangular(SMatrix{2, 2, T}(l₁₁, l₂₁, zero(T), l₂₂))
@@ -134,9 +134,9 @@ A degenerate `Σ_g` (its relative rank verdict) is a ZERO factor — its rows dr
 out of a solve; NaN propagates.
 """
 @inline function whitening_factor(G_x::StaticMatrix{dg, nx, T}, Σ_x = I) where {dg, nx, T}
-    C, d, ok = _whitening_cholesky(propagate(G_x, Σ_x))
+    W, _, d, ok = _whitening_parts(G_x, Σ_x)   # the Sampson layer's whitening arithmetic (base/sampson.jl)
     isnan(d) && return fill(T(NaN), SMatrix{dg, dg, T})
-    return ok ? inv(SMatrix{dg, dg, T}(C.L)) : zero(SMatrix{dg, dg, T})
+    return ok ? SMatrix{dg, dg, T}(_inverse_of(W)) : zero(SMatrix{dg, dg, T})
 end
 # A scalar constraint's gradient (an `SVector`): the factor is the number
 # `1/√(G_x·Σ_x·G_xᵀ)`, zero when degenerate.

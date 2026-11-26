@@ -55,6 +55,12 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   and its size. The large moves are ill-conditioned refines (an essential matrix whose sign representative flips around
   a ~5e-10 move, or a refine that stops at another iterate) and rotation averagings on a five-edge graph that carry the
   last-bit change to another solution; 28 results change an iteration count or a stop rule.
+  VisualGeometryToolkitCore's complete pin (owner, 2026-11-26) also states every product of the constraint and of the
+  whitening, so the residual the scorers read and the one the LM's rows carry are bit-identical. The finds' and
+  refines' results move again: 923 golden cases, of which 711 move by at most 1e-10, 112 in (1e-10, 1e-6], 34 in
+  (1e-6, 1e-3] and 66 above 1e-3 (the classes are listed in Core's entry). The essential IRLS local optimization is
+  back at 0.12's runtime (0.995×), where the first pin had left it 2× slower.
+
 - **Configuration version 2.** `configs/default.toml` states `config_version = 2`; its estimator tables are named after
   the algorithm or problem that reads them. A stored version-1 file (0.12 and earlier) is read with
   `VisualGeometryToolkitCore.migrate_config(TOML.parsefile(path), ESTIMATION_CONFIG_VERSIONS)`.

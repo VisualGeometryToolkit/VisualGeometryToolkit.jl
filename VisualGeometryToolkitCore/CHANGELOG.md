@@ -57,6 +57,48 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   and its size. The large moves are ill-conditioned refines (an essential matrix whose sign representative flips around
   a ~5e-10 move, or a refine that stops at another iterate) and rotation averagings on a five-edge graph that carry the
   last-bit change to another solution; 28 results change an iteration count or a stop rule.
+- **The pin is complete: the Sampson layer's residual and its Jacobian row are one arithmetic** (owner, 2026-11-26).
+  The pin above stated only `_jacobian_terms`' products, and its fused products never inlined: `Base.fma(::Float64, …)`
+  keeps its `have_fma` branch and `fma_emulated` call in its typed body, so the inliner priced every fma as a call. The
+  three calls per essential row kept the Jacobian loop from vectorizing, and an essential matrix's IRLS local
+  optimization ran 2× slower than in 0.13. The constraint's own StaticArrays `muladd`s still fused per compiled context,
+  so the residual a scorer read and the one an LM row carried differed in their last bits on 243 of 300 bearing pairs.
+  Now:
+  - every fused product inlines;
+  - every product the Sampson layer reaches is a stated `fma` chain: each model's `constraint_with_jacobians` (F in the
+    plane, E on bearings, both transfer forms, ellipse, conic, radial camera; H, the circle and the line were plain
+    arithmetic already);
+  - one whitening (`G·(Σ·Gᵀ)`, its Cholesky factor, the closed-form `L⁻¹` for codimension ≤ 2) serves the Sampson
+    residual, its Jacobian rows, the noise-whitened residual, `whiten` and `whitening_factor`.
+
+  The two residuals are `===` on every row, and the rows' typed code holds no contractible operation
+  (test/sampson_determinism_tests.jl). The essential local optimization runs at 0.13's speed again (0.995×). Not
+  pinned: the PnP, camera-model and hand-eye algebra (lens projection and rotations; hand-eye's codimension-6 whitening
+  keeps its triangular solve), the ellipse's `sincos`, and GPU kernels, where the device compiler may contract a plain
+  `a*b + c`. 923 golden cases move against the earlier pin, identically in package-image and `--pkgimages=no` mode:
+  | max relative move per result | records |
+  |---|---|
+  | ≤ 1e-15 | 94 |
+  | (1e-15, 1e-12] | 455 |
+  | (1e-12, 1e-10] | 162 |
+  | (1e-10, 1e-6] | 112 |
+  | (1e-6, 1e-3] | 34 |
+  | > 1e-3 | 66 |
+
+  23 change an iteration count, a stop rule or an inlier count, and one anytime trace changes length. The 66 above
+  1e-3 are:
+  - essential matrices whose sign representative flips (`stereo_ecam_140+60`, `epix_cam800_scored` seed 2,
+    `calib_ecam_120+50/msac5` seed 3);
+  - ellipse refines whose angle representative flips (`truth_clean_200`, `e0_exact_30`, `direct_exact_30`);
+  - contaminated ellipse finds that take another consensus (`outl40_*`, `outl30_300` seed 3);
+  - rotation averagings on the ill-conditioned five-edge graph (`edges5_*`, ≤ 1.82);
+  - homography and essential refines and finds that stop one iteration apart (`htrue_100+30`, `htrue_40+10_corr`,
+    `calib_ecam_120+50/ls`, `stereo_ecam_140+60/ls` and `triggs_huber_scale1` seed 2);
+  - `radialcam/board1/unit_weights` (4.5e-2).
+
+  `ci/golden/intended_changes.toml` lists each with its exact bits and size. The earlier pin's claim of rows identical
+  "in every compiled copy" held for `_jacobian_terms` only; this entry corrects it.
+
 - The homography's composition (`∘` of an affine or `HomographyMap` with a `HomographyMat`) states each entry's
   arithmetic (`fma` or `*`/`+`), so a precompiled and a JIT-compiled copy round alike (they differed in the last bits
   of the DLT's model); the values are the 0.13 records' bit for bit. `model_type` has a docstring of its own.

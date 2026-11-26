@@ -489,11 +489,11 @@ only: `u₁`, `u₂` are 2-vectors, and a 3-vector (a bearing) is a `MethodError
     T = float(promote_type(eltype(H), eltype(u₁), eltype(u₂)))
     Hm = SMatrix{3, 3, T, 9}(H)
     x1 = _lift_image_point(u₁, T)
-    h = Hm * x1
+    h = _fma_mul(Hm, x1)          # stated products (base/fused_products.jl)
     Jπ = transform_deriv(PerspectiveMap(), h)
     g = SVector{2, T}(PerspectiveMap()(h) - SVector{2, T}(u₂[1], u₂[2]))
     H₁₂ = SMatrix{3, 2, T, 6}(Hm[1, 1], Hm[2, 1], Hm[3, 1], Hm[1, 2], Hm[2, 2], Hm[3, 2])
-    G_x = hcat(Jπ * H₁₂, -SMatrix{2, 2, T, 4}(I))
+    G_x = hcat(_fma_mul(Jπ, H₁₂), -SMatrix{2, 2, T, 4}(I))
     return g, G_x, _transfer_params_jacobian(Jπ, x1)
 end
 
@@ -507,18 +507,19 @@ end
 # derivative of `g` along the transferred point `H f₁` — what the pixel form's
 # `Jπ` is to its perspective divide. `cheiral`: the transferred ray is in `f₂`'s
 # hemisphere (`ĥ·f₂ > 0`); an antipodal pair has a small `g` too, so a scorer
-# reads this verdict rather than the residual alone.
+# reads this verdict rather than the residual alone. Every product-sum is a stated
+# fma chain (base/fused_products.jl), so the scorer and the LM read one rounding.
 @inline function _bearing_transfer_parts(H, f₁::StaticVector{3}, f₂::StaticVector{3})
     T = float(promote_type(eltype(H), eltype(f₁), eltype(f₂)))
     Hm = SMatrix{3, 3, T, 9}(H)
     s = SVector{3, T}(f₁[1], f₁[2], f₁[3])
     d = SVector{3, T}(f₂[1], f₂[2], f₂[3])
-    h = Hm * s
+    h = _fma_mul(Hm, s)
     nh = norm(h)
     ĥ = h / nh
     P = SMatrix{2, 3, T, 6}(transpose(s2_tangent_basis_matrix(T, d)))
-    D = P * ((SMatrix{3, 3, T, 9}(I) - ĥ * ĥ') / nh)
-    return (; g = P * ĥ, P, D, s, Hm, cheiral = dot(ĥ, d) > 0)
+    D = _fma_mul(P, (SMatrix{3, 3, T, 9}(I) - ĥ * ĥ') / nh)
+    return (; g = _fma_mul(P, ĥ), P, D, s, Hm, cheiral = _fma_dot(ĥ, d) > 0)
 end
 
 """
@@ -552,7 +553,7 @@ scorer must refuse it separately (the hemisphere of the transferred ray).
     )
     p = _bearing_transfer_parts(f.mat, f₁, f₂)
     T = eltype(p.g)
-    G_x = hcat(p.D * p.Hm * SMatrix{3, 2, T, 6}(M₁), -(p.P * SMatrix{3, 2, T, 6}(M₂)))
+    G_x = hcat(_fma_mul(_fma_mul(p.D, p.Hm), SMatrix{3, 2, T, 6}(M₁)), -_fma_mul(p.P, SMatrix{3, 2, T, 6}(M₂)))   # (D·H)·M₁
     return p.g, G_x, _transfer_params_jacobian(p.D, p.s)
 end
 # The bearing transfer residual alone: `g` reads no backprojection Jacobian, so
@@ -579,21 +580,21 @@ end
     )
     p = _bearing_transfer_parts(f.mat, f₁, f₂)
     T = eltype(p.g)
-    h = p.Hm * p.s
+    h = _fma_mul(p.Hm, p.s)
     nh = norm(h)
     ĥ = h / nh
     Q = SMatrix{3, 3, T}(I) - ĥ * ĥ'
     M1 = SMatrix{3, 2, T}(M₁)
-    HM = p.Hm * M1
-    A = p.D * HM
-    u = HM' * ĥ
-    Pĥ = p.P * ĥ
+    HM = _fma_mul(p.Hm, M1)
+    A = _fma_mul(p.D, HM)
+    u = _fma_tmul(HM, ĥ)
+    Pĥ = _fma_mul(p.P, ĥ)
     z = zero(T)
     cols = ntuple(Val(9)) do θ
         a = (θ - 1) % 3 + 1; b = (θ - 1) ÷ 3 + 1
         sb = p.s[b]
         dĥ = Q[:, a] * (sb / nh)
-        dA = -((p.P * dĥ) * u' + Pĥ * (HM' * dĥ)') / nh - A * (ĥ[a] * sb / nh) + p.D[:, a] * M1[b, :]'
+        dA = -(_fma_mul(p.P, dĥ) * u' + Pĥ * _fma_tmul(HM, dĥ)') / nh - A * (ĥ[a] * sb / nh) + p.D[:, a] * M1[b, :]'
         SVector{8, T}(dA[1, 1], dA[2, 1], dA[1, 2], dA[2, 2], z, z, z, z)
     end
     return hcat(cols...)

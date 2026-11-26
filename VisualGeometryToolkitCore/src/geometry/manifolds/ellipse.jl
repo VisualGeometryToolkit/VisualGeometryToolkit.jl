@@ -100,8 +100,8 @@ point at the centre has `G_x = 0` — the one Sampson degeneracy
 @inline function constraint_with_jacobians(e::Ellipse, x::StaticVector{2})
     Q = _ellipse_form(e)
     d = SVector(x[1] - e.center[1], x[2] - e.center[2])
-    Qd = Q * d
-    g = dot(d, Qd) - 1
+    Qd = _fma_mul(Q, d)          # stated products (base/fused_products.jl)
+    g = _fma_dot(d, Qd) - 1
     return g, 2 * Qd, SVector(-2 * Qd[1], -2 * Qd[2], d[1]^2, 2 * d[1] * d[2], d[2]^2)
 end
 
@@ -147,8 +147,8 @@ part (the centre of a central conic) has `G_x = 0`: the one Sampson degeneracy.
     T = float(promote_type(eltype(c), eltype(x)))
     C = SMatrix{3, 3, T, 9}(c)
     xh = _lift_image_point(x, T)
-    Cx = C * xh
-    g = dot(xh, Cx)
+    Cx = _fma_mul(C, xh)         # stated products (base/fused_products.jl)
+    g = _fma_dot(xh, Cx)
     return g, SVector(2 * Cx[1], 2 * Cx[2]),
         SVector(xh[1]^2, 2 * xh[1] * xh[2], xh[2]^2, 2 * xh[1], 2 * xh[2], one(T))
 end

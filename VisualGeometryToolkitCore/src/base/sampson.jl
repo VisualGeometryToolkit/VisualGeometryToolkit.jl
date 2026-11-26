@@ -81,14 +81,15 @@ end
 
 # The geometry layer's one body, from a constraint value and its observation
 # gradient at the rounding scale ρ: the Sampson residual `s` (an SVector over
-# the constraint's components), its normal basis `N`, the Cholesky factor `L` of
-# G_x·G_xᵀ (a number for a scalar constraint: ‖G_x‖, the Jacobian's normalizer),
+# the constraint's components), its normal basis `N`, the INVERSE Cholesky factor
+# factor's whitener `W` of G_x·G_xᵀ for a vector constraint (`_whitening_parts`, the
+# Jacobian rows' whitening) or the number ‖G_x‖ for a scalar one (the Jacobian's normalizer),
 # and `ok`. Not ok is the degeneracy rule: `s` is 0 or ±Inf per component, `N`
 # is zero. NaN propagates (with `ok`, so the rows carry it too).
 # Branch-free (`ifelse`, both sides computed): a branch here stops a row loop
 # over correspondences from vectorizing (measured 2× on the epipolar rows).
 @inline function _sampson_factor(g::Real, G_x::StaticVector{nx}, ρ) where {nx}
-    J² = sum(abs2, G_x)                        # no muladd here (the constraint's StaticArrays products may contract per inlining context)
+    J² = sum(abs2, G_x)                        # plain arithmetic: no contraction
     T = typeof(J²)
     ok = !(J² <= _gradient_bound²(ρ, T))       # one comparison: a NaN gradient is not degenerate, NaN propagates
     n = sqrt(J²)
@@ -98,12 +99,11 @@ end
 end
 @inline function _sampson_factor(gv::StaticVector{dg, T}, G_x::StaticMatrix{dg, nx, T}, ρ) where {dg, nx, T}
     g = SVector{dg, T}(gv)                     # a Vec or MVector constraint: the residual is an SVector
-    C, d, ok = _whitening_cholesky(propagate(G_x, I))
+    W, _, d, ok = _whitening_parts(G_x, I)     # the one whitening arithmetic (the Jacobian rows' too)
     ok &= !(sum(abs2, G_x) <= _gradient_bound²(ρ, T))
-    L = C.L
-    isnan(d) && return g .* T(NaN), zero(SMatrix{nx, dg, T}) .* T(NaN), L, true   # NaN in, NaN out
-    ok || return _degenerate_residual(g, _vanishes(ρ, g)), zero(SMatrix{nx, dg, T}), L, false
-    return L \ g, SMatrix{nx, dg, T}((L \ G_x)'), L, true
+    isnan(d) && return g .* T(NaN), zero(SMatrix{nx, dg, T}) .* T(NaN), W, true   # NaN in, NaN out
+    ok || return _degenerate_residual(g, _vanishes(ρ, g)), zero(SMatrix{nx, dg, T}), W, false
+    return _whiten_by(W, g), SMatrix{nx, dg, T}(transpose(_whiten_by(W, G_x))), W, true
 end
 
 # The squared gradient at or below which a constraint is degenerate: its
@@ -224,9 +224,29 @@ function observation_gradient_jacobian end
 # the same method, and the chart LM's rows differed in their last bits between the two. Every product `_jacobian_terms`
 # reaches is the explicit `fma` chain of base/fused_products.jl (`_fma_mul`, `_fma_tmul`, StaticArrays' order);
 # elementwise operations and `sum` carry no contraction and stay as written.
-# Σ·G_xᵀ: the identity by dispatch, any other Σ through `_fma_mul`.
-@inline _noise_times(::UniformScaling{Bool}, Gt) = Gt
-@inline _noise_times(Σ, Gt) = _fma_mul(SMatrix(Σ), Gt)
+# Σ·G_xᵀ: the identity by dispatch, a scaled identity by its scale, any other Σ through `_fma_mul`.
+@inline _noise_times(::UniformScaling{Bool}, Gt::StaticMatrix) = Gt
+@inline _noise_times(Σ::UniformScaling, Gt::StaticMatrix) = Σ.λ * Gt
+@inline _noise_times(Σ, Gt::StaticMatrix{nx}) where {nx} = _fma_mul(SMatrix{nx, nx}(Σ), Gt)   # a dense Σ at the rows' static size
+# The whitening of a vector constraint's rows `G` (`dg × nx`) at the noise Σ — the ONE arithmetic of the Sampson
+# residual, its Jacobian rows, the noise-whitened residual and `whiten`, so the residual a scorer reads and the one
+# the LM's rows carry agree bit for bit: Σ_g = G·(Σ·Gᵀ) (G·Gᵀ at Σ = I) as stated products, its Cholesky factor L
+# (`_whitening_cholesky`), and its whitener `W` (`_whitener`): L⁻¹ in closed form for dg ≤ 2 (every constraint of
+# the stack's Sampson models), applied as a stated product; the factor itself beyond, applied by its triangular solve.
+# A whitened value is `_whiten_by(W, v)`. Returns (W, Σ·Gᵀ, det Σ_g, ok).
+@inline function _whitening_parts(G::StaticMatrix, Σ)
+    ΣGt = _noise_times(Σ, transpose(G))
+    C, d, ok = _whitening_cholesky(_fma_mul(G, ΣGt))
+    return _whitener(C.L), ΣGt, d, ok
+end
+@inline _whitener(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{1, 1}}) where {T} = _inv_lower(L)
+@inline _whitener(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{2, 2}}) where {T} = _inv_lower(L)
+@inline _whitener(L::LinearAlgebra.LowerTriangular) = L
+@inline _whiten_by(L⁻¹::StaticMatrix, v) = _fma_mul(L⁻¹, v)
+@inline _whiten_by(L::LinearAlgebra.LowerTriangular, v) = L \ v
+# L⁻¹ as a matrix (the factor rate's, `whitening_factor`'s): the closed form as it is, the general inverse beyond.
+@inline _inverse_of(L⁻¹::StaticMatrix) = L⁻¹
+@inline _inverse_of(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{n, n}}) where {T, n} = inv(SMatrix{n, n, T}(L))
 # A model-coordinate row carried along chart directions, held as ROWS
 # B = Dᵀ (`N × nθ`, row q = ∂θ/∂a_q; formed once per sweep — a transposed
 # product per row costs 2 ns of a 5 ns row): B·v. `nothing` keeps the model's
@@ -302,26 +322,23 @@ end
     gv = SVector(Tuple(_as_vector(g)))                 # a Vec constraint: the residual is an SVector
     Gx = _as_row(G_x); Gθ = _as_row(G_θ)
     T = eltype(gv)
-    ΣGt = _noise_times(Σ, transpose(Gx))               # Σ·G_xᵀ
-    C, d, okc = _whitening_cholesky(_fma_mul(Gx, ΣGt)) # L·Lᵀ = G_x·Σ·G_xᵀ
+    W, ΣGt, d, okc = _whitening_parts(Gx, Σ)          # L·Lᵀ = G_x·Σ·G_xᵀ, Σ·G_xᵀ
     good = okc & !(sum(abs2, G_x) <= _gradient_bound²(ρ, T))
-    L⁻¹ = _inv_lower(C.L)
-    r = _fma_mul(L⁻¹, gv)
+    r = _whiten_by(W, gv)
     K = _noise_rate(M, ΣGt, y...; kw...)              # (dg·dg) × nθ: vec(∂G_x/∂θ · Σ·G_xᵀ)
-    rows = _along_columns(_fma_mul(L⁻¹, Gθ) - _factor_rate(L⁻¹, K, r), B)   # model rows first, then the directions once
+    rows = _along_columns(_whiten_by(W, Gθ) - _factor_rate(_inverse_of(W), K, r), B)   # model rows first, then the directions once
     isnan(d) && return r, rows, one(T)                 # NaN in, NaN out
     # Value decisions: a degenerate observation keeps the rule's residual (0 or
     # ±Inf) and has zero rows.
     return ifelse(good, r, _degenerate_residual(gv, _vanishes(ρ, gv))), ifelse(good, rows, zero(rows)), one(T)
 end
-# The inverse of a lower-triangular Cholesky factor: closed forms for dg ≤ 2 (every constraint of the stack), the
-# general inverse beyond.
+# The inverse of a lower-triangular Cholesky factor in closed form, dg ≤ 2 (every constraint of the stack's Sampson
+# models; `_whitener`).
 @inline _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{1, 1}}) where {T} = SMatrix{1, 1, T}(inv(L[1, 1]))
 @inline function _inv_lower(L::LinearAlgebra.LowerTriangular{T, <:StaticMatrix{2, 2}}) where {T}
     a, b, c = inv(L[1, 1]), L[2, 1], inv(L[2, 2])
     return SMatrix{2, 2, T}(a, -b * a * c, zero(T), c)
 end
-@inline _inv_lower(L::LinearAlgebra.LowerTriangular) = inv(SMatrix(L))
 # The contraction of the observation gradient's derivative with Σ·G_xᵀ, per
 # model coordinate: K[(i, j), θ] = Σₖ ∂G_x[i, k]/∂θ · (Σ·G_xᵀ)[k, j] — what the
 # derivative of the Cholesky factor of G_x·Σ·G_xᵀ reads (its derivative along θ
@@ -428,8 +445,8 @@ end
 @inline function _element_residual(M, Σ, x...; kw...)
     _, g, G_x, _, ρ = _sampson_inputs(M, x...; kw...)
     _, _, _, ok = _sampson_factor(g, G_x, ρ)
-    C, d, okc = _whitening_cholesky(propagate(_as_row(G_x), Σ))
-    return C.L \ _as_vector(g), (ok & okc) | isnan(d)
+    W, _, d, okc = _whitening_parts(_as_row(G_x), Σ)   # the Jacobian rows' whitening (`_jacobian_terms`)
+    return _whiten_by(W, _as_vector(g)), (ok & okc) | isnan(d)
 end
 # The rows, in the uniform `(out, i, args...)` form `_launch_rows!` runs. A
 # degenerate element is a zero residual and zero rows (LM-safe), NaN propagates.
@@ -612,17 +629,17 @@ normal, so `Σ` enters through `NᵀΣN`.
 # leaves its rule on (0 stays 0, else ±Inf); NaN propagates. Value decisions
 # (early returns), not type ones.
 @inline function _whitened(v::StaticVector{dg, T}, s::StaticVector{dg}, G::StaticMatrix{dg}, J, Σ) where {dg, T}
-    C, d, ok = _whitening_cholesky(propagate(G, Σ))
+    W, _, d, ok = _whitening_parts(G, Σ)
     isnan(d) && return s .* T(NaN), _scaled_rows(J, T(NaN))
     ok || return _degenerate_whitened(s), _zero_rows(J)
-    return C.L \ v, _solved_rows(C.L, J)
+    return _whiten_by(W, v), _solved_rows(W, J)
 end
 @inline _zero_rows(::Nothing) = nothing
 @inline _zero_rows(J) = zero(J)
 @inline _scaled_rows(::Nothing, σ) = nothing
 @inline _scaled_rows(J, σ) = J * σ
 @inline _solved_rows(L, ::Nothing) = nothing
-@inline _solved_rows(L, J) = L \ J
+@inline _solved_rows(W, J) = _whiten_by(W, _as_row(J))
 # A residual whitened by a covariance singular along the normal: zero stays
 # zero (the constraint holds), anything else is unreachable (±Inf), NaN stays.
 @inline _degenerate_whitened(s) = map(x -> (iszero(x) || isnan(x)) ? x : copysign(oftype(x, Inf), x), s)
@@ -647,7 +664,7 @@ end
 @inline _sampson_rows(::Real, ::Nothing, ::Bool) = nothing
 @inline _sampson_rows(::Any, ::Nothing, ::Bool) = nothing
 @inline _sampson_rows(n::Real, J, ok::Bool) = ifelse(ok, J / n, zero(J))
-@inline _sampson_rows(L, J, ok::Bool) = ok ? L \ J : zero(J)
+@inline _sampson_rows(W, J, ok::Bool) = ok ? _whiten_by(W, _as_row(J)) : zero(J)
 @inline _as_vector(g::Real) = SVector(g)
 @inline _as_vector(g::StaticVector) = g
 

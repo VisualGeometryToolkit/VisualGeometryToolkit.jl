@@ -28,6 +28,7 @@
 
 using RadiometricCamera
 using RadiometricCamera: Board, intersect_board, chart, board_height, board_height_grad, HEIGHT_NODES, HEIGHT_NC
+using VisualGeometryToolkitCore.Synthetic: saddle_height
 using StaticArrays: SVector
 using LinearAlgebra: normalize, dot
 using Random: Xoshiro
@@ -35,8 +36,7 @@ using Random: Xoshiro
 const OUT = length(ARGS) >= 1 ? ARGS[1] : joinpath(@__DIR__, "reference.jl")
 
 board = Board([-1.0, -1.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0], rand(Xoshiro(1), 8, 8, 3); facing = [0.0, 0.0, 1.5])
-sad(𝐛) = (q = 𝐛 .- 0.5; 0.08 * q[1]^2 - 0.04 * q[1] * q[2] + 0.06 * q[2]^2)       # test_height.jl's saddle
-hh = SVector{HEIGHT_NC}([sad(𝐛) for 𝐛 in HEIGHT_NODES])
+hh = SVector{HEIGHT_NC}([saddle_height(𝐛) for 𝐛 in HEIGHT_NODES])   # test_height.jl's saddle
 
 # Rays: test_height.jl's own ray, then origins over the board (1 to 2 board
 # half-widths above it) aimed at chart points in [0.03, 0.97]², incidence up

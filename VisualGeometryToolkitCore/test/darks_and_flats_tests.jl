@@ -33,29 +33,32 @@
         m = t == t1 ? md : master(darks[t], t)
         push!(masks, t => m.defects); rns[t] = m.read_noise; push!(dark_maps, m.dark)
     end
-    black = Darks(md.dark.black, dark_maps; source = SensorSource.measured)
     defects = defect_onsets(identity.(masks))
-    model = SensorModel(md.dark, NoNoise(), defect_onsets([t1 => md.defects]))
+    # the photon transfer as characterise_sensor ran it: the reference burst's dark subtracted, its defects left out
+    # (the model is the builder's own input, read back from its metadata, so no component is assembled here)
+    r = solve(EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference = t1)),
+              DarksAndFlats(; dark = MasterDark(; false_defects)))
     fit = solve(EstimationProblem(PoissonGaussian, Dict(k => v for (k, v) in flats),
-                                  (; darks = Dict(k => v for (k, v) in rns), sensor_model = model)),
+                                  (; darks = Dict(k => v for (k, v) in rns), sensor_model = r.metadata.series.prob.p.sensor_model)),
                 PhotonTransfer())
     K = fit.u
-    noise = PoissonGaussian(K.gain, md.read_noise.σ, (gain = K.std_error.gain, σ = md.read_noise.std_error);
-                            source = SensorSource.measured)
-    hand = SensorCharacterization(body; entries = [iso => (; black, noise, defects)])
 
-    # the builder
+    # the builder, component by component against the estimators' own results
     prob = EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference = t1))
-    r = solve(prob, DarksAndFlats(; dark = MasterDark(; false_defects)))
     c = r.u
-    @test c isa SensorCharacterization && isequal(c, hand) && c == hand
-    @test isequal(c.body, hand.body) && keys(c.entries) == keys(hand.entries)
-    e, h = c.entries[100.0], hand.entries[100.0]
-    @test isequal(e.black, h.black) && isequal(e.noise, h.noise) && isequal(e.defects, h.defects)
-    @test e.noise === h.noise                                    # isbits: identical
+    @test c isa SensorCharacterization && isequal(c.body, body) && collect(keys(c.entries)) == [100.0]
+    e = c.entries[100.0]
+    @test e.black.black === md.dark.black && e.black.source === SensorSource.measured
     @test all(isequal(a.offset, b.offset) && isequal(a.variance, b.variance) && a.exposure_band == b.exposure_band &&
-              a.frames == b.frames && a.black == b.black for (a, b) in zip(e.black.darks, h.black.darks))
-    @test e.defects.x == h.defects.x && e.defects.y == h.defects.y && e.defects.onset == h.defects.onset
+              a.frames == b.frames && a.black == b.black for (a, b) in zip(e.black.darks, dark_maps))
+    @test e.noise.gain === K.gain && e.noise.σ === md.read_noise.σ && e.noise.source === SensorSource.measured
+    @test isequal(e.noise.std_error, (gain = K.std_error.gain, σ = md.read_noise.std_error))
+    # the photon transfer's model: the reference burst's dark subtracted, no noise, its defects left out
+    m = r.metadata.series.prob.p.sensor_model
+    @test m.noise isa NoNoise && isequal(m.defects, defect_onsets([t1 => md.defects]))
+    @test isequal(m.black.offset, md.dark.offset) && isequal(m.black.variance, md.dark.variance)
+    @test isequal(e.defects, defects)
+    @test e.defects.x == defects.x && e.defects.y == defects.y && e.defects.onset == defects.onset
     @test length(e.defects.x) == 2                               # the two hot photosites (planted), each at its onset
     # the result: the photon-transfer fit's convergence; the metadata the fit and the per-burst master darks
     @test r.retcode === fit.retcode === ReturnCode.Success && r.stop_rule === fit.stop_rule && r.n == fit.n
@@ -75,7 +78,7 @@
                                                        (; body, iso, reference = t1, extra = 1)), DarksAndFlats())
     @test_throws ArgumentError solve(EstimationProblem(SensorCharacterization, (darks, flats),
                                                        (; body, iso, reference = 0.5s)), DarksAndFlats())
-    # a group's exposure without a dark burst is PhotonTransfer's refusal, passed through
+    # a group's exposure without a dark burst is PhotonTransfer's refusal, forwarded
     @test_throws ArgumentError solve(EstimationProblem(SensorCharacterization, (Dict(t1 => darks[t1]), flats),
                                                        (; body, iso, reference = t1)), DarksAndFlats())
     # the traits gate over Core holds with the builder in it

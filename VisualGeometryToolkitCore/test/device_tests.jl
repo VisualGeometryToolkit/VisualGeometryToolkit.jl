@@ -362,3 +362,32 @@ end
         @test Array(VgtkCore._matvec!(CUDA.zeros(Float64, 4000), Jd, CUDA.CuArray(f[1:7]))) ≈ J * f[1:7] rtol = 1.0e-13
     end
 end
+
+# The per-backend choices of one kernel, each stated once: the host's and a GPU's float type, ForwardDiff chunk, CPU workgroup,
+# resident threads and device names, and a structure moved to a device (itself on the host at its own float).
+@testitem "kernel_float, dual_chunk, OnBackend's host_workgroupsize, device_resident_threads(backend), device_names(backend), on_device of a structure" begin
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: kernel_float, dual_chunk, OnBackend, device_resident_threads, device_names, on_device,
+        convert_eltype, LogicalIntrinsics, CameraCalibrationMat
+    using VisualGeometryToolkitCore.Synthetic: saddle_height
+    using StaticArrays: SVector
+    struct OtherGPU <: KA.GPU end
+    cpu, gpu = KA.CPU(), OtherGPU()
+    @test kernel_float(cpu) === Float64 && kernel_float(gpu) === Float32
+    @test dual_chunk(cpu, 11, 4) == 11 && dual_chunk(cpu, 0, 4) == 1 && dual_chunk(gpu, 11, 4) == 4
+    @test OnBackend(cpu; workgroupsize = 128, host_workgroupsize = 16).workgroupsize == 16
+    @test OnBackend(gpu; workgroupsize = 128, host_workgroupsize = 16).workgroupsize == 128
+    @test OnBackend(gpu; workgroupsize = nothing, host_workgroupsize = 16).workgroupsize === nothing
+    @test OnBackend(cpu; workgroupsize = 128).workgroupsize == 128           # the default: one size on every backend
+    @test device_resident_threads(cpu) == Threads.nthreads()
+    @test_throws ArgumentError device_resident_threads(gpu)
+    @test device_names(cpu) == ["CPU ($(Sys.CPU_NAME), $(Threads.nthreads()) threads)"]
+    @test device_names(gpu) == device_names()
+    intr = LogicalIntrinsics(CameraCalibrationMat(SVector(500.0, 0, 0, 0, 500.0, 0, 320.0, 240.0, 1)))
+    @test on_device(Float64, Float64, cpu, intr) === intr          # the host at its own float: itself, no copy
+    i32 = on_device(Float32, Float64, cpu, intr)
+    @test eltype(i32.K) === Float32 && i32.K == convert_eltype(Float32, intr).K
+    # the synthetic saddle: zero at the centre, its quadratic elsewhere
+    @test saddle_height(SVector(0.5, 0.5)) == 0
+    @test saddle_height(SVector(1.0, 0.0)) ≈ 0.08 * 0.25 + 0.04 * 0.25 + 0.06 * 0.25
+end

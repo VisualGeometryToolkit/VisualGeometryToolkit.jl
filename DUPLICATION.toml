@@ -26,8 +26,3 @@ reason = "fixed arity: the values are the fields of the struct type `C` read fro
 file = "VisualGeometryToolkitEstimation/src/config_toml.jl"
 function = "_tagged_from_toml"
 reason = "a tagged TOML table builds its type `T` from its fields' values in field order: the arity is `fieldcount(T)`, fixed by the type, so `T` is compiled once per tag type"
-
-[[pattern]]
-use = "sensor_component"
-file = "VisualGeometryToolkitIO/src/sensor_characterization_schema.jl"
-reason = "the vgio/sensor_characterization kind's codec is the ONE reader that turns a file into sensor-model components (ChannelBlack, Dark, Darks, ReadNoise, PoissonGaussian, RelativeNoise, DefectList) and a SensorCharacterization, through their public constructors"

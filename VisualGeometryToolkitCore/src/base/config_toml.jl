@@ -41,11 +41,11 @@
 
 using TOML: TOML
 
-# The Greek field names of the strategy structs and their ASCII TOML keys: ONE
+# The Greek field names of the strategy structs and the sensor components (`σ`, `σ_rel`) and their ASCII TOML keys: ONE
 # table, both directions, so the loader and the writer cannot disagree.
 const _KEY_ASCII = Dict{Symbol, String}(
     :μ => "mu", :η => "eta", :γ => "gamma", :ν => "nu", :α => "alpha",
-    :α_min => "alpha_min",
+    :α_min => "alpha_min", :σ => "sigma", :σ_rel => "sigma_rel",
 )
 const _KEY_FIELD = Dict{String, Symbol}(key => field for (field, key) in _KEY_ASCII)
 

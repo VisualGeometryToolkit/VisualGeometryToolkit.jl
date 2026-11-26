@@ -623,6 +623,43 @@ end
     @test content_digest(SensorModel()) == "cee5404683f31de68f9565c174a8ab04c111c0754c3a2f55f7a82000a3ca2fbb"
 end
 
+@testitem "sensor model: the keyword constructors — construct_from_table builds each component as the fixture does" begin
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: sensor_fixture, construct_from_table, parse_unit, SensorSource, Darks
+    s = parse_unit("s")
+    # a stored table's values already in their fields' forms (a reader's `from_toml` converts them), keyed by the
+    # fields' TOML spellings: `sigma` and `sigma_rel` read back as `σ` and `σ_rel`
+    as_is(T, f, v) = v
+    build(T, kv...; skip = ()) = construct_from_table(T, Dict{String, Any}(kv...); skip, from_toml = as_is)
+    m = SensorSource.measured
+    dark = (; offset = rand(Float32, 4, 6), variance = rand(Float32, 4, 6), exposure_band = (0.5s, 2s), frames = 8)
+    later = (; offset = rand(Float32, 4, 6), variance = rand(Float32, 4, 6), exposure_band = (3s, 4s), frames = 8)
+    defects = (; x = [1, 2], y = [3, 4], onset = [0.1s, 0.2s], size = (4, 6))
+    ref = sensor_fixture(; black = (1, 2, 3, 4), black_std_error = (0.1, 0.1, 0.2, 0.2), gain = 1.5, read_noise = (1, 1, 1, 1),
+                         gain_std_error = 0.01, read_noise_std_error = (0.1, 0.1, 0.1, 0.1), defects, source = m).characterization
+    e = only(values(ref.entries))
+    cb = build(ChannelBlack, "type" => "channel", "values" => (1, 2, 3, 4), "std_error" => (0.1, 0.1, 0.2, 0.2), "source" => m;
+               skip = ("type",))
+    @test cb == e.black
+    @test build(PoissonGaussian, "gain" => 1.5, "sigma" => (1, 1, 1, 1), "std_error" => (gain = 0.01, σ = (0.1, 0.1, 0.1, 0.1)),
+                "source" => m) == e.noise
+    @test build(DefectList, (String(k) => v for (k, v) in pairs(defects))..., "source" => m) == e.defects
+    @test build(ReadNoise, "sigma" => (1, 2, 3, 4), "source" => m) == sensor_fixture(; read_noise = (1, 2, 3, 4), source = m).model.noise
+    @test build(RelativeNoise, "sigma_rel" => 0.05, "source" => SensorSource.specified) ==
+          sensor_fixture(; relative_noise = 0.05).model.noise
+    # the nested ones: the children first (the caller's), a black omitted the RAW's own
+    dk(d; black...) = build(Dark, (String(k) => v for (k, v) in pairs(d))..., (String(k) => v for (k, v) in pairs(black))..., "source" => m)
+    @test dk(dark) == only(values(sensor_fixture(; dark, source = m).characterization.entries)).black
+    @test dk(dark; black = cb) == only(values(sensor_fixture(; dark, black = (1, 2, 3, 4), black_std_error = (0.1, 0.1, 0.2, 0.2),
+                                                             source = m).characterization.entries)).black
+    ds = build(Darks, "darks" => [dk(later; black = cb), dk(dark; black = cb)], "black" => cb, "source" => m)
+    @test ds == only(values(sensor_fixture(; darks = [dark, later], black = (1, 2, 3, 4), black_std_error = (0.1, 0.1, 0.2, 0.2),
+                                           source = m).characterization.entries)).black
+    @test build(SensorCharacterization, "body" => ref.body, "entries" => [100 => e]) == ref
+    # a missing required field names its key
+    @test_throws "needs `sigma_rel`" build(RelativeNoise, "source" => SensorSource.specified)
+end
+
 @testitem "sensor model: LinearRaw's one black subtraction — bit-identical with the absent model, the dark per photosite, defects masked" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: sensor_fixture, parse_unit, channelview, photosite_colors, bayer_channels

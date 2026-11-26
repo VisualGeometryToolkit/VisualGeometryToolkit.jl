@@ -100,6 +100,16 @@ end
                        try load(SensorCharacterization, p); false catch e; e isa ArgumentError end)
         e1(d) = d["entries"][1]
         @test !refused(identity)
+        # a newer minor's key, which the validator tolerates, is no keyword of a component (the reader builds by keyword
+        # through Core's construct_from_table): the record reads as before
+        let d = JSON.parse(good; dicttype = Dict{String, Any})
+            d["schema"] = replace(d["schema"], r"v3\.0$" => "v3.9")
+            for slot in ("black", "noise", "defects")
+                e1(d)[slot]["later_key"] = 1
+            end
+            write(p, JSON.json(d))
+            @test load(SensorCharacterization, p) == c
+        end
         @test refused(d -> (e1(d)["defects"]["sites"][1] = [4, 1, 0.01]))            # a defect outside the raw (x ≤ 3)
         @test refused(d -> (e1(d)["defects"]["sites"][1] = [1, 0, 0.01]))            # 1-based
         @test refused(d -> (e1(d)["defects"]["sites"][1] = [1.5, 1, 0.01]))          # a photosite, not a position

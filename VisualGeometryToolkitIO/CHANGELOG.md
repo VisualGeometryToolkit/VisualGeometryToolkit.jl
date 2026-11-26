@@ -35,6 +35,11 @@ reproduces byte for byte name their generator 0.12.0.
   too: `json_schema(kind)` is the schema of the one version written.
 
 ### Changed
+- The `vgio/sensor_characterization` reader builds each component, and the characterization, by keyword through
+  VisualGeometryToolkitCore's `construct_from_table` (the children first), never by a constructor call of its own: the
+  kind's `:sensor_component` exemption in `DUPLICATION.toml` is removed. A body keeps only the keys its spec declares,
+  so a newer minor's key the validator tolerates is still ignored. The files it reads and the values it returns are
+  unchanged.
 - Stack conformance (internal; no file, kind or public behavior changes): `write_staged` hands `f` its staged paths as
   a `Tuple`, one per output, and a rig's sensors are read into a `Tuple` (`Rig{F}(Tuple(sensors))`), so neither
   splats a collection of run-time length (their DUPLICATION.toml exemptions are deleted).

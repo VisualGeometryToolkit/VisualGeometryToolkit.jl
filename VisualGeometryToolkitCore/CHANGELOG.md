@@ -185,6 +185,14 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   the vector form's scale bit for bit.
 - The batched `project(camera, rays, seeds; device)` for any camera (one `pointwise!` kernel; a SplineLens camera's
   warm-started solve), with a `BoundedCamera` forward.
+- **The sensor components and `SensorCharacterization` take their fields as keywords**: `ChannelBlack(; values,
+  std_error = nothing, source)`, `Dark(; black = FileBlack(), offset, variance, exposure_band, frames, source)`,
+  `Darks(; black = FileBlack(), darks, source)`, `ReadNoise(; σ, std_error = nothing, source)`, `PoissonGaussian(; gain,
+  σ, std_error = nothing, source)`, `RelativeNoise(; σ_rel, source)`, `DefectList(; x, y, onset, size, source)` and
+  `SensorCharacterization(; body, entries)`, each the positional form's checks. A stored table builds each with
+  `construct_from_table` (its children first: a `Darks`' Darks, a dark's channel black, an entry's slots), as
+  VisualGeometryToolkitIO's reader now does, so IO's `:sensor_component` exemption in `DUPLICATION.toml` is gone. The
+  one Greek ⇄ ASCII key table (`toml_key` / `toml_field_name`) gains `σ` ⇄ `sigma` and `σ_rel` ⇄ `sigma_rel`.
 
 ### Changed
 - `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports

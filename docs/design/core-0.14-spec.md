@@ -875,3 +875,14 @@ These are done in Core 0.14, each with its own commit:
 - 2026-11-26 (1A): configuration version 2 (C16), `[levenberg_marquardt.stops]` and `[static_levenberg_marquardt.stops]`.
 - 2026-11-26 (1A): no reflection on a hot path. The transitional `block_refit` route is chosen by a dispatch sentinel
   (`block_variables`' default), not by `which`, which cost 28 allocations per solve.
+- 2026-11-26 (sensor-constructor agent): the sensor components and `SensorCharacterization` take their fields as
+  keywords (`ChannelBlack`, `Dark`, `Darks`, `ReadNoise`, `PoissonGaussian`, `RelativeNoise`, `DefectList`,
+  `SensorCharacterization`), each forwarding to its positional form's checks. IO's reader builds every one through
+  `construct_from_table`, so the `:sensor_component` exemption in `DUPLICATION.toml` is removed, with no new entry.
+  - Nested components: the caller builds the children first, in its `from_toml` hook (a dark's channel black, a
+    `Darks`' Darks, an entry's slots). There is no per-family builder in Core, so nothing is duplicated. An omitted
+    black is the keyword form's `FileBlack()` default, so IO never calls `FileBlack()`.
+  - The one Greek ⇄ ASCII key table gains `σ` ⇄ `sigma` and `σ_rel` ⇄ `sigma_rel`. No config struct has a field of
+    either name, so no stored config key moves.
+  - The IO reader keeps only the keys a body's spec declares (`_declares`). A newer minor's key, which the validator
+    tolerates, would otherwise reach the constructor as an unknown keyword. Tested.

@@ -213,34 +213,61 @@ end
 
 # ----------------------------------------------------------------------------- reading
 
+# Every component and the characterization are built by keyword through Core's one table builder,
+# `construct_from_table`, never by a constructor call here (check_duplication's `:sensor_component`): a body's keys are
+# its fields' TOML spellings (`sigma` the field `σ`), the children built first (a dark's or a darks' channel black, a
+# darks' Darks, an entry's slots), an absent black omitted (the keyword form's default is the RAW's own). A body keeps
+# only the keys its spec declares: a newer minor's key, which the validator tolerates, is not a keyword.
+
 _four_from(x) = ntuple(i -> Float64(x[i]::Real), 4)
 _source_from(x) = only(s for s in instances(VgtkCore.SensorSource.T) if string(s) == x::String)
-_std_error_from(b, f) = haskey(b, :std_error) ? f(b.std_error) : nothing
-_channel_black_from(b) = VgtkCore.ChannelBlack(_four_from(b.values), _std_error_from(b, _four_from); source = _source_from(b.source))
-_optional_black_from(b) = haskey(b, :black) ? _channel_black_from(b.black) : VgtkCore.FileBlack()
+_declared(spec, b) = Dict{String, Any}(String(k) => v for (k, v) in b if _declares(spec, Symbol(k)))
+_alt(s::_ByType, type) = last(only(a for a in s.alts if first(a) == type))
+
+# One value of a body in its field's form (`construct_from_table`'s `from_toml`); `path` locates a dark's rasters, `b`
+# is the body (a dark's `size`).
+_sensor_value(path, b, ::Type, ::Val{:source}, v) = _source_from(v)
+_sensor_value(path, b, ::Type, ::Union{Val{:values}, Val{:σ}, Val{:std_error}}, v) = _four_from(v)
+_sensor_value(path, b, ::Type{<:VgtkCore.PoissonGaussian}, ::Val{:std_error}, v) = (gain = Float64(v.gain::Real), σ = _four_from(v.sigma))
+_sensor_value(path, b, ::Type, ::Union{Val{:gain}, Val{:σ_rel}}, v) = Float64(v::Real)
+_sensor_value(path, b, ::Type, ::Val{:frames}, v) = Int(v::Integer)
+_sensor_value(path, b, ::Type, ::Val{:exposure_band}, v) = (sec = parse_unit(_TIME_UNIT); (Float64(v[1]::Real) * sec, Float64(v[2]::Real) * sec))
+_sensor_value(path, b, ::Type, ::Union{Val{:offset}, Val{:variance}}, v) =
+    _raster_payload_from_json(path, v, Float32, Int(b.size.width::Integer), Int(b.size.height::Integer))
+_sensor_value(path, b, ::Type, ::Val{:black}, v) = _black_from(path, v)
+_sensor_value(path, b, ::Type, ::Val{:darks}, v) = [_black_from(path, x) for x in v]
+_sensor_value(path, b, ::Type, ::Union{Val{:x}, Val{:y}}, v) = Int[Int(s::Real) for s in v]
+_sensor_value(path, b, ::Type, ::Val{:onset}, v) = (sec = parse_unit(_TIME_UNIT); [Float64(s::Real) * sec for s in v])
+_sensor_value(path, b, ::Type, ::Val{:size}, v) = (Int(v.height::Integer), Int(v.width::Integer))
+_sensor_value(path, b, ::Type, ::Val{:body}, v) = _identity_from_json(v)
+_sensor_value(path, b, ::Type, ::Val{:entries}, v) = [_entry_from(path, e) for e in v::Vector{Any}]
+
+# A component of type `T` from its body `b` (its spec `spec`), the keys in `skip` the reader's alone.
+_component_from(T, path, spec, b; skip = ("type",)) =
+    VgtkCore.construct_from_table(T, _declared(spec, b); skip, section = "$(path): $(nameof(T))",
+                                  from_toml = (T, f, v) -> _sensor_value(path, b, T, f, v))
 function _black_from(path, b)
-    b.type == "channel" && return _channel_black_from(b)
-    b.type == "darks" && return VgtkCore.Darks(_optional_black_from(b), [_black_from(path, x) for x in b.darks]; source = _source_from(b.source))
-    sec = parse_unit(_TIME_UNIT)
-    W, H = Int(b.size.width::Integer), Int(b.size.height::Integer)
-    return VgtkCore.Dark(_optional_black_from(b),
-                         _raster_payload_from_json(path, b.offset, Float32, W, H), _raster_payload_from_json(path, b.variance, Float32, W, H),
-                         (Float64(b.exposure_band[1]::Real) * sec, Float64(b.exposure_band[2]::Real) * sec), Int(b.frames::Integer);
-                         source = _source_from(b.source))
+    b.type == "channel" && return _component_from(VgtkCore.ChannelBlack, path, _CHANNEL_BLACK, b)
+    b.type == "darks" && return _component_from(VgtkCore.Darks, path, _alt(_BLACK_COMPONENT, "darks"), b)
+    return _component_from(VgtkCore.Dark, path, _DARK_BODY, b; skip = ("type", "size"))   # `size`: the rasters' (`b`'s)
 end
-function _noise_from(n)
-    s = _source_from(n.source)
-    n.type == "read_noise" && return VgtkCore.ReadNoise(_four_from(n.sigma), _std_error_from(n, _four_from); source = s)
-    n.type == "relative" && return VgtkCore.RelativeNoise(Float64(n.sigma_rel::Real); source = s)
-    se = _std_error_from(n, e -> (gain = Float64(e.gain::Real), σ = _four_from(e.sigma)))
-    return VgtkCore.PoissonGaussian(Float64(n.gain::Real), _four_from(n.sigma), se; source = s)
-end
-function _defects_from(d)
-    sec = parse_unit(_TIME_UNIT)
+const _NOISE_TYPES = Dict("read_noise" => VgtkCore.ReadNoise, "poisson_gaussian" => VgtkCore.PoissonGaussian,
+                          "relative" => VgtkCore.RelativeNoise)
+_noise_from(path, n) = _component_from(_NOISE_TYPES[n.type], path, _alt(_NOISE_COMPONENT, n.type), n)
+# A defect body's sites `[x, y, onset]` are the list's three fields, column by column.
+function _defects_from(path, d)
     sites = d.sites::Vector{Any}
-    return VgtkCore.DefectList(Int[Int(s[1]::Real) for s in sites], Int[Int(s[2]::Real) for s in sites],
-                               [Float64(s[3]::Real) * sec for s in sites];
-                               size = (Int(d.size.height::Integer), Int(d.size.width::Integer)), source = _source_from(d.source))
+    t = Dict{String, Any}("x" => Any[s[1] for s in sites], "y" => Any[s[2] for s in sites], "onset" => Any[s[3] for s in sites],
+                          "size" => d.size, "source" => d.source)
+    return VgtkCore.construct_from_table(VgtkCore.DefectList, t; section = "$(path): DefectList",
+                                         from_toml = (T, f, v) -> _sensor_value(path, d, T, f, v))
+end
+# An entry: its ISO and its present slots (an absent slot is the characterization's absent type).
+function _entry_from(path, e)
+    slots = (haskey(e, :black) ? (black = _black_from(path, e.black),) : (;),
+             haskey(e, :noise) ? (noise = _noise_from(path, e.noise),) : (;),
+             haskey(e, :defects) ? (defects = _defects_from(path, e.defects),) : (;))
+    return Float64(e.iso::Real) => merge(slots[1], slots[2], slots[3])
 end
 
 """
@@ -252,17 +279,14 @@ the kind's British name, v1.0 or v2.0, through its steps): the
 component with its source and standard error, an absent slot its absent type
 (`FileBlack`, `NoNoise`, `NoDefects`); a `Dark`'s maps (`Matrix{Float32}`, each of a `Darks`' too) read
 from the rasters beside it, each checked against its SHA-256, the raster profile
-and its size.
+and its size. Each component, and the characterization, is built by keyword with
+VisualGeometryToolkitCore's `construct_from_table` (the children first).
 """
 function load(::Type{SensorCharacterization}, path::AbstractString)
     d = _read_store(path, "sensor_characterization", _SENSOR_CHARACTERIZATION_SPEC)
-    entries = map(d.entries::Vector{Any}) do e
-        slots = (haskey(e, :black) ? (black = _black_from(path, e.black),) : (;),
-                 haskey(e, :noise) ? (noise = _noise_from(e.noise),) : (;),
-                 haskey(e, :defects) ? (defects = _defects_from(e.defects),) : (;))
-        Float64(e.iso::Real) => merge(slots[1], slots[2], slots[3])
-    end
-    return SensorCharacterization(_identity_from_json(d.device.body); entries)
+    t = Dict{String, Any}("body" => d.device.body, "entries" => d.entries)
+    return VgtkCore.construct_from_table(SensorCharacterization, t; section = path,
+                                         from_toml = (T, f, v) -> _sensor_value(path, d, T, f, v))
 end
 
 # ----------------------------------------------------------------------------- the steps of the former kind

@@ -102,7 +102,8 @@
             @test toml_field_name("mu") === :μ
             @test toml_field_name("alpha_min") === :α_min
             @test toml_field_name("scale") === :scale
-            for f in (:μ, :η, :γ, :ν, :α, :α_min)
+            @test toml_field_name("sigma_rel") === :σ_rel && toml_key(Any, :σ) == "sigma"   # the sensor components' Greek fields
+            for f in (:μ, :η, :γ, :ν, :α, :α_min, :σ, :σ_rel)
                 @test toml_field_name(toml_key(Any, f)) === f
             end
             @test present_kwargs(Dict("mu" => 2), "mu" => Float64; field_of = toml_field_name) == [:μ => 2.0]

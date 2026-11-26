@@ -130,13 +130,15 @@ end
 
 """
     ChannelBlack(values, std_error = nothing; source::SensorSource.T)
+    ChannelBlack(; values, std_error = nothing, source::SensorSource.T)
 
 A per-channel black level: `values` per CFA colour index (LibRaw's `0` R, `1` G,
 `2` B, `3` the second G: `values[c + 1]`, `RawMosaic.black`'s layout), in codes,
 finite; `std_error` its standard error per channel (nonnegative), or `nothing`
 where none is stated (a specified value). `source` is measured, estimated or
 specified (the RAW's own is [`FileBlack`](@ref)). Every value is below the white
-level where it is used (`ArgumentError` there).
+level where it is used (`ArgumentError` there). The keyword form takes each field
+by its name, as [`construct_from_table`](@ref) builds one from a stored table.
 """
 struct ChannelBlack{E <: Union{Nothing, NTuple{4, Float64}}} <: BlackComponent
     values::NTuple{4, Float64}
@@ -147,9 +149,11 @@ ChannelBlack(values, std_error = nothing; source::SensorSource.T) =
     ChannelBlack(_finite_tuple(values, "ChannelBlack: the black level"),
                  std_error === nothing ? nothing : _nonnegative_tuple(std_error, "ChannelBlack: the standard error"),
                  _component_source(source, "ChannelBlack"))
+ChannelBlack(; values, std_error = nothing, source::SensorSource.T) = ChannelBlack(values, std_error; source)
 
 """
     Dark(black, offset, variance, exposure_band, frames; source::SensorSource.T)
+    Dark(; black = FileBlack(), offset, variance, exposure_band, frames, source::SensorSource.T)
 
 A master dark of one body at one ISO, for one exposure-time band — the black
 slot's per-photosite form (D2: all dark information in ONE component):
@@ -169,7 +173,9 @@ slot's per-photosite form (D2: all dark information in ONE component):
 - `frames`, the number of frames averaged (at least 2).
 
 Made by [`MasterDark`](@ref) (`SensorSource.measured`). Moved to a device by
-`Adapt.adapt`, as [`LinearRawView`](@ref) is.
+`Adapt.adapt`, as [`LinearRawView`](@ref) is. The keyword form takes each field by
+its name, its `black` the RAW's own when omitted (as [`construct_from_table`](@ref)
+builds one from a stored table).
 """
 struct Dark{B <: Union{FileBlack, ChannelBlack}, M <: AbstractMatrix{Float32}} <: BlackComponent
     black::B
@@ -187,6 +193,8 @@ struct Dark{B <: Union{FileBlack, ChannelBlack}, M <: AbstractMatrix{Float32}} <
         return new{B, M}(black, offset, variance, (lo, hi), Int(frames), _component_source(source, "Dark"))
     end
 end
+Dark(; black = FileBlack(), offset, variance, exposure_band, frames::Integer, source::SensorSource.T) =
+    Dark(black, offset, variance, exposure_band, frames; source)
 Adapt.adapt_structure(to, d::Dark) =
     Dark(d.black, Adapt.adapt(to, d.offset), Adapt.adapt(to, d.variance), d.exposure_band, d.frames; source = d.source)
 
@@ -195,6 +203,7 @@ _serves(d::Dark, t) = d.exposure_band[1] <= t <= d.exposure_band[2]
 
 """
     Darks(black, darks; source::SensorSource.T)
+    Darks(; black = FileBlack(), darks, source::SensorSource.T)
 
 The master darks of one body at one ISO, one [`Dark`](@ref) per exposure band —
 the black slot's form for darks taken at several exposures (Core 0.10.3):
@@ -216,7 +225,9 @@ it serves a frame: the black measured at its exposure); `black` is the fallback
 alone. A `Darks` is a characterisation's, never a frame's: a
 [`SensorModel`](@ref) refuses one (resolve it with `sensor_model`), and the model
 `sensor_model` returns, holding one Dark, is what moves to a device
-(`Adapt.adapt` of a `Darks` moves every band's maps).
+(`Adapt.adapt` of a `Darks` moves every band's maps). The keyword form takes each
+field by its name, its `black` the RAW's own when omitted; its `darks` are built
+first (a stored table's reader builds each with [`construct_from_table`](@ref)).
 """
 struct Darks{B <: Union{FileBlack, ChannelBlack}, D <: Dark} <: BlackComponent
     black::B
@@ -236,6 +247,7 @@ struct Darks{B <: Union{FileBlack, ChannelBlack}, D <: Dark} <: BlackComponent
         return new{B, eltype(ds)}(black, ds, src)
     end
 end
+Darks(; black = FileBlack(), darks, source::SensorSource.T) = Darks(black, darks; source)
 Adapt.adapt_structure(to, d::Darks) = Darks(d.black, [Adapt.adapt(to, x) for x in d.darks]; source = d.source)
 
 # ------------------------------------------------------------------------------
@@ -252,13 +264,15 @@ struct NoNoise <: NoiseComponent end
 
 """
     ReadNoise(σ, std_error = nothing; source::SensorSource.T)
+    ReadNoise(; σ, std_error = nothing, source::SensorSource.T)
 
 The read noise alone: `σ` per CFA colour index (`σ[c + 1]`), in codes, the
 rounding included (nonnegative, finite), and its standard error per channel or
 `nothing`. Stored and recorded, but it defines no pixel variance: a read-noise
 variance alone badly underestimates the noise of a well-exposed pixel, so a
 [`LinearRaw`](@ref) image under it is plain, as under [`NoNoise`](@ref)
-(ruling A).
+(ruling A). The keyword form takes each field by its name (`σ`, read from a
+table's `sigma` by [`construct_from_table`](@ref)).
 """
 struct ReadNoise{E <: Union{Nothing, NTuple{4, Float64}}} <: NoiseComponent
     σ::NTuple{4, Float64}
@@ -269,9 +283,11 @@ ReadNoise(σ, std_error = nothing; source::SensorSource.T) =
     ReadNoise(_nonnegative_tuple(σ, "ReadNoise: the read noise"),
               std_error === nothing ? nothing : _nonnegative_tuple(std_error, "ReadNoise: the standard error"),
               _component_source(source, "ReadNoise"))
+ReadNoise(; σ, std_error = nothing, source::SensorSource.T) = ReadNoise(σ, std_error; source)
 
 """
     PoissonGaussian(gain, σ, std_error = nothing; source::SensorSource.T)
+    PoissonGaussian(; gain, σ, std_error = nothing, source::SensorSource.T)
 
 The Poisson–Gaussian noise: `gain` K, electrons per code (positive, finite), and
 the read noise `σ` per CFA colour index, in codes, the rounding included; a
@@ -279,6 +295,8 @@ photosite's variance about its black-subtracted mean μ (codes) is `μ/K + σ[c+
 `std_error` is `(; gain, σ)` (a number and a 4-tuple) or `nothing`. `source` is
 measured, estimated ([`PhotonTransfer`](@ref)) or specified. Under it a
 [`LinearRaw`](@ref) image carries each value's variance (an `Uncertain` image).
+The keyword form takes each field by its name (`σ`, read from a table's `sigma`
+by [`construct_from_table`](@ref)).
 """
 struct PoissonGaussian{E <: Union{Nothing, @NamedTuple{gain::Float64, σ::NTuple{4, Float64}}}} <: NoiseComponent
     gain::Float64
@@ -295,9 +313,11 @@ function PoissonGaussian(gain::Real, σ, std_error = nothing; source::SensorSour
     return PoissonGaussian(Float64(gain), _nonnegative_tuple(σ, "PoissonGaussian: the read noise"), se,
                            _component_source(source, "PoissonGaussian"))
 end
+PoissonGaussian(; gain::Real, σ, std_error = nothing, source::SensorSource.T) = PoissonGaussian(gain, σ, std_error; source)
 
 """
     RelativeNoise(σ_rel; source::SensorSource.T)
+    RelativeNoise(; σ_rel, source::SensorSource.T)
 
 A noise proportional to the value: a value `x` has variance `(σ_rel·x)²`
 (`σ_rel` positive, finite). Its source is `SensorSource.specified` only, stated
@@ -306,7 +326,9 @@ other source is an `ArgumentError` naming it — the one rule, at the source (an
 IO reader of a stored one meets it here too). The model of a processed
 (tone-mapped) intensity, not of the photosites' physics; a
 [`LinearRaw`](@ref) image under it carries each value's variance (an
-`Uncertain` image), with no read-noise or dark term.
+`Uncertain` image), with no read-noise or dark term. The keyword form takes
+each field by its name (`σ_rel`, read from a table's `sigma_rel` by
+[`construct_from_table`](@ref)).
 """
 struct RelativeNoise <: NoiseComponent
     σ_rel::Float64
@@ -318,6 +340,7 @@ struct RelativeNoise <: NoiseComponent
         return new(Float64(σ_rel), _component_source(source, "RelativeNoise"))
     end
 end
+RelativeNoise(; σ_rel::Real, source::SensorSource.T) = RelativeNoise(σ_rel; source)
 
 # ------------------------------------------------------------------------------
 # The defect slot
@@ -332,6 +355,7 @@ struct NoDefects <: DefectComponent end
 
 """
     DefectList(x, y, onset; size, source::SensorSource.T)
+    DefectList(; x, y, onset, size, source::SensorSource.T)
 
 The defective photosites of a sensor: photosite `(x[i], y[i])` — `x` the column
 and `y` the row of the visible raw, 1-based (`raw[y, x]`) — is a defect at every
@@ -340,7 +364,8 @@ shortest exposure at which it is hot). `size = (rows, columns)` is the visible
 raw's (every site inside it, each listed once). Made from per-exposure masks by
 [`defect_onsets`](@ref). [`sensor_model`](@ref) keeps the sites whose onset is
 at most the frame's exposure, and [`LinearRaw`](@ref) masks them (masked, never
-interpolated). Moved to a device by `Adapt.adapt`.
+interpolated). Moved to a device by `Adapt.adapt`. The keyword form takes each
+field by its name, as [`construct_from_table`](@ref) builds one from a table.
 """
 struct DefectList{I <: AbstractVector{Int}, O <: AbstractVector{BaseQuantity}} <: DefectComponent
     x::I
@@ -364,6 +389,8 @@ function DefectList(x::AbstractVector{<:Integer}, y::AbstractVector{<:Integer}, 
     ts = BaseQuantity[Cameras._positive_quantity(t, _SECOND, :onset) for t in onset]
     return DefectList{Vector{Int}, Vector{BaseQuantity}}(xs, ys, ts, (H, W), _component_source(source, "DefectList"))
 end
+DefectList(; x::AbstractVector{<:Integer}, y::AbstractVector{<:Integer}, onset::AbstractVector, size::NTuple{2, Integer},
+           source::SensorSource.T) = DefectList(x, y, onset; size, source)
 Adapt.adapt_structure(to, d::DefectList) =
     (x = Adapt.adapt(to, d.x); y = Adapt.adapt(to, d.y); o = Adapt.adapt(to, d.onset);
      DefectList{typeof(x), typeof(o)}(x, y, o, d.size, d.source))
@@ -392,6 +419,7 @@ const SensorEntry = @NamedTuple{black::BlackComponent, noise::NoiseComponent, de
 
 """
     SensorCharacterization(body::DeviceIdentity; entries)
+    SensorCharacterization(; body::DeviceIdentity, entries)
 
 The description of ONE physical sensor, host-side: `body`, the key (serial if
 known, else make and model), held beside the camera like
@@ -405,7 +433,9 @@ slots). An ISO listed twice, a slot not among `black`, `noise` and `defects`
 `ArgumentError`.
 
 [`sensor_model`](@ref) resolves a frame's model from it. Written and read by
-VisualGeometryToolkitIO's `vgio/sensor_characterization` kind.
+VisualGeometryToolkitIO's `vgio/sensor_characterization` kind, whose reader builds
+it, and each component, by keyword with [`construct_from_table`](@ref) (the
+components first, the caller's: a `Darks`' Darks, an entry's slots).
 """
 struct SensorCharacterization
     body::DeviceIdentity
@@ -423,6 +453,7 @@ function SensorCharacterization(body::DeviceIdentity; entries)
     end
     return SensorCharacterization(body, d)
 end
+SensorCharacterization(; body::DeviceIdentity, entries) = SensorCharacterization(body; entries)
 @fieldwise SensorCharacterization
 
 """

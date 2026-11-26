@@ -76,6 +76,16 @@ prior fit) are outside this rule.
   `inlier_mask(r)`); no retired accessor and no `r.metadata.<contract field>`
   outside the contract method.
 
+**Configuration tables are named by one rule (decision 11).** A table is named after what it configures. Each name is the `snake_case` tag of a type, following the tag rule in stack-contracts.md:
+
+- `[<algorithm>]` holds an algorithm's field defaults (`[ransac]`, `[rotation_averaging]`).
+- `[<algorithm>.stops]` holds its stop settings.
+- `[<problem>.<algorithm>]` holds the default of an algorithm field that depends on the family problem (`[homography_problem.ransac] scoring`, `[homography_problem.levenberg_marquardt] optimization_strategy`). `[<problem>.<algorithm>.stops]` holds its stops.
+- `[<algorithm>.<model>]` holds a fit's default that depends on the model type of a raw-data problem (`[reweighted_least_squares.rotation]`).
+- `[<problem>]` holds a problem constructor's own defaults (`[hand_eye_problem] min_rel_angle_deg`).
+
+Renaming a table is a step of the package's versioned converter (`ConfigVersions`), never a refusal. The old table names become stored-format tokens.
+
 **Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `lmsolve_chart!`, `block_coordinate_descent!`.
 
 **Detection, correspondence, observation — the terminology taxonomy (owner, 2026-11-13), enforced by `check_naming` (R14).**

@@ -17,7 +17,7 @@ using TOML: TOML
 using ForwardDiff: ForwardDiff
 using StaticArrays: StaticArray
 using VisualGeometryToolkitCore: VisualGeometryToolkitCore, NamingViolation, RawDecodingViolation, DuplicationViolation, SplatViolation, residual_rows!, residual_jacobian_rows!,
-    Attributed, Recorded, block_coordinate_descent!, current_cost, RECORDED_NESTED_STATES, snake_case
+    Attributed, Recorded, _block_coordinate_descent!, StopAfterIteration, current_cost, RECORDED_NESTED_STATES, snake_case
 import VisualGeometryToolkitCore: check_naming, naming_scope, check_raw_decoding, check_duplication, check_splat, test_splat, _test_gate, rows_cost, check_rows_jacobian, test_naming, test_docs, thrown_message, warm_allocated, sum_first_components, test_duplication,
     test_recorded, readme_examples, page_examples, install_lines, install_table, install_packages, loaded_packages, readme_environment, run_readme_child,
     test_readme_row, test_readme_example, julia_blocks, sensor_fixture

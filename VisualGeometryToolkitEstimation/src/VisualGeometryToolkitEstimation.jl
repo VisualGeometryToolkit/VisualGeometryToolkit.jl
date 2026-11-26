@@ -39,13 +39,13 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
     is_orientation_preserving, rect_corners, is_convex_quad,   # the extent gates (extent_traits.jl, radial_homography.jl)
     # Geometric degeneracy helpers relocated from RVG into VGC's model_validity.jl;
     # imported back for the P3P degeneracy check.
-    thin_ratio, _are_points_distinct,
+    thin_ratio, are_points_distinct,
     normal, skew, whitening_factor,   # the frozen whitening of the reweighted fits (radial camera, division lift)
     weighted_whitened_residuals!, weighted_whitened_jacobian_rows!,   # the chart LM rows of every Sampson-constraint problem (one KA kernel each)
     log_so3,   # SO(3) log (hand-eye, robot-world)
     Kabsch, ChordalMean, TotalLeastSquares, NearestPoint,   # Core's closed forms, solved by their algorithms in the inner loops
     EstimationProblem, RefineProblem, MinimalProblem, NullParameters, ClassDefault, SolveStats,
-    AbstractEstimationAlgorithm, AbstractEstimationProblem, FitKind, FindKind, RefineKind, ClosedFormKind, LmDamping, MarquardtDamping,
+    AbstractEstimationAlgorithm, AbstractEstimationProblem, FitKind, FindKind, RefineKind, ClosedFormKind, LmDamping, MarquardtDamping, LevenbergMarquardt,
     s2_tangent_basis,                        # the tangent chart of the P3P ray-coplanarity gate
     tls_line_statistics,                     # the fixed-weight TLS step of the covariance line fit / the line LO reweight
     ellipse_log_shape   # the ellipse refit rows' chart (problems/ellipse.jl)
@@ -61,7 +61,7 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 using VisualGeometryToolkitCore: FitResult, weights, successful_retcode, noise_scale, scale_source, dof
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
-using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model, retcode_symbol,
+using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model,
     worst_retcode, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
@@ -143,17 +143,17 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
     StudentTUniformScoring, FixedHalfwidth, IGPrior, JeffreysPrior, BetaLabelPrior,
     LABEL_PRIOR_TAGS,   # the Student-t scorer's table (config_toml.jl scoring_from_toml)
     PosteriorWeightState, JeffreysPrior, seed_posterior!, partition_rss, weighted_rss,
-    median_seeded_posterior, Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, inlier_prior,
+    MedianNormScale, Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, inlier_prior,
     square_distances!, sq_distances, s_hat_sq, student_t_dof,
     update_scale!, update_nu!, update_inlier_prior!,
     mixture_nll
 # Generic block-coordinate-descent loop (hoisted to VGC
 # robust/block_coordinate_descent.jl): the loop + its extension verbs are VGC generics now — `import`
 # so the RVG problem files' method definitions extend the VGC functions.
-import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, block_coordinate_descent!, update_model!,
+import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, update_model!,
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
-    block_coordinate_result, current_cost, current_s2, stop_rule   # stop_rule: the criteria's rules (local_optimization.jl)
-using VisualGeometryToolkitCore: StoppingCriterion
+    block_coordinate_result, current_cost, current_s2
+using VisualGeometryToolkitCore: StoppingCriterion, CONTINUE, BlockCoordinateDescent, StopAfterIteration   # the loop's front end, its budget
 # The EM fits' (DivisionCameraFit, ResidualMixture) scale source and weight kind: imported above.
 # The chart-rows contract (VGC robust/rows.jl: the rows a lifted local
 # optimizer reads, and the one task-local reuse policy) — RVG's chart problems
@@ -162,8 +162,7 @@ using VisualGeometryToolkitCore: StoppingCriterion
 # (VGC robust/block_coordinate_descent.jl). Internal helpers imported by name; the
 # chart-LM protocol is `import`ed so every problem's linearization state adds
 # its methods to VGC's functions.
-using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!,
-    ManifoldLmWorkspace, lmsolve_chart!, fill_sqrt_weights!, keep_best, Attributed
+using VisualGeometryToolkitCore: RowsWorkspace, rows_workspace, task_buffers, point_norms!, keep_best, Attributed
 import VisualGeometryToolkitCore: residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!
 import VisualGeometryToolkitCore: division_coeffs   # RadialHomography's coefficients; DivisionCameraState's method is ours
 import VisualGeometryToolkitCore: rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract,
@@ -221,13 +220,13 @@ import VisualGeometryToolkitCore:
 # its caches) for its OWN algorithm types, declares their `estimator_kind`/`supports_solve_rng`, and the defaults of
 # its own problem types; the chart contract of the LevenbergMarquardt refine is implemented on its family problems.
 import VisualGeometryToolkitCore: __solve, __init, estimator_kind, supports_solve_rng,
-    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
-    block_refit, with_robustifier, default_stops, reinit!
+    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, chart_result, default_optimization_strategy,
+    block_structure, block_variables, residual_blocks, residual_summary, block_result, with_robustifier, default_stops,
+    reinit!
 import CommonSolve: solve!
 using VisualGeometryToolkitCore: SquaredScale   # ConsensusScale's problem tag (the squared scale)
-using VisualGeometryToolkitCore: solve, AbstractBlockProblem, AbstractFitMetadata,
-    chart_refit, triggs_refit, lm_workspace, normalized_loss_weight,
-    weighted_support_rms, block_lm, NoiseScale
+using VisualGeometryToolkitCore: solve, init, AbstractBlockProblem, AbstractFitMetadata,
+    normalized_loss_weight, weighted_support_rms, NoiseScale, RowsWithJacobian
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
 # built on VGC's correspondence protocol (solver instances carry the
 # NativeSolver/PoseLibSolver backend). The `CorrespondenceNormalization`/`MinimalSolver`
@@ -249,9 +248,8 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 # PoseLibSolver paths are exercised by PoseLib's and VGC's suites, not this one.
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs' residual protocol (the relpose bundle, the camera-and-poses bundles)
-using VisualGeometryToolkitCore: nlls_rows_and_jacobian   # NLLSsolver's rows and their Jacobian (a bundle's residual statistics)
-using VisualGeometryToolkitCore: LmStops, LmProblem   # Core's one LM: its stop settings and its multi-block problem
-using VisualGeometryToolkitCore: nlls_features, finite_cost, Eliminable   # the Schur system (upstream #60), detected
+using VisualGeometryToolkitCore: LmStops   # Core's one LM: its stop settings
+using VisualGeometryToolkitCore: finite_cost, Eliminable   # a finite cost; a variable the Schur system eliminates
 using SparseArrays: sparse   # the rotation averaging's update
 # CameraRegression's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.
@@ -399,7 +397,7 @@ include("interface.jl")
 include("config_defaults.jl")
 include("units.jl")              # the estimators' one strip at entry and one reattachment at exit
 
-# The generic loop (block_coordinate_descent!) is hoisted to VGC
+# The generic loop (BlockCoordinateDescent) is hoisted to VGC
 # robust/block_coordinate_descent.jl (imported above). The scale, mixture and
 # posterior-weighting toolkit is VisualGeometryToolkitCore's; the PosteriorLikelihood weight-policy adapter
 # is in scoring_glue.jl below.
@@ -453,7 +451,7 @@ include("fitting/pose.jl")
 include("fitting/irls_weights.jl")           # ReweightedLeastSquares and the fixed-scale IRLS of the reweighted fits: scale input, loss width, weights (before the robot-world fit, one of its problems)
 include("fitting/robot_world_hand_eye.jl")
 include("fitting/robot_world_hand_eye_refine.jl")   # RobotWorldHandEyeProblem: the reprojection refine of a RobotWorldHandEyeCalibration (a block problem; uses robot_world_hand_eye.jl's type)
-include("fitting/camera_poses.jl")              # CameraPosesProblem: a camera and one pose per view from 3D → 2D correspondences (Core's block_lm on VGC's parameter and pose charts)
+include("fitting/camera_poses.jl")              # CameraPosesProblem: a camera and one pose per view from 3D → 2D correspondences (Core's LevenbergMarquardt on its block contract, over VGC's parameter and pose charts)
 include("fitting/rotation_center_views.jl")      # CameraPosesProblem's rotation-centre views: one rotation per view, a shared centre and offset
 include("fitting/camera_poses_spline.jl")   # its SplineLens route: 2 × 2 patches of sphere-charted controls, implicit-differentiation blocks, the Δ³ penalty, the rotation gauge
 include("synthetic_scenes.jl")                    # synthetic_scenes: entry point (the scenes are the Test extension)

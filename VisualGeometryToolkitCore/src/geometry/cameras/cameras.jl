@@ -81,7 +81,7 @@ using ..VisualGeometryToolkitCore: natural_extrapolation   # the natural boundar
 using ..VisualGeometryToolkitCore: difference_stencil      # the forward-difference coefficients (numerics/bspline_energy.jl): Δ³c = 0's extrapolation
 using ..VisualGeometryToolkitCore: difference_rows         # the sparse difference rows (numerics/bspline_energy.jl): extend_lattice's bending energy
 using SparseArrays: sparse                              # the lattice operations' refinement matrices
-using ..VisualGeometryToolkitCore: grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
+using ..VisualGeometryToolkitCore: _grid_brent_minimum   # the one grid-and-Brent minimizer (numerics/minimize.jl): the azimuthal minimum
 using ..VisualGeometryToolkitCore: shape_matrix, boundary_point   # an ellipse's quadratic form and boundary: region containment (image_circle.jl)
 using ..VisualGeometryToolkitCore: rect_corners   # the one corner order of a rect (primitives/rectangles.jl): farthest_radius's corners
 using ..VisualGeometryToolkitCore: TagRegistry, tag_of   # the target calibration kinds' tags (quality/tag_registry.jl)

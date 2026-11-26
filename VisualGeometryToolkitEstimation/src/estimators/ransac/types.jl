@@ -145,14 +145,14 @@ scorer's type. Read by field — `r.u` (the model, `nothing` for a search that f
 
 The termination record of the search:
 
-| stop | `retcode` | `stop_rule` | `retcode_symbol` |
-|:--|:--|:--|:--|
-| no hypothesis held a consensus (no estimate) | `Failure` | `TrialBudget` | `:no_model` |
-| the adaptive trial count drawn (the confidence `success_prob` reached) | `Success` | `AdaptiveCount` | `:converged` |
-| an exhaustive sampler drew every sample | `Success` | `TrialBudget` | `:converged` |
-| `max_trials` drawn without reaching the confidence | `MaxIters` | `TrialBudget` | `:max_iterations` |
-| a selection among fixed candidates, or a seed kept unrefined | `Success` | `ClosedForm` | `:solved` |
-| a seed refined by a local optimization | that refit's record | | |
+| stop | `retcode` | `stop_rule` |
+|:--|:--|:--|
+| no hypothesis held a consensus (no estimate) | `Failure` | `TrialBudget` |
+| the adaptive trial count drawn (the confidence `success_prob` reached) | `Success` | `AdaptiveCount` |
+| an exhaustive sampler drew every sample | `Success` | `TrialBudget` |
+| `max_trials` drawn without reaching the confidence | `MaxIters` | `TrialBudget` |
+| a selection among fixed candidates, or a seed kept unrefined | `Success` | `ClosedForm` |
+| a seed refined by a local optimization | that refit's record | |
 
 `found_model(r)` is THE "a model was found" predicate; `successful_retcode(r)` is strict (false for a search that drew
 `max_trials` without reaching its confidence, which still found a model). A failed search — `found_model(r) == false`,
@@ -240,7 +240,7 @@ end
 
 Pre-allocated workspace for SVD-based DLT solvers (the no-θ algebraic
 `refine!(ws::DltWorkspace, p, weights)` form — the LO refits are NonlinLsq
-manifold LM on a `ManifoldLmWorkspace` since the AlgebraicLsq excision).
+manifold LM on a `RefitSlot` since the AlgebraicLsq excision).
 
 Holds the design matrix buffer (`buf`) and the LAPACK SVD workspace (`svd`).
 Sized at construction by the column count `C` (= 9 for 3×3 homogeneous models
@@ -278,7 +278,7 @@ _set_n!(::Nothing, ::Int) = nothing
 The local-optimization workspace of every strategy this package hosts
 (VisualGeometryToolkitCore's `lo_workspace`), built once per composed workspace: the
 problem's refit workspace `refine` ([`refit_workspace`](@ref): a
-`ManifoldLmWorkspace{N}` for the chart problems, `nothing` for a problem whose
+`RefitSlot` for the chart problems, its summary-free refine cache; `nothing` for a problem whose
 refit pre-allocates nothing) and the per-point buffers of the posterior-weight
 iteration (`posterior_w`, `posterior_inlier`, `posterior_sq_r`, Float64) and of
 the IRLS residual block (`lo_residuals`, `lo_best_residuals`, storage `T`).

@@ -275,7 +275,7 @@ _has_noise_columns(::_PointCorrespondences) = false
 
 # The prologue every correspondence-problem constructor shares: the sampler — the caller's, or PROSAC on the `:score`
 # attribute column (per-correspondence data travels as a column, never a keyword); uniform without one. A problem holds
-# any number of correspondences: a solve on fewer than a minimal sample is the find's `:no_model` result (no trial
+# any number of correspondences: a solve on fewer than a minimal sample is the find's no-model result (no trial
 # drawn) and the refine's unrefined guess (`(InitialFailure, NoRule)`), never a refusal at construction.
 function _problem_sampler(pairs, K::Int, sampler)
     n = length(pairs)
@@ -1078,7 +1078,7 @@ end
 #
 # A linear problem's step is its one-step algorithm under the weights; θ is not
 # read. Excluded points are encoded as `weights[i] = 0`. The LO proper runs the
-# per-model NonlinLsq chart LM from θ (its workspace is a ManifoldLmWorkspace);
+# per-model NonlinLsq chart LM from θ (its workspace is Core's chart-LM cache);
 # handing `refine!` a `DltWorkspace` selects the plain weighted DLT instead —
 # for direct callers (tests, offline tooling). The DLT runs in the PROBLEM's
 # normalization (`p.normalization`, built once at construction) — an inner-loop step

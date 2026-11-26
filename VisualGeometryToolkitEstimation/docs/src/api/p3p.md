@@ -44,7 +44,7 @@ the weighted calibrated reprojection error from
 `constraint_with_jacobians(::`CameraExtrinsics`, X, ray)` in VisualGeometryToolkitCore (the
 raw-pixel error for a distorting lens) with an analytic Jacobian (the chart's
 closed-form `action_jacobian`), running VisualGeometryToolkitCore's chart LM
-(NLLSsolver, through `lmsolve_chart!`) on a `ManifoldLmWorkspace{6}`.
+(the summary-free `LevenbergMarquardt` refine held in the problem's `RefitSlot`).
 
 ## Correspondence Infrastructure
 

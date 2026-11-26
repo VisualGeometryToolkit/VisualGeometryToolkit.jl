@@ -78,12 +78,12 @@ function _test_gate end
 """
     test_recorded(make; nested = RECORDED_NESTED_STATES) -> Int
 
-That a [`Recorded`](@ref) run of [`block_coordinate_descent!`](@ref) IS the bare
+That a [`Recorded`](@ref) run of [`BlockCoordinateDescent`](@ref) IS the bare
 run, as tests: `make()` returns a fresh `(state, likelihood, method, problem, θ₀,
 max_iter)` each call (fresh workspaces too), whose result is a [`FitResult`](@ref)
 (its `u`, `retcode` and `stats.nsteps`). The recorded run returns the bare run's
 estimate, return code and iteration count and leaves the same state; it records one iterate
-per good iteration (a `:solve_failed` run one fewer), with as many costs and
+per good iteration (a run whose model block failed, `(Failure, NonFinite)`, one fewer), with as many costs and
 scales; and the bare run truncated after every `k` has the recorded run's `k`-th
 cost — iterate for iterate. A state is compared by what a run moves: its
 numbers, arrays and best iterates (`Attributed(θ, (; cost))`), and the fields

@@ -56,8 +56,8 @@ the caller's scale input and never re-estimated.
 - A `weights` column on `cs` (`withattrs(cs; weights)`) multiplies every pair's
   loss weight (fixed prior weights).
 
-`retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least squares), or
-`:degenerate` when fewer than two pairs keep a positive weight. `n` is the
+The record (`retcode`, `stop_rule`) is `(Success, IncrementSize)` (converged), `(MaxIters, IterationCap)`,
+`(Success, ClosedForm)` (least squares), or `(InitialFailure, NoRule)` when fewer than two pairs keep a positive weight. `n` is the
 support (the pairs of positive solve weight), `rms` the weight-weighted root
 mean square residual angle. The metadata ([`FitMetadata`](@ref))
 carries the weights, the residual angles, the scale record and the loss

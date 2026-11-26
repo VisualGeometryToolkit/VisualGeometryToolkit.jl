@@ -4,7 +4,7 @@
 CurrentModule = VisualGeometryToolkitCore
 ```
 
-The pool-selection contract (`best_pool_model`, `select_on_grid!`) and the
+The pool-selection contract (`best_pool_model!`, `select_on_grid!`) and the
 grid kernels that score a pool's models across a width grid. The scoring and
 local-optimization contracts it builds on are on the
 [Robust Estimation API](estimators.md) page.

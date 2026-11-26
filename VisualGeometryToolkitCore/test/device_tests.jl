@@ -232,7 +232,7 @@ end
 
 @testitem "device_zeros: a zero array on a backend (host)" begin
     # KernelAbstractions' own `zeros` is not public, so a package cannot call it
-    # across the boundary; PanoramaStitching, Core's cgls and Features' spread
+    # across the boundary; PanoramaStitching, Core's _cgls and Features' spread
     # each wrote `fill!(KA.allocate(dev, T, dims...), zero(T))`. One copy, here.
     using Test
     using VisualGeometryToolkitCore: device_zeros

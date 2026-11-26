@@ -334,7 +334,7 @@ end
         @test quiet("src/a.jl" => "x = 1   # a stepsize; a footstep\n", "docs/a.md" => "A stepsize.\n")
         # Manopt.jl's name of the driver's one cycle is the one other function
         # that holds the word — the function only, never a local
-        @test quiet("src/a.jl" => "VisualGeometryToolkitCore.step_solver!(s, l, m, p, θ, i) = θ\n")
+        @test :R5 ∉ rules("src/a.jl" => "VisualGeometryToolkitCore.step_solver!(s, l, m, p, θ, i) = θ\n")   # (R22 refuses the reach)
         @test rules("src/a.jl" => "step_solver = 1\n") == [:R5]
     end
 
@@ -410,7 +410,7 @@ end
         )
     end
 
-    @testset "R8: the hooks of block_coordinate_descent!, exactly" begin
+    @testset "R8: the hooks of BlockCoordinateDescent, exactly" begin
         @test rules("src/a.jl" => "post_iteration(state, m, p, θ, i) = nothing\n") == [:R8]
         @test rules("src/a.jl" => "VisualGeometryToolkitCore.stop_reason!(c, s, m, p, θ, θo, i) = :continue\n") == [:R8]
         @test rules("src/a.jl" => "VisualGeometryToolkitCore.stop_solver(s, c, m, p, θ, θo, i) = :continue\n") == [:R8]
@@ -482,7 +482,7 @@ end
         @test :R9 in rules("src/a.jl" => "x = " * "generate" * "_pool(n, snn)\n")
         @test :R9 in rules("docs/a.md" => "See `" * "AbstractRaw" * "Pair`.\n")
         @test quiet(
-            "docs/a.md" => "`draw_hypotheses`, `PoolPair`, `StereoRawPair`, `write_scene_pool`, " *
+            "docs/a.md" => "`PoolPair`, `StereoRawPair`, `write_scene_pool`, " *
                 "`generate_pools_x`, `EssentialProblem(pair)`, `pool_frame_maps`, `pool_pixel_scale`.\n"
         )
         # a retired file suffix is matched literally: its `.` is no wildcard
@@ -893,4 +893,52 @@ end
     using Test
     using VisualGeometryToolkitCore
     VgtkCore.test_duplication(VisualGeometryToolkitCore)
+end
+
+# R22 (owner, 2026-11-26): outside Core, user-level code solves through the front end. A fixture package, R22Fixture,
+# whose sources reach Core's internals in each way the rule refuses, beside the forms it allows. The internal names are
+# assembled from fragments, so this file (which the naming and duplication checkers also read) spells none of them.
+@testitem "quality: R22, user-level code solves through the front end" begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: check_naming
+    lk = "_lmsolve" * "_chart!"; lp = "_Lm" * "Problem"; bcd = "_block_coordinate" * "_descent!"; old = "lmsolve" * "_chart!"
+    function r22(files::Pair...)
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"), "name = \"R22Fixture\"\n")
+            for (rel, src) in files
+                mkpath(dirname(joinpath(dir, rel))); write(joinpath(dir, rel), src)
+            end
+            [(v.file, v.rule) for v in check_naming(dir) if v.rule in (:R22, :R9)]
+        end
+    end
+    imp = "import VisualGeometryToolkitCore as VgtkCore\n"
+    # flagged: a `_` reach (qualified, imported, through an alias), a driver, a hook called by user-level code, the old name
+    @test r22("src/a.jl" => imp * "f(x) = VgtkCore.$(lk)(x)\n") == [("src/a.jl", :R22)]
+    @test r22("src/a.jl" => "using VisualGeometryToolkitCore: $(lp)\n") == [("src/a.jl", :R22)]
+    @test r22("src/a.jl" => "import VisualGeometryToolkitCore as V\ng(s) = V.$(bcd)(s)\n") == [("src/a.jl", :R22)]
+    @test r22("src/a.jl" => imp * "h(s) = VgtkCore.step_solver!(s)\n") == [("src/a.jl", :R22)]
+    @test r22("test/user_tests.jl" => imp * "r = VgtkCore.locally_optimize!(L, lo, p, m, cs, buf, sc)\n") == [("test/user_tests.jl", :R22)]
+    @test r22("experiments/run.jl" => "s = score!(buf, sc, p, m)\n") == [("experiments/run.jl", :R22)]
+    @test r22("docs/src/guide.md" => "# Guide\n\n```julia\nscore!(buf, sc, p, m)\n```\n") == [("docs/src/guide.md", :R22)]
+    @test (("src/a.jl", :R9) in r22("src/a.jl" => "x = $(old)(p)\n"))
+    # not flagged: the front end; an implementation and a forward; a marked contract test; a contract guide; a paper
+    @test isempty(r22("src/a.jl" => "r = solve(RefineProblem(f, u0), LevenbergMarquardt())\n"))
+    @test isempty(r22("src/a.jl" => imp * "VgtkCore.locally_optimize!(L, lo::MyLO, p, m, cs, buf, sc) = VgtkCore.locally_optimize!(L, lo.inner, p, m, cs, buf, sc)\n"))
+    @test isempty(r22("experiments/lo.jl" => imp * "VgtkCore.score!(ws, sc::MySc, args...) = VgtkCore.score!(ws, sc.inner, args...)\n"))
+    @test isempty(r22("test/contract_tests.jl" => "# R22: contract test — the scoring contract\ns = score!(buf, sc, p, m)\n"))
+    @test isempty(r22("test/helper_tests.jl" => "test_scoring_contract(sc, p)\ns = score!(buf, sc, p, m)\n"))
+    @test isempty(r22("docs/src/extending.md" => "<!-- R22: contract guide -->\n```julia\nscore!(buf, sc, p, m)\n```\n"))
+    @test isempty(r22("accv2026/src/x.jl" => imp * "f(x) = VgtkCore.$(lk)(x)\n"))
+    @test isempty(r22("src/a.jl" => "y = project(cam, X)\n"))   # an accessor is no hook
+    # Core itself: no R22 finding, and the internal drivers are neither public nor exported
+    @test !any(v -> v.rule === :R22, check_naming(pkgdir(VgtkCore)))
+    for g in VgtkCore.CORE_INTERNAL_DRIVERS
+        @test !Base.ispublic(VgtkCore, nameof(g)) && !(nameof(g) in names(VgtkCore))
+    end
+    for n in Symbol.((lk, lp, bcd, "_chart" * "_refit", "_triggs" * "_refit", "_ManifoldLm" * "Workspace", "_grid_brent" * "_minimum",
+                      "_cgls", "_normal" * "_cg", "_nlls" * "_features"))
+        @test isdefined(VgtkCore, n) && !Base.ispublic(VgtkCore, n)
+    end
+    @test all(g -> g isa Function, VgtkCore.SOLVER_HOOKS) && VgtkCore.score! in VgtkCore.SOLVER_HOOKS
 end

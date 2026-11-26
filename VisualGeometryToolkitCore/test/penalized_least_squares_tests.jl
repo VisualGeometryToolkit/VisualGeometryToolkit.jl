@@ -54,12 +54,12 @@ end
     @test sparse([m for (m, s) in enumerate(st) for _ in s[1]], reduce(vcat, first.(st)), reduce(vcat, last.(st)), size(D)...) == D
 end
 
-@testitem "cgls: the penalized least squares on sparse operators, a target, a warm start, the stopping rule" begin
+@testitem "_cgls: the penalized least squares on sparse operators, a target, a warm start, the stopping rule" begin
     using LinearAlgebra: norm, mul!
     using SparseArrays: sprandn, sparse
     using Random: Xoshiro, randn
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, cgls, CSRMatrix
+    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, _cgls, CSRMatrix
     rng = Xoshiro(11)
     TW, TH = 9, 7; n = TW * TH
     A = sprandn(rng, 150, n, 0.08) + sparse(1:n, 1:n, 0.3 .+ rand(rng, n), 150, n)
@@ -72,25 +72,25 @@ end
     # the solution of the normal equations (AᵀA + DᵀWD) x = Aᵀb + DᵀWh, with a target and per-row weights, and with neither
     Wd = sparse(1:length(w), 1:length(w), w)
     exact = Matrix(A' * A + D' * Wd * D) \ (A' * b + D' * (w .* h))
-    s = cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 2000)
+    s = _cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 2000)
     @test s.converged && norm(s.x - exact) <= 1.0e-8 * norm(exact)
     plain = Matrix(A' * A + 2.0 * D' * D) \ (A' * b)
-    @test norm(cgls(op, b; w = 2.0, rtol = 1.0e-12, max_iter = 2000).x - plain) <= 1.0e-8 * norm(plain)
+    @test norm(_cgls(op, b; w = 2.0, rtol = 1.0e-12, max_iter = 2000).x - plain) <= 1.0e-8 * norm(plain)
     # the stopping rule is relative to ‖Aᵀb + DᵀWh‖, not to the start's residual: warm from the solution, 0 iterations;
     # warm from a start near it, fewer iterations than cold, and the same tolerance met
-    @test cgls(op, b; w, h, x0 = exact, rtol = 1.0e-6).iterations == 0
-    cold = cgls(op, b; w, h, rtol = 1.0e-8, max_iter = 2000)
-    warm = cgls(op, b; w, h, x0 = exact .+ 1.0e-4 .* randn(rng, n), rtol = 1.0e-8, max_iter = 2000)
+    @test _cgls(op, b; w, h, x0 = exact, rtol = 1.0e-6).iterations == 0
+    cold = _cgls(op, b; w, h, rtol = 1.0e-8, max_iter = 2000)
+    warm = _cgls(op, b; w, h, x0 = exact .+ 1.0e-4 .* randn(rng, n), rtol = 1.0e-8, max_iter = 2000)
     @test cold.converged && warm.converged && warm.iterations < cold.iterations && warm.relres <= 1.0e-8
-    @test cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 3).iterations == 3 && !cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 3).converged
+    @test _cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 3).iterations == 3 && !_cgls(op, b; w, h, rtol = 1.0e-12, max_iter = 3).converged
 end
 
-@testitem "cgls on CUDA: the CPU solve's result (availability-gated)" begin
+@testitem "_cgls on CUDA: the CPU solve's result (availability-gated)" begin
     using SparseArrays: sprandn, sparse
     using Random: Xoshiro, randn
     using LinearAlgebra: norm
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, cgls
+    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, _cgls
     cuda = try
         m = Base.require(Main, :CUDA)
         (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
@@ -105,21 +105,21 @@ end
         A = sprandn(rng, 3n, n, 0.002) + sparse(1:n, 1:n, 0.3 .+ rand(rng, n), 3n, n)
         D = difference_rows((TW, TH), 1)
         b = randn(rng, 3n); h = randn(rng, size(D, 1))
-        cpu = cgls(PenalizedOperator(A, D; device = KA.CPU()), b; w = 0.7, h, rtol = 1.0e-10, max_iter = 3000)
+        cpu = _cgls(PenalizedOperator(A, D; device = KA.CPU()), b; w = 0.7, h, rtol = 1.0e-10, max_iter = 3000)
         dev = Base.invokelatest(getproperty(cuda, :CUDABackend))
-        gpu = Base.invokelatest(cgls, Base.invokelatest(PenalizedOperator, A, D; device = dev), b; w = 0.7, h, rtol = 1.0e-10, max_iter = 3000)
+        gpu = Base.invokelatest(_cgls, Base.invokelatest(PenalizedOperator, A, D; device = dev), b; w = 0.7, h, rtol = 1.0e-10, max_iter = 3000)
         @test gpu.converged && Base.invokelatest(KA.get_backend, gpu.x) == dev
         @test norm(Base.invokelatest(Array, gpu.x) - cpu.x) <= 1.0e-8 * norm(cpu.x)
         @test abs(gpu.iterations - cpu.iterations) <= 2
     end
 end
 
-@testitem "normal_cg: CG on an applied normal operator, the solve cgls makes on a stored one; Jacobi; a warm start" begin
+@testitem "_normal_cg: CG on an applied normal operator, the solve _cgls makes on a stored one; Jacobi; a warm start" begin
     using LinearAlgebra: norm, mul!, Diagonal, diag, Symmetric, cond, qr
     using SparseArrays: sprandn, sparse, SparseMatrixCSC
     using Random: Xoshiro, randn
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, cgls, normal_cg
+    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, _cgls, _normal_cg
     rng = Xoshiro(13)
     TW, TH = 9, 7; n = TW * TH
     A = sprandn(rng, 150, n, 0.08) + sparse(1:n, 1:n, 0.3 .+ rand(rng, n), 150, n)
@@ -128,30 +128,30 @@ end
     # the normal operator AᵀA + DᵀWD applied, never stored, and its right-hand side Aᵀb + DᵀWh
     apply!(y, x) = (y .= A' * (A * x) .+ D' * (w .* (D * x)); y)
     g = A' * b .+ D' * (w .* h)
-    ref = cgls(PenalizedOperator(A, D; device = KA.CPU()), b; w, h, rtol = 1.0e-12, max_iter = 2000)
-    s = normal_cg(apply!, g; rtol = 1.0e-12, max_iter = 2000)
+    ref = _cgls(PenalizedOperator(A, D; device = KA.CPU()), b; w, h, rtol = 1.0e-12, max_iter = 2000)
+    s = _normal_cg(apply!, g; rtol = 1.0e-12, max_iter = 2000)
     @test s.converged && norm(s.x - ref.x) <= 1.0e-8 * norm(ref.x) && abs(s.iterations - ref.iterations) <= 2
     # the same solve with the normal operator given as an operator (`mul!`)
     N = SparseMatrixCSC(A' * A + D' * Diagonal(w) * D)
-    @test norm(normal_cg(N, g; rtol = 1.0e-12, max_iter = 2000).x - ref.x) <= 1.0e-8 * norm(ref.x)
-    # cgls's stopping rule, relative to ‖Aᵀb + DᵀWh‖: warm from the solution, 0 iterations; near it, fewer than cold;
-    # the iteration budget counted as cgls counts it
-    @test normal_cg(apply!, g; x0 = ref.x, rtol = 1.0e-6).iterations == 0
-    cold = normal_cg(apply!, g; rtol = 1.0e-8, max_iter = 2000)
-    warm = normal_cg(apply!, g; x0 = ref.x .+ 1.0e-4 .* randn(rng, n), rtol = 1.0e-8, max_iter = 2000)
+    @test norm(_normal_cg(N, g; rtol = 1.0e-12, max_iter = 2000).x - ref.x) <= 1.0e-8 * norm(ref.x)
+    # _cgls's stopping rule, relative to ‖Aᵀb + DᵀWh‖: warm from the solution, 0 iterations; near it, fewer than cold;
+    # the iteration budget counted as _cgls counts it
+    @test _normal_cg(apply!, g; x0 = ref.x, rtol = 1.0e-6).iterations == 0
+    cold = _normal_cg(apply!, g; rtol = 1.0e-8, max_iter = 2000)
+    warm = _normal_cg(apply!, g; x0 = ref.x .+ 1.0e-4 .* randn(rng, n), rtol = 1.0e-8, max_iter = 2000)
     @test cold.converged && warm.converged && warm.iterations < cold.iterations && warm.relres <= 1.0e-8
-    short = normal_cg(apply!, g; rtol = 1.0e-12, max_iter = 3)
+    short = _normal_cg(apply!, g; rtol = 1.0e-12, max_iter = 3)
     @test short.iterations == 3 && !short.converged && short.relres > 1.0e-12
     # a diagonal that is not positive is refused
-    @test_throws ArgumentError normal_cg(apply!, g; diagonal = zeros(n))
+    @test_throws ArgumentError _normal_cg(apply!, g; diagonal = zeros(n))
 end
 
-@testitem "normal_cg and cgls: a Jacobi preconditioner converges on an ill-conditioned problem" begin
+@testitem "_normal_cg and _cgls: a Jacobi preconditioner converges on an ill-conditioned problem" begin
     using LinearAlgebra: norm, Diagonal, diag
     using SparseArrays: sprandn, sparse, SparseMatrixCSC
     using Random: Xoshiro, randn
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, cgls, normal_cg
+    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, _cgls, _normal_cg
     rng = Xoshiro(14)
     TW, TH = 12, 10; n = TW * TH
     # a well-conditioned problem with its columns scaled over eight decades (the unknowns' units: a scene's log radiance
@@ -163,23 +163,23 @@ end
     N = SparseMatrixCSC(A' * A + w * D' * D); g = A' * b
     exact = Matrix(N) \ g
     d = Vector(diag(N))
-    plain = normal_cg(N, g; rtol = 1.0e-10, max_iter = 300)
-    jacobi = normal_cg(N, g; diagonal = d, rtol = 1.0e-10, max_iter = 300)
+    plain = _normal_cg(N, g; rtol = 1.0e-10, max_iter = 300)
+    jacobi = _normal_cg(N, g; diagonal = d, rtol = 1.0e-10, max_iter = 300)
     @test !plain.converged
     @test jacobi.converged && jacobi.iterations < 300 && norm(jacobi.x - exact) <= 1.0e-6 * norm(exact)
-    # cgls takes the same preconditioner (the stacked operator's column scaling) and makes the same solve
+    # _cgls takes the same preconditioner (the stacked operator's column scaling) and makes the same solve
     op = PenalizedOperator(A, D; device = KA.CPU())
-    @test !cgls(op, b; w, rtol = 1.0e-10, max_iter = 300).converged
-    s = cgls(op, b; w, diagonal = d, rtol = 1.0e-10, max_iter = 300)
+    @test !_cgls(op, b; w, rtol = 1.0e-10, max_iter = 300).converged
+    s = _cgls(op, b; w, diagonal = d, rtol = 1.0e-10, max_iter = 300)
     @test s.converged && norm(s.x - exact) <= 1.0e-6 * norm(exact) && abs(s.iterations - jacobi.iterations) <= 3
 end
 
-@testitem "normal_cg on CUDA: the CPU solve's result, Jacobi and a warm start (availability-gated)" begin
+@testitem "_normal_cg on CUDA: the CPU solve's result, Jacobi and a warm start (availability-gated)" begin
     using SparseArrays: sprandn, sparse, SparseMatrixCSC
     using Random: Xoshiro, randn
     using LinearAlgebra: norm, Diagonal, diag, mul!
     import KernelAbstractions as KA
-    using VisualGeometryToolkitCore: difference_rows, normal_cg, CSRMatrix, on_device
+    using VisualGeometryToolkitCore: difference_rows, _normal_cg, CSRMatrix, on_device
     cuda = try
         m = Base.require(Main, :CUDA)
         (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
@@ -195,12 +195,12 @@ end
         D = difference_rows((TW, TH), 1)
         N = SparseMatrixCSC(A' * A + 0.7 * D' * D); g = randn(rng, n); d = Vector(diag(N))
         x0 = (Matrix(N) \ g) .+ 1.0e-3 .* randn(rng, n)
-        cpu = normal_cg(CSRMatrix(N; device = KA.CPU()), g; diagonal = d, x0, rtol = 1.0e-10, max_iter = 3000)
+        cpu = _normal_cg(CSRMatrix(N; device = KA.CPU()), g; diagonal = d, x0, rtol = 1.0e-10, max_iter = 3000)
         dev = Base.invokelatest(getproperty(cuda, :CUDABackend))
         up(v) = Base.invokelatest(on_device, dev, v)
         Nd = Base.invokelatest(CSRMatrix, N; device = dev)
         apply!(y, x) = mul!(y, Nd, x)
-        gpu = Base.invokelatest(normal_cg, apply!, up(g); diagonal = up(d), x0 = up(x0), rtol = 1.0e-10, max_iter = 3000)
+        gpu = Base.invokelatest(_normal_cg, apply!, up(g); diagonal = up(d), x0 = up(x0), rtol = 1.0e-10, max_iter = 3000)
         @test gpu.converged && Base.invokelatest(KA.get_backend, gpu.x) == dev
         @test norm(Base.invokelatest(Array, gpu.x) - cpu.x) <= 1.0e-8 * norm(cpu.x)
         @test abs(gpu.iterations - cpu.iterations) <= 2

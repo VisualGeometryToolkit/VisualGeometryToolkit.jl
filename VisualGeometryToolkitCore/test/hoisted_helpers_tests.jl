@@ -240,18 +240,20 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, retcode_symbol, check_rows_jacobian, LmStops
+    using VisualGeometryToolkitCore: _ManifoldLmWorkspace, _lmsolve_chart!, successful_retcode, check_rows_jacobian, LmStops
     using FiniteDiff: FiniteDiff
 
     pts = circle_points()
     lm = CircleLm(pts)
     # the default is ForwardDiff, so the reference is AD-independent: central differences
     @test check_rows_jacobian(lm, SVector(0.1, 0.0, -0.2), 12; rtol = 1.0e-7, reference = (f, θ) -> FiniteDiff.finite_difference_jacobian(f, θ, Val(:central)))
-    x, F, conv, iterations, rec = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm)   # the stack's stop settings (Core's [lm])
+    _s = _lmsolve_chart!(_ManifoldLmWorkspace(12, 3), lm)   # the stack's stop settings (Core's [lm])
+    x, F, iterations, rec = _s.u, _s.metadata.cost, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
     @test x ≈ SVector(0.5, 0.2, -0.5) atol = 1.0e-8
-    @test F < 1.0e-20 && retcode_symbol(rec...) === :converged && 0 < iterations < 50
-    x1, _, conv1, it1, rec1 = lmsolve_chart!(ManifoldLmWorkspace(12, 3), lm, LmStops(; max_iter = 1))
-    @test retcode_symbol(rec1...) === :max_iterations && it1 == 1
+    @test F < 1.0e-20 && successful_retcode(rec[1]) && 0 < iterations < 50
+    _s = _lmsolve_chart!(_ManifoldLmWorkspace(12, 3), lm, LmStops(; max_iter = 1))
+    x1, it1, rec1 = _s.u, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
+    @test rec1[1] === VisualGeometryToolkitCore.ReturnCode.MaxIters && it1 == 1
 
     # A step-size stop (2) when the damping grew until no step reduced the cost.
     # With every trial finite — f(x) = x − 3 with a wrong-sign Jacobian (no step
@@ -270,11 +272,13 @@ end
     struct _NanWallLm end
     VgtkCore.residual_rows!(f, ::_NanWallLm, x) = (f[1] = x[1] > 0.5 ? NaN : x[1] - 3.0; f)
     VgtkCore.residual_jacobian_rows!(J, ::_NanWallLm, x) = (J[1, 1] = 1.0; J)
-    xw, Fw, cw, _, recw = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _WrongSignLm())
-    @test cw == 2 && recw == (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)   # the step-size stop, converged
-    @test xw == SVector(0.0) && Fw == 9.0 && retcode_symbol(recw...) === :converged
-    xn, Fn, cn, _, recn = lmsolve_chart!(ManifoldLmWorkspace(1, 1), _NanWallLm())
-    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && retcode_symbol(recn...) === :converged && cn in (1, 2)
+    _s = _lmsolve_chart!(_ManifoldLmWorkspace(1, 1), _WrongSignLm())
+    xw, Fw, recw = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    @test recw == (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)   # the step-size stop, converged
+    @test xw == SVector(0.0) && Fw == 9.0 && successful_retcode(recw[1])
+    _s = _lmsolve_chart!(_ManifoldLmWorkspace(1, 1), _NanWallLm())
+    xn, Fn, recn = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    @test 0.0 < xn[1] <= 0.5 && Fn > 6.0 && successful_retcode(recn[1]) && recn[2] in (VisualGeometryToolkitCore.CostDecrease, VisualGeometryToolkitCore.IncrementSize)
 end
 
 @testitem "tree_sum!: a workgroup's sum on the CPU (a group of one) and on CUDA (256, a partial group; availability-gated)" begin

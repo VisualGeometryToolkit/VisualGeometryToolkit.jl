@@ -6,7 +6,7 @@
 #   2. implicit_covariance — Jacobian pins against finite differences
 #      of the LOCAL CONSTRAINED SOLUTION: for H through the unique 4-point
 #      solution, for F / E through the chart-Newton tracked solution
-#      (`track_manifold_solution` — the same continuation the MC protocol uses);
+#      (`PathFollowing` — the same continuation the MC protocol uses);
 #   3. harness self-tests — a known-LINEAR problem must be EXACTLY calibrated,
 #      and an intentionally wrong Σ must be caught (both directions);
 #   4. MC calibration smoke for H / F / E at realistic noise (the full
@@ -122,9 +122,10 @@
             (Σpre === nothing || maximum(abs, Σpre) > 1.0e5) && continue
             x0 = _flat_pairs(cs)
             function slog(x)
-                v = CHar.track_manifold_solution(ch0, cs, _pairs_of(x, 7))
-                v === nothing && error("tracking diverged inside the FD pin")
-                return Vector(v)
+                r = VisualGeometryToolkitCore.solve(VisualGeometryToolkitCore.RefineProblem(CHar.NoisePathProblem(ch0, cs, _pairs_of(x, 7)),
+                        VisualGeometryToolkitCore.retract(ch0, zero(VisualGeometryToolkitCore.zero_tangent(ch0)))), CHar.PathFollowing())
+                VisualGeometryToolkitCore.successful_retcode(r) || error("tracking diverged inside the FD pin")
+                return Vector(r.metadata.v)
             end
             # truncation-bound near criticality: FiniteDiff's relative step on these
             # ~10-unit coordinates (6e-5) misses the worst scene by 6.5e-4, a 1e-7
@@ -146,9 +147,10 @@
             (Σpre === nothing || maximum(abs, Σpre) > 1.0e6) && continue
             x0 = _flat_pairs(cs_nm)
             function slog(x)
-                v = CHar.track_manifold_solution(ch0, cs_nm, _pairs_of(x, 5))
-                v === nothing && error("tracking diverged inside the FD pin")
-                return Vector(v)
+                r = VisualGeometryToolkitCore.solve(VisualGeometryToolkitCore.RefineProblem(CHar.NoisePathProblem(ch0, cs_nm, _pairs_of(x, 5)),
+                        VisualGeometryToolkitCore.retract(ch0, zero(VisualGeometryToolkitCore.zero_tangent(ch0)))), CHar.PathFollowing())
+                VisualGeometryToolkitCore.successful_retcode(r) || error("tracking diverged inside the FD pin")
+                return Vector(r.metadata.v)
             end
             Jfd = FiniteDiff.finite_difference_jacobian(slog, x0, Val(:central))
             @test Σpre ≈ Jfd * Jfd' rtol = 1.0e-3

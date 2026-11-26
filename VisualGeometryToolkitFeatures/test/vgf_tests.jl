@@ -243,19 +243,11 @@ end
     import VisualGeometryToolkitFeatures as VgtkFeatures
     import VisualGeometryToolkitCore as VgtkCore
     d1 = rand(Float32, 12, 32); d2 = rand(Float32, 15, 32)
-    old_resolver, old_device = VgtkCore._DEVICE_RESOLVER[], VgtkCore._DEFAULT_DEVICE[]
-    calls = Ref(0)
-    try
-        VgtkCore._DEVICE_RESOLVER[] = () -> (calls[] += 1; KA.CPU())
-        VgtkCore.reset_default_device!()
-        S = VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2)
-        @test calls[] == 1
-        @test S == VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU())
-        VgtkCore.reset_default_device!()
+    # the default device pinned for the block (Core's one scope for it): the unspecified device is that one
+    VgtkCore.with_default_device(KA.CPU()) do
+        @test VgtkCore.default_device() isa KA.CPU
+        @test VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2) == VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU())
         @test match_key(nn_match(d1, d2, MutualNN())) == match_key(VgtkFeatures.match(d1, d2, MutualNN()))
-        @test calls[] == 2
-    finally
-        VgtkCore._DEVICE_RESOLVER[] = old_resolver; VgtkCore._DEFAULT_DEVICE[] = old_device
     end
 end
 

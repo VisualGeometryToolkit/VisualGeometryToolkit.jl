@@ -53,6 +53,8 @@ Total number of data points the problem scores over.
 """
 function data_size end
 data_size(p::AbstractConstraintProblem) = _no_method(p, data_size, "the constraint-problem protocol needs it")
+model_type(p::AbstractConstraintProblem) = _no_method(p, model_type, "the constraint-problem protocol needs it")
+minimal_sample_size(p::AbstractConstraintProblem) = _no_method(p, minimal_sample_size, "the constraint-problem protocol needs it")
 
 """
     codimension(problem) -> Int

@@ -1,5 +1,7 @@
 # Extending
 
+<!-- R22: contract guide -->
+
 ```@meta
 CurrentModule = VisualGeometryToolkitEstimation
 ```
@@ -74,7 +76,8 @@ test_consensus(p::MyProblem, model, mask::BitVector) = true
 # the weights, θ unread (the weighted DLT for H/F when handed a DltWorkspace;
 # the line problem instead refits with its iterative covariance-weighted line on
 # the points of positive weight). `ws` is the refit workspace refit_workspace(typeof(p), n)
-# (a ManifoldLmWorkspace{N} for the chart-LM problems, `nothing` for a problem
+# (a RefitSlot holding the summary-free LevenbergMarquardt refine cache for the
+# chart-LM problems, `nothing` for a problem
 # whose refit needs none); define a method for MyProblem when it needs one.
 # Type θ with the model type, so a call in the wrong order is a MethodError
 # rather than a silent bind.
@@ -110,7 +113,13 @@ residual's own unit), `chart_model(f, chart)`, `chart_size(f)`, and
 `default_optimization_strategy(f)` for its `ClassDefault()`. The family
 problems here implement it once for every `AbstractRansacProblem` with a chart
 (`chart_dof`), so a new chart problem provides the per-problem facts the family
-uses (`_chart`, the rows on `ChartLm`, `_model_at`).
+uses (`_chart`, the rows on `ChartLm`, `_model_at`). A RANSAC local
+optimization's refit reads the chart and rows through Core's
+[`refit_chart`](@extref VisualGeometryToolkitCore.refit_chart)`(f, θ, weights)`
+(default `model_chart`) and
+[`refit_rows`](@extref VisualGeometryToolkitCore.refit_rows)`(f, chart, sqrtw)`
+(default `chart_rows`); a problem whose refit differs from its refine
+customizes these two.
 
 The problem now composes with every scorer and strategy of the stack —
 VisualGeometryToolkitCore's conformance helpers (`test_constraint_problem`,
@@ -124,8 +133,10 @@ also provides VisualGeometryToolkitCore's chart-rows contract (`rows_provider`,
 
 For a non-RANSAC EM / iteratively reweighted least squares, implement
 `AbstractBlockCoordinateMethod` and pair it with a likelihood (`PosteriorLikelihood`). The generic
-loop in [`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`) handles iteration, convergence, and the best-cost
-ratchet — your concrete method only needs to provide:
+loop, VisualGeometryToolkitCore's
+[`BlockCoordinateDescent`](@extref VisualGeometryToolkitCore.BlockCoordinateDescent)`(method; likelihood)`,
+handles iteration, convergence, and the best-cost ratchet — your concrete
+method only needs to provide:
 
 ```julia
 struct MyMethod <: AbstractBlockCoordinateMethod
@@ -146,11 +157,23 @@ update_residuals!(state, method::MyMethod, problem, θ) = ...
 # value: a pure query of the state), return the final result.
 post_iteration!(state, method::MyMethod, problem, θ, iter) = ...
 struct StopWhenMine <: VisualGeometryToolkitCore.StoppingCriterion end
+# The termination record: a (ReturnCode.T, StopRule) pair, CONTINUE while the run goes on.
 VisualGeometryToolkitCore.stop_reason(::StopWhenMine, state, method, problem, θ, θ_old, iter) =
-    ... ? :converged : :continue
+    ... ? (ReturnCode.Success, IncrementSize) : CONTINUE
 stopping_criterion(::MyMethod) = StopWhenMine()   # compose several with `|`
-block_coordinate_result(state, method::MyMethod, problem, θ, stop_reason, final_iter) = ...
+block_coordinate_result(state, method::MyMethod, problem, θ, code::ReturnCode.T, final_iter, rule::StopRule) = ...
 ```
+
+A user runs the method through the front end:
+
+```julia
+r = solve(RefineProblem(problem, θ₀), BlockCoordinateDescent(MyMethod(…); likelihood);
+          stops = StopAfterIteration(max_iter))
+r.retcode, r.stop_rule
+```
+
+A seeded state is the problem's context `p` (`RefineProblem(problem, θ₀, state)`):
+the loop runs on it and does not call `init_state!`.
 
 The protocol is exercised by [`PosteriorIrlsMethod`](@ref), which `Irls{K}`
 runs inside the RANSAC LO inner loop and [`ResidualMixture`](@ref) runs on held

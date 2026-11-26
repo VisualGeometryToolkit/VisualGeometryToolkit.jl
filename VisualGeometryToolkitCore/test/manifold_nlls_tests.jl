@@ -20,7 +20,7 @@ using VisualGeometryToolkitCore: DoubleSphere, EssentialManifold5, EssentialMani
     ProductManifold, RigidExpManifold6, RigidManifold6, SphereManifold, TargetManifold, is_stationary,
     local_coordinates, manifold_parts, model, recenter, restrict, retract, retract_jacobian, tangent_part,
     tangent_size
-using VisualGeometryToolkitCore: WelschShape, loss_robustifier, retcode_symbol, is_stationary
+using VisualGeometryToolkitCore: WelschShape, loss_robustifier, is_stationary
 # the legacy Symbol of an NLLSsolver solve's termination record, under the stall postcondition at (J, r)
 
 pose(ω, t) = EuclideanMap(RotMatrix{3}(RotXYZ(ω...)), SVector{3, Float64}(t))
@@ -158,9 +158,9 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         r = _PointResidual(xs[1], truth(xs[1]))
         _, J = NLLSsolver.computeresjac(NLLSsolver.static(1), r, ch)
         @test J ≈ ForwardDiff.jacobian(δ -> retract(ch, δ)(r.x) - r.y, zero(SVector{6, Float64})) atol = 1.0e-12
-        problem = VgtkCore.LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))], [_PointResidual(x, truth(x)) for x in xs])
-        result = VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
-        @test result.cost < 2.0e-20 && result.code === VgtkCore.ReturnCode.Success
+        problem = VgtkCore._LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))], [_PointResidual(x, truth(x)) for x in xs])
+        result = VgtkCore._lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
+        @test result.metadata.cost < 2.0e-20 && result.retcode === VgtkCore.ReturnCode.Success
         @test norm(local_coordinates(problem.variables[1], truth)) < 1.0e-9
     end
 
@@ -173,10 +173,10 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
                 EuclideanMap(RotMatrix{3}(RotXYZ(0.1, 0.0, 0.05)), SVector{3, Float32}(0.4, -0.1, 0.9)))
             ch₀ = VgtkCore.minimal_manifold(start)
             blocks = [_PointResidual(x, truth(x)) for x in xs]
-            problem = VgtkCore.LmProblem([ch₀], blocks)
-            result = VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
+            problem = VgtkCore._LmProblem([ch₀], blocks)
+            result = VgtkCore._lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
             @test problem.variables[1] isa typeof(ch₀)
-            @test result.cost < sum(abs2, first(VgtkCore.nlls_rows_and_jacobian(blocks, [ch₀])))
+            @test result.metadata.cost < sum(abs2, first(VgtkCore._nlls_rows_and_jacobian(blocks, [ch₀])))
             @test norm(local_coordinates(problem.variables[1], truth)) < (eltype(ch₀.t) === Float32 ? 1.0e-5 : 1.0e-9)
         end
     end
@@ -197,11 +197,11 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         xs = [SVector(cos(k), sin(2k), 0.3k) for k in 1:12]
         noise = [0.01 * SVector(sin(3k), cos(5k), sin(7k)) for k in 1:12]
         blocks = [_PointResidual(x, truth(x) + e) for (x, e) in zip(xs, noise)]
-        problem = VgtkCore.LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8)))], blocks)
+        problem = VgtkCore._LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.4, -0.3, 1.8)))], blocks)
         start = copy(problem.variables)
-        VgtkCore.lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
+        VgtkCore._lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-12))
         # the cosine the matrix method reads, of the stacked rows and Jacobian (Core's assembler)
-        cosine(vars) = ((r, J) = VgtkCore.nlls_rows_and_jacobian(blocks, vars); VgtkCore._residual_cosine!(zeros(6), zeros(6), Matrix(J), r))
+        cosine(vars) = ((r, J) = VgtkCore._nlls_rows_and_jacobian(blocks, vars); VgtkCore._residual_cosine!(zeros(6), zeros(6), Matrix(J), r))
         for vars in (problem.variables, start)
             c = cosine(vars)
             @test is_stationary(blocks, vars, [true]; tol = c * (1 + 1.0e-9), ftol = eps())   # the same quantity

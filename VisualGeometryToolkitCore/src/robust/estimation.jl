@@ -199,44 +199,64 @@ RefitFamily(::Nothing) = NativeRefit()                       # no local optimiza
 # -----------------------------------------------------------------------------
 
 """
-    optimization_path(lo::AbstractOptimizationStrategy) -> Symbol
+    OptimizationPath
 
-The paper's optimization-path axis — the column of the design table:
+The paper's optimization-path axis — the column of the design table — as an isbits `@enum`, `OptimizationPath.T`,
+read qualified (`OptimizationPath.irls`):
 
-- `:irls`         — static reweighting: the weight function of a FIXED loss is
-                    applied at every iteration (Welsch-IRLS, GM-IRLS, the hard
-                    truncated refit TLS-LM, Stu-tU-IRLS)
-- `:hq`           — half-quadratic lift: model and lifted weights optimized
-                    JOINTLY, no schedule (Welsch-HQ, GM-HQ, TLS-HQ)
-- `:gnc`          — explicit continuation: a scheduled sequence of progressively
-                    sharper problems (Welsch-GNC, GM-GNC, TLS-GNC, and TLS-LZ —
-                    Le–Zach's relaxed TLS tightened by a μ-schedule)
-- `:bcd`          — block-coordinate ascent on the scoring objective itself
-                    over partition, scale and model (Stu-tU-BCD)
-- `:triggs`       — the fixed loss minimized DIRECTLY: one robust
-                    Levenberg–Marquardt solve on NLLSsolver's robustified
-                    Hessian, no reweighting loop (Cauchy-Triggs)
-- `:classical_lo` — classical LO-RANSAC inner refinement (TLS-LO, TLS-LO⁺)
-- `:seed`         — no local optimization (the seed hypothesis is returned)
-
-Default `:unspecified`, so registries can detect a strategy that has not
-declared its identity. Drives [`lo_marker`](@ref) (marker shape = path) and
-the path half of a composed [`lo_label`](@ref).
+- `irls`         — static reweighting: the weight function of a FIXED loss is applied at every iteration
+                   (Welsch-IRLS, GM-IRLS, the hard truncated refit TLS-LM, Stu-tU-IRLS)
+- `hq`           — half-quadratic lift: model and lifted weights optimized JOINTLY, no schedule (Welsch-HQ, GM-HQ, TLS-HQ)
+- `gnc`          — explicit continuation: a scheduled sequence of progressively sharper problems (Welsch-GNC, GM-GNC,
+                   TLS-GNC, and TLS-LZ — Le–Zach's relaxed TLS tightened by a μ-schedule)
+- `bcd`          — block-coordinate ascent on the scoring objective itself over partition, scale and model (Stu-tU-BCD)
+- `triggs`       — the fixed loss minimized DIRECTLY: one robust Levenberg–Marquardt solve on NLLSsolver's robustified
+                   Hessian, no reweighting loop (Cauchy-Triggs)
+- `classical_lo` — classical LO-RANSAC inner refinement (TLS-LO, TLS-LO⁺)
+- `seed`         — no local optimization (the seed hypothesis is returned)
+- `unspecified`  — a strategy that has not declared its path (registries refuse it)
 """
-optimization_path(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = :unspecified
-optimization_path(::Nothing) = :seed   # no local optimization: the seed stands
+module OptimizationPath
+@enum T::UInt8 irls hq gnc bcd triggs classical_lo seed unspecified
+public T, irls, hq, gnc, bcd, triggs, classical_lo, seed, unspecified   # read qualified, `OptimizationPath.irls`
+@doc "`OptimizationPath.T`: the `OptimizationPath` enum type, a strategy's `optimization_path` (an isbits `@enum`)." T
+@doc "`OptimizationPath.irls`: an `OptimizationPath` — static reweighting, the weight function of a fixed loss at every iteration." irls
+@doc "`OptimizationPath.hq`: an `OptimizationPath` — a half-quadratic lift, model and lifted weights optimized jointly." hq
+@doc "`OptimizationPath.gnc`: an `OptimizationPath` — explicit continuation, a scheduled sequence of sharper problems." gnc
+@doc "`OptimizationPath.bcd`: an `OptimizationPath` — block-coordinate ascent on the scoring objective over partition, scale and model." bcd
+@doc "`OptimizationPath.triggs`: an `OptimizationPath` — the fixed loss minimized directly, one robust Levenberg–Marquardt solve." triggs
+@doc "`OptimizationPath.classical_lo`: an `OptimizationPath` — classical LO-RANSAC inner refinement." classical_lo
+@doc "`OptimizationPath.seed`: an `OptimizationPath` — no local optimization, the seed hypothesis returned." seed
+@doc "`OptimizationPath.unspecified`: an `OptimizationPath` — a strategy that has not declared its path (registries refuse it)." unspecified
+end
+
+"""
+    optimization_path(lo::AbstractOptimizationStrategy) -> OptimizationPath.T
+
+A strategy's optimization path ([`OptimizationPath`](@ref)). Default `OptimizationPath.unspecified`, so registries can
+detect a strategy that has not declared its identity; `nothing` (no local optimization) is `OptimizationPath.seed`.
+Drives [`lo_marker`](@ref) (marker shape = path) and the path half of a composed [`lo_label`](@ref).
+"""
+optimization_path(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = OptimizationPath.unspecified
+optimization_path(::Nothing) = OptimizationPath.seed   # no local optimization: the seed stands
 
 "The display suffix of an optimization path (the `-IRLS` / `-HQ` / `-GNC` / `-BCD` / `-LO` half of a method name)."
-path_suffix(path::Symbol) =
-    path === :irls ? "IRLS" : path === :hq ? "HQ" : path === :gnc ? "GNC" :
-    path === :bcd ? "BCD" : path === :triggs ? "Triggs" : path === :classical_lo ? "LO" : path === :seed ? "seed" :
-    error("optimization_path $path has no display suffix (declare one of :irls/:hq/:gnc/:bcd/:triggs/:classical_lo/:seed)")
+function path_suffix(path::OptimizationPath.T)
+    path === OptimizationPath.irls && return "IRLS"
+    path === OptimizationPath.hq && return "HQ"
+    path === OptimizationPath.gnc && return "GNC"
+    path === OptimizationPath.bcd && return "BCD"
+    path === OptimizationPath.triggs && return "Triggs"
+    path === OptimizationPath.classical_lo && return "LO"
+    path === OptimizationPath.seed && return "seed"
+    throw(ArgumentError("optimization_path $path has no display suffix (a strategy declares its OptimizationPath)"))
+end
 
 "The PGFPlots marker of an optimization path — the figure grammar's `shape = path` rule."
-path_marker(path::Symbol) =
-    path === :irls ? :o : path === :hq ? :triangle : path === :gnc ? :diamond :
-    path === :bcd ? :oplus : path === :triggs ? :square : path === :classical_lo ? Symbol("pentagon*") :
-    path === :seed ? :asterisk : :o
+path_marker(path::OptimizationPath.T) =
+    path === OptimizationPath.irls ? :o : path === OptimizationPath.hq ? :triangle : path === OptimizationPath.gnc ? :diamond :
+    path === OptimizationPath.bcd ? :oplus : path === OptimizationPath.triggs ? :square :
+    path === OptimizationPath.classical_lo ? Symbol("pentagon*") : path === OptimizationPath.seed ? :asterisk : :o
 
 """
     ScaleInterface
@@ -318,14 +338,14 @@ loss_family(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) 
 loss_family(::Nothing) = :none
 
 # -----------------------------------------------------------------------------
-# Weight policies — the nuisance and weight blocks of block_coordinate_descent!
+# Weight policies — the nuisance and weight blocks of BlockCoordinateDescent
 # -----------------------------------------------------------------------------
 
 """
     AbstractWeightPolicy
 
 A reweighting rule: the nuisance and weight blocks of
-[`block_coordinate_descent!`](@ref). The contract is deliberately
+[`BlockCoordinateDescent`](@ref). The contract is deliberately
 minimal — a weight policy promises weights, nothing more:
 - `update_nuisance!(policy)`: refresh whatever nuisance parameters the policy
   carries — ŝ², ν, the mixing weight π, the Barron shape α — at the current
@@ -349,7 +369,7 @@ abstract type AbstractWeightPolicy end
 
 Refresh the policy's per-residual WEIGHTS from the current residuals and the
 nuisance parameters [`update_nuisance!`](@ref) just set, at a fixed model: the
-weight block of [`block_coordinate_descent!`](@ref), run after the nuisance
+weight block of [`BlockCoordinateDescent`](@ref), run after the nuisance
 block in every iteration. It writes the weights and nothing else.
 """
 function update_weights! end
@@ -358,7 +378,7 @@ function update_weights! end
     update_nuisance!(policy::AbstractWeightPolicy) -> policy
 
 Refresh the policy's NUISANCE PARAMETERS at the current residuals and a
-fixed model. One half of the pair [`block_coordinate_descent!`](@ref) runs per
+fixed model. One half of the pair [`BlockCoordinateDescent`](@ref) runs per
 iteration, always in this order:
 
     update_model! → residuals → update_nuisance! → update_weights! → check
@@ -402,7 +422,7 @@ abstract type NormalizedWeightPolicy <: AbstractWeightPolicy end
     FrozenNuisance() <: AbstractWeightPolicy
 
 The weight policy that holds nothing: `update_nuisance!` and `update_weights!`
-are no-ops that return the policy. For a [`block_coordinate_descent!`](@ref)
+are no-ops that return the policy. For a [`BlockCoordinateDescent`](@ref)
 whose loss stays at the deployment it was seeded with (a closed-form lift, a
 fixed-scale reweighting whose weights the model block computes itself): the
 nuisance and weight blocks are frozen, and the loop still calls them.

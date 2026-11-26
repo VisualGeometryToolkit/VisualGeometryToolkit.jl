@@ -7,6 +7,12 @@
 VisualGeometryToolkitEstimation `"0.13"`). The scale-prior fit is an algorithm of that interface. Numerics are
 unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`) replay bit for bit.
 
+### On Core 0.14's breaking set (R22)
+- The external refit reads its `FitResult` (Core's `external_refit!` returns one): the engine's refit takes `r.u` when
+  `found_model(r)`. `ScoreGuarded` forwards the record unchanged.
+- The arm-style records read `optimization_path` as Core's `OptimizationPath.T` (`OptimizationPath.unspecified`
+  refused, as the Symbol was).
+
 ### Conformance (no public estimator outside `solve`; one name per algorithm value)
 - **`VisualGeometryToolkitEval.Pools` is `VisualGeometryToolkitEval.PoolFiles`** (the pool FILE IO: `ScoringPool`,
   `save_pool`, `load_pool`, `PoolResiduals`, `migrate_pool`, …): one `Pools` in the stack, VisualGeometryToolkitCore's

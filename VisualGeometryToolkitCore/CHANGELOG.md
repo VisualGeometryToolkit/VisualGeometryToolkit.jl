@@ -8,6 +8,13 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- `block_structure(f::AbstractBlockProblem, u0) -> (vars, blocks, stated)`, a contract generic (in
+  `CONTRACT_GENERICS` and `SOLVER_HOOKS`): a bundle stated ONCE per solve. Core's block refine reads it once per
+  one-shot `solve`, `init` and `reinit!` (default `(block_variables(f, u0), residual_blocks(f, u0), nothing)`), and
+  `block_result` receives `stated` as the summary's field `stated` (`(; stated)` when the bundle asks for no summary;
+  no field for `nothing`). A `reinit!` that keeps the blocks of a bundle with no `stated` reads `block_variables`
+  alone, as before. A bundle whose blocks, variables and result come from one reading of its data (Estimation's
+  `CameraPosesProblem` and `RobotWorldHandEyeProblem`) no longer reads it three times per solve.
 - **Breaking: American in identifiers (decision 11).** `SensorCharacterisation` → `SensorCharacterization`; the
   `ModelReason` `NoCharacterisation` → `NoCharacterization`; `sensor_fixture`'s field `characterisation` →
   `characterization`. There are no aliases. Each old name is in `RETIRED_NAMES`, together with `sensor_characterisation`
@@ -33,6 +40,21 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   module: `check_naming(M::Module)` (`test_naming(M)`) adds every module-level `const` whose value is a concrete type of a
   stack package under another name, a computed `const X = typeof(…)` included. Every hit in the monorepo is removed
   (below).
+- `toml_unbounded(n)` and `unbounded_from_toml(v, key)` (public; C2): the stack's one TOML encoding of a count with no
+  cap — `typemax(Int)` written as `"unbounded"`, read back by key, anything else refused naming the key. BlobBoards'
+  `max_detections` hook and Core's test fixture call it in place of their own copies; the stored format is unchanged.
+- RETIRED_NAMES gains Phase 2b's retired names (C5): RansacScoringDoneRight's `gpd_support`, `gpd_outlier_cost`
+  (internal) and the `loss_width_scoring(…)` constructor; LocalOptimizationDoneRight's `PoseLibLm`, `PoseLibLZ`,
+  `PoseLibLmAdaptLossWidth` (each a `BackendRefit`) and `TruncatedRefit`; VRTK's `RADIAL_CHARTS` (`RADIAL_CHART_TAGS`)
+  and its 0.2.0 non-math alias names (`𝐩_of_pixel`, `pixel_of_𝐩`, `ℐ_𝐮`, `𝐩_sample`, `𝐚_sample`, `𝐚_weight`,
+  `𝐚_border`, `Θ_m_nonlinear`, `with_μ`, `Λ_ggx`). The papers' math symbols are not retired. `RADIAL_CHARTS` leaves
+  `MOVED_NAMES` (its refusal named VRTK's old name; the name is retired instead).
+- RETIRED_NAMES gains RadiometricCamera's `CalibrationState` (RC b348450, C4): `calibration_problem(board, settings,
+  camera, poses, mat, light, targets; …)`, a `RefineProblem(CalibrationData, CalibrationParameters)`; the
+  `start_calibration` and `refine_calibration!` entries name RC's current replacements
+  (`RadiometricCalibration(RadiometricRefinement(options))`, `solve(RefineProblem(f, u0), RadiometricRefinement(options))`).
+- RETIRED_NAMES gains `board!` (C3): BlobBoards' Makie recipe is `projectedboard!` (`ProjectedBoard`,
+  `projectedboard`; BB 9386b68). Core's `board(::PlanarTarget)` stays.
 - RETIRED_NAMES gains PanoramaStitching 0.12's retired names (`refine_rotations`, `refine_camera_and_rotations`,
   `fit_vignetting`, `ring_pair_vignetting`, `fit_additive_level`, `sweep_up`), each with its replacement.
 - RETIRED_NAMES gains RadiometricCamera 0.4.0's retired names (`start_calibration`, `refine_calibration!`, the
@@ -178,15 +200,17 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   routes to `lm_backend_refine`. `honoured_stops(backend)` / `check_honoured_stops` say which `LmStops` fields a backend
   honours, and `BackendRefit(alg, stops; cheirality_vote_points = 256)` is THE `ExternalRefit` strategy of any
   refine algorithm (`estimator_kind(alg) === RefineKind()`, else an `ArgumentError`): its `external_refit!` returns the
-  refined model, `solve(…).u`, whatever the record (a budgeted `(MaxIters, IterationCap)` stop is normal; it returned
-  the `FitResult`, a contract bug). `cheirality_vote_points` is the essential route's decomposition subsample
-  (PoseLib.jl's `PoseLibEstimationExt`); its default, 256, is LocalOptimizationDoneRight's configuration of record.
+  refine's `FitResult` (the external refit's contract, below), its `u` the refined model whatever the record (a
+  budgeted `(MaxIters, IterationCap)` stop is normal). `cheirality_vote_points` is the essential route's decomposition
+  subsample (PoseLib.jl's `PoseLibEstimationExt`); its default, 256, is LocalOptimizationDoneRight's configuration of
+  record. PoseLib's stack dependencies name Estimation (its weak dependency).
   `cheiral_pose_fast(E, cs::AbstractVector{<:Correspondence}; vote_points)` is the vote on the strided subsample
   `1:max(1, n ÷ vote_points):n` of `cs`'s bearing pairs as a plain `EuclideanMap` (the three-argument vote on its
-  views, bit for bit): the one start of a relative-pose refit from an essential hypothesis. Its identity traits (`optimization_path`, `scale_interface`, `loss_family`,
-  `lo_label`, `lo_marker`) are its algorithm's, a Levenberg–Marquardt's its `optimization_strategy`'s, with
-  `scale_interface` `FixedScale()` (the refit is given its width); they fell to the defaults (`:unspecified`). The
-  defaults cover a refine algorithm (`AbstractEstimationAlgorithm`) as they cover a strategy.
+  views, bit for bit): the one start of a relative-pose refit from an essential hypothesis.
+  Its identity traits (`optimization_path`, `scale_interface`, `loss_family`, `lo_label`, `lo_marker`) are its
+  algorithm's — a Levenberg–Marquardt's are its `optimization_strategy`'s, its scale `FixedScale()` — where they fell
+  to the defaults (`OptimizationPath.unspecified`) before. The defaults cover a refine algorithm
+  (`AbstractEstimationAlgorithm`) as they cover a strategy.
 - `check_duplication`'s `[similar]` check: two ONE-EXPRESSION bodies (a short-form definition, or a long form of one
   statement) whose calls share no function — a recursion read as the definition itself — are no candidate pair. Their
   normalized tokens are identical for every one-line forward of one shape (`f(a, b) = g(a, h(a, b))`), so two
@@ -218,6 +242,29 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   no restated steps. An unknown owner, or an owner's version newer than its package's, is refused.
 
 ### Changed
+- **Breaking: the Phase 1A breaking set (the conformance audit's Core rows).**
+  - The block-coordinate stop contract records the enums (C8): `stop_reason(criterion, state, method, prob, θ, θ_old,
+    iter)` returns `(ReturnCode.T, StopRule)`, `CONTINUE = (ReturnCode.Default, NoRule)` while a run goes on, and
+    `block_coordinate_result(state, method, prob, θ, code::ReturnCode.T, final_iter, rule::StopRule)` receives the
+    enum in place of its Symbol `stop_reason`. The `stop_rule`
+    generic is gone (a criterion's rule is its `stop_reason`'s; `stop_rule` stays a `FitResult` field).
+  - `optimization_path` returns an `OptimizationPath.T` enum (`OptimizationPath.irls`, …, `seed`, `unspecified`; G-r),
+    not a Symbol; `path_suffix` and `path_marker` take it. The persisted suffix strings are unchanged.
+  - `external_refit!(ws, lo, problem, θ, width, scoring)` returns a `FitResult` (its `u` the refined model), not
+    `θ′ | nothing`, as `BackendRefit`'s `solve` already did.
+  - `best_pool_model(scoring, pair, R; ws, scores)` → `best_pool_model!(ws, scoring, pair, R; scores)`, the scorer
+    workspace the mutated positional argument (C15).
+  - The Monte Carlo trial builders take the estimator as `problem` and `algorithm` keywords, both or neither (an
+    `ArgumentError` otherwise; C14): the trial reads `solve(problem(ch, cs_noisy), algorithm)` and its `u`. The
+    `estimate` keyword is gone. The default estimate is unchanged.
+  - The harness's tracked continuation is a refine (C13): `solve(RefineProblem(NoisePathProblem(ch, clean, noisy),
+    u0), PathFollowing(; stages, min_dt); stops = ToleranceStops(; max_iter, rtol))`, `u` the model at the tracked
+    chart point and `metadata.v` the point; a stage that fails at `min_dt` is `(Failure, LeftBasin)`.
+  - `are_points_distinct(pts::NTuple; tol_px)` is public: the minimal-sample coincidence gate on a whole tuple.
+  - `chart_refit` returns a `FitResult` (`u` the model, `nothing` with `(Failure, NonFinite)` on a non-finite solve)
+    in place of its `(model, (code, rule), iterations)` tuple. The LM kernels return `FitResult`s only; their
+    `(x, F, converged, iterations, (code, rule))` tuple and `(; code, rule, iterations, cost)` forms are gone with the
+    public `lmsolve_chart!` name.
 - `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports
   (ColorTypes' `Gray`) is no stack type (`const X = Gray{N0f8}` is allowed, as the run-time check already held).
   TASK_VERBS gains BlobBoards' `find_boards_python`, `find_boards`' entry for Python callers.
@@ -284,12 +331,79 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   no `isa` branch. The `[[backend]] __init__` exemption is gone.
 - The two `[[splat]]` exemptions (`truncated_log_normaliser`, `test_scoring_contract`) are gone: named arguments.
 - One box refusal (`_refuse_box(prob, alg)`) and one refusal of an unimplemented contract generic (`_no_method`)
-  replace their per-algorithm copies (duplication gate). A bundle's route to `block_refit` is chosen by dispatch, not by
-  `which`: a block solve allocates 14 / 16 at N = 100 / 1000 (RelposeBundle; it was 42 / 44 on the reflection route).
+  replace their per-algorithm copies (duplication gate).
 - `project`'s batched form no longer overlaps `BoundedCamera`'s forward or `NoncentralSplineModel`'s scalar seed form:
   no method ambiguity.
 
 ### Removed
+- The local optimization's front end (1A follow-ups G1–G3, ruled 2026-11-26), each the internal kernel's arithmetic bit
+  for bit and 0-allocation warm:
+  - the chart refine's cache setting `summary = nothing` (beside `weights`; the default `CodimensionRows()` is the
+    refine of record): `init(RefineProblem(p, zero(M)), LevenbergMarquardt(); weights, summary = nothing)` then
+    `solve!(reinit!(c, θ; weights))` is a RANSAC local optimization's refit — the chart `refit_chart(f, θ, weights)`
+    (`nothing`: declined, `(InitialFailure, NoRule)`), one chart LM on `refit_rows(f, ch, sqrtw)`, the model only; under
+    a `Triggs{K}` strategy one robustified LM on `model_chart`/`chart_rows`, as the old Triggs kernel. The weights'
+    type is fixed at `init` (`nothing`, a `Vector` or a view).
+    `refit_chart` and `refit_rows` are new contract generics (defaults `model_chart`, `chart_rows`). The cache is the
+    workspace: a caller holds the `init`'d cache (built once per solve from the `zero(M)` placeholder guess).
+  - `width` takes a `DeployedLoss` (of the strategy's shape), used as deployed: a frozen LO loss reaches the Triggs refit
+    with its squared width unchanged.
+  - the block refine guards too-few data as the chart refine does (one guard): a bundle whose `data_size` is below its
+    `minimal_sample_size` (default 0, none) returns `u = nothing`, `(InitialFailure, NoRule)` before any block is built;
+    the `CodimensionRows()` and `RowsWithJacobian()` summaries carry the parsed refine as `loss` (`(; strategy, input,
+    loss)`; `scale_record(summary.loss)` its scale record) for `block_result`, and its per-block squared norms are one sum (`_block_sq`). Dropped: `RelativePoseProblem`'s refusal
+    of a damping other than `MarquardtDamping` (the bundle no longer sees the damping; ruled 2026-11-26).
+  - a row refine's result carries `stationary()` (`metadata = (; cost, stationary)`), the chart LM's stationarity
+    postcondition on demand, as the chart-problem refine's does (G8);
+  - `chart_size(f, u0)`, the chart size at the guess (default `chart_size(f)`), read once at a chart-problem refine's
+    `init`: a chart problem whose dof depends on its guess (a camera regression) refines through the front end (G9).
+  - a deployed `width` is accepted under `Triggs{GaussianShape}` too (ℓ2-Triggs at its deployed width, the LO's
+    robustified LM, bit for bit), in the refine with and without summary; the shape-only spelling stays refused. The
+    one-shot `solve` of a chart refine takes the cache settings `init` takes (`weights`, `summary`), on the task's
+    kept workspace.
+  - the summary-free refit reads its `θ` as the problem's own model (`convert(model_type(f), θ)`, a RANSAC
+    hypothesis), the summary refine a user's guess (`guess_model`: a physical pose stripped): a physical
+    `AbsolutePoseProblem`'s LO refit no longer meets the guess reader (A4).
+  - `BlockCoordinateDescent` runs from a seeded state: `RefineProblem(prob, θ₀, state)` skips `init_state!`; the
+    one-shot `solve` builds no cache; `reinit!(c, θ₀′; p = state′)`.
+  - the one-shot block refine (`solve(RefineProblem(f::AbstractBlockProblem, u0), LevenbergMarquardt(); …)`) runs on
+    the task's kept multi-block LM of its kind (the bundle's type, its variables' and blocks' element types, the
+    parsed loss's and the damping's types; A3): a call of the kept structure (the variables' types and sizes, the held
+    variables, the blocks' types, `varindices` and row counts, in order) re-seeds it in place — the guess's variables
+    and the call's blocks over the kept ones — so it rebuilds neither the NLLSsolver problem nor its linear system;
+    another structure replaces it, the old one released first (one per task and kind, whatever the sizes). Bit for bit
+    the `init`/`solve!` refine; its allocations per call no longer grow with the data (a bundle of N points built an
+    `_LmProblem` per call: 466/2804/29828 allocations at N = 100/1000/10000). A one-shot refine started from a running
+    one's callback on the same task builds its own problem. `block_result`'s `r.u` is the kept problem's vector, valid
+    until the next refine of the kind on the task.
+    `task_kept_blocks(F)` (public) reads the policy: the blocks of each problem the task keeps for bundles of type `F`.
+  - a chart problem whose chart has no coordinates (`chart_size` `(rows, Val(0))`: every parameter held, a camera
+    regression with `fixed = (:f, :k, :d)`) is not solved (C1): the model at the guess, `(Success, ClosedForm)`, no
+    step, `metadata.cost` its rows' `‖r‖²`, `stationary()` true, then the problem's `chart_result` — one-shot and
+    cache alike (it was NLLSsolver's `AssertionError` "Problem with nvars()", Core 0.13 returned the guess).
+- **Breaking: R22, Core's solver drivers are internal (owner, 2026-11-26).** Outside Core, user-level code calls only
+  `solve`, `init`, `solve!` and `reinit!`. The drivers are `_`-prefixed and leave the public API, each in RETIRED_NAMES
+  with its front-end replacement: `lmsolve_chart!`, `LmProblem`, `ManifoldLmWorkspace`, `lm_workspace`,
+  `lm_workspace_type`, `fill_sqrt_weights!`, `chart_refit`, `triggs_refit` (`solve`/`init` on a `RefineProblem` with
+  `LevenbergMarquardt`; the cache keeps the workspace, `reinit!(c, θ; weights)`), `block_coordinate_descent!`
+  (`BlockCoordinateDescent(method; likelihood)` with `stops = StopAfterIteration(max_iter)`), `nlls_rows_and_jacobian`
+  (`residual_summary(f) = RowsWithJacobian()`), `nlls_features`, `nlls_stop_reasons`, `grid_brent_minimum`
+  (`GridBrent()` on a `BracketedMinimizationProblem`), `cgls` (`CGLS()` on a `PenalizedLeastSquaresProblem`) and
+  `normal_cg` (`NormalCG()` on a `NormalEquationsProblem`). `initialize_solver!`, `step_solver!` and `stop_solver!` keep
+  Manopt's names but leave `public`: they are `CORE_INTERNAL_DRIVERS`. `check_naming` gains R22 (no reach of a Core `_`
+  name or internal driver anywhere outside Core; no call of a `SOLVER_HOOKS` name in user-level files outside a
+  definition of one; a contract test carries `# R22: contract test — <contract>`). The LM gate of `check_duplication`
+  loses its "the entry points may be called anywhere" allowance (C1): Core's internal kernels are primitives outside
+  lm_core.jl and refine.jl.
+- **The Phase 1A breaking set's retired names**, each in RETIRED_NAMES: `retcode_from_symbol` and `lo_estimate`'s
+  Symbol form (the producer records `(ReturnCode.T, StopRule)` directly; C9); `retcode_symbol` (read `r.retcode` and
+  `r.stop_rule`); `median_seeded_posterior` (`solve(EstimationProblem(NoiseScale, norms, (; codimension)),
+  MedianNormScale())` for the scale, then `PosteriorWeightState(n; s_hat_sq, …)` and `update_weights!`; C10);
+  `mixture_ecm!` (its four updates in order: `square_distances!`, `update_weights!`, `update_scale!`,
+  `update_inlier_prior!`; C11); `track_manifold_solution` (`PathFollowing` on a `NoisePathProblem`; C13);
+  `best_pool_model` (`best_pool_model!`; C15); the bundle hooks `block_refit` and `block_lm` (the block contract:
+  `block_variables`, `residual_blocks`, `fixed_variables`, `residual_summary`, `block_result`, solved by
+  `solve`/`init` on a `RefineProblem` with `LevenbergMarquardt()`).
 - **The concrete-type aliases** (check_naming R20, owner 2026-11-24), each in RETIRED_NAMES: `Pinhole` →
   `Lens(Perspective())`, the type `Lens{Perspective, Nothing}`; `Extrinsics3` → `CameraExtrinsics` (concrete:
   `CameraExtrinsics{Float64, RotMatrix{3, Float64, 9}, Vec3{Float64}}`; P3P's model type, `MinimalProblem(CameraExtrinsics,

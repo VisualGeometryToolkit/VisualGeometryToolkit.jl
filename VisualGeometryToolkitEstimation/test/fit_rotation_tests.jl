@@ -3,7 +3,8 @@
 # the noise's accuracy where the plain Kabsch is pulled degrees away.
 
 @testitem "rotation fit: exact on clean pairs" begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Rotations: RotMatrix, RotXYZ, rotation_angle
@@ -16,7 +17,7 @@
     cs = Correspondences(as, [R * a for a in as])
     for K in (HuberShape, WelschShape)
         res = rotation_fit(cs; optimization_strategy = Irls{K}(), scale = 1.0e-3)
-        @test retcode_symbol(res) === :converged
+        @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         @test rotation_angle(res.u * R') < 1.0e-14
         @test res.rms < 1.0e-14
     end
@@ -27,7 +28,8 @@
 end
 
 @testitem "rotation fit: 20% outliers" begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using StaticArrays: SVector
     using LinearAlgebra: normalize, norm, cross
     using Rotations: RotMatrix, RotXYZ, rotation_angle
@@ -58,7 +60,7 @@ end
     # the inlier fit, here bounded by 5e-4 rad (σ = 1e-3, 160 inliers).
     for K in (HuberShape, WelschShape)
         res = rotation_fit(cs; optimization_strategy = Irls{K}(), scale = σ)
-        @test retcode_symbol(res) === :converged
+        @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         @test rotation_angle(res.u * R') < 5.0e-4
         @test rotation_angle(res.u * R') < plain / 10
     end
@@ -91,8 +93,8 @@ end
     e = try rotation_fit(cs; optimization_strategy = Irls{TLSShape}(), scale = σ); nothing catch e; e end
     @test e isa ArgumentError && occursin("width", e.msg) && occursin("TLSShape", e.msg)
     # (a weighted solve left with no row inside its loop: SciMLBase's InternalLinearSolveFailed, `:solve_failed`)
-    @test retcode_symbol(rotation_fit(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = σ)) === :solve_failed
+    @test (let r = rotation_fit(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = σ); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.InternalLinearSolveFailed, VgtkCore.NoRule)
     rest = rotation_fit(cs; optimization_strategy = Irls{TLSShape}(efficiency_constant = 100.0), scale = σ)
-    @test retcode_symbol(rest) === :converged && rotation_angle(rest.u * R') < 5.0e-4
+    @test (rest.retcode, rest.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && rotation_angle(rest.u * R') < 5.0e-4
     @test all(iszero, weights(rest)[out])
 end

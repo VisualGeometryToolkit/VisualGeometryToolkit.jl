@@ -112,7 +112,7 @@ end
     using VisualGeometryToolkitCore: dof
     using VisualGeometryToolkitCore: solve, EstimationProblem
     using VisualGeometryToolkitEstimation: Ransac
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using Test, StableRNGs
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: correspondences, noise_scale, scale_source, MsacScoring, ScaleEstimated, ScaleNone, ScaleUpstream, scale_input
@@ -148,7 +148,7 @@ end
     @test noise_scale(q) ≈ noise_scale(p) rtol = 1.0e-14
     @test q.metadata.left_out == 1
     d = pool([failed])
-    @test retcode_symbol(d) === :degenerate && isnan(d.u) && scale_source(d) === ScaleNone
+    @test (d.retcode, d.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && isnan(d.u) && scale_source(d) === ScaleNone
     @test_throws ArgumentError noise_scale(d)
     # the same pool from the recorded numbers (each result's scale and dof, as a record on disk holds them): the one body,
     # bit-identical; a NaN scale (none recorded) or a dof ≤ 0 is left out and counted
@@ -156,6 +156,6 @@ end
     @test pool(s, ν).u === p.u && pool(s, ν).metadata == p.metadata
     r = pool([s; NaN; 0.7], [ν; 12; 0])
     @test r.u === p.u && r.metadata.left_out == 2 && r.metadata.pooled == 3
-    @test retcode_symbol(pool([NaN], [5])) === :degenerate
+    @test (let r = pool([NaN], [5]); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)
     @test_throws DimensionMismatch pool(s, ν[1:2])
 end

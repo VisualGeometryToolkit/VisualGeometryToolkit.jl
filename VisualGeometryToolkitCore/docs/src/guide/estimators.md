@@ -92,13 +92,16 @@ through one of two contracts.
   [`default_optimization_strategy`](@ref) and [`default_stops`](@ref). A guess
   in a wider type than the problem's model is mapped in by [`guess_model`](@ref)
   and the estimate back by [`solution_model`](@ref) (the frame labels and units
-  of the guess). The host runs [`chart_refit`](@ref) for least squares and
-  [`triggs_refit`](@ref) for a robustified loss, on the reusable
-  [`lm_workspace`](@ref).
+  of the guess). The refine is `solve(RefineProblem(f, θ), LevenbergMarquardt(;
+  optimization_strategy); stops, scale | width)`: plain least squares, or one robustified LM under a
+  `Triggs{K}` strategy; `init` keeps its workspace across `reinit!(c, θ′; weights)`.
 - **The block contract** (several variable blocks, a bundle):
-  [`AbstractBlockProblem`](@ref) and its one method,
-  [`block_refit`](@ref)`(f, u0, loss, stops, damping)`, usually a call of
-  [`block_lm`](@ref) on blocks robustified by [`with_robustifier`](@ref).
+  [`AbstractBlockProblem`](@ref) and its hooks: the problem at the guess
+  ([`block_variables`](@ref), [`residual_blocks`](@ref), [`fixed_variables`](@ref); or
+  [`block_structure`](@ref), the bundle stated once with what its result keeps of it),
+  the summary it asks for ([`residual_summary`](@ref)) and its result
+  ([`block_result`](@ref)), each residual block type answering
+  [`with_robustifier`](@ref). Core builds and solves the multi-block LM.
 
 The robust loss is parsed once, from the solve's `scale`/`width` and the
 algorithm's strategy, by [`bundle_loss`](@ref); the result records the scale it
@@ -226,7 +229,7 @@ The label trait `scale_interface` is derived from the mode
 solver) declares `RefitFamily(lo) = ExternalRefit()` and implements
 `external_workspace(lo, problem, frame, scoring)`, optionally
 `prepare_external!`, and `external_refit!(ws, lo, problem, θ, width, scoring) ->
-θ′ | nothing`, a pure model-to-model refine at an absolute `LossWidth` (a
+FitResult` (its `u` the refined model), a pure model-to-model refine at an absolute `LossWidth` (a
 `FixedS2(s2)` noise scale is the width `√s2` unless the refiner reads it
 itself). In-loop strategies are `NativeRefit()`, the default.
 
@@ -238,11 +241,11 @@ their Jacobian and per-point norms in a `RowsWorkspace`. Problems provide it
 schedules that consume it are LocalOptimizationDoneRight's.
 
 **Pool selection** over a benchmark pool record (`Pools.PoolPair`):
-`best_pool_model(scoring, pair, R)` is the per-pair argmax of `score!` over the
+`best_pool_model!(ws, scoring, pair, R)` is the per-pair argmax of `score!` over the
 stored models; `select_on_grid!(idxs, P, scoring, grid, staged)` the
 selections at every width of a grid, after `selection_staging(scoring)` and
 `stage_selection(key, pairs, residuals; backend)`. The generic method is a CPU
-fallback (per column `with_width`, then `best_pool_model`); a grid family with
+fallback (per column `with_width`, then `best_pool_model!`); a grid family with
 device kernels (RANSACScoringDoneRight) implements its own staging and
 selection.
 
@@ -269,24 +272,23 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
 - **Scoring/LO interface hierarchy** ([`AbstractScoring`](@ref),
   [`AbstractOptimizationStrategy`](@ref), [`RefitFamily`](@ref),
   [`AbstractWeightPolicy`](@ref)) — the type hierarchy of the contracts above.
-- **Generic block-coordinate-descent loop** ([`block_coordinate_descent!`](@ref),
+- **Generic block-coordinate-descent loop** ([`BlockCoordinateDescent`](@ref),
+  `solve(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops)`,
   [`AbstractBlockCoordinateMethod`](@ref) and its extension verbs) — the
   model/nuisance/weights loop (EM, IRLS, GNC, Barron-adaptive) stated once, extended by downstream methods.
 - **Chart-rows contract** (`rows_provider`, `lift_rows`, `RowsWorkspace`) —
   what a lifted local optimizer reads of a chart problem: its whitened rows,
   their Jacobian and per-point norms. The lifts and their continuation
   schedules are LocalOptimizationDoneRight's.
-- **The one LM** ([`LevenbergMarquardt`](@ref), `lmsolve_chart!`, `LmStops`; [`StaticLevenbergMarquardt`](@ref),
+- **The one LM** ([`LevenbergMarquardt`](@ref), `LmStops`; [`StaticLevenbergMarquardt`](@ref),
   `StaticLmStops`) — the stack's Levenberg–Marquardt: NLLSsolver (Marquardt's DᵀD damping by default,
   `LevenbergDamping` opt-in; the damping is the algorithm's field, not a stop setting) through ONE
-  adapter, `lmsolve_chart!`, on a linearization state's `residual_rows!` /
-  `residual_jacobian_rows!` (a `ManifoldLmWorkspace` keeps the problem and the
-  solver's internal data), the same robustified per datum, or a multi-block
-  `LmProblem` (the bundles: heterogeneous variables and residual blocks, each with
-  its own robustifier). Its stop settings have ONE owner, `LmStops`
-  (configs/default.toml `[lm]`); an `LmProblem`'s damping is the problem's own
-  (its kept cache is built for it), and a chart solve takes its damping as
-  `lmsolve_chart!`'s last argument. Every solve has ONE success rule (Core 0.11.0):
+  internal adapter, solved by `solve`/`init` on a `RefineProblem`: of a row problem
+  ([`AbstractRowProblem`](@ref): a linearization state's `residual_rows!` / `residual_jacobian_rows!`), of a chart
+  problem (the chart contract, robustified per datum under `Triggs{K}`), or of a bundle (the block contract:
+  heterogeneous variables and residual blocks). The cache `init` returns keeps the problem and the solver's internal
+  data across `reinit!`. Its stop settings have ONE owner, `LmStops` (configs/default.toml
+  `[levenberg_marquardt.stops]`). Every solve has ONE success rule (Core 0.11.0):
   a tolerance stop (`ftol`, `xtol`, `xtol_rel`) is converged, and the
   consecutive-rejection cap is judged by the stationarity postcondition at the
   returned point (`is_stationary`), a cost below the final point's rounding
@@ -295,7 +297,7 @@ and `test_constraint_problem` (loaded with `Test`) check an implementation.
   LM, `solve(RefineProblem(fj, x₀; lb, ub), StaticLevenbergMarquardt(); stops)`, under `StaticLmStops` and its own rule (stationary and accepted). No package calls
   NLLSsolver's solver API directly: `check_duplication` fails it. The Schur
   complement (NLLSsolver pull request #60, still
-  open) is used when the loaded NLLSsolver has it (`nlls_features`); see "The
+  open) is used when the loaded NLLSsolver has it; see "The
   Schur complement of the LM driver" in [Getting Started](getting-started.md).
 
 ## Model manifolds and covariance

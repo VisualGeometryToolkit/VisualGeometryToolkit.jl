@@ -245,7 +245,7 @@ function record_est_conics_ransac(cases)
     end
     # triggs_tests: every loss of Core's table as a Triggs at the plain multiple 2.5, from a perturbed guess
     g, pts = last(cr_circle_refine_fixtures()[4])
-    for (K, tag) in VgtkCore._LOSS_TABLE
+    for (tag, K) in VgtkCore.LOSS_TAGS
         case!(cases, "circle_refine/perturbed_noisy0.3_200/triggs_$(tag)_ec2.5_scale0.3", (g, pts),
             ((g, pts),) -> refine_circle(g, pts; optimization_strategy = Triggs{K}(efficiency_constant = 2.5), scale = 0.3))
     end

@@ -29,12 +29,13 @@ const _NAMING_RULE_TEXT = Dict{Symbol, String}(
     :R5 => "no identifier holds the word `step` (an algorithm's model-block update is its `update_model!`), except Manopt.jl's `step_solver!` and SciMLBase's `nsteps`",
     :R6 => "a local model's Δ is `<method>_increment`",
     :R7 => "a banned word or phrase: a random hypothesis draw is a trial, never an iteration, and a deterministic cycle is never a trial (the lists live in `check_naming`)",
-    :R8 => "a variant of a `block_coordinate_descent!` hook name",
+    :R8 => "a variant of a `BlockCoordinateDescent` hook name",
     :R9 => "a retired name (the list lives in `check_naming`)",
     :R10 => "a width is bound by its full name — `efficiency_constant`, `loss_width` or `outlier_halfwidth` — never an abbreviation or a letter (the lists live in `check_naming`)",
     :R11 => "unit parsing, unit tables and unit conversion live in VisualGeometryToolkitCore's units module (its registry StackUnits) and FlexUnits: `parse_unit`/`unit_string`, `quantity`, `base_quantity`, `ustrip`, `strip_or_bare` — never `uparse`/`qparse`/`register_unit` or a unit or registry built by hand (`Units`, `AffineTransform`, `PermanentDict`, `register_unit!`, `registry_defaults!`), a table of unit names, `convert(Quantity{…}, …)`, an `isa Quantity ? ustrip` branch, a bare `ubase` in src or a hand-written factor (25.4, 0.0254, 304.8, 0.3048, 127//5000) (the allow-list lives in `check_naming`)",
     :R12 => "the Student-t + uniform scorer has no threshold: its width is `outlier_halfwidth`; a threshold is a threshold scorer's (the word is flagged within six tokens of the scorer's type name or TOML tag)",
     :R21 => "a FitResult is read by field (`r.u`, `r.retcode`, `r.stats.nsteps`, `r.stop_rule`, `r.rms`, `r.metadata`) and `successful_retcode(r)`, its cross-type quantities only by their functions (`weights(r)`, `dof(r)`, `noise_scale(r)`, `scale_source(r)`, `inlier_mask(r)`): no retired accessor call (`estimate`, `iterations`, `converged`, `retcode`, `metadata`, `stop_rule` on a result, the retired nested-metadata lister) and no `r.metadata.<contract field>` outside the contract method",
+    :R22 => "outside Core, user-level code (experiments, scripts, examples, benchmarks, dev, a README or a docs page, a test that is no contract test) calls only `solve`/`init`/`solve!`/`reinit!`: no call of a `SOLVER_HOOKS` name outside a definition of one, and nowhere a reach of a Core `_` name or a `CORE_INTERNAL_DRIVERS` name (a contract test carries `# R22: contract test — <contract>`)",
     :parse => "the file does not parse",
 )
 

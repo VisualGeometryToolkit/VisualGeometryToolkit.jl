@@ -30705,3 +30705,27 @@ field  = "exception.msg"
 old    = { type = "String", value = "InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
 new    = { type = "String", value = "ArgumentError: InverseGamma family requires a non-trivial fitting (RobustFit or MLE)." }
 reason = "The same refusal text, shown as an ArgumentError's (`ArgumentError: …`, where the ErrorException it was showed the bare text): the illegal PriorSpec is refused by its constructor (owner-approved conformance change V6, 2026-11-26)."
+
+[[change]]
+group  = "est_camera_fits"
+case   = "lensrefine/KB4_mdiv1500/refused_scale"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "The camera-regression refine is plain least squares and took `scale` only to refuse it by name. Under the solve interface it is Core's LevenbergMarquardt on a chart problem, whose run settings are the keywords its `__solve` method declares (`stops`, `callback`), and an undeclared one is a MethodError (design record D5, owner-accepted 2026-11-23; the retired-keyword cases above are the same rule)."
+
+[[change]]
+group  = "est_camera_fits"
+case   = "lensrefine/KB4_mdiv1500/refused_width"
+field  = "exception"
+old    = { type = "type", value = "ArgumentError" }
+new    = { type = "type", value = "MethodError" }
+reason = "The camera-regression refine is plain least squares and took `width` only to refuse it by name. Under the solve interface it is Core's LevenbergMarquardt on a chart problem, whose run settings are the keywords its `__solve` method declares (`stops`, `callback`), and an undeclared one is a MethodError (design record D5, owner-accepted 2026-11-23; the retired-keyword cases above are the same rule)."
+
+[[change]]
+group  = "est_epipolar"
+case   = "relpose_bundle/physical_seed_10/default"
+field  = "exception"
+old    = { type = "type", value = "MethodError" }
+new    = { type = "type", value = "ArgumentError" }
+reason = "A physical seed of a RelativePoseProblem refine had no method (the retired `refine_relative_pose` took a plain pose only). On Core's block contract an absent `block_variables` method is Core's ArgumentError naming the contract; RelativePoseProblem states the refusal itself, as units.md point 3 prescribes for a model that cannot record a unit (an up-to-scale pose): an ArgumentError naming the fix, `ustrip(m, pose)`."

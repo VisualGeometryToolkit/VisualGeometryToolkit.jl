@@ -24,7 +24,7 @@
 # stay PAPER-OWNED (fig_colors.tex names), keyed PER ARM.
 # =============================================================================
 
-using VisualGeometryToolkitCore: lo_label, lo_marker, loss_family, optimization_path, scale_interface,
+using VisualGeometryToolkitCore: lo_label, lo_marker, loss_family, optimization_path, OptimizationPath, scale_interface,
     FixedScale, UnspecifiedScale
 
 """
@@ -57,7 +57,7 @@ function arm_style_records(probes, table)
              marker    = String(lo_marker(p)),
              dashed    = iface isa FixedScale,
              shade     = get(row, :shade, nothing))
-        (r.family === :unspecified || r.path === :unspecified || iface isa UnspecifiedScale) &&
+        (r.family === :unspecified || r.path === OptimizationPath.unspecified || iface isa UnspecifiedScale) &&
             error("figure_style: arm $k probe has unspecified loss_family/optimization_path/scale_interface traits")
         if haskey(row, :scale)
             (row.scale === :fixed_ext) == (iface isa FixedScale) ||

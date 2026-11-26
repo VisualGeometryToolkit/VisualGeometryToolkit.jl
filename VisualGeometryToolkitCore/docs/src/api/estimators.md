@@ -30,6 +30,19 @@ Private = false
 Pages = ["robust/estimation.jl", "robust/weights.jl"]
 ```
 
+```@docs
+OptimizationPath
+OptimizationPath.T
+OptimizationPath.irls
+OptimizationPath.hq
+OptimizationPath.gnc
+OptimizationPath.bcd
+OptimizationPath.triggs
+OptimizationPath.classical_lo
+OptimizationPath.seed
+OptimizationPath.unspecified
+```
+
 ## Problem Protocol
 
 ```@autodocs

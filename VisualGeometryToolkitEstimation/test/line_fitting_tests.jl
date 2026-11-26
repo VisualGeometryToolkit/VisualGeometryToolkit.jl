@@ -1,5 +1,6 @@
+# R22: contract test — the line problem's refit step (`refine!`)
 @testitem "line_fitting" setup = [Contamination] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -117,7 +118,7 @@ using VisualGeometryToolkitEstimation: _heteroscedastic_line, RansacWorkspace
         _, k = VgtkCore.score_model!(ws.buf, sc, prob, θ₀)
         est = VgtkEstimation._lo_on_partition!(ws, prob, θ₀, sc, k, lo)
         @test est.stats.nsteps > 2
-        @test retcode_symbol(est) in (:converged, :max_iterations)
+        @test (est.retcode, est.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.NoImprovement)
         @test abs(signed_distance(est.u, Point2(28.0, 0.0))) < abs(signed_distance(θ₀, Point2(28.0, 0.0)))
     end
 
@@ -130,7 +131,7 @@ using VisualGeometryToolkitEstimation: _heteroscedastic_line, RansacWorkspace
         prob = InhomLineFittingProblem(pts)
         r = solve(EstimationProblem(prob), Ransac(; scoring = MsacScoring(prob; threshold = 0.05), local_optimization_strategy = Irls{WelschShape}(efficiency_constant = 1.5)); rng = StableRNG(60))
         @test successful_retcode(r)
-        @test VgtkCore.retcode_symbol(r.metadata.lo_retcode, r.metadata.lo_stop_rule) === :solve_failed
+        @test (r.metadata.lo_retcode, r.metadata.lo_stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.NonFinite)
     end
 
 end

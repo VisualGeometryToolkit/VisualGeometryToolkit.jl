@@ -4,8 +4,8 @@
 # carrying PoseLib's termination record and iteration count (`stats.nsteps`), the scale record and the C wrapper's raw
 # output (`original`).
 # The renaming changes no number: every PoseLib baseline arm of the stack
-# (LocalOptimizationDoneRight's PoseLibLm/PoseLibLZ/PoseLibLmAdaptLossWidth
-# arms, accv2026's least-squares polish) refines bit-identically.
+# (LocalOptimizationDoneRight's BackendRefit arms on PoseLib's LM, LZ and adaptive-width
+# refits, accv2026's least-squares polish) refines bit-identically.
 
 import VisualGeometryToolkitCore as VgtkCore
 using Test
@@ -245,7 +245,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test VgtkCore.expected_tag(reg, LeZach) == "le_zach"
         # its identity, as the registry row states it
         @test VgtkCore.loss_family(LeZach()) == VgtkCore.loss_family(TLSShape)
-        @test VgtkCore.optimization_path(LeZach()) === :gnc && VgtkCore.loss_family(LeZach()) === :tls &&
+        @test VgtkCore.optimization_path(LeZach()) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(LeZach()) === :tls &&
             VgtkCore.lo_label(LeZach()) == "TLS-LZ"
         @test VgtkCore.lo_efficiency_constant_shape(LeZach) === TLSShape
         @test !VgtkCore.lo_parametric(LeZach) && !VgtkCore.lo_takes_width(LeZach)

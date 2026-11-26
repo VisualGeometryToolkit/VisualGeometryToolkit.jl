@@ -1,3 +1,4 @@
+# R22: contract test — the rotation problem's chart rows and refit step (`residual_rows!`, `residual_jacobian_rows!`, `refine!`)
 # RotationProblem / Ransac on a RotationProblem — the pure rotation between two views of a
 # calibrated fisheye on unit bearings (the infinite homography): the minimal
 # solver, the gates, the residual against VGC's bearing transfer constraint, the
@@ -87,9 +88,10 @@ end
 end
 
 @testitem "Ransac on a RotationProblem: a fisheye rotation past 90° with 30% outliers" setup = [RotationScene] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
     using VisualGeometryToolkitEstimation: Ransac
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask
     using Test, Random, LinearAlgebra, StaticArrays, Rotations, Statistics
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, px, project, backproject_with_jacobian, Correspondences, withattrs, sources, targets, angle_between, MsacScoring
@@ -109,7 +111,7 @@ end
         @test any(θs[findall(inl)] .> deg2rad(90))                       # inliers past 90° took part
     end
     @test let r = solve(EstimationProblem(RotationProblem(FISHEYE, FISHEYE, Correspondences([SA[600.0, 600.0]], [SA[600.0, 600.0]]))), Ransac())
-        retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
     end
     @test_throws ArgumentError solve(EstimationProblem(RotationProblem(FISHEYE, FISHEYE, rotation_scene(rng, one(RotMatrix{3}), 20)[1])), Ransac(; scoring = MsacScoring(RotationProblem; threshold = 0.01)))
 end

@@ -3,9 +3,10 @@
 # bounded SplineLens camera, naming what it got.
 
 @testitem "spline fits: a bounded camera's image is Core's extent; any other source has none" begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    using VisualGeometryToolkitCore: CameraModel, BoundedCamera, Size2, Rect, KannalaBrandt, SplineLens, NoncentralSplineModel, retcode_symbol,
+    using VisualGeometryToolkitCore: CameraModel, BoundedCamera, Size2, Rect, KannalaBrandt, SplineLens, NoncentralSplineModel,
         valid_domain, RegionBeyondSupport
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, PSpline
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
@@ -23,7 +24,7 @@
     bc = BoundedCamera(m, Size2(1280, 960))
     @test_throws RegionBeyondSupport solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, region)), PSpline(; grid_size = (8, 8)))
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, valid_domain(m))), PSpline(; grid_size = (8, 8)))
-    @test retcode_symbol(r) === :solved
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
 end
 
 @testitem "ForwardSpline: a bounded non-central model is refused by name, not a MethodError" setup = [FitCameraNoncentral] begin

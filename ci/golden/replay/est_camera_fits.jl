@@ -742,7 +742,8 @@ function _replay_ecf_bundle!(cases)
     rp!(cases, "centerbundle/spline5_noisy0.5/ls_bearing_residual", (struth, sstart, sv5),
           ((c, s, v),) -> bundle(c, s, v, BearingResidual(); hc..., ls...))
     rp!(cases, "centerbundle/spline5_noisy0.5/ls_reprojection_residual", (struth, sstart, sv5),
-          ((c, s, v),) -> bundle(c, s, v, ReprojectionResidual(); hc..., ls...))
+          # one refine per solve (Core 0.14's breaking set): the bearing refine, then the pixel refine from its estimate
+          ((c, s, v),) -> bundle(c, bundle(c, s, v, BearingResidual(); hc..., ls...).u.views, v, ReprojectionResidual(); hc..., ls...))
     rp!(cases, "centerbundle/spline5_noisy0.5/ls", (struth, sstart, sv5), ((c, s, v),) -> bundle(c, s, v; hc..., ls...))
     return cases
 end

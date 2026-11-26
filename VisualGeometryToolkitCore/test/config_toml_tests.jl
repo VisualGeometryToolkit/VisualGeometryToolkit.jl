@@ -22,7 +22,7 @@
     end
     VgtkCore.toml_skip_fields(::Type{<:_Outer}) = (:camera,)
     VgtkCore.toml_field(c::_Outer, ::Val{:inner}) = toml_table(c.inner)
-    VgtkCore.toml_field(c::_Outer, ::Val{:max_n}) = c.max_n == typemax(Int) ? "unbounded" : c.max_n
+    VgtkCore.toml_field(c::_Outer, ::Val{:max_n}) = VgtkCore.toml_unbounded(c.max_n)
 
     @testset "TOML config skeleton" begin
         @testset "toml_table derives from fieldnames, hooks handle the rest" begin
@@ -30,6 +30,14 @@
             @test Set(keys(d)) == Set(["inner", "mu", "max_n", "flag"])   # camera skipped, μ renamed
             @test d["inner"] == Dict("scale" => 1.5, "mode" => "fast")     # symbol → string
             @test d["max_n"] == "unbounded"                                 # sentinel
+            @test toml_table(_Outer(; max_n = 7))["max_n"] === 7
+            # the reader's half: the sentinel back, a count as itself, anything else refused by key
+            @test VgtkCore.unbounded_from_toml("unbounded") === typemax(Int) && VgtkCore.unbounded_from_toml(7) === 7
+            @test_throws "`max_n` must be an integer" VgtkCore.unbounded_from_toml("unbound", "max_n")
+            @test_throws ArgumentError VgtkCore.unbounded_from_toml(1.5)
+            conv(::Type{<:_Outer}, ::Val{:max_n}, v) = VgtkCore.unbounded_from_toml(v, "max_n")
+            conv(::Type{T}, ::Val{F}, v) where {T, F} = convert_field(fieldtype(T, F), v)
+            @test read_table(_Outer, Dict("max_n" => d["max_n"]); from_toml = conv) == [:max_n => typemax(Int)]   # the round trip
             @test d["flag"] === true
             # allowed keys come from the SAME walk, plus extras
             @test sort(allowed_keys(_Outer)) == sort(["inner", "mu", "max_n", "flag"])

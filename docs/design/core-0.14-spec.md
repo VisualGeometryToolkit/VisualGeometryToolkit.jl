@@ -814,6 +814,58 @@ These are done in Core 0.14, each with its own commit:
   - Its fields are `dark` and `series`; `photon_transfer` and `master_dark` are retired names (R9). `false_defects` is
     configuration, so it lives in the `dark` field.
   - It is the problem's `default_algorithm`, being its only algorithm.
+- 2026-11-26 (1A, lead's ruling on G1–G4): the RANSAC local optimization reaches Core's chart LM only through the front
+  end. G1: the chart refine's cache setting `summary = nothing` (beside `weights`, A-4) is the LO refit — the problem's
+  `refit_chart(f, θ, weights)` and `refit_rows(f, ch, sqrtw)` (new contract generics, defaults `model_chart`,
+  `chart_rows`), one chart LM, the model only (`FitResult{Union{Nothing, M}}`, no residual sweep); a `Triggs{K}` refit
+  reads `model_chart`/`chart_rows`, as the Triggs kernel did (PnP's pixel rows: 1B's finding); the weights' type is
+  fixed at `init` (a Union field would box a view). G2: `width` takes a
+  `DeployedLoss` of the strategy's shape, used as deployed (bit for bit with `lo_loss`). G3: a seeded
+  `BlockCoordinateDescent` run gives its state as the problem's `p`; the one-shot solve builds no cache. G4: the cache
+  IS the workspace (SciML): no `workspace` keyword (C15) and no public LM buffer (R22); `LoBuffers{C}` holds the
+  `init`'d refit cache, built once per RANSAC solve behind a function barrier from the `zero(M)` placeholder guess (the
+  stack's existing placeholder of a model type).
+- 2026-11-26 (1A): `are_points_distinct(pts::NTuple; tol_px = COINCIDENT_PX)` is public, the stack's one
+  minimal-sample coincidence gate on a whole fixed-arity tuple (the homography's 4, P3P's 3). It is checked in the
+  caller's data frame; the problems' `test_sample` gates read it, so no package keeps its own copy.
+- 2026-11-26 (1A, lead's rulings G8, G9): a row refine's result carries `stationary()` in its metadata, the closure the
+  chart-problem refine already returns (one convention; Estimation's OpticalAxis gate reads it). `chart_size(f, u0)`
+  is a method of the chart contract's generic (default `chart_size(f)`), read once per `init` of a chart-problem refine:
+  a dof that depends on the guess (the camera regression's family, lens size, `fixed`) costs at most one function
+  barrier at `init`. Option (b), a size in the refine's spelling, was rejected: it changes the public refine.
+- 2026-11-26 (1A, lead's rulings A1, A2): a `DeployedLoss` as the `width` is accepted under every `Triggs{K}`,
+  `Triggs{GaussianShape}` included (the LO's ℓ2-Triggs at its deployed width keeps the robustified LM, bit for bit), in
+  the summary and the summary-free refine alike; the shape-only Gaussian spelling stays refused. SciML's
+  `solve ≡ solve!(init(…))`: the one-shot chart refine takes `weights` and `summary`, on the shared task workspace (a
+  per-trial refit allocates no workspace of its own).
+- 2026-11-26 (1A, lead's ruling A4): the summary-free refit's `u0` is the problem's own model, read as
+  `convert(model_type(f), u0)` (the RANSAC's `_as_model`); the summary refine keeps `guess_model` for a user's guess.
+- 2026-11-26 (1A, lead's ruling A3): the one-shot block refine keeps its multi-block LM per task and kind (the bundle's,
+  variables' and blocks' element, loss and damping types), in `task_buffers`, never per size: the same structure
+  (variable types and sizes, held variables, block types, `varindices`, row counts, in order — what NLLSsolver's
+  `OptimizeCache` and variable–cost map assume) re-seeds the kept problem in place (its variables and NLLSsolver's
+  per-type cost vectors overwritten, every check before the first write); another rebuilds it. NLLSsolver is used as
+  its `OptimizeCache` documents (the costs' data changed in place, the structure kept); no upstream change. The kept
+  object holds the last call's blocks only, never the bundle or its guess; a reentrant call (from a callback) builds
+  its own problem.
+  A test reads the policy through the public query `task_kept_blocks(F)` (lead: no reach of the internal holder).
+- 2026-11-26 (1A, lead's ruling C1): a zero-dimensional chart (`chart_size` `(rows, Val(0))`) dispatches at the one
+  chart-problem `solve!` (one-shot and cache): no NLLSsolver run, `u` the empty chart vector, `(Success, ClosedForm)`,
+  `nsteps` 0, `cost = ‖r‖²` at it (the `metadata.cost` convention: twice `residual_cost!`), `stationary() = true`, then
+  `chart_result` as usual.
+- 2026-11-26 (1A, lead's ruling C2): the TOML encoding of an uncapped count is Core's, one documented public pair in
+  `base/config_toml.jl` (`toml_unbounded`, `unbounded_from_toml`); a config's `toml_field` hook and reader call it.
+  The stored spelling stays `"unbounded"` (no converter step). BlobBoards deletes its `toml_field` branch and
+  `_max_detections` in favour of the pair, and its DUPLICATION.toml `toml_field` pair goes with them.
+- 2026-11-26 (1A, C3): `board!` is a retired name (BlobBoards' recipe is `projectedboard!`); `board` is not.
+- 2026-11-26 (1A, 1B set 2 into the breaking set): `BackendRefit(alg, stops; cheirality_vote_points)` takes any
+  `RefineKind` algorithm and carries its algorithm's identity traits (a LM's: its strategy's, scale `FixedScale()`; the
+  traits' defaults cover an `AbstractEstimationAlgorithm` as they cover a strategy);
+  in the breaking set its `external_refit!` returns the refine's `FitResult` (the external refit's 0.14 contract), not
+  `.u` as on the non-breaking line.
+- 2026-11-26 (1A, C4): `CalibrationState` is a retired name (RC b348450: `calibration_problem(…)`, a
+  `RefineProblem(CalibrationData, CalibrationParameters)`); the RC entries' replacements follow RC's
+  `RadiometricRefinement`.
 - 2026-11-26 (1B, owner ruling G-j): penalty-weight and hyperparameter selection are estimators. ONE problem tag,
   Estimation's `Hyperparameter` (abstract): `EstimationProblem(Hyperparameter, objective, p)`.
   - `GeneralizedCrossValidation(; log10_bracket, points)` (Estimation, FitKind) replaces `gcv_select`: `u = β`,
@@ -886,6 +938,9 @@ These are done in Core 0.14, each with its own commit:
     either name, so no stored config key moves.
   - The IO reader keeps only the keys a body's spec declares (`_declares`). A newer minor's key, which the validator
     tolerates, would otherwise reach the constructor as an unknown keyword. Tested.
+- 2026-11-26 (1A, lead's ruling C5): Phase 2b's retired names (RSDR, LODR, VRTK) are in RETIRED_NAMES; of VRTK's only
+  the non-math alias names. The papers' math symbols (𝔭, 𝔣, t̂, 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹) stay legitimate notation in prose,
+  docstrings and field names (their bindings are gone: a code use is already an `UndefVarError`).
 - 2026-11-26 (lead, LODR L10): a configuration value that changes FORM (LODR's `adapt_scale::Bool` becoming the
   `scale_interface` tag) is a step of the package's versioned converter: `ConfigMigration`'s `values`, one owner in
   Core, run after the renames. Never a refusal; the old form in a current file is refused with its version named.
@@ -900,7 +955,8 @@ These are done in Core 0.14, each with its own commit:
 - 2026-11-26 (1B set 2): `BackendRefit{A <: AbstractEstimationAlgorithm}` is THE external refit of any refine
   algorithm: construction refuses an algorithm whose `estimator_kind` is not `RefineKind()` (`ArgumentError`). Its
   `external_refit!` returns `solve(…).u` whatever the record: a budgeted `(MaxIters, IterationCap)` stop is normal,
-  and the scoring decides whether the model is kept (it returned the `FitResult`, a contract bug).
+  and the scoring decides whether the model is kept (it returned the `FitResult`, a contract bug). In the breaking
+  set (Q10) the external refit's contract is a `FitResult`: `external_refit!` returns the refine's `FitResult` there.
 - 2026-11-26 (1B set 2): `honoured_stops(::PoseLibSolver) = (:max_iter,)`; Core's `check_honoured_stops` is the one
   refusal of an unhonoured `LmStops` field, and PoseLib's own (`_unapplied_stop`) is deleted.
 - 2026-11-26 (1B set 2, item 6): a `BackendRefit`'s identity traits (`optimization_path`, `scale_interface`,
@@ -924,3 +980,26 @@ These are done in Core 0.14, each with its own commit:
 - 2026-11-26 (lead, BB/CB Q1): a configuration holding another package's tables delegates them to the owner's
   converter (`ConfigVersions`' `delegates`), the owner's version recorded in the top-level `[config_versions]` table by
   package name. One owner per table: CaliBlobs never restates BlobBoards' steps.
+- 2026-11-26 (1B, breaking port): `CameraPosesProblem(cs; residual = ReprojectionResidual())` on `RotationCenterViews`
+  is the pixel refine from its guess alone (one refine per solve); the bearing-then-pixel flow is two solves, the
+  second's guess the first's estimate, bit-identical to the retired fused form (G7 ruling (b)).
+- 2026-11-26 (1B): the type form `refit_workspace(P, n[, local_optimization_strategy])` (a pre-allocated
+  `RansacWorkspace(P, n, …)`) holds the same concrete cache types as the problem form, inferred from `P`
+  (`Base.promote_op` of the cache builders, the stack's precedent in Core), so its refits allocate nothing. An `Any`
+  slot boxed every refit (1808 bytes warm, `RotationProblem`).
+- 2026-11-26 (1B): every `retcode_symbol(r) === :sym` test site is the exact `(retcode, stop_rule)` record each run
+  produced (an instrumented run of the retired map logged them); a disjunction of symbols is the observed record. The
+  `DivisionCameraFit` failed-leg predicate (`_failed_leg`) is exactly the records the retired map named
+  `:solve_failed`, so the leg audit is unchanged.
+- 2026-11-26 (1B): a setting a chart-problem refine does not take (`scale`/`width` on a `CameraRegressionProblem`
+  refine) is a `MethodError`, Core's rule for any setting a solve does not take; it was an `ArgumentError`. A physical
+  `RelativePoseProblem` seed is an `ArgumentError` naming `ustrip(m, pose)` (units.md point 3: an up-to-scale pose
+  records no unit), where Core's absent-contract refusal would name `block_variables`.
+- 2026-11-26 (joint landing, lead's ruling): `block_structure(f, u0) -> (vars, blocks, stated)` is a contract generic
+  (default `(block_variables(f, u0), residual_blocks(f, u0), nothing)`), read ONCE per one-shot `solve`, `init` and
+  `reinit!`; `stated` reaches `block_result` as the summary's field `stated` (G6's channel; no field for `nothing`). A
+  `reinit!` that keeps the blocks of a bundle with no `stated` reads `block_variables` alone. Estimation's
+  `CameraPosesProblem` and `RobotWorldHandEyeProblem` implement it: their pipelines state the bundle as a
+  `_BundleStatement` (blocks, variables, and the assembly `finish(sol, loss)`, each wrapper's reading composed onto
+  it), concrete, so `block_result` never re-states (the 1B port ran the pipeline three times per solve, through a
+  `Ref{Any}` record: CameraPoses ~1.5× slower, the robot-world refine not inferred). Bit-identical.

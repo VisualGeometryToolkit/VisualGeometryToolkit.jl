@@ -9,7 +9,7 @@
 # them: the consensus set of the scorer (its posterior seeded at that set),
 # then EM of the mixture with the model held
 # (`PosteriorIrlsMethod` under `KeepModel`, VGC's unchanged
-# `block_coordinate_descent!`), then each residual's MAP label (VGC
+# `BlockCoordinateDescent`), then each residual's MAP label (VGC
 # `is_map_inlier`).
 # =============================================================================
 
@@ -116,7 +116,7 @@ correspondence (a bundle's free parameters over the codimension, rounded up).
    weighting's `consensus_order`).
 2. EM with the model held — `config.model_update` must be [`KeepModel`](@ref) and
    `config.stop` [`NoImprovementStop`](@ref) (a held model's parameters never move) —
-   under VisualGeometryToolkitCore's `block_coordinate_descent!`: each iteration the
+   under VisualGeometryToolkitCore's `BlockCoordinateDescent`: each iteration the
    nuisance parts (`config.nuisance`) then the E-step, until `config.stop` or
    `config.max_iter`.
 3. Each residual's MAP label: inlier iff `is_map_inlier` of its posterior.
@@ -165,8 +165,8 @@ function __solve(prob::EstimationProblem{<:PosteriorWeightState, <:AbstractVecto
     # The held "model" is the residual vector itself: the incumbent the loop
     # tracks, never moved (`KeepModel`).
     state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
-    res = block_coordinate_descent!(state, lh, PosteriorIrlsMethod(nothing, config),
-                                    _FixedDistances(r), r; max_iter = config.max_iter)
+    res = solve(RefineProblem(_FixedDistances(r), r, state), BlockCoordinateDescent(PosteriorIrlsMethod(nothing, config); likelihood = lh);
+                stops = StopAfterIteration(config.max_iter))
     w = collect(Float64, view(inlier_weight(rws), 1:n))
     support, wrms = _posterior_support_rms!(w, (abs2(x) for x in r))
     return FitResult{U}(rws, res.retcode, res.stop_rule, res.stats, wrms, support,

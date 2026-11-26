@@ -51,16 +51,16 @@
 using Test, LinearAlgebra, Random, StaticArrays
 using StableRNGs
 using Rotations: AngleAxis, RotMatrix
-using VisualGeometryToolkitCore: VisualGeometryToolkitCore, minimal_manifold, unit_normalize, whitened_constraint_rows, retract, model, constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat, EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine, transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics
+using VisualGeometryToolkitCore: VisualGeometryToolkitCore, minimal_manifold, unit_normalize, whitened_constraint_rows, retract, model, constraint_with_jacobians, exp_so3, rotation, translation, HomographyMat, FundMat, EuclideanMap, CameraModel, LeftRigidManifold6, Point2, to_euclidean, to_affine, transform_covariance, EuclideanManifold, Uncertain, CovMat, Line2D, focal_length, intrinsics, RefineProblem, LevenbergMarquardt, solve
 using Rotations: RotXYZ
 using VisualGeometryToolkitCore: RadialCamera, Line2DManifold, local_coordinates
 using Statistics: median, quantile
 using VisualGeometryToolkitCore.Synthetic: sample_homography_scene, sample_twoview_scene,
     sample_pose_scene, make_point_covs, make_query_cov, perturb_pairs,
-    track_manifold_solution, homography_trial, fundmat_trial, essential_trial,
+    homography_trial, fundmat_trial, essential_trial,
     pnp_trial, h_transfer_trial, epipolar_band_trial, reprojection_trial,
     run_calibration, is_calibrated, run_containment, containment_nominal,
-    fundmat_norm_xform, F_NORM_SCALE   # VGC's MC calibration harness (public)
+    fundmat_norm_xform, F_NORM_SCALE, NoisePathProblem, PathFollowing   # VGC's MC calibration harness (public)
 using VisualGeometryToolkitCore: solver_covariance
 using VisualGeometryToolkitEstimation: HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, HandEyeProblem, board_sq_residuals
 using VisualGeometryToolkitCore: refine!
@@ -88,8 +88,17 @@ _to_fcal(cs, T) = [
 # columns, which a rebuild into bare pairs would drop, so the gate and the
 # residual would silently fall back.
 # ---------------------------------------------------------------------------
-_refit(P) = (ch, csn) -> refine!(nothing, P(csn), model(ch), ones(length(csn)))
+# The refine of the trial's noisy data from its true model: the problem a trial solves, and its algorithm.
+_refit(P) = (ch, csn) -> RefineProblem(P(csn), model(ch))
 _pose_problem(camera) = pairs -> AbsolutePoseProblem(camera, pairs)
+# The minimal hypothesis followed from the clean sample to the noisy one (Core's harness continuation): its chart point,
+# `nothing` when the perturbation left the continuation's basin (`(Failure, LeftBasin)`).
+function _tracked(ch, clean, noisy)
+    D = VisualGeometryToolkitCore.tangent_size(ch)
+    r = solve(RefineProblem(NoisePathProblem(ch, clean, noisy), retract(ch, zero(SVector{D, Float64}))),
+              PathFollowing())
+    return r.retcode === VisualGeometryToolkitCore.ReturnCode.Success ? r.metadata.v : nothing
+end
 
 # … and the covariance a refit is SCORED with — VgtkEstimation's one `solver_covariance`
 # (the constraint sandwich) on the trial's full set — as the trials' `covariance`,
@@ -171,7 +180,7 @@ function _predictive_trial(kind::Symbol; σ_px, f = 600.0, c = 250.0, m = 20, na
             (cs_nm[1:kmin], [calibrated_point(camera, q.first) => calibrated_point(camera, q.second) for q in csn[1:kmin]]) :
             (cs[1:kmin], csn[1:kmin])
         ch = minimal_manifold(truth)
-        v = track_manifold_solution(ch, clean, noisy)
+        v = _tracked(ch, clean, noisy)
         v === nothing && return nothing
         # scored at the minimal solvers' normalization (unit Frobenius), not the
         # chart's representative (‖E‖ = √2): a covariance must follow the scale
@@ -191,7 +200,7 @@ function _predictive_trial_h(; σ_px, m, naive, regime)
         shapes = make_point_covs(rng, 4 + m)
         csn = perturb_pairs(rng, cs, σ_px, shapes)
         ch = minimal_manifold(HomographyMat{Float64}(Tuple(unit_normalize(SMatrix{3, 3, Float64, 9}(H)))))
-        v = track_manifold_solution(ch, cs[1:4], csn[1:4])
+        v = _tracked(ch, cs[1:4], csn[1:4])
         v === nothing && return nothing
         θ̂ = _unit_scale(retract(ch, v))                      # the solvers' normalization
         return _held_out(rng, HomographyProblem(csn), θ̂, collect(1:4), 4, m, σ_px; naive)
@@ -211,7 +220,7 @@ function _predictive_trial_pose(; σ_px, f = 600.0, c = 250.0, m = 20, naive = f
         ]
         ch = LeftRigidManifold6(pose)
         camera = _scene_camera(f, c)
-        v = track_manifold_solution(ch, cs_nm[1:3], [q.first => calibrated_point(camera, q.second) for q in noisy[1:3]])
+        v = _tracked(ch, cs_nm[1:3], [q.first => calibrated_point(camera, q.second) for q in noisy[1:3]])
         v === nothing && return nothing
         θ̂ = retract(ch, v)
         return _held_out(rng, _pose_problem(camera)(noisy), θ̂, [1, 2, 3], 3, m, σ_px; naive)
@@ -287,7 +296,7 @@ function _refit_predictive_trial(kind::Symbol; σ_px, n = 30, m = 20, f = 600.0,
             perturb_pairs(rng, cs, σ, make_point_covs(rng, n + m))
         p = P(csn)
         w = [i <= n ? 1.0 : 0.0 for i in 1:(n + m)]
-        θ̂ = refine!(nothing, p, truth, w)
+        θ̂ = solve(RefineProblem(p, truth), LevenbergMarquardt(; optimization_strategy = nothing); weights = w, summary = nothing).u   # the LO's refit
         θ̂ === nothing && return nothing
         return _held_out(rng, p, θ̂, collect(1:n), n, m, σ)
     end
@@ -301,11 +310,11 @@ _undefined_rate(trial, rng, n) = count(1:n) do _
 end / n
 
 @testset "(a) overdetermined chart-LM refits — chart-domain NEES" begin
-    rH = run_calibration(homography_trial(σ = 0.5, npts = 30, estimate = _refit(HomographyProblem), covariance = _rvg_cov(HomographyProblem)), StableRNG(101), 400, 8)
+    rH = run_calibration(homography_trial(σ = 0.5, npts = 30, problem = _refit(HomographyProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(HomographyProblem)), StableRNG(101), 400, 8)
     @test is_calibrated(rH)
-    rE = run_calibration(essential_trial(σ_px = 0.5, npts = 30, cameras = _E_CAMS, estimate = _refit_E, covariance = _rvg_cov_E), StableRNG(103), 400, 5)
+    rE = run_calibration(essential_trial(σ_px = 0.5, npts = 30, cameras = _E_CAMS, problem = _refit_E, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_E), StableRNG(103), 400, 5)
     @test is_calibrated(rE)
-    rP = run_calibration(pnp_trial(σ_px = 0.5, npts = 20, estimate = _refit_pose, covariance = _rvg_cov_pose), StableRNG(104), 400, 6)
+    rP = run_calibration(pnp_trial(σ_px = 0.5, npts = 20, problem = _refit_pose, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_pose), StableRNG(104), 400, 6)
     @test is_calibrated(rP)
     # F, with the error measured in the AMBIENT tangent (VGC `error = :ambient`:
     # the least-squares chart displacement of the estimate's vec(F)): calibrated.
@@ -313,11 +322,11 @@ end / n
     # a heavy tail — the retraction's nonlinearity along its weak (near-gauge,
     # σ₂/σ₁ → 1) directions distorts the error, not the covariance: pinned below
     # as that characterization (mean 51, median NEES ratio 1.12 at 0.5 px).
-    rF = run_calibration(fundmat_trial(σ = 0.1, npts = 30, error = :ambient, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
+    rF = run_calibration(fundmat_trial(σ = 0.1, npts = 30, error = :ambient, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
     @test is_calibrated(rF)
-    rF5 = run_calibration(fundmat_trial(σ = 0.5, npts = 30, error = :ambient, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
+    rF5 = run_calibration(fundmat_trial(σ = 0.5, npts = 30, error = :ambient, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
     @test is_calibrated(rF5)
-    rF5c = run_calibration(fundmat_trial(σ = 0.5, npts = 30, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
+    rF5c = run_calibration(fundmat_trial(σ = 0.5, npts = 30, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(102), 400, 7)
     @test !is_calibrated(rF5c)
     @test isapprox(rF5c.nees_median_ratio, 1.12; atol = 0.06)
     @test all(==(0), (rH.nfail, rE.nfail, rP.nfail, rF.nfail, rF5.nfail))
@@ -326,13 +335,13 @@ end
 @testset "(a) overdetermined chart-LM refits — output-domain containment" begin
     # Noise in the computation points (both images) AND the query point; the
     # first-order band composes the refit's model term with the query term.
-    rH = run_containment(h_transfer_trial(σ = 0.5, npts = 30, estimate = _refit(HomographyProblem), covariance = _rvg_cov(HomographyProblem)), StableRNG(111), 600)
+    rH = run_containment(h_transfer_trial(σ = 0.5, npts = 30, problem = _refit(HomographyProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(HomographyProblem)), StableRNG(111), 600)
     @test containment_nominal(rH, 1)
-    rE = run_containment(epipolar_band_trial(:E; σ_px = 0.5, npts = 30, cameras = _E_CAMS, estimate = _refit_E, covariance = _rvg_cov_E), StableRNG(112), 600)
+    rE = run_containment(epipolar_band_trial(:E; σ_px = 0.5, npts = 30, cameras = _E_CAMS, problem = _refit_E, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_E), StableRNG(112), 600)
     @test containment_nominal(rE, 1) && containment_nominal(rE, 2)
-    rF = run_containment(epipolar_band_trial(:F; σ_px = 0.5, npts = 30, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(113), 600)
+    rF = run_containment(epipolar_band_trial(:F; σ_px = 0.5, npts = 30, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(113), 600)
     @test containment_nominal(rF, 1) && containment_nominal(rF, 2)
-    rP = run_containment(reprojection_trial(σ_px = 0.5, npts = 20, estimate = _refit_pose, covariance = _rvg_cov_pose), StableRNG(114), 600)
+    rP = run_containment(reprojection_trial(σ_px = 0.5, npts = 20, problem = _refit_pose, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_pose), StableRNG(114), 600)
     @test containment_nominal(rP, 1)
 end
 
@@ -596,13 +605,13 @@ end
     # Refits at 0.1 px (pose 0.5 px), the F error in the ambient tangent (see (a)):
     # calibrated at both FOV extremes.
     for (f, seed) in ((2000.0, 301), (150.0, 302))
-        @test is_calibrated(run_calibration(fundmat_trial(σ = 0.1, npts = 30, f = f, error = :ambient, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(seed), 300, 7))
+        @test is_calibrated(run_calibration(fundmat_trial(σ = 0.1, npts = 30, f = f, error = :ambient, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(seed), 300, 7))
     end
     for (f, seed) in ((2000.0, 303), (150.0, 304))
-        @test is_calibrated(run_calibration(essential_trial(σ_px = 0.1, npts = 30, f = f, cameras = _E_CAMS, estimate = _refit_E, covariance = _rvg_cov_E), StableRNG(seed), 300, 5))
+        @test is_calibrated(run_calibration(essential_trial(σ_px = 0.1, npts = 30, f = f, cameras = _E_CAMS, problem = _refit_E, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_E), StableRNG(seed), 300, 5))
     end
     for (f, seed) in ((2000.0, 305), (150.0, 306))
-        @test is_calibrated(run_calibration(pnp_trial(σ_px = 0.5, npts = 20, f = f, estimate = _refit_pose, covariance = _rvg_cov_pose), StableRNG(seed), 300, 6))
+        @test is_calibrated(run_calibration(pnp_trial(σ_px = 0.5, npts = 20, f = f, problem = _refit_pose, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_pose), StableRNG(seed), 300, 6))
     end
     # Predictive: E calibrated at both FOV extremes, F at the wide one. Narrow-
     # FOV F misses the mean gate on a tail (mean 1.43) with its bulk slightly
@@ -632,11 +641,11 @@ end
     # band and its predictive scoring stay calibrated, and so does F's refit
     # (ambient error); F's MINIMAL-hypothesis predictive scoring at 0.5 px does
     # not (mean 1.47 on a tail, median NEES ratio 0.81 — see the narrow-FOV cell).
-    @test is_calibrated(run_calibration(essential_trial(σ_px = 0.5, npts = 30, regime = :forward, cameras = _E_CAMS, estimate = _refit_E, covariance = _rvg_cov_E), StableRNG(307), 300, 5))
-    rEb = run_containment(epipolar_band_trial(:E; σ_px = 0.5, npts = 30, regime = :forward, cameras = _E_CAMS, estimate = _refit_E, covariance = _rvg_cov_E), StableRNG(309), 400)
+    @test is_calibrated(run_calibration(essential_trial(σ_px = 0.5, npts = 30, regime = :forward, cameras = _E_CAMS, problem = _refit_E, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_E), StableRNG(307), 300, 5))
+    rEb = run_containment(epipolar_band_trial(:E; σ_px = 0.5, npts = 30, regime = :forward, cameras = _E_CAMS, problem = _refit_E, algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov_E), StableRNG(309), 400)
     @test containment_nominal(rEb, 1) && containment_nominal(rEb, 2)
     @test is_calibrated(run_calibration(_predictive_trial(:E; σ_px = 0.1, regime = :forward), StableRNG(310), 400, 1))
-    @test is_calibrated(run_calibration(fundmat_trial(σ = 0.1, npts = 30, regime = :forward, error = :ambient, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(308), 300, 7))
+    @test is_calibrated(run_calibration(fundmat_trial(σ = 0.1, npts = 30, regime = :forward, error = :ambient, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(308), 300, 7))
     # On the StableRNG stream the mean gate holds for 2 of 4 seeds (means 0.98–1.69,
     # median ratios 0.68–0.93, coverage nominal on all 4): the bulk is asserted.
     rFfp = run_calibration(_predictive_trial(:F; σ_px = 0.5, regime = :forward), StableRNG(311), 400, 1)
@@ -650,7 +659,7 @@ end
     # of trials": an artifact of the Σx sandwich product losing positive
     # definiteness to rounding at that conditioning, not of the geometry. And
     # minimal tracking mostly diverges.
-    rNP = run_calibration(fundmat_trial(σ = 0.1, npts = 30, regime = :near_planar, error = :ambient, estimate = _refit(FundMatProblem), covariance = _rvg_cov(FundMatProblem)), StableRNG(321), 300, 7)
+    rNP = run_calibration(fundmat_trial(σ = 0.1, npts = 30, regime = :near_planar, error = :ambient, problem = _refit(FundMatProblem), algorithm = LevenbergMarquardt(; optimization_strategy = nothing), covariance = _rvg_cov(FundMatProblem)), StableRNG(321), 300, 7)
     @test !is_calibrated(rNP)
     @test rNP.coverage[3] < 0.8 && isapprox(rNP.nees_median_ratio, 1.39; atol = 0.15)   # StableRNG: 1.505
     @test _undefined_rate(_predictive_trial(:F; σ_px = 0.5, regime = :near_planar), StableRNG(322), 100) >= 0.75

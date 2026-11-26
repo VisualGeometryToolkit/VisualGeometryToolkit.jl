@@ -2,7 +2,7 @@
 # sampson_lm.jl — the chart-LM rows of every Sampson-constraint problem, and
 # the chart-LM workspace's resize hook.
 #
-# The chart LM (ManifoldLmWorkspace{N} + `lmsolve_chart!`, NLLSsolver on the
+# The chart LM (Core's LevenbergMarquardt, NLLSsolver on the
 # rows) is VisualGeometryToolkitCore's (src/robust/lm_core.jl); every
 # chart problem plugs its rows in through the
 # `ChartLm` state (interface.jl) and VGC's `residual_rows!` /
@@ -11,7 +11,7 @@
 
 # RansacWorkspace resize hook: the LM buffers are allocated at the problem's
 # full data size and excluded points enter with weight 0 — nothing to resize.
-_set_n!(::ManifoldLmWorkspace, ::Int) = nothing
+_set_n!(::RefitSlot, ::Int) = nothing   # the slot's caches are re-pointed (rebuilt for another size) at each refit
 
 # =============================================================================
 # The chart rows of a Sampson-constraint problem — ONE method

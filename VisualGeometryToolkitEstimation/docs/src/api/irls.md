@@ -1,5 +1,7 @@
 # IRLS & Posterior Weighting
 
+<!-- R22: contract guide -->
+
 ```@meta
 CurrentModule = VisualGeometryToolkitEstimation
 ```
@@ -7,15 +9,18 @@ CurrentModule = VisualGeometryToolkitEstimation
 ## Generic Block-Coordinate-Descent Loop
 
 The generic loop is VisualGeometryToolkitCore's
-[`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`),
+[`BlockCoordinateDescent`](@extref VisualGeometryToolkitCore.BlockCoordinateDescent)
+algorithm, `solve(RefineProblem(problem, θ₀), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))`,
 dispatching on
 [`AbstractBlockCoordinateMethod`](@extref VisualGeometryToolkitCore.AbstractBlockCoordinateMethod).
 Concrete methods plug in by extending a small set of interface methods (all
 declared `public`): `init_state!`, `update_model!`, `update_residuals!`,
 `update_nuisance!`, `update_weights!`, `post_iteration!`, `stopping_criterion`
 (a VGC `StoppingCriterion` value, composed with `|`; a new criterion implements
-`stop_reason`), and `block_coordinate_result`. Every local-optimization strategy in this package plugs into
-the `block_coordinate_descent!` loop through this interface, and a new one does the same.
+`stop_reason`, which returns a `(ReturnCode.T, StopRule)` termination record, or
+[`CONTINUE`](@extref VisualGeometryToolkitCore.CONTINUE) while the run goes on), and
+`block_coordinate_result`, which receives that record's code and rule. Every local-optimization strategy in this package plugs into
+the `BlockCoordinateDescent` loop through this interface, and a new one does the same.
 
 The RANSAC LO refinement uses the loop via [`PosteriorIrlsMethod`](@ref)
 (the iteration of [`Irls`](@extref VisualGeometryToolkitCore.Irls), [`posterior_irls!`](@ref); downstream,
@@ -111,9 +116,10 @@ ConsensusScale
 Every reweighted fit ([`ReweightedLeastSquares`](@ref) on a linear model, a
 rotation, a rigid alignment and a robot–world calibration;
 [`RotationAveraging`](@ref)) records its stop through
-one pair of functions, `irls_retcode` and `irls_stop_rule`, as an LM does through VisualGeometryToolkitCore's one LM,
-`lmsolve_chart!`; a
-downstream reweighted loop calls it too.
+one pair of functions, `irls_retcode` and `irls_stop_rule`, read back as the
+result's `r.retcode` and `r.stop_rule` like a `LevenbergMarquardt` refine's (e.g.
+`(Success, IncrementSize)` a converged IRLS, `(MaxIters, IterationCap)` the
+iteration cap); a downstream reweighted loop calls them too.
 
 ```@docs
 ReweightedLeastSquares
@@ -129,10 +135,12 @@ and stand-alone EM-style refinement. They are VisualGeometryToolkitCore's toolki
 `model_dof`, `codimension`) are supplied explicitly, and the partition is a
 consensus order and its size `k`, as a scorer's `consensus_order` and
 `inlier_count` give them:
-[`mixture_ecm!`](@extref VisualGeometryToolkitCore.mixture_ecm!),
-[`inlier_probabilities!`](@extref VisualGeometryToolkitCore.inlier_probabilities!),
-[`update_nu!`](@extref `VisualGeometryToolkitCore.update_nu!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`) and
-[`median_seeded_posterior`](@extref VisualGeometryToolkitCore.median_seeded_posterior).
+[`inlier_probabilities!`](@extref VisualGeometryToolkitCore.inlier_probabilities!) and
+[`update_nu!`](@extref `VisualGeometryToolkitCore.update_nu!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`).
+A median-seeded posterior is a scale solve and one weight update: σ =
+`solve(EstimationProblem(NoiseScale, norms, (; codimension)), MedianNormScale()).u`,
+then `PosteriorWeightState(n; s_hat_sq = σ^2, …)`, the squared residuals into its
+`sq_distances`, and `update_weights!(pws, n)`.
 
 ## Scale and Mixture Estimation
 
@@ -145,7 +153,6 @@ VisualGeometryToolkitCore's (import them from there):
 [`inlier_posterior`](@extref VisualGeometryToolkitCore.inlier_posterior),
 [`posterior_weight`](@extref VisualGeometryToolkitCore.posterior_weight),
 [`mixture_nll`](@extref `VisualGeometryToolkitCore.mixture_nll-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, AbstractVector, Int64}`),
-[`mixture_ecm!`](@extref VisualGeometryToolkitCore.mixture_ecm!),
 [`update_inlier_prior!`](@extref `VisualGeometryToolkitCore.update_inlier_prior!-Tuple{VisualGeometryToolkitCore.PosteriorWeightState, Int64}`),
 [`sq_distances`](@extref VisualGeometryToolkitCore.sq_distances), and the
 policies [`Estimated`](@extref VisualGeometryToolkitCore.Estimated),
@@ -153,6 +160,8 @@ policies [`Estimated`](@extref VisualGeometryToolkitCore.Estimated),
 [`FixedPrior`](@extref VisualGeometryToolkitCore.FixedPrior),
 [`FixedNu`](@extref VisualGeometryToolkitCore.FixedNu) and
 [`ConsensusDof`](@extref VisualGeometryToolkitCore.ConsensusDof).
+One ECM cycle is four updates in order: `square_distances!`, `update_weights!`,
+`update_scale!` and `update_inlier_prior!`.
 
 ## Robust Losses
 

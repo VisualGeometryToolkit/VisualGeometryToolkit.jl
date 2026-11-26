@@ -597,7 +597,8 @@ Applied componentwise:
 ```
 
 where ``w_i^{(k)}`` are the current Student-t/uniform posterior weights from
-the E-step (`mixture_ecm!` / `update_weights!`). Each LO iteration
+the E-step (`update_weights!`, within the ECM cycle `square_distances!`,
+`update_weights!`, `update_scale!`, `update_inlier_prior!`). Each LO iteration
 runs:
 
 1. M-step (scale): ``(\hat\sigma_R, \hat\sigma_t)`` via (25).

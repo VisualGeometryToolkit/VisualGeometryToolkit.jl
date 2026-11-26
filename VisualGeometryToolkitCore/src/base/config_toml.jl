@@ -188,9 +188,28 @@ toml_value(x) = x
 The TOML value of field `F` of `c`; default `toml_value(getfield(c, F))`.
 Override for the non-mechanical cases only — a nested config struct
 (`toml_table(getfield(c, F))`), a tagged union (`type = ...` discriminator), a
-sentinel (`typemax(Int)` written as `"unbounded"`).
+sentinel (a count with no cap: [`toml_unbounded`](@ref)).
 """
 toml_field(c, ::Val{F}) where {F} = toml_value(getfield(c, F))
+
+"""
+    toml_unbounded(n::Integer) -> Int | "unbounded"
+    unbounded_from_toml(v, key = "value") -> Int
+
+THE TOML encoding of a count with no cap, the stack's one: `typemax(Int)` is written as the string `"unbounded"` (TOML
+integers are 64-bit signed, and the literal round-trips confusingly), any other count as itself; `unbounded_from_toml`
+reads it back — `"unbounded"` as `typemax(Int)`, an integer as an `Int` — and refuses anything else, naming `key` (an
+`ArgumentError`). A config's field hook writes it (`toml_field(c, ::Val{:max_n}) = toml_unbounded(c.max_n)`) and its
+reader converts with it.
+"""
+toml_unbounded(n::Integer) = n == typemax(Int) ? _TOML_UNBOUNDED : Int(n)
+@doc (@doc toml_unbounded)
+function unbounded_from_toml(v, key = "value")
+    v isa Integer && return Int(v)
+    v == _TOML_UNBOUNDED && return typemax(Int)
+    throw(ArgumentError("`$key` must be an integer or \"$(_TOML_UNBOUNDED)\", got $(repr(v))"))
+end
+const _TOML_UNBOUNDED = "unbounded"
 
 """
     toml_table(c) -> Dict{String, Any}

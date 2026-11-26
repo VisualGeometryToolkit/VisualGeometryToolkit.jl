@@ -1,3 +1,4 @@
+# R22: contract test — the essential problem's chart rows and refit step (`residual_rows!`, `refine!`)
 @testitem "ransac_essential" setup = [EpipolarScenes, Cameras] begin
     using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore

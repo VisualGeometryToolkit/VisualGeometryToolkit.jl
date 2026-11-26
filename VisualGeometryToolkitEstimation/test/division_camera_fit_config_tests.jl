@@ -1,3 +1,4 @@
+# R22: contract test — the division fit's block-coordinate stopping criteria (`stopping_criterion`)
 # The owner's ruling (4): DivisionCameraFit on the shared robust-estimation machinery. Its
 # E-step is the posterior of the shared Student-t + uniform scorer (`weighting`, read by
 # `scoring_from_toml`, absent keys inheriting [scoring.student_t_uniform]); its loop is the

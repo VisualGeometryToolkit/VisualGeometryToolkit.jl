@@ -247,20 +247,86 @@ test_sample(::AbstractRansacProblem, ::AbstractVector{Int}) = true
 # =============================================================================
 
 """
-    refit_workspace(::Type{P}, n_data) -> ManifoldLmWorkspace | nothing
+    refit_workspace(problem[, local_optimization_strategy]) -> RefitSlot | nothing
+    refit_workspace(::Type{P}, n_data[, local_optimization_strategy]) -> RefitSlot | nothing
 
-The scratch of `refine!` for a RANSAC problem of type `P`: a sized
-`ManifoldLmWorkspace{N}` for every chart problem (from `_lm_size`, so from its
-`chart_dof`), `nothing` for a problem with no chart (VisualGeometryToolkitCore's
-problem-protocol verb).
+The scratch of `refine!` for a RANSAC problem: a `RefitSlot` holding the chart LM's summary-free refine cache,
+`init(RefineProblem(problem, zero(M)), LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`, for every chart problem
+(one with a `chart_dof`), `nothing` for a problem with no chart (VisualGeometryToolkitCore's problem-protocol verb).
+The problem form builds the cache; the type form (a problem type, no data yet) an empty slot of the same concrete
+cache types (inferred from `P`), which the first refit fills — so a pre-allocated workspace refits allocation-free too.
+A `Triggs{K}` strategy adds its robustified cache. A slot re-points its cache at each refit's problem and rebuilds it for a problem of another
+size.
 """
-refit_workspace(::Type{P}, n::Int) where {P <: AbstractRansacProblem} =
-    (sz = _lm_size(P, n); sz === nothing ? nothing : ManifoldLmWorkspace(sz...))
+refit_workspace(::Type{P}, n::Int, lo = nothing) where {P <: AbstractRansacProblem} = _lm_size(P, n) === nothing ? nothing :
+    RefitSlot{Base.promote_op(_refit_cache, P), Base.promote_op(_robust_refit_cache, P, typeof(lo))}(nothing, nothing, 0, P)
+function refit_workspace(p::AbstractRansacProblem, lo = nothing)
+    _lm_size(p) === nothing && return nothing
+    c = _refit_cache(p)
+    r = _robust_refit_cache(p, lo)
+    return RefitSlot{typeof(c), typeof(r)}(c, r, first(chart_size(p)), typeof(p))
+end
+
+"""
+    RefitSlot{C, R}
+
+The refit workspace of a chart problem (`refit_workspace`): the summary-free `LevenbergMarquardt` refine cache `cache`
+of its last problem, the robustified one `robust` of a `Triggs{K}` local optimization (`nothing` for any other), each
+`nothing` before the first refit of an empty slot, and that problem's chart-LM row count.
+"""
+mutable struct RefitSlot{C, R}
+    cache::Union{Nothing, C}
+    robust::Union{Nothing, R}
+    rows::Int
+    problem::Type    # the problem type the caches were built for
+end
+# The chart LM's summary-free refine of `p`: one chart LM at the caller's weights from the problem's refit chart, the
+# model only (Core's local-optimization refit; no residual sweep).
+_refit_cache(p::AbstractRansacProblem) =
+    init(RefineProblem(p, _placeholder_model(p)), LevenbergMarquardt(; optimization_strategy = nothing); weights = Float64[],
+         summary = nothing)
+# The robustified refit of a `Triggs{K}` local optimization: ONE chart LM at a frozen deployed loss (its `width`, set
+# per call) and the caller's weights (`posterior_w`'s view), the model only. Another strategy holds none.
+_robust_refit_cache(_p, _lo) = nothing
+_robust_refit_cache(p::AbstractRansacProblem, ::Triggs{K}) where {K} =
+    init(RefineProblem(p, _placeholder_model(p)), LevenbergMarquardt(; optimization_strategy = Triggs{K}());
+         width = deploy(K(), 1.0; efficiency_constant = 1.0), weights = view(Float64[], 1:0), summary = nothing)
+# The slot's caches, re-pointed at `p` (rebuilt for another size): ONE cache of each per slot type.
+function _slot_cache!(slot::RefitSlot{C}, p) where {C}
+    _slot_rows!(slot, p)
+    c = slot.cache
+    c === nothing || return c::C
+    new = _refit_cache(p)::C
+    slot.cache = new
+    return new
+end
+function _slot_robust!(slot::RefitSlot{<:Any, R}, p, lo) where {R}
+    _slot_rows!(slot, p)
+    c = slot.robust
+    c === nothing || return c::R
+    new = _robust_refit_cache(p, lo)::R
+    slot.robust = new
+    return new
+end
+# A problem of another chart-LM size (or, in a slot of no fixed cache type, another type): both caches rebuilt at their
+# next refit.
+function _slot_rows!(slot::RefitSlot, p)
+    rows = first(chart_size(p))
+    slot.rows == rows && slot.problem === typeof(p) && return slot
+    slot.cache = nothing; slot.robust = nothing; slot.rows = rows; slot.problem = typeof(p)
+    return slot
+end
+# Whether the slot's caches can hold a refit of `p` (a slot built for one problem type refits another one-shot).
+_slot_holds(slot::RefitSlot{C}, p) where {C} = C === Any || slot.problem === typeof(p)
+# The guess a refit cache is built at (each refit re-points it): the zero of the problem's model type, as that type.
+_placeholder_model(p) = _as_model(p, zero(model_type(p)))
+_refit_weights(w::Vector{Float64}) = w
+_refit_weights(w::AbstractVector) = Vector{Float64}(w)
 
 # Every local-optimization strategy this package hosts runs on the same
 # workspace: the problem's refit workspace plus the posterior-weight buffers.
-lo_workspace(::Type{P}, ::Type{T}, ::Union{Nothing, AbstractOptimizationStrategy}, n::Int) where {P <: AbstractRansacProblem, T} =
-    LoBuffers{T}(refit_workspace(P, n), n, model_type(P))
+lo_workspace(::Type{P}, ::Type{T}, lo::Union{Nothing, AbstractOptimizationStrategy}, n::Int) where {P <: AbstractRansacProblem, T} =
+    LoBuffers{T}(refit_workspace(P, n, lo), n, model_type(P))
 
 """
     RansacWorkspace([T = Float32,] problem, scoring[, local_optimization_strategy = nothing])
@@ -284,9 +350,16 @@ RansacWorkspace(::Type{T}, ::Type{P}, n::Int) where {T <: AbstractFloat, P <: Ab
 # tables do not depend on the width, so the unit width here is never a decision
 # point (no score is taken with it).
 _threshold_workspace_scoring(::Type{P}) where {P} = MsacScoring(P; threshold = 1.0)
-RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
-                lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat} =
-    RansacWorkspace(T, typeof(problem), data_size(problem), scoring, lo)
+function RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
+                lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat}
+    P, n = typeof(problem), data_size(problem)
+    return RansacWorkspace(n, minimal_sample_size(P), model_type(P), T, scoring_workspace(scoring, n, codimension(P)),
+                           _lo_with_refit(lo_workspace(P, T, lo, n), problem, _unwrap_strategy(lo)))
+end
+# The local optimizer's workspace of a problem in hand: the posterior buffers with the problem's own refit cache
+# (`refit_workspace(problem)`, concretely typed); another strategy's workspace as it is.
+_lo_with_refit(L::LoBuffers{<:Any, T}, p, lo) where {T} = LoBuffers{T}(refit_workspace(p, lo), length(L.posterior_w), model_type(p))
+_lo_with_refit(ws, _p, _lo) = ws
 function RansacWorkspace(::Type{T}, ::Type{P}, n::Int, scoring::AbstractScoring,
                          lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat, P <: AbstractRansacProblem}
     return RansacWorkspace(
@@ -356,10 +429,9 @@ through `_refine!(::RefitKind, ws, p, θ, weights)` (see `refit_kind` /
 - `NoRefit` (no chart) → `nothing` (no step in this shape).
 
 `lo_ws` is the refit workspace (`refit_workspace`; a local optimizer holds it):
-a `ManifoldLmWorkspace{N}` for the chart problems (every `_lm_size`; used
-when its size matches, otherwise the one task-local reuse policy of
-Core's `lm_workspace`), a `DltWorkspace` for the algebraic DLT, or `nothing` for
-problems that allocate nothing ahead (line fitting). It is accepted for
+a `RefitSlot` for the chart problems (Core's summary-free refine cache, re-pointed at each refit's problem),
+a `DltWorkspace` for the algebraic DLT, or `nothing` (a one-shot refine; problems that allocate nothing ahead:
+line fitting). It is accepted for
 signature uniformity where unused.
 
 Excluded points are encoded as `weights[i] = 0` — there is no separate `mask`
@@ -497,7 +569,7 @@ _lm_size(p::AbstractRansacProblem) = _lm_size(typeof(p), data_size(p))
 
 
 
-# (The chart LM's workspace under the one reuse policy is Core's `lm_workspace(ws, rows, Val(N))`.)
+# (The chart LM's workspace and its one reuse policy are Core's LevenbergMarquardt cache.)
 
 # The refit-kind trait's two classes (the router and `refit_kind` below).
 abstract type RefitKind end
@@ -507,25 +579,36 @@ struct NoRefit <: RefitKind end
 """
     _refine!(::NonlinLsq, lo_ws, problem, θ, weights) -> model | nothing
 
-THE chart-LM refit every chart problem runs: the underdetermined guard, the
-chart at θ (`_refit_chart`), the workspace (one reuse policy), the √weights for
-each datum's rows, the state (`_refit_state`) and VGC's chart LM
-(`lmsolve_chart!`: NLLSsolver on the state's rows), the
-NaN guard, and the exit — the chart re-anchored at the solution by its own
+THE chart-LM refit every chart problem runs: the underdetermined guard, then Core's summary-free
+`LevenbergMarquardt` refine on the slot's cache — the chart at θ (`refit_chart`: this package's `_refit_chart`), the
+√weights for each datum's rows, the state (`refit_rows`: `_refit_state`), ONE chart LM, the NaN guard, and the exit — the chart re-anchored at the solution by its own
 `recenter` (the one gauge every model the stack returns is in: the lift
 re-anchors every step the same way) and read as a model (`chart_model`). The LM's
 retcode is not read: a `:stalled` refit's model still lowered the cost from θ,
 and the LO's own acceptance (the scoring) decides whether it is kept.
 """
-function _refine!(::NonlinLsq, lo_ws, p::AbstractRansacProblem, θ, weights::AbstractVector)
+function _refine!(::NonlinLsq, slot::RefitSlot, p::AbstractRansacProblem, θ, weights::AbstractVector)
     _underdetermined(p, weights) && return nothing
-    ch = _refit_chart(p, _as_model(p, θ), weights)
-    ch === nothing && return nothing
-    return first(chart_refit(lo_ws, p, ch, _refit_state, weights))   # Core's one chart refit
+    _slot_holds(slot, p) || return _refine!(NonLinLsqOneShot(), p, θ, weights)
+    c = _slot_cache!(slot, p)
+    return solve!(reinit!(c, _as_model(p, θ); f = p, weights = _refit_weights(weights))).u   # Core's one chart refit
 end
+# No workspace (a one-shot refit: hand-eye's sub-problem refit): the refine's own, on the task's kept chart workspace.
+function _refine!(::NonlinLsq, ::Nothing, p::AbstractRansacProblem, θ, weights::AbstractVector)
+    _underdetermined(p, weights) && return nothing
+    return _refine!(NonLinLsqOneShot(), p, θ, weights)
+end
+struct NonLinLsqOneShot end
+_refine!(::NonLinLsqOneShot, p, θ, weights) = solve(RefineProblem(p, _as_model(p, θ)), LevenbergMarquardt(; optimization_strategy = nothing);
+                                                    weights = _refit_weights(weights), summary = nothing).u
+# The refit contract of Core's summary-free refine (a local optimization's refit): the problem's weight-aware refit
+# chart (`_refit_chart`: the radial seed chart, the RadialCamera decline) and its refit rows (`_refit_state`: PnP's
+# calibrated rows).
+VgtkCore.refit_chart(p::AbstractRansacProblem, θ, weights) = _refit_chart(p, _as_model(p, θ), weights)
+VgtkCore.refit_rows(p::AbstractRansacProblem, ch, sqrtw) = _refit_state(p, ch, sqrtw)
 
-# `lmsolve_chart!` (NLLSsolver on one linearization
-# state's rows) and `fill_sqrt_weights!` are VGC's (robust/lm_core.jl).
+# The chart LM (NLLSsolver on one linearization
+# state's rows) and its √weights are VGC's (robust/lm_core.jl).
 
 # =============================================================================
 # The stopping criterion of the posterior-weight iteration (VGC
@@ -536,16 +619,21 @@ end
 """
     StopWhenNoImprovement(patience, first_iteration)
 
-`:converged` once `patience` consecutive iterations have failed to improve the
+`(Success, NoImprovement)` once `patience` consecutive iterations have failed to improve the
 incumbent ([`iterations_without_improvement`](@ref)), from iteration
-`first_iteration` on.
+`first_iteration` on (`(Success, CostDecrease)` under a held model: the posterior iteration's
+mixture NLL falling by at most its `tol`), [`CONTINUE`](@extref VisualGeometryToolkitCore.CONTINUE) before.
 """
 struct StopWhenNoImprovement <: StoppingCriterion
     patience::Int
     first_iteration::Int
 end
 @inline stop_reason(c::StopWhenNoImprovement, state, method, prob, θ, θ_old, iter) =
-    iter >= c.first_iteration && iterations_without_improvement(state) >= c.patience ? :converged : :continue
+    iter >= c.first_iteration && iterations_without_improvement(state) >= c.patience ?
+        (ReturnCode.Success, _no_improvement_rule(method)) : CONTINUE
+# The rule a no-improvement stop records, per method: the incumbent's cost not falling under a refit; the posterior
+# iteration's held model adds its own (local_optimization.jl).
+_no_improvement_rule(_method) = NoImprovement
 
 """
     iterations_without_improvement(state) -> Int

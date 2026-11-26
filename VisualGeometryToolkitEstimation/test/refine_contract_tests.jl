@@ -6,7 +6,7 @@
 @testitem "refine_contract" setup = [HomographyScenes, Contamination, ConicScenes, RefineSolve] begin
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, successful_retcode, RefineMetadata
     using VisualGeometryToolkitEstimation: Ransac, LocalOptimization
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
     using Test, Random, LinearAlgebra, StaticArrays, StructArrays
@@ -131,7 +131,7 @@
         @test isconcretetype(typeof(r.metadata))
         # too few data: the guess, unrefined, of the same type
         rf = solve(RefineProblem(HomographyProblem(cs[1:3]), H0), LevenbergMarquardt(); scale = σ)
-        @test typeof(rf) === typeof(r) && retcode_symbol(rf) === :degenerate && rf.n == 0 && rf.stats.nsteps == 0
+        @test typeof(rf) === typeof(r) && (rf.retcode, rf.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && rf.n == 0 && rf.stats.nsteps == 0
         @test rf.u == H0
     end
 
@@ -159,7 +159,7 @@ end
 # contract's, cheaply), and hand-eye (whose problem needs 3 poses to exist) on 3.
 @testitem "refine_contract: every family problem's refine" setup = [TooFewData, RefineSolve] begin
     using VisualGeometryToolkitCore: RefineMetadata
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     import VisualGeometryToolkitCore as VgtkCore
     using Test, LinearAlgebra, StaticArrays
     using Rotations: RotMatrix, RotXYZ
@@ -226,7 +226,7 @@ end
         @test isconcretetype(typeof(l2)) && (@inferred scale_source(l2)) === ScaleNone
         @test l2 isa VgtkCore.FitResult{<:Any, <:RefineMetadata{Nothing}} && scale_source(l2) === ScaleNone &&
             weight_kind(l2) === BinaryWeights()
-        class === :hand_eye || @test retcode_symbol(r) === :degenerate && retcode_symbol(l2) === :degenerate
+        class === :hand_eye || @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && (l2.retcode, l2.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)
     end
 end
 

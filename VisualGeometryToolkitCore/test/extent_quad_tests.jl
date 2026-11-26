@@ -35,6 +35,13 @@
         @test !_op(sq, (SA[0.0, 0.0], SA[1.0, 1.0], SA[1.0, 0.0], SA[0.0, 1.0]))   # bow-tie
         line = (SA[0.0, 0.0], SA[1.0, 0.0], SA[2.0, 0.0], SA[3.0, 0.0])
         @test !_op(line, line)                                                # all degenerate: no evidence, false
+        # (moved from VisualGeometryToolkitEstimation's suite, which may not reach a Core internal: R22)
+        warped = (SA[0.0, 0.0], SA[2.0, 0.3], SA[1.8, 2.5], SA[-0.1, 2.0])
+        @test _op(sq, map(p -> SA[p[1], -p[2]], warped))                      # a uniform flip of a projective target
+        @test !_op(sq, (sq[1], sq[2], sq[4], sq[3]))                          # bow-tie by an adjacent swap: (+, +, −, −)
+        @test !_op(sq, (sq[1], sq[3], sq[2], sq[4]))                          # bow-tie by a diagonal swap: (−, +, +, −)
+        @test _op(sq, (sq[3], sq[2], sq[1], sq[4]))                           # a uniform reflection (1↔3): a relabelling
+        @test _op((SA[0.0, 0.0], SA[1.0, 0.0], SA[2.0, 0.0], SA[0.0, 1.0]), sq)   # one collinear triple: no evidence there
     end
 
     @testset "is_orientation_preserving walks them" begin

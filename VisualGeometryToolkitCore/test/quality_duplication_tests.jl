@@ -123,9 +123,18 @@
         @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "src/robust/lm_core.jl"))   # the home
         @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "test/lm_driver_tests.jl"))  # its own tests
     end
-    # the entry points are not primitives, nor is a name that ends in one
-    for call in ("sol = lmsolve_chart!(p, LmStops())\n", "r = solve(RefineProblem(fj, x0; lb, ub), StaticLevenbergMarquardt(); stops = StaticLmStops(s; acceptance = 1.0))\n",
-                 "p = LmProblem(vars, blocks)\n", "r = locally_optimize!(L, lo, p, m)\n", "k = my_nlls_termination(b)\n")
+    # Core's internal kernels are primitives too (R22: the C1 allowance is gone), outside their home
+    lk = "_lmsolve" * "_chart!("; lp = "_Lm" * "Problem("; cr = "_chart" * "_refit("; tr = "_triggs" * "_refit("
+    for call in ("sol = VgtkCore.$(lk)p, LmStops())\n", "p = VgtkCore.$(lp)vars, blocks)\n", "r = $(cr)ws, f, ch, rows, w)\n",
+                 "r = $(tr)ws, shape, f, m, loss)\n")
+        @test uses(call) == ["lm_primitive"]
+        @test uses(call; file = "experiments/run.jl") == ["lm_primitive"]
+        @test isempty(uses(call; name = "VisualGeometryToolkitCore", file = "src/robust/refine.jl"))   # the home
+    end
+    # the front end is no primitive, nor is a name that ends in one
+    for call in ("r = solve(RefineProblem(fj, x0; lb, ub), StaticLevenbergMarquardt(); stops = StaticLmStops(s; acceptance = 1.0))\n",
+                 "r = solve(RefineProblem(f, u0), LevenbergMarquardt(); stops)\n", "r = locally_optimize!(L, lo, p, m)\n",
+                 "k = my_nlls_termination(b)\n", "k = my_lmsolve_chart!(b)\n")
         @test isempty(uses(call))
     end
     @test uses("θ = $(ac)R) - 1) / 2, -1, 1))\n") == ["rotation_angle"]
@@ -270,7 +279,7 @@ end
         """))
     # a helper is exempt by its WHOLE name (every `_`-token a transfer or allocation word), not by a fragment of it:
     # computational code that starts with `fill`, `transfer` or `copy`, or holds `adapt` or `zones`, is checked
-    @test kinds("fill_sqrt_weights!(sw, w, backend) = backend isa KA.CPU ? (sw .= sqrt.(w)) : sqrt_kernel!(backend)(sw, w)\n") ==
+    @test kinds("_fill_sqrt_weights!(sw, w, backend) = backend isa KA.CPU ? (sw .= sqrt.(w)) : sqrt_kernel!(backend)(sw, w)\n") ==
           [:backend_branch]
     @test kinds("transfer_ellipse(H, e) = H isa CuArray ? gpu_conic(H, e) : conic(H, e)\n") == [:backend_branch]
     @test kinds("_adaptive_trials(n, backend) = backend isa KA.GPU ? 2n : n\n") == [:backend_branch]

@@ -50,9 +50,9 @@
 # back-substitute δXᵢ. The bundle is an NLLSsolver problem — the pose and the
 # N points its variables, one 4-row residual block per point with its
 # closed-form 4 × 8 Jacobian — and NLLSsolver owns the LM (Marquardt's DᵀD
-# damping, step accept/reject, convergence: Core's one LM, `LmProblem` + `lmsolve_chart!`) and, where the
+# damping, step accept/reject, convergence: Core's one LM, LevenbergMarquardt on the block contract) and, where the
 # loaded NLLSsolver has it (upstream #60, still open: the stack's fork has it;
-# VGC `nlls_features`), the Schur complement: its `MultiVariateLSschur`
+# `_BUNDLE_SCHUR` below), the Schur complement: its `MultiVariateLSschur`
 # eliminates every point (`iseliminable`). Without it the same problem runs on
 # NLLSsolver's sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
 #
@@ -77,11 +77,11 @@ const _POSE_DOF = 5
 
 # A structure point, free in ℝ³: VGC's `Eliminable` around the point. `E` says
 # whether NLLSsolver may eliminate it (the Schur-complement linear system,
-# upstream #60, open; detected once, VGC `nlls_features`); `E = false` is
+# upstream #60, open; detected once, `_BUNDLE_SCHUR`); `E = false` is
 # NLLSsolver's sparse LDL over every unknown — which an NLLSsolver without #60
 # takes and the fallback test forces.
 const _BundlePoint{E} = Eliminable{E, SVector{3, Float64}}
-const _BUNDLE_SCHUR = nlls_features().schur
+const _BUNDLE_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)   # upstream #60
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block. The run OWNS the three vectors
@@ -145,7 +145,7 @@ end
 # uncached time below). Its
 # residual blocks read the call's data through `data` (owned buffers), its
 # variables are reset per call, and NLLSsolver's internal data (the Schur
-# system's layout) is kept in Core's `LmProblem` (its typed cache), built once
+# system's layout) is kept in Core's block-LM cache (its typed cache), built once
 # for this structure. Without it a call would rebuild them
 # (measured 2026-10-27: 2.0 / 1.4 / 1.4× the cached call's time at N = 100 /
 # 1000 / 10000).
@@ -153,26 +153,45 @@ end
 # NOT REENTRANT: a bundle started from inside the NLLSsolver `callback` of a
 # bundle on the same task overwrites the running problem's data and
 # variables (the internal `callback` keyword; no production caller supplies one).
-struct _BundleRun{E, D, P <: LmProblem}
+struct _BundleRun{E, D, C}
     data::D
-    # Core's one multi-block LM problem (`LmProblem`): the pose and the N points, one `_BundleRows` block per point,
-    # with NLLSsolver's typed cache built for its structure (Schur, sparse or dense, a run-time choice).
-    lm::P
+    # Core's block refine of the run's bundle (`_RelposeRun`: the pose and the N points, one `_BundleRows` block per
+    # point), built once by `init` with NLLSsolver's typed cache for its structure (Schur, sparse or dense, a run-time
+    # choice); `reinit!` re-seeds its variables.
+    cache::C
+    n::Int
 end
 function _BundleRun{E}(N::Int, data::D) where {E, D}
-    vars = Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0))::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}]
-    for i in 1:N
-        push!(vars, _BundlePoint{E}(zero(SVector{3, Float64})))
-    end
-    blocks = [_BundleRows{E, D}(data, i, SVector(1, i + 1)) for i in 1:N]
-    lm = LmProblem(vars, blocks)
-    return _BundleRun{E, D, typeof(lm)}(data, lm)
+    seed = (SMatrix{3, 3, Float64, 9}(I), Vec3{Float64}(0.0, 0.0, 1.0), zero(SMatrix{3, 3, Float64, 9}), zero(SMatrix{3, 3, Float64, 9}))
+    c = init(RefineProblem(_RelposeRun{E, D}(data), seed), LevenbergMarquardt(; optimization_strategy = nothing))
+    return _BundleRun{E, D, typeof(c)}(data, c, N)
 end
+# The run's bundle as a block problem: the call's data (shared with its blocks) and, as its guess, the seed pose and the
+# two inverse calibrations the points are triangulated through.
+struct _RelposeRun{E, D} <: AbstractBlockProblem
+    data::D
+end
+default_stops(::_RelposeRun) = _RELPOSE_BUNDLE_STOPS
+default_optimization_strategy(::_RelposeRun) = nothing
+residual_summary(::_RelposeRun) = nothing
+block_result(::_RelposeRun, _u0, r::FitResult, _summary) = r
+function block_variables(f::_RelposeRun{E}, (Rb, tb, iK1, iK2)) where {E}
+    d = f.data
+    N = length(d.u1)
+    vars = Vector{Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}}(undef, N + 1)
+    vars[1] = EssentialManifold5(Rb, tb)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
+    @inbounds for i in 1:N
+        X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
+        vars[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
+    end
+    return vars
+end
+residual_blocks(f::_RelposeRun{E, D}, _u0) where {E, D} = [_BundleRows{E, D}(f.data, i, SVector(1, i + 1)) for i in eachindex(f.data.u1)]
 # The task's slot for its one run of point type `E`.
 mutable struct _BundleSlot{E}
     run::Union{Nothing, _BundleRun{E, _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}}}
 end
-_bundle_size(run::_BundleRun) = length(run.lm.variables) - 1
+_bundle_size(run::_BundleRun) = run.n
 function _bundle_run(::Val{E}, N::Int) where {E}
     slot = task_buffers(_BundleSlot{E}, () -> _BundleSlot{E}(nothing), ())
     run = slot.run
@@ -321,38 +340,70 @@ const _RELPOSE_BUNDLE_STOPS = LmStops(; max_iter = _RELPOSE_BUNDLE_MAX_ITER, fto
 default_stops(::RelativePoseProblem) = _RELPOSE_BUNDLE_STOPS
 default_optimization_strategy(::RelativePoseProblem) = nothing
 
-function block_refit(f::RelativePoseProblem, pose::PlainEuclideanMap{3}, loss, stops::LmStops, damping::LmDamping)
-    loss.strategy === nothing || throw(ArgumentError(
-        "RelativePoseProblem: the two-view bundle is a weighted least squares (its weights the correspondences' `weights` " *
-            "column): optimization_strategy = nothing"))
-    damping isa MarquardtDamping || throw(ArgumentError(
-        "RelativePoseProblem: the two-view bundle's kept run is Marquardt's (MarquardtDamping), got $(nameof(typeof(damping)))"))
-    cs = f.cs
-    u1 = sources(cs); u2 = targets(cs)
-    N = length(u1)
+# The block contract (Core's multi-block LM): the pose (its chart `EssentialManifold5`, the seed's translation
+# unit-normalized) and one free point per correspondence, triangulated in the ray domain at the seed; one 4-row block per
+# correspondence, √w times its two-view reprojection error. A plain least squares: a robust strategy has no block
+# robustifier. The result reads the LM's pose, its record and final cost (`rms = √(cost / n)`).
+# Fewer than 5 correspondences (a relative pose has 5 dof): Core's block refine returns no pose, `(InitialFailure,
+# NoRule)`, before any block is built.
+data_size(f::RelativePoseProblem) = length(f.cs)
+minimal_sample_size(::RelativePoseProblem) = 5
+# The RANSAC refit's bundle on the problem's data (its blocks' shared `_BundleData`: the calibrations, the views, the
+# √weights from the `weights` column, unit weight without one), its guess the seed pose (the translation
+# unit-normalized) and the inverse calibrations.
+# The data lives in the task's ONE buffer (sized to the call, grown only for more points), shared by the blocks Core's
+# one-shot block refine keeps per task: the call's data is copied into it, so a kept problem's blocks read the task's
+# own arrays, never a caller's, and a call allocates nothing for its data.
+mutable struct _RelposeDataSlot
+    data::_BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}
+end
+function _relpose_data(N::Int)
+    slot = task_buffers(_RelposeDataSlot, () -> _RelposeDataSlot(_BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}(N)), ())
+    d = slot.data
+    length(d.u1) == N || (resize!(d.u1, N); resize!(d.u2, N); resize!(d.sqrtw, N))
+    return d
+end
+function _relpose_run(f::RelativePoseProblem)
+    N = length(f.cs)
+    d = _relpose_data(N)
+    d.K1 = SMatrix{3, 3, Float64, 9}(f.K1); d.K2 = SMatrix{3, 3, Float64, 9}(f.K2)
+    u1 = sources(f.cs); u2 = targets(f.cs)
+    for i in 1:N
+        d.u1[i] = SVector{2, Float64}(u1[i][1], u1[i][2]); d.u2[i] = SVector{2, Float64}(u2[i][1], u2[i][2])
+    end
+    w = VgtkCore.weights_column(f.cs)
+    w === nothing ? fill!(d.sqrtw, 1.0) : _relpose_sqrt_weights!(d.sqrtw, w, N)
+    return _RelposeRun{_BUNDLE_SCHUR, typeof(d)}(d)
+end
+_relpose_guess(f::RelativePoseProblem, pose::PlainEuclideanMap{3}) =
+    (SMatrix{3, 3, Float64, 9}(rotation(pose)), Vec3{Float64}(normalize(SVector{3, Float64}(translation(pose)))), _inv3(f.K1), _inv3(f.K2))
+block_variables(f::RelativePoseProblem, pose::PlainEuclideanMap{3}) = block_variables(_relpose_run(f), _relpose_guess(f, pose))
+residual_blocks(f::RelativePoseProblem, pose::PlainEuclideanMap{3}) = residual_blocks(_relpose_run(f), _relpose_guess(f, pose))
+# A physical seed: the relative pose is up to scale and records no unit (units.md, point 3), so it is refused naming the fix.
+block_variables(::RelativePoseProblem, ::_PhysicalPose3) = throw(ArgumentError(
+    "RelativePoseProblem: the seed's translation is a direction (the pose is up to scale) and records no unit: give a plain seed, `ustrip(m, pose)`"))
+_relpose_sqrt_weights!(s, w, N) = (VgtkCore.check_weights(view(w, 1:N)); s .= sqrt.(Float64.(view(w, 1:N))))
+with_robustifier(::_BundleRows, _sqrt_weight, _robustifier) = throw(ArgumentError(
+    "RelativePoseProblem: the two-view bundle is a weighted least squares (its weights the correspondences' `weights` " *
+        "column): optimization_strategy = nothing"))
+residual_summary(::RelativePoseProblem) = nothing
+function block_result(f::RelativePoseProblem, _pose, r::FitResult, _summary)
     U = Union{typeof(EuclideanMap(one(RotMatrix{3, Float64}), zero(Vec3{Float64}); check = false)), Nothing}
-    N >= 5 || return FitResult{U}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, N, nothing)
-    # Per-point √weights from the `weights` column, through VGC's one fill and
-    # its one contract (a non-finite or negative weight is the caller's error);
-    # unit weights when there is none (per-correspondence data travels as a
-    # column, never a keyword).
-    w = VgtkCore.weights_column(cs)
-    sqrtw = w === nothing ? ones(N) : fill_sqrt_weights!(Vector{Float64}(undef, N), w, N)
-    res = _refine_relative_pose(
-        SMatrix{3, 3, Float64, 9}(rotation(pose)), SVector{3, Float64}(translation(pose)),
-        f.K1, f.K2, _inv3(f.K1), _inv3(f.K2), u1, u2, sqrtw; stops
-    )
-    res === nothing && return FitResult{U}(nothing, ReturnCode.Failure, NonFinite, SolveStats(), NaN, N, nothing)
-    (; code, rule, iterations, cost) = res.sol
-    return FitResult{U}(EuclideanMap(RotMatrix{3, Float64}(res.R), res.t; check = false), code, rule,
-                        SolveStats(; nsteps = iterations), sqrt(cost / N), N, nothing)
+    N = length(f.cs)
+    r.retcode === ReturnCode.Failure && return FitResult{U}(nothing, ReturnCode.Failure, NonFinite, SolveStats(), NaN, N, nothing)
+    pose = r.u[1]::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
+    R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)
+    (all(isfinite, R) && all(isfinite, t)) ||
+        return FitResult{U}(nothing, ReturnCode.Failure, NonFinite, SolveStats(), NaN, N, nothing)
+    return FitResult{U}(EuclideanMap(RotMatrix{3, Float64}(R), t; check = false), r.retcode, r.stop_rule,
+                        SolveStats(; nsteps = r.stats.nsteps), sqrt(r.metadata.cost / N), N, nothing)
 end
 
 # -----------------------------------------------------------------------------
 # Core routine: robust full-3D two-view BA (camera-aware).  Seed pose (R₀,t₀) +
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
 # per-point √weights → `(; R, t, sol)`: the refined (R, t) (‖t‖=1) and Core's
-# solve record `sol = (; code, rule, iterations, cost)` (`lmsolve_chart!`: its one
+# solve record `sol = (; code, rule, iterations, cost)` (Core's chart LM: its one
 # success rule, a tolerance stop converged and the rejection cap judged by the stationarity postcondition; a `:stalled`
 # bundle's pose is still scored by the caller, the LO's acceptance, as a converged
 # one is). `nothing` on failure: a singular system (Core's `Failure`) or a
@@ -369,7 +420,7 @@ function _refine_relative_pose(
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
         sqrtw::AbstractVector; stops::LmStops = _RELPOSE_BUNDLE_STOPS,
-        schur::Bool = _BUNDLE_SCHUR, callback::F = NLLSsolver.nullcallback
+        schur::Bool = _BUNDLE_SCHUR, callback::F = nothing
     ) where {F}
     # (`::F`: a Function-typed argument only handed on is not specialized,
     # which made the call below a dynamic one, boxing every argument)
@@ -384,7 +435,7 @@ end
 function _bundle_optimize(
         v::Val{E}, N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback
     ) where {E}
-    # a function barrier: the task's kept run is stored without its LmProblem's concrete type (the slot holds any size's
+    # a function barrier: the task's kept run is stored without its block-LM cache's concrete type (the slot holds any size's
     # run), so the per-point setup and the solve run in a method specialized on it — one dynamic call per bundle, not one
     # per point (without it a call allocated ~2N times)
     return _bundle_solve!(_bundle_run(v, N), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback)
@@ -398,16 +449,13 @@ function _bundle_solve!(
         d.u1[i] = SVector{2, Float64}(u1[i][1], u1[i][2]); d.u2[i] = SVector{2, Float64}(u2[i][1], u2[i][2])
         d.sqrtw[i] = sqrtw[i]
     end
-    vars = run.lm.variables                   # the start, set in place
-    vars[1] = EssentialManifold5(Rb, tb)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
-    @inbounds for i in 1:N
-        X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
-        vars[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
-    end
-    # Core's one LM at the bundle's stop settings (default [relpose_bundle] max_iter, ftol; the rest Core's [lm])
-    sol = lmsolve_chart!(run.lm, stops; callback)
-    sol.code === ReturnCode.Failure && return nothing                    # a singular system: no solution
-    pose = run.lm.variables[1]::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
+    # Core's one LM at the bundle's stop settings (default [relpose_bundle] max_iter, ftol; the rest Core's [lm]), from
+    # the seed pose and the points triangulated at it; a per-iteration `callback` runs on a cache of its own
+    seed = (Rb, tb, iK1, iK2)
+    sol = callback === nothing ? solve!(reinit!(run.cache, seed; stops)) :
+        solve(RefineProblem(_RelposeRun{E, typeof(d)}(d), seed), LevenbergMarquardt(; optimization_strategy = nothing); stops, callback)
+    sol.retcode === ReturnCode.Failure && return nothing                 # a singular system: no solution
+    pose = sol.u[1]::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
     R = SMatrix{3, 3, Float64, 9}(pose.R); t = Vec3{Float64}(pose.t)
     (all(isfinite, R) && all(isfinite, t)) || return nothing
     return (; R, t, sol)
@@ -486,7 +534,7 @@ function refine!(_ws, p::RelposeBundleProblem, θ::EssentialMat, weights::Abstra
     _underdetermined(p, weights) && return nothing
     u1 = sources(p.cs); u2 = targets(p.cs)
     R₀, t₀ = _cheiral_relpose(p, θ)
-    sqrtw = fill_sqrt_weights!(Vector{Float64}(undef, length(weights)), weights, length(weights))
+    sqrtw = _relpose_sqrt_weights!(Vector{Float64}(undef, length(weights)), weights, length(weights))
     res = _refine_relative_pose(R₀, t₀, p.K1, p.K2, p.iK1, p.iK2, u1, u2, sqrtw)
     res === nothing && return nothing
     return EssentialMat(res.R, res.t)

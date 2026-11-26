@@ -14,7 +14,7 @@
     using Statistics: median
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: IGPrior, JeffreysPrior, ScaleMAP, SquaredScale, _partition_student_t, partition_rss,
-        PosteriorWeightState, _posterior_weights!, _posterior_inlier_probs!, median_seeded_posterior,
+        PosteriorWeightState, _posterior_weights!, _posterior_inlier_probs!, _median_seeded_posterior,
         _soft_posterior_weights!, s_hat_sq, student_t_dof
     using Distributions: Chisq, quantile
 
@@ -133,10 +133,10 @@
         end
     end
 
-    # `median_seeded_posterior` seeds at the stack's one median scale, `MedianNormScale`'s σ̂², on the
+    # `_median_seeded_posterior` seeds at the stack's one median scale, `MedianNormScale`'s σ̂², on the
     # norms √sq (no private median(r²)/χ²-median copy); the state it builds must equal
     # that seed's, field for field.
-    @testset "median_seeded_posterior seeds at MedianNormScale's σ̂²" begin
+    @testset "_median_seeded_posterior seeds at MedianNormScale's σ̂²" begin
         function _rvg_copy(sq, n; outlier_halfwidth, codimension = 2, ν = 1.0e4, prior = IGPrior(0.0, 0.0))
             sq_r = Vector{Float64}(sq[1:n])
             σ = VisualGeometryToolkitCore._mad_scale_norms(; norms = sqrt.(sq_r), codimension)
@@ -148,7 +148,7 @@
         end
         sq = [0.01, 0.04, 0.02, 0.09, 0.03, 4.0, 9.0, 0.05, 16.0, 0.06, 99.0]
         for dg in (1, 2), n in (5, 10, 11), prior in (IGPrior(), IGPrior(2.0, 0.1))
-            a = median_seeded_posterior(sq, n; outlier_halfwidth = 3.0, ν = 1.0e4, codimension = dg, prior)
+            a = _median_seeded_posterior(sq, n; outlier_halfwidth = 3.0, ν = 1.0e4, codimension = dg, prior)
             b = _rvg_copy(sq, n; outlier_halfwidth = 3.0, codimension = dg, prior)
             for f in fieldnames(PosteriorWeightState)
                 @test getfield(a, f) == getfield(b, f)
@@ -157,10 +157,10 @@
             # an even count: the median of the norms, not of their squares (MedianNormScale's)
             n == 10 && @test a.s_hat_sq != median(sq[1:n]) / quantile(Chisq(dg), 0.5)
         end
-        @test_throws ArgumentError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4, prior = IGPrior(), codimension = 3)
+        @test_throws ArgumentError _median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4, prior = IGPrior(), codimension = 3)
         # ν and the scale prior are required: a configuration's values, not this function's
-        @test_throws UndefKeywordError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, prior = IGPrior())
-        @test_throws UndefKeywordError median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4)
+        @test_throws UndefKeywordError _median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, prior = IGPrior())
+        @test_throws UndefKeywordError _median_seeded_posterior(sq, 5; outlier_halfwidth = 1.0, ν = 1.0e4)
         # nor the fresh-buffer constructor's and its in-place form's
         @test_throws UndefKeywordError PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0)
         let pws = PosteriorWeightState(5; ν = 4.0, s_hat_sq = 1.0, log_two_outlier_halfwidth = 1.0, prior = IGPrior(2.0, 0.1))

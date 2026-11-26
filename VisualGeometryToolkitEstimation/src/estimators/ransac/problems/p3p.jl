@@ -50,7 +50,7 @@ const _P3P_DEGENERACY_TOL = 1.0e-2
 
 # Coincidence tolerances, supplied EXPLICITLY at both call sites below.
 #
-# VGC's `_are_points_distinct` defaults to `tol_px = COINCIDENT_PX` (0.1 px)
+# VGC's `are_points_distinct` defaults to `tol_px = COINCIDENT_PX` (0.1 px)
 # since B7 made the epipolar/homography gate a pixel deduplication backstop.
 # P3P shares the helper but not the domain: `X` is world control points in the
 # CALLER's units (m, mm, …), where a tolerance named and valued in pixels is a
@@ -148,7 +148,7 @@ incidentally.
 function test_sample(p::AbsolutePoseProblem, idx::AbstractVector{Int})
     X, u = _sample_triples(p, idx)
     _world_triple_ok(X) || return false
-    _are_points_distinct(u; tol_px = _P3P_COINCIDENT_IMAGE) || return false
+    are_points_distinct(u; tol_px = _P3P_COINCIDENT_IMAGE) || return false
     return _image_thin_ratio(lens(p.context.model), p, u, idx) > _P3P_DEGENERACY_TOL
 end
 # A P3P sample's three world points and their three observations (pixels, or bearings: BearingPoseProblem's too).
@@ -156,7 +156,7 @@ end
     (sources(p.cs)[idx[1]], sources(p.cs)[idx[2]], sources(p.cs)[idx[3]]),
     (targets(p.cs)[idx[1]], targets(p.cs)[idx[2]], targets(p.cs)[idx[3]]))
 # The world triple's gate: distinct points, not collinear.
-_world_triple_ok(X) = _are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) && thin_ratio(X[1], X[2], X[3]) > _P3P_DEGENERACY_TOL
+_world_triple_ok(X) = are_points_distinct(X; tol_px = _P3P_COINCIDENT_WORLD) && thin_ratio(X[1], X[2], X[3]) > _P3P_DEGENERACY_TOL
 
 # The image triple's thinness, by the lens: a pinhole's pixels are a projective
 # image of the rays, so their triangle is the test; any other lens bends lines,

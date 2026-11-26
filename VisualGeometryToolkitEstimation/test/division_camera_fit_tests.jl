@@ -1,5 +1,6 @@
 @testitem "DivisionCameraFit" setup = [DivisionBoards] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
 # DivisionCameraFit — iterated Sampson-whitened, Student-t re-weighted focal stack
 using Test, Random, LinearAlgebra
 using StableRNGs
@@ -39,7 +40,7 @@ include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "division_camera_em
     @test abs(f_irls - f0) < abs(f_plain - f0)                        # whitening + robust weights beat the plain stack
     @test abs(f_irls - f0) / f0 < 1.0e-2                                  # information limit under 8 % contamination
     @test abs(parameter_vector(lens(res.u))[1] / f_irls^2 - k0) / abs(k0) < 0.05
-    @test retcode_symbol(res) in (:converged, :max_iterations)
+    @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ParameterChange)
     @test 0.2 < noise_scale(res) < 1.0                                        # ŝ recovers the pixel noise scale
     @test @inferred(noise_scale(res)) isa Float64
     md = res.metadata
@@ -62,7 +63,7 @@ include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "division_camera_em
     for mi in (1, 2, 5)
         @test solve(EstimationProblem(CameraModel, (rc, vw), (; image_size = sz)), DivisionCameraFit(; mixture_em = em_at(mi))).stats.nsteps <= mi
     end
-    @test retcode_symbol(solve(EstimationProblem(CameraModel, (rc, vw), (; image_size = sz)), DivisionCameraFit(; mixture_em = em_at(1)))) === :max_iterations
+    @test (let r = solve(EstimationProblem(CameraModel, (rc, vw), (; image_size = sz)), DivisionCameraFit(; mixture_em = em_at(1))); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
     # one iteration moves the solution off the seeded step (the step whitened at the
     # seed, the half-diagonal by default): the robust re-weighting begins there
     p1 = solve(EstimationProblem(CameraModel, (rc, vw), (; image_size = sz)), DivisionCameraFit(; mixture_em = em_at(1))).u

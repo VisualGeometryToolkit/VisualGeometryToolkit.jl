@@ -20,7 +20,8 @@ const REGION = Rect(0, 0, 1000, 1000) ∩ DISC
 end
 
 @testitem "OpticalAxis: a spline turned 5° off its axis — the axis and the principal point recovered, every image kept after the re-gauge" setup = [CameraRecipes, OffAxisSpline] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm, dot, normalize
@@ -32,7 +33,7 @@ end
     K0 = calibration_matrix(OFF_AXIS)
     @test norm(SVector(K0[1, 3], K0[2, 3]) - SVector(500.0, 500.0)) > 20          # the never-fitted gauge: off the axis's pixel
     r = solve(EstimationProblem(CameraRegressionProblem(with_lens_coverage(OFF_BOUNDED, DISC))), OpticalAxis())
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     R = r.metadata.rotation
     @test map_frames(R) == (ViewFrame{:source}, ViewFrame{:fitted})
     axis = rotation(R)' * SVector(0.0, 0.0, 1.0)                                   # the axis in the source frame
@@ -86,7 +87,8 @@ end
 end
 
 @testitem "CameraRegression(SplineLens): a gauge-K source is gauged on its optical axis first; a physical source is unchanged" setup = [OffAxisSpline] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -105,7 +107,7 @@ end
     pix = [SVector(500.0 + ρ * cos(a), 500.0 + ρ * sin(a)) for ρ in (0.0, 150.0, 400.0) for a in range(0, 2π; length = 9)]
     @test all(u -> norm(backproject(cam, u) - R * backproject(OFF_AXIS, u)) < 1.0e-12, pix)
     @test all(u -> norm(project(cam, backproject(cam, u)) - u) < 1.0e-3, pix)
-    @test retcode_symbol(r) === :converged && r.metadata.family.forward.max_px <= 1.0e-3
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.metadata.family.forward.max_px <= 1.0e-3
     # a parametric source: its ẑ is the axis already — the identity, the source's K
     rp = solve(EstimationProblem(CameraRegressionProblem(SplineLens, BoundedCamera(FISHEYE, Size2(1000, 1000)), REGION)), CameraRegression(; tolerance = 1.0e-2, forward = false))
     @test rotation(rp.metadata.rotation) == one(R) && isnan(rp.metadata.symmetry_residual)
@@ -113,7 +115,8 @@ end
 end
 
 @testitem "OpticalAxis: a bounded camera only — its region is the camera's own bound or a given region within it; a circular fisheye's axis from its image circle" setup = [OffAxisSpline] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, dot, normalize, I
@@ -135,7 +138,7 @@ end
     spl = CameraModel(SplineLens, f, Size2(1400, 1000); grid_size = (30, 22), init = :quasi_interpolate)
     circle = Ellipse(SVector(700.0, 500.0), 0.95 * 250 * θmax, 0.95 * 250 * θmax, 0.0)
     r = solve(EstimationProblem(CameraRegressionProblem(BoundedCamera(spl, Size2(1400, 1000); lens_coverage = circle))), OpticalAxis())
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     axis = rotation(r.metadata.rotation)' * SVector(0.0, 0.0, 1.0)
     @test acosd(min(1.0, dot(axis, Q3 * SVector(0.0, 0.0, 1.0)))) < 0.01
     K = calibration_matrix(r.u)
@@ -147,34 +150,36 @@ end
     # circle finds the axis its coverage-bound twin finds (RadiometricCamera's siemens start camera stalled over its
     # whole image and converges over its board's rectangle: the same case on a real lattice)
     rc = solve(EstimationProblem(CameraRegressionProblem(BoundedCamera(spl, Size2(1400, 1000)), circle)), OpticalAxis())
-    @test retcode_symbol(rc) === :converged
+    @test (rc.retcode, rc.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     @test acosd(min(1.0, dot(rotation(rc.metadata.rotation)' * SVector(0.0, 0.0, 1.0), Q3 * SVector(0.0, 0.0, 1.0)))) < 0.01
     @test rc.metadata.symmetry_residual < 0.05
     # a region past the camera's image is clipped to it: the sensor rectangle on the coverage-bound camera is its bound
     bounded = BoundedCamera(spl, Size2(1400, 1000); lens_coverage = circle)
     rr = solve(EstimationProblem(CameraRegressionProblem(bounded, Rect(0, 0, 1400, 1000))), OpticalAxis())
-    @test retcode_symbol(rr) === :converged && length(rr.metadata.residuals) == length(r.metadata.residuals)
+    @test (rr.retcode, rr.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && length(rr.metadata.residuals) == length(r.metadata.residuals)
     @test calibration_matrix(rr.u) == K       # the same pixels, in the same order: the same problem, the same bits
     # no region: the camera's own imaged region, the one path, the same bits
     @test solve(EstimationProblem(CameraRegressionProblem(bounded, imaged_region(bounded))), OpticalAxis()).metadata.residuals == r.metadata.residuals
 end
 
 # OpticalAxis's LM takes every chart LM's stop settings (Core's [lm] ftol = 1e-10, Estimation 0.10.2; until 0.10.1 it ran at
-# lmsolve_chart!'s eps): on the whole sensor of the 5°-off-axis spline the default family's cost settles before its
+# the chart LM's eps): on the whole sensor of the 5°-off-axis spline the default family's cost settles before its
 # steps reach the increment floor, so it stops on the relative cost decrease (at eps: IncrementSize, one iteration
 # later; the principal point moves by < 1e-6 px; wave10/optical-axis-order.md)
 @testitem "OpticalAxis: the chart LM's cost tolerance ends a settled regression (CostDecrease)" setup = [OffAxisSpline] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test
-    using VisualGeometryToolkitCore: retcode_symbol, CostDecrease
+    using VisualGeometryToolkitCore: CostDecrease
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     r = solve(EstimationProblem(CameraRegressionProblem(OFF_BOUNDED)), OpticalAxis())
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     @test r.stop_rule === CostDecrease
 end
 
 @testitem "the camera-regression refine's regression on the device: the CPU and CUDA backends of the one kernel agree to rounding" setup = [CameraRecipes, OffAxisSpline] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using CUDA: CUDA
     using StaticArrays: SMatrix
@@ -190,7 +195,7 @@ end
     cpu = VC.KA.CPU()
     # a physical K: the samples are the lens's radial profile, on the host whatever the device
     rc = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)), CameraRegression(; refine = LevenbergMarquardt()))
-    @test retcode_symbol(rc) === :converged
+    @test (rc.retcode, rc.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     # a gauge K (the off-axis spline over its disc): the regression state built as the camera-regression refine builds it, its samples
     # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
@@ -219,7 +224,7 @@ end
         @test abs(g.rms - c.rms) < 1.0e-12 && abs(g.max_px - c.max_px) < 1.0e-12                 # px
         # the physical K's public call: the same samples on both backends, so the same comparison end to end
         rg = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, FISHEYE, REGION; device = gpu)), CameraRegression(; refine = LevenbergMarquardt()))
-        @test retcode_symbol(rg) === :converged && rg.stats.nsteps == rc.stats.nsteps
+        @test (rg.retcode, rg.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && rg.stats.nsteps == rc.stats.nsteps
         @test maximum(abs, calibration_matrix(rg.u) - calibration_matrix(rc.u)) < 1.0e-9
         @test maximum(abs, collect(parameter_vector(lens(rg.u))) - collect(parameter_vector(lens(rc.u)))) < 1.0e-9
         @test abs(rg.rms - rc.rms) < 1.0e-12 && abs(rg.metadata.max_px - rc.metadata.max_px) < 1.0e-12   # px
@@ -327,9 +332,10 @@ end
 # Rect(1616, 593, 2159, 2321): over its whole sensor (corners extrapolated to 179.8°) the axis fit stalled at every
 # radial order (wave10/optical-axis-order.md); over the support it converges.
 @testitem "region support: a fit beyond the source's calibrated support is refused; inside it, the axis converges" setup = [CameraRecipes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using Test
     using StaticArrays: SVector, SMatrix
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect, LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, retcode_symbol, imaged_region, model, KannalaBrandt
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect, LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, imaged_region, model, KannalaBrandt
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     c = include(joinpath(@__DIR__, "fixtures", "rc_siemens_start_camera.jl"))
@@ -347,10 +353,10 @@ end
     end
     # the support itself: the axis converges
     r = solve(EstimationProblem(CameraRegressionProblem(cam, support; support)), OpticalAxis())
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     # the camera-regression refine refuses the whole sensor too, and fits inside
     @test_throws RegionBeyondSupport solve(RefineProblem(CameraRegressionProblem(cam, imaged_region(cam); support), r.u), LevenbergMarquardt())
-    @test retcode_symbol(solve(RefineProblem(CameraRegressionProblem(cam, support; support), r.u), LevenbergMarquardt())) in (:converged, :solved)
+    @test (let rs = solve(RefineProblem(CameraRegressionProblem(cam, support; support), r.u), LevenbergMarquardt()); (rs.retcode, rs.stop_rule) end) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     # without `support`, a camera's own valid_domain bounds it: a region past a lens's injectivity disc is refused
     kb = CameraModel(SMatrix{3, 3, Float64}(300, 0, 0, 0, 300, 0, 320, 240, 1); lens = KannalaBrandt(-0.135))
     @test_throws RegionBeyondSupport solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, kb, Rect(-1.0e5, -1.0e5, 2.0e5, 2.0e5))), CameraRegression())

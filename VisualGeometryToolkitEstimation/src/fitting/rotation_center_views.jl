@@ -14,7 +14,7 @@
 # BearingPoseProblem (the existing bearing residual, bearings.md: the tangent-plane
 # logarithm of the predicted bearing at the dot's back-projected one, whitened into
 # pixels by its back-projection Jacobian M), evaluated at the view's pose
-# (R_k, d − R_k c) inside the block; the solve is Core's bundle LM (`block_lm`). One
+# (R_k, d − R_k c) inside the block; the solve is Core's multi-block LM (the block contract). One
 # residual for EVERY camera (2026-11-12, owner, (B)(ii)): the camera is used only to
 # back-project the dots, once — never projected inside the LM, so no lens's domain or
 # spline window can stop it (the pixel residual's failure on SplineLens fisheyes
@@ -76,12 +76,16 @@ The residual of [`CameraPosesProblem`](@ref) on [`RotationCenterViews`](@ref), i
 - `BearingResidual()` (the default): each dot back-projected ONCE to its bearing, the tangent-plane angle to the
   predicted bearing whitened into pixels by the dot's back-projection Jacobian — never a projection inside the solve,
   so it converges from a rotation-centre start whatever the lens's domain;
-- `ReprojectionResidual()`: that bearing refine, then a SECOND stage from its estimate on the exact pixel reprojection
-  error, `project(camera, R_k (X − c) + d) − u` (Core's `reprojection_error`; a SplineLens camera projected by inverting
+- `ReprojectionResidual()`: the pixel refine on the exact reprojection error,
+  `project(camera, R_k (X − c) + d) − u` (Core's `reprojection_error`; a SplineLens camera projected by inverting
   its backward spline, its forward dropped, Core's implicit-function derivatives). A candidate update that leaves a
   dot's prediction undefined (off the lens's domain) costs +Inf and is rejected by the LM, never clamped. The dots of
-  the second stage are the first stage's rows that project at its estimate; those that do not are
-  `metadata.without_projection`. The result's views, retcode, rms and record are the second stage's.
+  pixel refine are the dots that back-project (a bearing refine's rows) and project at its guess; those that do not are
+  `metadata.without_projection`. One refine per solve: the bearing-then-pixel flow is two solves, the pixel refine's
+  guess the bearing refine's estimate,
+
+      rb = solve(RefineProblem(CameraPosesProblem(cs; fixed), (; camera, views)), alg)
+      rp = solve(RefineProblem(CameraPosesProblem(cs; fixed, residual = ReprojectionResidual()), rb.u), alg)
 """
 abstract type AbstractViewResidual end
 
@@ -96,8 +100,8 @@ struct BearingResidual <: AbstractViewResidual end
 """
     ReprojectionResidual()
 
-The [`AbstractViewResidual`](@ref) of [`CameraPosesProblem`](@ref) on [`RotationCenterViews`](@ref) that adds the
-second stage on the exact pixel reprojection error; the dots that do not project at the bearing estimate are
+The [`AbstractViewResidual`](@ref) of [`CameraPosesProblem`](@ref) on [`RotationCenterViews`](@ref) of the pixel
+refine, on the exact reprojection error from its guess (a bearing refine's estimate); the dots that do not project at the guess are
 `metadata.without_projection`.
 """
 struct ReprojectionResidual <: AbstractViewResidual end
@@ -179,8 +183,8 @@ The estimate is `(; camera, views)`: the camera as given, and the refined
 `RotationCenterViews` keyed like the input.
 
 `residual` (the fourth argument): [`BearingResidual`](@ref)`()`, the default, the bearing residual above;
-[`ReprojectionResidual`](@ref)`()` that refine, then a second stage from its estimate on the exact pixel
-reprojection error (the result's views, retcode and record are the second stage's).
+[`ReprojectionResidual`](@ref)`()` the refine on the exact pixel reprojection error, from its guess (typically a
+bearing refine's estimate: two solves).
 """
 function _camera_poses(
         camera::_RefinedCamera, views::RotationCenterViews{K},
@@ -197,23 +201,26 @@ function _camera_poses(
         "parameter, `fixed = held_parameters(camera)` (free: $(free))"))
     _check_rotation_center_gauge([views.rotations[k] for k in ids])
     N = length(ids)
-    vars0 = _center_variables(views, ids)
     blocks, without = _rotation_center_bearing_blocks(cm, ids, correspondences)
+    # the pixel refine: from the guess (a bearing refine's estimate), the dots that back-project, each projected exactly
+    residual isa ReprojectionResidual && return _rotation_center_reprojection(camera, cm, views, ids, correspondences, without, kw)
+    vars0 = _center_variables(views, ids)
     p = 6 + 3N
     2length(blocks) > p || throw(ArgumentError(
         "CameraPosesProblem: underdetermined: $(length(blocks)) correspondences ($(2length(blocks)) rows) for $p unknowns"))
-    sol = _block_lm(blocks, vars0, p, kw)
+    return _BundleStatement(blocks, vars0, (sol, loss) -> _rotation_center_result(K, camera, ids, sol, loss, without))
+end
+# The rotation-centre bundle's result from its solve `sol` at the parsed `loss`: the views read back, the record, the
+# metadata (the bearing stage's dropped correspondences, and the pixel stage's when given).
+function _rotation_center_result(::Type{K}, camera, ids, sol, loss, without_bearing, without_projection...) where {K}
     c, d, Rout = _center_read_back(K, sol, ids)
-    out = RotationCenterViews{K}(Rout, c, d)
-    residual isa ReprojectionResidual && return _rotation_center_reprojection(camera, cm, out, ids, correspondences, without, kw)
-    md = RotationCenterRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
-        VgtkCore.scale_record(kw)...,
-        length(without), without)
-    return FitResult((; camera, views = out), sol.code, sol.rule, SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, md)
+    md = RotationCenterRefineMetadata{typeof(loss.strategy)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
+        VgtkCore.scale_record(loss)..., length(without_bearing), without_bearing, without_projection...)
+    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, md)
 end
 
 
-# The pixel stage of `ReprojectionResidual()`: from the bearing estimate `views`, one `_BoardViewResidual` per dot on the
+# The pixel refine of `ReprojectionResidual()`: from the guess `views` (a bearing refine's estimate), one `_BoardViewResidual` per dot on the
 # view's rotation chart (2 + v), the centre (1) and the offset (2), the camera held and projected exactly
 # (`_without_forward` for a SplineLens camera), the bundle's solve at the same keywords.
 function _rotation_center_reprojection(camera, cm, views::RotationCenterViews{K}, ids, correspondences, without_bearing, kw) where {K}
@@ -237,12 +244,8 @@ function _rotation_center_reprojection(camera, cm, views::RotationCenterViews{K}
     2length(blocks) > p || throw(ArgumentError(
         "CameraPosesProblem: underdetermined pixel stage: $(length(blocks)) correspondences project at the bearing estimate ($(2length(blocks)) rows) for $p unknowns"))
     vars0 = _center_variables(views, ids)
-    sol = _block_lm(blocks, vars0, p, kw)
-    c, d, Rout = _center_read_back(K, sol, ids)
-    md = RotationCenterRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
-        VgtkCore.scale_record(kw)...,
-        length(without_bearing), without_bearing, without_projection)
-    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, md)
+    return _BundleStatement(blocks, vars0,
+                            (sol, loss) -> _rotation_center_result(K, camera, ids, sol, loss, without_bearing, without_projection))
 end
 # The rotation-centre bundle's variables, in block order: the centre, the offset, then each view's rotation chart.
 function _center_variables(views::RotationCenterViews, ids)

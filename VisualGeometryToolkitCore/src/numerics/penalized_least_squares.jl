@@ -17,14 +17,14 @@
 #   NLLSsolver block per row on the variables holding its nodes).
 # THE NORMALIZATION. `mean_positive_eigenvalue` (m̄ of DᵀD) and `penalty_scale`
 #   (β relative to the data's energy per parameter and to m̄).
-# THE LINEAR SOLVE. `cgls` (min ‖Ax − b‖² + ‖√w∘(Dx − h)‖², warm start, target,
+# THE LINEAR SOLVE. `_cgls` (min ‖Ax − b‖² + ‖√w∘(Dx − h)‖², warm start, target,
 #   any KernelAbstractions backend): Krylov.jl's CGLS on the stacked operator
 #   [A; √W D], its products the operators' own — `CSRMatrix`, the device form of a
 #   sparse operator, or on CUDA a cuSPARSE CSR matrix (the CUDA extension);
-#   `normal_cg`, Krylov.jl's CG on a normal operator AᵀA + DᵀWD that is only
+#   `_normal_cg`, Krylov.jl's CG on a normal operator AᵀA + DᵀWD that is only
 #   applied (rows never stored); either Jacobi-preconditioned. A dense or
 #   CHOLMOD-sized problem solves its normal equations directly.
-# THE WEIGHT'S CHOICE. VisualGeometryToolkitEstimation's `gcv_curve`/`gcv_select`
+# THE WEIGHT'S CHOICE. VisualGeometryToolkitEstimation's `GeneralizedCrossValidation`
 #   (fitting/gcv.jl) — GCV is a fit's, not a numerical primitive.
 #
 # NO PENALTY FIXES A GAUGE. A direction neither the data nor the penalty holds is
@@ -86,8 +86,8 @@ A sparse operator in compressed sparse rows on a KernelAbstractions `device`
 else `KA.CPU()`). `mul!(y, C, x)` sums each row in its stored order, no atomics, the same
 bits on every run: on CUDA the product is cuSPARSE's CSR product of these arrays (its
 reproducible algorithm; the CUDA extension), elsewhere one work item per row.
-`Adapt.adapt(backend, C)` moves it. The operator a device solve ([`cgls`](@ref),
-[`normal_cg`](@ref)) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
+`Adapt.adapt(backend, C)` moves it. The operator a device solve (`_cgls`,
+`_normal_cg`) applies; its transpose is a second `CSRMatrix` of `transpose(A)`
 ([`PenalizedOperator`](@ref) holds both).
 """
 struct CSRMatrix{I <: AbstractVector{<:Integer}, V <: AbstractVector{Float64}}
@@ -127,7 +127,7 @@ end
     PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = spzeros(0, size(A, 2)); device = default_device())
 
 The operators of a penalized least squares `min ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` on a
-KernelAbstractions `device`, built once for every solve on them ([`cgls`](@ref)): `A`,
+KernelAbstractions `device`, built once for every solve on them (`_cgls`): `A`,
 `D` and their transposes as [`CSRMatrix`](@ref)es. `D` is any of the stack's penalty
 operators ([`difference_rows`](@ref), [`bending_rows`](@ref) as a sparse matrix), its rows'
 weights `w` the solve's.
@@ -146,7 +146,7 @@ function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrix
 end
 
 """
-    cgls(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+    _cgls(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
         -> (; x, iterations, converged, relres)
 
 The least-squares solution of `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` (`op`'s `A` and `D`;
@@ -170,14 +170,14 @@ so a start that is already close needs few or no iterations. `converged` when th
 met within `max_iter` iterations; `relres` is the left side over the right side's norm.
 
 The rows of `A` stored; a problem whose normal operator is only applied (its rows never
-formed) solves with [`normal_cg`](@ref).
+formed) solves with `_normal_cg`.
 """
-function cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothing, AbstractVector} = nothing,
+function _cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothing, AbstractVector} = nothing,
         diagonal::Union{Nothing, AbstractVector} = nothing, x0::Union{Nothing, AbstractVector} = nothing,
         rtol::Real = 1.0e-6, max_iter::Integer = 500)
     dev = op.device
     n = op.A.n; m = op.A.m; mD = op.D.m
-    length(b) == m || throw(DimensionMismatch("cgls: b has $(length(b)) entries, A $m rows"))
+    length(b) == m || throw(DimensionMismatch("_cgls: b has $(length(b)) entries, A $m rows"))
     vec_on(v) = on_device(Float64, dev, v)
     sw = w isa Real ? fill!(KA.allocate(dev, Float64, mD), sqrt(Float64(w))) : sqrt.(vec_on(w))
     dinv = _jacobi_inverse(diagonal, dev, n)
@@ -251,15 +251,15 @@ function LinearAlgebra.mul!(x::AbstractVector, T::_StackedAdjoint, y::AbstractVe
 end
 
 """
-    normal_cg(N, g; diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+    _normal_cg(N, g; diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
         -> (; x, iterations, converged, relres)
 
 The solution of the normal equations `N x = g` of a penalized least squares, `N = AᵀA +
-DᵀWD` and `g = Aᵀb + DᵀWh` ([`cgls`](@ref)'s problem), by conjugate gradients (Krylov.jl's
+DᵀWD` and `g = Aᵀb + DᵀWh` (`_cgls`'s problem), by conjugate gradients (Krylov.jl's
 `cg`) on `N` APPLIED: `N` a function `N(y, x)` writing `y = N x` into `y`, or an operator
 with `mul!(y, N, x)` (a matrix, a [`CSRMatrix`](@ref)). The problem whose rows are never
 stored — a panorama's pixels accumulated into a lattice stencil and a Schur block — solves
-here; one whose rows are stored solves with `cgls`, which applies the rows and so loses no
+here; one whose rows are stored solves with `_cgls`, which applies the rows and so loses no
 digits to forming `N`.
 
 `diagonal`, `N`'s diagonal (positive), preconditions the iteration (Jacobi: the symmetric
@@ -271,7 +271,7 @@ Jacobi scaling, 1 without one), so a start at the solution takes 0 iterations. `
 when it is met within `max_iter` iterations; `relres` is the left side over the right
 side's norm.
 """
-function normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVector} = nothing,
+function _normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVector} = nothing,
         x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
     dev = get_backend(g)
     n = length(g)
@@ -405,8 +405,8 @@ estimator_kind(::NormalCG) = FitKind()
 _krylov_result(s) = FitResult(s.x, s.converged ? ReturnCode.Success : ReturnCode.MaxIters, s.converged ? ToleranceMet : IterationCap,
     SolveStats(; nsteps = s.iterations), NaN, 0, (; relres = s.relres))
 __solve(prob::PenalizedLeastSquaresProblem, ::CGLS; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+    _krylov_result(_cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
 __solve(prob::NormalEquationsProblem, ::NormalCG; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+    _krylov_result(_normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
 
 public ToleranceStops, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG

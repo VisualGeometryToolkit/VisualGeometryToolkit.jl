@@ -1,3 +1,4 @@
+# R22: contract test — the fundamental problem's refit step (`refine!`)
 @testitem "ransac_fundmat" setup = [EpipolarScenes] begin
     using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitEstimation as VgtkEstimation

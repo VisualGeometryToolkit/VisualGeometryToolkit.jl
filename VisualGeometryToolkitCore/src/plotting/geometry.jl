@@ -4,7 +4,7 @@
 #
 # Pure functions that compute geometry for visualization.
 # Used by both SpecApi functions (Frame, BoardMesh, Frustum) and
-# Makie recipes (board!, board3d!, matches!, frameplot!, cameraplot!).
+# Makie recipes (matches!, frameplot!, cameraplot!).
 #
 # This is the single source of truth for geometry computation.
 # =============================================================================

@@ -227,7 +227,7 @@ function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, r
     ws = get!(() -> external_workspace(lo, prob, ctx.geom, scoring), ctx.lo_ws,
               Symbol(:ext_, _template_tag(ctx, scoring), :_, nameof(typeof(_unwrap_lo(lo)))))
     prepare_external!(ws, lo, prob, seed, width, scoring) || return (fallback, Int64(0))
-    guarded_refit(() -> external_refit!(ws, lo, prob, seed, width, scoring),
+    guarded_refit(() -> (r = external_refit!(ws, lo, prob, seed, width, scoring); found_model(r) ? r.u : nothing),
                   m -> model_imc(m, ctx), fallback; warn_label = "external refine ($(nameof(typeof(lo))))")
 end
 

@@ -170,7 +170,8 @@ end
 
 
 @testitem "CameraRegression(SplineLens): a SplineLens source keeps its backward, on its optical axis, and gains a forward spline" setup = [FitCameraFisheye] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm
@@ -182,7 +183,7 @@ end
     cam = r.u
     @test cam isa CameraModel && lens(cam) isa SplineLens && lens(cam).forward isa ChartSpline{2}
     @test r.metadata isa CameraFitMetadata
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet)
     # the backward is the source's on its optical axis (2026-11-11, changed on purpose: a gauge-K source is gauged
     # first, `OpticalAxis` then Core's `axis_gauged`): its controls turned by the fit's rotation, exactly, its K's
     # principal point moved to the axis's pixel. GRID is the fisheye's own spline, so the turn is its approximation
@@ -227,7 +228,7 @@ end
     @test lens(r2.u).backward.controls == map(c -> R2 * c, lens(cam).backward.controls)
     @test maximum(abs, R2 - one(R2)) < 1.0e-8
     @test maximum(norm.(lens(r2.u).forward.controls .- lens(cam).forward.controls)) < 1.0e-6
-    @test retcode_symbol(r2) === :converged && r2.metadata.family.λ === nothing && r2.metadata.family.forward.max_px <= 1.0e-3
+    @test (r2.retcode, r2.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r2.metadata.family.λ === nothing && r2.metadata.family.forward.max_px <= 1.0e-3
     # a SplineLens source is resampled exactly (0.11.6): `grid_size` chooses no lattice, `lattice_spacing` does (next item)
     @test_throws r"lattice_spacing" solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION)), CameraRegression(; tolerance = 1.0e-3, grid_size = (40, 40), forward = false))
     @test rb.metadata.family.subdivision == (1, 1) && !any(rb.metadata.family.extrapolated) && rb.metadata.family.extrapolated_fraction == 0
@@ -243,7 +244,7 @@ end
     using Test
     using StaticArrays: SA, SMatrix, SVector
     using LinearAlgebra: norm, normalize, dot, cross
-    using VisualGeometryToolkitCore: retcode_symbol, SplineLens, CameraModel, BoundedCamera, Size2, CameraCalibrationMat, Ellipse, Rect, backproject, calibration_matrix, lens, rotation, grid_size, valid_domain, lattice_spacing, KannalaBrandt, px
+    using VisualGeometryToolkitCore: SplineLens, CameraModel, BoundedCamera, Size2, CameraCalibrationMat, Ellipse, Rect, backproject, calibration_matrix, lens, rotation, grid_size, valid_domain, lattice_spacing, KannalaBrandt, px
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
@@ -264,7 +265,7 @@ end
     # 1. GRID (40 × 40, ~27 px cells) at a 9 px target: subdivided 3 × 3, the same function; nothing extrapolated
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION)), CameraRegression(; tolerance = 1.0e-3, lattice_spacing = 9.0, forward = false))
     fam = r.metadata.family
-    @test retcode_symbol(r) === :converged && fam.subdivision == (3, 3) && grid_size(r.u) == (3 * 37 + 3, 3 * 37 + 3)
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && fam.subdivision == (3, 3) && grid_size(r.u) == (3 * 37 + 3, 3 * 37 + 3)
     @test all(abs.(fam.lattice_spacing .- 1000 / 111) .< 1.0e-9) && !any(fam.extrapolated) && fam.extrapolated_fraction == 0
     @test max_angle(GRID_BOUNDED, r, REGION) < 1.0e-9 && r.metadata.max_px < 1.0e-6
     # 2. non-square cells: RC's lattice shapes on its sensor, one target spacing
@@ -286,7 +287,7 @@ end
     part = BoundedCamera(CameraModel(SplineLens, GRID, Size2(1000, 1000); grid_size = (30, 30), calib_area = Rect(100, 100, 800, 800)), Size2(1000, 1000))
     re = solve(EstimationProblem(CameraRegressionProblem(SplineLens, part, REGION)), CameraRegression(; tolerance = 1.0e-3, lattice_spacing = 20.0, forward = false))
     fe = re.metadata.family; ce = re.u
-    @test retcode_symbol(re) === :converged && any(fe.extrapolated) && 0 < fe.extrapolated_fraction < 1
+    @test (re.retcode, re.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && any(fe.extrapolated) && 0 < fe.extrapolated_fraction < 1
     @test all(c -> all(isfinite, c), lens(ce).backward.controls)
     @test REGION ⊆ valid_domain(ce)                                              # the region inside the result's domain
     @test all(p -> all(isfinite, backproject(ce, p)), (SVector(x, y) for x in 1.0:9.0:999.0, y in 1.0:9.0:999.0 if SVector(x, y) ∈ REGION))
@@ -356,7 +357,8 @@ end
 end
 
 @testitem "CameraRegression(SplineLens): region shapes" setup = [FitCameraFisheye] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SA
     using VisualGeometryToolkitCore: SplineLens, CameraModel, BoundedCamera, Size2, KannalaBrandt, Rect, px
@@ -365,14 +367,14 @@ end
     # the disc cut by the frame: a non-square region, anisotropic counts
     cut = Rect(0, 150, 1000, 700) ∩ DISC
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, cut)), CameraRegression(; tolerance = 1.0e-3))
-    @test retcode_symbol(r) === :converged && r.metadata.family.forward.max_px <= 1.0e-3
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.metadata.family.forward.max_px <= 1.0e-3
     n = r.metadata.family.forward.counts
     @test n[1] > n[2]                                                           # wider than tall (measured 28 × 22)
     # the whole sensor of a parametric camera (corners at 81°): its backward lattice
     # and its forward, both to the tolerance
     wide = BoundedCamera(CameraModel(500.0px, SA[500.0px, 500.0px]; lens = KannalaBrandt(-0.02)), Size2(1000, 1000))
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, wide, Rect(0, 0, 1000, 1000))), CameraRegression(; tolerance = 1.0e-3))
-    @test retcode_symbol(r) === :converged && r.metadata.max_px <= 1.0e-3 && r.metadata.family.forward.max_px <= 1.0e-3
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.metadata.max_px <= 1.0e-3 && r.metadata.family.forward.max_px <= 1.0e-3
     # the grid's whole sensor (its corners near 150°, far past the lit disc): the
     # forward reaches 1e-3 px within the bracket, where the old forward map did
     # not. The cause, measured 2026-11-10 against the old code (004a004c): the
@@ -384,17 +386,17 @@ end
     # off ẑ — reaches 1.41e-3 px; the lens axis (ẑ, the ray of the principal
     # point) reaches 5.69e-4 px.
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, Rect(0, 0, 1000, 1000))), CameraRegression(; tolerance = 1.0e-3))
-    @test retcode_symbol(r) === :converged && r.metadata.family.forward.max_px <= 1.0e-3
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.metadata.family.forward.max_px <= 1.0e-3
     # a forward tolerance out of reach within the bracket: the fit says so and
     # reports what it reached, the kept backward notwithstanding
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION)), CameraRegression(; tolerance = 1.0e-7))
-    @test retcode_symbol(r) === :max_iterations && 1.0e-7 < r.metadata.family.forward.max_px < 1.0e-3 && r.metadata.max_px < 1.0e-9
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && 1.0e-7 < r.metadata.family.forward.max_px < 1.0e-3 && r.metadata.max_px < 1.0e-9
     # the quadrature is on the image: a spline target takes no weight
     @test_throws MethodError solve(EstimationProblem(CameraRegressionProblem(SplineLens, GRID_BOUNDED, REGION; weight = ImageMeasure())), CameraRegression(; tolerance = 1.0e-3))
 end
 
 @testitem "CameraRegression(SplineLens): a backward lattice from a parametric model" setup = [FitCameraFisheye] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, normalize
@@ -410,7 +412,7 @@ end
     md = r.metadata
     # the tolerance chooses the lattice: the largest spacing that meets it (measured
     # 2026-11-04: 35 × 35 nodes, 9.6e-5 px; 40 × 40 reached 5.4e-5 px)
-    @test retcode_symbol(r) === :converged && r.stats.nsteps == 0 && md.family.outer_iterations > 1
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.NoRule) && r.stats.nsteps == 0 && md.family.outer_iterations > 1
     @test md.max_px <= 1.0e-4 && md.family.tolerance == 1.0e-4
     gw, gh = md.family.grid_size
     @test gh == gw && 20 <= gh <= 40 && VgtkEstimation._lattice_grid_size(1000, 1000, gw - 3) == (gw, gh)
@@ -430,7 +432,7 @@ end
     # lattice attains is out of reach, never a false convergence (measured
     # 2026-11-04: 169 × 169 reaches 1.9e-6 px)
     rf = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), CameraRegression(; tolerance = 1.0e-12, forward = false))
-    @test retcode_symbol(rf) === :max_iterations && rf.metadata.max_px > 1.0e-9 && rf.metadata.family.grid_size == (169, 169)
+    @test (rf.retcode, rf.stop_rule) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && rf.metadata.max_px > 1.0e-9 && rf.metadata.family.grid_size == (169, 169)
     # the nodes outside the region: finite, and smooth — the unit controls' third
     # differences along both axes, below node interpolation's (ringing in the
     # corners); the nodes whose support meets the region within its bounding cone
@@ -451,10 +453,10 @@ end
     # nodes at most) says so and returns what it reached, never warns only
     small = BoundedCamera(CameraModel(18.0px, SA[30.0px, 30.0px]; lens = KannalaBrandt(-0.02)), Size2(60, 60))
     ru = solve(EstimationProblem(CameraRegressionProblem(SplineLens, small, Rect(0, 0, 60, 60) ∩ Ellipse(SVector(30.0, 30.0), 29.0, 29.0, 0.0))), CameraRegression(; tolerance = 1.0e-6, forward = false))
-    @test retcode_symbol(ru) === :max_iterations && ru.metadata.max_px > 1.0e-6 && ru.metadata.family.grid_size == (13, 13)
+    @test (ru.retcode, ru.stop_rule) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && ru.metadata.max_px > 1.0e-6 && ru.metadata.family.grid_size == (13, 13)
     # a given lattice: no search, the tolerance read off it
     rg = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), CameraRegression(; tolerance = 1.0e-4, grid_size = (40, 40), forward = false))
-    @test rg.metadata.family.grid_size == (40, 40) && rg.metadata.family.outer_iterations == 0 && retcode_symbol(rg) === :converged
+    @test rg.metadata.family.grid_size == (40, 40) && rg.metadata.family.outer_iterations == 0 && (rg.retcode, rg.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.NoRule)
     # a non-square one: given as (columns, rows) and reported in that order, Core's grid_size's
     rn = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), CameraRegression(; tolerance = 1.0e-4, grid_size = (40, 30), forward = false))
     @test rn.metadata.family.grid_size == grid_size(rn.u) == (40, 30) && size(lens(rn.u).backward.controls) == (30, 40)
@@ -512,7 +514,8 @@ end
 end
 
 @testitem "PSpline: the SplineLens backward's one solve on a given lattice — CameraRegression's at the lattice it chose" setup = [FitCameraFisheye] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using VisualGeometryToolkitCore: BoundedCamera, Size2, SplineLens, lens
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, PSpline, CameraFitMetadata
@@ -523,13 +526,13 @@ end
     @test lens(r.u).backward.controls == lens(rb.u).backward.controls   # the forward does not move the backward
     gw, gh = r.metadata.family.grid_size
     p = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), PSpline(; grid_size = (gw, gh)))       # (columns, rows), Core's lattice convention
-    @test retcode_symbol(p) === :solved && p.stats.nsteps == 0 && p.metadata isa CameraFitMetadata && lens(p.u).forward === nothing
+    @test (p.retcode, p.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm) && p.stats.nsteps == 0 && p.metadata isa CameraFitMetadata && lens(p.u).forward === nothing
     @test lens(p.u).backward.controls == lens(r.u).backward.controls && p.rms == r.rms && p.metadata.max_px == r.metadata.max_px
     @test p.metadata.family == (; λ = r.metadata.family.λ, grid_size = (gw, gh), stride = r.metadata.family.stride, n_held_out_dropped = 0)
     for (cols, rows) in ((35, 25), (105, 75))
         g = solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), PSpline(; grid_size = (cols, rows)))
         G = lens(g.u).backward.controls
-        @test size(G) == (rows, cols) && g.metadata.family.grid_size == (cols, rows) && retcode_symbol(g) === :solved
+        @test size(G) == (rows, cols) && g.metadata.family.grid_size == (cols, rows) && (g.retcode, g.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
         @test isfinite(g.metadata.max_px) && all(c -> all(isfinite, c), G)
     end
     @test solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), PSpline(; grid_size = (105, 75))).metadata.max_px < solve(EstimationProblem(CameraRegressionProblem(SplineLens, bc, REGION)), PSpline(; grid_size = (35, 25))).metadata.max_px
@@ -538,7 +541,8 @@ end
 end
 
 @testitem "PSpline: the non-central model on a given lattice — CameraRegression's at the lattice it chose" setup = [FitCameraNoncentral] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using VisualGeometryToolkitCore: NoncentralSplineModel
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression, PSpline
@@ -546,7 +550,7 @@ end
     r = solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, SOURCE, REGION)), CameraRegression(; tolerance = 1.0e-3))
     gw, gh = r.metadata.family.grid_size
     p = solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, SOURCE, REGION)), PSpline(; grid_size = (gw, gh)))
-    @test retcode_symbol(p) === :solved && p.u.directions.controls == r.u.directions.controls &&
+    @test (p.retcode, p.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm) && p.u.directions.controls == r.u.directions.controls &&
         p.u.points.controls == r.u.points.controls
     @test p.metadata.max_px == r.metadata.max_px && p.metadata.family.max_offset == r.metadata.family.max_offset &&
         p.metadata.family.center == r.metadata.family.center && p.rms == r.rms
@@ -557,7 +561,8 @@ end
 end
 
 @testitem "CameraRegression(SplineLens): a function source goes through Core's source constructor, which gauges it" setup = [FitCameraFisheye] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using VisualGeometryToolkitCore: backproject, CameraModel, SplineLens, BoundedCamera, Size2, lens, rotation
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
@@ -570,7 +575,7 @@ end
     @test_throws r"CameraModel\(SplineLens, f, size" solve(EstimationProblem(CameraRegressionProblem(SplineLens, f, REGION)), CameraRegression(; tolerance = 1.0e-2))   # the refusal names the route
     cam = CameraModel(SplineLens, f, Size2(1000, 1000); grid_size = (40, 40), init = :quasi_interpolate)
     r = solve(EstimationProblem(CameraRegressionProblem(SplineLens, BoundedCamera(cam, Size2(1000, 1000)), REGION)), CameraRegression(; tolerance = 1.0e-2))
-    @test retcode_symbol(r) === :converged && r.metadata.family.forward.max_px <= 1.0e-2
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.metadata.family.forward.max_px <= 1.0e-2
     # the backward is the camera's on its optical axis (changed on purpose, 2026-11-11: a gauge-K source is gauged
     # first), its controls turned by the fit's rotation exactly
     R = rotation(r.metadata.rotation)
@@ -598,7 +603,7 @@ end
 end
 
 @testitem "CameraRegression: a non-central model from a non-central source" setup = [FitCameraNoncentral] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using Test
     using StaticArrays: SVector
     using LinearAlgebra: norm, normalize, dot
@@ -615,7 +620,7 @@ end
     g = r.u
     md = r.metadata
     # the tolerance chooses the lattice
-    @test retcode_symbol(r) === :converged && r.stats.nsteps == 0 && md.family.outer_iterations > 1
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) && r.stats.nsteps == 0 && md.family.outer_iterations > 1
     gw, gh = md.family.grid_size
     # Core's full-image lattice with the source's K
     @test g isa NoncentralSplineModel && g.intrinsics.K == MODEL.intrinsics.K && g.directions.area == MODEL.directions.area
@@ -662,14 +667,15 @@ end
     # a tolerance out of reach at the finest lattice (169 × 169 for 1000 px)
     # returns what it reached (measured 4.3e-5 px), never throws
     ru = solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, SOURCE, REGION)), CameraRegression(; tolerance = 1.0e-9))
-    @test retcode_symbol(ru) === :max_iterations && 1.0e-9 < ru.metadata.max_px < 1.0e-3
+    @test (ru.retcode, ru.stop_rule) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && 1.0e-9 < ru.metadata.max_px < 1.0e-3
     @test ru.metadata.family.grid_size == (169, 169)
     # the bare model has no image: bound it
     @test_throws r"no image" solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, MODEL, REGION)), CameraRegression(; tolerance = 1.0e-3))
 end
 
 @testitem "CameraRegression: a non-central model from a central source" setup = [FitCameraNoncentral] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SA, SVector
     using LinearAlgebra: norm, normalize
@@ -680,7 +686,7 @@ end
     bc = BoundedCamera(FISHEYE, Size2(1000, 1000))
     r = solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, bc, REGION)), CameraRegression(; tolerance = 1.0e-3))
     g = r.u
-    @test retcode_symbol(r) === :converged
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet)
     # every line through the projection centre: c* is the centre and every
     # point is c* (offsets ≡ 0)
     @test r.metadata.family.center == SVector(0.0, 0.0, 0.0)
@@ -693,7 +699,7 @@ end
     # out of reach at the finest lattice of a 60 px image: said, not warned
     small = BoundedCamera(CameraModel(18.0px, SA[30.0px, 30.0px]; lens = KannalaBrandt(-0.02)), Size2(60, 60))
     ru = solve(EstimationProblem(CameraRegressionProblem(NoncentralSplineModel, small, Rect(0, 0, 60, 60) ∩ Ellipse(SVector(30.0, 30.0), 29.0, 29.0, 0.0))), CameraRegression(; tolerance = 1.0e-6))
-    @test retcode_symbol(ru) === :max_iterations && ru.metadata.max_px > 1.0e-6
+    @test (ru.retcode, ru.stop_rule) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap) && ru.metadata.max_px > 1.0e-6
     # the batched central source lines are the scalar back-projection, normalized
     pix = [SVector(500.5, 400.5), SVector(20.5, 500.5), SVector(950.5, 980.5)]
     # (to the last bit: on an accelerator the batched backprojection's functions are the device's, 2026-11-11)
@@ -762,9 +768,10 @@ end
 end
 
 @testitem "ForwardSpline: a SplineLens camera given its forward, its backward, K and frame kept" begin
+    import VisualGeometryToolkitCore as VgtkCore
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, KannalaBrandt, Size2, BoundedCamera, model, lens, project, calibration_matrix, retcode_symbol, imaged_region, backproject
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, KannalaBrandt, Size2, BoundedCamera, model, lens, project, calibration_matrix, imaged_region, backproject
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraRegressionProblem, ForwardSpline
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
@@ -772,7 +779,7 @@ end
     @test lens(model(cam)).forward === nothing
     r = solve(EstimationProblem(CameraRegressionProblem(cam)), ForwardSpline(; tolerance = 1.0e-3))
     est = r.u
-    @test retcode_symbol(r) === :converged || VC.successful_retcode(r)
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) || VC.successful_retcode(r)
     @test est isa BoundedCamera && lens(model(est)).forward !== nothing
     # everything but the forward is the camera's own, bit for bit
     @test lens(model(est)).backward.controls == lens(model(cam)).backward.controls && lens(model(est)).backward.area == lens(model(cam)).backward.area

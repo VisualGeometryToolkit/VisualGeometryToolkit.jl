@@ -2,7 +2,7 @@
 # The Monte-Carlo calibration harness — statistical calibration of the
 # uncertainty-propagation chain (chart-domain hypothesis covariances, refit
 # covariances, and — by construction — any other covariance provider, plugged
-# into the trials' `estimate` / `covariance` hooks).
+# into the trials' `problem`/`algorithm` and `covariance` hooks).
 #
 # THE OBJECT UNDER TEST. The hypothesis covariance attached to a model θ₀ is
 # the local sensitivity of the constrained solution in the minimal chart
@@ -28,7 +28,7 @@
 #        • H — the unique minimal solution of the perturbed sample (the
 #          4-point problem is single-valued; nothing else is needed);
 #        • E / F — the solution TRACKED from the ground-truth anchor by
-#          damped chart-Newton continuation (`track_manifold_solution`; the
+#          damped chart-Newton continuation (`PathFollowing`; the
 #          minimal problems are multi-rooted, and local tracking keeps the
 #          trial single-valued without any root enumeration); trials where
 #          the continuation fails to converge are counted and REPORTED as
@@ -60,7 +60,7 @@
 # PHYSICAL predicted covariance (unit-scale shape × σ²). Then call
 # `run_calibration(trial, rng, ntrials, dof)`. The tracking trial builders
 # below are examples, and take a refit and its covariance through their
-# `estimate` / `covariance` hooks (see the trial-builder section).
+# `problem`/`algorithm` and `covariance` hooks (see the trial-builder section).
 #
 # Public, not exported, in `Synthetic` (hoisted 2026-09-22 from
 # test/validation/CalibrationHarness.jl, where VisualGeometryToolkitEstimation and the ACCV
@@ -641,31 +641,16 @@ function _lerp_pairs(cs0::Correspondences{<:StaticVector{3}, <:StaticVector{3}},
     )
 end
 
-"""
-    track_manifold_solution(ch, cs_clean, cs_noisy;
-                         stages=4, tol=1e-11, maxiter=50, min_dt=1/64)
-        -> SVector{tangent_size(ch)} | nothing
-
-Damped chart-Newton CONTINUATION of the local constrained solution: the
-observations are moved from `cs_clean` (on the constraint variety — the
-anchor of `ch` solves g exactly there) to `cs_noisy` along the linear data
-homotopy, each stage solved by damped Newton on g(v, x_t) = 0 warm-started
-at the previous stage's solution. The stage size starts at `1/stages` and
-is BISECTED adaptively whenever a stage fails to converge (standard
-continuation practice — strong constraint curvature shrinks the per-stage
-Newton basin). Returns the tracked chart coordinates of the local solution
-of g(v, x_noisy) = 0, or `nothing` when a stage still fails at `min_dt` —
-the DIVERGENCE event reported by the calibration tables: at that noise
-level the perturbation left the continuation radius of this sample's
-geometry.
-"""
-function track_manifold_solution(
+# THE continuation (PathFollowing's): the tracked chart point, and the stages it took, or `nothing` when a stage still
+# fails at `min_dt`.
+function _track_manifold_solution(
         ch, cs_clean::AbstractVector, cs_noisy::AbstractVector;
         stages::Int = 4, tol::Float64 = 1.0e-11,
         maxiter::Int = 50, min_dt::Float64 = 1 / 64
     )
     D = tangent_size(ch)
     v = zero(SVector{D, Float64})
+    n = 0
     dt0 = 1.0 / stages
     t = 0.0
     dt = dt0
@@ -680,9 +665,55 @@ function track_manifold_solution(
         end
         v = vn
         t = tn
+        n += 1
         dt = min(2 * dt, dt0)
     end
-    return v
+    return v, n
+end
+
+"""
+    NoisePathProblem(ch, cs_clean, cs_noisy)
+    PathFollowing(; stages = 4, min_dt = 1/64)
+
+The local constrained solution of the minimal constraints `g(v, x) = 0` in the chart `ch` (a [`Manifold`](@ref VisualGeometryToolkitCore.Manifold)) at the
+noisy observations `cs_noisy`, followed from the clean ones `cs_clean` (on the constraint variety: the chart's anchor
+solves `g` exactly there) along the straight path between them — and its algorithm, a [`RefineKind`](@ref): each
+stage solved by damped chart Newton warm-started at the previous stage's solution, the stage size `1/stages` halved
+whenever a stage fails to converge (standard continuation practice: strong constraint curvature shrinks the per-stage
+Newton basin), down to `min_dt`.
+
+    solve(RefineProblem(NoisePathProblem(ch, cs_clean, cs_noisy), u0), PathFollowing(; stages, min_dt);
+          stops = ToleranceStops(; max_iter = 50, rtol = 1e-11))
+
+`u0` is the chart's anchor (the model at the clean data). `stops` are each stage's Newton settings (its iteration cap
+and its relative step tolerance, `‖Δ‖ ≤ rtol·(1 + ‖v‖)`). The result's `u` is the model at the tracked point,
+`retract(ch, v)`, `metadata = (; v)` the chart point and `stats.nsteps` the stages taken: `(Success, ToleranceMet)`; a
+stage that still fails at `min_dt` — the perturbation left the continuation radius of this sample's geometry, the
+DIVERGENCE event the Monte Carlo calibration tables report — is `(Failure, LeftBasin)`, `u` the anchor's model and `v`
+NaN.
+"""
+struct NoisePathProblem{C, A, B}
+    chart::C
+    clean::A
+    noisy::B
+end
+@doc (@doc NoisePathProblem) struct PathFollowing <: AbstractEstimationAlgorithm
+    stages::Int
+    min_dt::Float64
+end
+PathFollowing(; stages::Integer = 4, min_dt::Real = 1 / 64) = PathFollowing(Int(stages), Float64(min_dt))
+estimator_kind(::PathFollowing) = RefineKind()
+function __solve(prob::RefineProblem{<:NoisePathProblem}, alg::PathFollowing;
+        stops::ToleranceStops = ToleranceStops(; max_iter = 50, rtol = 1.0e-11))
+    f = prob.f
+    ch = f.chart
+    D = tangent_size(ch)
+    out = _track_manifold_solution(ch, f.clean, f.noisy; stages = alg.stages, tol = stops.rtol, maxiter = stops.max_iter,
+                                   min_dt = alg.min_dt)
+    out === nothing && return FitResult(retract(ch, zero(SVector{D, Float64})), ReturnCode.Failure, LeftBasin, SolveStats(),
+                                        NaN, 0, (; v = fill(NaN, SVector{D, Float64})))
+    v, n = out
+    return FitResult(retract(ch, v), ReturnCode.Success, ToleranceMet, SolveStats(; nsteps = n), NaN, 0, (; v))
 end
 
 # -----------------------------------------------------------------------------
@@ -695,12 +726,16 @@ end
 #   npts        — correspondences per trial (default: the minimal count); the
 #                 first minimal ones stay stratified, the rest are the
 #                 overdetermined set;
-#   estimate    — `estimate(ch, cs_noisy) -> model | nothing` (an ambient model:
-#                 a 3×3 matrix, or an `EuclideanMap` for a pose), expressed in the
-#                 chart by `local_coordinates(ch, ·)`. Default: the unique minimal
-#                 solve where the problem has one (H on 4 points), otherwise the
-#                 local solution TRACKED from the anchor — Newton on a minimal
-#                 sample, the whitened (Sampson) Gauss–Newton on an
+#   problem, algorithm — the estimator, both or neither (an `ArgumentError`
+#                 otherwise): `problem(ch, cs_noisy)` builds an estimation
+#                 problem and the trial reads `r = solve(problem(ch, cs_noisy),
+#                 algorithm)`, its `r.u` (an ambient model: a 3×3 matrix, or an
+#                 `EuclideanMap` for a pose) expressed in the chart by
+#                 `local_coordinates(ch, ·)`; an unsuccessful `r` is a failed
+#                 trial. Default: the unique minimal solve where the problem has
+#                 one (H on 4 points), otherwise the local solution TRACKED from
+#                 the anchor (`PathFollowing` on a `NoisePathProblem`) — Newton
+#                 on a minimal sample, the whitened (Sampson) Gauss–Newton on an
 #                 overdetermined one;
 #   covariance  — `covariance(ch, cs_clean, shapes) -> Σ̃_v | nothing`, unit
 #                 scale. Default: `implicit_covariance(ch, cs; Σx)` — the square
@@ -728,17 +763,29 @@ function _trial_covariance(covariance, ch, cs, shapes)
     return implicit_covariance(ch, cs; Σx = shapes)
 end
 
+# The caller's estimator: `(problem, algorithm)`, or `nothing` for the default.
+function _trial_estimator(problem, algorithm)
+    (problem === nothing) == (algorithm === nothing) || throw(ArgumentError(
+        "a trial's estimator is `problem` and `algorithm` together, or neither (the default estimate)"))
+    return problem === nothing ? nothing : (problem, algorithm)
+end
+
 # The estimate as (model, chart coordinates), or `nothing`.
-function _trial_estimate(estimate, ch, cs, csn; minimal_solve = nothing)
-    solve = estimate !== nothing ? (c -> estimate(ch, c)) :
-        (minimal_solve !== nothing && _is_minimal(ch, cs)) ? minimal_solve : nothing
-    if solve === nothing
-        v = track_manifold_solution(ch, cs, csn)
-        v === nothing && return nothing
-        return retract(ch, v), v
+function _trial_estimate(estimator, ch, cs, csn; minimal_solve = nothing)
+    if estimator !== nothing
+        problem, algorithm = estimator
+        r = solve(problem(ch, csn), algorithm)
+        successful_retcode(r) || return nothing
+        θ̂ = r.u
+    elseif minimal_solve !== nothing && _is_minimal(ch, cs)
+        θ̂ = minimal_solve(csn)
+        θ̂ === nothing && return nothing
+    else
+        D = tangent_size(ch)
+        r = solve(RefineProblem(NoisePathProblem(ch, cs, csn), retract(ch, zero(SVector{D, Float64}))), PathFollowing())
+        successful_retcode(r) || return nothing
+        return r.u, r.metadata.v
     end
-    θ̂ = solve(csn)
-    θ̂ === nothing && return nothing
     v = _chart_coordinates(ch, θ̂)
     any(!isfinite, v) && return nothing
     return θ̂, v
@@ -784,21 +831,22 @@ _homography_4pt(csn) = homography_4pt(
 
 """
     homography_trial(; σ, regime=:generic, aniso=false, img2_scale=1.0,
-                     npts=4, estimate=nothing, covariance=nothing)
+                     npts=4, problem=nothing, algorithm=nothing, covariance=nothing)
 
 Chart-domain calibration trial for the 8-dof sl(3) homography chart
 covariance: base 4-point sample with θ_gt as its exact interpolant, known
 per-point perturbation, then the UNIQUE minimal solution of the perturbed
 sample (the 4-point problem is single-valued — no tracking device needed),
 expressed in the chart anchored at θ_gt and compared against the
-implicit-function covariance J·Σ̃_x·Jᵀ at θ_gt. `npts`, `estimate`, `covariance`:
+implicit-function covariance J·Σ̃_x·Jᵀ at θ_gt. `npts`, `problem`/`algorithm`, `covariance`:
 the hooks (see the section header).
 """
 function homography_trial(;
         σ::Float64, regime::Symbol = :generic,
         aniso::Bool = false, img2_scale::Float64 = 1.0,
-        npts::Int = 4, estimate = nothing, covariance = nothing, error::Symbol = :chart
+        npts::Int = 4, problem = nothing, algorithm = nothing, covariance = nothing, error::Symbol = :chart
     )
+    estimate = _trial_estimator(problem, algorithm)
     function trial(rng)
         H, cs = sample_homography_scene(rng; regime = regime, npts = npts)
         shapes = make_point_covs(rng, npts; aniso = aniso, img2_scale = img2_scale)
@@ -830,20 +878,22 @@ fundmat_norm_xform(; s::Float64 = F_NORM_SCALE, c::Float64 = 250.0) =
 
 """
     fundmat_trial(; σ, regime=:generic, aniso=false, frame=:calibration,
-                  img2_scale=1.0, f=600.0, npts=7, estimate=nothing, covariance=nothing)
+                  img2_scale=1.0, f=600.0, npts=7, problem=nothing, algorithm=nothing,
+                  covariance=nothing)
 
 Continuation-tracking calibration trial for the Bartoli–Sturm 7-dof F chart
 covariance. `frame = :calibration` (default) runs tracking + provider + chart
 NEES in the mid-gauge frame [`fundmat_norm_xform`](@ref) with noise σ·s;
 `frame = :pixel` runs raw — kept to DOCUMENT the pixel-frame chart degeneracy
-(expected miscalibrated at every σ). `npts`, `estimate`, `covariance`: the hooks
+(expected miscalibrated at every σ). `npts`, `problem`/`algorithm`, `covariance`: the hooks
 (see the section header); `f` the focal length of the scene.
 """
 function fundmat_trial(;
         σ::Float64, regime::Symbol = :generic, aniso::Bool = false,
         frame::Symbol = :calibration, img2_scale::Float64 = 1.0, f::Float64 = 600.0,
-        npts::Int = 7, estimate = nothing, covariance = nothing, error::Symbol = :chart
+        npts::Int = 7, problem = nothing, algorithm = nothing, covariance = nothing, error::Symbol = :chart
     )
+    estimate = _trial_estimator(problem, algorithm)
     T = fundmat_norm_xform()
     Tit = inv(T)'
     function trial(rng)
@@ -888,7 +938,7 @@ end
 # B8 Monte-Carlo cells validated (NEES 0.999–1.016 against a predicted SE of
 # 0.010), so the harness and the thing it measures agree by construction. The
 # chart machinery reads the same columns (`cd_pair` on a bearing set takes the
-# tangent form), so the default `estimate` and `covariance` run on bearings too.
+# tangent form), so the default estimate and `covariance` run on bearings too.
 
 
 # The calibrated (z = 1) scene points projected through two REAL cameras. The
@@ -905,7 +955,8 @@ end
 
 """
     essential_trial(; σ_px, f=600.0, regime=:generic, aniso=false, img2_scale=1.0,
-                    npts=5, estimate=nothing, covariance=nothing, cameras=nothing)
+                    npts=5, problem=nothing, algorithm=nothing, covariance=nothing,
+                    cameras=nothing)
 
 Continuation-tracking calibration trial for the 5-dof so(3)⊕T_tS² essential
 chart covariance.
@@ -928,15 +979,16 @@ norm-preserving: measured, it moves a residual by 1.8% at f = 1200/600 but only
 0.19% at equal focals, where it would hide inside anything one would call
 noise.
 
-`npts`, `estimate`, `covariance`: the hooks (see the section header).
+`npts`, `problem`/`algorithm`, `covariance`: the hooks (see the section header).
 """
 function essential_trial(;
         σ_px::Float64, f::Float64 = 600.0,
         regime::Symbol = :generic, aniso::Bool = false,
         img2_scale::Float64 = 1.0,
-        npts::Int = 5, estimate = nothing, covariance = nothing, error::Symbol = :chart,
+        npts::Int = 5, problem = nothing, algorithm = nothing, covariance = nothing, error::Symbol = :chart,
         cameras = nothing
     )
+    estimate = _trial_estimator(problem, algorithm)
     σ = cameras === nothing ? σ_px / f : σ_px    # the frame the data is in
     function trial(rng)
         _, _, _, E, _, cs_nm = sample_twoview_scene(rng, npts; regime = regime, f = f)
@@ -1018,7 +1070,7 @@ containment_nominal(
 
 """
     h_transfer_trial(; σ, regime=:generic, aniso=false, img2_scale=1.0,
-                     level=0.95, npts=4, estimate=nothing, covariance=nothing)
+                     level=0.95, npts=4, problem=nothing, algorithm=nothing, covariance=nothing)
 
 Criminisi Table 4.1 for the homography, containment form: per trial,
 perturb the 4 computation correspondences IN BOTH IMAGES (known per-endpoint
@@ -1028,15 +1080,16 @@ first-order `level` ellipse whose covariance composes the model term
 (`transform_deriv_params(H, x)` propagating the hypothesis covariance at θ_gt,
 transported to the ambient space) with the
 query term (`J_x·σ²Σ_q·J_xᵀ`). Returns `(contained::Bool,)` or `nothing`
-(degenerate solve). `npts`, `estimate`, `covariance`: the hooks (see the
+(degenerate solve). `npts`, `problem`/`algorithm`, `covariance`: the hooks (see the
 chart-domain section header).
 """
 function h_transfer_trial(;
         σ::Float64, regime::Symbol = :generic,
         aniso::Bool = false, img2_scale::Float64 = 1.0,
         level::Float64 = 0.95,
-        npts::Int = 4, estimate = nothing, covariance = nothing
+        npts::Int = 4, problem = nothing, algorithm = nothing, covariance = nothing
     )
+    estimate = _trial_estimator(problem, algorithm)
     k2 = quantile(Chisq(2), level)
     function trial(rng)
         H, cs = sample_homography_scene(rng; regime = regime, npts = npts)
@@ -1073,7 +1126,7 @@ end
 """
     epipolar_band_trial(model_class::Symbol; σ_px, f=600.0, regime=:generic,
                         aniso=false, img2_scale=1.0, level=0.95, nspan=40,
-                        npts=minimal, estimate=nothing, covariance=nothing)
+                        npts=minimal, problem=nothing, algorithm=nothing, covariance=nothing)
 
 Criminisi-protocol output-domain trial for the epipolar models
 (`model_class ∈ (:E, :F)`): per trial, perturb the minimal computation
@@ -1086,7 +1139,7 @@ query term (F·σ²Σ_q̃·Fᵀ). Two statistics per trial:
 line against the χ²₁ band; whole-line over the visible span against the χ²₂
 band (the H–Z whole-line convention). Returns `nothing` on tracking
 divergence / degenerate anchor / query line missing the view. `npts` (default
-7 for F, 5 for E), `estimate`, `covariance`: the hooks (see the chart-domain
+7 for F, 5 for E), `problem`/`algorithm`, `covariance`: the hooks (see the chart-domain
 section header).
 
 `cameras = (cam1, cam2)` (`:E` only) makes the trial camera-aware: the
@@ -1127,8 +1180,9 @@ function epipolar_band_trial(
         regime::Symbol = :generic, aniso::Bool = false,
         img2_scale::Float64 = 1.0, level::Float64 = 0.95,
         nspan::Int = 40, npts::Int = model_class === :F ? 7 : 5,
-        estimate = nothing, covariance = nothing, cameras = nothing
+        problem = nothing, algorithm = nothing, covariance = nothing, cameras = nothing
     )
+    estimate = _trial_estimator(problem, algorithm)
     cameras === nothing || model_class === :E || throw(
         ArgumentError("epipolar_band_trial: `cameras` applies to :E only (F is a pixel-plane model).")
     )
@@ -1269,7 +1323,7 @@ end
 # -----------------------------------------------------------------------------
 
 """
-    pnp_trial(; σ_px, npts, f=600.0, c=250.0, aniso=false, estimate=nothing, covariance=nothing)
+    pnp_trial(; σ_px, npts, f=600.0, c=250.0, aniso=false, problem=nothing, algorithm=nothing, covariance=nothing)
     p3p_trial(; σ_px, kwargs...) = pnp_trial(; σ_px, npts = 3, kwargs...)
 
 Chart-domain calibration trial for the 6-dof pose covariance: a
@@ -1280,12 +1334,13 @@ multi-rooted; tracking keeps the trial single-valued, as for E and F) against th
 implicit-function covariance; with `npts > 3`, the tracked reprojection
 Gauss–Newton solution against [`implicit_covariance`](@ref)'s sandwich. `f` sets the
 field of view (`f = 2000` narrow, `f = 150` wide at `c = 250`). The hooks as for
-the two-view trials; `estimate(ch, cs_noisy)` returns an `EuclideanMap`.
+the two-view trials; the estimate's `u` is an `EuclideanMap`.
 """
 function pnp_trial(;
         σ_px::Float64, npts::Int, f::Float64 = 600.0, c::Float64 = 250.0,
-        aniso::Bool = false, estimate = nothing, covariance = nothing, error::Symbol = :chart
+        aniso::Bool = false, problem = nothing, algorithm = nothing, covariance = nothing, error::Symbol = :chart
     )
+    estimate = _trial_estimator(problem, algorithm)
     σ = σ_px / f
     function trial(rng)
         pose, cs, _ = sample_pose_scene(rng, npts; f = f, c = c)
@@ -1300,7 +1355,7 @@ p3p_trial(; σ_px::Float64, kwargs...) = pnp_trial(; σ_px = σ_px, npts = 3, kw
 
 """
     reprojection_trial(; σ_px, npts=3, f=600.0, c=250.0, aniso=false, level=0.95,
-                       estimate=nothing, covariance=nothing)
+                       problem=nothing, algorithm=nothing, covariance=nothing)
 
 Criminisi-protocol output-domain trial for the pose: estimate the pose from
 `npts` noisy image points (as [`pnp_trial`](@ref)), then reproject a HELD-OUT
@@ -1313,8 +1368,9 @@ anchor).
 function reprojection_trial(;
         σ_px::Float64, npts::Int = 3, f::Float64 = 600.0, c::Float64 = 250.0,
         aniso::Bool = false, level::Float64 = 0.95,
-        estimate = nothing, covariance = nothing
+        problem = nothing, algorithm = nothing, covariance = nothing
     )
+    estimate = _trial_estimator(problem, algorithm)
     σ = σ_px / f
     k2 = quantile(Chisq(2), level)
     function trial(rng)

@@ -1,7 +1,7 @@
 @testitem "ransac" begin
     using VisualGeometryToolkitCore: dof, weights
     using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode, init, solve!, reinit!
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: Irls
     using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleEstimated
     import VisualGeometryToolkitCore as VgtkCore
@@ -268,7 +268,7 @@ VgtkCore.whitened_residual(p::_PairRecordingProblem, m::Float64, i::Int) = p.x[i
 
         @test result isa FitResult
         @test result.u isa Line2D{Float64}
-        @test retcode_symbol(result) === :converged
+        @test (result.retcode, result.stop_rule) === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.AdaptiveCount)
         @test successful_retcode(result) == true
         @test inlier_mask(result) isa BitVector
         # Default workspace storage is Float32: per-point vectors come back

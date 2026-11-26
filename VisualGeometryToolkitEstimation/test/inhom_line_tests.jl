@@ -1,3 +1,4 @@
+# R22: contract test — the scoring contract's workspace (`scoring_workspace`)
 @testitem "inhom_line" begin
     using VisualGeometryToolkitCore: inlier_mask, noise_scale
     import VisualGeometryToolkitEstimation as VgtkEstimation

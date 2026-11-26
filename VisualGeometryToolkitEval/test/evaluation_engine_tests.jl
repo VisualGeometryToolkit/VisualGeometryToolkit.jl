@@ -1,3 +1,4 @@
+# R22: contract test — the evaluator's selection hooks on a grid (`select_on_grid!`, `stage_selection`), the external-refit contract
 # =============================================================================
 # evaluation_engine_tests.jl — the composition evaluator (src/evaluation/
 # engine/*: the pair geometry, the one refit layer, the post-LO matrices, the
@@ -46,12 +47,14 @@
         tuning_table, EfficiencyConstantWindow, PairUnit
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem
     using VisualGeometryToolkitCore: Irls, fixed_width, solve, RefineProblem, found_model
-    using VisualGeometryToolkitEstimation: LocalOptimization
+    using VisualGeometryToolkitEstimation: LocalOptimization, ScoreSelection, PoolSelection
+    # the pool's best-scoring model under `sc` (the selection estimator)
+    pool_best(sc, pair, R) = solve(EstimationProblem(PoolSelection, pair => R), ScoreSelection(sc)).u
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: AbstractScoring, AbstractOptimizationStrategy, ExternalRefit, NativeRefit, RefitFamily,
         MsacScoring, TLSShape, EfficiencyConstant, LossWidth, OutlierHalfwidth, EssentialMat, FundMat,
         width_axis_name, with_width, outlier_halfwidth, outlier_halfwidth_to_loss_width, loss_width,
-        select_on_grid!, stage_selection, selection_staging, best_pool_model, scoring_workspace
+        select_on_grid!, stage_selection, selection_staging, scoring_workspace, EstimationProblem
     using VisualGeometryToolkitCore.Pools: PoolPair, num_models, num_points, pool_imc
 
     # ------------------------------------------------------------------------
@@ -95,7 +98,7 @@
         lw = loss_width(w)
         r = solve(RefineProblem(problem, θ), LocalOptimization(Irls{TLSShape}(lo.max_iter, LossWidth(lw));
                                                                scoring = MsacScoring(VgtkCore.codimension(problem); threshold = lw)))
-        return found_model(r) ? r.u : nothing
+        return r   # the solver's own record (Core's external-refit contract: a FitResult)
     end
 
     struct RefusingRefit <: AbstractOptimizationStrategy end
@@ -353,7 +356,7 @@
             for (b, cap) in enumerate(res.sample_counts)
                 q, Rq = subpair(pair, 1:cap), R[:, 1:cap]
                 for (m, a) in ((1, 0.01), (2, 0.03), (3, 0.01))     # the running best is the prefix's argmax
-                    j = best_pool_model(MsacScoring(1; threshold = a), q, Rq)
+                    j = pool_best(MsacScoring(1; threshold = a), q, Rq)
                     @test res.best_idx_batch[1, m, b] == j
                     @test res.err_batch[1, m, b] === Float32(model_imc(pair.models[j], ctx))
                 end
@@ -393,7 +396,7 @@
             @test res.methods == [:narrow, :wide, :ransac, :msac, :oracle]
             ctx = build_pair_ctx(P, pair; scoring = template(0.01))
             for (b, cap) in enumerate(res.sample_counts)        # the running argmax of the scorer at its width
-                j = best_pool_model(VgtkCore.RansacScoring(1; threshold = 0.02), subpair(pair, 1:cap), R[:, 1:cap])
+                j = pool_best(VgtkCore.RansacScoring(1; threshold = 0.02), subpair(pair, 1:cap), R[:, 1:cap])
                 @test res.best_idx_batch[1, 3, b] == j && res.err_batch[1, 3, b] === Float32(model_imc(pair.models[j], ctx))
             end
             # no refit: an LO checkpoint records the selected model's model_imc, its batch checkpoint's value
@@ -420,7 +423,7 @@
             starts = sample_starts(starts_pool([pair], 25))
             res_s = evaluate_sample_budget(P, methods[1:1], [pair], [R]; loss_width_specs = msac, cfg = cfg_s, sample_starts = starts)
             # 20 samples reach model 22
-            @test res_s.best_idx_batch[1, 2, end] == best_pool_model(MsacScoring(1; threshold = 0.01), subpair(pair, 1:22), R[:, 1:22])
+            @test res_s.best_idx_batch[1, 2, end] == pool_best(MsacScoring(1; threshold = 0.01), subpair(pair, 1:22), R[:, 1:22])
             @test_throws ArgumentError evaluate_sample_budget(P, methods[1:1], [pair], [R]; cfg = cfg_s)
             @test_throws DimensionMismatch evaluate_sample_budget(P, methods[1:1], [pair], [R]; cfg = cfg_s,
                                                                   sample_starts = [starts[1], starts[1]])
@@ -460,7 +463,7 @@
             update!(sel, ctx.geom, pair, R, j, view(pair.sample_indices, :, j), n)
         end
         best = Int(last(checkpoint(sel, ctx.geom, pair)))
-        @test best == best_pool_model(sc, pair, R)
+        @test best == pool_best(sc, pair, R)
         seed = refit_seed(ctx, pair.models[best])
         at_w = first(refit_imc!(ctx, irls(), seed, 0.04)); at_a = first(refit_imc!(ctx, irls(), seed, 0.01))
         @test at_w != at_a                                      # the fixture separates the two widths
@@ -613,9 +616,9 @@
         M32, _, _ = stream_selections(refits_of, Float32, P, loaders, grids, template(), nothing, 3)
         for (si, r) in enumerate((1:2, 3:3))
             # the generic fallback: per column with_width, then the per-pair argmax
-            want_idx = Dict(:hw => Int32[best_pool_model(with_width(hwsc, OutlierHalfwidth(w)), pairs[p], Rs[p])
+            want_idx = Dict(:hw => Int32[pool_best(with_width(hwsc, OutlierHalfwidth(w)), pairs[p], Rs[p])
                                          for p in r, w in halfwidths],
-                            :msac => Int32[best_pool_model(with_width(msac, LossWidth(w)), pairs[p], Rs[p])
+                            :msac => Int32[pool_best(with_width(msac, LossWidth(w)), pairs[p], Rs[p])
                                            for p in r, w in loss_widths])
             want = apply_lo_refits(P, refits_of(want_idx, si), pairs[r]; scoring = template())
             for l in keys(M)
@@ -629,7 +632,7 @@
         st = stage_selection(:pool, pairs, Rs)
         @test st == (; pairs, residuals = Rs, backend = VgtkCore.default_device())   # GPU-first: the staging names its device
         @test select_on_grid!(idxs, P, msac, loss_widths, st) === idxs
-        @test idxs == Int32[best_pool_model(MsacScoring(1; threshold = w), pairs[p], Rs[p]) for p in 1:3, w in loss_widths]
+        @test idxs == Int32[pool_best(MsacScoring(1; threshold = w), pairs[p], Rs[p]) for p in 1:3, w in loss_widths]
     end
 
     @testset "arms: width sources, deliveries, the evaluation refit" begin

@@ -177,7 +177,7 @@ mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop 
 # lift's residual norms (codimension 2). 3·√quantile(Chisq(2), 0.5): three medians.
 branch_audit_efficiency_constant = 3.5322300675464233
 # The E-step's start: the posterior seeded at the median residual (VisualGeometryToolkitCore's
-# `median_seeded_posterior`) at this Student-t ν, the ν update's upper bound (VisualGeometryToolkitCore's
+# `MedianNormScale` scale) at this Student-t ν, the ν update's upper bound (VisualGeometryToolkitCore's
 # the ν update's ν_max): a near-Gaussian start, which the EM's estimated ν then moves.
 seed_nu = 1.0e4
 

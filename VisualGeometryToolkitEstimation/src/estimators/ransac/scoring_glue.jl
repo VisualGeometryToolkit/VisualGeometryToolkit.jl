@@ -39,7 +39,7 @@ scorer, inside `ransac`'s wall time. The result is that seeded refine's:
   the reported model re-scored under the scorer;
 - `iterations` and `sample_acceptance_rate`: the raw race's.
 
-A race that keeps no hypothesis returns its `:no_model` result unrefined, and
+A race that keeps no hypothesis returns its no-model result (`(Failure, TrialBudget)`) unrefined, and
 an incumbent the scorer cannot score as a seed (a predictive scorer with no
 covariance on its consensus set) the raw race's result. `score_guard = true` is
 an `ArgumentError`: the guard is a per-candidate acceptance rule and the
@@ -152,7 +152,7 @@ Default local-optimization strategy for a scoring function: `nothing` (no local 
 default_local_optimization_strategy(::AbstractScoring) = nothing
 
 # -----------------------------------------------------------------------------
-# PosteriorLikelihood — AbstractWeightPolicy adapter for the `block_coordinate_descent!` loop
+# PosteriorLikelihood — AbstractWeightPolicy adapter for the `BlockCoordinateDescent` loop
 # -----------------------------------------------------------------------------
 
 """
@@ -160,8 +160,8 @@ default_local_optimization_strategy(::AbstractScoring) = nothing
                         scale_update = Estimated(), prior_update = FixedPrior(inlier_prior(rws)),
                         nu_update = Estimated()) <: NormalizedWeightPolicy
 
-Likelihood adapter for [`block_coordinate_descent!`](@extref `VisualGeometryToolkitCore.block_coordinate_descent!-Tuple{AbstractWeightPolicy, AbstractBlockCoordinateMethod, Any, Any}`). Wraps a
-VisualGeometryToolkitCore `PosteriorWeightState` with its data size `n` so the generic `block_coordinate_descent!`
+Likelihood adapter for [`BlockCoordinateDescent`](@extref VisualGeometryToolkitCore.BlockCoordinateDescent). Wraps a
+VisualGeometryToolkitCore `PosteriorWeightState` with its data size `n` so the generic `BlockCoordinateDescent`
 loop can call `update_nuisance!` / `update_weights!` without problem-specific
 detail.
 
@@ -191,7 +191,7 @@ PosteriorLikelihood(rws::PosteriorWeightState, n::Int;
 # order, since ν reads ŝ²), then `update_inlier_prior!(pws, n, policy)` (π from
 # the E-step's posteriors, which neither of the others writes). All three are
 # VisualGeometryToolkitCore's toolkit functions, DIFFERENT from the verb defined here, and ARITY is the
-# whole distinction: `block_coordinate_descent!` drives the 1-arg policy sweep
+# whole distinction: `BlockCoordinateDescent` drives the 1-arg policy sweep
 # `update_nuisance!(likelihood)`, which this method supplies by calling the
 # parts. (Subtyping does not separate them — `PosteriorWeightState` IS a
 # `NormalizedWeightPolicy`, which it subtypes for the likelihood-grade
@@ -205,12 +205,9 @@ function update_nuisance!(lh::PosteriorLikelihood)
     return lh
 end
 # The E-step is VisualGeometryToolkitCore's: a datum whose squared residual is not finite
-# (Inf or NaN) gets robust weight and inlier posterior 0 there (Core's posterior weights, `mixture_ecm!`).
+# (Inf or NaN) gets robust weight and inlier posterior 0 there (Core's posterior weights, its E-step `update_weights!`).
 update_weights!(lh::PosteriorLikelihood) = update_weights!(lh.rws, lh.n)
 current_s2(lh::PosteriorLikelihood) = s_hat_sq(lh.rws)   # the posterior's ŝ² (VGC `Recorded`)
-
-# `median_seeded_posterior` is VisualGeometryToolkitCore's: a PosteriorWeightState
-# constructor, so it lives beside them.
 
 """
     LossPlainWeights(rws::PosteriorWeightState, n::Int, loss::DeployedLoss)

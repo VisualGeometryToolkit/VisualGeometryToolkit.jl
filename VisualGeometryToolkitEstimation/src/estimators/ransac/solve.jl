@@ -196,7 +196,7 @@ Solve keyword (run setting): `rng`, the source of every random draw (`supports_s
 Workspace reuse is `init(problem, Ransac(…); rng)` → `solve!(cache)` → `reinit!(cache; f, alg, rng)` with new data,
 a new configuration of the same `Ransac` type or a new rng: the cache holds the composed workspace and the result
 buffers, and the returned estimate's `resid` and weights ARE those buffers, overwritten by the next `solve!` (a caller
-that keeps a result across solves copies it). Fewer data than a minimal sample: the `:no_model` result of a search that
+that keeps a result across solves copies it). Fewer data than a minimal sample: the no-model result (`(Failure, TrialBudget)`) of a search that
 drew no trial (`stats.nsteps` 0).
 """
 struct Ransac{T, S, L, I, H} <: AbstractEstimationAlgorithm
@@ -274,7 +274,7 @@ The cache of [`Ransac`](@ref) and [`LocalOptimization`](@ref) (`init`'s): the pr
 applied), the scorer and local optimization resolved for the problem (from the
 algorithm's fields, `ClassDefault()` against the problem's class and data), the composed `RansacWorkspace`, the result
 buffers, the rng and the seed (`nothing` for a find). `solve!` runs it — a find on fewer data than a minimal sample is
-the `:no_model` result of no trial; `reinit!(cache[, θ₀]; f, p, alg, rng)` points it at a new seed, context, data,
+the no-model result (`(Failure, TrialBudget)`) of no trial; `reinit!(cache[, θ₀]; f, p, alg, rng)` points it at a new seed, context, data,
 algorithm configuration or rng, keeping its workspace (grown only when the new data outgrow it).
 
 A result of `solve!` ALIASES the cache's result buffers — its `resid` and weights ARE them — until the next `solve!`
@@ -318,7 +318,7 @@ function _resolve(alg::LocalOptimization, f, p)
     return problem, alg.scoring, alg.strategy
 end
 
-# A find on fewer data than a minimal sample is the `:no_model` result of a search that drew no trial. A physical
+# A find on fewer data than a minimal sample is the no-model result (`(Failure, TrialBudget)`) of a search that drew no trial. A physical
 # problem's model comes back in metres (`_with_units`, units.jl), with or without one.
 solve!(c::RansacCache) = _with_units(c.problem, _run!(c, c.alg))
 _run!(c::RansacCache, alg::Ransac) =

@@ -29,7 +29,7 @@ the name over is not reported for defining it. Any stack package may define
 its own.
 """
 const MOVED_NAMES = (:AbstractVignetting, :TensorProductVignetting, :RadialVignetting, :LogVignetting, :log_spline, :VIGNETTING_TAGS,
-             :RADIAL_CHARTS, :BinnedRadialProfile, :projective_chart, :projective_knots, :radial_chart, :radial_coordinate,
+             :BinnedRadialProfile, :projective_chart, :projective_knots, :radial_chart, :radial_coordinate,
              :field_radius, :with_center, :center_gradient, :pole_regular_basis, :coefficient_jacobian, :active_coefficients,
              :control_points, :with_control_points, :n_control_points, :knot_vectors, :spline_degree, :EnvironmentLight,
              :SphericalHarmonicMap, :radiance, :exit_direction, :radiance_map, :coefficients, :with_coefficients,

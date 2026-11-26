@@ -219,11 +219,11 @@ function _chain_view_angle_limit(l::Lens, edge)
     return _azimuth_minimum(onset, 36)
 end
 # The minimum of a function of the azimuth ψ: `n` samples around the circle, the
-# least refined by Brent's method between its neighbours (`grid_brent_minimum`);
+# least refined by Brent's method between its neighbours (`_grid_brent_minimum`);
 # the smallest value evaluated. The one azimuthal minimizer: the chain's
 # view-angle limit above and the inscribed radius (`_valid_domain_radius`,
 # image_circle.jl: the disc of a radially symmetric lens, the spline sampler's bound).
-_azimuth_minimum(f, n::Int) = grid_brent_minimum(f, range(0, 2π; length = n + 1)[1:n]; periodic = true).value
+_azimuth_minimum(f, n::Int) = _grid_brent_minimum(f, range(0, 2π; length = n + 1)[1:n]; periodic = true).value
 # The last angle at which `imaged` holds, scanning [10⁻⁴, edge] and bisecting the
 # first failure to rounding; `edge` when it never fails.
 function _nan_onset(imaged, edge)

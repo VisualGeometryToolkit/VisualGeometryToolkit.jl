@@ -21,7 +21,7 @@ using Pkg
 Pkg.add(PackageSpec(url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"))
 ```
 
-`stack` is the latest upstream release plus the unmerged pull requests, rebased onto each new release. Verify with `VisualGeometryToolkitCore.nlls_features().schur` → `true`. For a run that feeds a figure, replace `rev = "stack"` by the commit sha so every machine resolves the same tree. When #60 is released, `Pkg.free("NLLSsolver")` returns the environment to the registry and this note is removed.
+`stack` is the latest upstream release plus the unmerged pull requests, rebased onto each new release. Verify with `import NLLSsolver; isdefined(NLLSsolver, :MultiVariateLSschur)` → `true`. For a run that feeds a figure, replace `rev = "stack"` by the commit sha so every machine resolves the same tree. When #60 is released, `Pkg.free("NLLSsolver")` returns the environment to the registry and this note is removed.
 
 For visualization support, also install GLMakie:
 

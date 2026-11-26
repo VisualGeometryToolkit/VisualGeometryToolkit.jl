@@ -205,7 +205,7 @@ function _pool_variance(v::InlierVariance, problem::HomographyProblem, raw::Ster
 end
 
 # -----------------------------------------------------------------------------
-# Hypotheses → the pool frame: pose errors and the frame change, per family
+# The hypotheses → the pool frame: pose errors and the frame change, per family
 # -----------------------------------------------------------------------------
 #
 # A hypothesis is in the generation problem's MODEL frame: E calibrated (unit

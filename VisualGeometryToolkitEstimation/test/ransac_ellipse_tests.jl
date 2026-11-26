@@ -1,3 +1,4 @@
+# R22: contract test — the ellipse problem's chart rows and refit step (`residual_rows!`, `residual_jacobian_rows!`, `refine!`)
 # EllipseProblem / Ransac on a EllipseProblem — the 2D ellipse as one more model of the RANSAC
 # family, as the circle (ransac_circle_tests.jl): the minimal solver through the
 # problem, the residual against the geometric distance, the chart rows (the
@@ -59,7 +60,7 @@
     # the rows ARE the orthogonal distances (√w-weighted) at the anchor
     @test abs(rows(zero(a0))[7] / lm.sqrtw[7]) ≈ minimum(φ -> norm(SVector(pn[7]...) - SVector(boundary_point(e₀, φ)...)), range(0, 2π, 200_001)) atol = 1.0e-5
     # the chart-LM refit (refine!) from a perturbed ellipse lands at the noise floor
-    ws = VgtkEstimation.refit_workspace(typeof(pp), 100)
+    ws = VgtkEstimation.refit_workspace(pp)
     e₁ = VgtkCore.refine!(ws, pp, e₀, ones(100))
     @test e₁ isa Ellipse{Float64}
     @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
@@ -67,9 +68,10 @@
 end
 
 @testitem "EllipseProblem: Ransac on 40% outliers (a straight run and clutter)" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
     using VisualGeometryToolkitEstimation: Ransac, EllipseProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse
@@ -90,10 +92,10 @@ end
         @test count(inl[bad]) < 0.05 * length(bad)
     end
     @test let r = solve(EstimationProblem(EllipseProblem([Point2(0.0, 0.0), Point2(1.0, 0.0), Point2(1.0, 1.0), Point2(0.0, 1.0)])), Ransac())
-        retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
     end
     # no sample gives an ellipse (collinear points): a :no_model result whose estimate is nothing,
     # not a MethodError (2026-11-03: `zero(::Type{Ellipse{Float64}})` did not exist)
     none = solve(EstimationProblem(EllipseProblem([Point2(Float64(i), 2.0 * i + 1) for i in 1:10])), Ransac(); rng = Xoshiro(1))
-    @test !successful_retcode(none) && retcode_symbol(none) === :no_model && none.u === nothing && !any(inlier_mask(none))
+    @test !successful_retcode(none) && (none.retcode, none.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && none.u === nothing && !any(inlier_mask(none))
 end

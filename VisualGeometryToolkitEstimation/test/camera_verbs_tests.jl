@@ -1,10 +1,12 @@
+# R22: contract test — the camera-regression device state's row reductions (`residual_cost!`, `residual_normal_equations!`)
 # =============================================================================
 # The camera-from-camera verbs (0.9): CameraRegression is linear (no guess),
 # the camera-regression refine polishes a guess by the chart LM, the fit-then-refine recipe is the two
 # =============================================================================
 
 @testitem "camera_verbs: the rational linear fit of icra2026's fisheye lands at OpenCV's calibration (failure A)" setup = [CameraRecipes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, Perspective, Additive, Radial, Tangential, ThinPrism, Rect, Ellipse, calibration_matrix, parameters, rms, lens, view_angle
@@ -22,7 +24,7 @@
     # 0.8's chart LM from the zero-coefficient start stalled at the pinhole here (f 927.4 px, |k| < 1e-3, 6008 px at
     # the edge; the bundle then collapsed the focal to 25–184 px). The linear fit leaves it in one solve:
     r = solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region)), CameraRegression())
-    @test retcode_symbol(r) === :solved
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
     K = calibration_matrix(r.u)
     @test abs(K[1, 1] - 921.9) < 10                                                    # px: OpenCV's focal (925.3)
     @test hypot(K[1, 3] - 2140.0957668437163, K[2, 3] - 1441.4063814989743) < 6        # px: the KB's principal point, kept
@@ -43,14 +45,15 @@
     @test e.field_angle ≈ Float64(view_angle(lens(kb), 1400.0 / 927.4663595958699)) rtol = 1.0e-6
     @test rad2deg(e.field_angle) > 90
     rk = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, kb, wide)), CameraRegression())
-    @test retcode_symbol(rk) === :solved && rk.metadata.family.θ_source > π / 2 && rk.metadata.max_px < 1.0e-6
+    @test (rk.retcode, rk.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm) && rk.metadata.family.θ_source > π / 2 && rk.metadata.max_px < 1.0e-6
     # and the refine from it converges near it
     ra = solve(EstimationProblem(CameraRegressionProblem(RAT, kb, region)), CameraRegression(; refine = LevenbergMarquardt()))
-    @test retcode_symbol(ra) === :converged && abs(calibration_matrix(ra.u)[1, 1] - 921.9) < 10 && ra.rms <= r.rms
+    @test (ra.retcode, ra.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && abs(calibration_matrix(ra.u)[1, 1] - 921.9) < 10 && ra.rms <= r.rms
 end
 
 @testitem "camera_verbs: CameraRegression's linear residual is the returned camera's, and records no scale" setup = [CameraRecipes, FitCameraLensCases] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm
@@ -61,7 +64,7 @@ end
     for L in (KB4, SC3, Division{2})
         region = disc(mdiv, 2000.0)
         r = solve(EstimationProblem(CameraRegressionProblem(L, mdiv, region)), CameraRegression())
-        @test retcode_symbol(r) === :solved && r.stats.nsteps == 0
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm) && r.stats.nsteps == 0
         m = r.metadata
         @test length(m.residuals) == 129 && maximum(m.residuals) == m.max_px
         # recomputed from the returned camera: the source's ray at each profile node (Clenshaw–Curtis on [0, θ_max]),
@@ -89,7 +92,8 @@ end
 end
 
 @testitem "camera_verbs: a family with no linear form is refused, naming the camera-regression refine; the fit-then-refine recipe starts it from its anchor" setup = [CameraRecipes, FitCameraLensCases] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using VisualGeometryToolkitCore: Lens, Perspective, Equidistant, Tilt, FieldOfView, Radial, Unified, ExtendedUnified, DoubleSphere
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, CameraRegression
@@ -100,17 +104,18 @@ end
         @test_throws r"the family's anchor" solve(EstimationProblem(CameraRegressionProblem(L, mdiv, disc(mdiv, 1500.0))), CameraRegression())
     end
     r = solve(EstimationProblem(CameraRegressionProblem(typeof(Lens(DoubleSphere(0.5, 0.5))), mdiv, disc(mdiv, 1500.0))), CameraRegression(; refine = LevenbergMarquardt()))
-    @test retcode_symbol(r) === :converged
-    # the refine's keywords: L2 only, no scale input
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
+    # the refine's keywords: L2 only, no scale input (a setting the chart refine does not take has no method, as in Core)
     g = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, 1500.0))), CameraRegression()).u
-    @test_throws ArgumentError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(); scale = 1.0)
-    @test_throws ArgumentError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(); width = 1.0)
+    @test_throws MethodError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(); scale = 1.0)
+    @test_throws MethodError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(); width = 1.0)
     @test_throws ArgumentError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(; optimization_strategy = :huber))
     @test_throws MethodError solve(RefineProblem(CameraRegressionProblem(mdiv, disc(mdiv, 1500.0)), g), LevenbergMarquardt(; local_optimization = nothing))   # the retired keyword
 end
 
 @testitem "camera_verbs: the camera-regression refine from a perturbed guess reaches the fit-then-refine recipe's minimum" setup = [CameraRecipes, FitCameraLensCases] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SMatrix
     using VisualGeometryToolkitCore: CameraModel, LogicalIntrinsics, CameraCalibrationMat, lens, calibration_matrix, parameter_vector, with_parameters, rms, Division
@@ -125,7 +130,7 @@ end
         guess = CameraModel(LogicalIntrinsics(CameraCalibrationMat(SMatrix{3, 3, Float64}(K[1, 1] * 1.05, 0, 0, 0, K[2, 2] * 1.05, 0, K[1, 3], K[2, 3], 1); check = false)),
             with_parameters(lens(best), p .* 0.8))
         r = solve(RefineProblem(CameraRegressionProblem(mdiv, region), guess), LevenbergMarquardt())
-        @test retcode_symbol(r) === :converged
+        @test (r.retcode, r.stop_rule) in ((VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease), (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize),)
         @test maximum(abs.(collect(parameter_vector(lens(r.u))) .- p)) < 1.0e-5
         @test abs(calibration_matrix(r.u)[1, 1] - K[1, 1]) < 1.0e-5 * K[1, 1]
         @test abs(r.rms - a.rms) <= 1.0e-6 * max(a.rms, 1.0e-9) + 1.0e-12
@@ -138,7 +143,8 @@ end
 end
 
 @testitem "camera_verbs: the camera-regression refine's `fixed` holds parameters by name or group; the default frees the rational denominator" setup = [CameraRecipes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, Perspective, Radial, Even, Ellipse, Rect, calibration_matrix, parameters, parameter_names, lens, rms
@@ -154,7 +160,7 @@ end
     # denominator-held refine (0.8's free set, here from the linear start); the group is its names
     rh = solve(RefineProblem(CameraRegressionProblem(kb, region; fixed = (:d,)), g), LevenbergMarquardt())
     ch = parameters(lens(rh.u))
-    @test retcode_symbol(rh) === :converged
+    @test (rh.retcode, rh.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     @test (ch.d1, ch.d2, ch.d3) === (cg.d1, cg.d2, cg.d3)
     @test ch.k1 != cg.k1 && calibration_matrix(rh.u)[1, 1] != calibration_matrix(g)[1, 1]
     @test lens(solve(RefineProblem(CameraRegressionProblem(kb, region; fixed = (:d1, :d2, :d3)), g), LevenbergMarquardt()).u) == lens(rh.u)
@@ -177,7 +183,8 @@ end
 end
 
 @testitem "camera_verbs: CameraRegression's `fixed` drops the held columns from the one linear solve, at the target's values" setup = [CameraRecipes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, KannalaBrandt, Lens, LiftLens, Perspective, Radial, Even, Additive, Tangential, Division, Ellipse, Rect, calibration_matrix, parameters, parameter_names, parameter_vector, lens, rms
@@ -203,7 +210,7 @@ end
     disc = Ellipse(SVector(960.0, 540.0), 700.0, 700.0, 0.0)
     r = solve(EstimationProblem(CameraRegressionProblem(target, src, disc; fixed = (:p, :d))), CameraRegression())
     c = parameters(lens(r.u))
-    @test retcode_symbol(r) === :solved
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
     @test (c.p1, c.p2, c.d1, c.d2, c.d3) === (1.0e-4, -2.0e-4, 0.0, 0.0, 0.0)
     @test maximum(abs, (c.k1 + 0.12, c.k2 - 0.03, c.k3 - 0.004)) < 1.0e-8
     @test abs(calibration_matrix(r.u)[1, 1] - 900.0) < 1.0e-6
@@ -261,12 +268,5 @@ end
         cost = residual_cost!(nothing, lm, x)
         @test cost === 0.5 * sum(view(lm.partials, 1, :))
         @test cost ≈ c
-        # 0.10.2's two calls, the launch and then the reduction, against Core's launch-and-reduce (0.10.3): the same bits
-        apart = similar(lm.partials)
-        args = (lm.P, lm.angle_residual, lm.θcap, lm.M, lm.rays, lm.angles, lm.points, lm.sw, x)
-        VgtkCore._launch_rows!(VgtkEstimation._normal_row!, apart, size(apart, 2), args...)
-        @test residual_normal_equations!(nothing, nothing, lm, x) === VgtkCore.reduce_normal_equations(apart, Val(N))
-        VgtkCore._launch_rows!(VgtkEstimation._cost_row!, apart, size(apart, 2), args...)
-        @test residual_cost!(nothing, lm, x) === VgtkCore.reduce_cost(apart)
     end
 end

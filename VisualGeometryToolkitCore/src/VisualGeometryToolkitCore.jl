@@ -120,7 +120,6 @@ public DEFAULT_MAX_ASPECT_RATIO   # the default `is_valid_shape` bound, reached 
 public is_positive_definite       # the 2×2 positive-definiteness test (Sylvester), reached qualified
 public gpu_tier, gpu_problem, require_gpu   # the one GPU test-tier decision of every stack suite (quality/gpu_tier.jl)
 public frame_dof                  # a frame's degrees of freedom, its uncertain form's covariance size (FeatureFrame interface)
-public grid_brent_minimum       # the one 1-D minimizer: a grid scan, then Brent's method (numerics/minimize.jl)
 export is_peak
 export boundary, region, scale, shape_factor
 export bbox
@@ -222,7 +221,7 @@ public bspline_basis   # the scalar Cox–de Boor basis (isbits, any eltype, ker
 public cubic_lattice_basis, bending_gram, bending_rows, bending_stencils, natural_extrapolation   # the bending energy and the natural boundary condition (BSplineKit)
 public difference_stencil   # a lattice's forward-difference coefficients (a P-spline penalty, BoundaryRule's Δ³ extrapolation)
 public difference_rows      # the sparse Δᵒʳᵈᵉʳ rows of a (masked) 2-D lattice along chosen axes: the P-spline penalty's operator
-public CSRMatrix, PenalizedOperator, cgls, normal_cg   # the stack's one device least-squares solve: on sparse operators, or on an applied normal operator (numerics/penalized_least_squares.jl)
+public CSRMatrix, PenalizedOperator   # the stack's one device least-squares solve: on sparse operators, or on an applied normal operator (numerics/penalized_least_squares.jl)
 public gradient_pairs, mean_positive_eigenvalue, penalty_scale, row_stencils   # the penalty weight's normalization (m̄, its unit) and an operator's rows as residual blocks (numerics/penalized_least_squares.jl)
 public clamped_knots        # the clamped uniform knot vector bspline_basis takes (BSplineKit's, static)
 public bspline_basis_iterative, evaluate_bspline_surface, bspline_surface_partial
@@ -392,10 +391,9 @@ export RefineMetadata   # the LevenbergMarquardt refine's metadata (robust/refin
 public read_context   # THE reading of a solve's keyed context `p` (any order; one ArgumentError naming missing and unknown keys)
 public s2   # the residual variance a fit recorded (read by this function only)
 public AbstractFitMetadata   # the metadata root whose weights are its producer's (one weight_kind)
-public model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy   # the chart contract of the LevenbergMarquardt refine (contract generics)
-public chart_refit, triggs_refit, lm_workspace   # the one chart refit, its robustified form, the chart LM's workspace reuse policy
+public model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy, refit_chart, refit_rows   # the chart contract of the LevenbergMarquardt refine (contract generics)
 public bundle_loss, recorded_scale, scale_record   # a refine's robust loss from its strategy and scale input; the scale it records, and the whole record (scale, source, width)
-public AbstractBlockProblem, block_refit, with_robustifier, default_stops, block_lm   # the block contract of a bundle refine, its stops of record, the one bundle LM
+public AbstractBlockProblem, with_robustifier, default_stops   # the block contract of a bundle refine, its stops of record
 public default_damping   # the damping a LevenbergMarquardt backend runs by default (a backend contract generic: PoseLib states its own)
 public lm_backend_refine   # a solver backend's LevenbergMarquardt refine of raw data (a backend contract generic: PoseLib implements it)
 public normalized_loss_weight, loss_weights, weighted_support, weighted_support_rms   # the loss weight ρ′(s)/ρ′(0); a refine's weights; THE support and rms of a weighted result
@@ -548,7 +546,7 @@ export AbstractScoring, AbstractOptimizationStrategy, RefitFamily, FixedScale,
 # The interface machinery behind them: public, reached qualified or imported by
 # name. ConsensusSet is read through its accessors (inlier_count, scale_s2, consensus_score,
 # is_fresh/check_fresh), never by field name.
-public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, ExternalRefit, optimization_path,
+public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, ExternalRefit, optimization_path, OptimizationPath,
     path_suffix, path_marker, ScaleInterface, ConsensusAnchored, FollowsScorer, SelfScaling, NoScale,
     UnspecifiedScale, scale_interface, lo_label,
     lo_marker, loss_family, NormalizedWeightPolicy, inlier_weight, robust_weight, is_inlier,
@@ -571,7 +569,7 @@ public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss,
     posterior_weight_derivative, mixture_nll, nu_point_terms, next_nu_from_sums,
     PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
-    update_inlier_prior!, mixture_ecm!, median_seeded_posterior,
+    update_inlier_prior!,
     GauInlier, truncated_log_normaliser
 # The scoring contract and the baseline scorers.
 public scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
@@ -595,7 +593,7 @@ public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     width_scale_interface, width_s2, check_composition, width_value,
     external_refit!, external_workspace, prepare_external!
 # Selection over a benchmark pool record (robust/pool_selection.jl).
-public best_pool_model, selection_staging, stage_selection, select_on_grid!
+public best_pool_model!, selection_staging, stage_selection, select_on_grid!
 public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)
 # The contract conformance helpers (ext/VisualGeometryToolkitCoreTestExt with Test).
 public test_scoring_contract, test_local_optimization_contract, test_constraint_problem, test_manifold_contract, test_termination_record, check_algorithm_traits
@@ -640,7 +638,7 @@ public ScaleSource, ScaleGiven, ScaleUpstream, ScaleEstimated, ScaleNone, noise_
 export successful_retcode   # the success test of a result or a return code (SciMLBase's)
 public ReturnCode, StopRule, NoRule, ClosedForm, CostDecrease, IncrementSize, RejectionCap,
     ParameterChange, NoImprovement, ExactFit, ToleranceMet, LadderConverged, LeftBasin, ShapeGate, IterationCap, TimeCap,
-    NonFinite, Callback, TrialBudget, AdaptiveCount, SeedKept, stop_rule, found_model, retcode_symbol, retcode_from_symbol, worst_retcode
+    NonFinite, Callback, TrialBudget, AdaptiveCount, SeedKept, found_model, worst_retcode
 # Per-datum weights and their kind (robust/weights.jl): `weights(result)` is a plain vector; its
 # meaning, and inlier_mask(result)'s cut, is the producer type's WeightKind trait.
 # The core optimization strategies and the registry machinery every package registers its strategies with
@@ -715,28 +713,27 @@ public band_conic
 # Generic block-coordinate-descent loop (robust/block_coordinate_descent.jl,
 # hoisted from VisualGeometryToolkitEstimation): the model/nuisance/weights loop + its
 # extension verbs.
-export AbstractBlockCoordinateMethod, block_coordinate_descent!
+export AbstractBlockCoordinateMethod
 public init_state!, update_model!, update_residuals!, post_iteration!,
     stopping_criterion, block_coordinate_result
 # The loop in Manopt.jl's names (public, never exported: a future `using Manopt`
-# must not clash): the solver steps, the stopping criteria and the recorder.
-public initialize_solver!, step_solver!, stop_solver!,
-    StoppingCriterion, stop_reason, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny,
+# must not clash): the stopping criteria and the recorder. The solver steps (`initialize_solver!`, `step_solver!`,
+# `stop_solver!`) are Core-internal drivers (CORE_INTERNAL_DRIVERS).
+public StoppingCriterion, stop_reason, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny,
     Recorded, current_cost, current_s2
 # Best-tracking of an instance that claims descent (robust/block_coordinate_descent.jl):
 # the best iterate is `Attributed(θ, (; cost))`.
 public keep_best
 # The chart LM (robust/lm_core.jl): NLLSsolver on the row protocol below;
-# `lmsolve_chart!` stays internal (import-by-name), the workspace type is public.
-public ManifoldLmWorkspace
+# its kernel and workspace are internal (a refine reaches them through `solve`/`init` on a `RefineProblem`).
 # The chart-LM protocol a caller's linearization state implements (robust/lm_core.jl).
 public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!, is_stationary, loss_robustifier
 public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
 # The LM's stop settings (their one owner), its multi-block problem and the device LM's stop settings; whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
-public LmStops, LmProblem, StaticLmStops, LmDamping, MarquardtDamping, LevenbergDamping
+public LmStops, StaticLmStops, LmDamping, MarquardtDamping, LevenbergDamping
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
-public nlls_features, nlls_stop_reasons, finite_cost, nlls_rows_and_jacobian   # its Schur system detected, NLLSsolver's termination bits named; a block's cost as its LM reads it; a problem's rows and sparse Jacobian
+public finite_cost   # a block's cost as its LM reads it
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's
 # quality test runs it on itself; reached qualified.
 public check_naming, NamingViolation, naming_scope
@@ -863,7 +860,7 @@ public whitening_factor   # L⁻¹ of the propagated constraint covariance, froz
 # the covariance block rows, the radial-H centred ray, the correspondence
 # attribute columns, the weights checks and the whitened constraint rows):
 # public, unexported — reached qualified or by explicit import.
-public lm_workspace_type, lmsolve_chart!, fill_sqrt_weights!, manifold_parts,
+public manifold_parts,
     kabsch_stationarity, chordal_mean_stationarity, rescale_radial_coeff, pnp_pixel_whitening,
     block_rows, radial_ray, attrs_of, attribute_column, cd_pair, sigma_max, check_weights,
     weights_column, sq_norm, whitened_constraint_rows, zero_sample!, sample_point_held
@@ -875,7 +872,7 @@ public snake_case, TagRegistry, tag_of, expected_tag, tag_rule_violations, SCALE
     tag_family, tag_paths, retired_tags, tag_registries,
     tag_table_violations, config_tag_violations
 public stack_dependencies, stack_dependency_violations, private_name_violations,
-    CONTRACT_GENERICS, contract_generic_violations
+    CONTRACT_GENERICS, contract_generic_violations, CORE_INTERNAL_DRIVERS, SOLVER_HOOKS
 # What the agent instruction files may not carry (quality/agent_docs.jl).
 public AGENT_DOC_FORBIDDEN, agent_doc_violations
 # The one copy of the stack conventions (quality/conventions.jl).
@@ -937,7 +934,7 @@ public stack_ci, workspace_packages, workspace_settings, affected_packages, regi
 # Shared machinery for the package family (unexported — import by name):
 public present_kwargs, check_keys, required_key, is_finite_real, toml_skip_fields, toml_key, toml_value,
     toml_field, toml_table, allowed_keys, read_table, convert_field, toml_default, write_toml,
-    toml_field_name, parse_defaults
+    toml_field_name, parse_defaults, toml_unbounded, unbounded_from_toml
 public CONFIG_VERSION_KEY, CONFIG_VERSIONS_KEY, ConfigMigration, ConfigVersions, current_config_version, migrate_config, CONFIG_VERSIONS   # the versioned configuration converter (base/config_toml.jl), Core's own
 public install_artifact, huggingface_token, is_published_url   # the one install of a published artifact (base/artifacts.jl)
 public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
@@ -961,9 +958,9 @@ include("base/image_frames.jl")   # 2-D image frames (retinal/pixel/target-plane
 include("base/types.jl")    # Loads interface.jl, defines AbstractDetection, conic matrices
 include("base/correspondence_set.jl") # Correspondences columnar container + sources/targets protocol + lift
 include("base/coordinates.jl")    # to_affine / to_euclidean — used by Primitives + transforms
-include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, retcode_symbol/retcode_from_symbol/worst_retcode — the termination record (before FitResult, whose core holds it)
+include("base/return_code.jl")    # ReturnCode (SciMLBase's names), StopRule, worst_retcode — the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")     # FitResult, SolveStats — the solution of every estimation problem
-include("base/termination_accessors.jl")  # successful_retcode/found_model/retcode_symbol on a FitResult (uses FitResult)
+include("base/termination_accessors.jl")  # successful_retcode/found_model on a FitResult (uses FitResult)
 include("base/solve_interface.jl") # the estimation interface: problems, algorithms, kinds, the front end solve/init → __solve/__init (CommonSolve; the SciML mapping)
 include("base/scale_source.jl")   # ScaleSource, noise_scale/scale_source, scale_input — the robust stages' scale hand-off (uses FitResult)
 include("base/bundle_metadata.jl")  # BundleMetadata: a bundle refinement's metadata, its scale record (uses ScaleSource)
@@ -991,9 +988,9 @@ include("base/manifold.jl")      # the Manifold CONTRACT (retraction + covarianc
 include("robust/losses.jl")       # unified robust-loss family + GR-lift facet (LOSSES.md)
 include("robust/width_axes.jl")   # WidthAxis tags + to_native(::LossWidth) (uses TLSShape, decision_width)
 include("robust/estimation.jl")   # shared RANSAC/LO interface hierarchy (types + contracts only)
-include("robust/block_coordinate_descent.jl") # generic loop (block_coordinate_descent! + extension verbs; hoisted from RVG)
+include("robust/block_coordinate_descent.jl") # generic loop (BlockCoordinateDescent + extension verbs; hoisted from RVG)
 include("robust/rows.jl")         # the chart-rows contract + RowsWorkspace + task_buffers
-include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
+include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol (_ManifoldLmWorkspace)
 # The contracts the RANSAC framework composes through (K+): the constraint-problem
 # protocol, the robust-statistics toolkit (scale, the Student-t + uniform mixture,
 # the posterior-weight state), the scoring contract with the baseline scorers,
@@ -1001,7 +998,7 @@ include("robust/lm_core.jl")      # the chart LM: NLLSsolver on the row protocol
 include("robust/problem.jl")          # AbstractConstraintProblem + data_size/codimension/mahalanobis_distances!/refine!
 include("robust/scale.jl")            # IGPrior, ScaleMAP, a partition's Student-t, partition_rss, weighted_rss
 include("robust/mixture.jl")          # StudentTMixture, the E-step, the ν update, GauInlier/decision_boundary
-include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
+include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, ScoreBuffers, score_model!
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring + their contract glue
@@ -1010,7 +1007,7 @@ include("robust/student_t_uniform_scoring.jl") # StudentTUniformScoring + its sc
 include("robust/weights.jl")           # WeightKind traits, weight_kind, inlier_mask(result) (needs fit_result.jl and the scorer types)
 include("robust/lo_contract.jl")      # lo_workspace/locally_optimize!/lo_estimate, loss_at
 include("robust/strategies.jl")       # Irls{K}, Triggs{K}, LOSS_TAGS, the strategy registry machinery, STRATEGY_TAGS (needs lo_contract.jl, the loss shapes, TagRegistry)
-include("robust/refine.jl")           # the LevenbergMarquardt refine: the chart contract, chart_refit/triggs_refit, RefineMetadata, AbstractFitMetadata, bundle_loss (needs strategies.jl, lm_core.jl, problem.jl)
+include("robust/refine.jl")           # the LevenbergMarquardt refine: the chart contract, _chart_refit/_triggs_refit, RefineMetadata, AbstractFitMetadata, bundle_loss (needs strategies.jl, lm_core.jl, problem.jl)
 
 # Geometry Transforms (partial - matrices and rigid transforms only)
 # NOTE: coord_maps, region_maps, homography_map come AFTER Primitives
@@ -1121,7 +1118,7 @@ include("synthetic/synthetic.jl")
 # accessor names (num_points, gt_pose, …) stay out of every `using VisualGeometryToolkitCore`.
 include("pools/pools.jl")
 include("robust/pool_grid_kernels.jl") # the exact selection kernels of a residual-quality family (KernelAbstractions, every backend)
-include("robust/pool_selection.jl")   # best_pool_model, select_on_grid! over a pool record (needs Pools)
+include("robust/pool_selection.jl")   # best_pool_model!, select_on_grid! over a pool record (needs Pools)
 
 # Visualization stubs for GLMakie extension (LSP indexing support)
 include("visualization_stubs.jl")

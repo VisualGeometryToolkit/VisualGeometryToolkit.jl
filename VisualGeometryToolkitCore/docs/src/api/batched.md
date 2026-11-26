@@ -68,14 +68,14 @@ isotropic order-1 pairs) or [`bending_rows`](@ref) (the bending energy), and
 [`row_stencils`](@ref) its rows as a nonlinear solve's residual blocks. The
 weight's unit: [`penalty_scale`](@ref) with [`mean_positive_eigenvalue`](@ref)
 (m̄). The linear solve on sparse operators, on any KernelAbstractions device:
-[`cgls`](@ref) on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es
+`solve(PenalizedLeastSquaresProblem(op, b), CGLS())` on a [`PenalizedOperator`](@ref) of [`CSRMatrix`](@ref)es
 (Krylov.jl's CGLS on the stacked operator `[A; √W D]`; on CUDA the products are
-cuSPARSE's, under its reproducible algorithm), or [`normal_cg`](@ref) (Krylov.jl's CG) on a normal
+cuSPARSE's, under its reproducible algorithm), or `solve(NormalEquationsProblem(N, g), NormalCG())` (Krylov.jl's CG) on a normal
 operator `AᵀA + DᵀWD` that is only applied (its rows never stored); each
 Jacobi-preconditioned on request, each with a stopping rule relative to the
 normal equations' right-hand side `‖Aᵀb + DᵀWh‖`. The
 weight's choice by generalized cross-validation is
-VisualGeometryToolkitEstimation's (`gcv_curve`, `gcv_select`). No penalty fixes a
+VisualGeometryToolkitEstimation's (`GeneralizedCrossValidation()` on an `EstimationProblem(Hyperparameter, …)`). No penalty fixes a
 gauge: a direction neither the data nor the penalty holds is held exactly by
 its caller.
 
@@ -173,9 +173,9 @@ Pages = ["numerics/quadrature.jl"]
 
 ## One-dimensional minimization
 
-[`VisualGeometryToolkitCore.grid_brent_minimum`](@ref) scans an evenly spaced
-grid and refines its least value by Brent's method: the stack's one 1-D
-minimizer (public, not exported).
+`solve(BracketedMinimizationProblem(f, xs), GridBrent())` scans the evenly spaced
+grid `xs` and refines its least value by Brent's method: the stack's one 1-D
+minimizer ([`BracketedMinimizationProblem`](@ref), [`GridBrent`](@ref); public, not exported).
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

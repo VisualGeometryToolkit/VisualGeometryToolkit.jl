@@ -1,3 +1,4 @@
+# R22: contract test — the radial homography's lift protocol and refit step (`rows_provider`, `lift_*`, `refine!`)
 @testitem "radial_homography" setup = [RadialScenes] begin
     using VisualGeometryToolkitCore: solve
     using VisualGeometryToolkitCore: weights
@@ -199,7 +200,7 @@ end
         prov = rows_provider(p)
         k = division_coeff(lift_model(prov, lift_init(prov, plain)))
         rn = prov.lws.rn[1:prov.n]                                     # the plain-H norms lift_init gated
-        σ = VgtkCore._mad_scale_norms(; norms = rn, codimension = 2)
+        σ = VgtkCore.solve(VgtkCore.EstimationProblem(VgtkCore.NoiseScale, rn, (; codimension = 2)), VgtkCore.MedianNormScale()).u
         inside = Float64.(rn .^ 2 .< (m * σ)^2)                         # TLS at m·σ̂
         @test k == division_coeff(lift_model(prov, _radial_seed_chart(p, plain, inside)))
         # the same partition as the former private gate, three medians of the norms

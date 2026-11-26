@@ -111,7 +111,8 @@ _robot_world_hand_eye_calibration(poses, ids::Vector{K}) where {K} =
 `FitResult` metadata of the robot-world fit ([`ReweightedLeastSquares`](@ref) on
 `EstimationProblem(RobotWorldHandEyeCalibration, markers, p)`, `S = Float64`) and of the reprojection refine of a
 [`RobotWorldHandEyeProblem`](@ref) (`S = Nothing`: no pose-residual noise
-scales; its `retcode_symbol(result)` is `:converged`, `:max_iterations`, `:max_time`, `:solve_failed` or `:stalled`) — one type, assembled in one place.
+scales; its record is the LM's: `Success` at its rule, `(MaxIters, IterationCap)`, `(MaxTime, TimeCap)`, `(Failure, NonFinite)` or
+`Stalled`) — one type, assembled in one place.
 The result carries the `RobotWorldHandEyeCalibration` (`u`), the `retcode`, the
 accepted steps (`stats.nsteps`), the `rms` and the `n` observations (the fit: pose observations,
 its `rms` over the weighted residual rows; the refinement: points, its `rms`

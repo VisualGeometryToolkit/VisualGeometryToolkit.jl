@@ -43,7 +43,7 @@ include("base/correspondence_set.jl")    # Correspondences columnar container + 
 include("base/coordinates.jl")   # to_affine / to_euclidean
 include("base/return_code.jl")   # ReturnCode, StopRule: the termination record (before FitResult, whose core holds it)
 include("base/fit_result.jl")    # FitResult, SolveStats — the solution of every estimation problem
-include("base/termination_accessors.jl")  # successful_retcode, found_model, retcode_symbol on a FitResult
+include("base/termination_accessors.jl")  # successful_retcode, found_model on a FitResult
 include("base/solve_interface.jl")  # the estimation interface: problems, algorithms, kinds; solve/init → __solve/__init (CommonSolve)
 include("base/utils.jl")         # geometry utilities
 include("base/config_toml.jl")   # TOML config skeleton shared by every package with a configuration of record
@@ -62,13 +62,13 @@ every later file extends.
 include("robust/losses.jl")         # AbstractLossShape family (LOSSES.md)
 include("robust/width_axes.jl")     # WidthAxis tags, width_axis ⇄ width_axis_name, to_native(::LossWidth)
 include("robust/estimation.jl")     # RANSAC/LO interface hierarchy (types + contracts)
-include("robust/block_coordinate_descent.jl") # block_coordinate_descent! + extension verbs
+include("robust/block_coordinate_descent.jl") # BlockCoordinateDescent + extension verbs
 include("robust/rows.jl")           # the chart-rows contract (rows_provider, lift_* verbs), RowsWorkspace, task_buffers
-include("robust/lm_core.jl")        # the chart LM: NLLSsolver on the row protocol (ManifoldLmWorkspace)
+include("robust/lm_core.jl")        # the chart LM: NLLSsolver on the row protocol (internal kernels behind LevenbergMarquardt)
 include("robust/problem.jl")          # the constraint-problem protocol (mahalanobis_distances!, refine!)
 include("robust/scale.jl")            # IGPrior, ScaleMAP, the consensus Student-t scale
 include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_boundary
-include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies, mixture_ecm!
+include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies
 include("robust/normaliser.jl")       # truncated_log_normaliser
 include("robust/scoring_contract.jl") # the scoring contract, ScoreBuffers, score_model!
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring
@@ -80,7 +80,7 @@ scorers — no geometry. VisualGeometryToolkitEstimation implements the problem 
 runs its one RANSAC loop over these verbs; RANSACScoringDoneRight implements
 the scoring contract; LocalOptimizationDoneRight implements the
 local-optimization contract and owns the lifts and continuation schedules. The
-pool-selection verbs (`robust/pool_selection.jl`: `best_pool_model`,
+pool-selection verbs (`robust/pool_selection.jl`: `best_pool_model!`,
 `select_on_grid!`) are included after the `Pools` submodule they read.
 
 ### 3. Transforms (matrix types and rigid maps)

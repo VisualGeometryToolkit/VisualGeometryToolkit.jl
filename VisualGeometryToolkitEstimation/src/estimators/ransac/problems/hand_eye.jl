@@ -135,7 +135,7 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
 
 Throws when there are fewer than 3 frames, or when fewer than two relative
 motions rotate at least `min_rel_angle` (no minimal sample could satisfy the gate —
-refused here rather than as a `:no_model` after every RANSAC trial).
+refused here rather than as a no-model result after every RANSAC trial).
 """
 function HandEyeProblem(
         cs::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};

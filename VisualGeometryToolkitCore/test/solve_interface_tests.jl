@@ -126,10 +126,11 @@ end
     @test VgtkCore.BackendRefit(LevenbergMarquardt(), VgtkCore.LmStops(); cheirality_vote_points = 64).cheirality_vote_points == 64
     @test occursin("runs a refine algorithm", thrown_message(() -> VgtkCore.BackendRefit(DLT(), VgtkCore.LmStops())))
     @test_throws ArgumentError VgtkCore.BackendRefit(LevenbergMarquardt(), VgtkCore.LmStops(); cheirality_vote_points = 0)
-    # its identity is its LM's strategy's; its scale the width the refit is given
-    tls = VgtkCore.BackendRefit(LevenbergMarquardt(; optimization_strategy = Irls{TLSShape}()), VgtkCore.LmStops())
-    @test VgtkCore.optimization_path(tls) === :irls && VgtkCore.loss_family(tls) === :tls && VgtkCore.lo_label(tls) == "TLS-IRLS" &&
-        VgtkCore.lo_marker(tls) === VgtkCore.lo_marker(Irls{TLSShape}()) && VgtkCore.scale_interface(tls) === VgtkCore.FixedScale()
+    # its identity is its algorithm's: a Levenberg–Marquardt's strategy's, its scale given (FixedScale)
+    tls = VgtkCore.BackendRefit(LevenbergMarquardt(; optimization_strategy = VgtkCore.Irls{VgtkCore.TLSShape}()), VgtkCore.LmStops())
+    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === :tls
+    @test VgtkCore.lo_label(tls) == "TLS-IRLS" && VgtkCore.lo_marker(tls) === VgtkCore.lo_marker(VgtkCore.Irls{VgtkCore.TLSShape}())
+    @test VgtkCore.scale_interface(tls) === VgtkCore.FixedScale()
     # a backend whose package implements no LM: one ArgumentError, from the constructor's default damping and from a
     # raw-data refine alike, naming the backend and the contract generics its package implements
     struct _NoLmBackend <: VgtkCore.AbstractSolverBackend end

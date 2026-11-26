@@ -48,7 +48,7 @@ ordering similar to Julia Base"; the model-first rule never overrides it):
 - So only a function argument, an IO or an RNG may precede what a `!` call
   mutates; a strategy or method object may not: `map!(f, dst, src)`,
   `rand!(rng, A)`, `draw_sample!(rng, indices, problem)`,
-  `undistort!(dst, model, src)`, `block_coordinate_descent!(state, likelihood, method, prob, θ₀)`.
+  `undistort!(dst, model, src)`, `score_residuals!(sws, q, scoring, residuals, n)`.
   The in-place and allocating forms agree on the order of the rest.
 - **A type argument takes slot (4), positionally** — precision and element types,
   frame tags and problem types alike, never a keyword. In a `!` call it follows the mutated inputs:

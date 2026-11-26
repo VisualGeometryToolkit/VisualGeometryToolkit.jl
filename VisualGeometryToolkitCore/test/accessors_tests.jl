@@ -12,7 +12,7 @@
     using VisualGeometryToolkitCore: rotation, translation, homography, division_coeff, radial_rows,
         anchor_svd, scale_s2,
         sqrt_weights, center, FixedModels, ConsensusSet, FixedS2,
-        ManifoldLmWorkspace, FundMatManifold7, RadialHomography,
+        _ManifoldLmWorkspace, FundMatManifold7, RadialHomography,
         WelschShape
 
     @testset "EuclideanMap: rotation, translation" begin
@@ -52,8 +52,8 @@
         @test scale_s2(FixedS2(0.5)) == 0.5
     end
 
-    @testset "ManifoldLmWorkspace: buffers" begin
-        ws = ManifoldLmWorkspace(5, 6)
+    @testset "_ManifoldLmWorkspace: buffers" begin
+        ws = _ManifoldLmWorkspace(5, 6)
         @test length(sqrt_weights(ws)) == 5
         sqrt_weights(ws)[2] = 3.0
         @test sqrt_weights(ws)[2] == 3.0          # the buffer itself, not a copy

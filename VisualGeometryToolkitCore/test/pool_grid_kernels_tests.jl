@@ -1,12 +1,12 @@
 # The exact grid selection of a residual-quality family (robust/pool_grid_kernels.jl): select_on_grid! on the :pool
 # staging scores RANSAC and MSAC by exact_pm_score_kernel! and selects by argmax_models_kernel! (the kernels
-# RANSACScoringDoneRight's grid families run on a device), and selects what best_pool_model selects per pair.
+# RANSACScoringDoneRight's grid families run on a device), and selects what best_pool_model! selects per pair.
 
-@testitem "pool grid kernels: a residual-quality family selects through the exact kernels, as best_pool_model does" begin
+@testitem "pool grid kernels: a residual-quality family selects through the exact kernels, as best_pool_model! does" begin
     using Test
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore.Pools
-    using VisualGeometryToolkitCore: CorrespondenceNormalization, RansacScoring, MsacScoring, best_pool_model,
+    using VisualGeometryToolkitCore: CorrespondenceNormalization, RansacScoring, MsacScoring, best_pool_model!,
         select_on_grid!, selection_staging, stage_selection, has_residual_quality, support_sq_loss_width, sorted_squared_residuals,
         exact_pm_score_kernel!, argmax_models_kernel!, residual_quality, AbstractConstraintProblem
     import VisualGeometryToolkitCore as VgtkCore
@@ -63,12 +63,14 @@
     argmax_models_kernel!(KA.CPU())(errs, best, scores, Int32[9], Float64.(1:9), Int64[0], Int32(0); ndrange = (1, length(grid)))
     @test vec(best) == [argmax(scores[1, :, t]) for t in eachindex(grid)] && vec(errs) == Float64.(vec(best))
 
-    # select_on_grid! on the :pool staging: what best_pool_model selects at every width
+    # select_on_grid! on the :pool staging: what best_pool_model! selects at every width
     for sc in (RansacScoring(1; threshold = 1.0), MsacScoring(1; threshold = 1.0))
         @test selection_staging(sc) === :pool
         idxs = select_on_grid!(Matrix{Int32}(undef, length(pairs), length(grid)), _GKProblem, sc, grid,
                                stage_selection(:pool, pairs, Rs))
-        ref = [best_pool_model(VgtkCore.with_width(sc, VgtkCore.LossWidth(w)), p, R) for (p, R) in zip(pairs, Rs), w in grid]
+        ref = [(scw = VgtkCore.with_width(sc, VgtkCore.LossWidth(w));
+                best_pool_model!(VgtkCore.scoring_workspace(scw, VgtkCore.Pools.num_points(p), VgtkCore.codimension(scw)), scw, p, R))
+               for (p, R) in zip(pairs, Rs), w in grid]
         @test idxs == ref && all(idxs[end, :] .== 0) && all(idxs[6, :] .== 0) && count(>(0), idxs) == (length(pairs) - 2) * length(grid)
         # on a device (CUDA availability-gated): the same selections, each model's quality summed in the same order
         if VgtkCore.default_device() isa KA.GPU

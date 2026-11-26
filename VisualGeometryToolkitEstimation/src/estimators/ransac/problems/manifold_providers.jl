@@ -114,7 +114,7 @@ function lift_init(p::ManifoldLiftProvider{<:RadialHomographyProblem}, m::VgtkCo
     H = unit_normalize(SMatrix{3, 3, Float64, 9}(homography(m)))
     lift_refresh!(p, _radial_chart(H, 0.0, center(m)))
     rn = view(p.lws.rn, 1:p.n)
-    σ = VgtkCore._mad_scale_norms(; norms = rn, codimension = codimension(p.problem))   # the lift workspace holds only the norms
+    σ = solve(EstimationProblem(NoiseScale, rn, (; codimension = codimension(p.problem))), MedianNormScale()).u   # the norms' robust scale
     loss = deploy(TLSShape(), max(σ^2, floatmin(Float64)); efficiency_constant = _LIFT_SEED_EFFICIENCY_CONSTANT)
     c² = sq_loss_width(loss)
     return _radial_seed_chart(p.problem, m, [weight(TLSShape(), x^2, c²) for x in rn])
@@ -129,13 +129,13 @@ end
 
 The robustified chart LM: the loss the width mode deploys (`lo_loss`:
 `efficiency_constant·ŝ` at θ's Student-t scale), frozen, as VisualGeometryToolkitCore's
-`loss_robustifier`, and ONE `lmsolve_chart!` from `model` over every datum at
+`loss_robustifier`, and ONE chart LM (the slot's Triggs refine cache) from `model` over every datum at
 unit weight, on the chart-LM refit's own chart and state (`_chart`,
 `chart_rows`: the rows `refine!` descends) in its workspace (`L.refine`, the
 one reuse policy) at Core's LM stop settings (`LmStops`, `[lm]`). NLLSsolver's Triggs
 correction carries the loss; nothing is reweighted during the LM and no inlier set is
 formed (the loop's re-score decides the inliers). The model comes back through the
-chart's `recenter` and `chart_model`, as from `refine!` (Core's `triggs_refit`).
+chart's `recenter` and `chart_model`, as from `refine!`.
 
 The two weight rules of `Irls{K}`'s `locally_optimize!` fix the one LM's
 per-datum weights, 0 or 1 (unit weight on every row when neither excludes a
@@ -145,14 +145,30 @@ at its start and hand back the seed — and `Triggs{GaussianShape}` weighs only
 the scorer's consensus set `cs`. The weights are fixed at the seed for the whole
 LM (a datum an LM increment puts out of reach keeps its weight; the increment's cost is
 non-finite and it is rejected). A zero weight gives an exactly zero row
-whatever the problem's row is (Core's `chart_refit` zero-weight row rule).
+whatever the problem's row is (Core's refine's zero-weight row rule).
 """
 function locally_optimize!(L::LoBuffers, lo::Triggs, problem::MinimalSolveProblem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring)
     check_fresh(cs, buf)
     loss = lo_loss(lo, cs, scoring, buf)
     weights = _triggs_weights!(L.posterior_w, _lo_consensus(lo, cs, buf, scoring), buf.residuals, data_size(problem))
-    return triggs_refit(L.refine, strategy_loss(lo)(), problem, model, loss; weights)
+    # unit weight (no datum excluded) as ones on the same buffer: the cache holds one weights type (√1 = 1, bit for bit)
+    weights === nothing && (weights = fill!(view(L.posterior_w, 1:data_size(problem)), 1.0))
+    r = _triggs_solve!(L.refine, lo, problem, model, loss, weights)
+    r.u === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)   # a non-finite solve: the seed back
+    return lo_estimate(r.u, r.retcode, r.stop_rule; iterations = r.stats.nsteps)
 end
+
+# The robustified refit: the slot's Triggs cache re-pointed at the problem, the seed, the frozen loss and the weights;
+# a slot built for no Triggs strategy (a wrapper the workspace did not see through) refits one-shot.
+function _triggs_solve!(slot::RefitSlot{<:Any, R}, lo::Triggs{K}, problem, model, loss, weights) where {R, K}
+    (R === Nothing || !_slot_holds(slot, problem)) && return _triggs_one_shot(lo, problem, model, loss, weights)
+    c = _slot_robust!(slot, problem, lo)
+    return solve!(reinit!(c, model; f = problem, width = loss, weights))
+end
+_triggs_solve!(::Nothing, lo, problem, model, loss, weights) = _triggs_one_shot(lo, problem, model, loss, weights)
+_triggs_one_shot(::Triggs{K}, problem, model, loss, weights) where {K} =
+    solve(RefineProblem(problem, model), LevenbergMarquardt(; optimization_strategy = Triggs{K}()); width = loss, weights,
+          summary = nothing)
 
 # The Triggs LO's per-datum weights, 0 or 1 (`_weighs`: a finite seed residual,
 # inside the consensus set when one is given), in the buffer `w`; `nothing` — unit

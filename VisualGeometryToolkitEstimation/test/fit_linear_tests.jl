@@ -3,7 +3,7 @@
 # loop it was hoisted from, and the refusals (the robust-estimation contract).
 
 @testitem "linear model fit: exact, robust, prior weights" begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using Test, Random, LinearAlgebra, Statistics
     using VisualGeometryToolkitEstimation: ReweightedLeastSquares, LinearModel
     using VisualGeometryToolkitCore: Irls, ClassDefault, EstimationProblem, solve, successful_retcode, weights
@@ -21,7 +21,7 @@
         @test all(==(1.0), weights(r))                            # every residual inside the width
         r2 = linear_fit(A, A * x0; optimization_strategy = nothing)
         @test r2.u ≈ x0 rtol = 1.0e-12
-        @test retcode_symbol(r2) === :solved
+        @test (r2.retcode, r2.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
     end
     @testset "20% gross outliers: at the inliers' noise floor" begin
         y = A * x0 .+ 1.0e-3 .* randn(rng, m)
@@ -68,10 +68,10 @@
         @test_throws DimensionMismatch linear_fit(A, ones(m - 1); scale = 1.0)
         @test_throws DimensionMismatch linear_fit(A, ones(m), ones(3); scale = 1.0)
         @test_throws ArgumentError linear_fit(A, A * x0; optimization_strategy = Irls{TLSShape}(), scale = 1.0)
-        @test retcode_symbol(linear_fit(A, A * x0; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = 1.0e-3)) === :converged
-        @test retcode_symbol(linear_fit(A, A * x0; optimization_strategy = Irls{TLSShape}(), width = 3.0e-3)) === :converged
+        @test (let r = linear_fit(A, A * x0; optimization_strategy = Irls{TLSShape}(efficiency_constant = 3.0), scale = 1.0e-3); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
+        @test (let r = linear_fit(A, A * x0; optimization_strategy = Irls{TLSShape}(), width = 3.0e-3); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         p = zeros(m); p[1:3] .= 1
-        @test retcode_symbol(linear_fit(A, A * x0, p; scale = 1.0)) === :degenerate
+        @test (let r = linear_fit(A, A * x0, p; scale = 1.0); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule)
         @test_throws ArgumentError linear_fit(A, A * x0, fill(-1.0, m); scale = 1.0)
     end
 end

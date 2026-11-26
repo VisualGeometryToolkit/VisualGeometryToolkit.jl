@@ -3,17 +3,18 @@
 # placeholder a forgotten `converged` test would read as a model.
 
 @testitem "ransac: no model" setup = [ConicScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof
     using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
     using VisualGeometryToolkitEstimation: Ransac, HomographyProblem, FundMatProblem, EllipseProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask, noise_scale, scale_source, ScaleNone, ReturnCode
     using Test, Random, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle, Ellipse, MsacScoring, correspondences
     using VisualGeometryToolkitEstimation: CircleProblem, LineFittingProblem, RansacEstimate
 
     function no_model(r)
-        @test retcode_symbol(r) === :no_model
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
         @test r.u === nothing
         @test !successful_retcode(r)
         @test !any(inlier_mask(r))
@@ -22,7 +23,7 @@
         @test scale_source(r) == ScaleNone
         @test_throws ArgumentError noise_scale(r)
         @test dof(r) == 0
-        @test retcode_symbol(r.metadata.lo_retcode, r.metadata.lo_stop_rule) === :not_run && r.metadata.lo_retcode == ReturnCode.Default
+        @test (r.metadata.lo_retcode, r.metadata.lo_stop_rule) === (VgtkCore.ReturnCode.Default, VgtkCore.NoRule) && r.metadata.lo_retcode == ReturnCode.Default
         return r
     end
 
@@ -62,7 +63,7 @@ end
 @testitem "ransac: no model through the metre and frame re-wrappers" begin
     using VisualGeometryToolkitCore: solve, EstimationProblem, successful_retcode
     using VisualGeometryToolkitEstimation: Ransac, AbsolutePoseProblem, HandEyeProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask
     using Test, Random, StaticArrays
     using Rotations: RotMatrix, RotX, RotZ
@@ -72,7 +73,7 @@ end
     
 
     function no_model(r)
-        @test retcode_symbol(r) === :no_model
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
         @test r.u === nothing
         @test !successful_retcode(r)
         @test !any(inlier_mask(r))
@@ -104,7 +105,7 @@ end
 @testitem "ransac: too few points is the no-model result" setup = [TooFewData] begin
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, successful_retcode, RefineMetadata
     using VisualGeometryToolkitEstimation: Ransac, HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, BearingPoseProblem, RadialHomographyProblem, RadialCameraProblem, RotationProblem, EllipseProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask, scale_source, ScaleNone
     using Test, Random, StaticArrays, LinearAlgebra
     using Rotations: RotMatrix
@@ -115,7 +116,7 @@ end
     # a refine_* on too few data: the guess back unrefined, its result type a refine's (the refine contract)
     function too_few_refine(r, guess, n)
         @test r isa VgtkCore.FitResult{<:Any, <:RefineMetadata}
-        @test retcode_symbol(r) === :degenerate && r.stats.nsteps == 0 && r.n == 0 && isnan(r.rms)
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && r.stats.nsteps == 0 && r.n == 0 && isnan(r.rms)
         θ = r.u
         @test guess isa VgtkCore.EuclideanMap ?
             (VgtkCore.rotation(θ) == VgtkCore.rotation(guess) && VgtkCore.translation(θ) == VgtkCore.translation(guess)) : θ == guess
@@ -124,7 +125,7 @@ end
     end
     function too_few(r, n)
         @test r isa RansacEstimate
-        @test retcode_symbol(r) === :no_model
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
         @test r.stats.nsteps == 0
         @test r.u === nothing
         @test !successful_retcode(r)

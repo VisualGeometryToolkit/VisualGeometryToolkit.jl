@@ -1,3 +1,4 @@
+# R22: contract test — the bundle run's block contract (`block_variables`) and its NLLSsolver cost rows
 @testitem "relpose_bundle" setup = [PoseScenes, EpipolarScenes] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -96,9 +97,9 @@ end
     fast = run(); slow = run(; schur = false)
     # With #60 loaded `fast` is the Schur system; without it both runs take the
     # sparse LDL and agree trivially — the comparison holds either way.
-    @test VisualGeometryToolkitCore.retcode_symbol(fast.sol.code, fast.sol.rule) === :converged && VisualGeometryToolkitCore.retcode_symbol(slow.sol.code, slow.sol.rule) === :converged
+    @test (fast.sol.retcode, fast.sol.stop_rule) === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.IncrementSize) && (slow.sol.retcode, slow.sol.stop_rule) === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.IncrementSize)
     @test maximum(abs, fast.R - slow.R) < 1.0e-9 && maximum(abs, fast.t - slow.t) < 1.0e-9
-    @test isapprox(fast.sol.cost, slow.sol.cost; rtol = 1.0e-10)
+    @test isapprox(fast.sol.metadata.cost, slow.sol.metadata.cost; rtol = 1.0e-10)
 end
 
 # A NaN wall for the bundle rows: camera 2's K, applied to a camera-2 point Y,
@@ -119,12 +120,12 @@ mutable struct _WallData{T1, T2, TS}
     sqrtw::TS
 end
 
-# NLLSsolver's per-iteration callback, recording ‖f‖² after every iteration:
+# The refine's per-iteration callback, recording ‖f‖² after every iteration:
 # the cost trajectory of a production run.
 struct _CostLog
     F::Vector{Float64}
 end
-(cb::_CostLog)(cost, problem, data, iteratedata) = (push!(cb.F, 2cost); (cost, 0))
+(cb::_CostLog)(state) = (push!(cb.F, 2 * state.cost); false)   # Core's refine callback: each iteration's state
 
 # `_refine_relative_pose`'s run (unit weights), with the cost trajectory:
 # (R, t, F, retcode, iterations, the first iteration within 1e-6 of the final
@@ -138,9 +139,9 @@ function _recorded_bundle(seed, u1, u2)
         R0, t0, KP1, KP2, _inv3(KP1), _inv3(KP2), u1, u2, ones(N);
         callback = log
     )
-    F = out.sol.cost
+    F = out.sol.metadata.cost
     k1e6 = findfirst(Fk -> abs(Fk - F) <= 1.0e-6 * F, log.F)   # log.F[k]: after iteration k
-    return out.R, out.t, F, (out.sol.code, out.sol.rule), out.sol.iterations, k1e6
+    return out.R, out.t, F, (out.sol.retcode, out.sol.stop_rule), out.sol.stats.nsteps, k1e6
 end
 
 @testset "RelposeBundle: the 5-dof chart reaches the 6-dof chart's optimum" begin
@@ -199,7 +200,7 @@ end
         @test abs(F - b.F) <= 1.0e-12 * b.F
         # converged at exit: the cost-tolerance stop (Core 0.11.0's success rule: a
         # tolerance stop is converged)
-        @test VisualGeometryToolkitCore.retcode_symbol(retcode...) === :converged
+        @test retcode === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.CostDecrease)
         iterations_to_stop[N] = (iters, k1e6)
     end
     # The run stops when the cost has converged: within 1e-6 of its final value
@@ -237,20 +238,6 @@ end
     @test maximum(counts) - minimum(counts) <= 4     # flat in N
 end
 
-# The bundle runs a task keeps: the kept problems found in its task-local
-# storage, however they are stored (a slot holding one, or a Dict of them).
-function _kept_bundle_runs()
-    runs = Any[]
-    for v in values(task_local_storage()), x in (v isa AbstractDict ? values(v) : (v,))
-        if x isa VisualGeometryToolkitEstimation._BundleRun
-            push!(runs, x)
-        elseif hasproperty(x, :run) && getproperty(x, :run) isa VisualGeometryToolkitEstimation._BundleRun
-            push!(runs, getproperty(x, :run))
-        end
-    end
-    return runs
-end
-
 @testset "RelposeBundle: one kept problem per task, whatever the sizes, holding no caller array" begin
     # An eval sweep calls the bundle with a different N per pair: the task
     # keeps ONE problem (the last size's), not one per size, and the run owns
@@ -260,9 +247,9 @@ end
             R0, t0, u1, u2 = harness_scene(N)
             cs = correspondences(u1, u2)
             @test relative_pose(rigid(R0, t0), KP1, KP2, cs) !== nothing
-            runs = _kept_bundle_runs()
+            runs = VgtkCore.task_kept_blocks(RelativePoseProblem)   # Core's kept one-shot block refines of the task
             @test length(runs) == 1
-            d = only(runs).data
+            d = first(only(runs)).data
             @test d.u1 !== VgtkCore.sources(cs) && d.u2 !== VgtkCore.targets(cs) && d.u1 !== u1 && d.u2 !== u2
         end
     end)
@@ -278,24 +265,20 @@ end
     t0 = normalize(SVector{3, Float64}(t0))
     iK1 = _inv3(KC1); iK2 = _inv3(KC2)
     sw = ones(N)
-    extent(p, s) = (pose = p.variables[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * p.variables[i + 1].value + pose.t)[1], 1:N))
+    extent(vars, s) = (pose = vars[1]; maximum(i -> s * (SMatrix{3, 3}(pose.R) * vars[i + 1].value + pose.t)[1], 1:N))
     function wall_fit(E, wall, s)
         data = _WallData(SMatrix{3, 3, Float64, 9}(KC1), _WallK(SMatrix{3, 3, Float64, 9}(KC2), wall, s), u1, u2, sw)
         run = VisualGeometryToolkitEstimation._BundleRun{E}(N, data)
-        p = run.lm
-        p.variables[1] = EssentialManifold5(SMatrix{3, 3, Float64, 9}(R0), t0)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
-        for i in 1:N
-            X = _triangulate_rays(iK1, iK2, u1[i], u2[i], R0, t0)
-            p.variables[i + 1] = _BundlePoint{E}(SVector{3, Float64}(X[1], X[2], X[3]))
-        end
-        e0 = (extent(p, 1.0), extent(p, -1.0))
-        res = VgtkCore.lmsolve_chart!(p, VgtkCore.LmStops(; max_iter = 200, ftol = 1.0e-15))
+        seed = (SMatrix{3, 3, Float64, 9}(R0), Vec3{Float64}(t0), iK1, iK2)   # the pose, the points triangulated at it
+        vars0 = VisualGeometryToolkitEstimation.block_variables(VisualGeometryToolkitEstimation._RelposeRun{E, typeof(data)}(data), seed)
+        e0 = (extent(vars0, 1.0), extent(vars0, -1.0))
+        res = VgtkCore.solve!(VgtkCore.reinit!(run.cache, seed; stops = VgtkCore.LmStops(; max_iter = 200, ftol = 1.0e-15)))
         # the guard itself: a block past the wall costs +Inf, not NaN
-        pose = p.variables[1]
+        pose = res.u[1]
         bad = _BundlePoint{E}(SVector(s * (wall + 1.0), 0.0, 5.0))
         rows = _BundleRows{E, typeof(data)}(data, 1, SVector(1, 2))
         @test NLLSsolver.computecost(Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}[EssentialManifold5(SMatrix{3, 3, Float64, 9}(I), SVector(0.0, 0.0, 1.0)), bad], rows) == Inf
-        return res, e0, (extent(p, 1.0), extent(p, -1.0))
+        return res, e0, (extent(res.u, 1.0), extent(res.u, -1.0))
     end
     # the free fit (no wall): which side of camera 2 its optimum moves out on
     free, e0, e1 = wall_fit(true, Inf, 1.0)
@@ -305,9 +288,9 @@ end
     wall = (e0[k] + e1[k]) / 2                 # crossed by the free optimum, not by the seed
     for E in (true, false)
         res, _, e = wall_fit(E, wall, s)
-        @test isfinite(res.cost)
+        @test isfinite(res.metadata.cost)
         @test e[k] <= wall                     # stopped at the wall
-        @test res.cost > free.cost             # short of the free optimum
+        @test res.metadata.cost > free.metadata.cost             # short of the free optimum
     end
 end
 

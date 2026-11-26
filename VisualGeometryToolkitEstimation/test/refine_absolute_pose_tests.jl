@@ -55,9 +55,10 @@ end
 end
 
 @testitem "the AbsolutePoseProblem refine: frames, units, too few" setup = [PixelPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: solve, RefineProblem, LevenbergMarquardt
     using VisualGeometryToolkitEstimation: AbsolutePoseProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, GaussianShape, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip, MsacScoring
     
@@ -77,7 +78,7 @@ end
     res = solve(RefineProblem(AbsolutePoseProblem(cam, [X .* m => u for (X, u) in cs]), Ep), LevenbergMarquardt(; ls...))
     @test maximum(abs, ustrip(m, res.u).t - E.t) < 1.0e-9
     @test let r = solve(RefineProblem(AbsolutePoseProblem(cam, cs[1:2]), E), LevenbergMarquardt(; ls...))
-        retcode_symbol(r) === :degenerate && r.stats.nsteps == 0 && r.u.R == E.R
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && r.stats.nsteps == 0 && r.u.R == E.R
     end
 end
 
@@ -209,9 +210,10 @@ end
 end
 
 @testitem "the AbsolutePoseProblem refine bearings: refusals, frames and units" setup = [PixelPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: solve, RefineProblem, LevenbergMarquardt
     using VisualGeometryToolkitEstimation: BearingPoseProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using VisualGeometryToolkitCore: Correspondences, withattrs, EuclideanMap, relabel, unlabel, WorldFrame, CameraFrame, m, ustrip
@@ -225,7 +227,7 @@ end
     Mbad = [hcat(normalize(SVector(1.0, 0.0, 0.0) - f[1] * f) + f, normalize(SVector(0.0, 1.0, 0.0) - f[2] * f)) for f in fs]
     @test_throws ArgumentError solve(RefineProblem(BearingPoseProblem(withattrs(Correspondences(Xs, fs); M = Mbad)), E), LevenbergMarquardt(; optimization_strategy = nothing))
     @test let r = solve(RefineProblem(BearingPoseProblem(Correspondences(Xs[1:2], fs[1:2])), E), LevenbergMarquardt(; optimization_strategy = nothing))
-        retcode_symbol(r) === :degenerate && r.stats.nsteps == 0 && r.u.R == E.R
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && r.stats.nsteps == 0 && r.u.R == E.R
     end
     # the guess's frames come back (frames.md rule 1); an unlabeled guess comes back unlabeled
     El = relabel(WorldFrame, CameraFrame, perturbed(E))

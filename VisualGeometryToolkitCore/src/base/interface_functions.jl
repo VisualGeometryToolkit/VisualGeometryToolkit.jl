@@ -26,7 +26,7 @@
 # every input that is not mutated (`zeros(Float32, n)`, `relabel(Src, Dst, m)`,
 # `undistort!(dst, T, model, src)`):
 #   undistort!(dst, model, src)    image_warp!(dst, bm, src)
-#   rand!(rng, A)                  block_coordinate_descent!(state, likelihood, method, prob, θ₀)
+#   rand!(rng, A)                  update_model!(state, method, prob, θ)
 #
 # A method added to a function VGC does not own keeps its owner's order
 # (`p ∈ ellipse`: Base's `in(item, collection)`). A symmetric relation takes

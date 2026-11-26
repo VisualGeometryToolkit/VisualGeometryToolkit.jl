@@ -2,7 +2,7 @@
     using VisualGeometryToolkitCore: weights, noise_scale, scale_source
     using VisualGeometryToolkitCore: solve, EstimationProblem
     using VisualGeometryToolkitEstimation: Ransac, HomographyProblem
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask
 # The units layering at the public estimators (VGC conventions/units.md): a
 # physical input (lengths) is stripped in metres once at entry, the inner loop
@@ -88,7 +88,7 @@ same_diagnostics(a, b) = a.retcode === b.retcode && a.stats.nsteps == b.stats.ns
     @test_throws MethodError solve(EstimationProblem(AbsolutePoseProblem(cam, X .=> u), (; extent = ext_m)), Ransac())
     # fewer than a minimal sample: nothing, either form
     @test let r = solve(EstimationProblem(AbsolutePoseProblem(cam, [x .* m for x in X[1:2]] .=> u[1:2])), Ransac())
-        retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
     end
     # the problem strips physical points in metres once, at construction: the same problem as the plain metres'
     @test AbsolutePoseProblem(cam, [x .* m for x in X] .=> u).cs == AbsolutePoseProblem(cam, X .=> u).cs
@@ -198,6 +198,6 @@ end
     seed = rigid(RotMatrix(RotXYZ(0.01, 0.02, 0.0)), SVector(1.0, 0.0, 0.0))
     K = SMatrix{3, 3, Float64}(500, 0, 0, 0, 500, 0, 320, 240, 1)
     cs = [SVector(100.0 + i, 100.0 + 2i) => SVector(110.0 + i, 100.0 + 2i) for i in 1:10]
-    @test_throws MethodError solve(VgtkCore.RefineProblem(RelativePoseProblem(K, K, cs), phys(seed)), VgtkCore.LevenbergMarquardt())
+    @test_throws r"records no unit" solve(VgtkCore.RefineProblem(RelativePoseProblem(K, K, cs), phys(seed)), VgtkCore.LevenbergMarquardt())
 end
 end

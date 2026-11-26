@@ -1,3 +1,4 @@
+# R22: contract test — the radial camera's lift protocol and refit step (`rows_provider`, `lift_*`, `refine!`)
 @testitem "radial_camera" setup = [DivisionBoards, Contamination] begin
     using VisualGeometryToolkitCore: EstimationProblem, solve
     using VisualGeometryToolkitCore: inlier_mask
@@ -72,7 +73,7 @@ _pd(a::RadialCamera, b::RadialCamera) = projective_distance(radial_rows(a), radi
     r2 = zeros(length(pairs2)); mahalanobis_distances!(r2, RadialCameraProblem(pairs2; center = _CC), est2.u)
     @test median(abs.(r2[gt2])) < 0.5
     @test let r = solve(EstimationProblem(RadialCameraProblem(pairs[1:4]; center = _CC)), Ransac(); rng = StableRNG(446))
-        VgtkCore.retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+        (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
     end
 end
 

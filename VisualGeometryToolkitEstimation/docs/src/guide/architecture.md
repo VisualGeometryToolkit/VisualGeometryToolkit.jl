@@ -1,19 +1,22 @@
 # Architecture
 
+<!-- R22: contract guide -->
+
 ## Type Hierarchy
 
 ### Block Coordinate Descent
 
 ```
-AbstractBlockCoordinateMethod (VGC)          model block of block_coordinate_descent!
+AbstractBlockCoordinateMethod (VGC)          model block of BlockCoordinateDescent
 ├── PosteriorIrlsMethod                      weighted-refit IRLS (Irls{K}, ResidualMixture, …)
 └── (LocalOptimizationDoneRight)             joint-(θ,z) loss lifts (HQ{K}) and GNC (Gnc{S})
 
-AbstractWeightPolicy (VGC)                   nuisance + weight updates driven by block_coordinate_descent!
+AbstractWeightPolicy (VGC)                   nuisance + weight updates driven by BlockCoordinateDescent
 └── PosteriorLikelihood                      Student-t + uniform mixture (one of several policies)
 ```
 
-The generic `block_coordinate_descent!` loop (VisualGeometryToolkitCore `robust/block_coordinate_descent.jl`)
+The generic block-coordinate-descent loop, VisualGeometryToolkitCore's
+`BlockCoordinateDescent(method; likelihood)` algorithm (`robust/block_coordinate_descent.jl`),
 dispatches on an `AbstractBlockCoordinateMethod` and a weight policy
 (`AbstractWeightPolicy`). `PosteriorIrlsMethod` is the weighted-refit plug-in:
 paired with `PosteriorLikelihood` and VisualGeometryToolkitCore's
@@ -113,7 +116,11 @@ the result); this package adds `__init` for its [`Ransac`](@ref) and
 the data and their construction context, and implement VisualGeometryToolkitCore's
 chart contract (`model_chart`, `chart_rows`, `chart_model`, `chart_size`,
 `default_optimization_strategy`), so Core's one host `LevenbergMarquardt`
-refines them; the bundles implement its block contract (`block_refit`). A
+refines them; the bundles implement its block contract (`block_variables` and
+`residual_blocks`, or `block_structure` — the camera-poses and robot-world
+bundles, each stated once per solve —, `fixed_variables`, `residual_summary`,
+`block_result`, `with_robustifier`), from which Core builds and solves the
+multi-block LM. A
 problem's class (`[pipelines.<class>]`, `[refine.<class>]`) names its
 configuration of record.
 
@@ -169,9 +176,13 @@ Downstream packages (e.g., BlobBoards) implement their own methods by
 extending a small set
 of `public`-declared interface methods: `init_state!`, `update_model!`,
 `update_residuals!`, `update_nuisance!`, `update_weights!`, `post_iteration!`,
-`stopping_criterion` (with `stop_reason` for a new criterion), `block_coordinate_result`. The loop `block_coordinate_descent!(state, likelihood,
-method, problem, θ₀)` dispatches on the method and calls through these hooks
-generically. (There is no trust-region hook: each model update carries its
+`stopping_criterion` (with `stop_reason` for a new criterion, returning a
+`(ReturnCode.T, StopRule)` termination record, `CONTINUE` while the run goes on),
+`block_coordinate_result(state, method, problem, θ, code, final_iter, rule)`. The
+loop runs as `solve(RefineProblem(problem, θ₀), BlockCoordinateDescent(method;
+likelihood); stops = StopAfterIteration(max_iter))` (a seeded state is the
+problem's context, and the loop runs on it without `init_state!`); it dispatches
+on the method and calls through these hooks generically. (There is no trust-region hook: each model update carries its
 own damping.)
 
 ### Workspace buffers
@@ -184,16 +195,17 @@ minimal chart anchored at `θ`:
 
 - `HomographyProblem`: 8-dof sl(3) chart, whitened transfer residual with
   the Sampson shape `Σ̃_{gᵢ}` computed from the current `θ` and frozen for
-  the solve; VisualGeometryToolkitCore's chart LM, NLLSsolver through `lmsolve_chart!` (workspace:
-  `ManifoldLmWorkspace{8}`, `refit_workspace(P, n)`, held in the local
-  optimizer's workspace).
+  the solve; VisualGeometryToolkitCore's chart LM, the summary-free refine
+  `init(RefineProblem(p, zero(M)), LevenbergMarquardt(; optimization_strategy =
+  nothing); weights, summary = nothing)` held in the problem's `RefitSlot`
+  (`refit_workspace(problem)`, in the local optimizer's workspace), each refit
+  `solve!(reinit!(c, θ; f = p, weights = w)).u`.
 - `FundMatProblem`: 7-dof Bartoli–Sturm chart, signed Sampson residual; the
-  same core (workspace: `ManifoldLmWorkspace{7}`).
+  same core.
 - `AbsolutePoseProblem`: 6-dof left-perturbation chart (VGC `LeftRigidManifold6`),
-  reprojection residual; the same core (workspace: `ManifoldLmWorkspace{6}`).
+  reprojection residual; the same core.
 - `HandEyeProblem`: 6-dof decoupled chart (VGC `RigidExpManifold6`, the chart
-  of its constraint and covariance); the same core with a ForwardDiff Jacobian
-  (workspace: `ManifoldLmWorkspace{6}`). Each hand-eye hypothesis is Tsai–Lenz
+  of its constraint and covariance); the same core with a ForwardDiff Jacobian. Each hand-eye hypothesis is Tsai–Lenz
   fitted on its two motions (`sample_hypothesis`).
 
 The posterior-weight buffers (`posterior_w`, `posterior_inlier`,
@@ -206,7 +218,7 @@ hypothesis.
 VisualGeometryToolkitEstimation imports geometry types, minimal solvers, the robust-loss
 shapes (the `AbstractLossShape` family: `WelschShape`, `GemanMcclureShape`,
 `CauchyShape`, `SmoothTLSShape`, `TLSShape`, `HuberShape`, `GaussianShape`,
-`BarronShape`) and the generic block-coordinate-descent loop (`block_coordinate_descent!`,
+`BarronShape`) and the generic block-coordinate-descent loop (`BlockCoordinateDescent`,
 `robust/block_coordinate_descent.jl`) from VGC. It extends VGC's `test_model`,
 `test_sample`, `test_consensus`, `constraint_with_jacobians`, the estimation
 interface's `__init` (for its own algorithms), the refine's chart contract and

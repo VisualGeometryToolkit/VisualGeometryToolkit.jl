@@ -1,3 +1,4 @@
+# R22: contract test — the hand-eye refit step (`refine!`) against its constraint Jacobian
 @testitem "hand_eye_jacobian" setup = [PoseScenes] begin
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation

@@ -17,7 +17,7 @@
 module PoseLibEstimationExt
 
 using StaticArrays: SMatrix
-using VisualGeometryToolkitCore: BackendRefit, EssentialMat, FundMat, HomographyMat, LevenbergMarquardt,
+using VisualGeometryToolkitCore: BackendRefit, EssentialMat, FitResult, FundMat, HomographyMat, LevenbergMarquardt,
     LossWidth, NullParameters, PoseLibSolver, RefineProblem, cheiral_pose_fast, loss_width, solve
 import VisualGeometryToolkitCore: external_workspace, external_refit!, lm_backend_refine
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem
@@ -42,8 +42,9 @@ external_workspace(::_PoseLibRefit, ::EssentialProblem, frame, _scoring) =
 
 function external_refit!(ws, lo::_PoseLibRefit, problem::EssentialProblem, seed_E, w::LossWidth, _scoring)
     pose = cheiral_pose_fast(seed_E, problem.cs; vote_points = lo.cheirality_vote_points)
-    u = solve(RefineProblem(ws.cs, pose, (; K1 = ws.Kc1, K2 = ws.Kc2)), lo.alg; stops = lo.stops, width = loss_width(w)).u
-    return EssentialMat(u.R, u.t)
+    r = solve(RefineProblem(ws.cs, pose, (; K1 = ws.Kc1, K2 = ws.Kc2)), lo.alg; stops = lo.stops, width = loss_width(w))
+    # the refit's record (Core's external-refit contract: a FitResult), its model the refined pose's essential
+    return FitResult(EssentialMat(r.u.R, r.u.t), r.retcode, r.stop_rule, r.stats, r.rms, r.n, r.metadata; original = r.original)
 end
 
 end # module PoseLibEstimationExt

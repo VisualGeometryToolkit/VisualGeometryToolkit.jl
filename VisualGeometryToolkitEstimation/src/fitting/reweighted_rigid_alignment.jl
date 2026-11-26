@@ -55,8 +55,8 @@ centroids) — iterating, when robust, a reweighted Kabsch at ONE loss width.
 
 At least three pairs of positive weight are needed, not all on one line
 (`ArgumentError`; a robust iteration whose weights leave fewer returns
-`:degenerate`). `retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least
-squares) or `:degenerate`; `n` is the support (pairs of positive solve
+`(InitialFailure, NoRule)`). The record (`retcode`, `stop_rule`) is `(Success, IncrementSize)` (converged),
+`(MaxIters, IterationCap)`, `(Success, ClosedForm)` (least squares) or `(InitialFailure, NoRule)`; `n` is the support (pairs of positive solve
 weight), `rms` the weight-weighted root mean square distance — the ATE of the
 pairs the weighting keeps. Physical points (lengths) are read in metres and
 the transform comes back physical; the metadata are then in metres.

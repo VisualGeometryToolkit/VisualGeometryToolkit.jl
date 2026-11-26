@@ -3,7 +3,7 @@
 # =============================================================================
 
 """
-    grid_brent_minimum(f, xs::AbstractRange; periodic = false) -> (; x, value, at_end)
+    _grid_brent_minimum(f, xs::AbstractRange; periodic = false) -> (; x, value, at_end)
 
 The minimum of `f` over the evenly spaced grid `xs` (evaluated in its order), the least
 value refined by Brent's method (golden-section steps with parabolic interpolation;
@@ -15,9 +15,9 @@ at an end of the grid is refined on its one neighbouring interval, and `at_end` 
 the result lies at that end: Brent's final bracket still has the end as its edge (every
 evaluation descended towards it). A value of `Inf` or `NaN` is never the minimum. The
 stack's one 1-D minimizer: Core's azimuthal minimum (the view-angle limit, the
-inscribed radius) and Estimation's GCV weight search (`gcv_select`).
+inscribed radius) and Estimation's GCV weight search (`GeneralizedCrossValidation`).
 """
-function grid_brent_minimum(f, xs::AbstractRange; periodic::Bool = false)
+function _grid_brent_minimum(f, xs::AbstractRange; periodic::Bool = false)
     vs = map(f, xs)
     k = argmin(map(v -> isnan(v) ? oftype(v, Inf) : v, vs))
     h = float(abs(step(xs)))
@@ -110,7 +110,7 @@ BracketedMinimizationProblem(f, xs::AbstractRange; periodic::Bool = false) = Bra
 @doc (@doc BracketedMinimizationProblem) struct GridBrent <: AbstractEstimationAlgorithm end
 estimator_kind(::GridBrent) = FitKind()
 function __solve(prob::BracketedMinimizationProblem, ::GridBrent)
-    m = grid_brent_minimum(prob.f, prob.xs; periodic = prob.periodic)
+    m = _grid_brent_minimum(prob.f, prob.xs; periodic = prob.periodic)
     return FitResult(m.x, ReturnCode.Success, ToleranceMet, SolveStats(), NaN, 0, (; m.value, m.at_end))
 end
 

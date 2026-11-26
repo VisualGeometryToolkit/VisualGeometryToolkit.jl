@@ -13,7 +13,7 @@
 #
 # The likelihood model (nuisance + weight blocks) is separated from the
 # problem method (model block). The `likelihood` argument to
-# `block_coordinate_descent!` controls how squared residuals are converted to
+# `BlockCoordinateDescent` controls how squared residuals are converted to
 # weights. RVG's `Irls{K}` is one LO STRATEGY that runs under this loop; the
 # loop itself is not "IRLS".
 # =============================================================================
@@ -21,7 +21,7 @@
 """
     AbstractBlockCoordinateMethod
 
-Abstract type for the problem side of [`block_coordinate_descent!`](@ref): the
+Abstract type for the problem side of [`BlockCoordinateDescent`](@ref): the
 model block, its residuals, and the per-iteration bookkeeping.
 
 Each concrete subtype defines extension points:
@@ -31,13 +31,14 @@ Each concrete subtype defines extension points:
   buffers, which the iterations then read); the method is the mutated argument
 - `update_model!(state, method, prob, θ)` — the model block: one weighted
   update of θ (weighted least squares, LM, Newton), or θ unchanged; `nothing`
-  when there is no update to make (the run stops with `:solve_failed`)
+  when there is no update to make (the run stops with `(Failure, NonFinite)`)
 - `update_residuals!(state, method, prob, θ)` — compute residuals + sq_distances from θ
 - `post_iteration!(state, method, prob, θ, iter)` — per-iteration bookkeeping
   (best-tracking, counters the stopping criteria read)
 - [`stopping_criterion`](@ref)`(method)` — the method's own
   [`StoppingCriterion`](@ref) (default [`StopNever`](@ref))
-- `block_coordinate_result(state, method, prob, θ, stop_reason, final_iter, stop_rule)` — package result
+- `block_coordinate_result(state, method, prob, θ, code, final_iter, rule)` — package result, from the run's
+  termination record `(code::ReturnCode.T, rule::StopRule)`
 """
 abstract type AbstractBlockCoordinateMethod end
 
@@ -46,7 +47,7 @@ abstract type AbstractBlockCoordinateMethod end
 """
     init_state!(method::AbstractBlockCoordinateMethod, prob, θ₀) -> state
 
-Build the solver state of [`block_coordinate_descent!`](@ref) and compute the
+Build the solver state of [`BlockCoordinateDescent`](@ref) and compute the
 initial residuals, scale and weights at `θ₀`. A method may fill buffers its own
 workspace holds, hence the `!`. An extension point: the method's package adds
 the method.
@@ -57,33 +58,33 @@ init_state!(method::AbstractBlockCoordinateMethod, _prob, _θ₀) =
 """
     update_model!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> θ′ | nothing
 
-The model block of [`block_coordinate_descent!`](@ref): one weighted update of
+The model block of [`BlockCoordinateDescent`](@ref): one weighted update of
 `θ` at fixed weights and nuisance (a weighted least-squares solve, an LM step,
 Newton), or `θ` unchanged. `nothing` means there is no update to make, and the
-run stops with `:solve_failed`. A fit `fit_<fit>`'s method calls its
+run stops with `(Failure, NonFinite)`. A fit `fit_<fit>`'s method calls its
 `<fit>_step` here.
 """
 function update_model! end
 """
     update_residuals!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> state
 
-The residual block of [`block_coordinate_descent!`](@ref): writes the residuals
+The residual block of [`BlockCoordinateDescent`](@ref): writes the residuals
 and squared residuals of `θ` into the state, and nothing else.
 """
 function update_residuals! end
 """
-    block_coordinate_result(state, method::AbstractBlockCoordinateMethod, prob, θ, stop_reason, final_iter, stop_rule)
+    block_coordinate_result(state, method::AbstractBlockCoordinateMethod, prob, θ, code::ReturnCode.T, final_iter, rule::StopRule)
 
-Package the run of [`block_coordinate_descent!`](@ref) as the method's result
+Package the run of [`BlockCoordinateDescent`](@ref) as the method's result
 (a [`FitResult`](@ref) for the stack's fits), from the final state, model,
-[`stop_reason`](@ref) and iteration count.
+termination record `(code, rule)` (the [`stop_reason`](@ref) of the criterion that fired) and iteration count.
 """
 function block_coordinate_result end
 
 """
     post_iteration!(state, method::AbstractBlockCoordinateMethod, prob, θ, iter) -> nothing
 
-Per-iteration bookkeeping of [`block_coordinate_descent!`](@ref), after the
+Per-iteration bookkeeping of [`BlockCoordinateDescent`](@ref), after the
 weight block: best-model tracking and the counters a
 [`StoppingCriterion`](@ref) reads. The default does nothing.
 """
@@ -101,16 +102,17 @@ post_iteration!(state, ::AbstractBlockCoordinateMethod, prob, θ, iter) = nothin
 """
     StoppingCriterion
 
-When a [`block_coordinate_descent!`](@ref) run ends, and why. A criterion is an
+When a [`BlockCoordinateDescent`](@ref) run ends, and why. A criterion is an
 immutable, concretely typed value; it answers through
 [`stop_reason`](@ref)`(criterion, state, method, prob, θ, θ_old, iter)`, which
-returns `:continue` or the reason the run ends (`:converged`,
-`:max_iterations`, `:solve_failed`, or any instance's own Symbol such as
-`:left_basin`). Nothing is stored in the criterion: the counters a criterion
-reads live in the solver state, written by `post_iteration!`.
+returns the termination record the run ends with, `(code::ReturnCode.T, rule::StopRule)` — `(Success, rule)` a
+convergence, `(MaxIters, IterationCap)` the budget, `(Failure, NonFinite)` a failed model block, `(Terminated,
+LeftBasin)` an instance's own — or [`CONTINUE`](@ref) `= (ReturnCode.Default, NoRule)` while the run goes on.
+Nothing is stored in the criterion: the counters a criterion reads live in the solver state, written by
+`post_iteration!`.
 
 Criteria compose with `|` into a [`StopWhenAny`](@ref), evaluated left to right;
-the first reason other than `:continue` wins. The tuple is part of the type, so
+the first record other than `CONTINUE` wins. The tuple is part of the type, so
 the composed check compiles to the chain of branches it stands for.
 
 The Manopt.jl correspondence: Manopt's criteria are mutable functors that
@@ -119,38 +121,47 @@ store their reason; these are pure, and the reason is the return value.
 abstract type StoppingCriterion end
 
 """
-    stop_reason(criterion, state, method, prob, θ, θ_old, iter) -> Symbol
+    stop_reason(criterion, state, method, prob, θ, θ_old, iter) -> (ReturnCode.T, StopRule)
 
-`:continue`, or the reason the run ends after iteration `iter`, which moved
-`θ_old` to `θ` (`θ` is `nothing` when the model block failed). Pure: it reads
-the state and writes nothing. Implement it for a new [`StoppingCriterion`](@ref).
+[`CONTINUE`](@ref), or the termination record the run ends with after iteration `iter`, which moved `θ_old` to `θ`
+(`θ` is `nothing` when the model block failed). Pure: it reads the state and writes nothing. Implement it for a new
+[`StoppingCriterion`](@ref).
 """
 function stop_reason end
 
 """
+    CONTINUE
+
+`(ReturnCode.Default, NoRule)`: what [`stop_reason`](@ref) returns while a run goes on (SciML's `Default`: the solve
+is not determined yet).
+"""
+const CONTINUE = (ReturnCode.Default, NoRule)
+@inline _continues(rr::Tuple{ReturnCode.T, StopRule}) = first(rr) === ReturnCode.Default
+
+"""
     StopAfterIteration(n)
 
-Stops with `:max_iterations` once `n` iterations have run (before the first,
-when `n ≤ 0`). [`block_coordinate_descent!`](@ref) adds it, LAST, from its
+Stops with `(MaxIters, IterationCap)` once `n` iterations have run (before the first,
+when `n ≤ 0`). [`BlockCoordinateDescent`](@ref) adds it, LAST, from its
 `max_iter`, so on the final iteration a method's own reason wins.
 """
 struct StopAfterIteration <: StoppingCriterion
     n::Int
 end
 @inline stop_reason(c::StopAfterIteration, state, method, prob, θ, θ_old, iter) =
-    iter >= c.n ? :max_iterations : :continue
+    iter >= c.n ? (ReturnCode.MaxIters, IterationCap) : CONTINUE
 
 """
     StopWhenSolveFailed()
 
-Stops with `:solve_failed` when the model block returned `nothing` (a singular
+Stops with `(Failure, NonFinite)` when the model block returned `nothing` (a singular
 or non-finite solve, an underdetermined refit): checked right after
-`update_model!`, before any other block runs. [`block_coordinate_descent!`](@ref)
+`update_model!`, before any other block runs. [`BlockCoordinateDescent`](@ref)
 adds it FIRST.
 """
 struct StopWhenSolveFailed <: StoppingCriterion end
 @inline stop_reason(::StopWhenSolveFailed, state, method, prob, θ, θ_old, iter) =
-    θ === nothing ? :solve_failed : :continue
+    θ === nothing ? (ReturnCode.Failure, NonFinite) : CONTINUE
 
 """
     StopNever()
@@ -159,14 +170,14 @@ Never stops: the default [`stopping_criterion`](@ref) of a method that runs its
 whole budget.
 """
 struct StopNever <: StoppingCriterion end
-@inline stop_reason(::StopNever, state, method, prob, θ, θ_old, iter) = :continue
+@inline stop_reason(::StopNever, state, method, prob, θ, θ_old, iter) = CONTINUE
 
 """
     StopWhenAny(criteria::Tuple)
     a | b
 
 Stops at the first of `criteria`, in order, whose [`stop_reason`](@ref) is
-not `:continue`, with that reason. `a | b` builds one and flattens nested ones.
+not [`CONTINUE`](@ref), with that record. `a | b` builds one and flattens nested ones.
 """
 struct StopWhenAny{C <: Tuple} <: StoppingCriterion
     criteria::C
@@ -174,42 +185,11 @@ end
 @inline stop_reason(c::StopWhenAny, state, method, prob, θ, θ_old, iter) =
     _first_reason(c.criteria, state, method, prob, θ, θ_old, iter)
 
-@inline _first_reason(::Tuple{}, state, method, prob, θ, θ_old, iter) = :continue
+@inline _first_reason(::Tuple{}, state, method, prob, θ, θ_old, iter) = CONTINUE
 @inline function _first_reason(cs::Tuple, state, method, prob, θ, θ_old, iter)
-    reason = stop_reason(first(cs), state, method, prob, θ, θ_old, iter)
-    reason === :continue || return reason
+    rr = stop_reason(first(cs), state, method, prob, θ, θ_old, iter)
+    _continues(rr) || return rr
     return _first_reason(Base.tail(cs), state, method, prob, θ, θ_old, iter)
-end
-
-"""
-    stop_rule(criterion::StoppingCriterion, method) -> StopRule
-
-The [`StopRule`](@ref) a criterion's stop records, for the method it stopped:
-`NoRule` by default; Core's own criteria `StopAfterIteration` → `IterationCap`,
-`StopWhenSolveFailed` → `NonFinite` (a failed model block). A package adds a
-method for each criterion it defines (and may specialise on the method).
-[`block_coordinate_descent!`](@ref) asks it of the member of a
-[`StopWhenAny`](@ref) that fired — the first whose [`stop_reason`](@ref) is not
-`:continue`, in evaluation order — and hands it to `block_coordinate_result`,
-so no consumer re-evaluates the criteria to learn which stopped the run.
-"""
-stop_rule(::StoppingCriterion, method) = NoRule
-stop_rule(::StopAfterIteration, method) = IterationCap
-stop_rule(::StopWhenSolveFailed, method) = NonFinite
-
-# The reason and the rule of the criterion that fired (`(:continue, NoRule)` when none did): a StopWhenAny's first
-# member to fire, in order, the one rule `stop_reason` and `stop_rule` both read.
-@inline function _reason_and_rule(c::StoppingCriterion, state, method, prob, θ, θ_old, iter)
-    reason = stop_reason(c, state, method, prob, θ, θ_old, iter)
-    return (reason, reason === :continue ? NoRule : stop_rule(c, method))
-end
-@inline _reason_and_rule(c::StopWhenAny, state, method, prob, θ, θ_old, iter) =
-    _first_reason_and_rule(c.criteria, state, method, prob, θ, θ_old, iter)
-@inline _first_reason_and_rule(::Tuple{}, state, method, prob, θ, θ_old, iter) = (:continue, NoRule)
-@inline function _first_reason_and_rule(cs::Tuple, state, method, prob, θ, θ_old, iter)
-    rr = _reason_and_rule(first(cs), state, method, prob, θ, θ_old, iter)
-    first(rr) === :continue || return rr
-    return _first_reason_and_rule(Base.tail(cs), state, method, prob, θ, θ_old, iter)
 end
 
 Base.:|(a::StoppingCriterion, b::StoppingCriterion) = StopWhenAny((a, b))
@@ -217,14 +197,14 @@ Base.:|(a::StopWhenAny, b::StoppingCriterion) = StopWhenAny((a.criteria..., b))
 Base.:|(a::StoppingCriterion, b::StopWhenAny) = StopWhenAny((a, b.criteria...))
 Base.:|(a::StopWhenAny, b::StopWhenAny) = StopWhenAny((a.criteria..., b.criteria...))
 
-# The criteria that can end a run before its first iteration: only the budget (its reason and rule).
-@inline _reason_at_start(c::StopAfterIteration, method) = c.n <= 0 ? (:max_iterations, stop_rule(c, method)) : (:continue, NoRule)
-@inline _reason_at_start(::StoppingCriterion, method) = (:continue, NoRule)
+# The criteria that can end a run before its first iteration: only the budget.
+@inline _reason_at_start(c::StopAfterIteration, method) = c.n <= 0 ? (ReturnCode.MaxIters, IterationCap) : CONTINUE
+@inline _reason_at_start(::StoppingCriterion, method) = CONTINUE
 @inline _reason_at_start(c::StopWhenAny, method) = _first_reason_at_start(c.criteria, method)
-@inline _first_reason_at_start(::Tuple{}, method) = (:continue, NoRule)
+@inline _first_reason_at_start(::Tuple{}, method) = CONTINUE
 @inline function _first_reason_at_start(cs::Tuple, method)
     rr = _reason_at_start(first(cs), method)
-    first(rr) === :continue || return rr
+    _continues(rr) || return rr
     return _first_reason_at_start(Base.tail(cs), method)
 end
 
@@ -244,11 +224,11 @@ stopping_criterion(::AbstractBlockCoordinateMethod) = StopNever()
 """
     Recorded(state)
 
-A [`block_coordinate_descent!`](@ref) state that also keeps a per-iteration
+A [`BlockCoordinateDescent`](@ref) state that also keeps a per-iteration
 trace: `iterates` (the model each iteration produced), `cost` (the state's
 [`current_cost`](@ref) after `post_iteration!`), `s2` (the likelihood's
 [`current_s2`](@ref), the squared scale, `NaN` where it holds none) and
-`reason` (a `Ref` to the stop reason). Give it in place of the state; the
+`reason` (a `Ref` to the termination record, `(code, rule)`). Give it in place of the state; the
 driver runs every block and every criterion on the wrapped `state`, so a
 recorded run is the bare run, iterate for iterate. The bare state never
 records — off by default, nothing to branch on.
@@ -258,9 +238,9 @@ struct Recorded{S}
     iterates::Vector{Any}
     cost::Vector{Float64}
     s2::Vector{Float64}
-    reason::Base.RefValue{Symbol}
+    reason::Base.RefValue{Tuple{ReturnCode.T, StopRule}}
 end
-Recorded(state) = Recorded(state, Any[], Float64[], Float64[], Ref(:continue))
+Recorded(state) = Recorded(state, Any[], Float64[], Float64[], Ref(CONTINUE))
 
 """
     current_cost(state) -> Float64
@@ -290,31 +270,31 @@ function _record_iteration!(r::Recorded, likelihood, θ)
     return nothing
 end
 
-@inline _record_reason!(_state, reason::Symbol) = nothing
-@inline _record_reason!(r::Recorded, reason::Symbol) = (r.reason[] = reason; nothing)
+@inline _record_reason!(_state, rr::Tuple{ReturnCode.T, StopRule}) = nothing
+@inline _record_reason!(r::Recorded, rr::Tuple{ReturnCode.T, StopRule}) = (r.reason[] = rr; nothing)
 
 # =============================================================================
-# The solver steps (Manopt names) and block_coordinate_descent!
+# The solver steps (Manopt names)
 # =============================================================================
 
 """
-    initialize_solver!(state, likelihood, method, prob, θ₀, criterion) -> (reason::Symbol, rule::StopRule)
+    initialize_solver!(state, likelihood, method, prob, θ₀, criterion) -> (code::ReturnCode.T, rule::StopRule)
 
-Start a [`block_coordinate_descent!`](@ref) run: clears a [`Recorded`](@ref)
-trace, and returns the reason the run ends before its first iteration
-(`:max_iterations` for a non-positive budget) or `:continue`. The state itself
+Start a [`BlockCoordinateDescent`](@ref) run: clears a [`Recorded`](@ref)
+trace, and returns the record the run ends with before its first iteration
+(`(MaxIters, IterationCap)` for a non-positive budget) or [`CONTINUE`](@ref). The state itself
 is built beforehand — by `init_state!` or the caller.
 """
 function initialize_solver!(state, likelihood, method, prob, θ₀, criterion::StoppingCriterion)
     _clear_record!(state)
     rr = _reason_at_start(criterion, method)
-    _record_reason!(state, first(rr))
+    _record_reason!(state, rr)
     return rr
 end
 @inline _clear_record!(_state) = nothing
 function _clear_record!(r::Recorded)
     empty!(r.iterates); empty!(r.cost); empty!(r.s2)
-    r.reason[] = :continue
+    r.reason[] = CONTINUE
     return nothing
 end
 
@@ -339,21 +319,62 @@ other block run), `update_residuals!`, `update_nuisance!(likelihood)`,
 end
 
 """
-    stop_solver!(state, criterion, method, prob, θ, θ_old, iter) -> (reason::Symbol, rule::StopRule)
+    stop_solver!(state, criterion, method, prob, θ, θ_old, iter) -> (code::ReturnCode.T, rule::StopRule)
 
 The run's [`stop_reason`](@ref) after iteration `iter` (`θ` is `nothing` when
-its model block failed), with the [`stop_rule`](@ref) of the criterion that
-fired (`NoRule` while the run continues); the reason recorded on a
-[`Recorded`](@ref) state.
+its model block failed): the record of the criterion that fired, [`CONTINUE`](@ref) while the run goes on;
+recorded on a [`Recorded`](@ref) state.
 """
 @inline function stop_solver!(state, criterion::StoppingCriterion, method, prob, θ, θ_old, iter::Int)
-    rr = _reason_and_rule(criterion, _bare(state), method, prob, θ, θ_old, iter)
-    _record_reason!(state, first(rr))
+    rr = stop_reason(criterion, _bare(state), method, prob, θ, θ_old, iter)
+    _record_reason!(state, rr)
     return rr
 end
 
+# =============================================================================
+# The best iterate — best-tracking of an instance that claims descent
+# =============================================================================
+
 """
-    block_coordinate_descent!(likelihood, method, prob, θ₀; max_iter) -> result
+    keep_best(best, θ, cost) -> (best′, improved::Bool)
+
+Best-tracking for a [`BlockCoordinateDescent`](@ref) instance that claims
+descent. The loop never rejects an iterate, so such an instance keeps its best
+one as `best = Attributed(θ, (; cost))` (`cost` a `Float64`): its
+`post_iteration!` offers every iterate here, and its `block_coordinate_result`
+returns `best.value`. Returns `(Attributed(θ, (; cost)), true)` when `cost` is
+STRICTLY below `best.cost`, and `(best, false)` otherwise. Pure and
+allocation-free: the caller stores the result.
+"""
+@inline function keep_best(best::Attributed{M, @NamedTuple{cost::Float64}}, θ, cost::Real) where {M}
+    improved = cost < best.cost
+    return (improved ? Attributed{M, @NamedTuple{cost::Float64}}(θ, (; cost = Float64(cost))) : best), improved
+end
+
+# =============================================================================
+# The front end — BlockCoordinateDescent, solved through solve/init
+# =============================================================================
+
+"""
+    BlockCoordinateDescent(method::AbstractBlockCoordinateMethod; likelihood = FrozenNuisance())
+
+Block coordinate descent as an algorithm, a [`RefineKind`](@ref): it refines the guess `θ₀` of a problem `prob`
+(`RefineProblem(prob, θ₀)`) by the loop below — the `method`'s model block
+and bookkeeping, the `likelihood`'s nuisance and weight blocks:
+
+    solve(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))
+    c = init(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops)   # the state built once
+    solve!(c); reinit!(c, θ₀′; f = prob′, alg = BlockCoordinateDescent(method′; likelihood′))
+
+`stops` (a [`StoppingCriterion`](@ref), required: the budget, `StopAfterIteration(max_iter)`, or a composition) runs
+after the method's own [`stopping_criterion`](@ref): the run's criterion is
+`StopWhenSolveFailed() | stopping_criterion(method) | stops`. The state is the method's `init_state!(method, prob, θ₀)`,
+built by `init` and again by each `reinit!`; the result is the method's `block_coordinate_result`. A SEEDED run
+gives its state as the problem's context: `RefineProblem(prob, θ₀, state)` runs from the caller's `state` (its buffers
+already seeded; a [`Recorded`](@ref) one records the run) and skips `init_state!` — the one-shot `solve` then builds no
+cache at all, and `reinit!(c, θ₀′; p = state′)` re-points a cache.
+
+# The loop
 
 Block coordinate descent on a negative log-likelihood, over three blocks:
 
@@ -367,7 +388,7 @@ Block coordinate descent on a negative log-likelihood, over three blocks:
 
 `update_residuals!` is bookkeeping between the model and nuisance blocks: it
 recomputes the residuals block from the new model and descends on nothing.
-One iteration ([`step_solver!`](@ref)) is one cycle through every block, in
+One iteration (`step_solver!`) is one cycle through every block, in
 the order model → residuals → nuisance → weights, then `post_iteration!`. See
 [`update_nuisance!`](@ref) for why the nuisance block is not named "scale".
 
@@ -375,14 +396,14 @@ the order model → residuals → nuisance → weights, then `post_iteration!`. 
 
 The run's criterion is
 
-    StopWhenSolveFailed() | stopping_criterion(method) | StopAfterIteration(max_iter)
+    StopWhenSolveFailed() | stopping_criterion(method) | stops
 
-evaluated in that order by [`stop_solver!`](@ref) after every iteration: a
-failed model block ends the run at once (`:solve_failed`, no other block run);
+evaluated in that order by `stop_solver!` after every iteration: a
+failed model block ends the run at once (`(Failure, NonFinite)`, no other block run);
 otherwise the method's own criterion is read after `post_iteration!`, and only
-then the budget — on the last iteration a method's reason wins over
-`:max_iterations`. `max_iter ≤ 0` runs no iteration. The result is
-`block_coordinate_result(state, method, prob, θ, reason, iterations, rule)` with `θ`
+then the budget — on the last iteration a method's record wins over
+`(MaxIters, IterationCap)`. `StopAfterIteration(max_iter)` at `max_iter ≤ 0` runs no iteration. The result is
+`block_coordinate_result(state, method, prob, θ, code, iterations, rule)` with `θ`
 the last model the model block produced (θ₀ if none).
 
 # Monotonicity
@@ -407,10 +428,10 @@ future bridge extends Manopt's functions rather than clashing with them:
 | Manopt.jl | here |
 |:--|:--|
 | `AbstractManoptSolverState` | the method's state (any type; RVG's `*State`) |
-| `initialize_solver!` | [`initialize_solver!`](@ref) |
-| `step_solver!` | [`step_solver!`](@ref): one BCD cycle, the four blocks + `post_iteration!` |
-| `stop_solver!` | [`stop_solver!`](@ref) |
-| `StoppingCriterion`, `get_reason` | [`StoppingCriterion`](@ref), [`stop_reason`](@ref) (pure; the reason is returned) |
+| `initialize_solver!` | `initialize_solver!` |
+| `step_solver!` | `step_solver!`: one BCD cycle, the four blocks + `post_iteration!` |
+| `stop_solver!` | `stop_solver!` |
+| `StoppingCriterion`, `get_reason` | [`StoppingCriterion`](@ref), [`stop_reason`](@ref) (pure; the record is returned) |
 | `StopAfterIteration`, `StopWhenAny` (criteria or-ed) | [`StopAfterIteration`](@ref), [`StopWhenAny`](@ref) (criteria or-ed) |
 | `RecordSolverState` | [`Recorded`](@ref) |
 | `get_solver_result` | `block_coordinate_result` |
@@ -418,67 +439,6 @@ future bridge extends Manopt's functions rather than clashing with them:
 Argument order is Julia Base's: the inputs the loop mutates come first
 (`state`, in the method below, then `likelihood`), then the inputs it only
 reads (the method, the problem, the seed).
-"""
-function block_coordinate_descent!(
-        likelihood::AbstractWeightPolicy, method::AbstractBlockCoordinateMethod, prob, θ₀;
-        max_iter::Int
-    )
-    state = init_state!(method, prob, θ₀)
-    return block_coordinate_descent!(state, likelihood, method, prob, θ₀; max_iter)
-end
-
-"""
-    block_coordinate_descent!(state, likelihood, method, prob, θ₀; max_iter) -> result
-
-Block coordinate descent with pre-allocated state (skips `init_state!`).
-`state` may be a [`Recorded`](@ref) one.
-"""
-function block_coordinate_descent!(
-        state, likelihood::AbstractWeightPolicy, method::AbstractBlockCoordinateMethod,
-        prob, θ₀; max_iter::Int
-    )
-    return _block_coordinate_descent!(state, likelihood, method, prob, θ₀, StopAfterIteration(max_iter))
-end
-
-# =============================================================================
-# The best iterate — best-tracking of an instance that claims descent
-# =============================================================================
-
-"""
-    keep_best(best, θ, cost) -> (best′, improved::Bool)
-
-Best-tracking for a [`block_coordinate_descent!`](@ref) instance that claims
-descent. The loop never rejects an iterate, so such an instance keeps its best
-one as `best = Attributed(θ, (; cost))` (`cost` a `Float64`): its
-`post_iteration!` offers every iterate here, and its `block_coordinate_result`
-returns `best.value`. Returns `(Attributed(θ, (; cost)), true)` when `cost` is
-STRICTLY below `best.cost`, and `(best, false)` otherwise. Pure and
-allocation-free: the caller stores the result.
-"""
-@inline function keep_best(best::Attributed{M, @NamedTuple{cost::Float64}}, θ, cost::Real) where {M}
-    improved = cost < best.cost
-    return (improved ? Attributed{M, @NamedTuple{cost::Float64}}(θ, (; cost = Float64(cost))) : best), improved
-end
-
-# =============================================================================
-# The front end — BlockCoordinateDescent, solved through solve/init
-# =============================================================================
-
-"""
-    BlockCoordinateDescent(method::AbstractBlockCoordinateMethod; likelihood = FrozenNuisance())
-
-Block coordinate descent as an algorithm, a [`RefineKind`](@ref): it refines the guess `θ₀` of a problem `prob`
-(`RefineProblem(prob, θ₀)`) by the loop of [`block_coordinate_descent!`](@ref)'s blocks — the `method`'s model block
-and bookkeeping, the `likelihood`'s nuisance and weight blocks:
-
-    solve(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))
-    c = init(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops)   # the state built once
-    solve!(c); reinit!(c, θ₀′; f = prob′, alg = BlockCoordinateDescent(method′; likelihood′))
-
-`stops` (a [`StoppingCriterion`](@ref), required: the budget, `StopAfterIteration(max_iter)`, or a composition) runs
-after the method's own [`stopping_criterion`](@ref): the run's criterion is
-`StopWhenSolveFailed() | stopping_criterion(method) | stops`. The state is the method's `init_state!(method, prob, θ₀)`,
-built by `init` and again by each `reinit!`; the result is the method's `block_coordinate_result`.
 """
 struct BlockCoordinateDescent{M <: AbstractBlockCoordinateMethod, L <: AbstractWeightPolicy} <: AbstractEstimationAlgorithm
     method::M
@@ -495,45 +455,52 @@ mutable struct _BcdCache{F, U, A <: BlockCoordinateDescent, C <: StoppingCriteri
     stops::C
     state::S
 end
-__init(prob::RefineProblem{<:Any, <:Any, NullParameters}, alg::BlockCoordinateDescent; stops::StoppingCriterion) =
-    _bcd_cache(prob, alg, stops)
-# The cache, its state the method's `init_state!` (a front-end method holds no buffers of its own: the state does).
+__init(prob::RefineProblem, alg::BlockCoordinateDescent; stops::StoppingCriterion) = _bcd_cache(prob, alg, stops)
+# The one-shot solve runs the loop on the run's state directly: no cache is built.
+function __solve(prob::RefineProblem, alg::BlockCoordinateDescent; stops::StoppingCriterion)
+    _refuse_box(prob, :BlockCoordinateDescent)
+    return _block_coordinate_descent!(_bcd_state(alg.method, prob.f, prob.u0, prob.p), alg.likelihood, alg.method,
+                                      prob.f, prob.u0, stops)
+end
+# The run's state: the method's `init_state!`, or the caller's seeded state, the problem's `p`.
+_bcd_state(method, f, u0, ::NullParameters) = init_state!(method, f, u0)
+_bcd_state(_method, _f, _u0, state) = state
+# The cache, its state the method's `init_state!` or the caller's (a front-end method holds no buffers of its own:
+# the state does).
 function _bcd_cache(prob::RefineProblem, alg::BlockCoordinateDescent, stops::StoppingCriterion)
     _refuse_box(prob, :BlockCoordinateDescent)
-    return _BcdCache(prob.f, prob.u0, alg, stops, init_state!(alg.method, prob.f, prob.u0))
+    return _BcdCache(prob.f, prob.u0, alg, stops, _bcd_state(alg.method, prob.f, prob.u0, prob.p))
 end
 solve!(c::_BcdCache) = _block_coordinate_descent!(c.state, c.alg.likelihood, c.alg.method, c.f, c.u0, c.stops)
 function reinit!(c::_BcdCache{F, U, A, C}, u0 = c.u0; f = c.f, p = NullParameters(), alg = nothing,
         stops::C = c.stops) where {F, U, A, C}
-    p isa NullParameters || throw(ArgumentError("reinit!: BlockCoordinateDescent reads no context `p`"))
     alg === nothing || (c.alg = alg)
     c.f = f; c.u0 = u0; c.stops = stops
-    c.state = init_state!(c.alg.method, f, u0)
+    c.state = _bcd_state(c.alg.method, f, u0, p)
     return c
 end
 
-# THE loop, on a criterion `stops` after the method's own (the front end's, and `block_coordinate_descent!`'s with
-# `StopAfterIteration(max_iter)`).
+# THE loop, on a criterion `stops` after the method's own (the front end's).
 function _block_coordinate_descent!(state, likelihood::AbstractWeightPolicy, method::AbstractBlockCoordinateMethod,
         prob, θ₀, stops::StoppingCriterion)
     criterion = StopWhenSolveFailed() | stopping_criterion(method) | stops
     θ = θ₀
     iter = 0
-    reason, rule = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
-    while reason === :continue
+    code, rule = initialize_solver!(state, likelihood, method, prob, θ₀, criterion)
+    while code === ReturnCode.Default
         iter += 1
         θ_old = θ
         θ_new = step_solver!(state, likelihood, method, prob, θ, iter)
         if isnothing(θ_new)
-            # A failed model block ends the run on the last model; the reason is
+            # A failed model block ends the run on the last model; the record is
             # StopWhenSolveFailed's (first in the criterion).
-            reason, rule = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
+            code, rule = stop_solver!(state, criterion, method, prob, nothing, θ_old, iter)
             break
         end
         θ = θ_new
-        reason, rule = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
+        code, rule = stop_solver!(state, criterion, method, prob, θ, θ_old, iter)
     end
-    return block_coordinate_result(_bare(state), method, prob, θ, reason, iter, rule)
+    return block_coordinate_result(_bare(state), method, prob, θ, code, iter, rule)
 end
 
-public BlockCoordinateDescent
+public BlockCoordinateDescent, CONTINUE

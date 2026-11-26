@@ -24,7 +24,7 @@
     using StaticArrays
     using Random
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: _are_points_distinct, _points_distinct_idx,
+    using VisualGeometryToolkitCore: are_points_distinct, _points_distinct_idx,
         _not_collinear, COINCIDENT_PX
 
     DUP = 0.06          # VGF's pinned worst-case refinement error, px
@@ -57,9 +57,9 @@
         # while claiming to pin forwarding. (An earlier version of this test did
         # exactly that and failed for the right reason.)
         h = (pts[1], pts[2], pts[3], pts[4])
-        @test !_are_points_distinct(h; tol_px = 0.1)
-        @test _are_points_distinct(h; tol_px = 1.0e-3)
-        @test !_are_points_distinct(h; tol_px = 10.0)
+        @test !are_points_distinct(h; tol_px = 0.1)
+        @test are_points_distinct(h; tol_px = 1.0e-3)
+        @test !are_points_distinct(h; tol_px = 10.0)
         # …and that H's gate does forward, shown where collinearity admits: a
         # clustered sample whose triangles stay fat enough to succeed.
         c4 = (SVector(320.0, 320.0), SVector(320.03, 320.0),
@@ -80,7 +80,7 @@
             b = a + SVector(d, 0.0)
             tup = (a, b, SVector(300.0, 140.0), SVector(180.0, 320.0))
             vec = collect(tup)
-            @test _are_points_distinct(tup) == _points_distinct_idx(vec, 1:4)
+            @test are_points_distinct(tup) == _points_distinct_idx(vec, 1:4)
         end
     end
 
@@ -120,7 +120,7 @@
                 dup = base[1] + DUP * SVector(cos(φ), sin(φ))
                 pts = (base[1], dup, base[2], base[3])
                 _not_collinear(pts) || (coll += 1)          # collinearity rejected it
-                _are_points_distinct(pts) || (caught += 1)  # coincidence rejected it
+                are_points_distinct(pts) || (caught += 1)  # coincidence rejected it
             end
             @test caught == n                # INVARIANT: every duplicate, every spread
             push!(coll_by_spread, coll)
@@ -143,7 +143,7 @@
                 φ = 2π * rand(rng)
                 near = base[1] + FAR * SVector(cos(φ), sin(φ))     # 1 px away: distinct
                 pts = (base[1], near, base[2], base[3])
-                _are_points_distinct(pts) && (admitted += 1)
+                are_points_distinct(pts) && (admitted += 1)
             end
             @test admitted == n          # exact: 1 px > 0.1 px, never rejected
         end
@@ -158,8 +158,8 @@
             a = SVector(320.0, 320.0)
             just_in = (a, a + SVector(0.0999, 0.0), far, far + SVector(0.0, spread / 3))
             just_out = (a, a + SVector(0.1001, 0.0), far, far + SVector(0.0, spread / 3))
-            @test !_are_points_distinct(just_in)     # inside 0.1 px → coincident
-            @test _are_points_distinct(just_out)     # outside → distinct
+            @test !are_points_distinct(just_in)     # inside 0.1 px → coincident
+            @test are_points_distinct(just_out)     # outside → distinct
         end
     end
 
@@ -180,7 +180,7 @@
                         for θ in (0.0, 120.0, 240.0)]
                 φ = 2π * rand(rng)
                 pts = (base[1], base[1] + DUP * SVector(cos(φ), sin(φ)), base[2], base[3])
-                _are_points_distinct(pts; tol_px = 1.0e-3) || (caught_old += 1)
+                are_points_distinct(pts; tol_px = 1.0e-3) || (caught_old += 1)
             end
             @test caught_old == 0          # the old constant catches NOTHING in pixels
         end

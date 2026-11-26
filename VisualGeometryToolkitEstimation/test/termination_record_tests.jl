@@ -168,7 +168,7 @@ end
     rng_l = StableRNG(9)
     ils = record!(seen, :linear, linear_fit(randn(rng_l, 8, 3), randn(rng_l, 8);
                                              optimization_strategy = Irls{VgtkCore.TLSShape}(efficiency_constant = 3.0), scale = 1.0e-9))
-    @test ils.retcode == ReturnCode.InternalLinearSolveFailed && !successful_retcode(ils) && VgtkCore.retcode_symbol(ils) === :solve_failed
+    @test ils.retcode == ReturnCode.InternalLinearSolveFailed && !successful_retcode(ils) && (ils.retcode, ils.stop_rule) === (VgtkCore.ReturnCode.InternalLinearSolveFailed, VgtkCore.NoRule)
     # the heteroscedastic line: the one covariance-reweighted solve (a closed form)
     pts = [Uncertain(Point2{Float64}(Float64(i), 2.0i + 1.0 + 0.01 * sin(i)), CovMat(SMatrix{2, 2, Float64}(1.0e-4, 0.0, 0.0, 1.0e-4)))
            for i in 1:20]
@@ -333,11 +333,10 @@ end
 
 @testitem "termination record: DivisionCameraFit audits no failed leg" begin
     # A leg whose solve failed mid-loop (the IRLS step's InternalLinearSolveFailed, the owner's ruling) is neither
-    # branch-audited nor resumed: the failed-leg predicate is `retcode_symbol(record...) === :solve_failed` (Core's one
-    # map), so no failure code (a non-finite start, a failed solve) is audited.
+    # branch-audited nor resumed: the failed-leg predicate is `_failed_leg(record...)`, so no failure code (a non-finite start, a failed solve) is audited.
     using VisualGeometryToolkitEstimation
     import VisualGeometryToolkitCore as VgtkCore
-    failed(code, rule) = VgtkCore.retcode_symbol(code, rule) === :solve_failed
+    failed(code, rule) = VisualGeometryToolkitEstimation._failed_leg(code, rule)
     @test failed(VgtkCore.ReturnCode.InternalLinearSolveFailed, VgtkCore.NoRule)
     @test failed(VgtkCore.ReturnCode.Failure, VgtkCore.NoRule)
     @test failed(VgtkCore.ReturnCode.InitialFailure, VgtkCore.NonFinite)
@@ -346,7 +345,7 @@ end
     @test !failed(VgtkCore.ReturnCode.Stalled, VgtkCore.IncrementSize)
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget)
     @test !failed(VgtkCore.ReturnCode.Failure, VgtkCore.SeedKept)
-    # every record against the ruling written out on its own (not through retcode_symbol): a leg failed when its code
+    # every record against the ruling written out on its own (not through a symbol mapping): a leg failed when its code
     # is a failure — not a stop that kept a usable estimate (Success, Terminated, the caps, Stalled), not a run that
     # never started (Default) — and its rule is not a guard that kept the seed, not a no-model verdict (a trial budget
     # or count exhausted, a sampler's) and, for InitialFailure, a non-finite start (a degenerate one is no solve)

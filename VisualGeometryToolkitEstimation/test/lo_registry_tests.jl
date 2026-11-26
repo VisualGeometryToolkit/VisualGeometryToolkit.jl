@@ -62,7 +62,7 @@ const TOY_DEFAULTS = Dict{String, Any}(
 )
 #   type        tag           path   scale      family  label        shape        parametric
 const TOY_ROWS = (
-    (ToyArm,    "toy_arm",    :irls, nothing,   nothing, raw"Toy",    WelschShape, false),
+    (ToyArm,    "toy_arm",    VgtkCore.OptimizationPath.irls, nothing,   nothing, raw"Toy",    WelschShape, false),
     (ToyFamily, "toy_family", :hq,   NoScale(), nothing, nothing,     nothing,     true),
     (ToyWrap,   "toy_wrap",   :gnc,  nothing,   nothing, nothing,     nothing,     true),
     (ToyEcm,    "toy_ecm",    :hq,   nothing,   nothing, nothing,     WelschShape, false),
@@ -189,7 +189,7 @@ end
         @test_throws ArgumentError TOY_TAGS["toy"]          # retired, naming its successor
         @test lo_tag(ToyFamily{TLSShape}) == "toy_family"
         @test lo_defaults(ToyArm) === TOY_DEFAULTS
-        @test optimization_path(ToyArm(; μ = 1.0)) === :irls
+        @test optimization_path(ToyArm(; μ = 1.0)) === VgtkCore.OptimizationPath.irls
         @test lo_label(ToyArm(; μ = 1.0)) == "Toy"
         @test loss_family(ToyArm(; μ = 1.0)) === loss_family(WelschShape)   # the shape column
         @test scale_interface(ToyFamily{TLSShape}()) === NoScale()

@@ -20,7 +20,7 @@
     end
     ProbeLO(family, path, label) = ProbeLO(family, path, label, false)
     VgtkCore.loss_family(p::ProbeLO) = p.family
-    VgtkCore.optimization_path(p::ProbeLO) = p.path
+    VgtkCore.optimization_path(p::ProbeLO) = getproperty(VgtkCore.OptimizationPath, p.path)   # the path named by its member
     VgtkCore.lo_label(p::ProbeLO) = p.label
     VgtkCore.scale_interface(p::ProbeLO) = p.fixed ? VgtkCore.FixedScale() : VgtkCore.ConsensusAnchored()
 

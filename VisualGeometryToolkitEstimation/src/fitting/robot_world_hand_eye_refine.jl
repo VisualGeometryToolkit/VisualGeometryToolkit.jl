@@ -88,11 +88,11 @@ camera at frame i). Function names do not encode frames.
   iterations; NLLSsolver's count, one may hide ~8–10 rejected candidate steps); default the camera-and-poses
   bundle's (`configs/default.toml [camera_poses_problem]` `max_iter`, `ftol`, `xtol`).
 
-Any number of markers: the LM is Core's one bundle LM (`block_lm`), one pose block per marker and one
+Any number of markers: the LM is Core's one multi-block LM (the block contract of its `LevenbergMarquardt` refine), one pose block per marker and one
 residual block per point, with nothing compiled per marker count, at the camera-and-poses bundle's stops
 ([`CameraPosesProblem`](@ref)'s) and the algorithm's damping (Marquardt's DᵀD by default): this refine has no
 LM settings of its own. Its termination
-record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's one LM, `lmsolve_chart!`) is
+record (`retcode`, `stop_rule`; VisualGeometryToolkitCore's one LM) is
 `ReturnCode.Success` at a tolerance stop (`ftol`, `xtol`; Core 0.11.0: whatever the gradient there) or at the
 rejection cap when the estimate is stationary, `MaxIters` at the
 iteration cap (no time cap: it runs without `max_time`), `Failure`/`InitialFailure` (`NonFinite`) when a solve was non-finite or
@@ -129,8 +129,20 @@ RobotWorldHandEyeProblem(camera::CameraModel, markers::Union{_PlainRigMarkers, _
 default_optimization_strategy(::RobotWorldHandEyeProblem) = _dflt_strategy("robot_world_hand_eye_problem", :robot_world_hand_eye_problem)
 default_stops(::RobotWorldHandEyeProblem) = _CAMERA_POSES_STOPS   # the camera-and-poses bundle's (camera_poses.jl)
 
-function block_refit(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers{K}}, guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}},
-                     loss, stops::LmStops, damping::LmDamping) where {K}
+# The block contract (Core's multi-block LM): the bundle stated ONCE at the guess — one pose variable each for Y and
+# every X_m, one residual block per marker point, and the assembly of its result — by the one pipeline
+# (`_robot_world_hand_eye_run`, a `_BundleStatement`: `block_structure`), and the result assembled from that
+# statement with Core's solution and residual summary (the rows, their Jacobian at the estimate, √ρ′-scaled under a
+# robust strategy, the weights and the parsed loss: `block_result`). The statement is concrete, so the refine is
+# inferred.
+residual_summary(::RobotWorldHandEyeProblem) = RowsWithJacobian()
+block_structure(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers}, guess) =
+    (st = _robot_world_hand_eye_run(f, guess); (st.vars0, st.blocks, st))
+block_result(::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers}, _guess, r::FitResult, s) = _robot_world_hand_eye_solved(r, s)
+_robot_world_hand_eye_solved(r::FitResult, s) = _assembled(r, s, Val((:residuals, :weights, :jacobian)))
+
+function _robot_world_hand_eye_run(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers{K}},
+                                   guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}}) where {K}
     markers = f.markers
     ids = block_order(markers, guess.X)             # the key sets must match: every marker of the guess is refined
     M = length(ids)
@@ -154,17 +166,19 @@ function block_refit(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers{K}}, 
     n = length(us)
     N = 6 * (M + 1)
     2n > N || throw(ArgumentError("underdetermined: $n points ($(2n) residuals) for $N unknowns"))
-    return _robot_world_hand_eye_bundle(guess, counts, f.camera, RA, tA, pt_frame, pt_marker, Xs, us, loss, stops, damping)
+    return _robot_world_hand_eye_bundle(guess, counts, f.camera, RA, tA, pt_frame, pt_marker, Xs, us)
 end
 
 # Physical inputs: the guess, the rig poses and the points stripped in metres
 # once, the plain refinement, the calibration read back in metres once.
-function block_refit(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers{K}}, guess::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3},
-                     loss, stops::LmStops, damping::LmDamping) where {K}
+function _plain_problem(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers{K}}) where {K}
     features(fs) = _map_correspondences(_plain_metres, identity, fs)
     plain = Dict(id => _map_correspondences(_plain_metres, features, els) for (id, els) in f.markers)::_PlainRigMarkers{K}
-    return _attach_metres(block_refit(RobotWorldHandEyeProblem(f.camera, plain), _plain_metres(guess), loss, stops, damping))
+    return RobotWorldHandEyeProblem(f.camera, plain)
 end
+block_structure(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers}, guess) = block_structure(_plain_problem(f), _plain_metres(guess))
+block_result(::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers}, _guess, r::FitResult, s) =
+    _attach_metres(_robot_world_hand_eye_solved(r, s))
 
 # One point's reprojection residual as a function of its 12 chart coordinates
 # (δY, δX_m) in the product of its two blocks' charts `chY`, `chX` —
@@ -226,10 +240,8 @@ function NLLSsolver.computeresjac(varflags, r::_RwPointResidual, Y::RigidExpMani
 end
 
 function _robot_world_hand_eye_bundle(
-        guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us, parsed, stops::LmStops, damping::LmDamping
+        guess::RobotWorldHandEyeCalibration, counts, camera::C, RA, tA, fr, mk, Xs, us
     ) where {C}
-    (; strategy, input) = parsed
-    lo = strategy
     n = length(us)
     costs = [_RwPointResidual{C}(SVector(1, mk[k] + 1), RA[fr[k]], tA[fr[k]], Xs[k], us[k], camera) for k in 1:n]
     poses0 = RigidExpManifold6{Float64}[RigidExpManifold6(guess.Y); [RigidExpManifold6(guess.X[id]) for id in guess.ids]]
@@ -245,16 +257,17 @@ function _robot_world_hand_eye_bundle(
         )
     end
 
-    # THE bundle LM (Core's `block_lm`) at the solve's stops (default the camera-and-poses bundle's:
+    # THE bundle LM (Core's multi-block LM) solves it at the solve's stops (default the camera-and-poses bundle's:
     # configs/default.toml [camera_poses_problem]) and the algorithm's damping: least squares
     # (`optimization_strategy = nothing`), or the refine contract's one fixed-scale robust path from the guess with no
     # least-squares stage, Triggs, ONE robustified LM at the caller's frozen scale or width (an Irls is refused by
     # `bundle_loss`). Its termination record is the solve's (NLLSsolver's bits under Core's success rule).
-    sol = block_lm(costs, poses0, 6 * (length(guess.ids) + 1), parsed, stops; damping)
+    return _BundleStatement(costs, poses0, (sol, parsed) -> _robot_world_hand_eye_assembly(guess, counts, fr, n, sol, parsed))
+end
+# The calibration's result from the bundle's solve `sol` at the parsed loss: the poses read back, refused when not
+# finite, the covariance from the rows' Jacobian, the record and the scale record.
+function _robot_world_hand_eye_assembly(guess::RobotWorldHandEyeCalibration, counts, fr, n, sol, parsed)
     weights = sol.weights
-    # the covariance's rows: the reprojection rows, √ρ′-scaled under a robust strategy (the weighted problem's)
-    stationarity_blocks = lo === nothing ? costs :
-        [with_robustifier(c, sqrt(weights[k]), NLLSsolver.NoRobust()) for (k, c) in enumerate(costs)]
     charts = collect(sol.variables)   # each anchored at its estimate
     poses = map(model, charts)
     all(_finite_pose, poses) ||   # camera_poses.jl
@@ -263,7 +276,7 @@ function _robot_world_hand_eye_bundle(
     # the reprojection rows' dense 2n × 6(M + 1) Jacobian at the charts' origins — the covariance's (point k's rows
     # 2k − 1, 2k; its columns those of Y and of its X_m), √ρ′-scaled under a robust strategy: the eigen-diagnostics and
     # the covariance are the weighted problem's
-    J = Matrix(last(nlls_rows_and_jacobian(stationarity_blocks, charts)))
+    J = sol.jacobian   # the rows' Jacobian at the estimate, √ρ′-scaled under a robust strategy (Core's `RowsWithJacobian`)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with observation Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -280,7 +293,7 @@ function _robot_world_hand_eye_bundle(
     r_raw = sol.residuals   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
-        retcode = sol.code, stop_rule = sol.rule, iterations = sol.iterations, rms_rows = n, strategy = lo, weights,
+        retcode = sol.code, stop_rule = sol.rule, iterations = sol.iterations, rms_rows = n, strategy = parsed.strategy, weights,
         VgtkCore.scale_record(parsed)...
     )
 end

@@ -121,7 +121,7 @@ rather than left free in a singular solve; more generally, in each part of
 the graph that the edges of positive weight no longer tie to the gauge frame,
 the first sorted frame is held and the rest move with it.
 
-`retcode_symbol(result)` is `:converged` or `:max_iterations`;
+The record (`retcode`, `stop_rule`) is `(Success, IncrementSize)` (converged) or `(MaxIters, IterationCap)`;
 `n` the support (the edges of positive solve weight) and `rms` the
 weight-weighted root mean square residual angle over them. A disconnected
 graph is an `ArgumentError`, counting only the edges of positive weight; the

@@ -86,11 +86,17 @@ dot it does not back-project, or whose Jacobian cannot whiten its residual
 ([`pixel_whitening_defect`](@ref)), makes no row and is counted in the metadata
 (its `n_without_bearing` and `without_bearing` fields). Its `fixed` holds the
 whole camera: `fixed = held_parameters(camera)`. The problem's `residual` setting
-is `BearingResidual()` by default; `ReprojectionResidual()` adds a second stage
-from the bearing estimate on the exact pixel reprojection error (a SplineLens
-camera projected by inverting its backward spline), a candidate update that leaves
-a prediction undefined rejected by the LM, the dots that do not project at the
-bearing estimate counted (the `without_projection` field).
+is `BearingResidual()` by default; `ReprojectionResidual()` is the refine on the
+exact pixel reprojection error from its guess (a SplineLens camera projected by
+inverting its backward spline), a candidate update that leaves a prediction
+undefined rejected by the LM, the dots that do not project at the guess counted
+(the `without_projection` field). One refine per solve: the bearing-then-pixel
+flow is two solves, the pixel refine's guess the bearing refine's estimate:
+
+```julia
+rb = solve(RefineProblem(CameraPosesProblem(cs; fixed = held_parameters(camera)), (; camera, views)), alg)
+rp = solve(RefineProblem(CameraPosesProblem(cs; fixed = held_parameters(camera), residual = ReprojectionResidual()), rb.u), alg)
+```
 
 ```@docs
 CameraPosesProblem

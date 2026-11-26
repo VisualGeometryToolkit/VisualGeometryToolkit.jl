@@ -23,8 +23,9 @@
 end
 
 @testitem "CameraPosesProblem: a pinhole camera and its poses recovered" setup = [CameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: CameraModel, Lens, Perspective, parameter_vector, parameter_names, with_parameters
     using VisualGeometryToolkitEstimation: CameraPosesProblem
@@ -34,7 +35,7 @@ end
     θ = parameter_vector(cam)
     cam0 = with_parameters(cam, θ .* SVector(1.04, 1.01, 1.0, 1.0, 1.0) .+ SVector(0.0, 0.0, 0.0, 6.0, -5.0))   # f, aspect, skew, cx, cy
     res = solve(RefineProblem(CameraPosesProblem(views), (; camera = cam0, poses = [perturbed_pose(E, v) for (v, E) in enumerate(Es)])), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(res) === :converged
+    @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     est = res.u
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
     @test maximum(maximum(abs, P.R - E.R) for (P, E) in zip(est.poses, Es)) < 1.0e-9
@@ -67,8 +68,9 @@ end
 end
 
 @testitem "CameraPosesProblem: a fisheye past 90°, camera and poses recovered" setup = [CameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: parameter_vector, with_parameters, KannalaBrandt, lens, free_parameter_names
@@ -80,7 +82,7 @@ end
     δ = SVector(1.03, 1.0, 1.0, 1.0, 1.0, 0.8, 1.2, 0.9, 1.1)                    # f, aspect, skew, cx, cy, k1 … k4
     cam0 = with_parameters(cam, θ .* δ .+ SVector(0.0, 0.0, 0.0, -4.0, 3.0, 0.0, 0.0, 0.0, 0.0))
     res = solve(RefineProblem(CameraPosesProblem(views), (; camera = cam0, poses = [perturbed_pose(E, v) for (v, E) in enumerate(Es)])), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(res) === :converged
+    @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     est = res.u
     @test lens(est.camera) isa KannalaBrandt                                    # the family is kept
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0e-2)) < 1.0e-7
@@ -94,6 +96,17 @@ end
 end
 
 @testitem "CameraPosesProblem: the Jacobian is in the charts' tangent coordinates" setup = [CameraPoseScenes] begin
+    # a bundle stated by its blocks and variables, its result the residual summary (the rows and their Jacobian)
+    import VisualGeometryToolkitCore as VgtkCore
+    struct _StatedBundle{B, V} <: VgtkCore.AbstractBlockProblem
+        costs::B
+        vars::V
+    end
+    VgtkCore.block_variables(f::_StatedBundle, _u0) = f.vars
+    VgtkCore.residual_blocks(f::_StatedBundle, _u0) = f.costs
+    VgtkCore.residual_summary(::_StatedBundle) = VgtkCore.RowsWithJacobian()
+    VgtkCore.block_result(::_StatedBundle, _u0, _r, summary) = summary
+    using VisualGeometryToolkitCore: solve, RefineProblem, LevenbergMarquardt
     using VisualGeometryToolkitCore: dof, s2
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm
@@ -109,8 +122,11 @@ end
     world = model(LeftRigidManifold6(SMatrix{3, 3, Float64}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), SVector(0.0, 0.0, 0.0)))   # the held identity board
     costs = [VE._BoardViewResidual{2, (true, true, false), typeof(cam)}(SVector(1, 1 + v), cam, world, world, SVector{3, Float64}(first(c)), last(c))
              for v in 1:2 for c in views[v]]
-    using VisualGeometryToolkitCore: nlls_rows_and_jacobian
-    r, J = nlls_rows_and_jacobian(costs, [chc; chs])                 # Core's assembler of the stall postcondition's rows
+    # the rows and their Jacobian at the charts' origins: Core's `RowsWithJacobian` summary of a refine that takes no
+    # step (`max_iter = 0`), on a bundle of these blocks and variables
+    s = solve(RefineProblem(_StatedBundle(costs, [chc; chs]), nothing), LevenbergMarquardt(; optimization_strategy = nothing);
+              stops = VgtkCore.LmStops(; max_iter = 0))
+    r, J = s.residuals, s.jacobian
     @test size(J) == (32, 8 + 12)
     for (k, c) in enumerate(costs)
         v = c.varind[2] - 1
@@ -131,8 +147,9 @@ end
 end
 
 @testitem "CameraPosesProblem: a held camera, dict and vector forms, lengths, refusals" setup = [CameraRecipes, CameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: parameter_vector, parameter_names, with_parameters, EuclideanMap, m, ustrip, with_unit, Correspondences
     using VisualGeometryToolkitEstimation: CameraPosesProblem
@@ -142,7 +159,7 @@ end
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the camera held: the poses alone (the camera comes back as given)
     held = solve(RefineProblem(CameraPosesProblem(views; fixed = parameter_names(cam)), (; camera = cam, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(held) === :converged && held.u.camera === cam && held.metadata.free == ()
+    @test (held.retcode, held.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && held.u.camera === cam && held.metadata.free == ()
     # `fixed` names the held parameters, the complement of the refined set (the retired `free`), bit for bit:
     # holding the aspect refines (f, cx, cy) exactly as the former `free = (:f, :cx, :cy)` did
     part = solve(RefineProblem(CameraPosesProblem(views; fixed = (:aspect,)), (; camera = cam, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
@@ -172,7 +189,7 @@ end
     @test_throws ArgumentError solve(RefineProblem(CameraPosesProblem(views; fixed = parameter_names(cam0), box = (; f = (1.0, 2.0))), (; camera = cam0, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))   # a box with nothing to bound
     # the wall-clock cap reaches the LM: a zero cap stops after the first iteration, :max_time; Inf is no cap
     rt = solve(RefineProblem(CameraPosesProblem(views), (; camera = cam0, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing); stops = poses_stops(; max_time = 0.0))
-    @test retcode_symbol(rt) === :max_time && rt.stats.nsteps <= 1
+    @test (rt.retcode, rt.stop_rule) === (VgtkCore.ReturnCode.MaxTime, VgtkCore.TimeCap) && rt.stats.nsteps <= 1
     @test solve(RefineProblem(CameraPosesProblem(views), (; camera = cam0, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing); stops = poses_stops(; max_time = Inf)).u.camera == rv.u.camera
 end
 
@@ -181,7 +198,7 @@ end
     using LinearAlgebra: normalize, norm
     using VisualGeometryToolkitCore: CameraModel, SplineLens, ChartSpline, KannalaBrandt, Size2, project, reprojection_error, backproject, angle_between
     using Test: @test, @test_throws
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitEstimation: CameraPosesProblem, CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     using VisualGeometryToolkitCore: axis_gauged, calibration_matrix, rotation, BoundedCamera, Size2, model
@@ -222,8 +239,9 @@ end
 # Triggs{Huber} at the caller's `scale` times the strategy's efficiency constant, or at the caller's `width`, from the
 # caller's start (no least-squares stage); a refine estimates no scale; `nothing` is plain least squares; the refusals.
 @testitem "CameraPosesProblem: optimization_strategy = Triggs{Huber} / Triggs{Welsch} from the caller's start at the caller's scale, no least-squares stage; least squares unchanged" setup = [CameraRecipes, CameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
@@ -260,7 +278,7 @@ end
     # 0.30 px: one Welsch LM from a start 25 px off)
     for lo in (Triggs{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         rs = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam0, poses = poses0)), LevenbergMarquardt(; optimization_strategy = lo); scale = 0.2)
-        @test retcode_symbol(rs) === :converged && err(rs) < 0.5 && noise_scale(rs) == 0.2
+        @test (rs.retcode, rs.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && err(rs) < 0.5 && noise_scale(rs) == 0.2
         @test rs.metadata.loss_width ≈ (lo isa Triggs{HuberShape} ? 1.345 : 2.98) * 0.2
         @test count(<(0.5), weights(rs)) >= 20 && length(weights(rs)) == 300
         # `n` the weights' support and `rms` the weighted one (the stack's one rule): Welsch gives the 20–60 px outliers
@@ -279,16 +297,16 @@ end
     poses1 = [near(E, v) for (v, E) in enumerate(Es)]
     for lo in (Triggs{HuberShape}(efficiency_constant = 1.345), Triggs{WelschShape}(efficiency_constant = 2.98))
         r = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(; optimization_strategy = lo); scale = 0.2)
-        @test retcode_symbol(r) === :converged && err(r) < 0.4 && noise_scale(r) == 0.2
+        @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && err(r) < 0.4 && noise_scale(r) == 0.2
     end
     # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs;
     # the record is the LM's own (NLLSsolver's bits under Core's one success rule), its iteration cap included
     @test_throws r"Triggs\{HuberShape\}" solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(; optimization_strategy = Irls{HuberShape}()); scale = 0.2)
-    @test retcode_symbol(solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(; optimization_strategy = Triggs{HuberShape}()); scale = 0.2, stops = poses_stops(; max_iter = 1))) ===
-        :max_iterations
+    @test (let r = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(; optimization_strategy = Triggs{HuberShape}()); scale = 0.2, stops = poses_stops(; max_iter = 1));
+               (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
     # a width alone: the loss at it, no scale recorded; the same loss as the scale that gives it (the record aside)
     rw = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(; optimization_strategy = Triggs{HuberShape}()); width = 1.345 * 0.2)
-    @test retcode_symbol(rw) === :converged && err(rw) < 0.4 && scale_source(rw) === ScaleNone && rw.metadata.loss_width ≈ 1.345 * 0.2
+    @test (rw.retcode, rw.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && err(rw) < 0.4 && scale_source(rw) === ScaleNone && rw.metadata.loss_width ≈ 1.345 * 0.2
     @test_throws ArgumentError noise_scale(rw)
     ru = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam1, poses = poses1)), LevenbergMarquardt(); scale = rd)       # an upstream result's scale, handed on
     @test noise_scale(ru) === 0.2 && scale_source(ru) === ScaleUpstream
@@ -316,8 +334,9 @@ end
 end
 
 @testitem "CameraPosesProblem: board poses, recovered from exact and noisy pixels, the gauge held exactly" setup = [CameraPoseScenes, BoardScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using LinearAlgebra: norm
     using Random: Xoshiro
@@ -334,7 +353,7 @@ end
     # exact pixels: everything recovered to the LM's tolerance, board A (each component's first board) held exactly
     res = solve(RefineProblem(CameraPosesProblem(board_views(cam, views, boards)), (; camera = cam0, poses = views0, board_poses = boards0)), LevenbergMarquardt(; optimization_strategy = nothing))
     est = res.u
-    @test retcode_symbol(res) === :converged && res.rms < 1.0e-9
+    @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && res.rms < 1.0e-9
     @test maximum(abs.(parameter_vector(est.camera) - θ) ./ max.(abs.(θ), 1.0)) < 1.0e-9
     @test est.board_poses[:A] === boards0[:A]
     @test maximum(Δ(est.board_poses[b], boards[b]) for b in (:B, :C)) < 1.0e-9
@@ -348,7 +367,7 @@ end
     rn = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam0, poses = views0, board_poses = boards0)), LevenbergMarquardt(; optimization_strategy = nothing))
     rt = solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam, poses = views, board_poses = boards)), LevenbergMarquardt(; optimization_strategy = nothing))
     en, et = rn.u, rt.u
-    @test retcode_symbol(rn) === :converged && retcode_symbol(rt) === :converged
+    @test (rn.retcode, rn.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && (rt.retcode, rt.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     @test parameter_vector(en.camera) ≈ parameter_vector(et.camera) rtol = 1.0e-8
     @test maximum(Δ(en.poses[v], et.poses[v]) for v in 1:6) < 1.0e-6
     @test maximum(Δ(en.board_poses[b], et.board_poses[b]) for b in (:A, :B, :C)) < 1.0e-6
@@ -359,7 +378,7 @@ end
     # the gauge held by a view instead: the same solution up to the gauge (every view ∘ board the same map)
     rv = solve(RefineProblem(CameraPosesProblem(noisy; held_boards = (), held_views = (1,)), (; camera = cam0, poses = views0, board_poses = boards0)), LevenbergMarquardt(; optimization_strategy = nothing))
     ev = rv.u
-    @test ev.poses[1] == views0[1] && retcode_symbol(rv) === :converged
+    @test ev.poses[1] == views0[1] && (rv.retcode, rv.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     @test rv.rms ≈ rn.rms rtol = 1.0e-8
     for v in 1:6, b in (:A, :B, :C)
         @test Δ(ev.poses[v] ∘ ev.board_poses[b], en.poses[v] ∘ en.board_poses[b]) < 1.0e-6
@@ -369,7 +388,7 @@ end
     obs = merge(board_views(cam, views, boards), Dict((7, :D) => [X => SVector{2, Float64}(project(cam, vd[7](bd[:D](X))))
                                                                    for X in board_points()]))
     r2 = solve(RefineProblem(CameraPosesProblem(obs), (; camera = cam0, poses = merge(views0, Dict(7 => nudged(views[2], 3))), board_poses = merge(boards0, Dict(:D => bd[:D])))), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(r2) === :converged && r2.u.board_poses[:D] === bd[:D] && r2.rms < 1.0e-9
+    @test (r2.retcode, r2.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && r2.u.board_poses[:D] === bd[:D] && r2.rms < 1.0e-9
     # refusals: a component with no held pose, a key without a pose, a pose without correspondences
     @test_throws r"hold no pose" solve(RefineProblem(CameraPosesProblem(noisy; held_boards = ()), (; camera = cam0, poses = views0, board_poses = boards0)), LevenbergMarquardt(; optimization_strategy = nothing))
     @test_throws r"no pose" solve(RefineProblem(CameraPosesProblem(noisy), (; camera = cam0, poses = views0, board_poses = Dict(:A => boards[:A], :B => boards[:B]))), LevenbergMarquardt(; optimization_strategy = nothing))
@@ -405,8 +424,9 @@ end
 # exact data come back the truth's, the camera exactly as given (no turn of its frame: its controls are no variable,
 # so there is no gauge to fix).
 @testitem "CameraPosesProblem: a held SplineLens camera of CameraRegression and the constructors, non-unit controls" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region, lens
     using VisualGeometryToolkitEstimation: CameraPosesProblem, CameraRegressionProblem, CameraRegression
@@ -424,7 +444,7 @@ end
         bc = bounded(truth)
         res = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = bc, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
         est = res.u
-        @test retcode_symbol(res) === :converged && res.metadata.free == ()
+        @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && res.metadata.free == ()
         @test est.camera === bc                                                                # the camera as given
         @test res.rms < 1.0e-8 < spline_rms(truth, poses0, views)
         @test maximum(maximum(abs, P.R - E.R) + maximum(abs, P.t - E.t) for (P, E) in zip(est.poses, Es)) < 1.0e-8
@@ -437,10 +457,11 @@ end
 # another cell (never rebuilt: the held problem has no rounds), so the poses came back optimal for those windows, not
 # for the camera. The poses move ≈ 20 px here (`perturbed_pose`), across many cells.
 @testitem "CameraPosesProblem: a held SplineLens camera is projected whole — no window, no node column, its own rows" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, retcode_symbol, reprojection_error, model, lens, spline_window, project
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, reprojection_error, model, lens, spline_window, project
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraPosesProblem
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     truth = spline_truth(); Es = truth_poses(3)
@@ -456,7 +477,7 @@ end
     @test crossed > 20
     held = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = bounded(truth), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
     est = held.u
-    @test retcode_symbol(held) === :converged && held.metadata.free == ()
+    @test (held.retcode, held.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && held.metadata.free == ()
     @test dof(held) == 2 * 360 - 6 * 3                                                         # the poses' columns alone: no node
     # the rows are the camera's own reprojection errors at the estimate, and the exact data's optimum is the truth
     own = reduce(vcat, [reduce(vcat, [Vector(reprojection_error(model(est.camera), est.poses[v], first(c), last(c))) for c in views[v]]) for v in eachindex(views)])
@@ -468,8 +489,9 @@ end
 # The held SplineLens camera comes back AS GIVEN (VisualGeometryToolkitEstimation 0.11.0): its controls are no variable,
 # so there is no gauge to fix and no turn onto the optical axis; a forward spline it holds is kept, never refitted.
 @testitem "CameraPosesProblem: a SplineLens camera's poses alone, the camera returned as given, a masked lattice, refusals" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, lens, model, with_present, spline_window, imaged_region
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, CameraPosesProblem, CameraRegressionProblem, CameraRegression
@@ -480,7 +502,7 @@ end
     # the poses alone: the camera comes back as given, the poses recovered in its own frame
     bt = bounded(truth)
     held = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = bt, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(held) === :converged && held.metadata.free == ()
+    @test (held.retcode, held.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize) && held.metadata.free == ()
     @test held.u.camera === bt
     @test maximum(maximum(abs, P.t - E.t) for (P, E) in zip(held.u.poses, Es)) < 1.0e-6
     @test keys(held.metadata.spline) == (:n_dropped_window, :n_dropped_unprojected)
@@ -492,7 +514,7 @@ end
     bc = BoundedCamera(solve(EstimationProblem(CameraRegressionProblem(SplineLens, BoundedCamera(cam0, Size2(1280, 960)), imaged_region(BoundedCamera(cam0, Size2(1280, 960))))), CameraRegression(; tolerance = 1.0e-3)).u, Size2(1280, 960))
     @test lens(model(bc)).forward isa ChartSpline{2}
     rf = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = bc, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
-    @test retcode_symbol(rf) === :converged && rf.u.camera === bc
+    @test (rf.retcode, rf.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && rf.u.camera === bc
     # the forward refit's keywords are retired, naming why
     @test_throws r"`refit_forward` is retired: give `ForwardSpline" solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), refit_forward = false), (; camera = bc, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
     @test_throws r"`forward_tolerance` is retired: give `ForwardSpline" solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), forward_tolerance = 1.0e-3), (; camera = bc, poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
@@ -526,9 +548,10 @@ end
 # A robust refine of the poses through a held SplineLens camera: the bundle's one solve, its strategy included
 # (VisualGeometryToolkitEstimation 0.11.0; the route refused every strategy but least squares).
 @testitem "CameraPosesProblem: a held SplineLens camera under a robust strategy — the outliers down-weighted" setup = [CameraPoseScenes, SplineCameraPoseScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
     using VisualGeometryToolkitCore: weights, noise_scale
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using StaticArrays: SVector
     using LinearAlgebra: normalize
     using Random: Xoshiro
@@ -547,7 +570,7 @@ end
     perr(r) = maximum(maximum(abs, P.t - E.t) for (P, E) in zip(r.u.poses, Es))
     ls = solve(RefineProblem(CameraPosesProblem(noisy; fixed = (:controls,)), (; camera = bounded(truth), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
     rs = solve(RefineProblem(CameraPosesProblem(noisy; fixed = (:controls,)), (; camera = bounded(truth), poses = poses0)), LevenbergMarquardt(; optimization_strategy = Triggs{HuberShape}(efficiency_constant = 1.345)); scale = 0.2)
-    @test retcode_symbol(rs) === :converged && rs.metadata isa CameraPosesRefineMetadata{<:Triggs{HuberShape}}
+    @test (rs.retcode, rs.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && rs.metadata isa CameraPosesRefineMetadata{<:Triggs{HuberShape}}
     @test noise_scale(rs) == 0.2 && scale_source(rs) === ScaleGiven && rs.metadata.loss_width ≈ 1.345 * 0.2
     @test count(<(0.5), weights(rs)) >= 10 && length(weights(rs)) == 360
     @test perr(rs) < perr(ls) / 3
@@ -743,13 +766,14 @@ end
 end
 
 @testitem "CameraPosesProblem: rotation-centre views of a held SplineLens camera — the bearing residual, no projection in the solve" setup = [CameraPoseScenes, SplineCameraPoseScenes, RotationCenterScenes] begin
+    import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: dof, s2
     using VisualGeometryToolkitCore: weights, noise_scale
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: norm, normalize
     using StableRNGs: StableRNG
     import NLLSsolver
-    using VisualGeometryToolkitCore: exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs, lens, with_present, spline_window, backproject, project, ReturnCode, NoRule, retcode_symbol, successful_retcode, CameraModel
+    using VisualGeometryToolkitCore: exp_so3, scale_source, noise_scale, ScaleGiven, ScaleNone, HuberShape, Irls, Triggs, lens, with_present, spline_window, backproject, project, ReturnCode, NoRule, successful_retcode, CameraModel
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitEstimation: CameraPosesProblem, RotationCenterViews
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
@@ -774,7 +798,7 @@ end
     @testset "exact pixels: the truth, the camera held as given, every dot a bearing; the termination record" begin
         r = solve(RefineProblem(CameraPosesProblem(exact; fixed = (:controls,)), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
         @test successful_retcode(r) && scale_source(r) === ScaleNone
-        @test r.retcode == ReturnCode.Success && r.stop_rule != NoRule && retcode_symbol(r) === :converged     # §14: (code, rule)
+        @test r.retcode == ReturnCode.Success && r.stop_rule != NoRule && (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)     # §14: (code, rule)
         @test successful_retcode(r) == successful_retcode(r.retcode)
         est = r.u
         @test est.camera === cam
@@ -882,7 +906,7 @@ end
     end
 end
 
-# 0.11.6: `ReprojectionResidual()` — the bearing refine, then a second stage from its estimate on the exact pixel
+# `ReprojectionResidual()` — the pixel refine, from a bearing refine's estimate (two solves), on the exact pixel
 # reprojection error (a SplineLens camera projected by inverting its backward spline, its forward dropped). From noisy
 # pixels the bearing estimate is first order in the pixel residual; the pixel stage lowers the pixel residual from it,
 # and the projection round trip it relies on is exact.
@@ -909,7 +933,8 @@ end
     rb = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
     rd = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), residual = BearingResidual()), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
     @test rd.u.views.center == rb.u.views.center          # the default is the bearing residual
-    rp = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), residual = ReprojectionResidual()), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
+    # one refine per solve: the pixel refine from the bearing refine's estimate
+    rp = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,), residual = ReprojectionResidual()), rb.u), LevenbergMarquardt(; optimization_strategy = nothing))
     @test successful_retcode(rb) && successful_retcode(rp)
     @test isempty(rp.metadata.without_projection) && rp.metadata.n_without_bearing == 0 && isempty(rb.metadata.without_projection)
     # the pixel stage lowers the pixel residual from the bearing estimate, and reports it (its rms IS the pixel residual)

@@ -80,21 +80,21 @@ _fingerprint(res, nested) = (_snap(res.u, nested), res.retcode, res.stats.nsteps
 function test_recorded(make; nested = RECORDED_NESTED_STATES)
     # the full run, bare and recorded
     st, lh, m, p, θ₀, max_iter = make()
-    bare = block_coordinate_descent!(st, lh, m, p, θ₀; max_iter)
+    bare = _block_coordinate_descent!(st, lh, m, p, θ₀, StopAfterIteration(max_iter))
     bare_state = _snap_state(st, nested)
     st2, lh2, m2, p2, θ₀2, _ = make()
     rec = Recorded(st2)
-    Test.@test isequal(_fingerprint(block_coordinate_descent!(rec, lh2, m2, p2, θ₀2; max_iter), nested), _fingerprint(bare, nested))
+    Test.@test isequal(_fingerprint(_block_coordinate_descent!(rec, lh2, m2, p2, θ₀2, StopAfterIteration(max_iter)), nested), _fingerprint(bare, nested))
     Test.@test isequal(_snap_state(st2, nested), bare_state)
-    Test.@test rec.reason[] !== :continue   # the reason the run ended (its record is the result's, compared above)
+    Test.@test rec.reason[] !== VisualGeometryToolkitCore.CONTINUE   # the record the run ended with (the result's, compared above)
     k_run = bare.stats.nsteps
     k_rec = length(rec.iterates)
-    Test.@test k_rec == (rec.reason[] === :solve_failed ? k_run - 1 : k_run)
+    Test.@test k_rec == (first(rec.reason[]) === VisualGeometryToolkitCore.ReturnCode.Failure ? k_run - 1 : k_run)
     Test.@test length(rec.cost) == length(rec.s2) == k_rec
     # iterate for iterate: the bare run truncated after k is the recorded run's k-th entry
     for k in 1:k_rec
         stk, lhk, mk, pk, θk, _ = make()
-        resk = block_coordinate_descent!(stk, lhk, mk, pk, θk; max_iter = k)
+        resk = _block_coordinate_descent!(stk, lhk, mk, pk, θk, StopAfterIteration(k))
         Test.@test isequal(current_cost(stk), rec.cost[k])
         Test.@test resk.stats.nsteps == k
         k == k_rec && Test.@test isequal(_snap_state(stk, nested), bare_state)

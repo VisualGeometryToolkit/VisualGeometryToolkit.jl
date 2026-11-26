@@ -137,7 +137,8 @@ end
 end
 
 @testitem "rigid alignment: 5 gross outliers move the L2 alignment, not the robust one" setup = [FitContractScenes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using VisualGeometryToolkitCore: Irls, ClassDefault
     using VisualGeometryToolkitCore: HuberShape, WelschShape, weights, withattrs
@@ -159,14 +160,14 @@ end
     cs = Correspondences(walk, gt)
     err(fit) = (rotation_angle(RotMatrix{3, Float64}(rotation(fit.u) * R')), norm(translation(fit.u) - t))
     l2 = rigid_fit(cs)
-    @test retcode_symbol(l2) === :solved
+    @test (l2.retcode, l2.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm)
     clean = rigid_fit(Correspondences(walk[setdiff(1:150, bad)], gt[setdiff(1:150, bad)]))
     e_clean = err(clean)
     e_l2 = err(l2)
     @test e_l2[1] > 10 * max(e_clean[1], 1.0e-4) || e_l2[2] > 10 * max(e_clean[2], 1.0e-3)   # the L2 alignment moves
     for K in (HuberShape, WelschShape)
         rob = rigid_fit(cs; optimization_strategy = Irls{K}(), scale = σ)
-        @test retcode_symbol(rob) === :converged
+        @test (rob.retcode, rob.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         e = err(rob)
         @test e[1] < 2.0e-3 && e[2] < 2.0e-3                                           # beyond tolerance: no
         @test maximum(weights(rob)[bad]) < 0.1
@@ -181,7 +182,8 @@ end
 end
 
 @testitem "robot-world fit: a robust fit through gross observations" setup = [FitContractScenes, PoseScenes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using Test
     using StableRNGs
     using VisualGeometryToolkitCore: Irls, Triggs, ClassDefault
@@ -215,7 +217,7 @@ end
     end
     for K in (HuberShape,)
         rob = rwhe_fit(markers; σ_rot = σ_R, σ_trans = σ_t, optimization_strategy = Irls{K}(), scale = 1.0)
-        @test retcode_symbol(rob) === :converged
+        @test (rob.retcode, rob.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         @test weight_kind(rob) === IrlsWeights() && noise_scale(rob) === 1.0 && scale_source(rob) === ScaleGiven
         @test length(weights(rob)) == N * M
         @test maximum(weights(rob)[[4, 9, 15, 22, 27]]) < 0.2                   # marker 1's block comes first

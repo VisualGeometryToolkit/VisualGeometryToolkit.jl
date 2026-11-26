@@ -1,3 +1,4 @@
+# R22: contract test — the lift protocol of the PnP lens refit (`rows_provider`, `lift_*`)
 @testitem "pnp_lens" setup = [PoseScenes, Contamination] begin
     using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitCore as VgtkCore

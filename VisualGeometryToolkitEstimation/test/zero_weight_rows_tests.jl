@@ -1,3 +1,4 @@
+# R22: contract test — the chart rows' zero-weight rule (`residual_rows!`, `refine!`)
 # A zero-weight row is exactly 0 (0.11.4). Every chart refit — the LO's `refine!`, a `refine_*`'s least squares and
 # both Triggs paths — runs `_chart_refit`, which builds the rows as √w·e. A datum at weight 0 whose own residual is
 # Inf or NaN in Float64 gave 0·Inf = NaN: the LM started at a NaN cost and handed back its seed. The rule, in that

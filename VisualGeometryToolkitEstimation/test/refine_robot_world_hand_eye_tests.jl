@@ -1,5 +1,5 @@
 @testitem "robot-world reprojection refine" setup = [PoseScenes] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: Triggs
 # RobotWorldHandEyeProblem: the reprojection-error refinement (LevenbergMarquardt) of a robot-world
 # calibration A_i X_m = Y B_i^m against the markers' FEATURES, camera and rig
@@ -39,7 +39,7 @@ function rw_trial(block; N = 12, M = 3, f = 600.0, σ = 0.5, rot = 0.01, tr = 0.
     return function (rng)
         sc = rw_scene(rng; N, M, f, σ, layout)
         res = rwhe_refine(rw_seed(rng, sc; rot, tr), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        retcode_symbol(res) === :converged || return nothing
+        (res.retcode, res.stop_rule) in ((VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease), (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize),) || return nothing
         cal = res.u
         δs = vcat([_rwδ(sc.Y, cal.Y)], [_rwδ(sc.X[m], cal.X[m]) for m in 1:M])
         block === :joint && return Vector(reduce(vcat, δs)), Matrix(res.metadata.cov)
@@ -57,7 +57,7 @@ function rw_heldout_trial(; N = 12, M = 3, f = 600.0, σ = 0.5)
         held = filter(o -> o[1] == N + 1, sc.obs)
         isempty(held) && return nothing
         res = rwhe_refine(rw_seed(rng, sc), sc.camera, rw_markers(sc; frames = 1:N); optimization_strategy = nothing)
-        retcode_symbol(res) === :converged || return nothing
+        (res.retcode, res.stop_rule) in ((VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease), (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize),) || return nothing
         cal = res.u
         i, m, cs = held[rand(rng, 1:length(held))]
         P, u = cs[rand(rng, 1:length(cs))]
@@ -76,7 +76,7 @@ end
         sc = rw_scene(rng; σ = 0.0)
         res = rwhe_refine(rw_seed(rng, sc; rot = 0.02, tr = 0.02), sc.camera, rw_markers(sc); optimization_strategy = nothing)
         @test res.u isa RobotWorldHandEyeCalibration{Int}
-        @test retcode_symbol(res) === :converged
+        @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         @test res.rms < 1.0e-9
         @test norm(_rwδ(sc.Y, res.u.Y)) < 1.0e-9
         @test all(norm(_rwδ(sc.X[m], res.u.X[m])) < 1.0e-9 for m in 1:3)
@@ -105,7 +105,7 @@ end
         for m in (nan_px, nan_pt, behind, nan_rig)
             @test_throws ArgumentError rwhe_refine(seed, sc.camera, m; optimization_strategy = nothing)
         end
-        @test retcode_symbol(rwhe_refine(seed, sc.camera, mk; optimization_strategy = nothing)) === :converged        # the untouched input is fine
+        @test (let r = rwhe_refine(seed, sc.camera, mk; optimization_strategy = nothing); (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)        # the untouched input is fine
     end
 
     @testset "the refine contract: Triggs{Welsch} by default at the caller's scale, weights, the scale record" begin
@@ -121,21 +121,21 @@ end
         ls = rwhe_refine(seed, sc.camera, moved; optimization_strategy = nothing)
         @test_throws r"scale = σ" rwhe_refine(seed, sc.camera, moved)
         rt = rwhe_refine(seed, sc.camera, moved; scale = 0.5)
-        @test retcode_symbol(rt) === :converged && err(rt) < err(ls) / 3
+        @test (rt.retcode, rt.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && err(rt) < err(ls) / 3
         @test noise_scale(rt) === 0.5 && scale_source(rt) === ScaleGiven && weight_kind(rt) === IrlsWeights()
         @test rt.metadata.loss_width ≈ efficiency_constant(WelschShape, 2) * 0.5
         @test length(weights(rt)) == sum(length, values(rt.metadata.residuals)) && rt.n == count(>(0), weights(rt))
         @test count(<(0.1), weights(rt)) >= 1
         rh = rwhe_refine(seed, sc.camera, moved; optimization_strategy = Triggs{HuberShape}(), scale = 0.5)
-        @test retcode_symbol(rh) === :converged && err(rh) < err(ls) / 2
+        @test (rh.retcode, rh.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease) && err(rh) < err(ls) / 2
         @test weight_kind(ls) === BinaryWeights() && scale_source(ls) === ScaleNone && all(==(1), weights(ls))
         # the one fixed-scale robust path is ONE robustified LM: an Irls (reweighting cycles) is refused, naming its Triggs
         @test_throws r"Triggs\{HuberShape\}" rwhe_refine(seed, sc.camera, moved; optimization_strategy = Irls{HuberShape}(),
                                                                      scale = 0.5)
         # the LM's own iteration cap is the record's (NLLSsolver's bits under Core's one success rule)
         s₀ = VgtkCore.default_stops(RobotWorldHandEyeProblem(sc.camera, moved))
-        @test retcode_symbol(rwhe_refine(seed, sc.camera, moved; scale = 0.5,
-                                         stops = VgtkCore.LmStops(; max_iter = 1, ftol = s₀.ftol, xtol = s₀.xtol))) === :max_iterations
+        @test (let r = rwhe_refine(seed, sc.camera, moved; scale = 0.5, stops = VgtkCore.LmStops(; max_iter = 1, ftol = s₀.ftol, xtol = s₀.xtol));
+                   (r.retcode, r.stop_rule) end) === (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap)
         @test_throws ArgumentError noise_scale(ls)
         # refusals: a scale for least squares, neither/both, the retired keyword
         @test_throws r"reads no scale" rwhe_refine(seed, sc.camera, moved; optimization_strategy = nothing, scale = 0.5)
@@ -199,7 +199,7 @@ end
         sc = rw_scene(rng; M, σ = 0.0, layout = :grid)
         @test length(rw_markers(sc)) == M                 # every marker is seen
         res = rwhe_refine(rw_seed(rng, sc; rot = 0.1, tr = 0.1), sc.camera, rw_markers(sc); optimization_strategy = nothing)
-        @test retcode_symbol(res) === :converged
+        @test (res.retcode, res.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
         @test res.rms < 1.0e-9
         @test norm(_rwδ(sc.Y, res.u.Y)) < 1.0e-9
         @test all(norm(_rwδ(sc.X[m], res.u.X[m])) < 1.0e-9 for m in 1:M)

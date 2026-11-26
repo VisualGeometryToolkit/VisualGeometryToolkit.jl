@@ -3,7 +3,7 @@
 # maximum-likelihood ellipse, its covariance the one model covariance.
 
 @testitem "ellipse_fitting" begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    
     using VisualGeometryToolkitCore: inlier_mask, noise_scale
     import VisualGeometryToolkitCore as VgtkCore
     import VisualGeometryToolkitEstimation as VgtkEstimation
@@ -98,7 +98,7 @@
 
     @testset "too few points" begin
         @test let r = solve(RefineProblem(EllipseProblem(Point2{Float64}.(ellipse_boundary_points(StableRNG(1), e0, 4))), e0), LevenbergMarquardt(; optimization_strategy = nothing))
-            retcode_symbol(r) === :degenerate && r.stats.nsteps == 0 && r.u == e0
+            (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule) && r.stats.nsteps == 0 && r.u == e0
         end
     end
 end

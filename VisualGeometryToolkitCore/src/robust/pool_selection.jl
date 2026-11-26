@@ -2,7 +2,7 @@
 # Selection over a benchmark pool — the scoring contract applied to a pool
 # record's stored models (`Pools.PoolPair` with its residual matrix).
 #
-#   best_pool_model(scoring, pair, R)        THE per-pair argmax, generic over `score!`
+#   best_pool_model!(ws, scoring, pair, R)   THE per-pair argmax, generic over `score!`
 #   selection_staging(scoring) -> key        scorings sharing a key share one staged batch
 #   stage_selection(key, pairs, Rs; backend) the staged batch of a group of pairs
 #   select_on_grid!(idxs, scoring, grid, staged; problem_type)
@@ -14,11 +14,11 @@
 # the exact kernels (pool_grid_kernels.jl) on the staging's backend
 # (`default_device()` unless the caller supplies one), the same kernels a grid
 # family runs; any other scoring with a width selects per grid column by
-# `with_width` then `best_pool_model`.
+# `with_width` then `best_pool_model!`.
 # =============================================================================
 
 """
-    best_pool_model(scoring, pair::PoolPair, R; ws, scores) -> Int
+    best_pool_model!(ws, scoring, pair::PoolPair, R; scores) -> Int
 
 The index of the best-scoring stored model of `pair` under `scoring` (a scorer
 at its width), scored on the pair's residual matrix `R` (`num_points(pair) ×
@@ -26,13 +26,13 @@ num_models(pair)`, the pool frame's units): per model, [`score!`](@ref) of its
 residual column with its minimal sample (the model's sample points enter at
 zero residual, as in every scorer). The FIRST strictly best model wins; a
 non-finite score never wins; `0` (never a valid index) means no model scores
-above −Inf. A matrix of another shape is a `DimensionMismatch`. `ws` and
-`scores` are the scorer's workspace and per-point scratch, allocated for `pair`
-when omitted.
+above −Inf. A matrix of another shape is a `DimensionMismatch`. It scores on the
+scorer workspace `ws` (`scoring_workspace(scoring, num_points(pair),
+codimension(scoring))`, the mutated argument) with `scores` its per-point scratch
+(allocated for `pair` when omitted).
 """
-function best_pool_model(scoring::AbstractScoring, pair::Pools.PoolPair, R::AbstractMatrix;
-                         ws = scoring_workspace(scoring, Pools.num_points(pair), codimension(scoring)),
-                         scores::AbstractVector{Float64} = Vector{Float64}(undef, Pools.num_points(pair)))
+function best_pool_model!(ws, scoring::AbstractScoring, pair::Pools.PoolPair, R::AbstractMatrix;
+                          scores::AbstractVector{Float64} = Vector{Float64}(undef, Pools.num_points(pair)))
     Pools.check_residual_matrix(pair, R)
     n = Pools.num_points(pair)
     return Pools.best_model_index(Pools.num_models(pair)) do j
@@ -99,7 +99,7 @@ with a per-residual quality ([`has_residual_quality`](@ref)) is scored by
 [`exact_pm_score_kernel!`](@ref) and selected by
 [`argmax_models_kernel!`](@ref) on the staging's backend (per pair, every width in
 one launch, on [`sorted_squared_residuals`](@ref)); any other scoring per column by
-`with_width(scoring, axis(grid[t]))` then [`best_pool_model`](@ref). Either way
+`with_width(scoring, axis(grid[t]))` then [`best_pool_model!`](@ref). Either way
 the FIRST strictly best model wins. A grid family implements its own.
 """
 function select_on_grid!(idxs::AbstractMatrix{Int32}, ::Type, scoring, grid::AbstractVector, staged; _kw...)
@@ -110,7 +110,7 @@ function select_on_grid!(idxs::AbstractMatrix{Int32}, ::Type, scoring, grid::Abs
     for t in eachindex(grid)
         sc = with_width(scoring, _width_of(axis, Float64(grid[t])))
         Threads.@threads for p in eachindex(pairs)
-            idxs[p, t] = best_pool_model(sc, pairs[p], Rs[p])
+            idxs[p, t] = best_pool_model!(scoring_workspace(sc, Pools.num_points(pairs[p]), codimension(sc)), sc, pairs[p], Rs[p])
         end
     end
     return idxs

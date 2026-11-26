@@ -186,10 +186,12 @@ minimal sample. Build it from the scorer and the strategy it will run,
 `RansacWorkspace(problem, scoring, local_optimization_strategy)`; `RansacWorkspace(P,
 n)` holds the default MSAC scorer's. A solve builds its own (`init` keeps it in
 the cache for reuse). The core strategies' workspace is
-[`LoBuffers`](@ref): the refit workspace `refit_workspace(P, n)` —
-VisualGeometryToolkitCore's `ManifoldLmWorkspace{N}` for the chart-LM refits (e.g.
-N = 8 for `HomographyProblem`, 7 for `FundMatProblem`, 6 for
-`AbsolutePoseProblem`) — and the posterior-weight buffers. `DltWorkspace`
+[`LoBuffers`](@ref): the refit workspace `refit_workspace(problem)` — a
+`RefitSlot` for the chart-LM refits (`HomographyProblem`, `FundMatProblem`,
+`AbsolutePoseProblem`, …), holding the summary-free refine cache
+`init(RefineProblem(p, zero(M)), LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`
+that each refit re-points, `solve!(reinit!(c, θ; f = p, weights = w)).u` — and the
+posterior-weight buffers. `DltWorkspace`
 selects the algebraic DLT step, `refine!(ws::DltWorkspace, p, θ, weights)`
 with θ unread, which LO does not call.
 

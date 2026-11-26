@@ -1,3 +1,4 @@
+# R22: contract test — the homography refit step (`refine!`) and the external-refit contract
 @testitem "ransac_homography" setup = [HomographyScenes] begin
     import VisualGeometryToolkitEstimation as VgtkEstimation; include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "thin_homography.jl"))   # `thin_homography_correspondences`
     using VisualGeometryToolkitCore: inlier_mask, noise_scale
@@ -35,50 +36,10 @@ struct _ExternalArm <: VgtkCore.AbstractOptimizationStrategy end
 VgtkCore.RefitFamily(::_ExternalArm) = VgtkCore.ExternalRefit()
 VgtkCore.external_workspace(::_ExternalArm, _problem, _frame, _scoring) = Ref(0)
 VgtkCore.prepare_external!(ws, ::_ExternalArm, _problem, _θ, _width, _scoring) = (ws[] += 1; true)
-VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) = (ws[] += 10; θ)
+VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) =
+    (ws[] += 10; VgtkCore.FitResult(θ, VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm, VgtkCore.SolveStats(), NaN, 0, nothing))
 
 @testset "RANSAC Homography" begin
-
-    @testset "_orientation_preserving — uniform-sign rule" begin
-        # Unit square, counterclockwise in each frame's native labelling.
-        square = (SA[0.0, 0.0], SA[1.0, 0.0], SA[1.0, 1.0], SA[0.0, 1.0])
-
-        # Same handedness (image→image, y-down on both sides): accept.
-        @test VgtkCore._orientation_preserving(square, square)
-
-        # Uniform flip (e.g. world y-up board ↔ image y-down pixels).
-        # Negating y turns every triangle sign simultaneously → all 4 σᵢ < 0.
-        flipped_y = map(p -> SA[p[1], -p[2]], square)
-        @test VgtkCore._orientation_preserving(square, flipped_y)
-
-        # Uniform flip on a non-trivial (projective-ish) target: still accept.
-        warped = (SA[0.0, 0.0], SA[2.0, 0.3], SA[1.8, 2.5], SA[-0.1, 2.0])
-        warped_flipped = map(p -> SA[p[1], -p[2]], warped)
-        @test VgtkCore._orientation_preserving(square, warped_flipped)
-
-        # Bow-tie via adjacent swap: target positions 3↔4 swap makes edges
-        # (p2→p3) and (p4→p1) cross. Triangle signs come out mixed
-        # (+, +, −, −) against the CCW source → reject.
-        bowtie = (square[1], square[2], square[4], square[3])
-        @test !VgtkCore._orientation_preserving(square, bowtie)
-
-        # Bow-tie via diagonal swap: target positions 2↔3 swap draws the two
-        # diagonals of the quadrilateral, which cross at (0.5, 0.5). Triangle
-        # signs come out mixed (−, +, +, −) → reject.
-        bowtie_diag = (square[1], square[3], square[2], square[4])
-        @test !VgtkCore._orientation_preserving(square, bowtie_diag)
-
-        # Uniform reflection (positions 1↔3 swap): every target triangle
-        # flips sign together. The uniform-sign rule accepts this — it is
-        # a coordinate-label reflection, not a self-intersecting map.
-        uniform_reflection = (square[3], square[2], square[1], square[4])
-        @test VgtkCore._orientation_preserving(square, uniform_reflection)
-
-        # Degenerate source (3 collinear points) — one σ is exactly 0, which
-        # contributes no evidence; the rest are consistent → accept.
-        collinear_src = (SA[0.0, 0.0], SA[1.0, 0.0], SA[2.0, 0.0], SA[0.0, 1.0])
-        @test VgtkCore._orientation_preserving(collinear_src, square)
-    end
 
     @testset "test_sample — object→image (y-up ↔ y-down) accepts uniform flip" begin
         # Board coordinates: world y-up (right-handed 2D in its native frame).
@@ -397,8 +358,8 @@ VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth,
             ws = VgtkCore.external_workspace(w, nothing, nothing, nothing)
             @test ws isa Base.RefValue{Int}                                      # the inner's workspace
             @test VgtkCore.prepare_external!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) && ws[] == 1
-            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing) === θ && ws[] == 11
-            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing) === θ && ws[] == 21
+            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.LossWidth(2.0), nothing).u === θ && ws[] == 11
+            @test VgtkCore.external_refit!(ws, w, nothing, θ, VgtkCore.FixedS2(4.0), nothing).u === θ && ws[] == 21
             # an external refit is not counted: the wrapper that ran the bracket counts nothing
             w isa VgtkEstimation.CountedLO && @test w.calls[] == 0 && w.iterations[] == 0 && isempty(w.call_records)
         end

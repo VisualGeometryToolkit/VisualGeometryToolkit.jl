@@ -1,10 +1,11 @@
+# R22: contract test — the PnP chart rows (`residual_rows!`, `residual_jacobian_rows!`) against a reference LM
 @testitem "p3p_lm" setup = [P3PScenes, Cameras] begin
     import VisualGeometryToolkitEstimation as VgtkEstimation
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
 # p3p_lm_tests.jl — the P3P NonlinLsq refit: the FAMILY workspace mechanism
-# (ManifoldLmWorkspace{6}, threaded like the essential/fundmat/homography
-# refits) solved by the stack's chart LM, VGC's `lmsolve_chart!` — NLLSsolver
+# (the summary-free refine cache, threaded like the essential/fundmat/homography
+# refits) solved by the stack's chart LM, Core's `LevenbergMarquardt` refine — NLLSsolver
 # with the adapter's static Gram (`computecostgradhess`). Gated across a size
 # sweep:
 #   (1) RESULTS AGREE WITH NLLSsolver's OWN LAYOUT — a fresh NLLSsolver problem
@@ -31,8 +32,7 @@
 using Test, Random, LinearAlgebra, StaticArrays
 using StableRNGs
 using VisualGeometryToolkitCore
-using VisualGeometryToolkitCore: ManifoldLmWorkspace, lmsolve_chart!, LmProblem, LmStops
-using VisualGeometryToolkitCore: sqrt_weights   # VGC accessor (public)
+using VisualGeometryToolkitCore: LmStops, solve, init, solve!, reinit!, RefineProblem, LevenbergMarquardt
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: LeftRigidManifold6   # the PnP refit chart (public)
 using VisualGeometryToolkitEstimation: _lm_state, residual_rows!, residual_jacobian_rows!
@@ -52,12 +52,28 @@ NLLSsolver.getvars(::_RefRows, vars::Vector) = (vars[1]::SVector{6, Float64},)
 Base.eltype(::_RefRows) = Float64
 NLLSsolver.computeresidual(c::_RefRows, x) = residual_rows!(c.r, c.lm, x)
 NLLSsolver.computeresjac(_vf, c::_RefRows, x) = (residual_rows!(c.r, c.lm, x), residual_jacobian_rows!(c.J, c.lm, x))
-# NLLSsolver's own layout through Core's multi-block form (`LmProblem`), at the same stop settings as the chart LM
-function _reference_run(lm, n)
-    p = LmProblem([zero(SVector{6, Float64})], [_RefRows(lm, zeros(2n), zeros(2n, 6))])
-    sol = lmsolve_chart!(p, LmStops())
-    return p.variables[1], sol.iterations
+# NLLSsolver's own layout through Core's multi-block LM (a one-block bundle), at the same stop settings as the chart LM
+struct _RefBundle{B} <: VisualGeometryToolkitCore.AbstractBlockProblem
+    block::B
 end
+VisualGeometryToolkitCore.block_variables(::_RefBundle, _u0) = [zero(SVector{6, Float64})]
+VisualGeometryToolkitCore.residual_blocks(f::_RefBundle, _u0) = [f.block]
+VisualGeometryToolkitCore.residual_summary(::_RefBundle) = nothing
+VisualGeometryToolkitCore.block_result(::_RefBundle, _u0, r, _summary) = r
+function _reference_run(lm, n)
+    r = solve(RefineProblem(_RefBundle(_RefRows(lm, zeros(2n), zeros(2n, 6))), nothing), LevenbergMarquardt(; optimization_strategy = nothing);
+              stops = LmStops())
+    return r.u[1], r.stats.nsteps
+end
+# The family's chart rows as a row problem of Core's LevenbergMarquardt refine (what `_refine!` runs: the summary-free
+# chart LM on the problem's rows).
+struct _FamilyRows{L} <: VisualGeometryToolkitCore.AbstractRowProblem{6}
+    lm::L
+    rows::Int
+end
+VisualGeometryToolkitCore.chart_size(f::_FamilyRows) = (f.rows, Val(6))
+VisualGeometryToolkitCore.residual_rows!(r, f::_FamilyRows, x) = residual_rows!(r, f.lm, x)
+VisualGeometryToolkitCore.residual_jacobian_rows!(J, f::_FamilyRows, x) = residual_jacobian_rows!(J, f.lm, x)
 
 @testset "P3P LM refit — family workspace, NLLSsolver chart LM" begin
     ALLOCS_BOUND = 0    # NLLSsolver's TYPED OptimizeCache (upstream #62): 0 at every n, Julia 1.13 and 1.12
@@ -67,11 +83,11 @@ end
         R₀, t₀, prob, sw = p3p_scene(rng, IDCAM, n; σ = 0.001)
         ch = LeftRigidManifold6(R₀, t₀)
 
-        # what `_refine!` runs: the family workspace + VGC's chart LM
-        ews = ManifoldLmWorkspace(2n, 6)
-        copyto!(sqrt_weights(ews), sw)
-        lm = _lm_state(prob, ch, sqrt_weights(ews))
-        x_b, _, _, iters = lmsolve_chart!(ews, lm)                  # Core's [lm] stop settings, as `_chart_refit`'s
+        # the chart LM on the family's rows (Core's [lm] stop settings, as the LO refit's)
+        lm = _lm_state(prob, ch, copy(sw))
+        c = init(RefineProblem(_FamilyRows(lm, 2n), zero(SVector{6, Float64})), LevenbergMarquardt(; optimization_strategy = nothing))
+        rb = solve!(c)
+        x_b, iters = rb.u, rb.stats.nsteps
 
         # reference: NLLSsolver's own layout on a fresh problem
         x_a, iters_a = _reference_run(_lm_state(prob, ch, copy(sw)), n)
@@ -84,8 +100,8 @@ end
         @test isapprox(x_b, x_a; rtol = 1.0e-8, atol = 1.0e-8)
 
         # (2) the run's allocations do not grow with n
-        lmsolve_chart!(ews, lm)                 # warm
-        push!(allocs, @allocations lmsolve_chart!(ews, lm))
+        solve!(reinit!(c))                      # warm
+        push!(allocs, @allocations solve!(reinit!(c)))
     end
     @test all(<=(ALLOCS_BOUND), allocs)    # one bound over a 50× range of n
     @test maximum(allocs) - minimum(allocs) <= 4   # flat in n

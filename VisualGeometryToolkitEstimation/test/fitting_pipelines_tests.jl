@@ -1,5 +1,6 @@
 @testitem "fitting_pipelines" setup = [EpipolarScenes, HomographyScenes, PoseScenes, Contamination] begin
-    using VisualGeometryToolkitCore: retcode_symbol
+    import VisualGeometryToolkitCore as VgtkCore
+    
     using VisualGeometryToolkitCore: inlier_mask
     import VisualGeometryToolkitEstimation as VgtkEstimation
 # =============================================================================
@@ -63,7 +64,7 @@ using VisualGeometryToolkitEstimation
 
         # Below the minimal sample the wrapper returns the :no_model result (no trial), it does not throw.
         @test let r = solve(EstimationProblem(HomographyProblem(StructArray(src[1:3] .=> dst[1:3]))), Ransac(); rng = StableRNG(136))
-            retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+            (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
         end
     end
 
@@ -120,7 +121,7 @@ using VisualGeometryToolkitEstimation
         @test s[3] / s[1] < 1.0e-6
 
         @test let r = solve(EstimationProblem(EssentialProblem(ECAM, ECAM, correspondences(topx.(u₁[1:4]), topx.(u₂[1:4])))), Ransac(); rng = StableRNG(140))
-            retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+            (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
         end
         # The floor refusal: a threshold carried over in the OLD calibrated
         # units is rejected, not silently honoured 800x too tight.
@@ -149,7 +150,7 @@ using VisualGeometryToolkitEstimation
         # fewer than the P3P minimal sample: no hypothesis; a minimal sample is
         # searched, and holds no consensus beyond itself
         @test let r = solve(EstimationProblem(AbsolutePoseProblem(cam, StructArray(src[1:2] .=> dst[1:2]))), Ransac(); rng = StableRNG(143))
-            retcode_symbol(r) === :no_model && r.stats.nsteps == 0 && r.u === nothing
+            (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Failure, VgtkCore.TrialBudget) && r.stats.nsteps == 0 && r.u === nothing
         end
         @test !successful_retcode(solve(EstimationProblem(AbsolutePoseProblem(cam, StructArray(src[1:3] .=> dst[1:3]))), Ransac(); rng = StableRNG(143)))
 

@@ -69,6 +69,9 @@ using ..VisualGeometryToolkitCore: FundMat, Rect2, Line2D, LineConfidenceBand, e
 # hands an E problem what an E problem takes (3-vector bearings plus their pixel
 # Jacobians), with the noise model moving into the same frame.
 using ..VisualGeometryToolkitCore: bearing_correspondences, project, Correspondences, withattrs, sources, targets
+using ..VisualGeometryToolkitCore: RefineProblem, FitResult, ReturnCode, ToleranceMet, LeftBasin, SolveStats, ToleranceStops,
+    AbstractEstimationAlgorithm, RefineKind, successful_retcode, solve   # PathFollowing, the continuation as a refine (calibration.jl)
+import ..VisualGeometryToolkitCore: estimator_kind, __solve
 using ..VisualGeometryToolkitCore: cd_pair, _chart_rows   # a correspondence's per-pair constraint factors (manifolds/covariance.jl)
 using ..VisualGeometryToolkitCore.Cameras: _pixel_K   # the pixel K literal (cameras/calibration.jl)
 using ..VisualGeometryToolkitCore: affine_part   # a calibration matrix's pixel affine (calibration.jl)
@@ -105,7 +108,7 @@ public saddle_height
 public CalibrationResult, run_calibration, is_calibrated, noise_ladder,
     format_result, COVERAGE_LEVELS,
     make_point_covs, perturb_pairs, make_query_cov,
-    sample_homography_scene, sample_twoview_scene, track_manifold_solution,
+    sample_homography_scene, sample_twoview_scene, NoisePathProblem, PathFollowing,
     homography_trial, fundmat_trial, essential_trial, F_NORM_SCALE, fundmat_norm_xform,
     ContainmentResult, run_containment, containment_nominal,
     h_transfer_trial, epipolar_band_trial, second_order_moments,

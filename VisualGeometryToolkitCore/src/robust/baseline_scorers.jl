@@ -7,7 +7,7 @@
 # One type per scorer, two uses:
 #   * WIDTH-FREE (`MsacScoring()`, `MsacScoring(dg)`, threshold `nothing`): the
 #     grid family RANSACScoringDoneRight sweeps a loss width over (its
-#     `grid_evaluate`, `best_pool_model`, `pool_model_score` methods);
+#     `grid_evaluate`, `best_pool_model!`, `pool_model_score` methods);
 #   * AT A THRESHOLD (`MsacScoring(dg; threshold = τ)`): the RANSAC-loop scorer of
 #     the scoring contract. Its score is Σ `residual_quality(sc, d², τ)` in index
 #     order, the minimal sample's points entering at zero residual.

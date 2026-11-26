@@ -44,7 +44,7 @@
         @test Irls{WelschShape}(efficiency_constant = 1.5) === lo
         @test typeof(Triggs{CauchyShape}(efficiency_constant = 2.5)) === Triggs{CauchyShape, EfficiencyConstant{Float64}}
         @test strategy_loss(lo) === WelschShape && strategy_loss(Triggs{HuberShape}) === HuberShape
-        @test optimization_path(lo) === :irls && optimization_path(Triggs{TLSShape}(efficiency_constant = 2.5)) === :triggs
+        @test optimization_path(lo) === VgtkCore.OptimizationPath.irls && optimization_path(Triggs{TLSShape}(efficiency_constant = 2.5)) === VgtkCore.OptimizationPath.triggs
         # refusals at construction: an unknown keyword, both widths, a shape that carries its α
         @test_throws r"no keyword `iters`" Irls{WelschShape}(iters = 3)
         @test_throws r"not both" Irls{WelschShape}(efficiency_constant = 1.5, loss_width = 2.0)
@@ -72,7 +72,7 @@
     # Moved from VisualGeometryToolkitEstimation's triggs_tests (the strategy's identity is Core's)
     @testset "Triggs: identity, the required multiple, fixed_width's freeze" begin
         lo = Triggs{CauchyShape}(efficiency_constant = 2.5)
-        @test lo_width(lo) == EfficiencyConstant(2.5) && optimization_path(lo) == :triggs && scale_interface(lo) == ConsensusAnchored()
+        @test lo_width(lo) == EfficiencyConstant(2.5) && optimization_path(lo) === VgtkCore.OptimizationPath.triggs && scale_interface(lo) == ConsensusAnchored()
         # its own path: the Loss-Path label and the path's marker, beside IRLS's
         @test endswith(lo_label(lo), "-Triggs") && lo_marker(lo) === :square
         @test with_width(lo, EfficiencyConstant(3.0)) == Triggs{CauchyShape}(efficiency_constant = 3.0)

@@ -1,3 +1,4 @@
+# R22: contract test — the posterior weight policy's nuisance and weight blocks (`update_nuisance!`, `update_weights!`)
 @testitem "residual_mixture" begin
     import VisualGeometryToolkitCore as VgtkCore
 # =============================================================================
@@ -24,7 +25,7 @@ using VisualGeometryToolkitCore: inlier_mask, is_inlier, inlier_weight, robust_w
 # state's accessors and updates, and the nuisance-part policies.
 using VisualGeometryToolkitCore: s_hat_sq, student_t_dof, inlier_prior, sq_distances, update_scale!, update_nu!,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof
-using VisualGeometryToolkitCore: MsacScoring, median_seeded_posterior, JeffreysPrior
+using VisualGeometryToolkitCore: MsacScoring, JeffreysPrior
 using VisualGeometryToolkitCore: weights, weight_kind, PosteriorWeights, noise_scale, scale_source, ScaleEstimated
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitEstimation: PosteriorLikelihood, MixtureEmConfig, KeepModel, WeightedRefine,
@@ -38,7 +39,7 @@ residual_mixture(d; weighting, model_dof, kw...) =
 import VisualGeometryToolkitEstimation as VgtkEstimation
 include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "residual_mixture.jl"))
 # A posterior seeded at the residuals' median (VisualGeometryToolkitCore's seed).
-median_posterior(r, n) = median_seeded_posterior(r .^ 2, n; outlier_halfwidth = 40.0, ν = 1.0e4, prior = JeffreysPrior(), codimension = 2)
+median_posterior(r, n) = VisualGeometryToolkitEstimation._median_posterior(r, n; outlier_halfwidth = 40.0, ν = 1.0e4, prior = JeffreysPrior(), codimension = 2)
 
 @testset "default nuisance policies == the two-part update, bit for bit" begin
     rng = StableRNG(3)

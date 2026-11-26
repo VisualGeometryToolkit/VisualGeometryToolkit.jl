@@ -271,9 +271,16 @@ const COINCIDENT_PX = 0.1
     end
     return true
 end
-# The same check on a whole fixed-arity tuple (the homography's 4, P3P's 3).
-@inline _are_points_distinct(pts::NTuple{K, <:StaticVector}; tol_px::Real = COINCIDENT_PX) where {K} =
+"""
+    are_points_distinct(pts::NTuple{K, <:StaticVector}; tol_px = COINCIDENT_PX) -> Bool
+
+The minimal-sample coincidence gate on a whole fixed-arity tuple of points (the homography's 4, P3P's 3): no two
+closer than `tol_px` in the CALLER's data frame (a duplicate detection is a pixel fact; `COINCIDENT_PX`, 0.1 px, by
+default). The stack's one such check: the problems' `test_sample` gates read it.
+"""
+@inline are_points_distinct(pts::NTuple{K, <:StaticVector}; tol_px::Real = COINCIDENT_PX) where {K} =
     _points_distinct_idx(pts, Base.OneTo(K); tol_px)
+public are_points_distinct
 
 # -----------------------------------------------------------------------------
 # test_sample — pre-solve degeneracy gate (dispatch on model class)
@@ -306,7 +313,7 @@ function test_sample(
     @inbounds src = (u[idx[1]], u[idx[2]], u[idx[3]], u[idx[4]])
     @inbounds dst = (v[idx[1]], v[idx[2]], v[idx[3]], v[idx[4]])
     return _orientation_preserving(src, dst) &&
-        _are_points_distinct(src; tol_px) && _are_points_distinct(dst; tol_px) &&
+        are_points_distinct(src; tol_px) && are_points_distinct(dst; tol_px) &&
         _not_collinear(src) && _not_collinear(dst)
 end
 

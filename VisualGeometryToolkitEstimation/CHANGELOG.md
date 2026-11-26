@@ -13,6 +13,45 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   calibration its pose type (`RobotWorldHandEyeCalibration{K, P}`); build a pose as `EuclideanMap(RotMatrix{3}(R),
   Vec3(t))`. Bit-identical.
 
+### On Core 0.14's breaking set (R22: one front end; the bundles on the block contract)
+- **The local optimization's refits run through Core's front end.** A chart problem's refit workspace is a
+  `RefitSlot` (`refit_workspace(problem)`): Core's summary-free refine cache, `init(RefineProblem(p, zero(M)),
+  LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`, re-pointed per refit by
+  `solve!(reinit!(c, θ; f = p, weights)).u` (0 allocations warm, against 38 for the retired chart kernel), and for a
+  `Triggs{K}` local optimization a second cache at its deployed loss (`width = loss`; `reinit!` 0, `solve!` 8 against
+  53). The problems' refit chart and rows are Core's contract generics `refit_chart`/`refit_rows` (the radial seed
+  chart, the RadialCamera decline, PnP's calibrated rows). `refit_workspace(P, n[, local_optimization_strategy])` (a type, no data)
+  is an empty slot of the same concrete cache types (inferred from `P`), which the first refit fills, so a
+  pre-allocated `RansacWorkspace(P, n, …)` refits allocation-free too. Bit-identical.
+- **The posterior-weight iterations solve `BlockCoordinateDescent`** with their seeded state as the problem's context
+  (`solve(RefineProblem(problem, θ₀, state), BlockCoordinateDescent(method; likelihood); stops =
+  StopAfterIteration(max_iter))`): the RANSAC local optimization, `ResidualMixture` and `DivisionCameraFit`. The stop
+  criteria record the enums: `StopWhenParameterChangeLess` is `(Success, ParameterChange)`, `StopWhenNoImprovement`
+  `(Success, NoImprovement)` (`(Success, CostDecrease)` under a held model), `CONTINUE` while running; the
+  `stop_rule(criterion, method)` methods are folded into them.
+- **The bundles implement Core's block contract** (`block_variables`, `residual_blocks`, `residual_summary`,
+  `block_result`; the `block_refit` methods are gone): `RelativePoseProblem` (too few correspondences is Core's
+  `minimal_sample_size` guard, 5), `CameraPosesProblem` (every parametrization: each states its bundle at the guess
+  and assembles its result through its one pipeline), `RobotWorldHandEyeProblem` (`RowsWithJacobian`: the covariance's
+  Jacobian is Core's summary). Bit-identical. `CameraPosesProblem` and `RobotWorldHandEyeProblem` implement Core's
+  `block_structure`: each solve runs the bundle's pipeline once (its blocks, variables and the assembly of its
+  result), and `block_result` assembles from that statement; the robot-world refine is inferred concrete. Measured
+  warm against the non-breaking line: CameraPoses' pinhole refine 73237 → 73673 allocations (it was 99243, the pipeline
+  run three times at ~1.5× the time), robot-world M = 3 1263 → 1164, M = 20 6079 → 5848, its Triggs refine 5045 → 1205. A physical seed of a `RelativePoseProblem` refine (its translation in
+  metres) is an `ArgumentError` naming `ustrip(m, pose)` (the pose is up to scale; it was a `MethodError`).
+- `retcode_symbol` is read nowhere: the docstrings state the `(retcode, stop_rule)` records; `DivisionCameraFit`'s leg
+  audit reads its record (a failed leg: a failure code other than a seed-kept guard or a no-model verdict, or a
+  non-finite start: the records the retired map named `:solve_failed`, unchanged). The division
+  fit's posterior seed is Core's `MedianNormScale` on the finite residuals; `GeneralizedCrossValidation` minimizes by
+  `GridBrent`; the P3P sample gate calls Core's public `are_points_distinct`.
+- **`ReprojectionResidual()` is the pixel refine alone** (breaking): a `CameraPosesProblem` on `RotationCenterViews`
+  with `residual = ReprojectionResidual()` refines on the exact pixel reprojection error FROM ITS GUESS; it no longer
+  runs the bearing refine first. One refine per solve: the bearing-then-pixel flow is two solves, the pixel refine's
+  guess the bearing refine's estimate (`rb = solve(RefineProblem(CameraPosesProblem(cs; fixed), u0), alg)`, then
+  `solve(RefineProblem(CameraPosesProblem(cs; fixed, residual = ReprojectionResidual()), rb.u), alg)`), the same
+  arithmetic in the same order as the fused form, bit for bit. The dots of the pixel refine are those that
+  back-project and project at its guess (`metadata.without_bearing`, `without_projection`, as before).
+
 ### Conformance (no public estimator outside `solve`)
 - **`draw_hypotheses` and `Hypotheses` are internal** (`_draw_hypotheses`, `_Hypotheses`): the generator solves
   minimal problems (`sample_models`), so it is an estimator, and only Estimation uses it. A pool record is

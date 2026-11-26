@@ -59,8 +59,7 @@ stack's extensions. Read every field AS A FIELD — `r.u`, `r.retcode`,
 success test is [`successful_retcode`](@ref)`(r)`. The cross-type contract
 quantities (implemented by other types too) are read by their functions only:
 [`noise_scale`](@ref), [`scale_source`](@ref), [`weights`](@ref),
-[`inlier_mask`](@ref), [`dof`](@ref), `s2`, [`found_model`](@ref) and
-[`retcode_symbol`](@ref) — one way per quantity (conventions/data-arguments.md).
+[`inlier_mask`](@ref), [`dof`](@ref), `s2` and [`found_model`](@ref) — one way per quantity (conventions/data-arguments.md).
 
 SciML's fields (`SciMLBase.NonlinearSolution`):
 - `u::U` — the estimate: the model, camera, calibration record… A find that

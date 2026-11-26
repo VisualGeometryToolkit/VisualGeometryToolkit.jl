@@ -8,7 +8,7 @@
 # their frozen Sampson factor (`whitening_factor`), weighted per correspondence. Its gradients need a solution
 # to be evaluated at, and its robust weights need the previous residuals — so
 # the estimator is an IRLS on the stack's SHARED posterior-weight iteration — a
-# `PosteriorIrlsMethod` of `block_coordinate_descent!` configured by a
+# `PosteriorIrlsMethod` of `BlockCoordinateDescent` configured by a
 # `MixtureEmConfig`, its E-step the posterior of the shared Student-t + uniform
 # scorer — over the stack as a `DivisionCameraProblem`:
 #
@@ -113,7 +113,7 @@ _combined_weights(prior, post) = [p .* q for (p, q) in zip(prior, post)]
 # posterior `w` (`audit`: with the branch audit). `nothing` when it has no system
 # to solve (a `DivisionCameraError` from the stacked focal solve: no admissible pose,
 # no depth information, a singular or non-positive solve) — the loop's
-# `:solve_failed`, which ends the fit on its incumbent; an argument error is a bug
+# `(Failure, NonFinite)`, which ends the fit on its incumbent; an argument error is a bug
 # and propagates.
 function refine!(::Nothing, p::DivisionCameraProblem, θ::_PositionalDivisionState, w::AbstractVector; audit::Bool = false)
     pw = _combined_weights(p.prior, _board_weights(w, p.boards))
@@ -322,7 +322,7 @@ re-judges every view's branch at the shared (f, k), robustly; if it moves any,
 the IRLS resumes from there within what is left of `max_iter` (the audit counts
 as an iteration, so `iterations` never exceeds `max_iter`); if it moves none the
 IRLS continues unchanged, bit for bit (clean stacks). Never after
-`:solve_failed`, nor at `max_iter = 1`. Measured: 104 → 4
+a failed solve, nor at `max_iter = 1`. Measured: 104 → 4
 wrong views at 3 %, 66 → 1 at 5 %, no correct view moved, and the held-out
 residuals calibrated against ŝ²·I₂ in the tail as well as the bulk
 (`test/ransac_mc_calibration_tests.jl` (e)).
@@ -351,7 +351,7 @@ The scorer's `outlier_halfwidth` (pixels) is the half-width of the uniform outli
 — the same quantity the RANSAC problems take; it must NOT be the residual scale
 (a half-width at the median residual makes the outlier component as dense as the
 inliers and zeroes every weight — measured). The posterior is seeded from the
-median residual ([`median_seeded_posterior`](@extref VisualGeometryToolkitCore.median_seeded_posterior)): every point starts an
+median residual (the posterior's scale at [`MedianNormScale`](@extref VisualGeometryToolkitCore.MedianNormScale)'s σ): every point starts an
 inlier and the M-step shrinks ŝ as the model improves.
 
 That seed and schedule are load-bearing, not incidental. Five alternatives were
@@ -375,7 +375,7 @@ that step re-weighted once, with no branch audit. A stack whose
 iteration 0 cannot solve at all (no board admits a pose, none carries depth, the solve is
 singular) raises the `DivisionCameraError` — there is no iterate to return;
 a later iteration that cannot solve ends the fit on the last good one
-(`:solve_failed`).
+(`(Failure, NonFinite)`).
 
 The radial cameras are FIXED. Each view's radial camera is an input, estimated once by the
 caller — BlobBoards fits every one linearly about the centre, iterated to its
@@ -469,7 +469,7 @@ function _division_camera_fit(
     # calibration gate). When the audit moves a view the IRLS resumes from the
     # audited iteration, its posterior refreshed there, for what remains of the
     # budget; when it moves none, the IRLS simply continues from its incumbent.
-    # Never after `:solve_failed`.
+    # Never after a failed solve.
     #
     # The termination record (§14): each leg's, the legs combined by `worst_retcode`
     # (the later on a tie). A leg that stopped at the CHECKPOINT did not terminate —
@@ -480,8 +480,8 @@ function _division_camera_fit(
     niter, rc = res.stats.nsteps, res.retcode
     record = (rc, res.stop_rule)
     θ = res.u
-    # a failed leg (a failed solve, a non-finite start: what `retcode_symbol` names `:solve_failed`) is not audited
-    audited = retcode_symbol(record...) !== :solve_failed && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
+    # a failed leg (a failed solve, a non-finite start) is not audited
+    audited = !_failed_leg(record...) && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
     if audited !== nothing
         verbose && println("  branch audit: $(_moved_branches(audited, θ)) view(s) moved; resuming")
         st = _division_irls_state(st.rws, problem, audited, st.residuals, lh; refresh = true)
@@ -540,13 +540,27 @@ function _division_irls(problem::DivisionCameraProblem, weighting::StudentTUnifo
                                    k = problem.k, point_weights = problem.prior, whiten_at = fseed)
     n = data_size(problem)
     r = mahalanobis_distances!(Vector{Float64}(undef, n), problem, state0)
-    rws = median_seeded_posterior(square_distances!(Vector{Float64}(undef, n), r, n), n;
-                                  outlier_halfwidth = required_outlier_halfwidth(weighting), ν = _DIVISION_SEED_NU,
-                                  codimension = codimension(weighting), prior = scale_prior(weighting))
+    rws = _median_posterior(r, n; outlier_halfwidth = required_outlier_halfwidth(weighting), ν = _DIVISION_SEED_NU,
+                                   codimension = codimension(weighting), prior = scale_prior(weighting))
     nu = mixture_em.nuisance
     lh = PosteriorLikelihood(rws, n; scale_update = nu.scale, prior_update = nu.inlier_prior, nu_update = nu.nu)
     st = PosteriorIrlsState(rws, r, copy(r), state0, weighted_rss(robust_weight(rws), sq_distances(rws), n))
     return st, lh, PosteriorIrlsMethod(nothing, mixture_em), state0
+end
+
+# The posterior seeded at the median residual: its ŝ the robust noise scale of the finite residuals `r`
+# (`MedianNormScale`, `NaN` when none is finite), every datum at that scale under the outlier half-width, then the
+# E-step at the squared residuals. Every point starts an inlier candidate; a NaN residual is none.
+function _median_posterior(r::AbstractVector, n::Int; outlier_halfwidth::Real, ν::Real, prior::IGPrior,
+                                  codimension::Int)
+    sq = square_distances!(Vector{Float64}(undef, n), r, n)
+    norms = [sqrt(x) for x in sq if !isnan(x)]
+    s = isempty(norms) ? NaN : solve(EstimationProblem(NoiseScale, norms, (; codimension)), MedianNormScale()).u
+    pws = PosteriorWeightState(n; ν, s_hat_sq = s * s, log_two_outlier_halfwidth = log(2 * Float64(outlier_halfwidth)),
+                               codimension, prior)
+    square_distances!(sq_distances(pws), r, n)
+    update_weights!(pws, n)
+    return pws
 end
 
 # One run of the loop from `θ` for at most `max_iter` iterations (none at 0), its
@@ -555,8 +569,21 @@ end
 
 function _division_run!(st, lh, method, problem::DivisionCameraProblem, θ, max_iter::Int, first_iter::Int)
     run = problem.verbose ? VgtkCore.Recorded(st) : st
-    res = block_coordinate_descent!(run, lh, method, problem, θ; max_iter)
+    res = solve(RefineProblem(problem, θ, run), BlockCoordinateDescent(method; likelihood = lh); stops = StopAfterIteration(max_iter))
     _print_iterations(run, first_iter)
-    problem.verbose && println("  -> $(retcode_symbol(res)) after $(res.stats.nsteps) iteration(s)")
+    problem.verbose && println("  -> $(res.retcode) ($(res.stop_rule)) after $(res.stats.nsteps) iteration(s)")
     return res
+end
+
+# Whether a leg's record is a failed solve: a failure code — not a stop that kept a usable estimate (`Success`,
+# `Terminated`, the caps, `Stalled`), not a run that never started (`Default`) — whose rule is not a guard that kept the
+# seed (`SeedKept`), not a no-model verdict (`Failure` at a `TrialBudget` or `AdaptiveCount`) and, for `InitialFailure`,
+# a non-finite start (a degenerate one is no solve). Such a leg's iterate is not audited.
+function _failed_leg(code::ReturnCode.T, rule::StopRule)
+    code in (ReturnCode.Default, ReturnCode.Success, ReturnCode.Terminated, ReturnCode.MaxIters, ReturnCode.MaxTime,
+             ReturnCode.Stalled) && return false
+    rule == SeedKept && return false
+    code == ReturnCode.Failure && return !(rule == TrialBudget || rule == AdaptiveCount)
+    code == ReturnCode.InitialFailure && return rule == NonFinite
+    return true
 end

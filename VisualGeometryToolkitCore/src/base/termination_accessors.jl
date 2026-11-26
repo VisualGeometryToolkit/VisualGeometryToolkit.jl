@@ -17,16 +17,6 @@ solve did. For a RANSAC, whether it FOUND a model is [`found_model`](@ref).
 successful_retcode(r::FitResult) = successful_retcode(r.retcode)
 
 """
-    retcode_symbol(r::FitResult) -> Symbol
-
-The legacy Symbol spelling of the result's record,
-`retcode_symbol(r.retcode, r.stop_rule)` (`:converged`, `:solved`,
-`:max_iterations`, `:degenerate`, `:solve_failed`, `:stalled`, `:max_time`,
-`:no_model`): for a log line or a persisted record that names the Symbol.
-"""
-retcode_symbol(r::FitResult) = retcode_symbol(r.retcode, r.stop_rule)
-
-"""
     found_model(r::FitResult) -> Bool
 
 Whether the solve returned an estimate — a RANSAC's "a model was found"

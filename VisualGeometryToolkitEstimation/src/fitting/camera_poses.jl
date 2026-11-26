@@ -24,7 +24,7 @@
 # accepted step; each correspondence is one residual block of 2 rows, depending
 # on the camera and its view's pose (on the pose alone with nothing free in the
 # camera), differentiated by NLLSsolver (ForwardDiff through the retractions and
-# the lens). The driver is Core's one multi-block LM (`LmProblem` + `lmsolve_chart!`, Marquardt's DᵀD damping, its
+# the lens). The driver is Core's one multi-block LM (the block contract of its `LevenbergMarquardt` refine, Marquardt's DᵀD damping, its
 # stop settings `LmStops`); the stop is recorded under its one success rule (Core 0.11.0: a tolerance stop is converged;
 # the rejection cap is judged by the stall postcondition on the rows and their Jacobian at the estimate).
 #
@@ -102,15 +102,39 @@ const _CAMERA_POSES_STOPS = LmStops(; max_iter = _dflt("camera_poses_problem", "
                                     xtol = _dflt("camera_poses_problem", "xtol"))
 default_stops(::CameraPosesProblem) = _CAMERA_POSES_STOPS
 default_optimization_strategy(::CameraPosesProblem) = _dflt_strategy("camera_poses_problem", :camera_poses_problem)
-block_refit(f::CameraPosesProblem, u0::NamedTuple{(:camera, :poses)}, loss, stops::LmStops, damping::LmDamping) =
-    _camera_poses(u0.camera, u0.poses, f.correspondences; f.settings..., loss, stops, damping)
-block_refit(f::CameraPosesProblem, u0::NamedTuple{(:camera, :poses, :board_poses)}, loss, stops::LmStops, damping::LmDamping) =
-    _camera_poses(u0.camera, u0.poses, u0.board_poses, f.correspondences; f.settings..., loss, stops, damping)
-function block_refit(f::CameraPosesProblem, u0::NamedTuple{(:camera, :views)}, loss, stops::LmStops, damping::LmDamping)
+# The block contract (Core's multi-block LM): the bundle stated ONCE at the guess by the one pipeline of every
+# parametrization (`_camera_poses`) — its blocks, its variables and the assembly of its result (`block_structure`) —
+# and the result assembled from that statement with Core's solution and residual summary (`block_result`): the
+# pipeline never runs twice in a solve. No strategy is read when it is stated: Core robustifies the blocks.
+_camera_poses_run(f::CameraPosesProblem, u0::NamedTuple{(:camera, :poses)}) =
+    _camera_poses(u0.camera, u0.poses, f.correspondences; f.settings...)
+_camera_poses_run(f::CameraPosesProblem, u0::NamedTuple{(:camera, :poses, :board_poses)}) =
+    _camera_poses(u0.camera, u0.poses, u0.board_poses, f.correspondences; f.settings...)
+function _camera_poses_run(f::CameraPosesProblem, u0::NamedTuple{(:camera, :views)})
     residual = get(f.settings, :residual, BearingResidual())
     rest = NamedTuple{Tuple(k for k in keys(f.settings) if k !== :residual)}(f.settings)
-    return _camera_poses(u0.camera, u0.views, f.correspondences, residual; rest..., loss, stops, damping)
+    return _camera_poses(u0.camera, u0.views, f.correspondences, residual; rest...)
 end
+block_structure(f::CameraPosesProblem, u0) = (s = _camera_poses_run(f, u0); (s.vars0, s.blocks, s))
+# The result: the statement's assembly from Core's solved variables, its record and the residual summary (the rows, S,
+# ν, the weights and their support and rms, the parsed loss the metadata records).
+block_result(::CameraPosesProblem, _u0, r::FitResult, s) = _assembled(r, s, Val((:rms, :n, :residuals, :S, :ν, :weights)))
+
+# A bundle stated at its guess, what a bundle pipeline's statement returns (the camera-poses and hand-eye bundles'):
+# its residual blocks, its variables, and `finish(sol, loss)`, the assembly of its result from the solved bundle `sol`
+# and the parsed loss (Core's `bundle_loss`). A wrapper of the pipeline composes its own reading of the result onto
+# `finish` (`_then`). Concrete (the closures' types), so the block contract's reads and the refine are inferred.
+struct _BundleStatement{B, V, F}
+    blocks::B
+    vars0::V
+    finish::F
+end
+_then(g, st::_BundleStatement) = _BundleStatement(st.blocks, st.vars0, (sol, loss) -> g(st.finish(sol, loss)))
+# A stated bundle's result (its `block_result`): its assembly on Core's solved variables and record and the
+# residual-summary fields `keys` it reads, at the summary's parsed loss.
+_assembled(r::FitResult, s::NamedTuple, ::Val{keys}) where {keys} =
+    s.stated.finish(merge((; variables = r.u, code = r.retcode, rule = r.stop_rule, iterations = r.stats.nsteps),
+                          NamedTuple{keys}(s)), s.loss)
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
 const _RefinedCamera = Union{CameraModel, BoundedCamera{<:CameraModel}}
@@ -242,7 +266,7 @@ scratch and the camera keeps its family (its lens type).
 The estimate is `(; camera, poses)`: the refined camera, and the refined poses
 keyed like the input (a `Dict` by the same keys, or a vector in view order,
 each with its input's frame labels). Its termination record (`retcode`, `stop_rule`) is the last solve's,
-VisualGeometryToolkitCore's one LM (`lmsolve_chart!`): `ReturnCode.Success` at a tolerance stop (`ftol`, `xtol`;
+VisualGeometryToolkitCore's one LM: `ReturnCode.Success` at a tolerance stop (`ftol`, `xtol`;
 Core 0.11.0: whatever the gradient there) or at the rejection cap when the estimate is stationary, else `MaxIters`
 (the iteration cap), `MaxTime`, `Failure`/`InitialFailure` (`NonFinite`) or
 `Stalled` (the rejection cap short of a stationary point); `rms` is
@@ -318,8 +342,10 @@ function _camera_poses(
         kwargs...
     ) where {K}
     ids = block_order(views, poses)
-    est, rest... = _refine_camera_and_poses(camera, [poses[k] for k in ids], [views[k] for k in ids]; kwargs...)
-    return FitResult((; camera = est.camera, poses = Dict{K, eltype(est.poses)}(zip(ids, est.poses))), rest...)
+    return _then(_refine_camera_and_poses(camera, [poses[k] for k in ids], [views[k] for k in ids]; kwargs...)) do r
+        est = first(r)
+        FitResult((; camera = est.camera, poses = Dict{K, eltype(est.poses)}(zip(ids, est.poses))), Base.tail(r)...)
+    end
 end
 function _camera_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:PlainEuclideanMap{3}},
@@ -327,7 +353,7 @@ function _camera_poses(
         kwargs...
     )
     length(poses) == length(views) || throw(ArgumentError("CameraPosesProblem: $(length(poses)) poses for $(length(views)) views"))
-    return FitResult(_refine_camera_and_poses(camera, collect(poses), collect(views); kwargs...)...)
+    return _then(r -> FitResult(r...), _refine_camera_and_poses(camera, collect(poses), collect(views); kwargs...))
 end
 
 # Several boards: the view poses (world → camera) and the board poses (board → world) keyed, the correspondences keyed
@@ -384,9 +410,11 @@ function _camera_poses(
             "$(repr([bids[b] for b in 1:nb if root(nv + b) == c])) hold no pose: their common motion is free (hold a board or a view)"))
     end
     obs = [(vi[v], bi[b], _correspondence(vi[v], j, c)...) for (v, b) in keys_ for (j, c) in enumerate(views[(v, b)])]
-    est, rest... = _refine_bundle(camera, [poses[k] for k in vids], [board_poses[k] for k in bids], obs, held_v, held_b; kwargs...)
-    return FitResult((; camera = est.camera, poses = Dict{V, eltype(est.poses)}(zip(vids, est.poses)),
-                                 board_poses = Dict{B, eltype(est.boards)}(zip(bids, est.boards))), rest...)
+    return _then(_refine_bundle(camera, [poses[k] for k in vids], [board_poses[k] for k in bids], obs, held_v, held_b; kwargs...)) do r
+        est = first(r)
+        FitResult((; camera = est.camera, poses = Dict{V, eltype(est.poses)}(zip(vids, est.poses)),
+                     board_poses = Dict{B, eltype(est.boards)}(zip(bids, est.boards))), Base.tail(r)...)
+    end
 end
 
 # Physical inputs: the poses and the target points in metres once, the plain
@@ -395,17 +423,17 @@ function _camera_poses(
         camera::_RefinedCamera, poses::AbstractDict{K, <:_PhysicalPose3},
         views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     ) where {K}
-    r = _camera_poses(
+    st = _camera_poses(
         camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_correspondences(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
     )
-    return VgtkCore.map_estimate(est -> (; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), r)
+    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), r), st)
 end
 function _camera_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
         views::AbstractVector{<:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     )
-    r = _camera_poses(camera, map(_plain_metres, poses), [_map_correspondences(_plain_metres, identity, cs) for cs in views]; kwargs...)
-    return VgtkCore.map_estimate(est -> (; camera = est.camera, poses = map(_attach_metres, est.poses)), r)
+    st = _camera_poses(camera, map(_plain_metres, poses), [_map_correspondences(_plain_metres, identity, cs) for cs in views]; kwargs...)
+    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = map(_attach_metres, est.poses)), r), st)
 end
 
 
@@ -447,15 +475,14 @@ function _refine_views(kw, bounded::_RefinedCamera, camera, poses::AbstractVecto
     V = length(poses)
     V >= 1 || throw(ArgumentError("CameraPosesProblem: no views"))
     world = EuclideanMap(RotMatrix{3, Float64}(one(SMatrix{3, 3, Float64, 9})), zero(SVector{3, Float64}))
-    est, rest... = _refine_bundle(kw, bounded, camera, chart, poses, [world], obs, falses(V), trues(1); spline)
-    return (; camera = est.camera, poses = est.poses), rest...
+    return _then(r -> ((; camera = first(r).camera, poses = first(r).poses), Base.tail(r)...),
+                 _refine_bundle(kw, bounded, camera, chart, poses, [world], obs, falses(V), trues(1); spline))
 end
 
 
 # The refine's keywords, shared by every parametrization: parsed once (the retired spellings refused; the strategy, its
 # scale input and its loss: `bundle_loss`).
 function _bundle_keywords(;
-        loss::NamedTuple, stops::LmStops, damping::LmDamping,   # the solve's: the parsed refine (Core's `bundle_loss`), its stops, the LM's damping
         fixed::Tuple{Vararg{Symbol}} = (),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
         box::Union{Nothing, NamedTuple} = nothing,
@@ -465,7 +492,7 @@ function _bundle_keywords(;
     refuse_retired_keyword(robust, :robust, :optimization_strategy)
     refuse_retired_keyword(local_optimization, :local_optimization, :optimization_strategy)
     _refuse_held_spellings(free, fix, fixed_params, hold)
-    return (; fixed, box, stops, damping, lo = loss.strategy, input = loss.input, loss = loss.loss)
+    return (; fixed, box)
 end
 
 # The camera's chart: every parameter refined but the `fixed` ones (names or groups: `:k` holds k1…) and the gauge (the
@@ -480,7 +507,7 @@ end
 # The one bundle: a camera, view poses (world → camera) and board poses (board → world), each a variable unless held
 # (`held_views`, `held_boards`), against the reprojection error of `obs`, `(view, board, X, u)` each. One NLLSsolver
 # problem: the camera's chart (when anything is free), a pose chart per free view and per free board, one residual
-# block per correspondence; solved by Core's `block_lm`. The keyword form parses the bundle's keywords and the camera's
+# block per correspondence: its statement (`_BundleStatement`), which Core's multi-block LM solves. The keyword form parses the bundle's keywords and the camera's
 # chart; the parsed form takes them (`kw`, `(free, chart)`: `((), nothing)` holds the camera), projects through
 # `camera` (the bounded camera's model, or the SplineLens route's camera without its forward) and returns `bounded`
 # itself when nothing of the camera is free; `spline` is the SplineLens route's record (`CameraPosesRefineMetadata`).
@@ -529,28 +556,35 @@ function _refine_bundle(
     chc === nothing || push!(vars0, chc)
     foreach(v -> held_views[v] || push!(vars0, view_charts[v]), 1:V)
     foreach(b -> held_boards[b] || push!(vars0, board_charts[b]), 1:B)
-    sol = _block_lm(blocks, vars0, p, kw)
+    return _BundleStatement(blocks, vars0, (sol, loss) -> _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards,
+                                                                          view_charts, board_charts, view_var, board_var; spline))
+end
+# The bundle's result from its solve `sol` at the parsed `loss`: the camera, the views' and the boards' poses read back
+# (a held one as given), refused when not finite, with the record and the metadata.
+function _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards, view_charts, board_charts, view_var, board_var;
+                          spline)
+    plain(ch) = model(ch)::PlainEuclideanMap{3, Float64}
     variables = sol.variables
-    camera_out = chc === nothing ? camera : model(variables[1])
+    model_out = chc === nothing ? camera : model(variables[1])
     pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(variables[var[i]]::LeftRigidManifold6{Float64})
-    poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in 1:V]
-    boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in 1:B]
-    all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(camera_out)) ||
+    poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in eachindex(view_charts)]
+    boards_out = PlainEuclideanMap{3, Float64}[pose_of(board_charts, board_var, b) for b in eachindex(board_charts)]
+    all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(model_out)) ||
         throw(ErrorException("CameraPosesProblem: the LM step is not finite"))
-    camera_out = camera_out === camera ? bounded : VgtkCore.with_model(bounded, camera_out)
+    camera_out = model_out === camera ? bounded : VgtkCore.with_model(bounded, model_out)
     return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code, sol.rule,
-        SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, _bundle_metadata(sol, free, kw; spline)
+        SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, _bundle_metadata(sol, free, loss; spline)
 end
 
-# The shared solve of every parametrization: the residual blocks `blocks` (2 rows each, one per correspondence, each
-# answering `with_robustifier`) on the variables `vars0` (`p` unknowns), under the parsed keywords `kw`. Least squares is
+# The shared solve of every parametrization (Core's multi-block LM through the block contract): the stated residual
+# blocks (2 rows each, one per correspondence, each answering `with_robustifier`) on the stated variables, at the
+# parsed loss (`loss`, Core's `bundle_loss`). Least squares is
 # the whole solve when `optimization_strategy = nothing`. A robust refine has NO least-squares stage (the owner's
 # ruling, 2026-11-11): the strategy's solve starts from the caller's start, its loss at its width over the caller's
 # frozen `scale` or at its absolute width: Triggs, ONE robustified LM (Core's `loss_robustifier`), the refine
 # contract's one fixed-scale robust path (an Irls is refused by `bundle_loss`). A refine estimates no scale. Returns the variables at the estimate, the termination record (`code`, `rule`), the iterations, the reprojection rows,
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
-# loop.jl: under least squares every correspondence and √(S/n)).
-_block_lm(blocks, vars0, p, kw) = block_lm(blocks, vars0, p, (; strategy = kw.lo, kw.input, kw.loss), kw.stops; kw.damping)
-_bundle_metadata(sol, free, kw; spline = nothing) = CameraPosesRefineMetadata{typeof(kw.lo)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
-    _row_norms(sol.residuals), sol.weights, VgtkCore.scale_record(kw)...)
+# loop.jl: under least squares every correspondence and √(S/n)); the metadata records them with the parsed loss.
+_bundle_metadata(sol, free, loss; spline = nothing) = CameraPosesRefineMetadata{typeof(loss.strategy)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
+    _row_norms(sol.residuals), sol.weights, VgtkCore.scale_record(loss)...)
 

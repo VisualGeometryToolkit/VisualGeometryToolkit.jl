@@ -197,7 +197,7 @@ ignored.
 A family with no linear form starts its refine from its anchor: the family's zero lens at the source's `K`. The two
 steps of a fit from no guess are the linear fit, then its refine.
 """
-struct CameraRegressionProblem{T, S, R, K <: NamedTuple} <: AbstractBlockProblem
+struct CameraRegressionProblem{T, S, R, K <: NamedTuple} <: VgtkCore.AbstractChartProblem
     target::T
     source::S
     region::R
@@ -275,8 +275,8 @@ over the region. The target type selects the family and the solve:
     `the linear fit then its refine`.
   - The result reports the linear fit's residual: the round trip's error of the returned
     camera at each sample, in pixels (`metadata.residuals`, `max_px`, `max_px_edge`; the
-    result's `rms` their weighted root mean square). The `retcode_symbol(result)` is `:solved`, `r.stats.nsteps`
-    0; a degenerate solve (a non-positive or non-finite rescale) is `:solve_failed` (its
+    result's `rms` their weighted root mean square). The record is `(Success, ClosedForm)`, `r.stats.nsteps`
+    0; a degenerate solve (a non-positive or non-finite rescale) is `(Failure, NonFinite)` (its
     camera's focals non-finite), never a throw.
   - **`fixed`** (`fixed = ()`: every coefficient and the focal solved) holds parameters by name or group, resolved by
     Core's `free_parameter_names` as the regression's refine ([`CameraRegressionProblem`](@ref))'s: a held coefficient's column leaves the ONE linear solve
@@ -300,9 +300,9 @@ over the region. The target type selects the family and the solve:
   as Core's `grid_size(camera)`) when given, else at the lattice THE SPACING
   SEARCH chooses: the spacing is doubled down from 4 cells along the longer
   side and then bisected to the LARGEST spacing whose held-out maximum error is
-  at most `tolerance` (px), `retcode_symbol` `:converged`; a fit that cannot reach it at
+  at most `tolerance` (px), `(Success, ToleranceMet)`; a fit that cannot reach it at
   the finest spacing of the bracket (a cell of three quadrature strides)
-  returns `retcode_symbol` `:max_iterations` with what it reached. The region restricts
+  returns `(MaxIters, IterationCap)` with what it reached. The region restricts
   the quadrature only, never the lattice: a node whose support misses it is
   held by the penalty. The tolerance bounds the held-out DIRECTION error in
   pixels, the non-central target's metric (below). A physical source's lattice
@@ -337,7 +337,7 @@ over the region. The target type selects the family and the solve:
   spacing search, to `tolerance` in pixels of the held-out round trip; the
   camera projects through it (NaN outside the fitted chart). Each fit of a
   search is an outer iteration, counted in the metadata; `result.stats.nsteps`
-  is 0; the retcode is `:converged` when every search met the tolerance.
+  is 0; the record is `(Success, ToleranceMet)` when every search met the tolerance.
 - **`NoncentralSplineModel`** (`CameraRegressionProblem(NoncentralSplineModel, source,
   region; tolerance, grid_size = nothing, device = default_device())`): the same lattice and search on the
   source's observation LINES — a non-central model's `Ray3`s, or a central
@@ -461,7 +461,7 @@ SplineLens camera) once that source is turned onto its optical axis, the frame
 `source` is a [`BoundedCamera`](@extref
 VisualGeometryToolkitCore.Cameras.BoundedCamera) (the lattice needs the image:
 a bare model is an `ArgumentError`) of a `CameraModel` or, for the non-central
-target, also of a `NoncentralSplineModel`. The result's `retcode_symbol` is `:solved`,
+target, also of a `NoncentralSplineModel`. The result's record is `(Success, ClosedForm)`,
 `r.stats.nsteps` 0; its metadata is `CameraRegression`'s, the held-out errors (the
 direction error in pixels; for the non-central model also the line offsets in
 metres, and `center`) and `family = (; λ, grid_size, stride,
@@ -640,7 +640,7 @@ _basis_degree(::Radial, i::Int) = i + 1
 
 # The weighted linear least squares `min ‖diag(c)(A u − b)‖²` (`c` the rows' √ weights): the linear model's one solver (ReweightedLeastSquares on a LinearModel)
 # (`_weighted_lstsq(A, y, w)`, the column-pivoted QR of √w·A on the rows of positive weight), its unknowns NaN when
-# fewer such rows than columns remain (the fit then reports `:solve_failed`).
+# fewer such rows than columns remain (the fit then reports `(InternalLinearSolveFailed, NoRule)`).
 function _row_weighted_lstsq(A, b, c)
     u = _weighted_lstsq(A, b, c .^ 2)
     return u === nothing ? fill(NaN, size(A, 2)) : u

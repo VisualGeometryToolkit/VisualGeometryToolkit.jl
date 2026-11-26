@@ -90,6 +90,7 @@ const RETIRED_NAMES = String[
     "measurement" * "_covariance",                                # `observation_covariance`
     "MEASUREMENT" * "_NOISES", "measurement" * "_noise",          # PanoramaStitching 0.7: `OBSERVATION_NOISES`, `observation_noise`
     "Board" * "Detection",                                        # BlobBoards 0.7: one board observed in one frame, `BoardObservation`
+    "board" * "!",                                                # BlobBoards' Makie recipe (BB 9386b68): `projectedboard!` (`ProjectedBoard`, `projectedboard`); Core's `board(::PlanarTarget)` stays
     "load_cs" * "pond_sets",                                      # BlobBoards 0.7: `load_correspondence_sets`
     "BlobBoards" * ".write_tiff",                                 # the one TIFF writer is VisualGeometryToolkitIO's: `VgtkIO.write_tiff`
     "Target" * "Detections",                                      # per frame, per target, the observations of its points: `TargetObservations` (VisualGeometryToolkitCore 0.10)
@@ -116,7 +117,7 @@ const RETIRED_NAMES = String[
     "green" * "_dn", "green" * "_colors",     # a LinearRaw's green photosites: `L.geometry.plane_sites`
     "Intensity" * "Noise",                    # PanoramaStitching's value noise: `RelativeNoise(σ_rel; source)`, a noise-slot component
     "log_intensity" * "_scale",               # PanoramaStitching's relative noise level: `RelativeNoise`'s `σ_rel`
-    # one owner of the LM's stop settings (owner, "NO DUPLICATIONS", 2026-11-13): `LmStops`, which `lmsolve_chart!` maps
+    # one owner of the LM's stop settings (owner, "NO DUPLICATIONS", 2026-11-13): `LmStops`, which `_lmsolve_chart!` maps
     # onto NLLSsolver's options itself (VisualGeometryToolkitCore 0.10)
     "nlls" * "_options",
     # one χ² quantile, Distributions' (owner, 2026-11-12): the median of χ²_d is `quantile(Chisq(d), 0.5)`
@@ -146,7 +147,7 @@ const RETIRED_NAMES = String[
     # the 0.9 /simplify fixes: the spline refine's gauge by parametrization, one rows-and-Jacobian assembler
     "finite" * "_linearization",             # NLLSsolver ≥ 5.3.3 stops on a non-finite linearization itself (#68); no block wraps it
     "_Spline" * "Anchor", "_Spline" * "Pin",   # VisualGeometryToolkitEstimation: only live controls are variables, the gauges no coordinate (`restrict`)
-    "_camera_poses_rows" * "_and_jacobian", "_rw_rows" * "_and_jacobian", "_spline_problem_rows" * "_and_jacobian",   # Core's `nlls_rows_and_jacobian`
+    "_camera_poses_rows" * "_and_jacobian", "_rw_rows" * "_and_jacobian", "_spline_problem_rows" * "_and_jacobian",   # Core's `_nlls_rows_and_jacobian`
     "_rect" * "_centre",                     # a rectangle's centre: `centroid(r)`
     # a value with its cost is Core's `Attributed(θ, (; cost))` (`keep_best`) (2026-11). Only the
     # forms Core's type took are listed: Eval's tuning `Incumbent` (a search's setting in force and
@@ -158,8 +159,8 @@ const RETIRED_NAMES = String[
     "inlier" * "_threshold",                  # the scorer's decision point is `decision_boundary(scoring, buf)` (2026-11)
     "has_inlier" * "_threshold",              # its trait is `has_decision_boundary(S)` (2026-11)
     "decision" * "_threshold",                # the residual a decision flips at is `decision_boundary` (a loss shape, the Gaussian–uniform pair, a scorer) (2026-11)
-    "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `grid_brent_minimum` (2026-11)
-    "grid" * "_golden_minimum",             # the one 1-D minimizer refines by Brent's method: `grid_brent_minimum` (2026-11)
+    "_grid" * "_golden_minimum",            # the one 1-D minimizer is public: `_grid_brent_minimum` (2026-11)
+    "grid" * "_golden_minimum",             # the one 1-D minimizer refines by Brent's method: `_grid_brent_minimum` (2026-11)
     "_lens" * "_axis",                      # the forward spline's chart is about ẑ, not the principal point's ray: `forward_chart(SplineLens)` (2026-11)
     "fit" * "_height_field",                  # a one-step algorithm is no `fit_*` (the estimators guide): `HeightField(nodes, points .=> heights; smoothing)` (2026-11)
     "strong" * "est(", "VgtkFeatures" * ".strongest", "VisualGeometryToolkitFeatures" * ".strongest",   # the global top n by |response|: `spread_strongest(detections, image_size, n)` (SSC, VisualGeometryToolkitFeatures, 2026-11)
@@ -354,7 +355,7 @@ const RETIRED_NAMES = String[
     "SEVEN_SCENES_TEST" * "_SPLITS", "SEVEN_SCENES_TRAIN" * "_SPLITS",
     "WMG" * "_NG",
     # the hand-rolled Levenberg–Marquardt cores, replaced by one LM driver
-    # (NLLSsolver): the chart LM is VGC's `lmsolve_chart!`. The rule stands with ONE stated exception: the
+    # (NLLSsolver): the chart LM is VGC's `_lmsolve_chart!`. The rule stands with ONE stated exception: the
     # spline models' device-side two-unknown LM kernel
     # (`StaticLevenbergMarquardt`'s kernel `_static_lm`, `_static_lm_increment`; NLLSsolver cannot run in a
     # KernelAbstractions kernel). No other hand-rolled LM loop is allowed.
@@ -420,7 +421,7 @@ const RETIRED_NAMES = String[
     # the evaluation engine: the external-solver width kind merged into `LossWidth`
     # (spelled with its call parentheses: the bare word is ordinary English)
     "Threshold" * "()",
-    "PoseLibLmAdapt" * "Tau",                # `PoseLibLmAdaptLossWidth`
+    "PoseLibLmAdapt" * "Tau",                # `BackendRefit(AdaptiveLossWidthRefit(), LmStops(; max_iter))` (LODR)
     "_refuse_kernel_width" * "_sidecar",     # `_refuse_basin_sidecar`
     "_loss" * "type",                        # `_poselib_loss`
     "superansac" * "_threshold", "superansac" * "_threshold_worker",   # the SupeRANSAC drivers: the `loss_width` forms
@@ -446,7 +447,7 @@ const RETIRED_NAMES = String[
     # and LocalOptimizationDoneRight. The pool record moved to VisualGeometryToolkitCore (`Pools.PoolPair`), hypothesis
     # drawing and the pool-pair and pool-frame problem constructors to
     # VisualGeometryToolkitEstimation, the scene-pool writer to VisualGeometryToolkitEval.
-    "generate" * "_pool",                    # `draw_hypotheses(rng, problem; target, max_trials)`
+    "generate" * "_pool",                    # `PoolPair(rng, problem, raw; target, max_trials, variance)`
     "build_stereo" * "scoringdata",          # `PoolPair(rng, problem, raw; target, max_trials)`
     "generate_scene" * "_pool",              # `write_scene_pool(path, raws, build; problem, seed)`
     "generate_all" * "_pools",               # (no successor: one driver per project)
@@ -590,9 +591,9 @@ const RETIRED_NAMES = String[
     # the classification of non-verb public names (owner, 2026-11-23): steps of the robust toolkit made internal
     "partition" * "_student_t",              # internal `_partition_student_t` (a partition's Student-t seed; callers: the scorers and the posterior)
     "next" * "_nu",                          # internal `_next_nu` (the ν M-step; public: `update_nu!`, `next_nu_from_sums`)
-    "posterior" * "_weights!",               # internal `_posterior_weights!` (public: `mixture_ecm!`, `update_scale!`)
+    "posterior" * "_weights!",               # internal `_posterior_weights!` (public: `update_weights!`, `update_scale!`)
     "posterior_inlier" * "_probs!",          # internal `_posterior_inlier_probs!` (public: `inlier_probabilities!` of the scoring contract)
-    "soft_posterior" * "_weights!",          # internal `_soft_posterior_weights!` (public: `mixture_ecm!`)
+    "soft_posterior" * "_weights!",          # internal `_soft_posterior_weights!` (public: `update_weights!`)
     # the contract hooks with a reserved kind prefix, renamed (Core 0.14 / VisualGeometryToolkitEstimation 0.13, spec §5)
     "refine" * "_external!",                 # Core's external refit: `external_refit!(ws, lo, problem, θ, width, scoring)`
     "refine" * "_workspace",                 # Core's refit scratch: `refit_workspace(P, n)`
@@ -651,14 +652,24 @@ const RETIRED_NAMES = String[
     # `r.stats.nsteps`. `fit_result_*` were the never-released interim names.
     "fit_record" * "_json", "fit_result" * "_json",           # `JSON.lower(style::VgioStyle, r::FitResult)` (`write_kind` lowers a body's result)
     "fit_record" * "_from_json", "fit_result" * "_from_json", # `JSON.lift(style::VgioStyle, FitResult, record) -> FitResult{Nothing, Nothing}`
-    # RadiometricCamera 0.4.0 (the solve interface): the calibration is an algorithm, the block updates update_<block>!
-    "start" * "_calibration",                # `init(EstimationProblem(CalibrationEstimate, (geometry, photographs)), RadiometricCalibration(options))`
-    "refine" * "_calibration!",              # `solve!(cache)`, or `solve(EstimationProblem(CalibrationEstimate, state), RadiometricCalibration(options))`
-    "solve_Θ" * "_l!", "solve_Θ" * "_v!", "solve" * "_μ!",   # `update_lighting!`, `update_vignetting!`, `update_diffuse_weight!`
-    "solve_linear" * "_blocks!",             # `update_radiometry!` (the composite block)
+    # RadiometricCamera 0.4.0 (the solve interface): the calibration is an algorithm
+    "start" * "_calibration",                # `init(EstimationProblem(CalibrationEstimate, (geometry, photographs)), RadiometricCalibration(RadiometricRefinement(options)))`
+    "refine" * "_calibration!",              # `solve!(cache)`, or `solve(RefineProblem(f, u0), RadiometricRefinement(options))`
+    "Calibration" * "State",                 # RC b348450: `calibration_problem(board, settings, camera, poses, mat, light, targets; …)`, a `RefineProblem(CalibrationData, CalibrationParameters)`
+    "solve_Θ" * "_l!", "solve_Θ" * "_v!", "solve" * "_μ!",   # the lighting, vignetting and diffuse-weight blocks: `RadiometryBlockDescent` on `RadiometryBlocks` (RC ca7dab2, below)
+    "solve_linear" * "_blocks!",             # the composite block: `RadiometryBlockDescent()` or `JointRadiometry(; damping)` on `RadiometryBlocks`
     "solve_radiometry" * "_gn!",             # `radiometry_lmsolve!` (the joint LM, a step named by its mechanism)
     "fit" * "_channels",                     # RadiometricCamera's `residual_channels(s)`
     "PRINT" * "_PLANE",                      # R20: spell `TargetPlaneFrame{:board}`
+    # RadiometricCamera, the solve interface's second round (RC 556bb67): the spline lens's start is an algorithm
+    "grid" * "_model", "exact" * "_start", "region" * "_start", "start" * "_grid",   # `GridStart` on `EstimationProblem(SplineLens, …)`
+    "schoeps" * "_gridlens", "schoeps" * "_start",                                   # `GridStart` on `EstimationProblem(SplineLens, …)`
+    # RadiometricCamera (RC 4a90f4f/ca7dab2): the closed-form blocks are a solve, its sweep settings the algorithm's table
+    "update" * "_radiometry!",               # solve(EstimationProblem(RadiometryBlocks, (state, parts), (; light = true, vignetting = true, mu = true)), RadiometryBlockDescent(; sweeps, …) | JointRadiometry(; damping, …))
+    "update" * "_lighting!",                 # the same with (; light = true, vignetting = false, mu = false), RadiometryBlockDescent()
+    "update" * "_vignetting!",               # the same with (; light = false, vignetting = true, mu = false), RadiometryBlockDescent()
+    "update" * "_diffuse_weight!",           # the same with (; light = false, vignetting = false, mu = true), RadiometryBlockDescent()
+    "Sweep" * "Options",                     # the `[sweep]` settings of `RadiometricCalibration` (its `radiometry` algorithm and `lm_chunk`)
     # PanoramaStitching 0.12 (the solve interface)
     "refine" * "_rotations",                 # `RotationBundleProblem(camera, tracks)` refined on `rotations` (`LevenbergMarquardt`)
     "refine_camera_and" * "_rotations",      # `RotationBundleProblem(tracks; fixed)` refined on `(; camera, rotations)`
@@ -668,6 +679,49 @@ const RETIRED_NAMES = String[
     "sweep" * "_up",                         # `RollFreeUp()` on `EstimationProblem(SweepUp, rotations)`
     # VisualGeometryToolkitEval 0.12: the scale-prior fit is an algorithm (spec §6)
     "fit" * "_prior",                        # `solve(EstimationProblem(IGPrior, σ²s), spec)`, `PriorSpec(family, fitting)` the algorithm (ClosedFormKind)
+    # Phase 2b (C5, lead ruling): RansacScoringDoneRight, LocalOptimizationDoneRight and VRTK's retired public names
+    "gpd" * "_support", "gpd" * "_outlier_cost",   # RSDR: internal (`_gpd_support`, `_gpd_outlier_cost`)
+    "loss_width" * "_scoring(",              # RSDR: the scorer's constructor, `F(dg)`
+    "PoseLib" * "Lm",                        # LODR: `BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}()), LmStops(; max_iter))`
+    "PoseLib" * "LZ",                        # LODR: the same with `LeZach()`
+    "PoseLib" * "LmAdaptLossWidth",          # LODR: `BackendRefit(AdaptiveLossWidthRefit(), LmStops(; max_iter))`
+    "Truncated" * "Refit",                   # LODR: `solve(RefineProblem(cs, cheiral_pose_fast(E, problem.cs; vote_points), (; K1, K2)), LevenbergMarquardt(PoseLibSolver(); …); stops, width)`
+    "RADIAL" * "_CHARTS",                    # VRTK: `RADIAL_CHART_TAGS`
+    # VRTK 0.2.0's non-math alias names, each its function's (VRTK CHANGELOG 0.2.0). The papers' math symbols (𝔭, 𝔣, t̂,
+    # 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹) are NOT retired: legitimate notation in prose, docstrings and field names (lead ruling).
+    "𝐩" * "_of_pixel", "pixel" * "_of_𝐩", "ℐ" * "_𝐮", "𝐩" * "_sample", "𝐚" * "_sample", "𝐚" * "_weight", "𝐚" * "_border",
+    "Θ_m" * "_nonlinear", "with" * "_μ", "Λ" * "_ggx",
+    # VisualGeometryToolkitCore 0.14, the Phase 1A breaking set (the conformance audit's Core rows): no Symbol records,
+    # no estimator outside `solve`, the workspace the mutated positional argument
+    "retcode" * "_from_symbol",              # C9: the producer records `(ReturnCode.T, StopRule)` directly (`lo_estimate(model, code, rule)`)
+    "retcode" * "_symbol",                   # read the record's fields, `r.retcode` and `r.stop_rule`
+    "median_seeded" * "_posterior",          # C10: `solve(EstimationProblem(NoiseScale, norms, (; codimension)), MedianNormScale())`, then `PosteriorWeightState(n; s_hat_sq = σ², …)` and `update_weights!`
+    "mixture" * "_ecm!",                     # C11: its four updates in order: `square_distances!`, `update_weights!`, `update_scale!`, `update_inlier_prior!`
+    "track_manifold" * "_solution",          # C13: `solve(RefineProblem(NoisePathProblem(ch, clean, noisy), u0), PathFollowing(); stops = ToleranceStops(…))`
+    "best_pool" * "_model",                  # C15: `best_pool_model!(ws, scoring, pair, R; scores)`
+    "block" * "_refit", "block" * "_lm",     # the block contract: `block_variables`, `residual_blocks`, `fixed_variables`, `residual_summary`, `block_result`, solved by `solve`/`init(RefineProblem(f, u0), LevenbergMarquardt())`
+    # R22 (owner, 2026-11-26): Core's solver drivers are internal; solve through the front end
+    "lmsolve" * "_chart!",                   # solve/init(RefineProblem(f::AbstractRowProblem | AbstractChartProblem | AbstractBlockProblem, u0), LevenbergMarquardt())
+    "Lm" * "Problem",                        # the block contract (block_variables, residual_blocks, fixed_variables) behind init(RefineProblem(f, u0), LevenbergMarquardt())
+    "ManifoldLm" * "Workspace",              # init(RefineProblem(f::AbstractRowProblem, u0), LevenbergMarquardt()): the cache owns it
+    "lm" * "_workspace", "lm" * "_workspace_type", "fill_sqrt" * "_weights!",   # the refine cache (init/reinit!; reinit!(c, θ; weights))
+    "chart" * "_refit", "triggs" * "_refit", # solve!(reinit!(init(RefineProblem(f, θ), LevenbergMarquardt(; optimization_strategy)), θ′))
+    "block_coordinate" * "_descent!",        # solve(RefineProblem(problem, θ, p), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))
+    "nlls_rows" * "_and_jacobian",           # residual_summary(f) = RowsWithJacobian()
+    "nlls" * "_features", "nlls_stop" * "_reasons",   # internal diagnostics
+    "grid_brent" * "_minimum",               # solve(BracketedMinimizationProblem(f, xs), GridBrent())
+    "normal" * "_cg",                        # solve(NormalEquationsProblem(N, g), NormalCG())
+    "VgtkCore." * "cgls", "VisualGeometryToolkitCore." * "cgls",   # solve(PenalizedLeastSquaresProblem(op, b), CGLS()); bare `cgls` is Krylov.jl's
+    # Phase 1B set 1 (conformance, 2026-11-26): no public estimator outside `solve`; each name below has its replacement
+    "draw" * "_hypotheses", "Hypo" * "theses",   # internal: the generator solves `PoolPair(rng, problem, raw; target, max_trials, variance)`
+    "consensus" * "_s2!",                        # solve(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(scoring))
+    "gcv" * "_select",                           # solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation())
+    "refit" * "_model",                          # solve(RefineProblem(problem, θ, p), LocalOptimization(…)).u
+    "JeffreysPrior" * "Spec", "IGRobust" * "Spec", "ALL_PRIOR" * "_SPECS",   # PriorSpec(…) values (the inner constructor refuses illegal pairs)
+    "Bootstrap" * "Method", "WindowedGrid" * "Method",   # solve(EstimationProblem(Hyperparameter, ValidationErrors(…), (; pairs, to_native)), WindowedBootstrap(…))
+    "bootstrap" * "_argmin",                     # solve(EstimationProblem(Hyperparameter, errors), SelectionBootstrap(criterion; n_resamples); rng)
+    "coarse_fine" * "_cv", "probe" * "_curve", "coarse_fine" * "_search", "fine" * "_stage",   # solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), CoarseFine | JointCoarseFine)
+    "VisualGeometryToolkitEval" * ".Pools", "VgtkEval" * ".Pools",   # VisualGeometryToolkitEval.PoolFiles (Core.Pools is the record types)
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a
@@ -696,6 +750,7 @@ const FOREIGN_FORMAT_TOKENS = [
     "image" * "_origin" => (; owner = "the legacy pixel-frame key of the OpenCV calibration JSON written before 0.9 (read by load_opencv_calibration, never written)",
         accepted_in = :format_literal),
     "bundle" * "_adjust" => (; owner = "PoseLib's C++ absolute-pose refinement, called by PoseLib.jl's C wrapper", accepted_in = :c_source),
+    "grid" * "_model" => (; owner = "a key of the frozen identity tree of vgio/rig v5–v8 grid sensors (IO migrate.jl `_v8_grid_identity`: v8's content_id), hashed as minted", accepted_in = :format_literal),
     "Pin" * "hole" => (; owner = "the lens model name of VisualGeometryToolkitIO's version-1 camera records (and of Schöps' and COLMAP's model names), read by its migration", accepted_in = :format_literal),
     # PoseLib's C++ refiners keep their upstream names: the C wrapper calls them (PoseLib.jl's own refiners are retired)
     [name => (; owner = "PoseLib's C++ refinement of the same name (bundle.cc), called by PoseLib.jl's C wrapper", accepted_in = :c_source)
@@ -831,7 +886,7 @@ const _WIDTH_FLAG = Regex(
 _is_width_abbreviation(name::AbstractString) =
     lowercase(name) in _WIDTH_ABBREVIATIONS || "tau" in _naming_words(name)
 
-# The hooks of `block_coordinate_descent!` (rule 8), exactly, and its steps in
+# The hooks of `BlockCoordinateDescent` (rule 8), exactly, and its steps in
 # Manopt.jl's names.
 const _BCD_HOOKS = (
     :init_state!, :update_model!, :update_residuals!, :update_nuisance!, :update_weights!,
@@ -1750,7 +1805,7 @@ read by line-level approximations rather than parsers:
   `[pip]`) are other projects' names, not bindings. A file that does not parse
   is reported as `:parse`.
 
-Rule R8 (the hook names of `block_coordinate_descent!`) is Julia's alone.
+Rule R8 (the hook names of `BlockCoordinateDescent`) is Julia's alone.
 
 Rule R11 keeps units in one place: VisualGeometryToolkitCore's units module
 (`src/base/units.jl`: the stack's registry `StackUnits`, built with FlexUnits'
@@ -1932,6 +1987,8 @@ function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
     for f in jl
         _fitresult_rules!(out, f, parsed[f])
     end
+    # rule 22: outside Core, user-level code solves through the front end
+    _r22_rules!(out, pkgdir, pkg, files, sources, parsed)
     # rule 15: the kind words name kinds, never functions (in the package's own code: src/, ext/)
     for f in jl
         (startswith(f, "src/") || startswith(f, "ext/")) || continue
@@ -2289,6 +2346,130 @@ function _fitresult_rules!(out, f, ex)
         return nothing
     end
     walk(ex)
+    return out
+end
+
+# -----------------------------------------------------------------------------
+# Rule 22: outside Core, user-level code solves through the front end (owner, 2026-11-26)
+# -----------------------------------------------------------------------------
+# (a) Everywhere in another package: no reach of a VisualGeometryToolkitCore `_` name (qualified, through an alias,
+#     or imported: `private_name_violations`' scan, the one scan of a `_` reach) and no reach of a
+#     `CORE_INTERNAL_DRIVERS` name, qualified or imported.
+# (b) In its user-level files — experiments/, scripts/, examples/, benchmark/, dev/, a README or a docs page's julia
+#     blocks, a test that is no contract test — no CALL of a `SOLVER_HOOKS` name. A method definition (implementing a
+#     hook) is never flagged, nor a call inside one (forwarding a hook).
+# A contract test carries `# R22: contract test — <the contract it tests>` in its first 20 lines, or calls one of Core's
+# conformance helpers; a docs page that teaches a contract carries `<!-- R22: contract guide -->`. The paper projects
+# are skipped by path.
+const _R22_PAPER_PROJECTS = ("accv2026", "neurips2026", "bmvc2026", "icra2026")
+const _R22_USER_DIRS = ("experiments", "scripts", "examples", "benchmark", "dev")
+const _R22_CONTRACT_HELPERS = (:test_scoring_contract, :test_local_optimization_contract, :test_constraint_problem,
+    :test_manifold_contract, :test_termination_record)
+const _R22_TEST_MARKER = "# R22: contract test — "
+const _R22_GUIDE_MARKER = "<!-- R22: contract guide -->"
+_r22_names(fs) = Set{Symbol}(nameof(g) for g in fs)
+_r22_paper(f) = any(in(_R22_PAPER_PROJECTS), splitpath(f))
+
+# Whether a test file is a contract test: the marker in its first 20 lines, or a call of a conformance helper.
+function _r22_contract_test(src::AbstractString, ex)
+    any(l -> startswith(lstrip(l), _R22_TEST_MARKER), first(split(src, '\n'), 20)) && return true
+    found = Ref(false)
+    _visit_lines(ex, Ref(0)) do x
+        x.head === :call && _last_name(x.args[1]) in _R22_CONTRACT_HELPERS && (found[] = true)
+    end
+    return found[]
+end
+_r22_user_file(f) = first(splitpath(f)) in _R22_USER_DIRS
+
+# The module names that are VisualGeometryToolkitCore in a file: its own name, the stack's alias, and the file's
+# `import VisualGeometryToolkitCore as X` / `const X = VisualGeometryToolkitCore`.
+function _r22_core_aliases(ex)
+    out = Set{Symbol}([:VisualGeometryToolkitCore])
+    for (a, m) in _PACKAGE_ALIASES
+        m === :VisualGeometryToolkitCore && push!(out, a)
+    end
+    _visit_lines(ex, Ref(0)) do x
+        if x.head === :as && length(x.args) == 2 && x.args[1] == Expr(:., :VisualGeometryToolkitCore)
+            a = x.args[2] isa Expr ? x.args[2].args[end] : x.args[2]
+            a isa Symbol && push!(out, a)
+        elseif x.head === :const && x.args[1] isa Expr && x.args[1].head === :(=) && x.args[1].args[2] === :VisualGeometryToolkitCore
+            x.args[1].args[1] isa Symbol && push!(out, x.args[1].args[1])
+        end
+    end
+    return out
+end
+
+# (a)'s driver part: a CORE_INTERNAL_DRIVERS name qualified by a Core alias, or imported from Core.
+function _r22_driver_rules!(out, f, ex, drivers)
+    aliases = _r22_core_aliases(ex)
+    line = Ref(0)
+    _visit_lines(ex, line) do x
+        if x.head === :. && length(x.args) == 2 && x.args[1] in aliases && x.args[2] isa QuoteNode && x.args[2].value in drivers
+            push!(out, NamingViolation(f, line[], string(x.args[1], ".", x.args[2].value), :R22))
+        elseif x.head in (:using, :import) && length(x.args) == 1 && x.args[1] isa Expr && x.args[1].head === :(:)
+            path, names = x.args[1].args[1], x.args[1].args[2:end]
+            path isa Expr && !isempty(path.args) && path.args[1] in aliases || return
+            for n in names
+                n isa Expr && (n.head === :as && (n = n.args[1]); n isa Expr) || continue
+                n.args[end] in drivers && push!(out, NamingViolation(f, line[], string("using ", path.args[1], ": ", n.args[end]), :R22))
+            end
+        end
+    end
+    return out
+end
+
+# (b): a call of a solver hook outside a definition of one, `offset` added to the parsed line (a docs page's block).
+function _r22_hook_rules!(out, f, ex, hooks; offset::Int = 0)
+    line = Ref(0)
+    function walk(x, inside::Bool)
+        if x isa LineNumberNode
+            line[] = x.line
+        elseif x isa Expr
+            if _is_definition(x) && _is_signature(x.args[1])
+                implements = _last_name(_unwrap_signature(x.args[1]).args[1]) in hooks
+                foreach(a -> walk(a, inside || implements), x.args)
+                return nothing
+            end
+            x.head === :call && !inside && _last_name(x.args[1]) in hooks &&
+                push!(out, NamingViolation(f, line[] + offset, string(_last_name(x.args[1]), "(…)"), :R22))
+            foreach(a -> walk(a, inside), x.args)
+        end
+        return nothing
+    end
+    walk(ex, false)
+    return out
+end
+
+function _r22_rules!(out, pkgdir, pkg, files, sources, parsed)
+    pkg == "VisualGeometryToolkitCore" && return out
+    drivers = _r22_names(VisualGeometryToolkitCore.CORE_INTERNAL_DRIVERS)
+    hooks = _r22_names(VisualGeometryToolkitCore.SOLVER_HOOKS)
+    # (a) the `_` reaches, by the one scan of them, kept to the checker's scope
+    inscope = Set(f for f in keys(parsed) if !_r22_paper(f))
+    for v in VisualGeometryToolkitCore.private_name_violations(pkgdir, isempty(pkg) ? "<unnamed>" : pkg)
+        m = match(r"^(.*?):(\d+): (VisualGeometryToolkitCore\..*)$", v)
+        (m === nothing || !(m[1] in inscope)) && continue
+        push!(out, NamingViolation(m[1], parse(Int, m[2]), m[3], :R22))
+    end
+    for f in sort!(collect(inscope))
+        _r22_driver_rules!(out, f, parsed[f], drivers)
+        user = _r22_user_file(f) || (startswith(f, "test/") && !_r22_contract_test(sources[f], parsed[f]))
+        user && _r22_hook_rules!(out, f, parsed[f], hooks)
+    end
+    # (b) a README's and a docs page's julia blocks, unless the page teaches a contract
+    for f in files
+        endswith(f, ".md") && (basename(f) == "README.md" || startswith(f, "docs/src/")) && !_r22_paper(f) || continue
+        src = sources[f]
+        occursin(_R22_GUIDE_MARKER, src) && continue
+        for m in eachmatch(r"^```julia\n(.*?)^```"ms, src)
+            ex = try
+                Meta.parseall(String(m[1]); filename = f)
+            catch
+                continue
+            end
+            _r22_hook_rules!(out, f, ex, hooks; offset = count(==('\n'), SubString(src, 1, m.offset)) + 1)
+        end
+    end
     return out
 end
 

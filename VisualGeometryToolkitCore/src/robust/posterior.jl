@@ -8,7 +8,7 @@
 #
 # `update_scale!` here is the state's OWN 2-arg scale block, on
 # `PosteriorWeightState` — NOT the 1-arg policy verb `update_nuisance!` that
-# `block_coordinate_descent!` drives. Across the downstream policies that verb
+# `BlockCoordinateDescent` drives. Across the downstream policies that verb
 # moves ŝ², ν, π, α or nothing at all; this function does the narrow thing its
 # name claims: ŝ² from the weighted RSS, one block; ν is the separate block
 # `update_nu!`. VisualGeometryToolkitEstimation's `PosteriorLikelihood` is the adapter that
@@ -29,8 +29,7 @@ has a posterior, but it is *marginalized* away, so it is held here only as the
 scalar `ν`/`ŝ²`, never as a posterior.
 
 The per-point buffers are supplied by the caller (typically a workspace's);
-construction-time allocation is performed only by the `n`-constructor and
-[`median_seeded_posterior`](@ref).
+construction-time allocation is performed only by the `n`-constructor.
 """
 mutable struct PosteriorWeightState <: NormalizedWeightPolicy
     # <: NormalizedWeightPolicy: the Student-t + uniform mixture IS a proper
@@ -171,8 +170,9 @@ end
     PosteriorWeightState(n; ν, s_hat_sq, log_two_outlier_halfwidth, prior, codimension = 1, inlier_prior = 1/2)
 
 A state with FRESH length-`n` buffers at the given mixture, for a caller that
-fills the residuals itself and runs the E-step (e.g. [`mixture_ecm!`](@ref))
-before reading any weight. The buffers are uninitialised; `ŝ²` is floored at
+fills the residuals itself and runs the E-step before reading any weight (one ECM cycle:
+[`square_distances!`](@ref) into `sq_distances(pws)`, then [`update_weights!`](@ref), [`update_scale!`](@ref) and
+[`update_inlier_prior!`](@ref), in that order). The buffers are uninitialised; `ŝ²` is floored at
 eps and the inlier prior clamped to `[1e-3, 1 − 1e-3]` (the one clamp,
 `update_inlier_prior!`'s). The scale prior `prior` (an [`IGPrior`](@ref)) is required:
 the stack's default prior is a configuration's, not this constructor's.
@@ -207,7 +207,7 @@ function reset_posterior!(pws::PosteriorWeightState; ν::Real = pws.ν, s_hat_sq
 end
 
 """
-    median_seeded_posterior(sq, n; outlier_halfwidth, ν, prior, codimension = 2) -> PosteriorWeightState
+    _median_seeded_posterior(sq, n; outlier_halfwidth, ν, prior, codimension = 2) -> PosteriorWeightState
 
 A `PosteriorWeightState` seeded from the MEDIAN residual, for a caller with no
 partition to seed from. Every point starts an inlier candidate at the scale
@@ -221,7 +221,7 @@ infinite residual stays in it, an outlier's large norm), and the E-step gives
 it weight 0 (`_soft_posterior_weights!`). With every residual NaN there
 is no median: ŝ² is NaN.
 """
-function median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
+function _median_seeded_posterior(sq::AbstractVector{Float64}, n::Int;
                                  outlier_halfwidth::Real, ν::Real, prior::IGPrior, codimension::Int = 2)
     codimension in (1, 2) || throw(ArgumentError("codimension must be 1 or 2"))
     norms = [sqrt(x) for x in view(sq, 1:n) if !isnan(x)]   # a NaN residual is no inlier candidate
@@ -418,7 +418,7 @@ function update_weights!(pws::PosteriorWeightState, n::Int)
 end
 
 """
-    mixture_ecm!(pws, r, n)
+    _mixture_ecm!(pws, r, n)
 
 One ECM cycle of the Student-t + uniform mixture with the mixing proportion
 ESTIMATED (ν held fixed), from the residuals `r[1:n]` (unsquared). It squares them
@@ -428,7 +428,7 @@ the scale block ([`update_scale!`](@ref)) and the inlier-prior block
 conditional maximisation, so the mixture NLL ([`mixture_nll`](@ref)) never
 rises. Returns `nothing`.
 """
-function mixture_ecm!(pws::PosteriorWeightState, r::AbstractVector, n::Int)
+function _mixture_ecm!(pws::PosteriorWeightState, r::AbstractVector, n::Int)
     square_distances!(pws.sq_distances, r, n)
     update_weights!(pws, n)
     update_scale!(pws, n)

@@ -4,7 +4,7 @@
 
 @testitem "fit_result" begin
     using VisualGeometryToolkitCore: FitResult, SolveStats, BundleMetadata, weights, dof, successful_retcode,
-        retcode_symbol, found_model, with_problem, ReturnCode, CostDecrease, IterationCap, NoRule
+        found_model, with_problem, ReturnCode, CostDecrease, IterationCap, NoRule
     import VisualGeometryToolkitCore as VgtkCore
 
     # An IRLS-style metadata (a spread, ν, per-point weights): its own fields are read as `r.metadata.<field>`.
@@ -24,14 +24,14 @@
         # SciML's fields a solver does not set: nothing until the front end records them
         @test lean.resid === nothing && lean.prob === nothing && lean.alg === nothing && lean.original === nothing
         @test @inferred(successful_retcode(lean))
-        @test @inferred(retcode_symbol(lean)) === :converged
+        @test lean.retcode === ReturnCode.Success
         @test found_model(lean)
         # A lean result has no weights — an ERROR, never a silent `nothing`.
         @test_throws Exception weights(lean)
 
         ir = FitResult([1.0, 2.0], ReturnCode.MaxIters, IterationCap, SolveStats(; nsteps = 50), 0.5, 3,
                        _IrlsMeta(1.2, 8.0, [0.9, 1.0, 0.1]); resid = [0.1, 0.2, 3.0])
-        @test !successful_retcode(ir) && retcode_symbol(ir) === :max_iterations
+        @test !successful_retcode(ir) && ir.retcode === ReturnCode.MaxIters
         @test @inferred(weights(ir)) == [0.9, 1.0, 0.1]
         @test ir.metadata.spread == 1.2 && ir.metadata.ν == 8.0
         @test ir.resid == [0.1, 0.2, 3.0]

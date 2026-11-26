@@ -46,7 +46,7 @@ inliers = inlier_mask(r)
 
 A find originates a scale: its consensus partition's ŝ, the result's
 `noise_scale`. A family problem holds any number of data; on fewer than a
-minimal sample the find draws no trial and returns the `:no_model` result.
+minimal sample the find draws no trial and returns the no-model result (`(Failure, TrialBudget)`).
 
 ## Refines: `LevenbergMarquardt` on the same problem
 
@@ -70,7 +70,7 @@ width itself); least squares takes neither. The loss width is the strategy's
 efficiency constant times the scale — VisualGeometryToolkitCore's
 `efficiency_constant(Shape, d)` at the problem's codimension unless the strategy
 states one (TLS has none: state one, or give a width). The LM's stops are the
-solve keyword `stops = LmStops(…)`.
+solve keyword `stops`.
 
 The result is a `FitResult` with VisualGeometryToolkitCore's `RefineMetadata`:
 the refined model `u`, the per-datum distances at it `resid`, the per-datum

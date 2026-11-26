@@ -1,7 +1,7 @@
 # The camera-aware E calibration trials.
 #
 # WHY THEY EXIST. The MC calibration harness generated CALIBRATED 2-VECTOR
-# correspondences and handed them to the caller's `estimate`/`covariance`
+# correspondences and handed them to the caller's estimator/`covariance`
 # hooks. Once an essential-matrix problem stopped accepting plane data, those
 # hooks could no longer be satisfied — and the consumer could not fix it
 # locally, which is the part that matters: the harness's σ is what builds the
@@ -48,9 +48,16 @@
         seen = Ref{Any}(nothing)
         covh = (ch, cs, shapes) -> (seen[] = (ch, cs, shapes);
             Matrix(1.0I, tangent_size(ch), tangent_size(ch)))
-        esth = (ch, cs) -> model(ch)
-        (seen, esth, covh)
+        (seen, covh)
     end
+    # An estimator that returns the anchor's model: the trial's `problem` builds a refine at it, and the algorithm
+    # (implementing the refine contract, `__solve`) hands it back.
+    struct AnchorModel <: VisualGeometryToolkitCore.AbstractEstimationAlgorithm end
+    VisualGeometryToolkitCore.estimator_kind(::AnchorModel) = VisualGeometryToolkitCore.RefineKind()
+    VisualGeometryToolkitCore.__solve(prob::VisualGeometryToolkitCore.RefineProblem, ::AnchorModel) =
+        VisualGeometryToolkitCore.FitResult(prob.u0, VisualGeometryToolkitCore.ReturnCode.Success,
+            VisualGeometryToolkitCore.ExactFit, VisualGeometryToolkitCore.SolveStats(), NaN, 0, nothing)
+    anchor_problem = (ch, cs) -> VisualGeometryToolkitCore.RefineProblem(cs, model(ch))
 
     @testset "the default (calibrated) paths still run — F, E, band" begin
         # Textually untouched; this is the guard that the added branch did not
@@ -65,21 +72,21 @@
         # it scaled by. Calibrated mode must read (σ_px/f)², camera-aware mode
         # σ_px². If the data moved to pixels and σ did not, this is where it
         # would show, and it is the one assertion that cannot succeed by accident.
-        _, esth, covh = mk_hooks()
+        _, covh = mk_hooks()
         o_cam = essential_trial(
-            σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), estimate = esth, covariance = covh
+            σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), problem = anchor_problem, algorithm = AnchorModel(), covariance = covh
         )(MersenneTwister(5))
         o_def = essential_trial(
-            σ_px = 0.5, npts = 8, f = 600.0, estimate = esth, covariance = covh
+            σ_px = 0.5, npts = 8, f = 600.0, problem = anchor_problem, algorithm = AnchorModel(), covariance = covh
         )(MersenneTwister(5))
         @test o_cam[2][1, 1] ≈ 0.5^2 rtol = 1.0e-12            # pixels
         @test o_def[2][1, 1] ≈ (0.5 / 600)^2 rtol = 1.0e-12    # calibrated
     end
 
     @testset "the hooks get what an E problem now takes" begin
-        seen, esth, covh = mk_hooks()
+        seen, covh = mk_hooks()
         out = essential_trial(
-            σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), estimate = esth, covariance = covh
+            σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), problem = anchor_problem, algorithm = AnchorModel(), covariance = covh
         )(MersenneTwister(21))
         @test out !== nothing
         ch, cs, shapes = seen[]
@@ -114,9 +121,9 @@
     end
 
     @testset "the band trial hands its hooks bearings too" begin
-        seen, esth, covh = mk_hooks()
+        seen, covh = mk_hooks()
         out = epipolar_band_trial(
-            :E; σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), estimate = esth, covariance = covh
+            :E; σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), problem = anchor_problem, algorithm = AnchorModel(), covariance = covh
         )(MersenneTwister(33))
         @test out !== nothing
         _, cs, _ = seen[]
@@ -134,8 +141,8 @@
         @test epipolar_band_trial(:E; σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2))(MersenneTwister(43)) !== nothing
 
         # The per-pair factors ARE the tangent form, read from the set's columns.
-        seen, esth, covh = mk_hooks()
-        essential_trial(σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), estimate = esth, covariance = covh)(MersenneTwister(21))
+        seen, covh = mk_hooks()
+        essential_trial(σ_px = 0.5, npts = 8, cameras = (CAM1, CAM2), problem = anchor_problem, algorithm = AnchorModel(), covariance = covh)(MersenneTwister(21))
         ch, cs, _ = seen[]
         A, B = constraint_jacobians(ch, zero(SVector{tangent_size(ch), Float64}), cs)
         for i in eachindex(cs)
@@ -152,10 +159,9 @@
         # covariances agree to rounding — minimal and overdetermined — and the
         # tracked estimates to the O(σ/f) weight difference of the two whitenings.
         EQ = (cam(600.0, 250.0, 250.0), cam(600.0, 250.0, 250.0))
-        _, esth, _ = mk_hooks()
         for n in (5, 8)
-            o_cam = essential_trial(σ_px = 0.5, npts = n, cameras = EQ, estimate = esth)(MersenneTwister(51))
-            o_def = essential_trial(σ_px = 0.5, npts = n, estimate = esth)(MersenneTwister(51))
+            o_cam = essential_trial(σ_px = 0.5, npts = n, cameras = EQ, problem = anchor_problem, algorithm = AnchorModel())(MersenneTwister(51))
+            o_def = essential_trial(σ_px = 0.5, npts = n, problem = anchor_problem, algorithm = AnchorModel())(MersenneTwister(51))
             @test o_cam[2] ≈ o_def[2] rtol = 1.0e-8
         end
         o_cam = essential_trial(σ_px = 0.5, npts = 8, cameras = EQ)(MersenneTwister(53))
@@ -164,12 +170,20 @@
         @test o_cam[1] ≈ o_def[1] rtol = 2.0e-2
     end
 
+    @testset "the estimator is `problem` and `algorithm` together, or neither" begin
+        @test_throws ArgumentError essential_trial(σ_px = 0.5, npts = 8, problem = anchor_problem)
+        @test_throws ArgumentError essential_trial(σ_px = 0.5, npts = 8, algorithm = AnchorModel())
+        # the anchor's model, through the caller's solve: its chart coordinates are zero
+        o = essential_trial(σ_px = 0.5, npts = 8, problem = anchor_problem, algorithm = AnchorModel())(MersenneTwister(5))
+        @test o !== nothing && maximum(abs, o[1]) < 1.0e-12
+    end
+
     @testset "`cameras` is an E-only argument" begin
         # F is a pixel-plane model: `cameras` is meaningless for it, and saying
         # so beats accepting and ignoring the argument.
-        _, esth, covh = mk_hooks()
+        _, covh = mk_hooks()
         @test_throws ArgumentError epipolar_band_trial(
-            :F; σ_px = 0.5, cameras = (CAM1, CAM2), estimate = esth, covariance = covh
+            :F; σ_px = 0.5, cameras = (CAM1, CAM2), problem = anchor_problem, algorithm = AnchorModel(), covariance = covh
         )
     end
 end

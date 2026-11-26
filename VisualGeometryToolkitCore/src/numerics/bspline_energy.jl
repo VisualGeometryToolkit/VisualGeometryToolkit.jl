@@ -64,7 +64,7 @@ a B-spline lattice's Gram matrix ([`bending_gram`](@ref)), or a thin-plate
 spline system's `Q` ([`bending_energy`](@ref)) — with `‖L c‖² = cᵀ G c`
 to rounding, so `√λ · L (c − c₀)` are a regularizer's residual rows (the chart LM's
 row protocol) and `L` a penalty operator for [`mean_positive_eigenvalue`](@ref) and
-[`cgls`](@ref). `L = Λ₊^½ Vᵀ` from `G = V Λ Vᵀ`, one row per positive eigenvalue (the
+`_cgls`. `L = Λ₊^½ Vᵀ` from `G = V Λ Vᵀ`, one row per positive eigenvalue (the
 null space — a system's affine values — and its rounding residue have
 no row; [`bending_factor`](@ref) is the same factor with a row for every node, the
 fixed shape a target calibration kind stores); only `LᵀL` is defined.

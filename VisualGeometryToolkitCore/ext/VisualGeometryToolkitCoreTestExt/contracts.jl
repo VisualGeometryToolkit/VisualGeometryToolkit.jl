@@ -23,7 +23,6 @@ function VgtkCore.test_termination_record(r::FitResult)
         Test.@test r.stats isa SolveStats
         Test.@test all(>=(0), (r.stats.nsteps, r.stats.nf, r.stats.njacs, r.stats.nfactors, r.stats.nsolve))
         Test.@test (Test.@inferred VgtkCore.successful_retcode(r)) === VgtkCore.successful_retcode(code)
-        Test.@test (Test.@inferred VgtkCore.retcode_symbol(r)) === VgtkCore.retcode_symbol(code, rule)
     end
 end
 

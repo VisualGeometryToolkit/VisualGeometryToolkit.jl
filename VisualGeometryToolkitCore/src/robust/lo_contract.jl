@@ -81,7 +81,6 @@ end
 
 """
     lo_estimate(model, code::ReturnCode.T, rule::StopRule; iterations = 0, residuals_current = false) -> FitResult{M, LoInfo}
-    lo_estimate(model, retcode::Symbol, rule::StopRule; iterations = 0, residuals_current = false)
 
 The lean result of one local-optimization refit — what
 [`locally_optimize!`](@ref) and a `block_coordinate_result` return. Its `u`
@@ -90,15 +89,11 @@ record (`retcode` and `stop_rule`) is why the refit stopped. No LO ran
 (the strategy `nothing`): `(Success, ClosedForm)`, the seed returned as it is;
 the consensus set has no residual dof, so no LO ran: `(InitialFailure,
 NoRule)`; a refit that failed (the incumbent returned): `(Failure,
-NonFinite)`; otherwise the optimizer's record. A loop that reports a legacy
-Symbol supplies it with its success rule, `retcode_from_symbol(retcode, rule)`
-(the one map; the second form). The refit computes no residual summary, so
+NonFinite)`; otherwise the optimizer's record. The refit computes no residual summary, so
 `rms` is `NaN` and `n` is 0. Zero heap allocation when `M` is isbits.
 """
 lo_estimate(model::M, code::ReturnCode.T, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) where {M} =
     FitResult(model, code, rule, SolveStats(; nsteps = iterations), NaN, 0, LoInfo(residuals_current))
-lo_estimate(model, retcode::Symbol, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) =
-    lo_estimate(model, retcode_from_symbol(retcode, rule)...; iterations, residuals_current)
 
 """
     lo_width(lo) -> nothing | EfficiencyConstant{Float64} | LossWidth{NTuple{2,Float64}}
@@ -286,7 +281,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
 #
 #   external_workspace(lo, problem, frame, scoring) -> ws     once per (pair, arm)
 #   prepare_external!(ws, lo, problem, θ, width, scoring) -> Bool   [true]  outside the timing bracket
-#   external_refit!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing   the bracketed call
+#   external_refit!(ws, lo, problem, θ, width, scoring) -> FitResult      the bracketed call
 #
 # `width` is an absolute loss width (`LossWidth`) or a fixed noise scale
 # (`FixedS2(s2)`, a role-isolated control's plug-in scale): by default a fixed
@@ -299,7 +294,7 @@ _check_composition(scoring::S, lo, ::Nothing) where {S} =
 # — VisualGeometryToolkitEval's `PairGeom` on a benchmark pool, or any caller's value
 # with those properties.
 # `scoring` is the refit's scoring template, for an arm that anchors its width
-# on a consensus scale. `θ′` is the problem's model type.
+# on a consensus scale. The result's `u` is the problem's model type.
 # =============================================================================
 
 """
@@ -328,16 +323,17 @@ external_refit!(ws, lo::Union{Nothing, AbstractOptimizationStrategy}, problem, �
     external_refit!(ws, lo, problem, θ, LossWidth(1.0, scale_s2(f)), scoring)
 
 """
-    external_refit!(ws, lo, problem, θ, width, scoring) -> θ′ | nothing
+    external_refit!(ws, lo, problem, θ, width, scoring) -> FitResult
 
 The `ExternalRefit` member of `RefitFamily`: refine the model `θ` of `problem`
 with the external solver `lo` at the absolute loss width `width::LossWidth`
 (`loss_width(width)`), on its workspace `ws` ([`external_workspace`](@ref)).
 A fixed noise scale `FixedS2(s2)` is the loss width `√s2` unless the
 refiner states otherwise.
-Returns the refined model (the problem's model type) or `nothing` when the
-solver produced none. A pure model → model refine: no seed sweep, no
-re-score. The owner of the strategy implements it.
+Returns a [`FitResult`](@ref), the solver's own record: `u` the refined model (the problem's model type), its
+`retcode` and `stop_rule`; a solve that produced no model is one that [`found_model`](@ref) refuses. A pure
+model → model refine: no seed sweep, no re-score. The owner of the strategy implements it, as
+[`BackendRefit`](@ref)'s is `solve(RefineProblem(problem, θ), alg; stops, width)`.
 """
 function external_refit! end
 # The refusal: a local optimizer with no external refit at an absolute width.

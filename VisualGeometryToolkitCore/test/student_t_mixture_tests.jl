@@ -125,7 +125,7 @@ end
     using VisualGeometryToolkitCore
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, _soft_posterior_weights!,
         PosteriorWeightState, JeffreysPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
-        _posterior_weights!, _posterior_inlier_probs!, median_seeded_posterior, is_map_inlier, mixture_nll
+        _posterior_weights!, _posterior_inlier_probs!, _median_seeded_posterior, is_map_inlier, mixture_nll
     const VGC = VisualGeometryToolkitCore
 
     mixtures = [StudentTMixture(ν, s2, log(2 * hw), dg, πin)
@@ -213,23 +213,23 @@ end
     # that are not NaN, so NaN residuals neither move the seed scale nor make it
     # NaN, even when they are most of the data, and the E-step gives them 0. An Inf
     # residual stays in the median (an outlier's large norm). All NaN: ŝ² is NaN.
-    @testset "median_seeded_posterior: NaN residuals" begin
+    @testset "_median_seeded_posterior: NaN residuals" begin
         rng = MersenneTwister(8)
         sq = 0.1 .* rand(rng, 21) .^ 2
         kw = (; outlier_halfwidth = 10.0, ν = 50.0, prior = JeffreysPrior(), codimension = 2)
-        ref = median_seeded_posterior(sq, 21; kw...)
+        ref = _median_seeded_posterior(sq, 21; kw...)
         for k in (1, 30)                                  # one NaN; NaN the majority
             sq_nan = [sq[1:10]; fill(NaN, k); sq[11:21]]
-            pws = median_seeded_posterior(sq_nan, 21 + k; kw...)
+            pws = _median_seeded_posterior(sq_nan, 21 + k; kw...)
             bad = 11:(10 + k); good = setdiff(1:(21 + k), bad)
             @test pws.s_hat_sq === ref.s_hat_sq
             @test all(iszero, pws.w[bad]) && all(iszero, pws.inlier_posterior[bad])
             @test pws.w[good] == ref.w && pws.inlier_posterior[good] == ref.inlier_posterior
         end
         sq_inf = [sq[1:10]; Inf; sq[11:21]]
-        pinf = median_seeded_posterior(sq_inf, 22; kw...)
+        pinf = _median_seeded_posterior(sq_inf, 22; kw...)
         @test isfinite(pinf.s_hat_sq) && pinf.w[11] === 0.0
         @test pinf.s_hat_sq == VGC._mad_scale_norms(; norms = sqrt.(sq_inf), codimension = 2)^2
-        @test isnan(median_seeded_posterior(fill(NaN, 5), 5; kw...).s_hat_sq)
+        @test isnan(_median_seeded_posterior(fill(NaN, 5), 5; kw...).s_hat_sq)
     end
 end

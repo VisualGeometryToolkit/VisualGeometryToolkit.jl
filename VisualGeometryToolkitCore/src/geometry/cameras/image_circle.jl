@@ -288,7 +288,7 @@ end
 # `|project(lens, ray(θ, ψ))|` first stops being finite and strictly increasing in the view angle θ — the radial map's
 # first fold on that azimuth, past which it is no longer invertible. The one monotonicity scan (`_last_increasing`,
 # 1024 samples to `edge`), then the bracket refined: a fold by Brent's method on the radius about the last increasing
-# sample (`grid_brent_minimum`), an onset of unimaged rays bisected (`_last_imaged`); `edge` itself when the radius never
+# sample (`_grid_brent_minimum`), an onset of unimaged rays bisected (`_last_imaged`); `edge` itself when the radius never
 # stops increasing. An `ArgumentError` when the lens images no ray on the azimuth.
 function _azimuth_fold(l::AbstractLensModel, ψ::Real, edge::Real)
     sψ, cψ = sincos(Float64(ψ))
@@ -301,7 +301,7 @@ function _azimuth_fold(l::AbstractLensModel, ψ::Real, edge::Real)
     )
     k == length(θs) && return point(θs[k])
     θ = if isfinite(radius(θs[k + 1]))
-        grid_brent_minimum(θ -> -radius(θ), range(θs[max(k - 1, 1)], θs[k + 1]; length = 3)).x
+        _grid_brent_minimum(θ -> -radius(θ), range(θs[max(k - 1, 1)], θs[k + 1]; length = 3)).x
     else
         _last_imaged(θ -> isfinite(radius(θ)), θs[k], θs[k + 1])
     end
@@ -310,12 +310,12 @@ end
 
 # An ellipse in an ellipse: the largest value of `b`'s quadratic form `(p − c)ᵀ M⁻¹ (p − c)` over `a`'s boundary is at
 # most 1 (with a relative slack of 8 eps for the form's rounding). The boundary is `a`'s centre plus its shape factor
-# times the unit circle; the maximum over the angle is Core's one 1-D minimizer (`grid_brent_minimum`, periodic).
+# times the unit circle; the maximum over the angle is Core's one 1-D minimizer (`_grid_brent_minimum`, periodic).
 function Base.issubset(a::Ellipse, b::Ellipse)
     Minv = inv(SMatrix{2, 2, Float64}(shape_matrix(b)))
     cb = SVector{2, Float64}(b.center[1], b.center[2])
     q(θ) = (d = SVector{2, Float64}(boundary_point(a, θ)) - cb; -dot(d, Minv * d))
-    r = grid_brent_minimum(q, range(0.0, 2π; length = 721)[1:(end - 1)]; periodic = true)
+    r = _grid_brent_minimum(q, range(0.0, 2π; length = 721)[1:(end - 1)]; periodic = true)
     return -r.value <= 1 + 8 * eps()
 end
 
@@ -370,7 +370,7 @@ for an [`imaged_region`](@ref)).
 - `farthest_radius(region, center)` is the largest distance from `center` to a
   point of the region. A `Rect` has the exact value, its farthest corner. Any
   other region uses the second form on 720 azimuths, refines the largest by
-  Brent's method between its neighbours (`grid_brent_minimum`, Core's one 1-D
+  Brent's method between its neighbours (`_grid_brent_minimum`, Core's one 1-D
   minimizer) and returns the largest value it evaluated.
 - `farthest_radius(region, center, direction)` is the largest `t` with
   `center + t·direction` in the region, bisected to rounding, in units of

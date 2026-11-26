@@ -33,15 +33,18 @@ const _MIN_INFORMATIVE = 10
 # that package (relative paths, or a Regex over them) where the pattern is the owner's own.
 const _RETIRED_PATTERNS = (
     # THE LM GATE: a direct call of an LM primitive outside the one adapter. The primitives are NLLSsolver's solver API
-    # (its optimize, problem, cache and options constructors) and Core's internals of the adapter (the retired knob map
+    # (its optimize, problem, cache and options constructors), Core's internals of the adapter (the retired knob map
     # and its private successor, the termination decode and stop-code decoder, the engine) and of the device LM (its
-    # increment solve). The entry points are not primitives: `lmsolve_chart!`, `LmProblem` (with `LmStops`),
-    # `StaticLevenbergMarquardt` (with `StaticLmStops`) and, inside Core, its kernel `_static_lm` may be called anywhere. Every own file is scanned — src/, ext/, test/,
-    # benchmark/, scripts — the home alone excepted: lm_core.jl and the adapter's own tests.
+    # increment solve), and Core's internal kernels and drivers (R22: `_lmsolve_chart!`, `_LmProblem`, `_chart_refit`,
+    # `_triggs_refit`). Every package solves through the front end, `solve`/`init` on a `RefineProblem` with
+    # `LevenbergMarquardt` or `StaticLevenbergMarquardt`. Every own file is scanned — src/, ext/, test/, benchmark/,
+    # scripts — the home alone excepted: Core's lm_core.jl and refine.jl and the adapter's own tests.
     (:lm_primitive, Regex("\\bNLLS" * "Options\\s*\\(|\\bNLLSsolver\\.(optimize!|NLLS" * "Problem|Optimize" * "Cache)\\s*\\(|" *
-            "(?<![\\p{L}\\p{N}_!])(_?nlls_" * "options|nlls_" * "termination|nlls_" * "stop_code|_lm_" * "run!|_static_lm_" * "increment)\\s*\\("),
-        "VisualGeometryToolkitCore's one LM adapter (src/robust/lm_core.jl): `lmsolve_chart!` on a chart state or an `LmProblem`, under `LmStops`; `StaticLevenbergMarquardt` under `StaticLmStops` on a device",
-        ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl", "test/lm_driver_tests.jl", "test/static_lm_tests.jl"))),
+            "(?<![\\p{L}\\p{N}_!])(_?nlls_" * "options|nlls_" * "termination|nlls_" * "stop_code|_lm_" * "run!|_static_lm_" * "increment)\\s*\\(|" *
+            "(?<![\\p{L}\\p{N}!])(_lmsolve" * "_chart!|_Lm" * "Problem|_chart" * "_refit|_triggs" * "_refit)\\s*\\("),
+        "VisualGeometryToolkitCore's one LM front end: `solve`/`init` on a `RefineProblem` with `LevenbergMarquardt` (under `LmStops`), or with `StaticLevenbergMarquardt` (under `StaticLmStops`) on a device",
+        ("VisualGeometryToolkitCore", ("src/robust/lm_core.jl", "src/robust/refine.jl", "test/lm_driver_tests.jl", "test/static_lm_tests.jl",
+                                       "test/manifold_nlls_tests.jl", "test/hoisted_helpers_tests.jl", "test/lo_refit_front_end_tests.jl"))),
     (:rotation_angle, Regex("\\ba" * "cos\\s*\\(\\s*clamp\\s*\\(\\s*\\(\\s*(LinearAlgebra\\.)?(tr|sum)\\s*\\("),
         "Rotations' `rotation_angle` (as VisualGeometryToolkitCore's stereo.jl): exact near 0 and π", ("", ())),
     (:srgb_transfer, Regex("\\b0\\.00" * "31308\\b|\\b0\\.0" * "4045\\b"),
@@ -259,7 +262,7 @@ _entry_text(kind, e) = "[[$kind]] " * join((string(k, " = ", repr(e[k])) for k i
 # kernel's resident threads) are the backends' own and are left alone, by their WHOLE names:
 # every `_`-separated token of the name (its leading `_` and trailing `!`
 # dropped) is a word of `_HELPER_TOKENS`. A fragment is not enough —
-# `fill_sqrt_weights!`, `transfer_ellipse`, `_copy_sq_distances!` and
+# `_fill_sqrt_weights!`, `transfer_ellipse`, `_copy_sq_distances!` and
 # `cones` compute, so their backend tests are checked.
 # Like the retired patterns, the tests are built from fragments.
 

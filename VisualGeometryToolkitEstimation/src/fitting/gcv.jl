@@ -19,7 +19,7 @@
 # THE SEARCH. `solve(EstimationProblem(Hyperparameter, score, (; scale)), GeneralizedCrossValidation())`:
 # `score(λ)` returns `(; gcv, rss, dof)` — a closed-form curve of one Gauss–Newton system (`gcv_curve`), or a
 # caller's own evaluation — minimized over log₁₀ β by a coarse scan and Brent's method (Core's
-# `grid_brent_minimum`), the scan evaluated from the largest β down.
+# `GridBrent` on a `BracketedMinimizationProblem`), the scan evaluated from the largest β down.
 # =============================================================================
 
 """
@@ -190,10 +190,11 @@ function __solve(prob::EstimationProblem{Hyperparameter, <:Any, <:NamedTuple{(:s
     lo, hi = alg.log10_bracket
     seen = Dict{Float64, NamedTuple{(:gcv, :rss, :dof), NTuple{3, Float64}}}()
     g(t) = (c = get!(() -> _gcv_record(score(exp10(t) * scale)), seen, t); c.gcv)
-    found = VgtkCore.grid_brent_minimum(g, range(hi, lo; length = alg.points))
-    c = seen[found.x]
-    meta = (; λ = exp10(found.x) * scale, c.gcv, c.rss, c.dof, log10_β_bracket = [lo, hi], at_bracket_end = found.at_end)
-    return FitResult(exp10(found.x), found.at_end ? ReturnCode.MaxIters : ReturnCode.Success,
-                     found.at_end ? IterationCap : ToleranceMet, SolveStats(; nf = length(seen)), NaN, 0, meta)
+    found = solve(VgtkCore.BracketedMinimizationProblem(g, range(hi, lo; length = alg.points)), VgtkCore.GridBrent())
+    x, at_end = found.u, found.metadata.at_end
+    c = seen[x]
+    meta = (; λ = exp10(x) * scale, c.gcv, c.rss, c.dof, log10_β_bracket = [lo, hi], at_bracket_end = at_end)
+    return FitResult(exp10(x), at_end ? ReturnCode.MaxIters : ReturnCode.Success,
+                     at_end ? IterationCap : ToleranceMet, SolveStats(; nf = length(seen)), NaN, 0, meta)
 end
 _gcv_record(c) = (; gcv = Float64(c.gcv), rss = Float64(c.rss), dof = Float64(c.dof))

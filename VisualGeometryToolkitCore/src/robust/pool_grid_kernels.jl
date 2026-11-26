@@ -12,7 +12,7 @@
 # its minimal sample at zero, sorted ascending (so a family of compact support,
 # `support_sq_loss_width`, stops at the largest width), flat, with the per-pair offsets and the
 # per-model errors the argmax gathers. `select_on_grid!` on the `:pool` staging launches them for
-# such a family; `best_pool_model` (per pair, through `score!`) stays the selection of a scoring
+# such a family; `best_pool_model!` (per pair, through `score!`) stays the selection of a scoring
 # without a per-residual quality. RANSACScoringDoneRight's grid families run the same kernels on
 # its staging (its LogBinned aggregation is its own).
 # =============================================================================

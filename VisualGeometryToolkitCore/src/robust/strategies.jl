@@ -48,7 +48,7 @@ const LOSS_TAGS = TagRegistry(:loss, "Shape", [tag => K for (K, tag) in _LOSS_TA
 
 STATIC IRLS at a frozen loss width — direct iteratively-reweighted least
 squares on loss `K`, no lift, no graduation. `Irls{K}` is an LO STRATEGY: one
-instance of VisualGeometryToolkitCore's generic [`block_coordinate_descent!`](@ref)
+instance of VisualGeometryToolkitCore's generic [`BlockCoordinateDescent`](@ref)
 loop, which is not itself "IRLS" (it also runs EM, the half-quadratic lifts and
 GNC). Runs the posterior-weight iteration
 (VisualGeometryToolkitEstimation's `posterior_irls!`) — the `PosteriorIrlsMethod` /
@@ -535,7 +535,7 @@ function _register_lo_rows(M::Module, rows, defaults; retired = (), none::Bool =
             $E.lo_defaults(::Type{<:$T}) = $defaults
             $C.toml_skip_fields(::Type{<:$T}) = (:width,)
         end)
-        path === nothing || Core.eval(M, :($C.optimization_path(::$T) = $(QuoteNode(path))))
+        path === nothing || Core.eval(M, :($C.optimization_path(::$T) = $path))
         parametric && Core.eval(M, :($E.lo_parametric(::Type{<:$T}) = true))
         iface === nothing || Core.eval(M, :($C.scale_interface(::$T) = $iface))
         family === nothing || Core.eval(M, :($C.loss_family(::$T) = $(QuoteNode(family))))
@@ -566,8 +566,8 @@ end
 
 #   type      tag       path     scale    family   label    shape    parametric
 const _CORE_STRATEGY_ROWS = (
-    (Irls,    "irls",   :irls,   nothing, nothing, nothing, nothing, true),
-    (Triggs,  "triggs", :triggs, nothing, nothing, nothing, nothing, true),
+    (Irls,    "irls",   OptimizationPath.irls,   nothing, nothing, nothing, nothing, true),
+    (Triggs,  "triggs", OptimizationPath.triggs, nothing, nothing, nothing, nothing, true),
 )
 
 """

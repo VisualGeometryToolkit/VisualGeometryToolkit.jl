@@ -68,8 +68,8 @@ The least squares is a column-pivoted QR, so a column that no row with weight
 reaches (an unsupported basis function) gets a basic solution's value, not an
 error; drop such columns before the call when their value matters.
 
-`retcode_symbol(result)` is `:converged`, `:max_iterations`, `:solved` (least squares), or
-`:degenerate` when fewer rows keep a positive weight than there are columns.
+The record (`retcode`, `stop_rule`) is `(Success, IncrementSize)` (converged), `(MaxIters, IterationCap)`,
+`(Success, ClosedForm)` (least squares), or `(InitialFailure, NoRule)` when fewer rows keep a positive weight than there are columns.
 `n` is the support (the rows of positive solve weight) and `rms` the
 weight-weighted root mean square residual over the rows,
 `√(Σ pᵢwᵢrᵢ² / Σ pᵢwᵢ)`. The metadata ([`FitMetadata`](@ref)) carries

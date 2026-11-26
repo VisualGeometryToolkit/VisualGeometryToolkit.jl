@@ -119,7 +119,7 @@ end
 const CONTRACT_GENERICS = (
     # the block-coordinate-descent loop's hooks and readers (robust/block_coordinate_descent.jl)
     update_model!, update_residuals!, update_nuisance!, update_weights!, post_iteration!,
-    stopping_criterion, stop_reason, stop_rule, block_coordinate_result, current_cost, current_s2,
+    stopping_criterion, stop_reason, block_coordinate_result, current_cost, current_s2,
     # the chart LM's row protocol and its reductions (robust/lm_core.jl)
     residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
     # the RANSAC / LO interface (robust/estimation.jl, robust/losses.jl, robust/width_axes.jl)
@@ -152,7 +152,7 @@ const CONTRACT_GENERICS = (
     lo_workspace, locally_optimize!, lo_width,
     external_refit!, external_workspace, prepare_external!,
     # selection over a benchmark pool (robust/pool_selection.jl)
-    best_pool_model, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,
+    best_pool_model!, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,
     # the chart-rows contract (robust/rows.jl)
     rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model,
     lift_valid, lift_rows, lift_residuals, lift_size,
@@ -164,8 +164,8 @@ const CONTRACT_GENERICS = (
     # the LevenbergMarquardt refine's contracts (robust/refine.jl): the chart contract a chart problem's author
     # implements, its class's strategy of record, and the block contract of a bundle
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
-    block_refit, with_robustifier, default_stops, chart_result,
-    block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
+    refit_chart, refit_rows, with_robustifier, default_stops, chart_result,
+    block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
     # and refine of raw data (robust/lm_core.jl, robust/refine.jl)
     homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine, honoured_stops,
@@ -257,6 +257,49 @@ VisualGeometryToolkitCore's, by group:
   of them adds `ambient_coordinates` rather than overriding `retract_jacobian`);
 - the plotting stubs the Makie extensions implement.
 """ CONTRACT_GENERICS
+
+"""
+    CORE_INTERNAL_DRIVERS
+
+The solver steps of VisualGeometryToolkitCore's block-coordinate loop in Manopt.jl's names
+(`initialize_solver!`, `step_solver!`, `stop_solver!`): Core's own drivers, not public, which no other package reaches
+— neither qualified nor imported (check_naming R22). A run goes through `solve`/`init` on a `RefineProblem` with
+[`BlockCoordinateDescent`](@ref). They keep Manopt's names, unprefixed, so a later Manopt bridge extends Manopt's
+functions; every other Core-internal driver is `_`-prefixed and refused as a `_` name.
+"""
+const CORE_INTERNAL_DRIVERS = (initialize_solver!, step_solver!, stop_solver!)
+
+"""
+    SOLVER_HOOKS
+
+The hooks of VisualGeometryToolkitCore's solvers (extension points, as [`CONTRACT_GENERICS`](@ref) lists them): what an
+author IMPLEMENTS for a problem, a scorer or a strategy, and what Core's solvers call. User-level code — experiments,
+scripts, examples, benchmarks, a README or a docs page, a test that is not a contract test — calls none of them; it
+solves through `solve`, `init`, `solve!` and `reinit!` (check_naming R22). Implementing one (a method definition) or
+forwarding one (a call inside such a definition) is allowed everywhere. By group: the block-coordinate hooks; the
+chart-LM row protocol; the chart, block and row contracts of the LevenbergMarquardt refine; the local-optimization
+contract; the scoring contract and pool selection; the chart-rows (lift) contract; a backend's LM; `__solve`,
+`__init`. The geometry and camera accessors (`project`, `backproject`, `centroid`, …) are not hooks: users call them.
+"""
+const SOLVER_HOOKS = (
+    # the block-coordinate-descent hooks (robust/block_coordinate_descent.jl)
+    init_state!, update_model!, update_residuals!, update_nuisance!, update_weights!, post_iteration!,
+    stopping_criterion, stop_reason, block_coordinate_result,
+    # the chart LM's row protocol (robust/lm_core.jl)
+    residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
+    # the LevenbergMarquardt refine's chart and block contracts (robust/refine.jl)
+    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, chart_result, refit_chart, refit_rows,
+    with_robustifier, block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
+    # the local-optimization contract (robust/lo_contract.jl, robust/problem.jl)
+    lo_workspace, locally_optimize!, external_refit!, external_workspace, prepare_external!, refine!, refit_workspace,
+    # the scoring contract and pool selection (robust/scoring_contract.jl, robust/partition_sweep.jl, robust/pool_selection.jl)
+    scoring_workspace, score!, sweep!, select_on_grid!,
+    # the chart-rows (lift) contract (robust/rows.jl)
+    rows_provider, lift_init, lift_refresh!, lift_jacobian!, lift_retract, lift_model, lift_valid, lift_rows,
+    lift_residuals, lift_size,
+    # a LevenbergMarquardt backend's refine of raw data (robust/refine.jl) and the estimation interface's extension points
+    lm_backend_refine, __solve, __init,
+)
 
 """
     contract_generic_violations(M::Module) -> Vector{String}

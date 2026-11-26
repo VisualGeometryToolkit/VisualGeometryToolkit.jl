@@ -39,7 +39,7 @@ they disagree:
 
 The stack's Levenberg–Marquardt protocol (VisualGeometryToolkitCore `lm_core.jl`) is `residual_rows!` and
 `residual_jacobian_rows!`, mirroring Ceres' `CostFunction::Evaluate`; its driver
-is NLLSsolver (`lmsolve_chart!`, one adapter), and the protocol is independent
+is NLLSsolver (one internal adapter, reached through `solve` with `LevenbergMarquardt`), and the protocol is independent
 of the driver. They are
 deliberately NOT named `whitened_residuals!`: the RANSAC protocol's
 `whitened_residuals!(r, problem, model)` is unweighted and in data units, while LM rows

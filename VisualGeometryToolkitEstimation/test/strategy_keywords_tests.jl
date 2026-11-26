@@ -1,3 +1,4 @@
+# R22: contract test — the local-optimization workspace contract (`lo_workspace`)
 # =============================================================================
 # One optimization-strategy family, two keywords (the owner's ruling, 2026-11-11):
 # a RANSAC algorithm (`Ransac`, `LocalOptimization`) takes `local_optimization_strategy`,

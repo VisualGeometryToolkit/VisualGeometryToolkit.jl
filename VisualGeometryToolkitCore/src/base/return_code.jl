@@ -8,9 +8,8 @@
 # rule fired). Both are FitResult fields (`r.retcode`, `r.stop_rule`): every
 # producer records them through the one constructor, so no result is without a
 # code and `successful_retcode(r)` is `successful_retcode(r.retcode)` for every result.
-# A loop that still reports a Symbol records `retcode_from_symbol(s, rule)`, the
-# one map from a Symbol; `retcode_symbol` is the one map back (the legacy
-# spelling). The types load before FitResult (base/fit_result.jl); the
+# A producer records the pair itself, and a reader reads it: no Symbol is ever a retcode (a persisted record writes
+# the enum's own name). The types load before FitResult (base/fit_result.jl); the
 # readings of a result are in base/termination_accessors.jl.
 # =============================================================================
 
@@ -54,7 +53,7 @@ meaning is SciMLBase's:
   Not successful.
 
 Compare with [`successful_retcode`](@ref VisualGeometryToolkitCore.successful_retcode), never `== ReturnCode.Success`; the
-rule that fired is the result's [`stop_rule`](@ref VisualGeometryToolkitCore.stop_rule).
+rule that fired is the result's field `stop_rule`, a [`StopRule`](@ref VisualGeometryToolkitCore.StopRule).
 """
 baremodule ReturnCode
 using Base: @enum
@@ -101,7 +100,7 @@ successful_retcode(code::ReturnCode.T) = code == ReturnCode.Success || code == R
     StopRule
 
 Which rule ended a fit — the detail behind its [`ReturnCode`](@ref) (the
-verdict), read by [`stop_rule`](@ref):
+verdict), a result's `stop_rule` field:
 
 - `NoRule` — no rule fired: a run that never iterated (a degenerate start, a
   non-finite start point), or a host-LM run NLLSsolver stopped after a cost
@@ -181,77 +180,6 @@ for (v, doc) in (
         (:SeedKept, "a RANSAC's score guard kept the seed (the refined model scored below it)"),
     )
     @eval @doc $("`$v`: a [`StopRule`](@ref) — $doc.") $v
-end
-
-"""
-    retcode_symbol(code::ReturnCode.T, rule::StopRule) -> Symbol
-    retcode_symbol(r::FitResult) -> Symbol
-
-The legacy Symbol spelling of a termination record (a log line, a persisted
-record that names the Symbol; [`retcode_symbol`](@ref)`(r)` of a result) — the
-one map from a record to a Symbol: `Success` is `:solved`
-for a `ClosedForm` rule and `:converged` otherwise; `Terminated` `:converged`;
-`MaxIters` `:max_iterations`; `MaxTime` `:max_time`; `Stalled` `:stalled`;
-`InitialFailure` `:degenerate`, or `:solve_failed` for a `NonFinite` start;
-`InternalLinearSolveFailed` `:solve_failed`; `Failure` `:no_model` when a
-RANSAC's trial rule ended it (`TrialBudget`, `AdaptiveCount`) and
-`:solve_failed` otherwise; `Default` (not run) `:not_run`, and any code with the
-`SeedKept` rule `:guard_kept_seed`.
-"""
-function retcode_symbol(code::ReturnCode.T, rule::StopRule)
-    code == ReturnCode.Default && return :not_run
-    rule == SeedKept && return :guard_kept_seed
-    code == ReturnCode.Success && return rule == ClosedForm ? :solved : :converged
-    code == ReturnCode.Terminated && return :converged
-    code == ReturnCode.MaxIters && return :max_iterations
-    code == ReturnCode.MaxTime && return :max_time
-    code == ReturnCode.Stalled && return :stalled
-    code == ReturnCode.InitialFailure && return rule == NonFinite ? :solve_failed : :degenerate
-    code == ReturnCode.Failure && return (rule == TrialBudget || rule == AdaptiveCount) ? :no_model : :solve_failed
-    return :solve_failed                                 # InternalLinearSolveFailed
-end
-
-"""
-    retcode_from_symbol(retcode::Symbol, rule::StopRule) -> (ReturnCode.T, StopRule)
-
-The termination record of a loop that reports a legacy Symbol — the inverse of
-[`retcode_symbol`](@ref), so `retcode_symbol(retcode_from_symbol(s, rule)...) === s`.
-`rule` is the rule a SUCCESSFUL stop of that loop fired (its tolerance:
-`CostDecrease`, `IncrementSize`, `ParameterChange`, …), also the one whose
-postcondition a `:stalled` stop failed:
-
-| `retcode` | `ReturnCode` | `StopRule` |
-|:--|:--|:--|
-| `:converged` | `Success` | `rule` |
-| `:solved` | `Success` | `ClosedForm` |
-| `:stalled` | `Stalled` | `rule` |
-| `:max_iterations` | `MaxIters` | `IterationCap` |
-| `:max_time` | `MaxTime` | `TimeCap` |
-| `:solve_failed` | `Failure` | `NonFinite` |
-| `:degenerate` | `InitialFailure` | `NoRule` |
-| `:not_run` | `Default` | `NoRule` |
-| `:guard_kept_seed` | `Success` | `SeedKept` |
-| `:no_lo` | `Success` | `ClosedForm` (read back as `:solved`) |
-| `:thin_partition` | `InitialFailure` | `NoRule` (read back as `:degenerate`) |
-
-The last four are a RANSAC's former local-optimization statuses (its
-`lo_retcode` before it was a record). Any other Symbol (a RANSAC's
-`:no_model`) is an `ArgumentError`: its producer states its record itself.
-"""
-function retcode_from_symbol(retcode::Symbol, rule::StopRule)
-    retcode === :converged && return (ReturnCode.Success, rule)
-    retcode === :solved && return (ReturnCode.Success, ClosedForm)
-    retcode === :stalled && return (ReturnCode.Stalled, rule)
-    retcode === :max_iterations && return (ReturnCode.MaxIters, IterationCap)
-    retcode === :max_time && return (ReturnCode.MaxTime, TimeCap)
-    retcode === :solve_failed && return (ReturnCode.Failure, NonFinite)
-    retcode === :degenerate && return (ReturnCode.InitialFailure, NoRule)
-    # the RANSAC's former local-optimization statuses
-    retcode === :not_run && return (ReturnCode.Default, NoRule)
-    retcode === :guard_kept_seed && return (ReturnCode.Success, SeedKept)
-    retcode === :no_lo && return (ReturnCode.Success, ClosedForm)
-    retcode === :thin_partition && return (ReturnCode.InitialFailure, NoRule)
-    throw(ArgumentError("retcode_from_symbol: `:$retcode` is no iterative fit's retcode; its producer states its record"))
 end
 
 # The verdicts in increasing severity, for `worst_retcode`.

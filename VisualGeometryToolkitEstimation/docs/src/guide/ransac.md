@@ -128,15 +128,24 @@ The M-step is implemented by `refine!(ws, problem, θ, weights)`, routed by the
 problem's `refit_kind` trait (`NonlinLsq` for every problem below) to its
 `_refine!` method — there is no fit-strategy marker. Each IRLS iteration runs one
 full Levenberg–Marquardt solve, anchored at the incoming ``\theta``, at that
-iteration's weights ``w_i``. The driver of every one is NLLSsolver, through
-VisualGeometryToolkitCore's one LM adapter (`lmsolve_chart!`, its stop settings
-`LmStops`, Core's `configs/default.toml` `[lm]`); the relative-pose bundle runs
-it too (`LmProblem`), with the structure eliminated by the Schur complement where the loaded
-NLLSsolver has it.
+iteration's weights ``w_i``. Every one is VisualGeometryToolkitCore's one
+`LevenbergMarquardt`: the problem's refit workspace (`refit_workspace(problem)`, a
+`RefitSlot`) holds the summary-free refine cache
+`init(RefineProblem(p, zero(M)), LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`,
+and each refit re-points it, `solve!(reinit!(c, θ; f = p, weights = w)).u`. The
+Triggs local optimization holds a second cache at
+`LevenbergMarquardt(; optimization_strategy = Triggs{K}())` with
+`width = deployed_loss`. The relative-pose bundle is a block problem, which Core
+builds and solves as a multi-block LM.
 
 **A zero-weight row is exactly 0.** Every chart refit — this M-step, a
-`LevenbergMarquardt` refine's least squares and both Triggs paths, all through
-VisualGeometryToolkitCore's `chart_refit` — builds the rows as
+`LevenbergMarquardt` refine's least squares and both Triggs paths — builds the
+rows through Core's contract generics
+[`refit_chart`](@extref VisualGeometryToolkitCore.refit_chart)`(f, θ, weights)`
+(default `model_chart`) and
+[`refit_rows`](@extref VisualGeometryToolkitCore.refit_rows)`(f, chart, sqrtw)`
+(default `chart_rows`), which this package implements as its `_refit_chart` and
+`_refit_state`, and forms them as
 ``\sqrt{w_i}\,e_i`` in one place. A datum at weight 0 whose own residual is
 `Inf` or `NaN` would give ``0 \cdot \infty = \mathrm{NaN}`` and stop the LM at
 its start, so the rows (and Jacobian rows) at a zero ``\sqrt{w}`` are set to 0
@@ -146,9 +155,9 @@ at a nonzero weight is the problem's own, bit for bit.
 
 | Problem | M-step body | Notes |
 |---------|-------------|-------|
-| `HomographyProblem` | LM on the minimal 8-dof sl(3) chart ``H(x) = H_0 (I + \sum_q x_q G_q)`` (``G_q`` a traceless basis) — minimizes ``\sum_i w_i \|L_i^{-1}(\pi(H x_{1i}) - x_{2i})\|^2`` with ``L_i L_i^\top = \tilde\Sigma_{g_i}`` the Sampson covariance shape of the transfer error at ``H_0``. VisualGeometryToolkitCore's chart LM (NLLSsolver, through `lmsolve_chart!`) on a `ManifoldLmWorkspace{8}`. | Analytic Jacobian (``\partial H / \partial x_q = H_0 G_q`` is constant). ``\tilde\Sigma_{g_i}`` is computed from the incoming ``\theta`` and frozen for the solve. |
-| `FundMatProblem` | LM on the 7-dof Bartoli–Sturm chart ``F \sim U \, \mathrm{diag}(1, \sigma, 0) \, V^\top`` (MRP rotations of ``U`` and ``V``, additive ``\sigma``) — minimizes the weighted signed Sampson distance ``\sum_i w_i \, (g_i / \|\partial_x g_i\|)^2``. Same core, on a `ManifoldLmWorkspace{7}`. | Analytic Jacobian. ``F`` is rank 2 by construction; the one-dimensional gauge of near-essential seeds (``\sigma \to 1``) is absorbed by the LM damping. |
-| `AbsolutePoseProblem` | LM on the 6-dof left-perturbation chart ``R = \exp(\delta\omega) R_0``, ``t = \exp(\delta\omega) t_0 + \delta t`` (VGC's `LeftRigidManifold6`) — calibrated reprojection residual via VGC's `constraint_with_jacobians(::`CameraExtrinsics`, X, ray)` (for a distorting lens, the raw-pixel residual of `constraint_with_jacobians(model, pose, X, u)`). The same chart LM, on a `ManifoldLmWorkspace{6}`. | Analytic 2×6 Jacobian: the projection block of `constraint_with_jacobians` times the chart's closed-form `action_jacobian` (``[-[R X + t]_\times \; I_3]``). |
+| `HomographyProblem` | LM on the minimal 8-dof sl(3) chart ``H(x) = H_0 (I + \sum_q x_q G_q)`` (``G_q`` a traceless basis) — minimizes ``\sum_i w_i \|L_i^{-1}(\pi(H x_{1i}) - x_{2i})\|^2`` with ``L_i L_i^\top = \tilde\Sigma_{g_i}`` the Sampson covariance shape of the transfer error at ``H_0``. VisualGeometryToolkitCore's chart LM, the summary-free `LevenbergMarquardt` refine on the problem's `RefitSlot`. | Analytic Jacobian (``\partial H / \partial x_q = H_0 G_q`` is constant). ``\tilde\Sigma_{g_i}`` is computed from the incoming ``\theta`` and frozen for the solve. |
+| `FundMatProblem` | LM on the 7-dof Bartoli–Sturm chart ``F \sim U \, \mathrm{diag}(1, \sigma, 0) \, V^\top`` (MRP rotations of ``U`` and ``V``, additive ``\sigma``) — minimizes the weighted signed Sampson distance ``\sum_i w_i \, (g_i / \|\partial_x g_i\|)^2``. Same core. | Analytic Jacobian. ``F`` is rank 2 by construction; the one-dimensional gauge of near-essential seeds (``\sigma \to 1``) is absorbed by the LM damping. |
+| `AbsolutePoseProblem` | LM on the 6-dof left-perturbation chart ``R = \exp(\delta\omega) R_0``, ``t = \exp(\delta\omega) t_0 + \delta t`` (VGC's `LeftRigidManifold6`) — calibrated reprojection residual via VGC's `constraint_with_jacobians(::`CameraExtrinsics`, X, ray)` (for a distorting lens, the raw-pixel residual of `constraint_with_jacobians(model, pose, X, u)`). The same chart LM. | Analytic 2×6 Jacobian: the projection block of `constraint_with_jacobians` times the chart's closed-form `action_jacobian` (``[-[R X + t]_\times \; I_3]``). |
 | `HandEyeProblem` | LM on the 6-dof decoupled chart of ``X`` (``R = \exp(\delta\omega) R_0``, ``t = t_0 + \delta t``; VGC's `RigidExpManifold6`, the chart of its constraint and covariance) — the stacked 6-vector hand-eye residuals ``g_i``. The same chart LM. Each hypothesis is Tsai–Lenz fitted on its two motions (`sample_hypothesis`). | ForwardDiff Jacobian of the explicit residual: the ``G_\theta`` of `constraint_with_jacobians` is only a near-optimum approximation of it. |
 
 ### Configuration

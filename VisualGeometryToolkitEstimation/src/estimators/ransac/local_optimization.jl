@@ -19,7 +19,7 @@
 # `locally_optimize!(L, ::Nothing, …)` returns the model unchanged (`:no_lo`).
 
 # =============================================================================
-# The posterior-weight iteration via the generic block_coordinate_descent! loop
+# The posterior-weight iteration via the generic BlockCoordinateDescent loop
 # =============================================================================
 
 # The model block of a `PosteriorIrlsMethod` is a bound, named callable —
@@ -101,9 +101,9 @@ change_parameters(_problem, θ) = parameter_vector(θ)
 """
     StopWhenParameterChangeLess(rtol)
 
-`:converged` once the last iteration moved the problem's
+`(Success, ParameterChange)` once the last iteration moved the problem's
 [`change_parameters`](@ref) by less than `rtol` relative to their previous
-value. The criterion of [`ParameterChangeStop`](@ref).
+value, [`CONTINUE`](@extref VisualGeometryToolkitCore.CONTINUE) before. The criterion of [`ParameterChangeStop`](@ref).
 """
 struct StopWhenParameterChangeLess <: StoppingCriterion
     rtol::Float64
@@ -111,16 +111,16 @@ end
 function stop_reason(c::StopWhenParameterChangeLess, state, method, prob, θ, θ_old, iter)
     p, p_old = change_parameters(prob, θ), change_parameters(prob, θ_old)
     Δ = sqrt(sum(abs2(a - b) for (a, b) in zip(p, p_old))) / max(sqrt(sum(abs2, p_old)), eps())
-    return Δ < c.rtol ? :converged : :continue
+    return Δ < c.rtol ? (ReturnCode.Success, ParameterChange) : CONTINUE
 end
 # A failed model block (θ = `nothing`) is `StopWhenSolveFailed`'s to end.
-stop_reason(::StopWhenParameterChangeLess, state, method, prob, ::Nothing, θ_old, iter) = :continue
+stop_reason(::StopWhenParameterChangeLess, state, method, prob, ::Nothing, θ_old, iter) = CONTINUE
 
 """
     PosteriorIrlsMethod(refine_ws, model_update = WeightedRefine(), stop = NoImprovementStop())
 
 The block-coordinate method of the posterior-weight iteration (VGC
-`block_coordinate_descent!`): the model block is `model_update(refine_ws, problem,
+`BlockCoordinateDescent`): the model block is `model_update(refine_ws, problem,
 θ, robust_weight(state.rws))` ([`WeightedRefine`](@ref) or
 [`KeepModel`](@ref)); the residuals, nuisance and weight blocks are the
 likelihood's; `stop` the stop rule and the result ([`NoImprovementStop`](@ref):
@@ -286,23 +286,18 @@ end
 # (the incumbent's rule: a parameter change, held model or not, is the method below — one method each, no ambiguity)
 stopping_criterion(::PosteriorIrlsMethod{<:Any, KeepModel, NoImprovementStop}) = StopWhenNoImprovement(1, 1)
 
-# The termination record's rule (§14) of the criterion that fired — Core's `stop_rule` generic, the ONE map
-# (`block_coordinate_descent!` hands the fired `StopWhenAny` member's rule to `block_coordinate_result`): the
-# parameter change; the incumbent's cost not falling under a refit; the mixture NLL falling by ≤ `tol` under a held
-# model (its `StopWhenNoImprovement` is a cost-decrease test). The run's Symbol reason becomes its record through
-# `retcode_from_symbol` (`lo_estimate`'s Symbol form).
-stop_rule(::StopWhenParameterChangeLess, _method) = ParameterChange
-stop_rule(::StopWhenNoImprovement, _method) = NoImprovement
-stop_rule(::StopWhenNoImprovement, ::PosteriorIrlsMethod{<:Any, KeepModel}) = CostDecrease
+# Under a held model the no-improvement stop is the mixture NLL falling by ≤ `tol` (its `StopWhenNoImprovement` is a
+# cost-decrease test): its record's rule.
+_no_improvement_rule(::PosteriorIrlsMethod{<:Any, KeepModel}) = CostDecrease
 
-block_coordinate_result(state::PosteriorIrlsState, method::PosteriorIrlsMethod, prob, θ, stop_reason, final_iter, rule) =
-    lo_estimate(state.best.value, stop_reason, rule; iterations = final_iter)
+block_coordinate_result(state::PosteriorIrlsState, method::PosteriorIrlsMethod, prob, θ, code::ReturnCode.T, final_iter, rule::StopRule) =
+    lo_estimate(state.best.value, code, rule; iterations = final_iter)
 
 # The parameter-change rule: its criterion, and the LAST iterate as the result (on
-# `:solve_failed`, the last model the model block produced).
+# a failed model block, `(Failure, NonFinite)`, the last model the model block produced).
 stopping_criterion(m::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}) = StopWhenParameterChangeLess(m.stop.rtol)
-block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, stop_reason, final_iter, rule) =
-    lo_estimate(θ, stop_reason, rule; iterations = final_iter)
+block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any, <:Any, ParameterChangeStop}, prob, θ, code::ReturnCode.T, final_iter, rule::StopRule) =
+    lo_estimate(θ, code, rule; iterations = final_iter)
 
 """
     posterior_irls!(likelihood, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
@@ -311,7 +306,7 @@ block_coordinate_result(::PosteriorIrlsState, method::PosteriorIrlsMethod{<:Any,
 THE posterior-weight iteration of every posterior-IRLS local optimization:
 seeded from the consensus set `cs` of the score that just ran on `buf` (its
 order reused, no fresh sort) at the uniform outlier half-width `a`, then
-VisualGeometryToolkitCore's `block_coordinate_descent!` with a
+VisualGeometryToolkitCore's `BlockCoordinateDescent` with a
 [`PosteriorIrlsMethod`](@ref) on the problem's weighted refit. A strategy
 contributes only its weight policy, `likelihood(rws, n)` on the seeded
 posterior state `rws`:
@@ -341,7 +336,9 @@ function posterior_irls!(
     state = _seeded_irls_state!(L, problem, model, cs, buf, scoring, a)
     lh = likelihood(state.rws, data_size(problem))
     _seed_policy_weights!(state, lh, data_size(problem))
-    result = block_coordinate_descent!(state, lh, method, problem, model; max_iter)
+    # the seeded state is the run's context `p`: the loop runs on it (no `init_state!`, no cache)
+    result = solve(RefineProblem(problem, model, state), BlockCoordinateDescent(method; likelihood = lh);
+                   stops = StopAfterIteration(max_iter))
     copyto!(buf.residuals, state.best_residuals)
     return lo_estimate(result.u, result.retcode, result.stop_rule; iterations = result.stats.nsteps, residuals_current = true)
 end
@@ -472,6 +469,9 @@ VgtkCore.lo_label(lo::TerminalLO) = VgtkCore.lo_label(lo.inner) * " (terminal)"
 # methods above (`locally_optimize!`, `with_width`, `lo_label`, `lo_placement`)
 # are where they differ.
 const _WrappedLO = Union{CountedLO, TerminalLO}
+# The strategy a wrapper runs (its refit workspace is the inner strategy's).
+_unwrap_strategy(lo) = lo
+_unwrap_strategy(lo::_WrappedLO) = _unwrap_strategy(lo.inner)
 lo_workspace(::Type{P}, ::Type{T}, lo::_WrappedLO, n::Int) where {P <: AbstractRansacProblem, T} =
     lo_workspace(P, T, lo.inner, n)
 lo_width(lo::_WrappedLO) = lo_width(lo.inner)

@@ -56,7 +56,8 @@ No refined number changes: the golden records of 3d8a06da replay bit for bit (`c
   refused); an `EssentialProblem`'s refit decomposes the hypothesis by the fast cheirality vote on a strided subsample
   of its bearings (`BackendRefit`'s `cheirality_vote_points`) and refines the pose camera-aware on the two-view
   frame's calibrations and pixels (`external_workspace`: `frame.Kc1`, `frame.Kc2`, `frame.cs`) — the body
-  LocalOptimizationDoneRight's truncated arms ran, bit for bit.
+  LocalOptimizationDoneRight's truncated arms ran, bit for bit. Its `external_refit!` returns the refit's `FitResult` (Core's external-refit contract), its `u` the
+  refined essential.
 - `LeZach()`'s optimization path is `:gnc` (it was `:irls`), its loss family `:tls` and label `TLS-LZ`: the identity
   LocalOptimizationDoneRight's TLS-LZ arm reports, read through a `BackendRefit` by VisualGeometryToolkitEval's labels and markers.
 - `honoured_stops(::PoseLibSolver) = (:max_iter,)`: Core's front end refuses any other `LmStops` field set away from

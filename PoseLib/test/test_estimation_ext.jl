@@ -1,3 +1,4 @@
+# R22: contract test — the external-refit contract (`external_workspace`, `external_refit!`) of PoseLib's BackendRefit routes
 # PoseLibEstimationExt: PoseLib's backend refines of VisualGeometryToolkitEstimation's two-view family problems, so a
 # RANSAC's local optimization can be Core's `BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy),
 # stops)`. The family refines are PoseLib's raw-data refines on the problem's own correspondences, bit for bit; the
@@ -32,14 +33,15 @@ using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, Homogra
             fam = solve(RefineProblem(P, G), alg; stops, width = w)
             @test fam.u === raw.u && (fam.retcode, fam.stop_rule) === (raw.retcode, raw.stop_rule) &&
                 fam.stats.nsteps == raw.stats.nsteps
-            # BackendRefit's refit is the refined model (a FitResult's `u`), whatever the record
-            @test VgtkCore.external_refit!(nothing, lo, P, G, LossWidth(w), nothing) === raw.u
+            # BackendRefit's refit is the refine's FitResult (Core's external-refit contract), its `u` the refined model whatever the record
+            rr = VgtkCore.external_refit!(nothing, lo, P, G, LossWidth(w), nothing)   # the refit's record (a FitResult)
+            @test rr.u === raw.u && (rr.retcode, rr.stop_rule) === (raw.retcode, raw.stop_rule)
         end
         # the budget spent is a normal stop: the model still comes back
         one = BackendRefit(alg, LmStops(; max_iter = 1))
         @test solve(RefineProblem(HomographyProblem(d.hom), HomographyMat(d.H0)), alg; stops = one.stops, width = w).retcode ===
             VgtkCore.ReturnCode.MaxIters
-        @test VgtkCore.external_refit!(nothing, one, HomographyProblem(d.hom), HomographyMat(d.H0), LossWidth(w), nothing) isa
+        @test VgtkCore.external_refit!(nothing, one, HomographyProblem(d.hom), HomographyMat(d.H0), LossWidth(w), nothing).u isa
             HomographyMat
         # E: the frame's calibrations and pixels, the seed decomposed on a strided subsample of the problem's bearings
         cam1 = CameraModel(LogicalIntrinsics(CameraCalibrationMat(d.K1)), Lens(Perspective()))
@@ -56,7 +58,8 @@ using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, Homogra
             u = solve(RefineProblem(d.rel, EuclideanMap(R0, Vec3{Float64}(t0)),
                                     (; K1 = SMatrix{3, 3, Float64, 9}(d.K1), K2 = SMatrix{3, 3, Float64, 9}(d.K2))),
                       alg; stops, width = w).u
-            @test VgtkCore.external_refit!(ws, le, ep, seed_E, LossWidth(w), nothing) === EssentialMat(u.R, u.t)
+            re = VgtkCore.external_refit!(ws, le, ep, seed_E, LossWidth(w), nothing)
+            @test re.u === EssentialMat(u.R, u.t) && VgtkCore.found_model(re)
         end
     end
     # PoseLib honours max_iter alone: Core refuses any other stop setting before the refine runs
@@ -70,10 +73,10 @@ using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, Homogra
     @test BackendRefit(lsq, stops).cheirality_vote_points == 256
     # its identity is its algorithm's strategy's (the evaluation's labels and markers); its scale is the given width
     tls = BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}()), stops)
-    @test VgtkCore.optimization_path(tls) === :irls && VgtkCore.loss_family(tls) === :tls &&
+    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === :tls &&
         VgtkCore.lo_label(tls) == "TLS-IRLS" && VgtkCore.scale_interface(tls) === VgtkCore.FixedScale() &&
         VgtkCore.lo_marker(tls) === VgtkCore.lo_marker(Irls{TLSShape}())
     lz = BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy = LeZach()), stops)
-    @test VgtkCore.optimization_path(lz) === :gnc && VgtkCore.loss_family(lz) === :tls && VgtkCore.lo_label(lz) == "TLS-LZ" &&
+    @test VgtkCore.optimization_path(lz) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(lz) === :tls && VgtkCore.lo_label(lz) == "TLS-LZ" &&
         VgtkCore.scale_interface(lz) === VgtkCore.FixedScale()
 end

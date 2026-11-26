@@ -42,7 +42,7 @@ linear problem runs its one-step algorithm under the weights and ignores θ).
 The noise-model estimators (VGC's [`ScaleMAP`](@ref), VisualGeometryToolkitEval's
 prior fit) are outside this rule.
 
-**The estimation interface's rules, enforced by `check_naming` (R15–R21).**
+**The estimation interface's rules, enforced by `check_naming` (R15–R22).**
 - R15: `fit_`, `find_` and `refine_` name kinds, never functions: no function a
   package's own code (`src/`, `ext/`) defines, exports or declares public begins
   with one, except a task verb listed in `TASK_VERBS` with its reason
@@ -75,6 +75,29 @@ prior fit) are outside this rule.
   (`weights(r)`, `dof(r)`, `noise_scale(r)`, `scale_source(r)`,
   `inlier_mask(r)`); no retired accessor and no `r.metadata.<contract field>`
   outside the contract method.
+- R22 (owner, 2026-11-26): outside VisualGeometryToolkitCore, user-level code
+  calls only `solve`, `init`, `solve!` and `reinit!`. No package reaches a Core
+  `_` name (qualified, through an alias, or imported) or a Core internal driver
+  (`CORE_INTERNAL_DRIVERS`: the block-coordinate loop's Manopt-named steps,
+  `initialize_solver!`, `step_solver!`, `stop_solver!`), anywhere. In user-level
+  files — `experiments/`, `scripts/`, `examples/`, `benchmark/`, `dev/`, a README
+  or a docs page's julia blocks, and a test that is no contract test — no code
+  CALLS a solver hook (`SOLVER_HOOKS`: the block-coordinate hooks, the row
+  protocol, the chart, block and row contracts, the local-optimization and
+  scoring contracts, the lift contract, `lm_backend_refine`, `__solve`,
+  `__init`). Implementing a hook (a method definition) or forwarding one (a call
+  inside such a definition) is allowed everywhere. A contract test says so in
+  its first 20 lines, `# R22: contract test — <the contract it tests>`, or calls
+  one of Core's conformance helpers (`test_scoring_contract`,
+  `test_local_optimization_contract`, `test_constraint_problem`,
+  `test_manifold_contract`, `test_termination_record`); a docs page that teaches
+  a contract carries `<!-- R22: contract guide -->`. The paper projects are
+  skipped by path. The retired drivers are in RETIRED_NAMES with their front-end
+  replacement. Signature notes (Core 0.14): `stop_reason(criterion, state,
+  method, prob, θ, θ_old, iter)` returns `(ReturnCode.T, StopRule)` (`CONTINUE`
+  while a run goes on), and `block_coordinate_result(state, method, prob, θ,
+  code, final_iter, rule)` receives that enum pair; the two-argument
+  `stop_rule(criterion, method)` is retired.
 
 **Configuration tables are named by one rule (decision 11).** A table is named after what it configures. Each name is the `snake_case` tag of a type, following the tag rule in stack-contracts.md:
 
@@ -86,7 +109,7 @@ prior fit) are outside this rule.
 
 Renaming a table is a step of the package's versioned converter (`ConfigVersions`), never a refusal. The old table names become stored-format tokens.
 
-**Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `lmsolve_chart!`, `block_coordinate_descent!`.
+**Mechanism tokens name steps, never estimators (owner, 2026-11-23).** An ESTIMATOR — a problem or algorithm type, or an estimator function — is named for what it estimates and how it can fail, never by an abbreviated mechanism token (`lm`, `gn`, `irls`, …) that hides its kind: `StaticLevenbergMarquardt`, not a `StaticLm`. A contract STEP — a function a loop or a contract calls, which does one mechanism by definition — may name its mechanism, because that is what it is: `posterior_irls!`, `_lmsolve_chart!`, `_block_coordinate_descent!`.
 
 **Detection, correspondence, observation — the terminology taxonomy (owner, 2026-11-13), enforced by `check_naming` (R14).**
 - A **detection** is a detector's output in one image, unassociated: `Attributed{Uncertain{<:FeatureFrame}}`, a [`PointFrame`](@ref) as first-class as any scaled frame (feature-frames). A keypoint IS a detection; with a descriptor it is VisualGeometryToolkitFeatures' `DescribedFeature`.
@@ -95,14 +118,14 @@ Renaming a table is a step of the package's versioned converter (`ConfigVersions
 - **measured** is a provenance adjective and value only (`SensorSource.measured`, `"measured"`: the source of a sensor-model component such as a [`ChannelBlack`](@ref), a covariance's), never a bound name. No identifier — function, type, field, keyword, local, constant, quoted symbol, TOML key — holds the word "measurement", the old pairing abbreviation, "sighting" or "keypoint" (R14); each old public name is in `RETIRED_NAMES` with its replacement (R9). A published artifact's name that spells an old word is data: it is listed in `FOREIGN_FORMAT_TOKENS` and accepted only in string literals, quoted TOML values and data fixtures.
 
 **Iterative-estimator vocabulary — no exceptions, enforced by a quality test in every stack package.**
-1. An **iteration** is one cycle of `block_coordinate_descent!` through every block. Its counters are `iter`, `max_iter` and `iterations`; its hook is `post_iteration!`.
+1. An **iteration** is one cycle of `BlockCoordinateDescent` through every block. Its counters are `iter`, `max_iter` and `iterations`; its hook is `post_iteration!`.
 2. A **block** is one component of the iteration state the loop overwrites: the model, the residuals, the nuisance and each of its parts (scale, inlier prior, ν, α), and the weights.
 3. **`update_<block>!`** overwrites that one block in place and nothing else. Every name that begins `update_` or `_update_` ends in `!` and writes exactly one block; a composite block's update (`update_nuisance!`) only calls its parts' updates. A function that writes two blocks is split.
 4. **`next_<block>`** (or `_next_<block>`) is pure: it returns a block's new value and mutates nothing.
-5. **`update_model!`** is the model-block update of an iterative algorithm, with weights and nuisance held fixed: its method of the block-coordinate-descent hook (items 3 and 8), public only as that hook; the computation inside it is internal, named for what it computes (its local Δ is item 6's `<method>_increment`). No identifier contains the word `step`, except Manopt.jl's `step_solver!` (one cycle of `block_coordinate_descent!`) and SciMLBase's iteration counter `nsteps` (a [`SolveStats`](@ref) field).
+5. **`update_model!`** is the model-block update of an iterative algorithm, with weights and nuisance held fixed: its method of the block-coordinate-descent hook (items 3 and 8), public only as that hook; the computation inside it is internal, named for what it computes (its local Δ is item 6's `<method>_increment`). No identifier contains the word `step`, except Manopt.jl's `step_solver!` (one cycle of `BlockCoordinateDescent`) and SciMLBase's iteration counter `nsteps` (a [`SolveStats`](@ref) field).
 6. **`<method>_increment`** is a local model's Δ (`_newton_increment`, `_lm_increment`).
 7. A fixed number of reweight-and-solve cycles is `iterations`; a repetition of a whole estimator after changing its inputs is an `outer_iteration` (`outer_iterations` for the count). A random hypothesis draw — a RANSAC or PROSAC sample-and-verify cycle, a sampler draw, a random LO inner sample — is a *trial* (`trial`, `trials`, `max_trials`, `min_trials`, `n_trials`; its cap is the trial budget), never an iteration, and a deterministic cycle is never a trial; the one exception is VisualGeometryToolkitCore's `FitResult` counter `r.stats.nsteps` (SciML's name for the iterations), which for a RANSAC counts its trials. A test, gate or check that holds *succeeds* (`succeeded`, `n_succeeded`), and one that does not *fails*; a caller *supplies* an argument. No other word is used for any of these: the banned words and phrases are listed once, in `VisualGeometryToolkitCore.check_naming`, which every stack package's quality test runs.
-8. The hooks of `block_coordinate_descent!` are exactly `init_state!`, `update_model!`, `update_residuals!`, `update_nuisance!`, `update_weights!`, `post_iteration!`, `stopping_criterion`, `stop_reason` and `block_coordinate_result`; its steps carry Manopt.jl's names, `initialize_solver!`, `step_solver!` and `stop_solver!`, and its termination tests are `StoppingCriterion` values with Manopt's `Stop…` names.
+8. The hooks of `BlockCoordinateDescent` are exactly `init_state!`, `update_model!`, `update_residuals!`, `update_nuisance!`, `update_weights!`, `post_iteration!`, `stopping_criterion`, `stop_reason` and `block_coordinate_result`; its steps carry Manopt.jl's names, `initialize_solver!`, `step_solver!` and `stop_solver!`, and its termination tests are `StoppingCriterion` values with Manopt's `Stop…` names.
 9. The words are matched as whole `_`-separated tokens (CamelCase split into words) of every identifier the stack binds: functions, types, fields, keywords, locals and constants, in src, ext, test, experiments, scripts and docs/src. A method added to a function the stack does not own keeps the owner's name (Base's `step(r)`). Retired names — listed in `check_naming` — may not appear anywhere, including comments, docstrings and docs, except a `CHANGELOG.md`, whose job is to record what each release removed (banned words are still banned there).
 
 **Width vocabulary — one name per quantity, enforced by `check_naming` (R10).** A robust loss is a LOSS (`AbstractLossShape`, `DeployedLoss`), never a "kernel"; "kernel" means only a GPU, convolution, minimal-solver, null-space or probability-density kernel. A width is `efficiency_constant` (the width as a multiple of the estimated scale ŝ — not a quantile), `loss_width` (a loss shape's scale parameter, the residual scale where it leaves the shared quadratic regime; `sq_loss_width` is its square, and a scorer's threshold is its loss's `loss_width`) or `outlier_halfwidth` (the half-width of the Student-t marginal's uniform outlier component); the noise scale stays `scale` / `s2`. A single letter or abbreviation (`k`, `a`, `c`, `τ`, `thr`, a `*_ref` or `*_grid` short form) is never a keyword, field, type parameter, argument, TOML key, sidecar key or CLI flag for them; a paper's symbol appears once, in the paper project's symbol map. `decision_width(m, boundary)` is the one conversion to the native width whose inlier/outlier decision flips at a given residual (its inverse, and a scorer's current one, is `decision_boundary`), and `is_map_inlier(posterior_weight)` the one MAP rule (posterior > ½). Each scorer takes its own width and only it: a threshold scorer (RANSAC, MSAC, the loss-width families) a `threshold`, the Student-t + uniform scorer an `outlier_halfwidth` — it has no threshold, and no name, key, comment or doc calls its half-width one. R12 flags that word close to the scorer's type or its TOML tag (six tokens); the contract's decision point is `decision_boundary` (a threshold scorer's constant τ; the Student-t scorer's MAP crossover at the current consensus scale, re-estimated with every score).

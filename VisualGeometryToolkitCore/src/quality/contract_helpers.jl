@@ -41,10 +41,8 @@ function test_local_optimization_contract end
 The termination record of one fit result, as tests: its field `retcode` a
 [`ReturnCode`](@ref) `ReturnCode.T`, `stop_rule` a [`StopRule`](@ref) and
 `stats` a [`SolveStats`](@ref) with non-negative counters,
-[`successful_retcode`](@ref)`(result)` a `Bool` and
-[`retcode_symbol`](@ref)`(result)` a `Symbol`, each inferred;
-`successful_retcode(result)` is `successful_retcode(result.retcode)`, and
-`retcode_symbol(result)` is `retcode_symbol(code, rule)`. [`test_local_optimization_contract`](@ref)
+[`successful_retcode`](@ref)`(result)` a `Bool`, inferred, and
+`successful_retcode(result)` is `successful_retcode(result.retcode)`. [`test_local_optimization_contract`](@ref)
 runs it on the refit it checks; a producer's suite runs it on one result of
 each of its verbs and paths (VisualGeometryToolkitEstimation's and PoseLib's
 termination-record items cover every `fit_*`, `find_*` and `refine_*`).

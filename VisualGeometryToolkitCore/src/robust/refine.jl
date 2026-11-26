@@ -11,9 +11,9 @@
 #   model (`model_chart`), the √w-weighted rows the LM descends at a chart (`chart_rows`, VGC's row protocol), the
 #   model a chart stands for (`chart_model`) and the LM's size (`chart_size`) — plus the constraint protocol the
 #   result is measured by (`data_size`, `codimension`, `minimal_sample_size`, `mahalanobis_distances!`);
-# - a MULTI-BLOCK problem (an `AbstractBlockProblem`: the bundles) answers the block contract — its residual blocks
-#   and variables at the guess (`bundle_blocks`) and its result from the solved blocks (`bundle_result`), solved by the
-#   one bundle LM (`block_lm`, over Core's `LmProblem`).
+# - a MULTI-BLOCK problem (an `AbstractBlockProblem`: the bundles) answers the block contract — its variables and
+#   residual blocks at the guess (`block_structure`: `block_variables`, `residual_blocks`; `fixed_variables`) and its
+#   result from the solved variables (`residual_summary`, `block_result`), solved by Core's one multi-block LM.
 #
 # A refine starts from the caller's model and NEVER estimates a scale: it runs no scorer, forms no consensus set and
 # has no thin-partition guard. Its robust loss runs at a width the caller states — `scale = σ` (or an upstream result,
@@ -113,11 +113,34 @@ chart_model(f, _chart) = _no_method(f, chart_model, _CHART_CONTRACT)
 
 """
     chart_size(f) -> (rows, Val(dof))
+    chart_size(f, u0) -> (rows, Val(dof))
 
-The chart LM's size on `f`: its residual row count (`codimension(f)` rows per datum) and the chart's dof.
+The chart LM's size on `f`: its residual row count (`codimension(f)` rows per datum) and the chart's dof. The
+two-argument form is the size at the guess `u0`, for a chart problem whose dof depends on it (a camera regression: the
+guess's family, its lens size, what it holds); its default is `chart_size(f)`. A chart-problem refine reads it once,
+at `init` (`chart_size(f, u0)`): when the dof is not inferable from `typeof(u0)`, that is one function barrier per
+`init`, never on a `solve!`/`reinit!` path.
 """
 function chart_size end
 chart_size(f) = _no_method(f, chart_size, _CHART_CONTRACT)
+chart_size(f, _u0) = chart_size(f)
+
+"""
+    refit_chart(f, model, weights) -> chart | nothing
+    refit_rows(f, chart, sqrtw) -> state
+
+The chart and the rows of a local optimization's least-squares refit of `f` (the summary-free refine, `summary =
+nothing`, without a robust strategy; a `Triggs{K}` refit reads `model_chart` and `chart_rows`): the chart
+at `model` for the per-datum `weights` (`nothing`: unit weight) — `nothing` when the refit declines (an
+underdetermined weighting, a model with no chart; the result's `u` is then `nothing`, `(InitialFailure, NoRule)`) —
+and the √w-weighted rows the LM descends there. Contract generics; the defaults are the refine's own,
+[`model_chart`](@ref)`(f, model)` and [`chart_rows`](@ref)`(f, chart, sqrtw)`. A family overrides them where its refit
+seeds or whitens otherwise (a weight-aware seed chart, rows in another unit than its distances).
+"""
+function refit_chart end
+refit_chart(f, model, _weights) = model_chart(f, model)
+@doc (@doc refit_chart) function refit_rows end
+refit_rows(f, ch, sqrtw) = chart_rows(f, ch, sqrtw)
 
 """
     guess_model(f, u0) -> model
@@ -151,28 +174,29 @@ const _CHART_CONTRACT = "a LevenbergMarquardt refine of it needs the chart contr
 # -----------------------------------------------------------------------------
 
 """
-    lm_workspace(ws, rows, Val(N)) -> ManifoldLmWorkspace{N}
+    _lm_workspace(ws, rows, Val(N)) -> _ManifoldLmWorkspace{N}
 
-The chart LM's workspace under the ONE reuse policy: `ws` when it is a `ManifoldLmWorkspace{N}` of `rows` rows,
+The chart LM's workspace under the ONE reuse policy: `ws` when it is a `_ManifoldLmWorkspace{N}` of `rows` rows,
 otherwise a task-local workspace keyed by its type and size — built once per (task, size), reused by every later
 chart LM of that size on that task (VGC's `task_buffers`; threaded callers never share).
 """
-@inline function lm_workspace(ws, rows::Int, v::Val{N}) where {N}
-    W = lm_workspace_type(v)
+@inline function _lm_workspace(ws, rows::Int, v::Val{N}) where {N}
+    W = _lm_workspace_type(v)
     ws isa W && length(sqrt_weights(ws)) == rows && return ws
-    return task_buffers(W, () -> ManifoldLmWorkspace(rows, v), (:rvg_lm_ws, rows))
+    return task_buffers(W, () -> _ManifoldLmWorkspace(rows, v), (:rvg_lm_ws, rows))
 end
 
 """
-    chart_refit(ws, f, chart, rows, weights; robustifier = nothing, stops = LmStops(), damping = MarquardtDamping())
-        -> (model | nothing, (retcode, stop_rule), iterations)
+    _chart_refit(ws, f, chart, rows, weights; robustifier = nothing, stops = LmStops(), damping = MarquardtDamping())
+        -> FitResult
 
 THE chart refit — every chart LM of a chart problem's model (a [`LevenbergMarquardt`](@ref) refine's least squares and
 its Triggs, VisualGeometryToolkitEstimation's local-optimization refits): from `chart`, the rows `rows(f, chart, √w)`
 (a function of the [`chart_rows`](@ref) form; `chart_rows` itself, or a problem's own refit state) at √`weights`
-(`nothing`: unit weight) in the workspace from `ws` ([`lm_workspace`](@ref)), ONE [`lmsolve_chart!`](@ref) at `stops`
+(`nothing`: unit weight) in the workspace from `ws` (`_lm_workspace`), ONE `_lmsolve_chart!` at `stops`
 and `damping`, robustified when a `robustifier` is given; the model re-anchored at the solution by the chart's
-`recenter` and read by [`chart_model`](@ref). The model is `nothing` when the solve went non-finite.
+`recenter` and read by [`chart_model`](@ref). The result's `u` is that model, its termination record and
+`stats.nsteps` the LM's; `u` is `nothing`, `(Failure, NonFinite)`, when the solve went non-finite.
 
 A ZERO-WEIGHT ROW IS EXACTLY 0: a row whose √w is 0 (a datum the caller or the problem's own state weighs 0) and its
 Jacobian row are set to 0 whatever the problem's row is, so a datum whose residual is Inf or NaN cannot reach the LM as
@@ -180,43 +204,44 @@ Jacobian row are set to 0 whatever the problem's row is, so a datum whose residu
 is never rebuilt when a refit's weights gain or lose a zero — and a row at a nonzero √w is the problem's own, bit for
 bit.
 """
-function chart_refit(ws, f, ch, rows::R, weights; robustifier = nothing, stops::LmStops = LmStops(),
+function _chart_refit(ws, f, ch, rows::R, weights; robustifier = nothing, stops::LmStops = LmStops(),
         damping::LmDamping = MarquardtDamping(), callback = nothing) where {R}
     nrows, dof = chart_size(f)
-    ews = lm_workspace(ws, nrows, dof)
+    ews = _lm_workspace(ws, nrows, dof)
     weights === nothing ? fill!(sqrt_weights(ews), 1.0) :
-        fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(f), nrows ÷ data_size(f))
+        _fill_sqrt_weights!(sqrt_weights(ews), weights, data_size(f), nrows ÷ data_size(f))
     # after the state: a problem's own state may zero √w (PnP's out-of-reach anchor points, bearing pose's caller weights)
     lm = _ZeroWeightRows(rows(f, ch, sqrt_weights(ews)), sqrt_weights(ews), nrows)
     r = robustifier === nothing ? _lmsolve_chart!(ews, lm, stops, damping; callback) :
         _lmsolve_chart!(ews, lm, robustifier, Val(codimension(f)), stops, damping; callback)
     x = r.u
-    any(isnan, x) && return nothing, (ReturnCode.Failure, NonFinite), r.stats.nsteps
-    return chart_model(f, recenter(ch, x)), (r.retcode, r.stop_rule), r.stats.nsteps
+    stats = SolveStats(; nsteps = r.stats.nsteps)
+    any(isnan, x) && return FitResult(nothing, ReturnCode.Failure, NonFinite, stats, NaN, 0, nothing)
+    return FitResult(chart_model(f, recenter(ch, x)), r.retcode, r.stop_rule, stats, NaN, 0, nothing)
 end
 
 """
-    triggs_refit(ws, shape, f, model, loss; weights = nothing, stops = LmStops(), damping = MarquardtDamping())
+    _triggs_refit(ws, shape, f, model, loss; weights = nothing, stops = LmStops(), damping = MarquardtDamping())
         -> FitResult (an `lo_estimate`)
 
 THE robustified chart LM — a [`LevenbergMarquardt`](@ref) refine's `Triggs{K}` and the Triggs local optimization of
 VisualGeometryToolkitEstimation: `shape` at the deployed `loss`, frozen, as [`loss_robustifier`](@ref), and ONE
-[`chart_refit`](@ref) from `model` over every datum at `weights` (`nothing`: unit weight), on `f`'s own chart and rows
+`_chart_refit` from `model` over every datum at `weights` (`nothing`: unit weight), on `f`'s own chart and rows
 ([`model_chart`](@ref), [`chart_rows`](@ref)). A non-finite solve hands `model` back, `(Failure, NonFinite)`.
 """
-function triggs_refit(ws, shape::AbstractLossShape, f, model, loss::DeployedLoss; weights = nothing,
+function _triggs_refit(ws, shape::AbstractLossShape, f, model, loss::DeployedLoss; weights = nothing,
         stops::LmStops = LmStops(), damping::LmDamping = MarquardtDamping(), callback = nothing)
     robustifier = loss_robustifier(shape, sqrt(sq_loss_width(loss)))
-    m, (code, rule), n_iter = chart_refit(ws, f, model_chart(f, model), chart_rows, weights; robustifier, stops, damping, callback)
-    m === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
-    return lo_estimate(m, code, rule; iterations = n_iter)
+    r = _chart_refit(ws, f, model_chart(f, model), chart_rows, weights; robustifier, stops, damping, callback)
+    r.u === nothing && return lo_estimate(model, ReturnCode.Failure, NonFinite)
+    return lo_estimate(r.u, r.retcode, r.stop_rule; iterations = r.stats.nsteps)
 end
 
 # A chart-LM state whose rows (and Jacobian rows) at a zero √w are exactly 0: the inner state's rows, then every row `j`
 # with `sqrtw[j] == 0` overwritten with 0. The rows at a nonzero √w are the inner state's, untouched. Whether any row is
 # at a zero √w is found once, at construction (`any_zero`: a refit with none skips the overwrite; nothing is
 # allocated). The cost and normal-equation reductions are their defaults over these rows: a state that overrides them (a
-# device state, VisualGeometryToolkitEstimation's camera refine) runs its own LM, not `chart_refit`.
+# device state, VisualGeometryToolkitEstimation's camera refine) runs its own LM, not `_chart_refit`.
 struct _ZeroWeightRows{L}
     lm::L
     sqrtw::Vector{Float64}
@@ -346,7 +371,10 @@ The robust loss a refine deploys from its strategy and scale input, by the refin
 squares), refused otherwise — an `Irls{K}` naming its `Triggs{K}`, a `GaussianShape` strategy (least squares is
 `nothing`) and a strategy holding an absolute `loss_width` (that is the `width` keyword); and EXACTLY ONE of `scale = σ`
 (the observations' noise scale, or an upstream result; [`scale_input`](@ref)) or `width = w` for a robust strategy,
-NEITHER for least squares (a refine estimates no scale). The loss is the strategy's shape deployed at the residual's
+NEITHER for least squares (a refine estimates no scale). A `width` that is a [`DeployedLoss`](@ref) of the
+strategy's shape runs as deployed, its squared width unchanged — under any `Triggs{K}`, `Triggs{GaussianShape}` at its
+deployed width included (a RANSAC local optimization's frozen loss); the shape-only spelling of a Gaussian strategy is
+still refused. The loss is the strategy's shape deployed at the residual's
 `codimension` (2 for a pixel reprojection error): at `c × scale`, `c` the strategy's efficiency constant (the one it
 states, the plain multiple, or `efficiency_constant(K, codimension)`; a truncation states one), or at `width` — which
 refuses a strategy that also states a constant. `caller` names the refine in the messages.
@@ -359,6 +387,9 @@ sqrt(sq_loss_width(loss)))` and records the scale it was given through the stack
 """
 function bundle_loss(lo; scale = nothing, width = nothing, codimension::Integer = 2,
                      caller::AbstractString = "bundle_loss")
+    # a deployed loss as the width runs as deployed under its Triggs strategy, a Gaussian one included (the RANSAC
+    # local optimization's ℓ2-Triggs at its deployed width: the robustified LM it always ran)
+    lo isa Triggs && width isa DeployedLoss && return _deployed_refine(lo, scale, width)
     lo = _refine_strategy(lo)
     if lo === nothing
         (scale === nothing && width === nothing) || throw(ArgumentError(
@@ -368,6 +399,18 @@ function bundle_loss(lo; scale = nothing, width = nothing, codimension::Integer 
     end
     input = scale_input(scale, width)
     return (; strategy = lo, input, loss = _refine_loss(lo, input, codimension))
+end
+# A `width` that is a loss already deployed (a RANSAC local optimization's frozen loss): used as it is, so its squared
+# width is the caller's bit for bit; its shape must be the strategy's.
+function _deployed_refine(lo::Triggs, scale, loss::DeployedLoss)
+    loss.value isa strategy_loss(lo) || throw(ArgumentError(string("`width` is a deployed ", nameof(typeof(loss.value)),
+        " loss, the strategy's shape is ", nameof(strategy_loss(lo)))))
+    lo_width(lo) === nothing || throw(ArgumentError(
+        "`width` is the loss itself: the strategy's efficiency constant would be ignored — give the strategy none"))
+    scale === nothing || throw(ArgumentError("give `scale` or `width`, not both (`width` is a deployed loss)"))
+    # its width as given, unbounded included (ℓ2's deployment at s2 = Inf): no positivity re-check of a deployed width
+    input = ScaleInput(NaN, sqrt(sq_loss_width(loss)), ScaleNone)
+    return (; strategy = lo, input, loss)
 end
 
 # The parsed refine is `bundle_loss`'s `(; strategy, input, loss)` (input and loss `nothing` for L2), on every path.
@@ -408,11 +451,32 @@ scale_record(parsed) = (; scale = recorded_scale(parsed.input), scale_source = s
 default_algorithm(::RefineProblem{<:AbstractConstraintProblem}) = LevenbergMarquardt()
 
 """
+    CodimensionRows()
+    RowsWithJacobian()
+
+The residual summary a bundle asks for ([`residual_summary`](@ref)), formed at the solution and handed to its
+[`block_result`](@ref):
+
+- `CodimensionRows()` (the default): `(; residuals, S, ν, rms, n, weights, loss)` — the rows
+  themselves (each block's own rows, in block order), their sum of squares `S`, the residual dof `ν = rows − unknowns`
+  (`unknowns` the FREE coordinates: a variable [`fixed_variables`](@ref) holds is no unknown, so with nothing held it is
+  every coordinate), per observation (block) its loss weight ρ′/ρ′(0) (all ones under least squares) with their
+  support `n` and weighted rms ([`weighted_support_rms`](@ref)), and `loss` the parsed refine ([`bundle_loss`](@ref)'s
+  `(; strategy, input, loss)`: its strategy, and through [`scale_record`](@ref) the scale it was given, its source and
+  the deployed width);
+- `RowsWithJacobian()`: the same, and `jacobian`, the rows' dense Jacobian in the variables' chart coordinates (each
+  variable's columns in variable order), every block's rows scaled by √ρ′ under a robust strategy — the weighted
+  problem's linearization a covariance reads ([`implicit_covariance`](@ref)).
+"""
+struct CodimensionRows end
+@doc (@doc CodimensionRows) struct RowsWithJacobian end
+
+"""
     solve(RefineProblem(f, u0), LevenbergMarquardt(; optimization_strategy, damping); scale | width, stops = default_stops(f))
         -> FitResult{M, RefineMetadata}
 
 The refine of a chart problem `f` (a VisualGeometryToolkitEstimation family problem: `HomographyProblem(cs)`, …) from
-the guess `u0`: ONE chart LM ([`chart_refit`](@ref)) over every datum — robustified by a `Triggs{K}` strategy at the
+the guess `u0`: ONE chart LM (`_chart_refit`) over every datum — robustified by a `Triggs{K}` strategy at the
 loss its scale input deploys ([`bundle_loss`](@ref): `scale = σ` or an upstream result, or `width = w`), or plain
 least squares (`optimization_strategy = nothing`, neither keyword) — at `stops` and the algorithm's `damping`.
 `ClassDefault()` is the class's strategy of record ([`default_optimization_strategy`](@ref)).
@@ -426,12 +490,23 @@ any setting the solve does not take; a seeded local optimization's `p = (; exten
 `LocalOptimization`).
 
 The one-shot solve runs the cache on the task's kept chart workspace (a repeated solve rebuilds no NLLSsolver problem);
-`init(RefineProblem(f, u0), LevenbergMarquardt(…); stops, scale | width, weights, callback)` gives the cache a workspace
-of its own (`reinit!(c, u0′; f, stops, weights)` re-points it).
+`init(RefineProblem(f, u0), LevenbergMarquardt(…); stops, scale | width, weights, callback, summary)` gives the cache a
+workspace of its own (`reinit!(c, u0′; f, stops, weights)` re-points it). `summary = nothing` (the default is
+`CodimensionRows()`, the refine above) is a LOCAL OPTIMIZATION's refit: under least squares the chart
+[`refit_chart`](@ref)`(f, θ, weights)` (`nothing`: the refit declines, `u = nothing`, `(InitialFailure, NoRule)`) and
+ONE chart LM on [`refit_rows`](@ref); under a `Triggs{K}` strategy ONE robustified chart LM on the refine's own
+[`model_chart`](@ref) and [`chart_rows`](@ref) (the unit its loss width is in); either at the weights, and the model only — `rms` NaN, `n` 0, no metadata, no residual sweep; a warm
+`solve!(reinit!(c, θ; weights))` allocates nothing. Its `θ` is the problem's own model (`convert(model_type(f), θ)`:
+a RANSAC hypothesis, in the problem's frame and units), where the summary refine reads a user's guess through
+[`guess_model`](@ref) (a physical pose stripped, a labelled one relabelled). The weights' type is the one `init` was given (`nothing`, a
+`Vector` or a view), fixed: a caller that means unit weight in a weighted cache gives ones. A RANSAC builds the cache once per solve from the `zero(M)`
+placeholder guess. `width` may be a [`DeployedLoss`](@ref) (a local optimization's frozen loss, of the strategy's
+shape): it runs as deployed, its squared width unchanged.
 """
 __solve(prob::RefineProblem{<:AbstractConstraintProblem, <:Any, NullParameters}, alg::LevenbergMarquardt{NativeSolver};
-        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing) =
-    solve!(_chart_refine_cache(prob, alg, true; scale, width, stops, callback))
+        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing, weights = nothing,
+        summary::Union{Nothing, CodimensionRows} = CodimensionRows()) =
+    solve!(_chart_refine_cache(prob, alg, true; scale, width, stops, callback, weights, summary))
 # A native refine reads no context: a stray `p` has no method (the pair's MethodError), as before the backend route.
 __solve(prob::RefineProblem{<:AbstractConstraintProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
     throw(MethodError(__solve, (prob, alg)))
@@ -471,17 +546,17 @@ end
 # Plain least squares: ONE chart LM from θ over every datum at unit weight, on the rows Triggs robustifies
 # (`chart_rows`), so L2 and Triggs at an unbounded width minimise the same cost; θ back on a non-finite solve.
 function _refine_run(::Nothing, f, θ, _spec, stops::LmStops, damping::LmDamping, ews, weights, callback)
-    m, record, n_iter = chart_refit(ews, f, model_chart(f, θ), chart_rows, weights; stops, damping, callback)
-    return something(m, θ), record, n_iter
+    r = _chart_refit(ews, f, model_chart(f, θ), chart_rows, weights; stops, damping, callback)
+    return something(r.u, θ), (r.retcode, r.stop_rule), r.stats.nsteps
 end
-# Triggs: ONE robustified chart LM at the frozen width (`triggs_refit`, the RANSAC local optimization's own).
+# Triggs: ONE robustified chart LM at the frozen width (`_triggs_refit`, the RANSAC local optimization's own).
 function _refine_run(lo::Triggs, f, θ, spec, stops::LmStops, damping::LmDamping, ews, weights, callback)
-    r = triggs_refit(ews, strategy_loss(lo)(), f, θ, spec.loss; weights, stops, damping, callback)
+    r = _triggs_refit(ews, strategy_loss(lo)(), f, θ, spec.loss; weights, stops, damping, callback)
     return r.u, (r.retcode, r.stop_rule), r.stats.nsteps
 end
 
 # -----------------------------------------------------------------------------
-# The LevenbergMarquardt refine of a bundle — the block contract over `LmProblem`
+# The LevenbergMarquardt refine of a bundle — the block contract over `_LmProblem`
 # -----------------------------------------------------------------------------
 
 """
@@ -497,31 +572,19 @@ default_stops(_f) = LmStops()
     AbstractBlockProblem
 
 The parent of a multi-block refine's `f` (a bundle adjustment, a camera regression: heterogeneous variables and residual blocks, solved
-over Core's [`LmProblem`](@ref)). Its author implements the block contract: [`block_refit`](@ref) — the blocks and
-variables at the guess, solved by [`block_lm`](@ref), the result read back — and, for each residual block type,
+over Core's multi-block LM). Its author implements the block contract — [`block_variables`](@ref),
+[`residual_blocks`](@ref), [`fixed_variables`](@ref), [`residual_summary`](@ref) and [`block_result`](@ref): the
+problem stated at the guess, the result assembled from the solution — and, for each residual block type,
 [`with_robustifier`](@ref). Solved by `solve(RefineProblem(f, u0), LevenbergMarquardt(); scale | width, stops)`, the
 one host LM; `ClassDefault()` is `default_optimization_strategy(f)`, the default stops `default_stops(f)`.
 """
 abstract type AbstractBlockProblem end
 
 """
-    block_refit(f, u0, loss, stops, damping) -> FitResult
-
-The block contract's one hook: the refine of the bundle `f` from the guess `u0` — its residual blocks and variables,
-solved by [`block_lm`](@ref) (once, or per stage), the estimate and its metadata assembled into a `FitResult`.
-`loss` is the parsed refine, `(; strategy, input, loss)` ([`bundle_loss`](@ref) at `codimension(f)`); `stops` and
-`damping` the solve's and the algorithm's.
-"""
-function block_refit end
-# Every pair the contract has no method for (a problem implementing none, or a guess of another form) is the pair's
-# `MethodError`, stated once here.
-block_refit(f, u0, loss, stops, damping) = throw(MethodError(block_refit, (f, u0, loss, stops, damping)))
-
-"""
     with_robustifier(block, sqrt_weight, robustifier) -> block
 
 The residual block `block` with its rows scaled by `sqrt_weight` and robustified by `robustifier` (a
-[`loss_robustifier`](@ref), or NLLSsolver's `NoRobust()`): what [`block_lm`](@ref) runs a robust refine on. A
+[`loss_robustifier`](@ref), or NLLSsolver's `NoRobust()`): what the multi-block LM runs a robust refine on. A
 contract generic: a bundle's author adds it for each of its block types.
 """
 function with_robustifier end
@@ -530,21 +593,6 @@ with_robustifier(block, _sqrt_weight, _robustifier) = _no_method(block, with_rob
 codimension(::AbstractBlockProblem) = 2   # a bundle's residual is a pixel reprojection error unless its author says otherwise
 
 default_algorithm(::RefineProblem{<:AbstractBlockProblem}) = LevenbergMarquardt()
-
-# Until every bundle states the block contract (block_variables, residual_blocks, …), a bundle that implements none of
-# it is still refined through its own `block_refit` (the retiring hook): the one-shot solve picks the route.
-function _block_or_refit(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver};
-        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing)
-    f = prob.f
-    vars = block_variables(f, prob.u0)   # by dispatch: `_NoBlockContract()` for a bundle that states none (no reflection)
-    vars isa _NoBlockContract || return solve!(_block_refine_cache(prob, alg, vars; scale, width, stops, callback))
-    callback === nothing || throw(ArgumentError(string("a ", nameof(typeof(f)), " refined through block_refit takes no `callback`: ",
-        "state its block contract (block_variables, residual_blocks, block_result)")))
-    _refuse_box(prob, :LevenbergMarquardt)
-    loss = bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = codimension(f),
-                       caller = string(nameof(typeof(f))))
-    return block_refit(f, prob.u0, loss, stops, alg.damping)
-end
 
 # -----------------------------------------------------------------------------
 # The LevenbergMarquardt refine of raw data by a solver backend (PoseLib's)
@@ -627,9 +675,10 @@ The external local optimization of a RANSAC by a refine algorithm `alg` (an algo
 [`estimator_kind`](@ref) is [`RefineKind`](@ref): `LevenbergMarquardt(PoseLibSolver(); optimization_strategy)`, or a
 package's own refine) at its `stops`: the ONE `AbstractOptimizationStrategy` of the [`ExternalRefit`](@ref) family that
 runs a refine algorithm. Its refit of a hypothesis `θ` of `problem` at the absolute loss width `w` is
-`solve(RefineProblem(problem, θ), alg; stops, width = w).u` ([`external_refit!`](@ref)): the refined model whatever the
-record — a refine that spends its budget (`(MaxIters, IterationCap)` at `stops.max_iter`) is a normal budgeted stop,
-and the local optimization's own scoring decides whether the model is kept. An algorithm of another kind is an
+`solve(RefineProblem(problem, θ), alg; stops, width = w)` ([`external_refit!`](@ref)), its `FitResult` (the external
+refit's contract, Core 0.14): its `u` the refined model whatever the record — a refine that spends its budget
+(`(MaxIters, IterationCap)` at `stops.max_iter`) is a normal budgeted stop, and the local optimization's own scoring
+decides whether the model is kept. An algorithm of another kind is an
 `ArgumentError`.
 
 `cheirality_vote_points` is the size of the strided subsample on which a refit that starts from a relative pose
@@ -658,54 +707,9 @@ for trait in (:optimization_path, :loss_family, :lo_label, :lo_marker)
 end
 scale_interface(::BackendRefit{<:LevenbergMarquardt}) = FixedScale()
 external_refit!(_ws, lo::BackendRefit, problem, θ, width::LossWidth, _scoring) =
-    solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width)).u
+    solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width))
 
 public honoured_stops, check_honoured_stops, BackendRefit
-
-# Observation `k`'s squared norm: its `d` rows' squares summed in order.
-@inline function _block_sq(r, d, k)
-    o = d * (k - 1)
-    s = r[o + 1]^2
-    for j in 2:d
-        s += r[o + j]^2
-    end
-    return s
-end
-
-"""
-    block_lm(blocks, variables, unknowns, loss, stops; damping = MarquardtDamping())
-        -> (; variables, code, rule, iterations, residuals, S, ν, rms, n, weights)
-
-THE bundle solve: the residual `blocks` (one per observation, each with the same number of rows, its residual's
-codimension: two for a pixel reprojection error; each answering [`with_robustifier`](@ref))
-on `variables` (`unknowns` free coordinates), Core's one multi-block LM ([`LmProblem`](@ref) + [`lmsolve_chart!`](@ref))
-at `stops` and `damping`. `loss` is the parsed refine (`(; strategy, input, loss)`, [`bundle_loss`](@ref)): plain
-least squares is the whole solve for `strategy = nothing`; a robust refine has NO least-squares stage — ONE robustified
-LM from the start at the frozen loss (Triggs). Returns the variables at the estimate, the termination record, the
-accepted steps, the rows themselves, their sum of squares `S`, `ν = rows − unknowns`, the per-observation loss weights
-(ρ′/ρ′(0), all ones under least squares), and `n`, `rms` their support and weighted rms ([`weighted_support_rms`](@ref)).
-"""
-function block_lm(blocks::AbstractVector, vars0::AbstractVector, p::Integer, loss, stops::LmStops;
-        damping::LmDamping = MarquardtDamping())
-    lo = loss.strategy
-    costs = convert(Vector{_element_union(blocks)}, blocks)
-    n = length(costs)
-    if lo === nothing
-        lp = LmProblem(copy(vars0), costs; damping)
-    else
-        shape = strategy_loss(lo)()
-        lp = LmProblem(copy(vars0), [with_robustifier(c, 1.0, loss_robustifier(shape, sqrt(sq_loss_width(loss.loss)))) for c in costs]; damping)
-    end
-    sol = _lmsolve_chart!(lp, stops, NLLSsolver.nullcallback)
-    variables = lp.variables
-    r = nlls_rows(costs, variables)   # the rows themselves
-    d = length(r) ÷ max(n, 1)         # each block's rows: its residual's codimension
-    sq = [_block_sq(r, d, k) for k in 1:n]   # each observation's squared norm, once
-    weights = lo === nothing ? unit_weights(Float64, n) : loss_weights(shape, sq_loss_width(loss.loss), sq)   # ρ′/ρ′(0) at the estimate
-    S = sum(abs2, r)
-    support, rms = weighted_support_rms(weights, sq)
-    return (; variables, code = sol.retcode, rule = sol.stop_rule, iterations = sol.stats.nsteps, residuals = r, S, ν = length(r) - p, rms, n = support, weights)
-end
 
 # =============================================================================
 # The refine caches — `init`, `solve!` and `reinit!` of the host LevenbergMarquardt
@@ -740,8 +744,9 @@ chart point `u0` (the zero chart, typically). Its author implements the row prot
 (`default_optimization_strategy(f) = nothing`); a `Triggs{K}` strategy robustifies per datum at
 [`codimension`](@ref)`(f)` rows, at the solve's `scale` or `width`.
 
-The result's `u` is the solution chart point (an `SVector{N}`), its record the LM's; `metadata = (; cost)` the final
-`‖r‖²`; no residual summary (`rms` NaN, `n` 0).
+The result's `u` is the solution chart point (an `SVector{N}`), its record the LM's; `metadata = (; cost, stationary)`
+the final cost and `stationary()`, a call that runs the chart LM's stationarity postcondition on the plain rows at `u`
+([`is_stationary`](@ref); the chart-problem refine's form); no residual summary (`rms` NaN, `n` 0).
 """
 abstract type AbstractRowProblem{N} end
 
@@ -753,7 +758,8 @@ The parent of a refine's `f` that implements the chart contract — [`model_char
 units or labels) — without being a RANSAC constraint problem: its rows may be any row state, a reduction-only device
 state among them. Solved by `solve(RefineProblem(f, u0), LevenbergMarquardt(; damping); stops, callback)`: the chart at
 the guess, ONE chart LM from its origin, the model at the solution; the result assembled by its author's
-[`chart_result`](@ref).
+[`chart_result`](@ref). A chart of no coordinates (`chart_size` `(rows, Val(0))`: every parameter held) has nothing
+to solve: the model at the guess, `(Success, ClosedForm)`, no step, `cost` the rows' `‖r‖²` there, `stationary()` true.
 """
 abstract type AbstractChartProblem end
 
@@ -779,33 +785,57 @@ default_algorithm(::RefineProblem{<:AbstractChartProblem}) = LevenbergMarquardt(
 _spec_robustifier(spec) = spec.strategy === nothing ? nothing :
     loss_robustifier(strategy_loss(spec.strategy)(), sqrt(sq_loss_width(spec.loss)))
 
+
 # --- a constraint problem -------------------------------------------------------
 
-mutable struct _ChartRefineCache{F <: AbstractConstraintProblem, U, S, D <: LmDamping, N, W, C}
+mutable struct _ChartRefineCache{F <: AbstractConstraintProblem, U, S, D <: LmDamping, N, W, C, Y <: Union{Nothing, CodimensionRows}}
     f::F
     u0::U
     spec::S
     stops::LmStops
     damping::D
-    const ews::ManifoldLmWorkspace{N}
-    weights::W
+    const ews::_ManifoldLmWorkspace{N}
+    weights::W   # the type `init` was given, fixed (a Union field would box an immutable array: a view)
     const callback::C
+    const summary::Y
 end
 function _chart_refine_cache(prob::RefineProblem, alg::LevenbergMarquardt{NativeSolver}, shared::Bool;
-        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), weights = nothing, callback = nothing)
+        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), weights = nothing, callback = nothing,
+        summary::Union{Nothing, CodimensionRows} = CodimensionRows())
     # Core's refines run the native backend (`LevenbergMarquardt{NativeSolver}`); another backend's package solves its
     # own problems, so another backend here has no method.
     _refuse_box(prob, :LevenbergMarquardt)
     f = prob.f
     spec = _refine_spec(f, alg; scale, width)
     rows, dof = chart_size(f)
-    ews = shared ? lm_workspace(nothing, rows, dof) : ManifoldLmWorkspace(rows, dof)
-    return _ChartRefineCache(f, prob.u0, spec, stops, alg.damping, ews, weights, callback)
+    ews = shared ? _lm_workspace(nothing, rows, dof) : _ManifoldLmWorkspace(rows, dof)
+    return _ChartRefineCache(f, prob.u0, spec, stops, alg.damping, ews, weights, callback, summary)
 end
-function solve!(c::_ChartRefineCache)
-    n = data_size(c.f)
-    n >= minimal_sample_size(c.f) || return _refine_too_few(c.f, c.spec, c.u0, n)
+solve!(c::_ChartRefineCache) = _chart_solve!(c.summary, c)
+function _chart_solve!(::CodimensionRows, c::_ChartRefineCache)
+    _too_few(c.f) && return _refine_too_few(c.f, c.spec, c.u0, data_size(c.f))
     return _refine_pipeline(c.f, c.spec, c.u0, c.stops, c.damping, c.ews, c.weights, c.callback)
+end
+# The summary-free refine, a local optimization's refit: the problem's refit chart at the weights (none: declined), ONE
+# chart LM on its refit rows — robustified at the cache's loss under a `Triggs{K}` strategy — and the model at the
+# solution, `nothing` on a non-finite solve (`(Failure, NonFinite)`). No residual sweep: `rms` NaN, `n` 0, no metadata.
+function _chart_solve!(::Nothing, c::_ChartRefineCache)
+    f = c.f
+    M = model_type(f)
+    U = Union{Nothing, M}
+    θ = convert(M, c.u0)::M   # the problem's own model (a hypothesis of the LO), never a user's guess (`guess_model`)
+    k = _spec_robustifier(c.spec)
+    if k === nothing
+        # the plain refit: the problem's refit chart and rows (a weight-aware seed, rows in the refit's own unit)
+        ch = refit_chart(f, θ, c.weights)
+        ch === nothing && return FitResult{U}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+        r = _chart_refit(c.ews, f, ch, refit_rows, c.weights; stops = c.stops, damping = c.damping, callback = c.callback)
+    else
+        # the robustified refit (Triggs): the refine's own chart and rows, the unit its loss width is in
+        r = _chart_refit(c.ews, f, model_chart(f, θ), chart_rows, c.weights; robustifier = k, stops = c.stops,
+                         damping = c.damping, callback = c.callback)
+    end
+    return FitResult{U}(r.u, r.retcode, r.stop_rule, r.stats, NaN, 0, nothing)
 end
 function reinit!(c::_ChartRefineCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         weights = c.weights, alg = nothing, scale = nothing, width = nothing)
@@ -830,7 +860,7 @@ mutable struct _RowRefineCache{F, N, S, D <: LmDamping, C}
     spec::S
     stops::LmStops
     damping::D
-    const ews::ManifoldLmWorkspace{N}
+    const ews::_ManifoldLmWorkspace{N}
     const callback::C
 end
 function _row_spec(f, alg::LevenbergMarquardt{NativeSolver}; scale, width)
@@ -846,7 +876,7 @@ function _row_refine_cache(prob::RefineProblem{<:AbstractRowProblem{N}}, alg::Le
     rows, dof = chart_size(f)
     dof === Val(N) || throw(ArgumentError(string("a ", nameof(typeof(f)), " <: AbstractRowProblem{", N, "} states a chart of ",
         dof, " in chart_size")))
-    ews = shared ? lm_workspace(nothing, rows, dof) : ManifoldLmWorkspace(rows, dof)
+    ews = shared ? _lm_workspace(nothing, rows, dof) : _ManifoldLmWorkspace(rows, dof)
     return _RowRefineCache(f, SVector{N, Float64}(prob.u0), spec, stops, alg.damping, ews, callback)
 end
 __solve(prob::RefineProblem{<:AbstractRowProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
@@ -855,8 +885,11 @@ __init(prob::RefineProblem{<:AbstractRowProblem}, alg::LevenbergMarquardt{Native
     _row_refine_cache(prob, alg, false; kwargs...)
 function solve!(c::_RowRefineCache)
     k = _spec_robustifier(c.spec)
-    k === nothing && return _lmsolve_chart!(c.ews, c.f, c.stops, c.damping; callback = c.callback, u0 = c.u0)
-    return _lmsolve_chart!(c.ews, c.f, k, Val(codimension(c.f)), c.stops, c.damping; callback = c.callback, u0 = c.u0)
+    r = k === nothing ? _lmsolve_chart!(c.ews, c.f, c.stops, c.damping; callback = c.callback, u0 = c.u0) :
+        _lmsolve_chart!(c.ews, c.f, k, Val(codimension(c.f)), c.stops, c.damping; callback = c.callback, u0 = c.u0)
+    ews, f, x, stops = c.ews, c.f, r.u, c.stops
+    stationary = () -> is_stationary(ews, f, x, stops)   # the chart-problem cache's form: the postcondition on demand
+    return FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, (; cost = r.metadata.cost, stationary))
 end
 function reinit!(c::_RowRefineCache{F, N}, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         alg = nothing, scale = nothing, width = nothing) where {F, N}
@@ -877,7 +910,7 @@ mutable struct _ChartProblemCache{F, U, D <: LmDamping, N, C}
     u0::U
     stops::LmStops
     damping::D
-    const ews::ManifoldLmWorkspace{N}
+    const ews::_ManifoldLmWorkspace{N}
     const callback::C
 end
 function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}, shared::Bool;
@@ -886,8 +919,8 @@ function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::
     prob.p isa NullParameters || throw(ArgumentError("a LevenbergMarquardt refine of a chart problem reads no context `p`"))
     _resolved_strategy(prob.f, alg.optimization_strategy) === nothing || throw(ArgumentError(string("a ",
         nameof(typeof(prob.f)), " is refined by plain least squares: LevenbergMarquardt(; optimization_strategy = nothing)")))
-    rows, dof = chart_size(prob.f)
-    ews = shared ? lm_workspace(nothing, rows, dof) : ManifoldLmWorkspace(rows, dof)
+    rows, dof = chart_size(prob.f, prob.u0)
+    ews = shared ? _lm_workspace(nothing, rows, dof) : _ManifoldLmWorkspace(rows, dof)
     return _ChartProblemCache(prob.f, prob.u0, stops, alg.damping, ews, callback)
 end
 __solve(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
@@ -900,16 +933,29 @@ function solve!(c::_ChartProblemCache)
     ch = model_chart(f, θ)
     fill!(sqrt_weights(ews), 1.0)
     lm = chart_rows(f, ch, sqrt_weights(ews))
-    r = _lmsolve_chart!(ews, lm, stops, c.damping; callback = c.callback)
+    r = _chart_problem_lm(ews, lm, stops, c.damping, c.callback)
     x = r.u
     finite = !any(isnan, x)
     model = finite ? chart_model(f, recenter(ch, x)) : θ
     code, rule = finite ? (r.retcode, r.stop_rule) : (ReturnCode.Failure, NonFinite)
-    stationary = () -> is_stationary(ews, lm, x, stops)
+    stationary = _chart_problem_stationary(ews, lm, x, stops)
     res = FitResult(solution_model(f, model, c.u0), code, rule, r.stats, NaN, 0,
                     (; cost = r.metadata.cost, chart = ch, x, rows = lm, stationary))
     return chart_result(f, c.u0, res)
 end
+# The chart LM of a chart problem; a ZERO-dimensional chart (every parameter held: `chart_size` `(rows, Val(0))`) has
+# nothing to solve: its one point, the empty chart vector, is the solution, `(Success, ClosedForm)`, no step, the cost
+# `‖r‖²` there, stationary by construction (NLLSsolver takes no variable of no coordinates).
+_chart_problem_lm(ews::_ManifoldLmWorkspace, lm, stops, damping, callback) =
+    _lmsolve_chart!(ews, lm, stops, damping; callback)
+function _chart_problem_lm(ews::_ManifoldLmWorkspace{0}, lm, _stops, _damping, _callback)
+    x = SVector{0, Float64}()
+    return FitResult(x, ReturnCode.Success, ClosedForm, SolveStats(; nsteps = 0), NaN, 0,
+                     (; cost = 2 * residual_cost!(ews.r, lm, x)))
+end
+_chart_problem_stationary(ews::_ManifoldLmWorkspace, lm, x, stops) = () -> is_stationary(ews, lm, x, stops)
+_chart_problem_stationary(::_ManifoldLmWorkspace{0}, _lm, _x, _stops) = () -> true
+
 function reinit!(c::_ChartProblemCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops, alg = nothing)
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine reads no context `p`"))
     alg === nothing || (c.damping = alg.damping)
@@ -919,7 +965,7 @@ end
 
 # --- a block problem (a bundle) --------------------------------------------------
 #
-# The block contract (replacing `block_refit` + `block_lm`): the author states the problem at the guess — its
+# The block contract: the author states the problem at the guess — its
 # variables, its residual blocks, the variables held — and assembles the result from the solved variables and the
 # residual summary it asked for; Core builds the multi-block LM once, in the cache, and solves it.
 
@@ -937,30 +983,25 @@ an unconstrained track: NLLSsolver's unfixed mask), `nothing` (the default) for 
 function block_variables end
 @doc (@doc block_variables) function residual_blocks end
 @doc (@doc block_variables) fixed_variables(_f) = nothing
-# A bundle that states no block contract: `block_variables`' default is a sentinel the one-shot solve routes on (a
-# bundle still on `block_refit`, `_block_or_refit`), refused where the multi-block LM is built (`_block_lm_problem`).
-struct _NoBlockContract end
-block_variables(::AbstractBlockProblem, _u0) = _NoBlockContract()
+# A bundle that states no block contract: the one refusal.
+block_variables(f::AbstractBlockProblem, _u0) = _no_method(f, block_variables, _BLOCK_CONTRACT)
 residual_blocks(f::AbstractBlockProblem, _u0) = _no_method(f, residual_blocks, _BLOCK_CONTRACT)
 const _BLOCK_CONTRACT = "a LevenbergMarquardt refine of a bundle needs the block contract (block_variables, residual_blocks, block_result)"
 
 """
-    CodimensionRows()
-    RowsWithJacobian()
+    block_structure(f::AbstractBlockProblem, u0) -> (vars, blocks, stated)
 
-The residual summary a bundle asks for ([`residual_summary`](@ref)), formed at the solution and handed to its
-[`block_result`](@ref):
-
-- `CodimensionRows()` (the default): `(; residuals, S, ν, rms, n, weights)` — the rows themselves (each block's own
-  rows, in block order), their sum of squares `S`, the residual dof `ν = rows − unknowns` (`unknowns` the free
-  coordinates), and per observation (block) its loss weight ρ′/ρ′(0) (all ones under least squares) with their support
-  `n` and weighted rms ([`weighted_support_rms`](@ref));
-- `RowsWithJacobian()`: the same, and `jacobian`, the rows' dense Jacobian in the variables' chart coordinates (each
-  variable's columns in variable order), every block's rows scaled by √ρ′ under a robust strategy — the weighted
-  problem's linearization a covariance reads ([`implicit_covariance`](@ref)).
+The bundle `f` stated at the guess `u0` ONCE: its variables and residual blocks (as [`block_variables`](@ref) and
+[`residual_blocks`](@ref) give them) and `stated`, what its author keeps of the statement for the result: Core reads
+it once per solve (the one-shot `solve`, `init`, `reinit!`) and hands `stated` to [`block_result`](@ref) as the
+summary's field `stated` (the summary `(; stated)` when the bundle asks for none), so the result is assembled from it
+and the bundle is never stated twice. The default is `(block_variables(f, u0), residual_blocks(f, u0), nothing)`, and
+a `nothing` adds no field (and a `reinit!` that keeps the blocks then reads `block_variables` alone). A bundle whose statement is one pipeline (its blocks, variables and the assembly of its
+result from one reading of its data) implements this method in place of the two; `stated` is then a concrete value
+(the refine stays inferred). A contract generic.
 """
-struct CodimensionRows end
-@doc (@doc CodimensionRows) struct RowsWithJacobian end
+block_structure(f::AbstractBlockProblem, u0) = (block_variables(f, u0), residual_blocks(f, u0), nothing)
+
 
 """
     residual_summary(f::AbstractBlockProblem) -> CodimensionRows() | RowsWithJacobian() | nothing
@@ -977,12 +1018,18 @@ residual_summary(_f) = CodimensionRows()
 The result of a refine of the bundle `f` from `u0`: `r.u` the solved variables (the cache's problem vector, valid until
 the next `solve!`: copy or convert what the result keeps), `r`'s termination record and `stats.nsteps` the LM's (no
 solve at `stops.max_iter == 0`: `(MaxIters, IterationCap)`, `nsteps` 0, `r.u` the guess's variables), `summary` the
-[`residual_summary`](@ref) `f` asked for (or `nothing`). The author's own assembly; a contract generic.
+[`residual_summary`](@ref) `f` asked for (or `nothing`), with the field `stated` when [`block_structure`](@ref) kept
+one. The author's own assembly; a contract generic.
 """
 function block_result end
 block_result(f::AbstractBlockProblem, _u0, _r, _summary) = _no_method(f, block_result, _BLOCK_CONTRACT)
 
-mutable struct _BlockRefineCache{F, U, S, P, B, C, D <: LmDamping}
+# THE too-few-data guard of every refine: fewer data than a minimal sample (a bundle states none by default: 0).
+_too_few(f::Union{AbstractConstraintProblem, AbstractBlockProblem}) = (m = minimal_sample_size(f); m > 0 && data_size(f) < m)
+minimal_sample_size(::AbstractBlockProblem) = 0
+data_size(f::AbstractBlockProblem) = _no_method(f, data_size, "a bundle that states a minimal_sample_size states its data_size")
+
+mutable struct _BlockRefineCache{F, U, S, P, B, C, D <: LmDamping, T}
     f::F
     u0::U
     loss::S
@@ -991,52 +1038,174 @@ mutable struct _BlockRefineCache{F, U, S, P, B, C, D <: LmDamping}
     lp::P
     costs::B          # the blocks without their robustifiers: the rows the summary reads
     const callback::C
+    stated::T         # `block_structure`'s `stated` at `u0`, the result's (`nothing`: none kept)
 end
 
-# The multi-block LM of `f` at `u0`: its blocks robustified at the parsed loss (none under least squares), its held
-# variables fixed (NLLSsolver's unfixed mask).
-function _block_lm_problem(f::AbstractBlockProblem, u0, loss, damping::LmDamping, vars = block_variables(f, u0))
-    vars isa _NoBlockContract && _no_method(f, block_variables, _BLOCK_CONTRACT)
-    blocks = residual_blocks(f, u0)
+# The multi-block LM of `f` from its guess's variables `vars` and blocks `blocks`: the blocks robustified at the parsed
+# loss (none under least squares), its held variables fixed (NLLSsolver's unfixed mask).
+function _block_lm_problem(f::AbstractBlockProblem, vars, blocks, loss, damping::LmDamping)
     costs = convert(Vector{_element_union(blocks)}, blocks)
-    lo = loss.strategy
-    rob = lo === nothing ? costs :
-        [with_robustifier(c, 1.0, loss_robustifier(strategy_loss(lo)(), sqrt(sq_loss_width(loss.loss)))) for c in costs]
-    return LmProblem(copy(vars), rob; fixed = fixed_variables(f), damping), costs
+    rob = loss.strategy === nothing ? costs : [_robustified_block(c, loss) for c in costs]
+    return _LmProblem(copy(vars), rob; fixed = fixed_variables(f), damping), costs
+end
+# Block `c` robustified at the parsed robust `loss` (its frozen loss_robustifier at unit √weight).
+_robustified_block(c, loss) =
+    with_robustifier(c, 1.0, loss_robustifier(strategy_loss(loss.strategy)(), sqrt(sq_loss_width(loss.loss))))
+
+# The task's kept multi-block LM of the ONE-SHOT refine (`solve`), under the one reuse policy (`task_buffers`): one per
+# task and kind — the bundle's type, its variables' and blocks' element types, the parsed loss's and the damping's
+# types — whatever the sizes. A call of the kept structure (the same variable types and sizes in order, the same held
+# variables, the same block types, `varindices` and row counts in order: what NLLSsolver's kept `OptimizeCache` and
+# variable–cost map are built for) re-seeds it in place: the guess's variables into the problem, the call's blocks
+# over the kept ones (NLLSsolver's costs and the summary's), rebuilding neither the problem nor its linear system.
+# Another structure releases the old problem and builds the new one in its place. It holds the last call's blocks (and
+# what they read) until the next call of its kind on the task, never the bundle itself or its guess. A one-shot refine
+# started from inside a running one of its kind on the task (a callback) builds a problem of its own (`busy`).
+mutable struct _KeptBlockLm{P, C}
+    lp::Union{Nothing, P}         # the kept `_LmProblem`, or `nothing`
+    costs::Union{Nothing, C}      # its blocks without their robustifiers (the summary's rows)
+    busy::Bool
+end
+struct _KeptBlockLmSlot{F, V, B, S, D} end   # the kind: the bundle's, variables', blocks', loss's and damping's types
+# The task's kept problem of the kind of (`f`, `vars`, `blocks`, `loss`, `damping`), typed by the problem
+# `_block_lm_problem` builds for it (inferred: the solve on it stays type-stable).
+function _kept_block_lm(f, vars, blocks, loss, damping)
+    H = _kept_block_lm_type(Core.Compiler.return_type(_block_lm_problem,
+        Tuple{typeof(f), typeof(vars), typeof(blocks), typeof(loss), typeof(damping)}))
+    slot = _KeptBlockLmSlot{typeof(f), typeof(vars), typeof(blocks), typeof(loss), typeof(damping)}()
+    return task_buffers(() -> H(nothing, nothing, false), slot)::H
+end
+_kept_block_lm_type(::Type{Tuple{P, C}}) where {P, C} = _KeptBlockLm{P, C}
+_kept_block_lm_type(::Type) = _KeptBlockLm{Any, Any}
+
+"""
+    task_kept_blocks(F::Type) -> Vector{AbstractVector}
+
+The residual blocks (without their robustifiers) of each multi-block problem the current task keeps for one-shot
+refines of bundles of type `F` (`<: F`): one vector per kept problem, none before a refine of the kind has run. A
+query of the reuse policy of `solve(RefineProblem(f::AbstractBlockProblem, u0), LevenbergMarquardt())` — one kept
+problem per task and kind, whatever the sizes, holding the last call's blocks, never the bundle or its guess — for a
+test to read; nothing solves through it.
+"""
+function task_kept_blocks(::Type{F}) where {F}
+    out = AbstractVector[]
+    for (k, v) in task_local_storage()
+        k isa _KeptBlockLmSlot && _slot_bundle_type(k) <: F && v.costs !== nothing && push!(out, v.costs)
+    end
+    return out
+end
+_slot_bundle_type(::_KeptBlockLmSlot{F}) where {F} = F
+
+# Re-seed the kept problem `lp` (and its unrobustified `costs`) with the call's `vars` and `blocks` when they have its
+# structure (see `_KeptBlockLm`): true, the problem re-seeded; false, nothing changed. Every check precedes the first
+# write; O(N), allocation-free.
+function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, vars, blocks, loss)
+    v = lp.variables
+    (length(v) == length(vars) && length(costs) == length(blocks)) || return false
+    @inbounds for i in eachindex(v, vars)
+        a = v[i]; b = vars[i]
+        (typeof(a) === typeof(b) && NLLSsolver.dynamic(NLLSsolver.nvars(a)) == NLLSsolver.dynamic(NLLSsolver.nvars(b))) ||
+            return false
+    end
+    _same_fixed(lp.free, lp.unfixed, fixed_variables(f)) || return false
+    rob = lp.blocks
+    R = eltype(rob)
+    @inbounds for k in eachindex(costs, blocks)
+        a = costs[k]; b = blocks[k]
+        (typeof(a) === typeof(b) && NLLSsolver.varindices(a) == NLLSsolver.varindices(b) &&
+            NLLSsolver.dynamic(NLLSsolver.nres(a)) == NLLSsolver.dynamic(NLLSsolver.nres(b))) || return false
+        # the kept problem's block types are the call's (plain, or robustified at this loss)
+        (loss.strategy === nothing ? b isa R : _robustified_block(b, loss) isa R) || return false
+    end
+    copyto!(v, vars)
+    copyto!(costs, blocks)
+    if rob !== costs
+        if loss.strategy === nothing
+            copyto!(rob, costs)
+        else
+            @inbounds for k in eachindex(rob, costs)
+                rob[k] = _robustified_block(costs[k], loss)
+            end
+        end
+    end
+    foreach(r -> _refill_costs!(r, rob), values(lp.problem.costs))   # NLLSsolver's per-type cost vectors, in order
+    return true
+end
+# The held variables `fixed` (`fixed_variables`) are the kept problem's (its free mask; `unfixed === nothing`: none).
+_same_fixed(::BitVector, unfixed, ::Nothing) = unfixed === nothing
+function _same_fixed(free::BitVector, unfixed, fixed)
+    unfixed === nothing && return false
+    n = 0
+    for i in fixed
+        (i isa Integer && 1 <= i <= length(free) && !free[i]) || return false
+        n += 1
+    end
+    return n == count(!, free)
+end
+# NLLSsolver's cost vector of block type `T`: the problem's blocks of that type, in the order they were added.
+function _refill_costs!(r::Vector{T}, blocks) where {T}
+    j = 0
+    @inbounds for b in blocks
+        if b isa T
+            j += 1
+            r[j] = b
+        end
+    end
+    return r
 end
 
-function _block_refine_cache(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver},
-        vars = block_variables(prob.f, prob.u0); scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing)
+function _block_refine_cache(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver};
+        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing)
+    f = prob.f
+    loss = _block_refine_loss(prob, alg; scale, width)
+    _too_few(f) && return _BlockRefineCache(f, prob.u0, loss, stops, alg.damping, nothing, nothing, callback, nothing)
+    vars, blocks, stated = block_structure(f, prob.u0)
+    lp, costs = _block_lm_problem(f, vars, blocks, loss, alg.damping)
+    return _BlockRefineCache(f, prob.u0, loss, stops, alg.damping, lp, costs, callback, stated)
+end
+# The refine's checks (no box, no context) and its parsed loss: the strategy and its scale input (`bundle_loss`).
+function _block_refine_loss(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt; scale, width)
     _refuse_box(prob, :LevenbergMarquardt)
     prob.p isa NullParameters || throw(ArgumentError("a LevenbergMarquardt refine of a bundle reads no context `p`"))
     f = prob.f
-    loss = bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = codimension(f),
+    return bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = codimension(f),
                        caller = string(nameof(typeof(f))))
-    lp, costs = _block_lm_problem(f, prob.u0, loss, alg.damping, vars)
-    return _BlockRefineCache(f, prob.u0, loss, stops, alg.damping, lp, costs, callback)
 end
+# Too few data for a minimal sample (no LM is built): no estimate, as a chart refine's.
+_too_few_block_result(f) = FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, data_size(f), nothing)
 
 function solve!(c::_BlockRefineCache)
     lp = c.lp
-    r = c.stops.max_iter == 0 ?
-        FitResult(lp.variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; cost = NaN)) :
-        _lmsolve_chart!(lp, c.stops, _nlls_callback(c.callback))
-    return block_result(c.f, c.u0, r, _residual_summary(residual_summary(c.f), c, lp))
+    # too few data for a minimal sample (the cache built no LM): no estimate, as a chart refine's
+    lp === nothing && return _too_few_block_result(c.f)
+    return _block_solve(c.f, c.u0, c.loss, c.stops, lp, c.costs, c.callback, c.stated)
 end
+# THE block solve, the cache's and the one-shot refine's: the multi-block LM `lp` (its unrobustified blocks `costs`) at
+# `stops`, the summary `f` asks for with `block_structure`'s `stated`, the author's result.
+function _block_solve(f, u0, loss, stops::LmStops, lp::_LmProblem, costs, callback, stated)
+    r = stops.max_iter == 0 ?
+        FitResult(lp.variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; cost = NaN)) :
+        _lmsolve_chart!(lp, stops, _nlls_callback(callback))
+    return block_result(f, u0, r, _with_stated(_residual_summary(residual_summary(f), loss, costs, lp), stated))
+end
+# The summary with the bundle's `stated` (`block_structure`): no field for `nothing`.
+_with_stated(summary, ::Nothing) = summary
+_with_stated(summary, stated) = _summary_with(summary, stated)
+_summary_with(summary::NamedTuple, stated) = (; summary..., stated)
+_summary_with(::Nothing, stated) = (; stated)
 
-_residual_summary(::Nothing, _c, _lp) = nothing
-_residual_summary(::CodimensionRows, c, lp) = _block_summary(c, lp)
-function _residual_summary(::RowsWithJacobian, c, lp)
-    s = _block_summary(c, lp)
-    lo = c.loss.strategy
-    blocks = c.costs
+_residual_summary(::Nothing, _loss, _costs, _lp) = nothing
+_residual_summary(::CodimensionRows, loss, costs, lp) = _block_summary(loss, costs, lp)
+function _residual_summary(::RowsWithJacobian, loss, costs, lp)
+    s = _block_summary(loss, costs, lp)
+    lo = loss.strategy
+    blocks = costs
     stationarity = lo === nothing ? blocks :
         [with_robustifier(b, sqrt(s.weights[k]), NLLSsolver.NoRobust()) for (k, b) in enumerate(blocks)]
-    jacobian = Matrix(last(nlls_rows_and_jacobian(stationarity, collect(lp.variables))))
+    jacobian = Matrix(last(_nlls_rows_and_jacobian(stationarity, collect(lp.variables))))
     return (; s..., jacobian)
 end
-function _block_summary(c, lp)
-    costs = c.costs
+function _block_summary(loss, costs, lp)
     n = length(costs)
     variables = lp.variables
     r = nlls_rows(costs, variables)
@@ -1044,18 +1213,22 @@ function _block_summary(c, lp)
     o = 0
     for k in 1:n
         d = Int(NLLSsolver.dynamic(NLLSsolver.nres(costs[k])))
-        s = r[o + 1]^2
-        for j in 2:d
-            s += r[o + j]^2
-        end
-        sq[k] = s
+        sq[k] = _block_sq(r, o, d)
         o += d
     end
-    lo = c.loss.strategy
-    weights = lo === nothing ? unit_weights(Float64, n) : loss_weights(strategy_loss(lo)(), sq_loss_width(c.loss.loss), sq)
+    lo = loss.strategy
+    weights = lo === nothing ? unit_weights(Float64, n) : loss_weights(strategy_loss(lo)(), sq_loss_width(loss.loss), sq)
     support, rms = weighted_support_rms(weights, sq)
-    unknowns = lp.offsets[end]
-    return (; residuals = r, S = sum(abs2, r), ν = length(r) - unknowns, rms, n = support, weights)
+    unknowns = lp.offsets[end]   # the FREE coordinates: a held variable (fixed_variables) is no unknown
+    return (; residuals = r, S = sum(abs2, r), ν = length(r) - unknowns, rms, n = support, weights, loss)
+end
+# Observation `k`'s squared norm: its `d` rows from offset `o`, their squares summed in order (THE one sum).
+@inline function _block_sq(r, o, d)
+    s = r[o + 1]^2
+    for j in 2:d
+        s += r[o + j]^2
+    end
+    return s
 end
 
 """
@@ -1066,10 +1239,36 @@ The refine of a bundle: the strategy and its scale input parsed by the refine co
 `Triggs{K}` at `scale = σ` or `width = w`, or `nothing`, plain least squares), then the block contract
 ([`block_variables`](@ref), [`residual_blocks`](@ref), [`fixed_variables`](@ref), [`residual_summary`](@ref),
 [`block_result`](@ref)) solved by Core's multi-block LM, built once in the cache (`init`; `reinit!(c, u0′)` keeps it).
-A bundle that implements only [`block_refit`](@ref) is refined through it. A box is refused (the host LM is unbounded).
+The one-shot `solve` runs the same solve on the task's kept problem of the bundle's kind: a later call of the same
+structure (the variables' types and sizes, the held variables, the blocks' types, `varindices` and row counts, in
+order) re-seeds it in place, so a repeated refine rebuilds neither the NLLSsolver problem nor its linear system;
+another structure replaces it (one kept problem per task and kind, whatever the sizes). `r.u` in `block_result` is
+then that problem's vector, valid until the next refine of the kind on the task. A bundle with fewer data than its `minimal_sample_size` (0 by default: no guard) is not solved: the result is
+`u = nothing`, `(InitialFailure, NoRule)`, `n` its `data_size`, before any block is built. A box is refused (the host
+LM is unbounded).
 """
-__solve(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
-    _block_or_refit(prob, alg; kwargs...)
+function __solve(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver};
+        scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing)
+    f = prob.f
+    loss = _block_refine_loss(prob, alg; scale, width)
+    _too_few(f) && return _too_few_block_result(f)
+    vars, blocks, stated = block_structure(f, prob.u0)
+    kept = _kept_block_lm(f, vars, blocks, loss, alg.damping)
+    kept.busy && return _block_solve(f, prob.u0, loss, stops, _block_lm_problem(f, vars, blocks, loss, alg.damping)..., callback, stated)
+    kept.busy = true
+    try
+        lp, costs = kept.lp, kept.costs
+        if lp === nothing || costs === nothing || !_reseed_block_lm!(lp, costs, f, vars, blocks, loss)
+            kept.lp = kept.costs = nothing          # the old structure released before the new is built
+            nlp, ncosts = _block_lm_problem(f, vars, blocks, loss, alg.damping)
+            kept.lp = nlp; kept.costs = ncosts
+            return _block_solve(f, prob.u0, loss, stops, nlp, ncosts, callback, stated)
+        end
+        return _block_solve(f, prob.u0, loss, stops, lp, costs, callback, stated)
+    finally
+        kept.busy = false
+    end
+end
 __init(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
     _block_refine_cache(prob, alg; kwargs...)
 
@@ -1083,19 +1282,29 @@ function reinit!(c::_BlockRefineCache, u0 = c.u0; f = c.f, p = NullParameters(),
                              caller = string(nameof(typeof(f))))
     end
     c.f = f; c.u0 = u0; c.stops = stops
+    c.lp === nothing && throw(ArgumentError("reinit!: the cache was built on too few data (no LM): init a new one"))
     if rebuild
-        c.lp, c.costs = _block_lm_problem(f, u0, c.loss, c.damping)
+        vars, blocks, c.stated = block_structure(f, u0)
+        c.lp, c.costs = _block_lm_problem(f, vars, blocks, c.loss, c.damping)
     else
         # the same structure: the guess's variables into the kept problem, its blocks and NLLSsolver cache kept
-        vars = block_variables(f, u0)
-        vars isa _NoBlockContract && _no_method(f, block_variables, _BLOCK_CONTRACT)
+        vars = _reinit_variables!(c, f, u0)
         length(vars) == length(c.lp.variables) || throw(DimensionMismatch(
             "reinit!: the guess has $(length(vars)) variables, the cache's bundle $(length(c.lp.variables))"))
         copyto!(c.lp.variables, vars)
     end
     return c
 end
+# The guess's variables for a `reinit!` that keeps the blocks: a bundle that keeps no `stated` (`block_structure`'s
+# default) answers `block_variables` alone; one that keeps one is stated once, its `stated` the result's.
+_reinit_variables!(c::_BlockRefineCache, f, u0) = _reinit_variables!(c, c.stated, f, u0)
+_reinit_variables!(::_BlockRefineCache, ::Nothing, f, u0) = block_variables(f, u0)
+function _reinit_variables!(c::_BlockRefineCache, _stated, f, u0)
+    vars, _, c.stated = block_structure(f, u0)
+    return vars
+end
 
-public block_variables, residual_blocks, fixed_variables, residual_summary, block_result, CodimensionRows, RowsWithJacobian
+public block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, CodimensionRows, RowsWithJacobian
+public task_kept_blocks
 
 public AbstractRowProblem, AbstractChartProblem, chart_result, LmIterationState

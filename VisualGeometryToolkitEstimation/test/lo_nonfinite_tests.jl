@@ -1,3 +1,4 @@
+# R22: contract test — the posterior weight policy's E-step (`update_weights!`) on non-finite residuals
 @testitem "lo_nonfinite" begin
 # =============================================================================
 # The local optimization's two weight rules (0.11.2)

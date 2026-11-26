@@ -1,3 +1,18 @@
+docs-pass: c8fa6023
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io aa18513 (searched, not edited: no page names OnBackend, on_device, device_names, device_resident_threads, kernel_float or a saddle)
+
+# Core 0.13.4: the per-backend choices of one kernel, each stated once; Synthetic.saddle_height — at c8fa6023
+
+- Public API against 0.13.3, additions only: `kernel_float(backend)`, `dual_chunk(backend, slots, device_chunk)`,
+  `OnBackend(backend; workgroupsize, host_workgroupsize)`, `device_resident_threads(backend)`,
+  `on_device(T, S, device, x)`, `device_names(backend)`, `Synthetic.saddle_height(𝐛)`. Each has a docstring; the API
+  pages pick them up (core.md autodocs base/device.jl, batched.md pointwise.jl, synthetic.md now lists surfaces.jl).
+- CHANGELOG 0.13.4. The batched guide's `OnBackend(backend; workgroupsize)` stays correct (the new keyword defaults to it).
+- Gates: strict docs build (VGTK_DOCS_LOCAL=1) exit 0; quality naming / duplication / calling conventions pass; full
+  suite 418,934 passed, the remaining failures identical on origin/main 3d8a06da on this machine (photon_transfer and
+  inv(::Uncertain) last-bit pins, stack_ci's git add under a global gitignore of Manifest.toml, a CUDA rand ambiguity
+  when CUDA is loaded in the worker, a GPU OOM on the shared card).
+
 docs-pass: d95ae7fc
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io c353718 (searched, not edited: no page builds a calibration matrix, names a principal point or calls center on a frame)
 (the pass reviewed eb55880e; to d95ae7fc Core changed only by its version and one test line, `centroid(p)` for a removed `center(p)`)

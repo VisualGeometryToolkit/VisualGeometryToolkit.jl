@@ -54,9 +54,9 @@ const _RETIRED_PATTERNS = (
     # a model (the absent `SensorModel()` aside); a test describes one through the one fixture helper (D13)
     (:sensor_component,
         Regex("\\b(?:File" * "Black|Channel" * "Black|Da" * "rks?|No" * "Noise|Read" * "Noise|Poisson" * "Gaussian|Relative" * "Noise|No" *
-              "Defects|Defect" * "List|SensorCharac" * "terisation)(?:\\{[^}]*\\})?\\s*\\(|\\bSensor" * "Model(?:\\{[^}]*\\})?\\s*\\((?!\\s*\\))"),
-        "VisualGeometryToolkitCore's sensor model (src/raw/sensor_model.jl): `sensor_model(characterisation, capture, t)`, " *
-            "`load(SensorCharacterisation, path)` (VisualGeometryToolkitIO); in tests `sensor_fixture` (D13)",
+              "Defects|Defect" * "List|SensorCharac" * "terization)(?:\\{[^}]*\\})?\\s*\\(|\\bSensor" * "Model(?:\\{[^}]*\\})?\\s*\\((?!\\s*\\))"),
+        "VisualGeometryToolkitCore's sensor model (src/raw/sensor_model.jl): `sensor_model(characterization, capture, t)`, " *
+            "`load(SensorCharacterization, path)` (VisualGeometryToolkitIO); in tests `sensor_fixture` (D13)",
         ("VisualGeometryToolkitCore", ("src/raw/sensor_model.jl", "src/raw/sensor_estimators.jl",
                                        "ext/VisualGeometryToolkitCoreTestExt/sensor_fixture.jl"))),
     # one variance law of a pixel value: LinearRaw's kernel under a PoissonGaussian (or RelativeNoise), its uncertain image

@@ -43,15 +43,14 @@ const _JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 const _JSON_SCHEMA_ID_BASE = "https://visualgeometrytoolkit.github.io/schemas/"
 
 # The relative path of a kind's schema (its `$id` below the base): `vgio/<kind>/v<major>.<minor>.json`.
-_json_schema_path(kind::AbstractString, v = _schema_version(kind)) = _schema(kind, v) * ".json"
+_json_schema_path(kind::AbstractString) = _schema(kind) * ".json"
 
 """
-    json_schema(kind::AbstractString[, version::Tuple{Int, Int}]) -> JSON.Object
+    json_schema(kind::AbstractString) -> JSON.Object
 
 The JSON Schema (draft 2020-12) of a `vgio/<kind>` file at the version this
-package writes (by default the kind's current one; `version` another version
-a writer still emits, `_written_versions(kind)`: an `ArgumentError` for any
-other), generated from the kind's validator table — the shape
+package writes, the kind's current one (an earlier version is read through its
+version steps, never written, so it has no schema), generated from the kind's validator table — the shape
 [`validate`](@ref) and every reader check. Its `\$id` is
 `https://visualgeometrytoolkit.github.io/schemas/vgio/<kind>/v<major>.<minor>.json`.
 A cross-field check JSON Schema cannot state is the `description` of the
@@ -64,9 +63,9 @@ julia> VgtkIO.json_schema("transforms")["title"]
 "vgio/transforms/v5.0"
 ```
 """
-function json_schema(kind::AbstractString, v::Tuple{Int, Int} = _schema_version(kind))
-    spec = (_schema_version(kind); _spec(kind, v))  # an unknown kind: the ArgumentError listing the kinds
-    return _json_schema_document(spec, _schema(kind, v), _JSON_SCHEMA_ID_BASE, "VisualGeometryToolkitIO")
+function json_schema(kind::AbstractString)
+    spec = (_schema_version(kind); _spec(kind))  # an unknown kind: the ArgumentError listing the kinds
+    return _json_schema_document(spec, _schema(kind), _JSON_SCHEMA_ID_BASE, "VisualGeometryToolkitIO")
 end
 # The schema document of the table `spec` of the files of `schema` (`<owner>/<kind>/v<major>.<minor>`), which the
 # package `package` writes and reads, its `\$id` below `id_base`.
@@ -264,14 +263,14 @@ _named_schema(::typeof(_is_sidecar_length_name)) = Dict("enum" => _unit_names(_i
 _unit_names(ok) = (n = sort!([String(k) for k in keys(VgtkCore.StackUnits.UNITS) if ok(String(k))]);
     ok(_UNKNOWN_SCALE_NAME) ? push!(n, _UNKNOWN_SCALE_NAME) : n)
 
-# Write the schema of every version a writer emits (`_written_versions`: per kind its current one, and an earlier one
-# a writer still writes for a record that version can hold) under `dir` at its `$id` path (docs/src/schemas, the
-# published files): a file this package writes always has its version's schema, and no other version's is published.
+# Write each kind's schema, of the one version its writer emits (the current one), under `dir` at its `$id` path
+# (docs/src/schemas, the published files): a file this package writes always has its version's schema, and no other
+# version's is published.
 function _write_json_schemas(dir::AbstractString)
-    for kind in sort!(collect(keys(_SCHEMA_VERSION))), v in _written_versions(kind)
-        path = joinpath(dir, _json_schema_path(kind, v))
+    for kind in sort!(collect(keys(_SCHEMA_VERSION)))
+        path = joinpath(dir, _json_schema_path(kind))
         mkpath(dirname(path))
-        _write_json(path, json_schema(kind, v))
+        _write_json(path, json_schema(kind))
     end
     return dir
 end

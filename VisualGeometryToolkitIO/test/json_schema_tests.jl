@@ -31,9 +31,9 @@
         for f in made
             @test isfile(joinpath(schema_dir(), f)) && read(joinpath(schema_dir(), f), String) == read(joinpath(dir, f), String)
         end
-        # one schema per version a writer emits (`_written_versions`, the table the writers choose by), none other
-        @test length(made) == sum(length(VgtkIO._written_versions(k)) for k in keys(VgtkIO._SCHEMA_VERSION))
-        @test Set(made) == Set(VgtkIO._json_schema_path(k, v) for k in keys(VgtkIO._SCHEMA_VERSION) for v in VgtkIO._written_versions(k))
+        # one schema per kind, of the one version its writer emits (the current one), none other
+        @test length(made) == length(VgtkIO._SCHEMA_VERSION)
+        @test Set(made) == Set(VgtkIO._json_schema_path(k) for k in keys(VgtkIO._SCHEMA_VERSION))
     end
     # each kind's schema states its own identity and dialect
     for kind in keys(VgtkIO._SCHEMA_VERSION)
@@ -71,8 +71,6 @@ end
             # THE VALID DOCUMENTS: every fixture the validator reads (as the current record its version
             # steps give), and a written file of the kinds no fixture holds
             docs = Pair{String, Tuple{String, Dict{String, Any}}}[]   # name => (kind, current record)
-            # and the files at an EARLIER version a writer still emits (`_written_versions`), as written: name => (kind, version, record)
-            older = Pair{String, Tuple{String, Tuple{Int, Int}, Dict{String, Any}}}[]
             function collect_doc!(name, path)
                 kind = try
                     validate(path)
@@ -84,10 +82,6 @@ end
                 file = isdir(path) ? joinpath(path, VgtkIO.UNITS_SIDECAR) : path
                 # the record the reader meets: through its version steps, validated (`_checked_store`, the read boundary)
                 push!(docs, name => (kind, plain_doc(VgtkIO._checked_store(VgtkIO._read_vgio_json(file), file, kind))))
-                raw = VgtkIO._read_vgio_json(file); sv = VgtkIO._split_schema(get(raw, :schema, nothing))
-                if sv !== nothing && (sv.major, sv.minor) != VgtkIO._schema_version(kind) && (sv.major, sv.minor) in VgtkIO._written_versions(kind)
-                    push!(older, name => (kind, (sv.major, sv.minor), plain_doc(raw)))
-                end
                 return nothing
             end
             fixtures = joinpath(@__DIR__, "fixtures")
@@ -123,9 +117,9 @@ end
                 save(p, Dict("a.png" => [example_detection(512.25, 300.5, CovMat(SMatrix{2, 2}(0.01, 0.002, 0.002, 0.02)), :corner, :propagated),
                                          example_detection(80.0, 90.0, nan2, :unknown, :unclassified)]))
             end
-            written("sensor_characterisation.json") do p                  # every component's body, a dark's rasters, an empty entry
+            written("sensor_characterization.json") do p                  # every component's body, a dark's rasters, an empty entry
                 s = parse_unit("s"); body = DeviceIdentity("Sony", "ILME-FX3", "5012345")
-                c(; kw...) = VisualGeometryToolkitCore.sensor_fixture(; body, kw...).characterisation
+                c(; kw...) = VisualGeometryToolkitCore.sensor_fixture(; body, kw...).characterization
                 save(p, VisualGeometryToolkitCore.sensor_fixture(
                     c(; iso = 100, black = (512.0, 511.5, 512.25, 511.75), black_std_error = (0.01, 0.02, 0.01, 0.02),
                       dark = (offset = fill(510.0f0, 4, 6), variance = fill(1.5f0, 4, 6), exposure_band = (1 // 500 * s, 0.8 * s), frames = 16),
@@ -182,14 +176,6 @@ end
                 deep = [p for p in paths if length(p) >= 2 && getpath(doc, p[1:(end - 1)]) isa AbstractDict]
                 isempty(deep) || add!("$(name) with an unknown nested key", kind, with_key(doc, [first(deep)[1:(end - 1)]; "bogus"], 1), false)
             end
-            # an earlier written version's file validates against ITS version's published schema, as written
-            for (name, (kind, v, doc)) in older
-                id = VgtkIO.json_schema(kind, v)["\$id"]
-                push!(cases, Dict("name" => "$(name) at its own version", "schema_id" => id, "doc" => doc)); expect["$(name) at its own version"] = true
-                push!(cases, Dict("name" => "$(name) at its own version with an unknown key", "schema_id" => id, "doc" => merge(doc, Dict("bogus" => 1))))
-                expect["$(name) at its own version with an unknown key"] = false
-            end
-            @test !isempty(older)       # a writer that emits an earlier version has a file of it here
             @test n_deleted > 100
             cases_file = joinpath(dir, "cases.json")
             write(cases_file, JSON.json(cases))

@@ -35,13 +35,13 @@ function sensor_fixture(; body::_VGC.DeviceIdentity = _VGC.DeviceIdentity(; make
                              source = ns)
     d = defects === nothing ? _VGC.NoDefects() :
         _VGC.DefectList(defects.x, defects.y, defects.onset; size = defects.size, source = _slot_source(source, :defects))
-    characterisation = _VGC.SensorCharacterisation(body; entries = [iso => (; black = b, noise = n, defects = d)])
+    characterization = _VGC.SensorCharacterization(body; entries = [iso => (; black = b, noise = n, defects = d)])
     capture = _VGC.CaptureSettings(Dict(1 => (; exposure = _VGC.ExposureSettings(exposure, 8, iso),
                                               lens_settings = _VGC.LensSettings(14 * _VGC.mm))); body)
-    return (; characterisation, capture, model = _VGC.sensor_model(characterisation, capture, 1))
+    return (; characterization, capture, model = _VGC.sensor_model(characterization, capture, 1))
 end
 
-function sensor_fixture(cs::_VGC.SensorCharacterisation...)
+function sensor_fixture(cs::_VGC.SensorCharacterization...)
     allequal(c -> c.body, cs) || throw(ArgumentError("sensor_fixture: the characterisations merged are of one body"))
-    return _VGC.SensorCharacterisation(first(cs).body; entries = [iso => e for c in cs for (iso, e) in c.entries])
+    return _VGC.SensorCharacterization(first(cs).body; entries = [iso => e for c in cs for (iso, e) in c.entries])
 end

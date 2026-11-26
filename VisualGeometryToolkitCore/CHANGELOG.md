@@ -8,6 +8,20 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- **Breaking: American in identifiers (decision 11).** `SensorCharacterisation` → `SensorCharacterization`; the
+  `ModelReason` `NoCharacterisation` → `NoCharacterization`; `sensor_fixture`'s field `characterisation` →
+  `characterization`. There are no aliases. Each old name is in `RETIRED_NAMES`, together with `sensor_characterisation`
+  (IO's kind, RC's experiment, the TOML keys). The former spellings that recorded data hold are `FOREIGN_FORMAT_TOKENS`.
+  `content_digest(::SensorModel)` hashes the reason's recorded name, so no model's digest moves; the absent model is
+  still `cee5404683f31de68f9565c174a8ab04c111c0754c3a2f55f7a82000a3ca2fbb`. Prose stays British.
+- Added `DarksAndFlats`, a `FitKind` builder (exported):
+  `solve(EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference)), DarksAndFlats(; dark =
+  MasterDark(…), series = PhotonTransfer(…)))`.
+  - It turns dark bursts and a photon-transfer series into one body's characterization at one ISO, through
+    `MasterDark`, `defect_onsets` and `PhotonTransfer` alone.
+  - It is that problem's `default_algorithm`.
+  - Its metadata holds the photon-transfer `FitResult` (`series`) and each burst's `MasterDark` result (`darks`).
+  - It replaces the hand assembly in RadiometricCamera's experiments and is bit-identical to it.
 - `reinit!(cache[, u0]; f, p, alg, settings...)`: `alg` is a new configuration of the cache's algorithm (the same
   concrete type; another type is an `ArgumentError` before anything changes), which the owner re-resolves against the
   kept workspaces; a run setting such as `rng` replaces the cache's. `EstimationCache.alg` is no longer `const` and

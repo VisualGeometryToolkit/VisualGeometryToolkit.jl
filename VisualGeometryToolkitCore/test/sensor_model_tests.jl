@@ -162,7 +162,7 @@ end
     σ0² = (SIGMA_EFF^2, SIGMA_EFF^2 + σd^2)
     band(t, off, v) = (; offset = fill(Float32(off), H, W), variance = fill(Float32(v), H, W), exposure_band = (t, t), frames = nd)
     fx = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), darks = [band(0.01s, BLACK, σ0²[1]), band(0.02s, BLACK + Δ, σ0²[2])])
-    darks = fx.characterisation.entries[100.0].black
+    darks = fx.characterization.entries[100.0].black
     @test darks isa Darks
     # the Dict method matches exposures by exact key: 1//100 s is not the Float64 0.01 s, so it refuses ...
     rn(σ²) = sensor_fixture(; read_noise = ntuple(_ -> sqrt(σ²), 4)).model.noise
@@ -211,7 +211,7 @@ end
     small = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK),
                            darks = [(; band(0.01s, BLACK, 1.0)..., offset = fill(Float32(BLACK), 8, 8), variance = fill(1.0f0, 8, 8))])
     @test_throws DimensionMismatch solve(EstimationProblem(PoissonGaussian, Dict(t1 => groups[t1]),
-                                                           (; darks = small.characterisation.entries[100.0].black)), PhotonTransfer())
+                                                           (; darks = small.characterization.entries[100.0].black)), PhotonTransfer())
     @test_throws ArgumentError PhotonTransfer(; significance = 0)                               # refused at construction
     @test_throws ArgumentError solve(EstimationProblem(PoissonGaussian, Dict(t1 => groups[t1][1:1]), (; darks)), PhotonTransfer())
 end
@@ -379,7 +379,7 @@ end
 
 @testitem "sensor model: the resolver — full, partial, absent, unmatched ISO, other body, precedence, onset" setup = [SensorFixtures] begin
     using VisualGeometryToolkitCore
-    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, NoCharacterisation, UnmatchedISO, OtherBody,
+    using VisualGeometryToolkitCore: sensor_fixture, parse_unit, ustrip, SensorSource, Matched, NoCharacterization, UnmatchedISO, OtherBody,
         DarkOutOfBand
     s = parse_unit("s")
     body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "5012345")
@@ -390,7 +390,7 @@ end
     dark = (; offset = fill(512.0f0, H, W), variance = fill(6.0f0, H, W), exposure_band = (0.5s, 1.0s), frames = 16)
     defects = (; x = [1, 2, 3], y = [1, 2, 3], onset = [(1 / 2000)s, (1 / 500)s, 0.8s], size = (H, W))
     full = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), black_std_error = (0.1, 0.1, 0.1, 0.1), dark,
-                          gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5), defects, source = SensorSource.measured).characterisation
+                          gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5), defects, source = SensorSource.measured).characterization
 
     # FULL: every slot selected; the dark inside its band, its channel black outside it
     m = sensor_model(full, cap, 1)
@@ -405,7 +405,7 @@ end
     t_exif = 0.0001250000059371814 * s
     capx = CaptureSettings(Dict(1 => frame(t_exif, 100)); body)
     narrow(band) = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), dark = (; dark..., exposure_band = band),
-                                  read_noise = (2.5, 2.5, 2.5, 2.5)).characterisation
+                                  read_noise = (2.5, 2.5, 2.5, 2.5)).characterization
     @test sensor_model(narrow(((1 / 8000)s, (1 / 8000)s)), capx, 1).reason === DarkOutOfBand    # the folder band: just below
     @test sensor_model(narrow((t_exif, t_exif)), capx, 1).reason === Matched                     # the EXIF band
     @test sensor_model(narrow((t_exif, t_exif)), capx, 1).black isa Dark
@@ -414,27 +414,27 @@ end
     @test sites(4) == [1]                                # 1/1000 s: the 1/2000 s site
     @test sites(2) == [1, 2]                             # 1/500 s: its own onset included
     @test sites(1) == [1, 2, 3] && sites(5) == [1, 2, 3]   # 0.8 s (its onset), 3.2 s
-    @test sensor_model(sensor_fixture(; body, defects = (; defects..., onset = fill(1.0s, 3))).characterisation, cap, 4).defects isa NoDefects
+    @test sensor_model(sensor_fixture(; body, defects = (; defects..., onset = fill(1.0s, 3))).characterization, cap, 4).defects isa NoDefects
 
     # PARTIAL: a black and defects only → the noise is NoNoise, typed
-    partial = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), defects).characterisation
+    partial = sensor_fixture(; body, black = (510.0, 511.0, 512.0, 513.0), defects).characterization
     mp = sensor_model(partial, cap, 1)
     @test mp.reason === Matched && mp.black isa ChannelBlack && mp.noise isa NoNoise && mp.defects isa DefectList
 
     # ABSENT, UNMATCHED ISO, ANOTHER BODY: the absent model, with the reason
     absent = SensorModel()
-    for (chars, t, why) in ((nothing, 1, NoCharacterisation), (SensorCharacterisation[], 1, NoCharacterisation), (full, 3, UnmatchedISO),
+    for (chars, t, why) in ((nothing, 1, NoCharacterization), (SensorCharacterization[], 1, NoCharacterization), (full, 3, UnmatchedISO),
                             (sensor_fixture(; body = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial = "9"),
-                                            read_noise = (1, 1, 1, 1)).characterisation, 1, OtherBody))
+                                            read_noise = (1, 1, 1, 1)).characterization, 1, OtherBody))
         r = sensor_model(chars, cap, t)
         @test r.reason === why && r.black isa FileBlack && r.noise isa NoNoise && r.defects isa NoDefects
-        @test (r == absent) == (why === NoCharacterisation)
+        @test (r == absent) == (why === NoCharacterization)
     end
-    @test absent.reason === NoCharacterisation
+    @test absent.reason === NoCharacterization
 
     # PRECEDENCE (D5): per slot, specified over measured over estimated; the override noted
-    spec = sensor_fixture(; body, gain = 2.0, read_noise = (3, 3, 3, 3)).characterisation        # specified
-    est = sensor_fixture(; body, gain = 1.5, read_noise = (2, 2, 2, 2), source = SensorSource.estimated).characterisation
+    spec = sensor_fixture(; body, gain = 2.0, read_noise = (3, 3, 3, 3)).characterization        # specified
+    est = sensor_fixture(; body, gain = 1.5, read_noise = (2, 2, 2, 2), source = SensorSource.estimated).characterization
     r = sensor_model([full, spec], cap, 1)
     @test r.noise == spec.entries[100.0].noise && r.specified_override
     @test r.black isa Dark && r.defects isa DefectList     # the other slots still the measured characterisation's
@@ -447,10 +447,10 @@ end
     @test_throws ArgumentError sensor_model([1.0], cap, 1)
 
     # the merged characterisation: two ISOs of one body
-    both = sensor_fixture(full, sensor_fixture(; body, iso = 400, read_noise = (1, 1, 1, 1)).characterisation)
+    both = sensor_fixture(full, sensor_fixture(; body, iso = 400, read_noise = (1, 1, 1, 1)).characterization)
     @test sort(collect(keys(both.entries))) == [100.0, 400.0]
     @test sensor_model(both, cap, 3).noise isa ReadNoise && sensor_model(both, cap, 1).noise isa PoissonGaussian
-    @test_throws ArgumentError sensor_fixture(full, sensor_fixture(; iso = 400).characterisation)   # another body
+    @test_throws ArgumentError sensor_fixture(full, sensor_fixture(; iso = 400).characterization)   # another body
     @test_throws ArgumentError sensor_fixture(full, full)                                           # ISO 100 twice
 end
 
@@ -469,7 +469,7 @@ end
     dk(k; b = band(k)) = (; offset = fill(Float32(510 + k), H, W), variance = fill(Float32(k), H, W), exposure_band = b, frames = 4 + k)
     ch = (510.0, 511.0, 512.0, 513.0)
     kw = (; body, black = ch, gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5), source = SensorSource.measured)
-    c = sensor_fixture(; kw..., darks = [dk(k) for k in eachindex(ts)]).characterisation
+    c = sensor_fixture(; kw..., darks = [dk(k) for k in eachindex(ts)]).characterization
     @test c.entries[100.0].black isa Darks && length(c.entries[100.0].black.darks) == length(ts)
     frame(t) = (; exposure = ExposureSettings(t, 8, 100), lens_settings = LensSettings(14mm))
     between = [0.01s, 10.0s, (1 / 10000)s]                     # between two bands, past the longest, below the shortest
@@ -489,9 +489,9 @@ end
         @test m.noise isa PoissonGaussian                       # the entry's other components kept
     end
     # one Dark in a Darks is a Darks of one band; a bare Dark stays a Dark (additive)
-    c1 = sensor_fixture(; kw..., darks = [dk(3)]).characterisation
+    c1 = sensor_fixture(; kw..., darks = [dk(3)]).characterization
     @test sensor_model(c1, cap, 3).reason === Matched && sensor_model(c1, cap, 1).reason === DarkOutOfBand
-    @test sensor_fixture(; kw..., dark = dk(3)).characterisation.entries[100.0].black isa Dark
+    @test sensor_fixture(; kw..., dark = dk(3)).characterization.entries[100.0].black isa Dark
     # the bands are disjoint: an overlap, a shared endpoint, the same band twice — refused; and one size, at least one
     @test_throws ArgumentError sensor_fixture(; kw..., darks = [dk(1; b = (0.1s, 1.0s)), dk(2; b = (0.5s, 2.0s))])
     @test_throws ArgumentError sensor_fixture(; kw..., darks = [dk(1; b = (0.1s, 0.5s)), dk(2; b = (0.5s, 2.0s))])
@@ -500,7 +500,7 @@ end
     @test_throws ArgumentError sensor_fixture(; kw..., darks = typeof(dk(1))[])
     @test_throws ArgumentError sensor_fixture(; kw..., dark = dk(1), darks = [dk(2)])     # one form of the slot
     # in any order, the same Darks (sorted by band); equality, hash, Adapt
-    c2 = sensor_fixture(; kw..., darks = [dk(k) for k in reverse(eachindex(ts))]).characterisation
+    c2 = sensor_fixture(; kw..., darks = [dk(k) for k in reverse(eachindex(ts))]).characterization
     @test c2 == c && hash(c2) == hash(c)
     D = c.entries[100.0].black
     @test Adapt.adapt(Array, D) == D
@@ -554,7 +554,7 @@ end
     using VisualGeometryToolkitCore: sensor_fixture, parse_unit, Matched
     s = parse_unit("s")
     fx3(serial) = DeviceIdentity(; make = "SONY", model = "ILME-FX3", serial)
-    rec(b) = sensor_fixture(; body = b, gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5)).characterisation
+    rec(b) = sensor_fixture(; body = b, gain = 1.6, read_noise = (2.5, 2.5, 2.5, 2.5)).characterization
     cap(b) = CaptureSettings(Dict(1 => (; exposure = ExposureSettings(0.8s, 8, 100), lens_settings = LensSettings(14mm))); body = b)
     uses(b, chars) = sensor_model(chars, cap(b), 1).reason === Matched
     @test uses(fx3("A"), rec(fx3("A")))                                   # the serial
@@ -583,7 +583,7 @@ end
     @test sensor_fixture(; relative_noise = 0.05).model.noise.source === SensorSource.specified
     # component_sources: the one provenance view of a model — each slot's source, nothing for an absent one, the reason, the override
     @test VisualGeometryToolkitCore.component_sources(SensorModel()) ==
-          (black = SensorSource.file, noise = nothing, defects = nothing, reason = VisualGeometryToolkitCore.NoCharacterisation,
+          (black = SensorSource.file, noise = nothing, defects = nothing, reason = VisualGeometryToolkitCore.NoCharacterization,
            specified_override = false)
     est = sensor_fixture(; black = (1, 2, 3, 4), gain = 1.5, read_noise = (1, 1, 1, 1),
                          source = (black = SensorSource.measured, noise = SensorSource.estimated)).model
@@ -617,7 +617,10 @@ end
     @test allunique(content_digest.(vcat([full], moved)))
     empty = sensor_fixture().model                       # an entry with every slot absent: the absent types, Matched
     @test empty.black isa FileBlack && empty.noise isa NoNoise && empty.defects isa NoDefects
-    @test content_digest(SensorModel()) != content_digest(empty)   # Matched ≠ NoCharacterisation
+    @test content_digest(SensorModel()) != content_digest(empty)   # Matched ≠ NoCharacterization
+    # the absent model's identity of record (RadiometricCamera's golden siemens_coarse_full run, recorded with Core 0.13): the
+    # decision-11 rename of its reason moves no digest
+    @test content_digest(SensorModel()) == "cee5404683f31de68f9565c174a8ab04c111c0754c3a2f55f7a82000a3ca2fbb"
 end
 
 @testitem "sensor model: LinearRaw's one black subtraction — bit-identical with the absent model, the dark per photosite, defects masked" setup = [SensorFixtures] begin

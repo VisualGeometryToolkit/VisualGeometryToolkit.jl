@@ -359,11 +359,11 @@ function test_readme_example end
     sensor_fixture(; body, iso = 100, exposure = 1.0s, black = nothing, black_std_error = nothing, dark = nothing, darks = nothing,
                    gain = nothing, gain_std_error = nothing, read_noise = nothing, read_noise_std_error = nothing,
                    relative_noise = nothing, defects = nothing, source = SensorSource.specified)
-        -> (; characterisation, capture, model)
-    sensor_fixture(characterisations::SensorCharacterisation...) -> SensorCharacterisation
+        -> (; characterization, capture, model)
+    sensor_fixture(characterizations::SensorCharacterization...) -> SensorCharacterization
 
 THE builder of sensor-model fixtures for tests (owner ruling D13): a test never
-constructs a sensor component, a [`SensorCharacterisation`](@ref) or a
+constructs a sensor component, a [`SensorCharacterization`](@ref) or a
 [`SensorModel`](@ref) itself (check_duplication's `:sensor_component` pattern;
 the absent model `SensorModel()` excepted), it describes one here in plain
 numbers. The slots, each absent when its keywords are `nothing`:

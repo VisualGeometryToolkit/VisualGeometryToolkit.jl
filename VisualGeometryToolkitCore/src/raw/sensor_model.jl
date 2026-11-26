@@ -10,7 +10,7 @@
 # Three levels (spec 2026-11-13, Phase 1 and the owner's rulings D1–D13):
 #
 #   Sensor                   geometry only (cameras/sensors.jl), part of BoundedCamera
-#   SensorCharacterisation   host-side: ONE physical body (its DeviceIdentity, held
+#   SensorCharacterization   host-side: ONE physical body (its DeviceIdentity, held
 #                            beside the camera) and, per ISO, a component per slot
 #   SensorModel{B,N,D}       per frame: the black, noise and defect components
 #                            [`sensor_model`](@ref) picked for its ISO and exposure,
@@ -65,7 +65,7 @@ Why [`sensor_model`](@ref) gave a frame the model it did (an isbits `@enum`,
 
 - `Matched`: a characterisation of this body holds an entry at the frame's ISO;
   its components are the model's (an absent slot of the entry is the absent type);
-- `NoCharacterisation`: none was given (also the absent default `SensorModel()`);
+- `NoCharacterization`: none was given (also the absent default `SensorModel()`);
 - `UnmatchedISO`: characterisations of this body exist, none at this ISO (no
   extrapolation across ISO);
 - `OtherBody`: the characterisations given are of other bodies;
@@ -75,14 +75,14 @@ Why [`sensor_model`](@ref) gave a frame the model it did (an isbits `@enum`,
   the fallback is visible, never silent. Of [`Darks`](@ref) (0.10.3): no band
   serves the exposure, and the model's black is their shared channel black.
 
-`NoCharacterisation`, `UnmatchedISO` and `OtherBody` give the absent model;
+`NoCharacterization`, `UnmatchedISO` and `OtherBody` give the absent model;
 `Matched` and `DarkOutOfBand` the entry's components. A caller that matches the
 values exhaustively handles `DarkOutOfBand` too.
 """
-@enum ModelReason::UInt8 Matched NoCharacterisation UnmatchedISO OtherBody DarkOutOfBand
+@enum ModelReason::UInt8 Matched NoCharacterization UnmatchedISO OtherBody DarkOutOfBand
 
 @doc "`Matched`: a [`ModelReason`](@ref) — an entry of this body at the frame's ISO gave the model." Matched
-@doc "`NoCharacterisation`: a [`ModelReason`](@ref) — no characterisation was given; the absent model." NoCharacterisation
+@doc "`NoCharacterization`: a [`ModelReason`](@ref) — no characterisation was given; the absent model." NoCharacterization
 @doc "`UnmatchedISO`: a [`ModelReason`](@ref) — this body is characterised, but not at the frame's ISO; the absent model." UnmatchedISO
 @doc "`OtherBody`: a [`ModelReason`](@ref) — the characterisations given are of other bodies; the absent model." OtherBody
 @doc "`DarkOutOfBand`: a [`ModelReason`](@ref) — this body at this ISO, but the frame's exposure is outside the Dark's band (or every band of its Darks): its ChannelBlack, the entry's other components." DarkOutOfBand
@@ -91,7 +91,7 @@ values exhaustively handles `DarkOutOfBand` too.
     BlackComponent, NoiseComponent, DefectComponent
 
 The three slots of a [`SensorModel`](@ref) and of a
-[`SensorCharacterisation`](@ref) entry: what a code's black level is
+[`SensorCharacterization`](@ref) entry: what a code's black level is
 ([`FileBlack`](@ref), [`ChannelBlack`](@ref), [`Dark`](@ref)), its noise
 ([`NoNoise`](@ref), [`ReadNoise`](@ref), [`PoissonGaussian`](@ref),
 [`RelativeNoise`](@ref)) and which photosites are defects
@@ -385,13 +385,13 @@ const _ENTRY_SLOTS = (:black, :noise, :defects)
 """
     SensorEntry = @NamedTuple{black::BlackComponent, noise::NoiseComponent, defects::DefectComponent}
 
-One ISO's entry of a [`SensorCharacterisation`](@ref): its three slots, each a
+One ISO's entry of a [`SensorCharacterization`](@ref): its three slots, each a
 component (an absent slot its absent type).
 """
 const SensorEntry = @NamedTuple{black::BlackComponent, noise::NoiseComponent, defects::DefectComponent}
 
 """
-    SensorCharacterisation(body::DeviceIdentity; entries)
+    SensorCharacterization(body::DeviceIdentity; entries)
 
 The description of ONE physical sensor, host-side: `body`, the key (serial if
 known, else make and model), held beside the camera like
@@ -405,25 +405,25 @@ slots). An ISO listed twice, a slot not among `black`, `noise` and `defects`
 `ArgumentError`.
 
 [`sensor_model`](@ref) resolves a frame's model from it. Written and read by
-VisualGeometryToolkitIO's `vgio/sensor_characterisation` kind.
+VisualGeometryToolkitIO's `vgio/sensor_characterization` kind.
 """
-struct SensorCharacterisation
+struct SensorCharacterization
     body::DeviceIdentity
     entries::Dict{Float64, SensorEntry}
 end
-function SensorCharacterisation(body::DeviceIdentity; entries)
+function SensorCharacterization(body::DeviceIdentity; entries)
     d = Dict{Float64, SensorEntry}()
     for (iso, slots) in entries
-        isfinite(iso) && iso > 0 || throw(ArgumentError("SensorCharacterisation: an ISO is positive and finite, got $iso"))
-        haskey(d, Float64(iso)) && throw(ArgumentError("SensorCharacterisation: ISO $iso is listed twice — a body has one entry per ISO"))
+        isfinite(iso) && iso > 0 || throw(ArgumentError("SensorCharacterization: an ISO is positive and finite, got $iso"))
+        haskey(d, Float64(iso)) && throw(ArgumentError("SensorCharacterization: ISO $iso is listed twice — a body has one entry per ISO"))
         extra = setdiff(keys(slots), _ENTRY_SLOTS)
         isempty(extra) || throw(ArgumentError(
-            "SensorCharacterisation: an entry's slots are $(_ENTRY_SLOTS), got $(Tuple(extra)) (a dark map is the black slot's Dark)"))
+            "SensorCharacterization: an entry's slots are $(_ENTRY_SLOTS), got $(Tuple(extra)) (a dark map is the black slot's Dark)"))
         d[Float64(iso)] = SensorEntry((get(slots, :black, FileBlack()), get(slots, :noise, NoNoise()), get(slots, :defects, NoDefects())))
     end
-    return SensorCharacterisation(body, d)
+    return SensorCharacterization(body, d)
 end
-@fieldwise SensorCharacterisation
+@fieldwise SensorCharacterization
 
 """
     SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent;
@@ -438,7 +438,7 @@ sites whose onset is at most the exposure), `reason` why (a
 displaced a measured one (the run record notes the override).
 
 `SensorModel()` is the absent model, `SensorModel(FileBlack(), NoNoise(),
-NoDefects(); reason = NoCharacterisation)`: [`LinearRaw`](@ref) and
+NoDefects(); reason = NoCharacterization)`: [`LinearRaw`](@ref) and
 [`linearview`](@ref) under it are bit for bit the RAW's own linearisation. A
 model of isbits components is isbits; one holding a dark map or a defect list
 moves to a device with `Adapt.adapt`. [`content_digest`](@ref) is its identity.
@@ -455,7 +455,7 @@ struct SensorModel{B <: Union{FileBlack, ChannelBlack, Dark}, N <: NoiseComponen
 end
 SensorModel(black::BlackComponent, noise::NoiseComponent, defects::DefectComponent; reason::ModelReason = Matched,
             specified_override::Bool = false) = SensorModel(black, noise, defects, reason, specified_override)
-SensorModel() = SensorModel(FileBlack(), NoNoise(), NoDefects(); reason = NoCharacterisation)
+SensorModel() = SensorModel(FileBlack(), NoNoise(), NoDefects(); reason = NoCharacterization)
 @fieldwise SensorModel
 Adapt.adapt_structure(to, m::SensorModel) =
     SensorModel(Adapt.adapt(to, m.black), m.noise, Adapt.adapt(to, m.defects), m.reason, m.specified_override)
@@ -467,7 +467,7 @@ Where each of a frame's sensor components came from — the provenance a run
 record states (ruling A): `black`, `noise` and `defects` each the component's
 [`SensorSource`](@ref)`.T` (a [`FileBlack`](@ref)'s is `file`), or `nothing`
 for an absent slot ([`NoNoise`](@ref), [`NoDefects`](@ref)); `reason` why the
-frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterisation`,
+frame got this model (a [`ModelReason`](@ref): `Matched`, `NoCharacterization`,
 `UnmatchedISO`, `OtherBody`, or `DarkOutOfBand` when the entry's Dark did not serve the
 frame's exposure (or no Dark of its `Darks` did) and the ChannelBlack stands in); `specified_override` whether
 a specified component won over a measured one.
@@ -520,7 +520,10 @@ on any device (a device map is read to the host); a cache keyed by a model
 """
 content_digest(m::SensorModel) =
     sha256_hex(canonical_json(Dict{String, Any}("black" => _digest_tree(m.black), "noise" => _digest_tree(m.noise), "defects" => _digest_tree(m.defects),
-                                                 "reason" => string(m.reason), "specified_override" => m.specified_override)))
+                                                 "reason" => _digest_reason(m.reason), "specified_override" => m.specified_override)))
+# A reason in the digest's tree: its name, but `NoCharacterization` as the name the digests of record hash (decision 11
+# renamed the value, not the identity: a model's digest, recorded in results and keying caches, does not move).
+_digest_reason(r::ModelReason) = r === NoCharacterization ? "NoCharacterisation" : string(r)
 
 # ------------------------------------------------------------------------------
 # THE resolver (D1: a lookup, no mosaic; it never estimates)
@@ -581,11 +584,11 @@ function _frame_defects(d::DefectList, t)
 end
 
 """
-    sensor_model(characterisation, capture::CaptureSettings, t::Integer) -> SensorModel
+    sensor_model(characterization, capture::CaptureSettings, t::Integer) -> SensorModel
 
 THE resolver of frame `t`'s [`SensorModel`](@ref): a LOOKUP (owner ruling D1;
 it never estimates — [`PhotonTransfer`](@ref) makes an estimated entry
-offline). `characterisation` is a [`SensorCharacterisation`](@ref), a vector or
+offline). `characterization` is a [`SensorCharacterization`](@ref), a vector or
 tuple of them, or `nothing`; the frame's body is `capture.body`, its ISO and
 exposure `capture[t].exposure`.
 
@@ -604,7 +607,7 @@ exposure `capture[t].exposure`.
    [`DefectList`](@ref) cut to the sites whose onset is at most the exposure
    (none left: [`NoDefects`](@ref)).
 
-With no characterisation (`NoCharacterisation`), none of this body
+With no characterisation (`NoCharacterization`), none of this body
 (`OtherBody`) or none at this ISO (`UnmatchedISO`) the result is the absent
 model `SensorModel(FileBlack(), NoNoise(), NoDefects())` with that
 [`ModelReason`](@ref): today's linearisation, bit for bit. Otherwise its
@@ -613,16 +616,16 @@ frame's exposure (or no Dark of its `Darks` does). A frame the capture does not 
 An explicit model a caller holds is used as it is: this resolver is where a
 characterisation becomes one, never a substitute for one given.
 """
-function sensor_model(c::Union{Nothing, SensorCharacterisation}, capture::CaptureSettings, t::Integer)
+function sensor_model(c::Union{Nothing, SensorCharacterization}, capture::CaptureSettings, t::Integer)
     return sensor_model(c === nothing ? () : (c,), capture, t)
 end
 function sensor_model(chars::Union{Tuple, AbstractVector}, capture::CaptureSettings, t::Integer)
     haskey(capture, t) || throw(ArgumentError("sensor_model: the capture has no settings for frame $t"))
     ex = capture[t].exposure
     absent(reason) = SensorModel(FileBlack(), NoNoise(), NoDefects(); reason)
-    isempty(chars) && return absent(NoCharacterisation)
-    foreach(c -> c isa SensorCharacterisation || throw(ArgumentError(
-        "sensor_model: a characterisation is a SensorCharacterisation, got $(typeof(c))")), chars)
+    isempty(chars) && return absent(NoCharacterization)
+    foreach(c -> c isa SensorCharacterization || throw(ArgumentError(
+        "sensor_model: a characterisation is a SensorCharacterization, got $(typeof(c))")), chars)
     mine = [c for c in chars if _same_body(c.body, capture.body)]
     isempty(mine) && return absent(OtherBody)
     allequal(c -> c.body, mine) || throw(ArgumentError(

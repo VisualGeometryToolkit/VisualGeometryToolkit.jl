@@ -349,7 +349,7 @@
             @test length(sm) == 2
             m1 = only(filter(r -> r["frames"] == 2, sm)); m0 = only(filter(r -> r["frames"] == 1, sm))
             @test (m1["black"], m1["noise"], m1["defects"], m1["reason"], m1["specified_override"]) == ("measured", "measured", "absent", "Matched", false)
-            @test (m0["black"], m0["noise"], m0["defects"], m0["reason"]) == ("file", "absent", "absent", "NoCharacterisation")
+            @test (m0["black"], m0["noise"], m0["defects"], m0["reason"]) == ("file", "absent", "absent", "NoCharacterization")
             @test only(TOML.parsefile(E.write_provenance(out; driver = "d", sensor_model = recorded))["sensor_model"])["frames"] == 1
             @test_throws ArgumentError E.write_provenance(out, Dict("sensor_model" => "x"); driver = "d")   # the writer's own
             # a dirty tree: gitcommit suffixed, the patch inline under DrWatson's name

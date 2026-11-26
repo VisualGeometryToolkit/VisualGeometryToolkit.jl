@@ -18,14 +18,14 @@
     test_docs(VisualGeometryToolkitIO)     # every list empty: a new exception takes Core's docs_tests.jl form
 end
 
-# IO 0.10.3: the versions written, in kinds.md, are generated from `_written_versions` (as json-schemas.md's list is),
+# IO 0.10.3: the versions written, in kinds.md, are generated from the package (the current one, as json-schemas.md's list is),
 # and the rule of a length's persisted identity is stated once, in VisualGeometryToolkitCore's conventions/units.md.
 @testitem "docs: the versions written are generated; the persisted-identity rule is Core's" begin
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitCore as VgtkCore
     guide = joinpath(pkgdir(VgtkIO), "docs", "src", "guide")
     kinds = read(joinpath(guide, "kinds.md"), String)
-    @test occursin("_written_versions(r.kind)", kinds)
+    @test occursin("VgtkIO._schema(r.kind)", kinds)
     # Core's paragraph, where Core is this monorepo's (its text ships with Core's next release; a registered Core
     # 0.10.3 holds the earlier paragraph, so IO's suite does not read it there)
     if dirname(pkgdir(VgtkCore)) == dirname(pkgdir(VgtkIO))

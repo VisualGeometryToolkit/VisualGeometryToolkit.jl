@@ -1,14 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterisation/v2.0.json",
-    "title": "vgio/sensor_characterisation/v2.0",
-    "description": "A vgio/sensor_characterisation/v2.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
+    "$id": "https://visualgeometrytoolkit.github.io/schemas/vgio/sensor_characterization/v3.0.json",
+    "title": "vgio/sensor_characterization/v3.0",
+    "description": "A vgio/sensor_characterization/v3.0 file, as VisualGeometryToolkitIO writes and reads it; generated from its validator (VisualGeometryToolkitIO.json_schema). The validator is the authority: a check stated only in a `description` is the reader's. A file of a higher minor version of this major may hold keys this version does not declare: validate it against its own version's schema. each ISO has one entry",
     "type": "object",
     "properties": {
         "schema": {
             "type": "string",
-            "description": "vgio/sensor_characterisation/v2.0, or the same major version at any minor",
-            "pattern": "^vgio/sensor_characterisation/v2(\\.[0-9]+)?$"
+            "description": "vgio/sensor_characterization/v3.0, or the same major version at any minor",
+            "pattern": "^vgio/sensor_characterization/v3(\\.[0-9]+)?$"
         },
         "generator": {
             "type": "object",

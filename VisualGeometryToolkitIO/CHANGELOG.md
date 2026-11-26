@@ -19,6 +19,20 @@ reproduces byte for byte name their generator 0.12.0.
   wrote with the old pair read as before, and no version step is needed.
 - `SCHOEPS_PIXEL_FRAME` and `CANONICAL_PIXEL_FRAME` (check_naming R20: a `const` naming one concrete type, owner
   2026-11-24): both are `PixelFrame{:colmap}`, written as that type.
+- **`vgio/sensor_characterization/v3.0`: the kind's American name** (decision 11). `load(SensorCharacterization, path)`
+  and `save(path, characterization)`; the body is v2.0's as it stands. A file of the British-named kind (v1.0, IO
+  0.10.1; v2.0, IO 0.10.2) reads through its version steps: v1→v2 as before, and v2→v3, which renames the kind
+  (`_RENAMED_KIND`). Only v3.0 is written: the v1.0 bytes IO 0.10.2 to 0.11 wrote for a record without a `Darks` (owner
+  ruling (a)) end with the rename. **A reader older than IO 0.12 cannot read a `sensor_characterization` record.**
+  `vgio_migrate` rewrites a British-named file without a dark map as v3.0 (read back and compared); one that holds a
+  dark map is refused by name (its rasters are named by its record) and reads in place, `save` writing it anew. The
+  published JSON Schemas: `sensor_characterization/v3.0.json`; the two British-named schemas are removed. The source
+  and test files are `sensor_characterization_schema*.jl`. Tested on the recorded IO 0.10.1 fixture (its bytes pinned)
+  and on RadiometricCamera's v1.0 and v2.0 records of record.
+- **One written version per kind.** With the sensor characterisation's earlier-version write gone, these are removed:
+  the table of versions a writer emits (`_written_versions`, `_OLDER_WRITTEN_VERSIONS`), the versioned validator
+  `_spec(kind, v)`, and the `version` keyword of `_write_kind` and `_kind_spec`. `json_schema(kind, version)` is removed
+  too: `json_schema(kind)` is the schema of the one version written.
 
 ### Changed
 - A SplineLens camera's export refusal names VisualGeometryToolkitEstimation 0.13's camera regression,

@@ -38,9 +38,8 @@ covariance, as `Uncertain`).
 
 Every vgio file is a versioned schema; the current versions are the table
 `_SCHEMA_VERSION` (validate.jl) and `schema_versions()` lists, per kind, every
-version read (derived from the version steps); `_written_versions(kind)` the
-versions a writer emits (the current one, and an earlier one still written for
-a record it can hold). A file is sufficient on its own
+version read (derived from the version steps); a writer emits the current
+version only. A file is sufficient on its own
 and minimal:
 - every convention a reader needs is DECLARED in the file, once, in its
   envelope — the pixel frame, the length unit, the rotation encoding (Hamilton
@@ -129,7 +128,7 @@ using VisualGeometryToolkitCore: BaseQuantity, parse_unit, unit_string, mm, m, p
 import VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: FitResult, SolveStats   # a fit's termination record and its loop count (core_json.jl, `_FIT_RECORD`)
 using VisualGeometryToolkitCore: DeviceIdentity, ExposureSettings, LensSettings, FrameSettings, CaptureSettings   # capture_settings/v1, a calibration's device
-using VisualGeometryToolkitCore: SensorCharacterisation   # sensor_characterisation/v2.0
+using VisualGeometryToolkitCore: SensorCharacterization   # sensor_characterization/v3.0
 
 # =============================================================================
 # The I/O surface: TWO verbs, dispatched on the VGC type.
@@ -161,7 +160,7 @@ using VisualGeometryToolkitCore: SensorCharacterisation   # sensor_characterisat
 #   (vgio/vignetting, vgio/environment_light and vgio/radial_profile are VisualRadiometryToolkitIO's from IO 0.11, which
 #   adds their `load`/`save` methods to these two verbs; vgio/panorama is PanoramaStitching's: validate.jl, `_MOVED_KINDS`)
 #   load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)  vgio/detection/v1.0  detections per image (the one frame codec)
-#   load(SensorCharacterisation, path)           vgio/sensor_characterisation/v2.0  one sensor's components per ISO, a dark's maps as hashed artifacts
+#   load(SensorCharacterization, path)           vgio/sensor_characterization/v3.0  one sensor's components per ISO, a dark's maps as hashed artifacts
 #   load_raster(path) / save_raster(path, values; frame, nan)
 #                                                vgio/raster/v2.0    a Float32 or UInt8 raster: a JSON header + its TIFF payload
 #   load(ColmapModel, dir; contract = nothing)   COLMAP model directory (foreign)
@@ -215,7 +214,7 @@ include("detection_schema.jl")   # vgio/detection/v1.0: detections per image thr
 include("calibration_manifest.jl")  # calibration.json: vgio/calibration, the hash-bound set of a result's records, any owner's (after the kinds it checks)
 include("tiff.jl")         # the stack's one TIFF codec (libtiff): write_tiff / read_tiff
 include("raster_schema.jl")  # vgio/raster/v2.0: a raster, a JSON header and its TIFF payload (the one bulk-array binding; after the manifest: its path rule)
-include("sensor_characterisation_schema.jl")  # vgio/sensor_characterisation/v2.0: one sensor's components per ISO, a dark's maps as hashed artifacts
+include("sensor_characterization_schema.jl")  # vgio/sensor_characterization/v3.0: one sensor's components per ISO, a dark's maps as hashed artifacts
 include("json_schema.jl")   # the published JSON Schemas (draft 2020-12), generated from the validator's tables
 include("kind_spec.jl")     # a kind of another package: its table, its two file boundaries, its JSON Schema (the public hook)
 include("kind_test_helpers.jl")  # nested_roundtrip, edited_copy: the two helpers of a kind's tests (this package's and its owners')

@@ -58,7 +58,7 @@ function darks_series(seed)
     H, W, nd = 256, 512, 16
     σ0² = (SIGMA_EFF^2, SIGMA_EFF^2 + σd^2)
     band(t, off, v) = (; offset = fill(Float32(off), H, W), variance = fill(Float32(v), H, W), exposure_band = (t, t), frames = nd)
-    darks = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), darks = [band(0.01SEC, BLACK, σ0²[1]), band(0.02SEC, BLACK + Δ, σ0²[2])]).characterisation.entries[100.0].black
+    darks = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), darks = [band(0.01SEC, BLACK, σ0²[1]), band(0.02SEC, BLACK + Δ, σ0²[2])]).characterization.entries[100.0].black
     rn2(σ²) = sensor_fixture(; read_noise = ntuple(_ -> sqrt(σ²), 4)).model.noise
     float_keyed = Dict(0.01SEC => rn2(σ0²[1]), 0.02SEC => rn2(σ0²[2]))
     one_black = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK), dark = band(0.01SEC, BLACK, σ0²[1]), exposure = 0.01SEC).model
@@ -66,7 +66,7 @@ function darks_series(seed)
     late = sensor_fixture(; defects = (; every..., onset = fill(1.0SEC, H * W))).model.defects
     half = sensor_fixture(; defects = every, exposure = 1.0SEC).model.defects
     small = sensor_fixture(; black = (BLACK, BLACK, BLACK, BLACK),
-                           darks = [(; band(0.01SEC, BLACK, 1.0)..., offset = fill(Float32(BLACK), 8, 8), variance = fill(1.0f0, 8, 8))]).characterisation.entries[100.0].black
+                           darks = [(; band(0.01SEC, BLACK, 1.0)..., offset = fill(Float32(BLACK), 8, 8), variance = fill(1.0f0, 8, 8))]).characterization.entries[100.0].black
     return (; groups, darks, float_keyed, one_black, late, half, small, t1, t2)
 end
 

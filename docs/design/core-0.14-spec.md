@@ -797,3 +797,20 @@ These are done in Core 0.14, each with its own commit:
   - Its refits are bit-identical to a fresh solve, with 0.12's allocation profile: 5.2 KB and 79 allocations per call.
   - `PairCtx.lo_ws` is a `Dict{Any,Any}`.
   - Owner ruling: `IGPrior` has no default algorithm (2026-11-26).
+- 2026-11-26 (rename agent), decision 11, the characterisation family:
+  - The kind is renamed, not re-versioned: `vgio/sensor_characterisation` → `vgio/sensor_characterization` v3.0, through
+    `_RENAMED_KIND` and a v2→v3 step, which keeps every published file readable.
+  - Owner ruling (a)'s v1.0 write ends with the rename (coordinator ruling 2026-11-26, decision 9 renames the key): the
+    written-versions machinery is removed. A reader older than IO 0.12 cannot read a `sensor_characterization` record.
+  - `vgio_migrate` refuses a former-kind file that holds a dark map (the IO 0.10.3 hazard: rasters lost with the staging
+    directory); such a file reads in place.
+  - `content_digest(::SensorModel)` keeps hashing `"NoCharacterisation"`: a rename moves no identity.
+  - RC's `rc/run_parameters` gets v4.0 with a v3→v4 step. RC's old option key is migrated through RC's ConfigVersions
+    v1→v2 converter, not refused (coordinator ruling: a renamed key is a converter step, never a refusal).
+  - Recorded data names stay as data (`FOREIGN_FORMAT_TOKENS`).
+- 2026-11-26 (sensor-builder agent): `DarksAndFlats` is added in `raw/sensor_estimators.jl`. It adds code and changes none.
+  - Its output is bit-identical to RC's hand-assembled `characterise_sensor` (`test/darks_and_flats_tests.jl`). It uses
+    PhotonTransfer's `Dict`-of-`ReadNoise` plus `sensor_model` form, as RC does.
+  - Its fields are `dark` and `series`; `photon_transfer` and `master_dark` are retired names (R9). `false_defects` is
+    configuration, so it lives in the `dark` field.
+  - It is the problem's `default_algorithm`, being its only algorithm.

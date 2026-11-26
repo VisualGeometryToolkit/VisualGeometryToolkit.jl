@@ -35,7 +35,7 @@ Pages = ["raw/linear_raw.jl"]
 ## The sensor model: the black level, the noise and the defects
 
 Three levels: the geometric `Sensor` (part of a camera), a
-[`SensorCharacterisation`](@ref) (ONE body's components per ISO, held beside
+[`SensorCharacterization`](@ref) (ONE body's components per ISO, held beside
 the camera like [`CaptureSettings`](@ref)) and a [`SensorModel`](@ref) (ONE
 frame's black, noise and defect components). Each slot's component is a type,
 absence included ([`FileBlack`](@ref), [`NoNoise`](@ref), [`NoDefects`](@ref)),
@@ -49,7 +49,9 @@ estimators build a characterisation's components from frames, offline:
 [`PhotonTransfer`](@ref) and [`MasterDark`](@ref), the algorithms of
 `solve(EstimationProblem(PoissonGaussian, groups, (; darks)), PhotonTransfer())` and
 `solve(EstimationProblem(Dark, frames, (; exposure_band)), MasterDark())`, and
-[`defect_onsets`](@ref).
+[`defect_onsets`](@ref); [`DarksAndFlats`](@ref) composes the three into one body's
+characterisation at one ISO from a dedicated capture,
+`solve(EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference)), DarksAndFlats())`.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]

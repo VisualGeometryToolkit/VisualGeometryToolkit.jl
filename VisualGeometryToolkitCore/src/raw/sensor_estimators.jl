@@ -10,6 +10,8 @@
 #                     per-photosite offset and variance), the ReadNoise, the defects
 #   defect_onsets     per-exposure defect masks into ONE DefectList (each site's
 #                     shortest exposure at which it is flagged)
+#   DarksAndFlats     the three composed: dark bursts and a photon-transfer
+#                     series into ONE body's characterisation at one ISO
 #
 # The resolver never runs them (sensor_model is a lookup); a characterisation's
 # entry is built from what they return.
@@ -850,4 +852,76 @@ function defect_onsets(masks::AbstractVector{<:Pair{<:Quantity, <:AbstractMatrix
     end
     sites = findall(isfinite, onset)
     return DefectList(getindex.(sites, 2), getindex.(sites, 1), onset[sites] .* _SECOND; size = sz, source)
+end
+
+"""
+    DarksAndFlats(; dark = MasterDark(), series = PhotonTransfer())
+
+    solve(EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference)), DarksAndFlats(…))
+        -> FitResult: u the SensorCharacterization, metadata (; series, darks)
+
+THE builder of one body's [`SensorCharacterization`](@ref) at one ISO from a dedicated capture, a [`FitKind`](@ref)
+(it composes the estimators; the default algorithm of its problem): lens-capped dark bursts and a photon-transfer
+series of flats, estimated by [`MasterDark`](@ref), [`defect_onsets`](@ref) and [`PhotonTransfer`](@ref) alone (it
+estimates nothing of its own). The data:
+
+- `darks` — the dark bursts, exposure `=>` the frames at that exposure (an `AbstractDict` of time quantities to
+  vectors of [`RawMosaic`](@ref), at least 2 frames each), one burst per exposure;
+- `flats` — the photon-transfer series, in the form [`PhotonTransfer`](@ref) takes (exposure `=>` the frames at
+  that exposure).
+
+The context `p` (every key required, any other an `ArgumentError`): `body`, the [`DeviceIdentity`](@ref) of the
+frames' body; `iso`, their ISO; `reference`, the exposure of the dark burst whose master dark serves as the shared
+channel black, the read noise and the series' linearisation (a key of `darks`, else an `ArgumentError`). The
+algorithm's fields are the two estimators' configurations: `dark` ([`MasterDark`](@ref)'s `false_defects`)
+and `series` ([`PhotonTransfer`](@ref)'s block, normalization and significance).
+
+The entry, every component `SensorSource.measured`:
+
+- `black` — a [`Darks`](@ref) of every burst's master dark, each its burst's exposure as its band `(t, t)`; the
+  shared black the reference burst's channel black;
+- `noise` — a [`PoissonGaussian`](@ref): the gain K and its standard error from [`PhotonTransfer`](@ref) on the
+  flats, each group's intercept the read noise of the burst at its own exposure (a group's exposure without a dark
+  burst is `PhotonTransfer`'s `ArgumentError`), each group linearised with the reference burst's [`Dark`](@ref) and
+  its defects left out; σ_r per colour index and its standard error the reference burst's [`ReadNoise`](@ref);
+- `defects` — ONE [`DefectList`](@ref) by [`defect_onsets`](@ref) over every burst's defect mask, each site at the
+  shortest exposure that flags it.
+
+The result's return code, stop rule, statistics, `rms` and `n` are the photon-transfer fit's (it is the one
+iterative part: a fit can fail to converge). Its metadata: `series`, that fit's [`FitResult`](@ref) (its
+own metadata a [`PhotonTransferMetadata`](@ref)); `darks`, per exposure of `darks` its burst's
+[`MasterDark`](@ref) `FitResult` (the Dark, the read noise and the defect mask). Each estimator's refusals
+([`NoiseEstimateFailed`](@ref), `ArgumentError`) reach the caller as the estimator throws them.
+"""
+struct DarksAndFlats <: AbstractEstimationAlgorithm
+    dark::MasterDark
+    series::PhotonTransfer
+end
+DarksAndFlats(; dark::MasterDark = MasterDark(), series::PhotonTransfer = PhotonTransfer()) =
+    DarksAndFlats(dark, series)
+estimator_kind(::DarksAndFlats) = FitKind()
+
+const _DarksAndFlatsProblem = EstimationProblem{SensorCharacterization, <:Tuple{_PtcGroups, _PtcGroups}}
+default_algorithm(::_DarksAndFlatsProblem) = DarksAndFlats()
+function __solve(prob::_DarksAndFlatsProblem, alg::DarksAndFlats)
+    darks, flats = prob.f
+    (; body, iso, reference) = read_context(prob.p, (:body, :iso, :reference), (;), "DarksAndFlats")
+    haskey(darks, reference) || throw(ArgumentError(
+        "DarksAndFlats: the reference exposure $(reference) is none of the dark bursts' ($(join(keys(darks), ", ")))"))
+    source = SensorSource.measured
+    # every burst's master dark, each at its own exposure's band
+    bursts = Dict(t => solve(EstimationProblem(Dark, frames, (; exposure_band = (t, t))), alg.dark)
+                  for (t, frames) in darks)
+    ref = bursts[reference]
+    black = Darks(ref.u.black, [r.u for r in values(bursts)]; source)
+    defects = defect_onsets([t => r.metadata.defects for (t, r) in bursts])
+    # the series: each group's intercept its exposure's read noise, linearised with the reference Dark, its defects left out
+    model = SensorModel(ref.u, NoNoise(), defect_onsets([reference => ref.metadata.defects]))
+    fit = solve(EstimationProblem(PoissonGaussian, flats,
+                                  (; darks = Dict(t => r.metadata.read_noise for (t, r) in bursts), sensor_model = model)),
+                alg.series)
+    rn = ref.metadata.read_noise
+    noise = PoissonGaussian(fit.u.gain, rn.σ, (gain = fit.u.std_error.gain, σ = rn.std_error); source)
+    c = SensorCharacterization(body; entries = [iso => (; black, noise, defects)])
+    return FitResult(c, fit.retcode, fit.stop_rule, fit.stats, fit.rms, fit.n, (; series = fit, darks = bursts))
 end

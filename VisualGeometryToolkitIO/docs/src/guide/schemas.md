@@ -131,12 +131,12 @@ its own, named and hashed inside its body.)
 ## Earlier versions
 
 Every earlier version a published file holds is read, and only the current
-one is written — but for one rule: a kind whose new major version only adds a
-form may write its earlier version, that version's very bytes, for a record
-the earlier version can hold (`vgio/sensor_characterisation/v1.0`, IO 0.10.1's
-file, for a characterisation without a `Darks`), so a reader of that version
-keeps reading it. The versions a writer emits are one table
-(`_written_versions`); each has its published JSON Schema, and a file of any of them is current: `vgio_migrate` and `vgio_migrate_tree` have nothing to rewrite. A schema change must not force the published data (Zenodo,
+one is written. (IO 0.10.2 to 0.11 also wrote the sensor characterisation's
+v1.0, under the kind's British name, for a record without a `Darks`, so that
+IO 0.10.1 kept reading it; the kind's American name,
+`vgio/sensor_characterization/v3.0`, ended that in IO 0.12.) The current
+version has its published JSON Schema, and a file of it is current:
+`vgio_migrate` and `vgio_migrate_tree` have nothing to rewrite. A schema change must not force the published data (Zenodo,
 Hugging Face; archives of several GB) to be uploaded again, so a published
 file keeps loading: `load` runs the file's version steps in memory, one step
 per version, and reads the current record they give. The versions each kind

@@ -355,7 +355,7 @@ const _SCHEMA_VERSION = Dict{String, Tuple{Int, Int}}(
     "capture_settings" => (2, 0), "calibration" => (3, 0),
     "blur" => (2, 0),
     "units" => (3, 0),
-    "detection" => (1, 0), "sensor_characterisation" => (2, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v2, IO 0.10.2: the darks body; v1.0 through its step)
+    "detection" => (1, 0), "sensor_characterization" => (3, 0),   # IO 0.10: detections per image; one sensor's components per ISO (v3, IO 0.12: the American name; v1.0 and v2.0, of the British name, through their steps)
     "raster" => (2, 0),     # (v1: IO 0.9.5's, read through its step)
 )
 function _schema_version(kind::AbstractString)
@@ -367,18 +367,6 @@ end
 _version_string((M, n)::Tuple{Int, Int}) = "v$(M).$(n)"
 _schema(kind) = _schema(kind, _schema_version(kind))
 _schema(kind, v::Tuple{Int, Int}) = "vgio/$(kind)/$(_version_string(v))"
-
-# THE VERSIONS A WRITER EMITS, per kind: its current version alone, but where a kind's writer writes an earlier one
-# for a record the earlier version can hold (IO 0.10.2, owner ruling (a): a sensor characterisation without a `Darks`
-# is written as v1.0, IO 0.10.1's bytes, so a reader of that version reads it). The writer's choice
-# (`_written_version`) and the published JSON Schemas (`_write_json_schemas`) read this one table: each version a
-# writer can emit has its schema, and none other is published.
-# Each such earlier version is listed with its validator (a thunk: its table is defined with its kind), the one place it is
-# stated: `_spec(kind, v)` reads it, so a version listed has its validator.
-const _OLDER_WRITTEN_VERSIONS = Dict{String, Vector{Pair{Tuple{Int, Int}, Function}}}(
-    "sensor_characterisation" => [(1, 0) => () -> _SENSOR_CHARACTERISATION_V1_SPEC])   # IO 0.10.1's table
-_written_versions(kind::AbstractString) =
-    push!(Tuple{Int, Int}[first(p) for p in get(_OLDER_WRITTEN_VERSIONS, kind, Pair{Tuple{Int, Int}, Function}[])], _schema_version(kind))
 
 # A record's `schema` field accepts its version's major (by default the kind's current version) at any minor.
 struct _SchemaTok <: _Spec
@@ -485,10 +473,9 @@ const _PROVENANCE = Pair{Symbol, _Spec}[:provenance => _Free()]
 # The spec of a file of `kind`: the envelope, then the body's `required` and
 # `optional` keys, then `provenance`; a cross-field `check` of the whole record.
 function _kind_spec(kind::AbstractString, required::Vector{<:Pair{Symbol}}, optional::Vector{<:Pair{Symbol}} = Pair{Symbol, _Spec}[];
-                    check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT,
-                    version::Tuple{Int, Int} = _schema_version(kind))
+                    check = nothing, rule::AbstractString = "", schema = Dict{String, Any}[], units::_Spec = _UNITS_OBJECT)
     o = _Obj(
-        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind, version), :generator => _GENERATOR, :units => units,
+        _spec_table(Pair{Symbol, _Spec}[:schema => _schema_tok(kind), :generator => _GENERATOR, :units => units,
                                         :conventions => _CONVENTIONS_OBJECT], required),
         _spec_table(optional, _PROVENANCE),
     )
@@ -611,6 +598,7 @@ _validate_moved(path, kind::AbstractString, s) = (Base.invokelatest(validate_rec
 const _RENAMED_KIND = Dict(
     "generic_camera" => "noncentral_spline", "noncentral_spline" => "cameras",
     "target_points2d" => "observations", "target_points3d" => "observations", "target_detections" => "observations",
+    "sensor_characterisation" => "sensor_characterization",   # IO 0.12: the American name (decision 11)
 )
 # The current kind of a kind name, a former one's successor followed to the end.
 _current_kind(k::AbstractString) = haskey(_RENAMED_KIND, k) ? _current_kind(_RENAMED_KIND[k]) : String(k)
@@ -747,12 +735,10 @@ end
 # `generator`, the `units` and `conventions` objects — is the style's, so no
 # writer can serialize under a unit or pixel frame its file does not declare; a
 # VGC value left in `body` is lowered on `style` (style.jl). `provenance` last.
-function _write_kind(path::AbstractString, kind::AbstractString, body::NamedTuple, provenance::NamedTuple; style::VgioStyle,
-                     version::Tuple{Int, Int} = _schema_version(kind))
-    version in _written_versions(kind) || throw(ArgumentError("vgio/$(kind) is not written at $(_version_string(version))"))
-    record = with_provenance(merge(_envelope(kind, style, version), body), provenance)
+function _write_kind(path::AbstractString, kind::AbstractString, body::NamedTuple, provenance::NamedTuple; style::VgioStyle)
+    record = with_provenance(merge(_envelope(kind, style), body), provenance)
     text = _json_text(record, style)          # serialized once: these bytes are validated and written
-    _validate(_spec(kind, version), _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
+    _validate(_spec(kind), _parse_vgio_text(text, path), path, "")   # (a NaN/Inf refused by its field)
     write(path, text)
     return nothing
 end
@@ -860,19 +846,12 @@ function _spec(kind::AbstractString)
     kind == "calibration" && return _CALIBRATION_SPEC
     kind == "blur" && return _BLUR_SPEC
     kind == "detection" && return _DETECTION_SPEC
-    kind == "sensor_characterisation" && return _SENSOR_CHARACTERISATION_SPEC
+    kind == "sensor_characterization" && return _SENSOR_CHARACTERIZATION_SPEC
     kind == "raster" && return _RASTER_SPEC
     _schema_version(kind)   # a kind that moved to its owner, or no kind: refused by name
     throw(ArgumentError("no vgio kind $(repr(kind))"))
 end
 _has_kind(kind::AbstractString) = haskey(_SCHEMA_VERSION, kind)
-# The validator of a version a writer emits (`_written_versions`): the current one's, or an earlier one's table.
-function _spec(kind::AbstractString, v::Tuple{Int, Int})
-    v == _schema_version(kind) && return _spec(kind)
-    i = findfirst(p -> first(p) == v, get(_OLDER_WRITTEN_VERSIONS, kind, ()))
-    i === nothing && throw(ArgumentError("vgio/$(kind) is not written at $(_version_string(v)) (written: $(join(map(_version_string, _written_versions(kind)), ", ")))"))
-    return last(_OLDER_WRITTEN_VERSIONS[kind][i])()
-end
 
 """
     validate(path) -> String

@@ -99,15 +99,19 @@ const RETIRED_NAMES = String[
     "ScalarOr" * "Quantity",                                      # VisualGeometryToolkitIO: its one name, `Number`
     "POOL" * "_RNG",                                              # VisualGeometryToolkitEval: its one name, StableRNGs' `StableRNG`
     # the sensor model (owner ruling A and D1–D13, 2026-11-13): wave 10's sensor noise, never released, retired by name
-    "Sensor" * "Noise",                       # the per-frame value: `SensorModel{B,N,D}` (a body's per-ISO record: `SensorCharacterisation`)
-    "sensor" * "_noise",                      # the resolver, the IO kind and RC's experiment: `sensor_model(characterisation, capture, t)`, `vgio/sensor_characterisation`, `sensor_characterisation`
-    "sensor" * "_noise" * "_record",               # PanoramaStitching's example key: `sensor_characterisation`
+    "Sensor" * "Noise",                       # the per-frame value: `SensorModel{B,N,D}` (a body's per-ISO record: `SensorCharacterization`)
+    "sensor" * "_noise",                      # the resolver, the IO kind and RC's experiment: `sensor_model(characterization, capture, t)`, `vgio/sensor_characterization`, `sensor_characterization`
+    "sensor" * "_noise" * "_record",               # PanoramaStitching's example key: `sensor_characterization`
     "Dark" * "Frame",                         # a master dark: `Dark`, the black slot's per-photosite component
     "pixel" * "_noise", "pixel" * "_variance",   # a value's variance: the uncertain `LinearRaw` image (D11), its `attributes` component
     "Noise" * "Field", "noise" * "_value", "NOISE" * "_SOURCES",   # a field and its source: the component types, each with its `source` (`SensorSource`)
     "Measured" * "Black",                     # a per-channel black: `ChannelBlack(values, std_error; source)`
     "_noise" * "_levels",                     # a model's levels for the kernel: `_model_levels`
     "_matching" * "_record",                  # the characterisation's entry lookup inside `sensor_model`
+    # American in identifiers, British in prose (owner decision 11, 2026-11-23; VisualGeometryToolkitCore 0.14, VisualGeometryToolkitIO 0.12)
+    "Sensor" * "Characterisation",            # a body's per-ISO record: `SensorCharacterization`
+    "No" * "Characterisation",                # the `ModelReason` of no record given: `NoCharacterization`
+    "sensor" * "_characterisation",           # the IO kind, RC's experiment and stage, the TOML keys: `sensor_characterization` (`vgio/sensor_characterization/v3.0`)
     "_green" * "_noise", "_noise" * "_digest",   # VisualGeometryToolkitFeatures' privates: the uncertain image; `content_digest(model)`
     "green" * "_dn", "green" * "_colors",     # a LinearRaw's green photosites: `L.geometry.plane_sites`
     "Intensity" * "Noise",                    # PanoramaStitching's value noise: `RelativeNoise(σ_rel; source)`, a noise-slot component
@@ -702,6 +706,12 @@ const FOREIGN_FORMAT_TOKENS = [
         "RANSACScoringDoneRight's and LocalOptimizationDoneRight's Zenodo artifacts): a published name is data", accepted_in = :format_literal),
     "eth3d_splg_cs" * "ponds" => (; owner = "the name of RANSACScoringDoneRight's published ETH3D SuperPoint+LightGlue correspondence " *
         "artifact (Zenodo record 23240469): a published name is data", accepted_in = :format_literal),
+    "sensor" * "_characterisation" => (; owner = "the former name of the IO kind (`vgio/sensor_characterisation` v1.0 and v2.0, read " *
+        "through VisualGeometryToolkitIO's steps to `sensor_characterization` v3.0), and the directory and file names of the recorded " *
+        "sensor data (RadiometricCamera's rc_sensor_model and rc_sensor_frames artifacts): a published name is data", accepted_in = :format_literal),
+    "No" * "Characterisation" => (; owner = "the `reason` a run of record wrote before `NoCharacterization` (RadiometricCamera's " *
+        "golden parameters.json, VisualGeometryToolkitEval's provenance), and the name `content_digest(::SensorModel)` hashes for " *
+        "it (the digests of record do not move): a recorded value is data", accepted_in = :format_literal),
     "central" * "_generic" => (; owner = "the `--model` value of Schöps et al.'s camera_calibration program (its central generic model), " *
         "in the shell drivers that run it and the TOML provenance that quotes their command line", accepted_in = :cli_argument),
     # VisualGeometryToolkitEstimation's configuration version 1 (0.12 and earlier) named these tables after the retired

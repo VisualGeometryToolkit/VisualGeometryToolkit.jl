@@ -80,7 +80,7 @@ envelope is new for all of them).
 | `vgio/observations/v3.0` | `TargetObservations{F}`: per frame, per target, the observed points' indices and points — pixels in a `PixelFrame` or 3D points in a named 3D frame, plain or `Uncertain`, with an optional `weights` column; `targets` the `content_id`s of rigs or of single unposed targets | `load(TargetObservations, path)` (IO 0.9's `target_points2d`, `target_points3d` and `target_detections` files too, through their version steps) | `save(path, obs)`; exporters `save_correspondences`, `save_trc` |
 | `vgio/detection/v1.0` | detections per image: `Dict` of image name → a vector of detections (`AbstractDetection`: `Attributed{Uncertain{<:FeatureFrame}}`, `PointFrame` to `AffineFrame`, plain or uncertain) | `load(Dict{String, <:AbstractVector{<:AbstractDetection}}, path)` | `save(path, detections)` |
 | `vgio/capture_settings/v2.0` | `CaptureSettings`: per frame, the exposure (time, f-number, ISO) and the nominal lens settings (focal length, focus distance); the body and lens `DeviceIdentity`, `Attributed` with each one's source (`"exif"` or `"config"`), the EXIF lens claim a stated lens overrode, and optionally the `sensor` (the camera's name) | `load(CaptureSettings, path)` | `save(path, Attributed(cs, (; identity_sources = (body, lens)[, exif_lens, sensor])))` |
-| `vgio/sensor_characterisation/v2.0` (v1.0 for a record without a `Darks`) | `SensorCharacterisation`: ONE sensor, keyed by `device.body`, and per ISO (`entries`, each ISO once) its three slots, each ONE component body told by its `type` with its `source` (measured, estimated, specified) and its standard error where stated: `black` a `ChannelBlack` (`"channel"`, per-channel values), a `Dark` (`"dark"`: its channel black, exposure band, frames, and per-photosite offset and variance as raster payload bodies beside the record, TIFFs of the raster profile bound by their SHA-256) or a `Darks` (`"darks"`, v2: the shared channel black and one dark body per exposure band, in increasing band, each with its own rasters `….band<k>.dark_offset.tiff`; the bands disjoint). The writer writes v1.0, IO 0.10.1's bytes, for a record without a `Darks`; a v1.0 file reads through its step (the schema renamed, the body unchanged); `noise` a `ReadNoise` (`"read_noise"`), `PoissonGaussian` (`"poisson_gaussian"`) or `RelativeNoise` (`"relative"`); `defects` a `DefectList` (`sites` `[x, y, onset]`, 1-based, x the column and y the row of the visible raw, onset in seconds). An absent slot is absent and loads as its absent type (`FileBlack`, `NoNoise`, `NoDefects`) | `load(SensorCharacterisation, path)` | `save(path, characterisation)` (writes the rasters too) |
+| `vgio/sensor_characterization/v3.0` (IO 0.12: the American name; the kind's v1.0 and v2.0 files, of its British name, read through their steps) | `SensorCharacterization`: ONE sensor, keyed by `device.body`, and per ISO (`entries`, each ISO once) its three slots, each ONE component body told by its `type` with its `source` (measured, estimated, specified) and its standard error where stated: `black` a `ChannelBlack` (`"channel"`, per-channel values), a `Dark` (`"dark"`: its channel black, exposure band, frames, and per-photosite offset and variance as raster payload bodies beside the record, TIFFs of the raster profile bound by their SHA-256) or a `Darks` (`"darks"`, since the former kind's v2.0: the shared channel black and one dark body per exposure band, in increasing band, each with its own rasters `….band<k>.dark_offset.tiff`; the bands disjoint). The writer writes v3.0 only; a former-kind file reads through its steps (the schema renamed, the body unchanged); `noise` a `ReadNoise` (`"read_noise"`), `PoissonGaussian` (`"poisson_gaussian"`) or `RelativeNoise` (`"relative"`); `defects` a `DefectList` (`sites` `[x, y, onset]`, 1-based, x the column and y the row of the visible raw, onset in seconds). An absent slot is absent and loads as its absent type (`FileBlack`, `NoNoise`, `NoDefects`) | `load(SensorCharacterization, path)` | `save(path, characterization)` (writes the rasters too) |
 | `vgio/vignetting/v2.0`, `vgio/radial_profile/v1.0`, `vgio/environment_light/v2.0` (VisualRadiometryToolkitIO's from IO 0.11, the schema names unchanged) | VisualRadiometryToolkitCore's `AbstractVignetting`, `BinnedRadialProfile` and `EnvironmentLight`: the kinds moved with the types they hold | with VisualRadiometryToolkitIO loaded, the same call: `load(AbstractVignetting \| BinnedRadialProfile \| EnvironmentLight, path)` (its methods of this package's `load`) | with VisualRadiometryToolkitIO loaded, `save(path, value)` |
 | `vgio/panorama/v2.0` (PanoramaStitching's from IO 0.11, the schema name unchanged) | a panorama's results: its camera, rotations, vignetting, gains and fit | PanoramaStitching's reader | PanoramaStitching's writer |
 | `vgio/blur/v2.0` | name → `GaussianBlur`, each one's `covariance` in the storage it holds (round, axis-aligned, general) and its PLANE: `pixel_frame` (or `"frame": "image:<id>"`) on a sensor, in px²; `"frame": "target:<id>"` (TargetPlaneFrame{id}) on a print, in `units.length`² | `load(Dict{Symbol, GaussianBlur}, path)` | `save(path, blurs)` |
@@ -139,7 +139,7 @@ in `units.pixel`) —, what a NaN value means (`"unobserved"`; `"none"`: the
 raster holds no NaN), and the SHA-256 of the TIFF's bytes, the reserved
 `payload` key. A payload whose digest is not the header's is refused before it
 is decoded. The payload body `{file, sha256}` and its TIFF are the stack's one
-binding of a bulk array to a file: `vgio/sensor_characterisation` holds a dark's
+binding of a bulk array to a file: `vgio/sensor_characterization` holds a dark's
 offset and variance maps the same way. A `vgio/raster/v1` header (IO 0.9.5) reads through
 its version step.
 
@@ -345,16 +345,15 @@ calibration_record))`, so it never shadows the target's `calibration`.
 Every earlier version a published file holds is read. The versions each kind
 reads are derived from its version steps by
 [`schema_versions`](@ref VisualGeometryToolkitIO.schema_versions), never kept
-by hand, and the versions each kind's writer emits from `_written_versions`
-(its current one, and an earlier one a writer still writes for a record it can
-hold); the table is generated from both:
+by hand; each kind's writer emits its current version only. The table is
+generated from both:
 
 ```@eval
 import VisualGeometryToolkitIO as VgtkIO
 using Markdown: Markdown
 function row(r)
-    w = [VgtkIO._schema(r.kind, v) for v in VgtkIO._written_versions(r.kind)]
-    return "| `vgio/$(r.kind)` | $(join(("`$(s)`" for s in w), ", ")) | $(join(("`$(s)`" for s in r.reads if !(s in w)), ", ")) |"
+    w = VgtkIO._schema(r.kind)
+    return "| `vgio/$(r.kind)` | `$(w)` | $(join(("`$(s)`" for s in r.reads if s != w), ", ")) |"
 end
 rows = map(row, VgtkIO.schema_versions())
 Markdown.parse(join(["| Kind | Written | Also read |", "|---|---|---|", rows...], "\n"))
@@ -363,7 +362,7 @@ Markdown.parse(join(["| Kind | Written | Also read |", "|---|---|---|", rows...]
 `load` runs the file's version steps in memory, one per version
 ([`migrate_schema`](@ref VisualGeometryToolkitIO.migrate_schema)`(::Val{schema}, tree)`,
 run by [`migrate_record`](@ref VisualGeometryToolkitIO.migrate_record)), and
-reads the current record they give; the writers write only the current (or an earlier version they still emit for a record it can hold, `_written_versions`)
+reads the current record they give; the writers write only the current
 version, so a file saved from what an old file loads as is current. A load is
 silent (an `@debug` names the version). The reason is the published data: a
 schema change must not force the archives on Zenodo and Hugging Face (several

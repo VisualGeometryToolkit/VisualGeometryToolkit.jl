@@ -444,18 +444,19 @@ public raw_provenance           # decoder, mode, LibRaw version and frame map, a
 public cfa_string, photosite_colors   # the pattern as letters; each photosite's colour index (the pattern tiled)
 # The sensor model (raw/sensor_model.jl; spec 2026-11-13, rulings D1–D13): a body's characterisation, per ISO a component
 # per slot; a frame's model, resolved from it; absence is a type
-export SensorCharacterisation, SensorModel, sensor_model   # ONE body's per-ISO components (host); ONE frame's black, noise and defects; THE resolver (a lookup)
+export SensorCharacterization, SensorModel, sensor_model   # ONE body's per-ISO components (host); ONE frame's black, noise and defects; THE resolver (a lookup)
 export FileBlack, ChannelBlack, Dark               # the black slot: the RAW's own; per channel; a master dark (its channel black + per-photosite offset and variance)
 export NoNoise, ReadNoise, PoissonGaussian, RelativeNoise   # the noise slot: none; σ_r alone; the gain and σ_r; (σ_rel·x)²
 export NoDefects, DefectList                       # the defect slot: none; photosites with their onset exposures
 public BlackComponent, NoiseComponent, DefectComponent, SensorEntry   # the slots' supertypes; a characterisation entry
-public SensorSource, ModelReason, Matched, NoCharacterisation, UnmatchedISO, OtherBody, DarkOutOfBand   # a component's source (an enum module); why a frame got its model
+public SensorSource, ModelReason, Matched, NoCharacterization, UnmatchedISO, OtherBody, DarkOutOfBand   # a component's source (an enum module); why a frame got its model
 public content_digest                              # a SensorModel's identity: sha256_hex(canonical_json(its tree))
 public component_sources                           # a SensorModel's provenance: each slot's SensorSource (nothing when absent), its reason, the override
 public linear_quantum                              # one RAW code in a linear view's units, per photosite: 1/(white − black[c])
 public value_variance                              # the noise law's variance of a linear value at a photosite (a censored one's at the white level)
 public Darks, defect_mask                          # the black slot's Darks: one Dark per exposure band (0.10.3); the defect slot as a mask over the visible raw
 export PhotonTransfer, MasterDark, defect_onsets   # the estimators (raw/sensor_estimators.jl): a FitResult of a measured PoissonGaussian (one frame, scheduled for removal: an estimated one); a Dark and ReadNoise; masks into a DefectList
+export DarksAndFlats                               # the builder (raw/sensor_estimators.jl): dark bursts and a photon-transfer series into ONE body's characterisation at one ISO, by the three estimators above
 public PhotonTransferMetadata                      # the photon-transfer series' FitResult metadata: the range fitted, the intercept, the μ² test
 public NoiseEstimateFailed                         # the estimators' failure
 
@@ -1106,7 +1107,7 @@ import .Cameras: pnp_pixel_whitening
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
 # `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
-include("raw/sensor_model.jl") # the sensor model: its components, SensorCharacterisation, SensorModel, sensor_model, content_digest (before LinearRaw, which reads a model)
+include("raw/sensor_model.jl") # the sensor model: its components, SensorCharacterization, SensorModel, sensor_model, content_digest (before LinearRaw, which reads a model)
 include("raw/sensor_estimators.jl") # PhotonTransfer, MasterDark, defect_onsets: a characterisation's components from frames (offline)
 include("raw/linear_raw.jl")   # LinearRaw: the one linearisation over the mosaic's photosites in one KA kernel; the cell images' maps
 

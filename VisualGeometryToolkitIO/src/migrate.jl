@@ -222,7 +222,7 @@ end
 # version has ONE step, `migrate_schema(::Val{schema}, tree)`: a parsed record
 # of that version, in memory, as the record of the next one. The readers run
 # the steps on load (`_read_store`, through `migrate_record`); the writers
-# write only the current version (or an earlier one a writer still emits, `_written_versions`). `vgio_migrate` rewrites a file with the same
+# write only the current version. `vgio_migrate` rewrites a file with the same
 # steps, by the guarded pattern of the third-party conversions above: the file
 # read (through the steps), its value WRITTEN by the current writer (its
 # validation) to a staging directory beside `out` (`write_staged`), READ back
@@ -2090,11 +2090,9 @@ function _write_ids(p, ids::AbstractDict, defs::AbstractDict, rewritten::Abstrac
     Base.Filesystem.rename(t, p)
     return nothing
 end
-# Whether a schema is a version its kind's writer emits (`_written_versions`: the current one, or an earlier one a
-# writer still writes for a record it can hold — a sensor characterisation without a Darks, v1.0), any minor: there is
-# nothing to migrate. (A reader still runs an earlier one's step: `_is_current_major`.)
+# Whether a schema is its kind's current major, the version its writer emits, at any minor: there is nothing to migrate.
 _is_current(s::AbstractString) = (v = _split_schema(s); v !== nothing && haskey(_SCHEMA_VERSION, v.kind) &&
-    any(w -> first(w) == v.major, _written_versions(v.kind)))
+    v.major == first(_schema_version(v.kind)))
 _try_schema(f) = try
     s = _peek_schema(f)
     s isa String ? s : nothing

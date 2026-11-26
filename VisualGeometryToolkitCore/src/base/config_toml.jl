@@ -353,19 +353,23 @@ files written before configurations were versioned.
 const CONFIG_VERSION_KEY = "config_version"
 
 """
-    ConfigMigration(; tables, renames = [])
+    ConfigMigration(; tables, renames = [], values = [])
 
 One version change of a package's configuration: `tables` are the top-level tables of the version it reads (every
 one of them: a table of that version that is not listed is unknown, and refused); `renames` are `old => new`
 dotted paths (`"old_table" => "family.new_table"`, `"table.key" => "other.table.key"`), applied in order, each table
-moved whole (its keys and sub-tables kept) and each key with its value.
+moved whole (its keys and sub-tables kept) and each key with its value; `values` are `old => f` steps for a key whose
+VALUE changes form, applied after the renames, in order: the key at the dotted path `old` is removed and
+`f(value) -> (new_path => new_value)` states where it goes and as what (a stored `Bool` becoming a type's tag, say).
 """
 struct ConfigMigration
     tables::Vector{String}
     renames::Vector{Pair{String, String}}
+    values::Vector{Pair{String, Any}}
 end
-ConfigMigration(; tables, renames = Pair{String, String}[]) =
-    ConfigMigration(collect(String, tables), Pair{String, String}[String(first(r)) => String(last(r)) for r in renames])
+ConfigMigration(; tables, renames = Pair{String, String}[], values = Pair{String, Any}[]) =
+    ConfigMigration(collect(String, tables), Pair{String, String}[String(first(r)) => String(last(r)) for r in renames],
+                    Pair{String, Any}[String(first(r)) => last(r) for r in values])
 
 """
     ConfigVersions(package, migrations::ConfigMigration...; tables)
@@ -396,10 +400,11 @@ current_config_version(v::ConfigVersions) = length(v.migrations) + 1
     migrate_config(d::AbstractDict, versions::ConfigVersions; source = "a configuration") -> Dict{String, Any}
 
 The configuration `d` (a parsed TOML file of `versions.package`) at the current version, a new dictionary stamped
-with it: each migration from the file's version on renames its tables (`d` is not modified). Refused with an
-`ArgumentError` that names the key: a version newer than the package's, a version that is not a positive integer,
-a table the file's version does not have (an unknown key, old or current), a renamed table whose new path is taken, and, in a
-current file, a table under a name an earlier version used (it names the current one).
+with it: each migration from the file's version on renames its tables and converts its changed values (`d` is not
+modified). Refused with an `ArgumentError` that names the key: a version newer than the package's, a version that is
+not a positive integer, a table the file's version does not have (an unknown key, old or current), a renamed table or
+converted value whose new path is taken, and, in a current file, a table under a name an earlier version used (it
+names the current one) or a key in a form an earlier version used.
 """
 function migrate_config(d::AbstractDict, v::ConfigVersions; source::AbstractString = "a configuration")
     cur = current_config_version(v)
@@ -424,11 +429,23 @@ function migrate_config(d::AbstractDict, v::ConfigVersions; source::AbstractStri
                 "$source: [$old] moves to [$new] in $(v.package)'s configuration version $(k + 1), and [$new] is already there"))
             _config_put!(out, new, t)
         end
+        for (old, f) in mig.values
+            x = _config_pop!(out, old)
+            x === nothing && continue
+            new, y = f(x)
+            _config_get(out, new) === nothing || throw(ArgumentError(
+                "$source: [$old] moves to [$new] in $(v.package)'s configuration version $(k + 1), and [$new] is already there"))
+            _config_put!(out, new, y)
+        end
     end
     if ver == cur
         for (k, mig) in enumerate(v.migrations), (old, new) in mig.renames
             _config_get(out, old) === nothing || throw(ArgumentError(
                 "$source: [$old] is $(v.package)'s configuration version $k's name; version $cur calls it [$new]"))
+        end
+        for (k, mig) in enumerate(v.migrations), (old, _) in mig.values
+            _config_get(out, old) === nothing || throw(ArgumentError(
+                "$source: [$old] is $(v.package)'s configuration version $k's form; version $(k + 1) states it differently"))
         end
     end
     for key in sort!(collect(keys(out)))

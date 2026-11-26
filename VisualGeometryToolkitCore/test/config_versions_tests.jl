@@ -25,6 +25,19 @@
     @test migrate_config(Dict{String, Any}("s" => Dict{String, Any}("x" => Dict{String, Any}("a" => 1), "y" => 2)), vq) ==
           Dict{String, Any}(CONFIG_VERSION_KEY => 2, "a" => 1, "s" => Dict{String, Any}("y" => 2))   # a parent still holding keys stays
 
+    # a value step: a key whose stored VALUE changes form (a Bool becoming a type's tag), after the renames
+    tagof(b) = "est.scale_interface" => (b ? "consensus_anchored" : "fixed_scale")
+    vv = ConfigVersions("Pkg", ConfigMigration(; tables = ["est"], values = ["est.adapt_scale" => tagof]); tables = ["est"])
+    @test migrate_config(Dict{String, Any}("est" => Dict{String, Any}("adapt_scale" => true, "k" => 1)), vv) ==
+          Dict{String, Any}(CONFIG_VERSION_KEY => 2, "est" => Dict{String, Any}("scale_interface" => "consensus_anchored", "k" => 1))
+    @test migrate_config(Dict{String, Any}("est" => Dict{String, Any}("adapt_scale" => false)), vv)["est"]["scale_interface"] == "fixed_scale"
+    @test migrate_config(Dict{String, Any}("est" => Dict{String, Any}("k" => 1)), vv) ==
+          Dict{String, Any}(CONFIG_VERSION_KEY => 2, "est" => Dict{String, Any}("k" => 1))     # absent: nothing to convert
+    @test_throws ArgumentError migrate_config(Dict{String, Any}("est" => Dict{String, Any}("adapt_scale" => true,
+        "scale_interface" => "fixed_scale")), vv)                                            # the new path is taken
+    @test_throws ArgumentError migrate_config(Dict{String, Any}(CONFIG_VERSION_KEY => 2,
+        "est" => Dict{String, Any}("adapt_scale" => true)), vv)                              # the old form in a current file
+
     # the mechanism over two migrations: renames move whole tables (into new parents), versions chain, refusals name the key
     v = ConfigVersions("Pkg",
         ConfigMigration(; tables = ["a", "b"], renames = ["a" => "x.a"]),

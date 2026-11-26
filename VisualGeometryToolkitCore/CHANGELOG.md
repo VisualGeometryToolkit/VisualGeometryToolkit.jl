@@ -193,6 +193,9 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   `construct_from_table` (its children first: a `Darks`' Darks, a dark's channel black, an entry's slots), as
   VisualGeometryToolkitIO's reader now does, so IO's `:sensor_component` exemption in `DUPLICATION.toml` is gone. The
   one Greek ⇄ ASCII key table (`toml_key` / `toml_field_name`) gains `σ` ⇄ `sigma` and `σ_rel` ⇄ `sigma_rel`.
+- `ConfigMigration(; tables, renames, values)`: a `values` step converts a key whose stored value changes form
+  (`"table.old_key" => f`, `f(value) -> (new_path => new_value)`), after the renames; a current file holding the old
+  form, or a taken new path, is refused. A stored `Bool` that becomes a type's tag is a converter step, never a refusal.
 
 ### Changed
 - `check_naming` R20's parsed rule counts only types a stack module defines: a foreign type it imports or re-exports

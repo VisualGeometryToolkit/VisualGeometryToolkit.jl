@@ -886,3 +886,6 @@ These are done in Core 0.14, each with its own commit:
     either name, so no stored config key moves.
   - The IO reader keeps only the keys a body's spec declares (`_declares`). A newer minor's key, which the validator
     tolerates, would otherwise reach the constructor as an unknown keyword. Tested.
+- 2026-11-26 (lead, LODR L10): a configuration value that changes FORM (LODR's `adapt_scale::Bool` becoming the
+  `scale_interface` tag) is a step of the package's versioned converter: `ConfigMigration`'s `values`, one owner in
+  Core, run after the renames. Never a refusal; the old form in a current file is refused with its version named.

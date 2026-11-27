@@ -1086,4 +1086,4 @@ These are done in Core 0.14, each with its own commit:
   55.9 → 94.8 ms (ransac), +38 ms (+67–70 %); the two `using`s together 2806.5 → 2865.2 ms (+2.1 %) and 2806.3 →
   2894.4 ms (+3.1 %); the first solve 6464.4 → 717.7 ms (9.0× faster, a refine) and 6768.8 → 2140.6 ms (3.2× faster, a
   RANSAC). Accepted: the visible total from `using` to the first result falls from 9.3 s to 3.6 s (refine) and from
-  9.6 s to 5.0 s (ransac). The Estimation load grows by the precompiled solve-interface specialisations it now carries.
+  9.6 s to 5.0 s (ransac). The cause of the +38 ms on the Estimation load is not yet measured.

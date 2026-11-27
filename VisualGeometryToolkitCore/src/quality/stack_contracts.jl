@@ -79,22 +79,28 @@ package (a key of [`stack_dependencies`](@ref) other than `name`): imported
 `Pkg.Sub._x`, also through a `const P = Pkg` or `import Pkg as P` alias).
 Comments and string literals are not scanned. Each finding is
 `"file:line: Pkg._x"`, relative to `dir`.
+
+The aliases are the PACKAGE's, not a file's: a binding made once in the module file
+(`import VisualGeometryToolkitCore as VgtkCore`) reaches every file it `include`s, so
+an alias bound in any `.jl` file of the package — `dir` itself, or, when `dir` is a
+directory of a package (its `src/`, `ext/`, `test/`: the parent holds a
+`Project.toml`), every file under that package — is resolved in every file scanned
+(`VgtkCore.Cameras._x` in an included file is found).
 """
 function private_name_violations(dir::AbstractString, name::AbstractString)
     pkgs = setdiff(keys(stack_dependencies()), (name,))
     out = String[]
     isdir(dir) || return out
+    # the aliases of a stack package, learned once over the whole package: a module file's binding reaches the files it
+    # includes, which never rebind it
+    alias = Dict{String, String}(p => p for p in pkgs)
+    for path in _package_jl_files(_package_root(dir))
+        _learn_aliases!(alias, _blank_spans(read(path, String); strings = true), pkgs)
+    end
     for (root, _, files) in walkdir(dir), f in sort(files)
         endswith(f, ".jl") || continue
         path = joinpath(root, f)
         src = _blank_spans(read(path, String); strings = true)
-        # aliases of a stack package in this file
-        alias = Dict{String, String}(p => p for p in pkgs)
-        for m in eachmatch(r"(?:const\s+(\w+)\s*=\s*(\w+)\s*$|import\s+(\w+)\s+as\s+(\w+))"m, src)
-            a, b, c, d = m[1], m[2], m[3], m[4]
-            a !== nothing && b !== nothing && b in pkgs && (alias[a] = b)
-            c !== nothing && d !== nothing && c in pkgs && (alias[d] = c)
-        end
         lines = split(src, '\n')
         # `using/import Pkg[.Sub]: a, _b, …` — the list may span lines
         for m in eachmatch(r"\b(?:using|import)[ \t]+(\w+)((?:\.\w+)*)[ \t]*:[ \t]*((?:[^\n]*,[ \t]*\n)*[^\n]*)", src)
@@ -114,11 +120,26 @@ function private_name_violations(dir::AbstractString, name::AbstractString)
     return out
 end
 
+# The package a scanned directory belongs to: its parent when that holds the package's Project.toml (`dir` is its
+# `src/`, `ext/` or `test/`), `dir` itself otherwise (a package root, or a loose tree).
+_package_root(dir::AbstractString) = isfile(joinpath(dirname(normpath(dir)), "Project.toml")) ? dirname(normpath(dir)) : dir
+_package_jl_files(root::AbstractString) =
+    sort!([joinpath(r, f) for (r, _, files) in walkdir(root) for f in files if endswith(f, ".jl")])
+# `const P = Pkg` and `import Pkg as P` of a stack package, in a source with its comments and strings blanked.
+function _learn_aliases!(alias::Dict{String, String}, src::AbstractString, pkgs)
+    for m in eachmatch(r"(?:const\s+(\w+)\s*=\s*(\w+)\s*$|import\s+(\w+)\s+as\s+(\w+))"m, src)
+        a, b, c, d = m[1], m[2], m[3], m[4]
+        a !== nothing && b !== nothing && b in pkgs && (alias[a] = b)
+        c !== nothing && d !== nothing && c in pkgs && (alias[d] = c)
+    end
+    return alias
+end
+
 # The generic functions of VisualGeometryToolkitCore another package may add methods
 # to (see the docstring of CONTRACT_GENERICS, below the list).
 const CONTRACT_GENERICS = (
     # the block-coordinate-descent loop's hooks and readers (robust/block_coordinate_descent.jl)
-    update_model!, update_residuals!, update_nuisance!, update_weights!, post_iteration!,
+    init_state!, update_model!, update_residuals!, update_nuisance!, update_weights!, post_iteration!,
     stopping_criterion, stop_reason, block_coordinate_result, current_cost, current_s2,
     # the chart LM's row protocol and its reductions (robust/lm_core.jl)
     residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
@@ -149,7 +170,7 @@ const CONTRACT_GENERICS = (
     # (robust/partition_sweep.jl)
     estimates_outlier_support, outlier_context!, outlier_cost, scored_outlier_halfwidth,
     # the local-optimization contract (robust/lo_contract.jl)
-    lo_workspace, locally_optimize!, lo_width,
+    lo_workspace, locally_optimize!, lo_width, with_stops,
     external_refit!, external_workspace, prepare_external!,
     # selection over a benchmark pool (robust/pool_selection.jl)
     best_pool_model!, selection_staging, stage_selection, select_on_grid!, has_residual_quality, support_sq_loss_width,

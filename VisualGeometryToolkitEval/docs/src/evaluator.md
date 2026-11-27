@@ -11,7 +11,8 @@ implement VisualGeometryToolkitCore's contracts:
 - a local optimization, whose `RefitFamily` routes it to one of two paths.
   `NativeRefit` runs `locally_optimize!` inside VisualGeometryToolkitEstimation's
   RANSAC loop (a seeded refit is its `LocalOptimization` algorithm). `ExternalRefit` hands the model to a third-party refiner that
-  maps a model to a model (`external_refit!`).
+  maps a model to a model (`external_refit!`), through the same `LocalOptimization` front end: `init` builds its
+  workspace, `reinit!` prepares the seed outside the timing bracket, `solve!` is the bracketed refit.
 
 The evaluator holds no scorer or optimizer of its own. A project that
 evaluates particular scorers or optimizers depends on their packages and
@@ -24,7 +25,7 @@ supplies their values.
 | [`PairCtx`](@ref), [`build_pair_ctx`](@ref) | builds, once per pool pair, the pool-frame problem, the calibrations, the ground-truth (GT) pose and the refit-scoring template that every refit shares |
 | [`refit_imc!`](@ref), [`guarded_refit`](@ref) | the one refit layer: one refit of a seed model, with its pose error, its wall time and a fallback to the seed |
 | [`LoRefitSpec`](@ref), [`apply_lo_refits`](@ref) | turns a selection sweep into post-LO error matrices (pairs by grid columns) |
-| [`stream_selections`](@ref) | streams the scenes: it stages each scene, runs `select_on_grid!` per grid, then one `apply_lo_refits` |
+| [`stream_selections`](@ref) | streams the scenes: it stages each scene, runs one ensemble `ScoreSelection` solve per grid (a `SelectionGrid`), then one `apply_lo_refits` |
 | [`SampleBudgetMethodSpec`](@ref), [`LossWidthSpec`](@ref), [`evaluate_sample_budget`](@ref) | the sample-budget engine: running-best selectors and LO checkpoints along each pair's hypothesis stream |
 | [`live_runs`](@ref), [`live_row`](@ref) | end-to-end RANSAC finds (`solve(EstimationProblem(f), Ransac(…); rng)`) on pool pairs, with a problem the caller builds per pair |
 | [`ComposedSpec`](@ref), [`SoloSpec`](@ref), [`Roster`](@ref), [`deployed_arm_settings`](@ref), [`audit_operating_points`](@ref) | a paper's arms, and the gated readers of their tuned operating points |

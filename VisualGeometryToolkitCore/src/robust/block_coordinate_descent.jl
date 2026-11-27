@@ -55,6 +55,16 @@ the method.
 function init_state! end
 init_state!(method::AbstractBlockCoordinateMethod, _prob, _θ₀) =
     _no_method(method, init_state!, "BlockCoordinateDescent builds its state with it")
+
+"""
+    init_state!(state, method::AbstractBlockCoordinateMethod, prob, θ₀) -> state′
+
+Re-seed a [`BlockCoordinateDescent`](@ref) cache's kept `state` for a run of `method` on `prob` from `θ₀`: what
+`reinit!(cache, θ₀; f, alg)` calls. A method whose state is reusable overwrites `state` in place (its buffers, its
+incumbent, its counters) and returns it, so the cache's reuse allocates nothing; the returned state has the cache's
+state type. The default builds a new one, `init_state!(method, prob, θ₀)`.
+"""
+init_state!(_state, method::AbstractBlockCoordinateMethod, prob, θ₀) = init_state!(method, prob, θ₀)
 """
     update_model!(state, method::AbstractBlockCoordinateMethod, prob, θ) -> θ′ | nothing
 
@@ -395,15 +405,19 @@ and bookkeeping, the `likelihood`'s nuisance and weight blocks:
 
     solve(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops = StopAfterIteration(max_iter))
     c = init(RefineProblem(prob, θ₀), BlockCoordinateDescent(method; likelihood); stops)   # the state built once
-    solve!(c); reinit!(c, θ₀′; f = prob′, alg = BlockCoordinateDescent(method′; likelihood′))
+    solve!(c); solve!(reinit!(c, θ₀′; f = prob′, alg = BlockCoordinateDescent(method′; likelihood′)))
 
 `stops` (a [`StoppingCriterion`](@ref), required: the budget, `StopAfterIteration(max_iter)`, or a composition) runs
 after the method's own [`stopping_criterion`](@ref): the run's criterion is
-`StopWhenSolveFailed() | stopping_criterion(method) | stops`. The state is the method's `init_state!(method, prob, θ₀)`,
-built by `init` and again by each `reinit!`; the result is the method's `block_coordinate_result`. A SEEDED run
-gives its state as the problem's context: `RefineProblem(prob, θ₀, state)` runs from the caller's `state` (its buffers
-already seeded; a [`Recorded`](@ref) one records the run) and skips `init_state!` — the one-shot `solve` then builds no
-cache at all, and `reinit!(c, θ₀′; p = state′)` re-points a cache.
+`StopWhenSolveFailed() | stopping_criterion(method) | stops`. The result is the method's `block_coordinate_result`.
+
+The STATE is the run's workspace, so it is never the problem's context (`p` is refused): the one-shot `solve` reads
+the method's [`init_state!`](@ref)`(method, prob, θ₀)` and builds no cache — a method that holds its buffers (its
+workspace, a field of the method) seeds them there and returns its state, a [`Recorded`](@ref) one to record the run;
+a cache (`init`) OWNS the state `init_state!` built, and `reinit!(c, θ₀′; f, alg, stops)` re-seeds it in place
+through `init_state!(c's state, method′, prob′, θ₀′)` (default: a new state), so `solve!(reinit!(c, θ₀′; alg))`
+allocates nothing for a method whose re-seed is in place, and `solve!` is inferred. The per-run seed a method's
+state starts from (a consensus set, a seed score) is the method's own field, given anew through `alg`.
 
 # The loop
 
@@ -493,21 +507,27 @@ function __solve(prob::RefineProblem, alg::BlockCoordinateDescent; stops::Stoppi
     return _block_coordinate_descent!(_bcd_state(alg.method, prob.f, prob.u0, prob.p), alg.likelihood, alg.method,
                                       prob.f, prob.u0, stops)
 end
-# The run's state: the method's `init_state!`, or the caller's seeded state, the problem's `p`.
+# The run's state: the method's `init_state!`. The state is the run's workspace, never the problem's context.
 _bcd_state(method, f, u0, ::NullParameters) = init_state!(method, f, u0)
-_bcd_state(_method, _f, _u0, state) = state
-# The cache, its state the method's `init_state!` or the caller's (a front-end method holds no buffers of its own:
-# the state does).
+_bcd_state(_method, _f, _u0, p) = _refuse_bcd_context(p)
+const _BCD_NO_CONTEXT = "BlockCoordinateDescent reads no context `p`: its state is the run's workspace — the method's " *
+    "`init_state!(method, prob, θ₀)` builds it (a method holds its own buffers), a cache owns it (`init`) and " *
+    "`reinit!(c, θ₀; alg)` re-seeds it"
+_refuse_bcd_context(_p) = throw(ArgumentError(_BCD_NO_CONTEXT))
+# The cache: it OWNS the state the method's `init_state!` built.
 function _bcd_cache(prob::RefineProblem, alg::BlockCoordinateDescent, stops::StoppingCriterion)
     _refuse_box(prob, :BlockCoordinateDescent)
     return _BcdCache(prob.f, prob.u0, alg, stops, _bcd_state(alg.method, prob.f, prob.u0, prob.p))
 end
 solve!(c::_BcdCache) = _block_coordinate_descent!(c.state, c.alg.likelihood, c.alg.method, c.f, c.u0, c.stops)
-function reinit!(c::_BcdCache{F, U, A, C}, u0 = c.u0; f = c.f, p = NullParameters(), alg = nothing,
-        stops::C = c.stops) where {F, U, A, C}
+# A new guess, data, algorithm configuration (of the cache's type: a new method value carries a new seed) or stops; the
+# cache's state re-seeded through the method's `init_state!(state, …)` (in place for a reusable state).
+function reinit!(c::_BcdCache{F, U, A, C, S}, u0 = c.u0; f = c.f, p = NullParameters(), alg::Union{Nothing, A} = nothing,
+        stops::C = c.stops) where {F, U, A, C, S}
+    p isa NullParameters || _refuse_bcd_context(p)
     alg === nothing || (c.alg = alg)
     c.f = f; c.u0 = u0; c.stops = stops
-    c.state = _bcd_state(c.alg.method, f, u0, p)
+    c.state = init_state!(c.state, c.alg.method, f, u0)::S
     return c
 end
 

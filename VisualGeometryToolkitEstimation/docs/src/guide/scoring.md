@@ -23,7 +23,7 @@ model, if it has one), `decision_boundary` with the static trait
 width follows) and `check_workspace`. VisualGeometryToolkitCore derives the rest once
 for every scorer: `score_model!` (residuals → `score!` → consensus mask, the
 one scoring path of the loop and of every local optimizer), `consensus_set`
-and `consensus_s2` (the consensus set's Student-t scale ŝ², at `model_dof = m
+and its Student-t scale ŝ² (the estimator `ConsensusScale(scoring)`, at `model_dof = m
 + 1` for local optimization and `m` for the result's σ̂), and
 `inlier_probabilities!` (the result's soft weights: the Student-t + uniform
 posterior when the scorer has an outlier model, 0/1 on the consensus set

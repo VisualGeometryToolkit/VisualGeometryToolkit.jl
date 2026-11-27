@@ -87,7 +87,7 @@ every point of non-negligible posterior, each counted at its weight.
 - `quality::Float64`: total model quality (higher = better) — the marginal score
 - `scale::Float64`: the scale the scorer ORIGINATES, read by `noise_scale(result)`:
   the scale MAP `√ŝ²` (Core's `ScaleMAP(prior)` on `(RSS, ν)`) of the consensus partition — the inverse-gamma
-  MAP (VisualGeometryToolkitCore's `consensus_s2`) under the scoring's scale
+  MAP (VisualGeometryToolkitCore's `ConsensusScale`) under the scoring's scale
   prior, `√((RSS + 2β₀)/(ν + 2α₀))`, so `√(RSS/ν)` under the default Jeffreys
   prior, floored at `√eps` (a noise-free partition, `RSS = 0`, gives ≈ 1.49e-8,
   not 0). A LINEAR scale, not a variance and not a loss width. `NaN` when there
@@ -285,7 +285,8 @@ the IRLS residual block (`lo_residuals`, `lo_best_residuals`, storage `T`).
 The per-call states live here too, reset by every call instead of built:
 `posterior`, the `PosteriorWeightState` on the posterior buffers (re-seeded by
 [`consensus_posterior`](@ref)), and `irls::S`, the posterior-weight
-iteration's `PosteriorIrlsState` on the residual buffers.
+iteration's `PosteriorIrlsState` on the residual buffers, and `bcd`, the kept `BlockCoordinateDescent` caches that
+run on that state (`init` once per algorithm type, then `solve!(reinit!(c, θ; alg))` per call).
 """
 struct LoBuffers{R, T <: AbstractFloat, S}
     refine::R
@@ -296,13 +297,16 @@ struct LoBuffers{R, T <: AbstractFloat, S}
     lo_best_residuals::Vector{T}
     posterior::PosteriorWeightState
     irls::S
+    # the kept block-coordinate caches of the posterior-weight iteration, by cache type; `nothing`: the task's (a
+    # workspace built for one solve, or pre-allocated by type)
+    bcd::Union{Nothing, IdDict{Any, Any}}
 end
-function LoBuffers{T}(refine::R, n::Int, ::Type{M}) where {R, T, M}
+function LoBuffers{T}(refine::R, n::Int, ::Type{M}; kept::Bool = false) where {R, T, M}
     w, π, sq = Vector{Float64}(undef, n), Vector{Float64}(undef, n), Vector{Float64}(undef, n)
     r, rbest = Vector{T}(undef, n), Vector{T}(undef, n)
     posterior = PosteriorWeightState(w, π, sq, NaN, NaN, NaN, 1, JeffreysPrior())
     irls = PosteriorIrlsState{M, T}(posterior, r, rbest)
-    return LoBuffers{R, T, typeof(irls)}(refine, w, π, sq, r, rbest, posterior, irls)
+    return LoBuffers{R, T, typeof(irls)}(refine, w, π, sq, r, rbest, posterior, irls, kept ? IdDict{Any, Any}() : nothing)
 end
 
 function _set_n!(L::LoBuffers, n::Int)
@@ -360,9 +364,13 @@ mutable struct RansacWorkspace{K, M, T <: AbstractFloat, W, L}
     best_lo_stop_rule::StopRule
 end
 
+# The minimal sample size `k` as a type parameter: `Val(minimal_sample_size(P))` (a constant of the problem type), so
+# the workspace's type — and every cache and result built on it — is inferred.
+RansacWorkspace(n::Int, k::Int, ::Type{M}, ::Type{T}, scoring_ws, lo_ws) where {M, T <: AbstractFloat} =
+    RansacWorkspace(n, Val(k), M, T, scoring_ws, lo_ws)
 function RansacWorkspace(
-        n::Int, k::Int, ::Type{M}, ::Type{T}, scoring_ws::W, lo_ws::L
-    ) where {M, T <: AbstractFloat, W, L}
+        n::Int, ::Val{k}, ::Type{M}, ::Type{T}, scoring_ws::W, lo_ws::L
+    ) where {k, M, T <: AbstractFloat, W, L}
     # Uninitialized model placeholder — has_best = false guards against reading it
     return RansacWorkspace{k, M, T, W, L}(
         ScoreBuffers{T}(n, scoring_ws), lo_ws,

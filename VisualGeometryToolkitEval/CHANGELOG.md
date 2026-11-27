@@ -13,6 +13,17 @@ unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`
 - Every `[tuning]` strategy type takes its fields as keywords too (`@kwdef`): a tuning table builds its type by keyword
   through VisualGeometryToolkitCore's `construct_from_table` (no positional field splat; no DUPLICATION.toml entry).
   The same values: an `==` round trip.
+### The front-end gaps (2026-11-27)
+- An external refit (`ExternalRefit`) runs through VisualGeometryToolkitEstimation's `LocalOptimization` (V2): one cache
+  per (pair, scoring template, algorithm type, seed type), `reinit!` outside the bracket (`prepare_external!`), `solve!`
+  inside; no direct call of `prepare_external!`/`external_refit!` remains. Same numbers and counts.
+- The selection sweep of `stream_selections` is one ensemble `ScoreSelection` solve per grid over a `SelectionGrid` (V3);
+  no direct `select_on_grid!` call remains.
+- **Breaking:** `guarded_refit(opt, score, on_fail)` loses `warn_label` and catches nothing (V4): a native refit's
+  failure is its record; only an external refiner's throw is caught, inside the external path (with its warning). A
+  strategy with no local optimization now raises its `ArgumentError` instead of falling back.
+- **Breaking:** `FAMILY_ORDER` and `panel_title` read VisualGeometryToolkitCore's `LossFamily` values (`loss_family` returns
+  them); `ScoreGuarded` and `RefitHalfwidth` forward `with_stops`.
 
 ### American in identifiers (decision 11, wave 2)
 - **Breaking:** `Experiments.cancelled()` → `Experiments.canceled()`, and `live_runs`' keyword `cancelled` →

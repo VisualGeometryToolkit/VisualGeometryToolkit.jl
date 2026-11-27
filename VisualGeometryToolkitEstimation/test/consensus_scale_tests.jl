@@ -3,7 +3,8 @@
     using VisualGeometryToolkitCore: solve, init, solve!, reinit!, EstimationProblem, SquaredScale, MsacScoring, ReturnCode,
         ClosedForm, NoRule, HomographyMat, HomographyMap, PerspectiveMap, correspondences, successful_retcode, ClosedFormKind, estimator_kind
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitEstimation: ConsensusScale, HomographyProblem, RansacWorkspace
+    using VisualGeometryToolkitCore: ConsensusScale
+    using VisualGeometryToolkitEstimation: HomographyProblem, RansacWorkspace
     import VisualGeometryToolkitEstimation as VgtkEstimation
 
     rng = StableRNG(7)
@@ -25,8 +26,14 @@
     _, k = VgtkEstimation.score_model!(buf, sc, problem, model)
     m = VgtkCore.minimal_sample_size(problem) + 1
     @test r.n == k
-    @test r.u === max(VgtkCore.consensus_s2(sc, buf.residuals, VgtkCore.consensus_order(sc, buf.scoring_ws), k;
-                                            model_dof = m, d_g = VgtkCore.codimension(problem)), eps())
+    order = VgtkCore.consensus_order(sc, buf.scoring_ws)
+    rr = solve(EstimationProblem(SquaredScale, buf.residuals, (; order, inlier_count = k, model_dof = m,
+                                                                codimension = VgtkCore.codimension(problem))), ConsensusScale(sc))
+    @test r.u === rr.u && rr.n == k && (rr.retcode, rr.stop_rule) === (ReturnCode.Success, ClosedForm)
+    cs = VgtkCore.consensus_set(sc, buf.scoring_ws, buf.residuals; model_dof = m, d_g = VgtkCore.codimension(problem), epoch = 1)
+    @test r.u === max(VgtkCore.scale_s2(cs), eps())                     # the native loop's consensus scale, bit for bit
+    @test_throws ArgumentError solve(EstimationProblem(SquaredScale, buf.residuals, (; order, inlier_count = length(order) + 1,
+                                                                                       model_dof = m, codimension = 2)), ConsensusScale(sc))
 
     # the cache: another model, another width of the same scorer type, the workspace kept
     c = init(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(sc))

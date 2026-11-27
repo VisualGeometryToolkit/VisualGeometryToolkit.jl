@@ -102,11 +102,12 @@ end
 @testitem "threshold_scoring, student_t_uniform, zero_sample!: a minimal-sample point with a non-finite residual is not held" begin
     # A spurious sample point: a detection the final model does not reach (RadiometricCamera's grid index, a lattice
     # pose leaving it unassigned), its distance Inf. Forced into the consensus set it made the set's scale Inf
-    # (`consensus_s2`: the RSS of its plain residuals) and counted a dof it does not have.
+    # (its `ConsensusScale`: the RSS of its plain residuals) and counted a dof it does not have.
     using Test
     using Random: MersenneTwister
     using VisualGeometryToolkitCore: RansacScoring, MsacScoring, StudentTUniformScoring, JeffreysPrior, FlatLabelPrior,
-        scoring_workspace, score!, inlier_count, consensus_order, consensus_s2, zero_sample!, sample_point_held
+        scoring_workspace, score!, inlier_count, consensus_order, ConsensusScale, EstimationProblem, SquaredScale, solve,
+        zero_sample!, sample_point_held
     marginal = StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
     rng = MersenneTwister(4)
     n = 60
@@ -118,7 +119,8 @@ end
         k = inlier_count(sc, W)
         set = consensus_order(sc, W)[1:k]
         @test k == n - 2 && 17 ∉ set && 41 ∉ set && 3 in set && 29 in set
-        s2 = consensus_s2(sc, r, consensus_order(sc, W), k; model_dof = 2, d_g = 1)
+        s2 = solve(EstimationProblem(SquaredScale, r, (; order = consensus_order(sc, W), inlier_count = k, model_dof = 2, codimension = 1)),
+                   ConsensusScale(sc)).u
         @test isfinite(s2) && sqrt(s2) < 1.0
     end
     # the one rule, and zero_sample! by it: a held point zeroed, a non-finite one left (an invalid index still throws)
@@ -135,7 +137,7 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: RansacScoring, MsacScoring, StudentTUniformScoring, Predictive, JeffreysPrior,
         FlatLabelPrior, AbstractConstraintProblem, scoring_workspace, alloc_scoring_workspace, score!, inlier_count,
-        consensus_order, consensus_s2, score_sq_residuals!, penalties, zero_sample!
+        consensus_order, ConsensusScale, EstimationProblem, SquaredScale, solve, score_sq_residuals!, penalties, zero_sample!
     marginal = StudentTUniformScoring(2, 25.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
     rng = MersenneTwister(5)
     n = 40
@@ -151,7 +153,8 @@ end
         k = inlier_count(sc, W)
         set = consensus_order(sc, W)[1:k]
         @test k == n - nbad && all(i -> i ∉ set, first(bad)) && all(i -> i in set, setdiff(sample, first(bad)))
-        @test isfinite(consensus_s2(sc, r, consensus_order(sc, W), k; model_dof = 2, d_g = 1))
+        @test isfinite(solve(EstimationProblem(SquaredScale, r, (; order = consensus_order(sc, W), inlier_count = k, model_dof = 2,
+                                                                  codimension = 1)), ConsensusScale(sc)).u)
         @test !isnan(S)
     end
     end

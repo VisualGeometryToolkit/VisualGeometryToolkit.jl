@@ -190,10 +190,12 @@ scores a model with its covariance), `scale_prior` (Jeffreys),
 `decision_boundary` with its static trait `has_decision_boundary` (the decision
 point a width-free optimizer follows), `score_bound` (a bounded-sum scorer may
 stop a score early) and `check_workspace`. The derived verbs are stated once and
-never overridden: `consensus_s2`, `consensus_set` (the `ConsensusSet`, the inlier
+never overridden: `consensus_set` (the `ConsensusSet`, the inlier
 set and its Student-t scale that local optimization starts from),
 `inlier_probabilities!` and `score_model!`, the one scoring path over a
-`ScoreBuffers`. `with_width(scoring, w)` and `width_axis(scoring)` rebuild a
+`ScoreBuffers`. The consensus set's scale alone is an estimator, `ConsensusScale(scoring)`
+on `EstimationProblem(SquaredScale, residuals, (; order, inlier_count, model_dof, codimension))`
+(or on a family problem and a model, `(; model)`). `with_width(scoring, w)` and `width_axis(scoring)` rebuild a
 scorer at another width on its native axis.
 
 The baseline scorers live here: [`RansacScoring`](@ref

@@ -51,12 +51,13 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore, AbstractOptimization
     EstimationProblem, RefineProblem, solve, init, solve!, reinit!, found_model, optimization_path, scale_interface, loss_family, lo_label, lo_marker,
     WidthAxis, EfficiencyConstant, LossWidth, OutlierHalfwidth, width_axis_name, with_width, outlier_halfwidth,
     outlier_halfwidth_to_loss_width, loss_width_to_outlier_halfwidth, codimension,
-    external_workspace, prepare_external!, external_refit!, select_on_grid!, stage_selection,
-    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2
+    external_workspace, prepare_external!, external_refit!, stage_selection,
+    selection_staging, lo_workspace, ConsensusSet, ScoreBuffers, AbstractScoring, width_axis, FixedS2,
+    with_stops, ReturnCode, NoRule, EnsembleProblem, EnsembleKernel, default_device
 using VisualGeometryToolkitCore.Synthetic: imc_pose_error, optimistic_pose_error
 using VisualGeometryToolkitCore.Pools: PoolPair, num_points, num_models, pool_imc, gt_pose, pool_frame_calibrations
 using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem,
-    Ransac, LocalOptimization, RansacConfig, PoolSelection, ScoreSelection,
+    Ransac, LocalOptimization, RansacConfig, PoolSelection, ScoreSelection, SelectionGrid,
     rescore_and_optimize!, AbstractRansacProblem, CountedLO, TerminalLO
 using VisualGeometryToolkitCore: fixed_width   # the strategy's frozen width (robust/strategies.jl)
 import VisualGeometryToolkitEstimation: reset!   # the running-best selectors' reset

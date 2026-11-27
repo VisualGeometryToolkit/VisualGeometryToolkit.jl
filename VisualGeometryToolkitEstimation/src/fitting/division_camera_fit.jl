@@ -154,26 +154,26 @@ end
 
 # The verbose trace of one run of the loop, from its `Recorded` state: each
 # iterate's f and k, the posterior's ŝ, and the iteration's cost Σ wᵢrᵢ².
-function _print_iterations(rec::VgtkCore.Recorded, first_iter::Int)
+function _print_iterations(rec::NamedTuple, first_iter::Int)
     for (j, p) in enumerate(rec.iterates)
         println("  iteration $(first_iter + j - 1): f=$(round(p.f; digits = 3)) px  k=$(round.(p.k; sigdigits = 5))  " *
                 "ŝ=$(round(sqrt(rec.s2[j]); digits = 4)) px  cost=$(round(rec.cost[j]; sigdigits = 8))")
     end
     return nothing
 end
-_print_iterations(_state, _first_iter::Int) = nothing
+_print_iterations(::Nothing, _first_iter::Int) = nothing
 
 # The posterior-weight iteration's seed of the stack: the posterior of the solution
 # `θ` (its distances into the state's buffers, the nuisance and the E-step
 # refreshed there) at the cost Σ wᵢrᵢ² of its weights — the incumbent a resumed run
 # starts from.
-function _division_irls_state(rws::PosteriorWeightState, p::DivisionCameraProblem, θ::_PositionalDivisionState,
-                              r::Vector{Float64}, lh; refresh::Bool)
+function _division_refresh!(rws::PosteriorWeightState, p::DivisionCameraProblem, θ::_PositionalDivisionState,
+                            r::Vector{Float64}, lh)
     n = data_size(p)
     mahalanobis_distances!(r, p, θ)
     square_distances!(sq_distances(rws), r, n)
-    refresh && (update_nuisance!(lh); update_weights!(lh))
-    return PosteriorIrlsState(rws, r, copy(r), θ, weighted_rss(robust_weight(rws), sq_distances(rws), n))
+    update_nuisance!(lh); update_weights!(lh)
+    return nothing
 end
 
 # The fit's two configured parts, checked: the E-step's weighting (a Student-t +
@@ -477,7 +477,9 @@ function _division_camera_fit(
     # the budget was not spent — so only a leg that ended on its own enters with the
     # resumed one.
     checkpoint = max_iter - max_iter ÷ 2
-    res = _division_run!(st, lh, method, problem, state0, checkpoint, 1)
+    # the legs are one block-coordinate cache on the fit's buffers, `init` at the seed, re-pointed per leg
+    c = init(RefineProblem(problem, state0), BlockCoordinateDescent(method; likelihood = lh); stops = StopAfterIteration(checkpoint))
+    res = _division_run!(c, method.lo_ws, problem, nothing, checkpoint, 1)
     niter, rc = res.stats.nsteps, res.retcode
     record = (rc, res.stop_rule)
     θ = res.u
@@ -485,13 +487,13 @@ function _division_camera_fit(
     audited = !_failed_leg(record...) && niter < max_iter ? _branch_audit(problem, θ, robust_weight(st.rws)) : nothing
     if audited !== nothing
         verbose && println("  branch audit: $(_moved_branches(audited, θ)) view(s) moved; resuming")
-        st = _division_irls_state(st.rws, problem, audited, st.residuals, lh; refresh = true)
-        res = _division_run!(st, lh, method, problem, audited, max_iter - niter - 1, niter + 2)
+        _division_refresh!(st.rws, problem, audited, st.residuals, lh)
+        res = _division_run!(c, method.lo_ws, problem, audited, max_iter - niter - 1, niter + 2)
         resumed = (res.retcode, res.stop_rule)
         record = rc == ReturnCode.MaxIters ? resumed : worst_retcode(record, resumed)
         niter = niter + 1 + res.stats.nsteps
     elseif rc == ReturnCode.MaxIters && niter < max_iter
-        res = _division_run!(st, lh, method, problem, θ, max_iter - niter, niter + 1)
+        res = _division_run!(c, method.lo_ws, problem, θ, max_iter - niter, niter + 1)
         niter, record = niter + res.stats.nsteps, (res.retcode, res.stop_rule)
     end
     best = res.u
@@ -545,8 +547,9 @@ function _division_irls(problem::DivisionCameraProblem, weighting::StudentTUnifo
                                    codimension = codimension(weighting), prior = scale_prior(weighting))
     nu = mixture_em.nuisance
     lh = PosteriorLikelihood(rws, n; scale_update = nu.scale, prior_update = nu.inlier_prior, nu_update = nu.nu)
-    st = PosteriorIrlsState(rws, r, copy(r), state0, weighted_rss(robust_weight(rws), sq_distances(rws), n))
-    return st, lh, PosteriorIrlsMethod(nothing, mixture_em), state0
+    # the fit's buffers (its posterior and residual buffer; a verbose fit's trace): the state is built on them at a guess
+    buffers = _IrlsBuffers(rws, r, problem.verbose ? _irls_trace() : nothing)
+    return buffers, lh, PosteriorIrlsMethod(buffers, mixture_em), state0
 end
 
 # The posterior seeded at the median residual: its ŝ the robust noise scale of the finite residuals `r`
@@ -568,10 +571,13 @@ end
 # trace printed when the problem is verbose (`Recorded`: the run is the bare run,
 # iterate for iterate); the iterations are numbered from `first_iter`.
 
-function _division_run!(st, lh, method, problem::DivisionCameraProblem, θ, max_iter::Int, first_iter::Int)
-    run = problem.verbose ? VgtkCore.Recorded(st) : st
-    res = solve(RefineProblem(problem, θ, run), BlockCoordinateDescent(method; likelihood = lh); stops = StopAfterIteration(max_iter))
-    _print_iterations(run, first_iter)
+# A leg is the cache's run from `θ` (`nothing`: the guess and stops it was built with), its state built there on the
+# fit's buffers. A leg that continues a capped run (no audit) starts afresh at its last iterate: under the
+# parameter-change stop the result is the last iterate and no rule reads the incumbent, so this is the continued run.
+function _division_run!(c, buffers::_IrlsBuffers, problem::DivisionCameraProblem, θ, max_iter::Int, first_iter::Int)
+    stops = StopAfterIteration(max_iter)
+    res = θ === nothing ? solve!(c) : solve!(reinit!(c, θ; stops))   # the first leg: the cache as `init` built it
+    _print_iterations(buffers.trace, first_iter)
     problem.verbose && println("  -> $(res.retcode) ($(res.stop_rule)) after $(res.stats.nsteps) iteration(s)")
     return res
 end

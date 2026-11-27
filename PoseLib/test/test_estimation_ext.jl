@@ -73,10 +73,10 @@ using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, Homogra
     @test BackendRefit(lsq, stops).cheirality_vote_points == 256
     # its identity is its algorithm's strategy's (the evaluation's labels and markers); its scale is the given width
     tls = BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy = Irls{TLSShape}()), stops)
-    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === :tls &&
+    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === VgtkCore.LossFamily.tls &&
         VgtkCore.lo_label(tls) == "TLS-IRLS" && VgtkCore.scale_interface(tls) === VgtkCore.FixedScale() &&
         VgtkCore.lo_marker(tls) === VgtkCore.lo_marker(Irls{TLSShape}())
     lz = BackendRefit(LevenbergMarquardt(PoseLibSolver(); optimization_strategy = LeZach()), stops)
-    @test VgtkCore.optimization_path(lz) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(lz) === :tls && VgtkCore.lo_label(lz) == "TLS-LZ" &&
+    @test VgtkCore.optimization_path(lz) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(lz) === VgtkCore.LossFamily.tls && VgtkCore.lo_label(lz) == "TLS-LZ" &&
         VgtkCore.scale_interface(lz) === VgtkCore.FixedScale()
 end

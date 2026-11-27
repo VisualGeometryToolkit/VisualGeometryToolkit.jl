@@ -53,7 +53,7 @@ MixtureEmConfig(;
 
 # The EM's block-coordinate method on the refit workspace `refine_ws` (`nothing`
 # when the model is held, or when the problem carries its own refit).
-PosteriorIrlsMethod(refine_ws, config::MixtureEmConfig) = PosteriorIrlsMethod(refine_ws, config.model_update, config.stop)
+PosteriorIrlsMethod(lo_ws, config::MixtureEmConfig) = PosteriorIrlsMethod(lo_ws, config.model_update, config.stop)
 
 # A held model's distances as a problem: the residual block of the iteration
 # re-reads them through the protocol's distance hook (`≥ 0`), and nothing
@@ -163,14 +163,18 @@ function __solve(prob::EstimationProblem{<:PosteriorWeightState, <:AbstractVecto
     lh = PosteriorLikelihood(rws, n; scale_update = config.nuisance.scale,
                              prior_update = config.nuisance.inlier_prior, nu_update = config.nuisance.nu)
     # The held "model" is the residual vector itself: the incumbent the loop
-    # tracks, never moved (`KeepModel`).
-    state = PosteriorIrlsState(rws, copy(r), copy(r), r, mixture_nll(rws, r, n))
-    res = solve(RefineProblem(_FixedDistances(r), r, state), BlockCoordinateDescent(PosteriorIrlsMethod(nothing, config); likelihood = lh);
-                stops = StopAfterIteration(config.max_iter))
+    # tracks, never moved (`KeepModel`). The state is built on the fit's buffers at the guess (its seed cost the
+    # mixture NLL of the distances), by the block-coordinate cache `init` builds.
+    method = PosteriorIrlsMethod(_IrlsBuffers(rws, copy(r)), config)
+    c = init(RefineProblem(_FixedDistances(r), r), BlockCoordinateDescent(method; likelihood = lh);
+             stops = StopAfterIteration(config.max_iter))
+    res = solve!(c)
+    # the run's final cost: the mixture NLL of the held distances at the noise model the EM reached (its state's
+    # `current_cost`, which `post_iteration!` sets to exactly this)
     w = collect(Float64, view(inlier_weight(rws), 1:n))
     support, wrms = _posterior_support_rms!(w, (abs2(x) for x in r))
     return FitResult{U}(rws, res.retcode, res.stop_rule, res.stats, wrms, support,
-                        ResidualMixtureMetadata(state.current_cost, w, sqrt(s_hat_sq(rws)), ScaleEstimated))
+                        ResidualMixtureMetadata(mixture_nll(rws, r, n), w, sqrt(s_hat_sq(rws)), ScaleEstimated))
 end
 
 # The refusal of a `scoring` given to an EM fit (the division-camera fit's): its E-step is its `weighting`.

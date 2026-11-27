@@ -41,6 +41,17 @@ OptimizationPath.triggs
 OptimizationPath.classical_lo
 OptimizationPath.seed
 OptimizationPath.unspecified
+LossFamily
+LossFamily.T
+LossFamily.l2
+LossFamily.welsch
+LossFamily.gm
+LossFamily.cauchy
+LossFamily.tls
+LossFamily.huber
+LossFamily.barron
+LossFamily.none
+LossFamily.unspecified
 ```
 
 ## Problem Protocol

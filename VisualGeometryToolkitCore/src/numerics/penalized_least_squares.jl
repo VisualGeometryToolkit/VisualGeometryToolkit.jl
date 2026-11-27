@@ -367,62 +367,73 @@ abstract type _NumericsProblem <: AbstractEstimationProblem end
         "NormalCG() a NormalEquationsProblem, GridBrent() a BracketedMinimizationProblem"))
 
 """
-    PenalizedLeastSquaresProblem(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, u0 = nothing)
+    PenalizedLeastSquaresProblem(op::PenalizedOperator, b; w = 1, h = nothing, u0 = nothing)
 
 The penalized least squares `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` of `op`'s `A` and `D` (`w` a weight per penalty row,
-or one for all; `h` the penalty's target, `nothing` for 0; `diagonal` the normal matrix's diagonal `diag(AᵀA + DᵀWD)`,
-the Jacobi preconditioner, `nothing` none; `u0` a start, `nothing` for 0). Solved by [`CGLS`](@ref)`()`:
-`solve(PenalizedLeastSquaresProblem(op, b; w), CGLS(); stops = ToleranceStops(; rtol, max_iter))`.
+or one for all; `h` the penalty's target, `nothing` for 0; `u0` a start, `nothing` for 0): data only. Solved by
+[`CGLS`](@ref)`()`: `solve(PenalizedLeastSquaresProblem(op, b; w), CGLS(; preconditioner); stops = ToleranceStops(;
+rtol, max_iter))`, the Jacobi preconditioner the algorithm's.
 """
-struct PenalizedLeastSquaresProblem{O, B, W, H, D, U} <: _NumericsProblem
+struct PenalizedLeastSquaresProblem{O, B, W, H, U} <: _NumericsProblem
     op::O
     b::B
     w::W
     h::H
-    diagonal::D
     u0::U
 end
-PenalizedLeastSquaresProblem(op::PenalizedOperator, b::AbstractVector; w = 1.0, h = nothing, diagonal = nothing, u0 = nothing) =
-    PenalizedLeastSquaresProblem(op, b, w, h, diagonal, u0)
+PenalizedLeastSquaresProblem(op::PenalizedOperator, b::AbstractVector; w = 1.0, h = nothing, u0 = nothing) =
+    PenalizedLeastSquaresProblem(op, b, w, h, u0)
 
 """
-    NormalEquationsProblem(N, g; diagonal = nothing, u0 = nothing)
+    NormalEquationsProblem(N, g; u0 = nothing)
 
 The normal equations `N x = g` of a penalized least squares whose rows are never stored, `N` APPLIED (a function
-`N(y, x)` writing `y = N x`, or an operator with `mul!`), `diagonal` its diagonal (the Jacobi preconditioner, `nothing`
-none), `u0` a start (`nothing`: 0). Solved by [`NormalCG`](@ref)`()`.
+`N(y, x)` writing `y = N x`, or an operator with `mul!`), `u0` a start (`nothing`: 0): data only. Solved by
+[`NormalCG`](@ref)`(; preconditioner)`.
 """
-struct NormalEquationsProblem{N, G, D, U} <: _NumericsProblem
+struct NormalEquationsProblem{N, G, U} <: _NumericsProblem
     N::N
     g::G
-    diagonal::D
     u0::U
 end
-NormalEquationsProblem(N, g::AbstractVector; diagonal = nothing, u0 = nothing) = NormalEquationsProblem(N, g, diagonal, u0)
+NormalEquationsProblem(N, g::AbstractVector; u0 = nothing) = NormalEquationsProblem(N, g, u0)
 
 """
-    CGLS()
-    NormalCG()
+    CGLS(; preconditioner = nothing)
+    NormalCG(; preconditioner = nothing)
 
 The stack's Krylov solvers of a penalized least squares, fit-kind algorithms: `CGLS()` (Krylov.jl's `cgls` on the
 stacked operator `[A; √W D]`, its rows applied, never the normal matrix formed) solves a
 [`PenalizedLeastSquaresProblem`](@ref); `NormalCG()` (Krylov.jl's `cg` on the applied normal operator) a
-[`NormalEquationsProblem`](@ref). Both stop at `stops = `[`ToleranceStops`](@ref)`(; rtol, max_iter, atol)` — the
-normal-equation residual against the right-hand side's, `‖C sₖ‖ ≤ max(atol, rtol · ‖C g‖)` (`C` the Jacobi scaling) — and
-return a `FitResult`: `u` the solution (on the operator's device), `(Success, ToleranceMet)` when the rule is met
-within the cap, else `(MaxIters, IterationCap)`, `stats.nsteps` the iterations, `metadata = (; relres)` the final
-relative residual.
+[`NormalEquationsProblem`](@ref).
+
+`preconditioner` is the algorithm's configuration: the Jacobi preconditioner, given as the normal matrix's diagonal
+(`diag(AᵀA + DᵀWD)` for CGLS, `N`'s diagonal for CG; positive, one entry per unknown, moved to the operator's device),
+which scales the iteration symmetrically (`C N C`, `C = diagonal^-½`); `nothing` (the default) runs unpreconditioned.
+
+Both stop at `stops = `[`ToleranceStops`](@ref)`(; rtol, max_iter, atol)` — the normal-equation residual against the
+right-hand side's, `‖C sₖ‖ ≤ max(atol, rtol · ‖C g‖)` (`C` the Jacobi scaling) — and return a `FitResult`: `u` the
+solution (on the operator's device), `(Success, ToleranceMet)` when the rule is met within the cap, else `(MaxIters,
+IterationCap)`, `stats.nsteps` the iterations, `metadata = (; relres)` the final relative residual.
 """
-struct CGLS <: AbstractEstimationAlgorithm end
-@doc (@doc CGLS) struct NormalCG <: AbstractEstimationAlgorithm end
+struct CGLS{P <: Union{Nothing, AbstractVector}} <: AbstractEstimationAlgorithm
+    preconditioner::P
+end
+CGLS(; preconditioner::Union{Nothing, AbstractVector} = nothing) = CGLS(preconditioner)
+@doc (@doc CGLS) struct NormalCG{P <: Union{Nothing, AbstractVector}} <: AbstractEstimationAlgorithm
+    preconditioner::P
+end
+NormalCG(; preconditioner::Union{Nothing, AbstractVector} = nothing) = NormalCG(preconditioner)
 estimator_kind(::CGLS) = FitKind()
 estimator_kind(::NormalCG) = FitKind()
 
 _krylov_result(s) = FitResult(s.x, s.converged ? ReturnCode.Success : ReturnCode.MaxIters, s.converged ? ToleranceMet : IterationCap,
     SolveStats(; nsteps = s.iterations), NaN, 0, (; relres = s.relres))
-__solve(prob::PenalizedLeastSquaresProblem, ::CGLS; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(_cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, stops.rtol, stops.atol, stops.max_iter))
-__solve(prob::NormalEquationsProblem, ::NormalCG; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(_normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, stops.rtol, stops.atol, stops.max_iter))
+__solve(prob::PenalizedLeastSquaresProblem, alg::CGLS; stops::ToleranceStops = ToleranceStops()) =
+    _krylov_result(_cgls(prob.op, prob.b; prob.w, prob.h, diagonal = alg.preconditioner, x0 = prob.u0, stops.rtol,
+                         stops.atol, stops.max_iter))
+__solve(prob::NormalEquationsProblem, alg::NormalCG; stops::ToleranceStops = ToleranceStops()) =
+    _krylov_result(_normal_cg(prob.N, prob.g; diagonal = alg.preconditioner, x0 = prob.u0, stops.rtol, stops.atol,
+                              stops.max_iter))
 
 public ToleranceStops, stop_tolerance, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG

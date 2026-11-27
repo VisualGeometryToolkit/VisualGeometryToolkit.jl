@@ -119,7 +119,7 @@ end
 stop_reason(::StopWhenParameterChangeLess, state, method, prob, ::Nothing, θ_old, iter) = CONTINUE
 
 """
-    PosteriorIrlsMethod(refine_ws, model_update = WeightedRefine(), stop = NoImprovementStop())
+    PosteriorIrlsMethod(lo_ws, model_update = WeightedRefine(), stop = NoImprovementStop())
 
 The block-coordinate method of the posterior-weight iteration (VGC
 `BlockCoordinateDescent`): the model block is `model_update(refine_ws, problem,
@@ -127,19 +127,26 @@ The block-coordinate method of the posterior-weight iteration (VGC
 [`KeepModel`](@ref)); the residuals, nuisance and weight blocks are the
 likelihood's; `stop` the stop rule and the result ([`NoImprovementStop`](@ref):
 the incumbent, the RANSAC local optimization's; [`ParameterChangeStop`](@ref):
-the last iterate). `refine_ws` is the workspace the model update hands `refine!`
-(`nothing` when the model is held). The state is a `PosteriorIrlsState` built
-from a seeded posterior and its residual buffers — by the consensus seed
-([`posterior_irls!`](@ref)) or by the caller. A [`MixtureEmConfig`](@ref)
-states `model_update` and `stop` in its table.
+the last iterate). A [`MixtureEmConfig`](@ref) states `model_update` and `stop` in its table.
+
+`lo_ws` is the method's workspace: the local optimizer's buffers ([`LoBuffers`](@ref): the refit workspace
+`refine_ws` the model update hands `refine!`, and the posterior and residual buffers its state lives on), a fit's
+posterior and residual buffers, or a bare refit workspace (`nothing` when the model is held). Its state
+(VisualGeometryToolkitCore's `init_state!` of the method) is the `PosteriorIrlsState` on those buffers: on the local
+optimizer's, the state [`posterior_irls!`](@ref) seeded from the consensus set; on a fit's, built at the guess. It is
+never the problem's context: a run that reuses the state across solves holds a `BlockCoordinateDescent` cache
+(`init`, then `solve!(reinit!(c, θ; alg))`).
 """
 struct PosteriorIrlsMethod{W, U, S} <: AbstractBlockCoordinateMethod
     lo_ws::W
     model_update::U
     stop::S
 end
-PosteriorIrlsMethod(refine_ws) = PosteriorIrlsMethod(refine_ws, WeightedRefine())
-PosteriorIrlsMethod(refine_ws, model_update) = PosteriorIrlsMethod(refine_ws, model_update, NoImprovementStop())
+PosteriorIrlsMethod(lo_ws) = PosteriorIrlsMethod(lo_ws, WeightedRefine())
+PosteriorIrlsMethod(lo_ws, model_update) = PosteriorIrlsMethod(lo_ws, model_update, NoImprovementStop())
+# The workspace the model update hands `refine!`: the local optimizer's refit workspace, or the bare one given.
+_refine_ws(L::LoBuffers) = L.refine
+_refine_ws(ws) = ws
 
 mutable struct PosteriorIrlsState{M, T}
     rws::PosteriorWeightState
@@ -236,21 +243,56 @@ function _seeded_irls_state!(L::LoBuffers, problem, θ₀, cs::ConsensusSet, buf
     cost = weighted_rss(robust_weight(rws), L.posterior_sq_r, data_size(problem))
     copyto!(L.lo_residuals, buf.residuals)
     copyto!(L.lo_best_residuals, buf.residuals)
-    return _reset_irls_state!(L.irls, rws, L, θ₀, cost)
+    return _reset_irls_state!(L.irls, θ₀, cost)
 end
 
-# The workspace's state, reset (its buffers are `L`'s), when it holds the
-# seed's model type; any other seed type builds its own state, as before.
-function _reset_irls_state!(state::PosteriorIrlsState{M}, _rws, _L, θ₀::M, cost) where {M}
+# The workspace's state, reset in place (its buffers are `L`'s): the seed held as the workspace's model type `M` (the
+# storage boundary's `convert`, a labeled alias of an unlabeled seed), so the state is always the one concrete
+# `PosteriorIrlsState{M, T}` the workspace holds.
+function _reset_irls_state!(state::PosteriorIrlsState{M}, θ₀, cost) where {M}
     state.best = _with_cost(M, θ₀, cost)
     state.current_cost = Float64(cost)
     state.improved = false
     return state
 end
-_reset_irls_state!(_state, rws, L, θ₀, cost) = PosteriorIrlsState(rws, L.lo_residuals, L.lo_best_residuals, θ₀, cost)
+
+# The state of a run of the method: on the local optimizer's buffers, the state `posterior_irls!` seeded there (the
+# one-shot solve and a cache's re-seed alike); on a fit's buffers (`_IrlsBuffers`), built at the guess.
+init_state!(m::PosteriorIrlsMethod{<:LoBuffers}, _problem, _θ₀) = m.lo_ws.irls
+init_state!(_state, m::PosteriorIrlsMethod{<:LoBuffers}, _problem, _θ₀) = m.lo_ws.irls
+
+"""
+    _IrlsBuffers(rws, residuals[, trace])
+
+A fit's workspace of the posterior-weight iteration (`DivisionCameraFit`, `ResidualMixture`): the seeded posterior
+`rws` and the residual buffer its state's residual block writes; `trace` (`nothing`, or the vectors a `Recorded` run
+appends to) records the run. The state is built at the guess, the incumbent's residuals a copy of the buffer, at the
+seed's cost (`_seed_cost`); a cache's `reinit!(c, θ)` builds it again at `θ`.
+"""
+struct _IrlsBuffers{T, R}
+    rws::PosteriorWeightState
+    residuals::Vector{T}
+    trace::R
+end
+_IrlsBuffers(rws::PosteriorWeightState, residuals::Vector) = _IrlsBuffers(rws, residuals, nothing)
+_refine_ws(::_IrlsBuffers) = nothing
+# The trace a recorded fit appends to: `Recorded`'s vectors, held by the workspace so the fit reads them after a run.
+_irls_trace() = (; iterates = Any[], cost = Float64[], s2 = Float64[], reason = Ref(CONTINUE))
+_recorded(state, ::Nothing) = state
+_recorded(state, t::NamedTuple) = VgtkCore.Recorded(state, t.iterates, t.cost, t.s2, t.reason)
+function _fit_state(m::PosteriorIrlsMethod{<:_IrlsBuffers}, problem, θ₀)
+    ws = m.lo_ws
+    r = ws.residuals
+    return _recorded(PosteriorIrlsState(ws.rws, r, copy(r), θ₀, _seed_cost(m, ws.rws, r, data_size(problem))), ws.trace)
+end
+init_state!(m::PosteriorIrlsMethod{<:_IrlsBuffers}, problem, θ₀) = _fit_state(m, problem, θ₀)
+init_state!(_state, m::PosteriorIrlsMethod{<:_IrlsBuffers}, problem, θ₀) = _fit_state(m, problem, θ₀)
+# The seed's cost: the mixture NLL of a held model's fixed residuals (`KeepModel`), else Σ wᵢrᵢ² of the seed weights.
+_seed_cost(::PosteriorIrlsMethod{<:Any, KeepModel}, rws::PosteriorWeightState, r, n::Int) = mixture_nll(rws, r, n)
+_seed_cost(::PosteriorIrlsMethod, rws::PosteriorWeightState, _r, n::Int) = weighted_rss(robust_weight(rws), sq_distances(rws), n)
 
 update_model!(state::PosteriorIrlsState, method::PosteriorIrlsMethod, problem, θ) =
-    method.model_update(method.lo_ws, problem, θ, robust_weight(state.rws))
+    method.model_update(_refine_ws(method.lo_ws), problem, θ, robust_weight(state.rws))
 
 function update_residuals!(state::PosteriorIrlsState{M, T}, method::PosteriorIrlsMethod, problem, θ) where {M, T}
     n = data_size(problem)
@@ -334,13 +376,14 @@ function posterior_irls!(
         likelihood::F, L::LoBuffers, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring,
         a::Float64; max_iter::Int
     ) where {F}
-    method = PosteriorIrlsMethod(L.refine)
     state = _seeded_irls_state!(L, problem, model, cs, buf, scoring, a)
     lh = likelihood(state.rws, data_size(problem))
     _seed_policy_weights!(state, lh, data_size(problem))
-    # the seeded state is the run's context `p`: the loop runs on it (no `init_state!`, no cache)
-    result = solve(RefineProblem(problem, model, state), BlockCoordinateDescent(method; likelihood = lh);
-                   stops = StopAfterIteration(max_iter))
+    # the seeded state is the optimizer's buffers' (`L.irls`, the method's workspace): the run is the workspace's kept
+    # block-coordinate cache, `init` once per (problem, model, algorithm) type, re-pointed per call
+    alg = BlockCoordinateDescent(PosteriorIrlsMethod(L); likelihood = lh)
+    stops = StopAfterIteration(max_iter)
+    result = solve!(reinit!(_kept_bcd!(L, problem, model, alg, stops), model; f = problem, alg, stops))
     copyto!(buf.residuals, state.best_residuals)
     return lo_estimate(result.u, result.retcode, result.stop_rule; iterations = result.stats.nsteps, residuals_current = true)
 end
@@ -382,6 +425,24 @@ function _lo_consensus(::Union{Irls{GaussianShape}, Triggs{GaussianShape}}, cs::
     check_fresh(cs, buf)
     return consensus_mask(consensus_mask!(buf, scoring))
 end
+
+# The workspace's kept block-coordinate cache of the posterior-weight iteration, one per (problem, model, algorithm)
+# type (a strategy's likelihood type: `LossPlainWeights` of its loss, the posterior's), built by `init` on the first
+# call and typed by what `init` returns (inferred), so the reuse is type-stable.
+_init_bcd(problem, model, alg, stops) = init(RefineProblem(problem, model), alg; stops)
+# A workspace built for one solve, or pre-allocated by type, keeps none of its own (`L.bcd === nothing`): the task's,
+# one per cache type (VGC's `task_buffers`; a reinit! re-points it at this workspace's state).
+function _kept_bcd!(L::LoBuffers, problem, model, alg, stops)
+    C = Core.Compiler.return_type(_init_bcd, Tuple{typeof(problem), typeof(model), typeof(alg), typeof(stops)})
+    return _kept_bcd!(L.bcd, C, problem, model, alg, stops)::C
+end
+function _kept_bcd!(kept::IdDict{Any, Any}, ::Type{C}, problem, model, alg, stops) where {C}
+    c = get(kept, C, nothing)
+    c === nothing && (c = kept[C] = _init_bcd(problem, model, alg, stops))
+    return c::C
+end
+_kept_bcd!(::Nothing, ::Type{C}, problem, model, alg, stops) where {C} =
+    task_buffers(C, () -> _init_bcd(problem, model, alg, stops)::C, :vgtk_posterior_irls_bcd)
 
 # The frozen-width policies' seed: `update_nuisance!` first (a no-op for a
 # frozen loss), then `update_weights!`, and the cost re-seeded under those
@@ -444,6 +505,10 @@ end
 
 VgtkCore.with_width(lo::CountedLO, w) =
     CountedLO(VgtkCore.with_width(lo.inner, w), lo.calls, lo.iterations, lo.call_records, lo.call_records_lock)
+# the solve's stop settings reach the counted strategy; the counters are kept
+with_stops(lo::CountedLO, stops) =
+    CountedLO(with_stops(lo.inner, stops), lo.calls, lo.iterations, lo.call_records, lo.call_records_lock)
+with_stops(lo::CountedLO, ::Nothing) = lo
 VgtkCore.lo_label(lo::CountedLO) = VgtkCore.lo_label(lo.inner)
 # A counter around a terminal placement is terminal, and counts the terminal call (its `locally_optimize!` counts, then forwards).
 lo_placement(lo::CountedLO) = lo_placement(lo.inner)
@@ -459,6 +524,8 @@ lo_placement(lo::CountedLO) = lo_placement(lo.inner)
 locally_optimize!(L, lo::TerminalLO, problem, model, cs::ConsensusSet, buf::ScoreBuffers, scoring) =
     locally_optimize!(L, lo.inner, problem, model, cs, buf, scoring)
 VgtkCore.with_width(lo::TerminalLO, w) = TerminalLO(VgtkCore.with_width(lo.inner, w))
+with_stops(lo::TerminalLO, stops) = TerminalLO(with_stops(lo.inner, stops))
+with_stops(lo::TerminalLO, ::Nothing) = lo
 VgtkCore.lo_label(lo::TerminalLO) = VgtkCore.lo_label(lo.inner) * " (terminal)"
 
 # =============================================================================

@@ -95,7 +95,7 @@ The `ν ≥ 2` clamp keeps the seed's variance finite (a Student-t has one only 
 ν > 2) at a thin partition, and the MAP floors the QUOTIENT at eps. One rule
 for every caller: both [`PosteriorWeightState`](@ref) seeds, the partition
 mixture of `_posterior_weights!`/`_posterior_inlier_probs!`, the
-consensus scale [`consensus_s2`](@ref) and a RANSAC result's σ̂.
+consensus scale [`ConsensusScale`](@ref) and a RANSAC result's σ̂.
 `model_dof` is the caller's: the sweep's `minimal_sample_size` for the scoring
 marginal, one more for a local-optimization seed that also estimates the scale.
 """

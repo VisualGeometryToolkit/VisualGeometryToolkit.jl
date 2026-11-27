@@ -35,3 +35,43 @@
     rf = solve(EstimationProblem(PoolSelection, zeros(n, 0)), ScoreSelection(sc))
     @test rf.u == 0 && rf.retcode === ReturnCode.Failure && rf.stop_rule === NoRule
 end
+
+# The batched grid form of ScoreSelection (Eval V3): a grid family of another package selects, the ensemble records
+@testitem "ScoreSelection over a SelectionGrid: the (pool, width) selections of a staged batch, one ensemble solve" begin
+    using Test
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: solve, EnsembleProblem, EnsembleKernel, ReturnCode, ClosedForm, NoRule, default_device
+    using VisualGeometryToolkitEstimation: ScoreSelection, SelectionGrid, HomographyProblem
+    cpu = default_device()
+    # a grid family of another package: its own select_on_grid!, recording what it was handed
+    struct _GridFamily
+        seen::Vector{Any}
+    end
+    function VgtkCore.select_on_grid!(idxs::AbstractMatrix{Int32}, P::Type, sc::_GridFamily, grid::AbstractVector, staged; kw...)
+        push!(sc.seen, (P, collect(grid), staged, values(kw)))
+        for t in axes(idxs, 2), p in axes(idxs, 1)
+            idxs[p, t] = isodd(p + t) ? Int32(0) : Int32(10p + t)
+        end
+        return idxs
+    end
+    fam = _GridFamily(Any[])
+    staged = (; pairs = 1:3, residuals = nothing, backend = cpu)
+    grid = [0.5, 1.0, 2.0, 4.0]
+    rng_of(fingerprint, t) = (fingerprint, t)
+    r = solve(EnsembleProblem(SelectionGrid(HomographyProblem, grid, staged; rng_of), 3 * 4), ScoreSelection(fam),
+              EnsembleKernel(cpu))
+    idxs = reshape(r.u, 3, 4)
+    @test idxs == [isodd(p + t) ? 0 : 10p + t for p in 1:3, t in 1:4] && eltype(r.u) === Int32
+    @test all(r.retcode[k] === (r.u[k] == 0 ? ReturnCode.Failure : ReturnCode.Success) for k in eachindex(r.u))
+    @test all(r.stop_rule[k] === (r.u[k] == 0 ? NoRule : ClosedForm) for k in eachindex(r.u))
+    @test all(==(0), r.nsteps) && all(isnan, r.rms)
+    P, g, st, kw = only(fam.seen)
+    @test P === HomographyProblem && g == grid && st === staged && kw === (; rng_of)   # the family's own keyword forwarded
+    # without `rng_of` none is forwarded; the cells are whole pools; the ensemble runs on the backend of the staging
+    solve(EnsembleProblem(SelectionGrid(HomographyProblem, grid, staged), 12), ScoreSelection(fam), EnsembleKernel(cpu))
+    @test last(fam.seen)[4] === (;)
+    @test_throws DimensionMismatch solve(EnsembleProblem(SelectionGrid(HomographyProblem, grid, staged), 10), ScoreSelection(fam),
+                                         EnsembleKernel(cpu))
+    @test_throws ArgumentError solve(EnsembleProblem(SelectionGrid(HomographyProblem, grid, staged), 12), ScoreSelection(fam),
+                                     EnsembleKernel(:another_device))
+end

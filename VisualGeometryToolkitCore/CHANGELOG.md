@@ -24,6 +24,32 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   its stale private-reach note with them.
 
 ### Added
+- **The front-end gaps (2026-11-27).**
+  - `ConsensusScale(scoring)` (ClosedFormKind, exported) is Core's: the Student-t scale ŝ² of a consensus set under the
+    scorer's prior, `solve(EstimationProblem(SquaredScale, residuals, (; order, inlier_count, model_dof, codimension)),
+    ConsensusScale(scoring))`, and on a constraint problem and a model, `EstimationProblem(SquaredScale, problem, (;
+    model))`, with its `init`/`reinit!` cache (moved from VisualGeometryToolkitEstimation, one owner). **Breaking:** the
+    public `consensus_s2` is retired (`RETIRED_NAMES`); Core's inner loops call the private `_consensus_s2`. Bit-identical.
+  - `LossFamily`, an isbits `@enum` read qualified (`LossFamily.tls`), as `OptimizationPath`. **Breaking:** `loss_family`
+    returns a `LossFamily.T` (was a Symbol: `:tls` → `LossFamily.tls`, `:unspecified`, `:none`); `@lo_registry` refuses a
+    Symbol in a row's loss-family column. Its printed name is the old Symbol's.
+  - `with_stops(lo, stops)`, a contract generic of the local-optimization contract (`CONTRACT_GENERICS`): the strategy
+    at the local optimization's stop settings given at a solve (VisualGeometryToolkitEstimation's `LocalOptimization`
+    and `Ransac` take `stops`); `Irls{K}` takes `StopAfterIteration(n)` (its `max_iter`), `BackendRefit` an `LmStops`;
+    `nothing` keeps the strategy's own; any other pair is an `ArgumentError`.
+  - `fixed_variables(f, u0)`: the block contract's held set read at the guess (a gauge or a track that depends on the
+    start), once per `solve`, `init` and `reinit!`; its default is `fixed_variables(f)`. A `reinit!` to a guess with
+    another held set rebuilds the LM, or refuses (`ArgumentError`) when the rebuilt LM has another type.
+  - `init_state!(state, method, prob, θ₀)`, the block-coordinate hook's re-seed form (default: a new state), and
+    `init_state!` joins `CONTRACT_GENERICS`. **Breaking:** a `BlockCoordinateDescent` run's state is never the
+    problem's context: `RefineProblem(prob, θ₀, state)` is refused (`ArgumentError`); the one-shot `solve` reads the
+    method's `init_state!(method, prob, θ₀)` (a method holds its own buffers), and a cache owns its state and re-seeds it
+    in place through `reinit!(c, θ₀; alg)` (zero allocation for an in-place re-seed; `solve!` inferred).
+  - **Breaking:** the Jacobi preconditioner is the Krylov algorithms' field, `CGLS(; preconditioner)` and `NormalCG(;
+    preconditioner)` (the normal matrix's diagonal, `nothing` none); `PenalizedLeastSquaresProblem` and
+    `NormalEquationsProblem` lose their `diagonal` keyword and field (data only). Bit-identical.
+  - The private-name gate (`private_name_violations`) learns a stack package's aliases over the whole PACKAGE (the
+    module file's `import … as` / `const X = Pkg`), not per file, so an included file's `VgtkCore.Cameras._x` is found.
 - `prepare_evaluation!(f::AbstractBlockProblem, variables, varnext)`, a contract generic (in `CONTRACT_GENERICS` and
   `SOLVER_HOOKS`): the block refine tells the bundle the two variable vectors NLLSsolver evaluates its blocks at (the
   linearization point and the trial point), before the LM's first evaluation and before each evaluation at the

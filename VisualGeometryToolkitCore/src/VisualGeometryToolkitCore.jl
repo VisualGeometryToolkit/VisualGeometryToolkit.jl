@@ -550,7 +550,7 @@ export AbstractScoring, AbstractOptimizationStrategy, RefitFamily, FixedScale,
 # The interface machinery behind them: public, reached qualified or imported by
 # name. ConsensusSet is read through its accessors (inlier_count, scale_s2, consensus_score,
 # is_fresh/check_fresh), never by field name.
-public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, ExternalRefit, optimization_path, OptimizationPath,
+public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, ExternalRefit, optimization_path, OptimizationPath, LossFamily,
     path_suffix, path_marker, ScaleInterface, ConsensusAnchored, FollowsScorer, SelfScaling, NoScale,
     UnspecifiedScale, scale_interface, lo_label,
     lo_marker, loss_family, NormalizedWeightPolicy, inlier_weight, robust_weight, is_inlier,
@@ -568,6 +568,7 @@ public AbstractConstraintProblem, data_size, codimension, minimal_sample_size, m
     refine!, refit_workspace
 # The robust-statistics toolkit.
 export ScaleMAP, SquaredScale   # the inverse-gamma MAP of a squared scale, and its model tag (robust/scale.jl)
+export ConsensusScale   # the Student-t scale ŝ² of a consensus set under a scorer (robust/scoring_contract.jl)
 public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss, weighted_rss,
     weighted_sq, square_distances!, StudentTMixture, inlier_posterior, posterior_weight,
     posterior_weight_derivative, mixture_nll, nu_point_terms, next_nu_from_sums,
@@ -578,7 +579,7 @@ public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss,
 # The scoring contract and the baseline scorers.
 public scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
     has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
-    score_bound, check_workspace, consensus_s2, consensus_set, inlier_probabilities!,
+    score_bound, check_workspace, consensus_set, inlier_probabilities!,
     score_model!, consensus_mask!, ScoreBuffers, residuals, scores, consensus_mask,
     with_width, AbstractThresholdScoring, RansacScoring, MsacScoring, @threshold_scoring_constructors, ThresholdScoringWorkspace, residual_quality,
     SCORING_TAGS
@@ -595,7 +596,7 @@ public StudentTUniformScoring, Predictive, AbstractLabelPrior, FlatLabelPrior, P
 # The local-optimization contract.
 public lo_workspace, locally_optimize!, lo_estimate, LoInfo, lo_width, loss_at,
     width_scale_interface, width_s2, check_composition, width_value,
-    external_refit!, external_workspace, prepare_external!
+    external_refit!, external_workspace, prepare_external!, with_stops
 # Selection over a benchmark pool record (robust/pool_selection.jl).
 public best_pool_model!, selection_staging, stage_selection, select_on_grid!
 public has_residual_quality, support_sq_loss_width, sorted_squared_residuals, exact_pm_score_kernel!, argmax_models_kernel!   # the exact grid selection (robust/pool_grid_kernels.jl)

@@ -1381,13 +1381,13 @@ decision_boundary(shape::BarronShape, loss_width::Real) =
 # loss-parametric strategy's `loss_family` and label derive from. The smooth
 # surrogate of TLS shares the TLS row; its TYPE records the surrogate.
 # =============================================================================
-loss_family(::Type{GaussianShape}) = :l2
-loss_family(::Type{WelschShape}) = :welsch
-loss_family(::Type{GemanMcclureShape}) = :gm
-loss_family(::Type{CauchyShape}) = :cauchy
-loss_family(::Type{<:Union{SmoothTLSShape, TLSShape}}) = :tls
-loss_family(::Type{HuberShape}) = :huber
-loss_family(::Type{BarronShape}) = :barron
+loss_family(::Type{GaussianShape}) = LossFamily.l2
+loss_family(::Type{WelschShape}) = LossFamily.welsch
+loss_family(::Type{GemanMcclureShape}) = LossFamily.gm
+loss_family(::Type{CauchyShape}) = LossFamily.cauchy
+loss_family(::Type{<:Union{SmoothTLSShape, TLSShape}}) = LossFamily.tls
+loss_family(::Type{HuberShape}) = LossFamily.huber
+loss_family(::Type{BarronShape}) = LossFamily.barron
 
 loss_label(::Type{GaussianShape}) = raw"$\ell_2$"
 loss_label(::Type{WelschShape}) = "Welsch"

@@ -6,7 +6,7 @@
     using Test, LinearAlgebra, StaticArrays
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, Triggs, WelschShape, init, solve, solve!,
-        reinit!, EuclideanManifold, deploy, sq_loss_width, ReturnCode, NoRule, StopAfterIteration
+        reinit!, EuclideanManifold, deploy, sq_loss_width, ReturnCode, NoRule, StopAfterIteration, thrown_message
 
     # a circle (cx, cy, ρ) fitted to points: the chart is Euclidean at the model, the rows √w·(‖p − c‖ − ρ)
     struct _Circ <: VgtkCore.AbstractConstraintProblem
@@ -114,29 +114,46 @@
     r1 = solve(RefineProblem(f, θ₀), LevenbergMarquardt(); weights = w, summary = nothing)
     @test r1.u === r.u && (r1.retcode, r1.stop_rule) === (r.retcode, r.stop_rule) && r1.metadata === nothing
 
-    # G3: a seeded block-coordinate run (the state the problem's context) is the internal loop on that state
-    struct _Mean <: VgtkCore.AbstractBlockCoordinateMethod end
-    VgtkCore.init_state!(::_Mean, data, θ₀) = error("a seeded run builds no state")
+    # Ruling 1: the block-coordinate state is the run's workspace, never the problem's context. A method that holds its
+    # buffers seeds them in its `init_state!` (the one-shot solve builds no cache); a cache owns the state and
+    # `reinit!` re-seeds it in place through `init_state!(state, method, prob, θ₀)`: zero allocation, `solve!` inferred
+    struct _Mean{S} <: VgtkCore.AbstractBlockCoordinateMethod
+        st::S          # the method's own buffers: the state its runs start from
+        start::Int     # the per-run seed, the method's field
+    end
+    VgtkCore.init_state!(m::_Mean, data, θ₀) = (m.st.k[] = m.start; m.st)
+    VgtkCore.init_state!(st, m::_Mean, data, θ₀) = (st.k[] = m.start; st)
     VgtkCore.update_model!(st, ::_Mean, data, θ) = (st.k[] += 1; sum(data) / length(data))
     VgtkCore.update_residuals!(st, ::_Mean, data, θ) = nothing
     VgtkCore.block_coordinate_result(st, ::_Mean, data, θ, code, iter, rule) =
         VgtkCore.FitResult(θ, code, rule, VgtkCore.SolveStats(; nsteps = iter), NaN, 0, nothing)
     data = [1.0, 2.0, 6.0]; st = (; k = Ref(0))
-    rb = solve(RefineProblem(data, 0.0, st), VgtkCore.BlockCoordinateDescent(_Mean(); likelihood = VgtkCore.FrozenNuisance());
-               stops = StopAfterIteration(4))
+    bcd_alg(m) = VgtkCore.BlockCoordinateDescent(m; likelihood = VgtkCore.FrozenNuisance())
+    rb = solve(RefineProblem(data, 0.0), bcd_alg(_Mean(st, 0)); stops = StopAfterIteration(4))
     @test rb.u == 3.0 && st.k[] == 4 && rb.stats.nsteps == 4
-    bcd(st, data) = solve(RefineProblem(data, 0.0, st), VgtkCore.BlockCoordinateDescent(_Mean(); likelihood = VgtkCore.FrozenNuisance());
-                          stops = StopAfterIteration(4))
+    bcd(st, data) = solve(RefineProblem(data, 0.0), bcd_alg(_Mean(st, 0)); stops = StopAfterIteration(4))
     bcd(st, data); @test (@allocations bcd(st, data)) == 0
-    cb = init(RefineProblem(data, 0.0, st), VgtkCore.BlockCoordinateDescent(_Mean()); stops = StopAfterIteration(2))
-    @test solve!(reinit!(cb, 0.0; p = st)).u == 3.0
+    # the seeded-state context of the earlier interface is refused, one-shot and cache alike
+    @test_throws ArgumentError solve(RefineProblem(data, 0.0, st), bcd_alg(_Mean(st, 0)); stops = StopAfterIteration(4))
+    @test occursin("reads no context", thrown_message(() -> init(RefineProblem(data, 0.0, st), bcd_alg(_Mean(st, 0));
+                                                                  stops = StopAfterIteration(2))))
+    cb = init(RefineProblem(data, 0.0), bcd_alg(_Mean((; k = Ref(0)), 0)); stops = StopAfterIteration(2))
+    @test solve!(cb).u == 3.0
+    @test_throws ArgumentError reinit!(cb, 0.0; p = st)
+    r2 = solve!(reinit!(cb, 1.0; alg = bcd_alg(_Mean((; k = Ref(0)), 10))))   # a new seed through the method: the kept state re-seeded
+    @test r2.u == 3.0 && r2.stats.nsteps == 2
+    reuse(cb, a) = solve!(reinit!(cb, 0.5; alg = a))
+    a10 = bcd_alg(_Mean((; k = Ref(0)), 10))
+    reuse(cb, a10); @test (@allocations reuse(cb, a10)) == 0
+    @test (@inferred solve!(cb)).u == 3.0
 end
 
 # The block refine's too-few guard (G5) and its summary's scale record and free-coordinate ν (G6).
 @testitem "block refine: the too-few guard, the scale record, ν over the free coordinates" begin
     using Test, StaticArrays
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, solve, NLLSsolver, ReturnCode, NoRule, ScaleNone
+    using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, solve, init, solve!, reinit!, NLLSsolver, ReturnCode,
+        NoRule, ScaleNone
     # a line y = a + b·s, its two coefficients two variables (a SVector{1} each); one row per datum
     struct _Row <: NLLSsolver.AbstractResidual
         s::Float64; y::Float64
@@ -166,6 +183,32 @@ end
     @test rh.metadata.ν == length(s) - 1 && rh.u[2] == 2.0      # the held coefficient is no unknown
     few = solve(RefineProblem(_Line(s[1:1], y[1:1], false), (0.0, 0.0)), LevenbergMarquardt())
     @test few.u === nothing && (few.retcode, few.stop_rule) === (ReturnCode.InitialFailure, NoRule) && few.n == 1
+
+    # PS N2: a held set that depends on the guess, `fixed_variables(f, u0)` (the guess's third entry holds the slope):
+    # every variable stated, the held one declared; the one-shot kept problem and a cache's `reinit!` rebuild on a
+    # guess whose held set differs, and keep the LM on one whose held set is the cache's
+    struct _GaugeLine <: VgtkCore.AbstractBlockProblem
+        s::Vector{Float64}; y::Vector{Float64}
+    end
+    VgtkCore.default_optimization_strategy(::_GaugeLine) = nothing
+    VgtkCore.block_variables(::_GaugeLine, u0) = Union{SVector{1, Float64}}[SVector(u0[1]), SVector(u0[2])]
+    VgtkCore.residual_blocks(f::_GaugeLine, _u0) = [_Row(si, yi) for (si, yi) in zip(f.s, f.y)]
+    VgtkCore.fixed_variables(::_GaugeLine, u0) = u0[3] ? 2 : nothing
+    VgtkCore.block_result(::_GaugeLine, _u0, r, summary) =
+        VgtkCore.FitResult(Tuple(v[1] for v in r.u), r.retcode, r.stop_rule, r.stats, summary.rms, summary.n, summary)
+    g = _GaugeLine(s, y)
+    @test VgtkCore.fixed_variables(_Line(s, y, true), (0.0, 2.0)) == 2   # the guess form defaults to the bundle's own
+    held = solve(RefineProblem(g, (0.0, 2.0, true)), LevenbergMarquardt())
+    @test held.metadata.ν == length(s) - 1 && held.u[2] == 2.0 && all(held.u .≈ rh.u)
+    free = solve(RefineProblem(g, (0.0, 2.0, false)), LevenbergMarquardt())   # the kept problem rebuilt: no hold
+    @test free.metadata.ν == length(s) - 2 && all(isapprox.(free.u, r.u; atol = 1.0e-9))
+    c = init(RefineProblem(g, (0.0, 2.0, true)), LevenbergMarquardt())
+    @test solve!(c).u == held.u
+    @test solve!(reinit!(c, (0.1, 2.0, true))).metadata.ν == length(s) - 1    # the same held set: the LM kept
+    # another held set makes an LM of another type (here: none held): refused, init a new cache
+    @test_throws ArgumentError reinit!(c, (0.0, 2.0, false))
+    cf = init(RefineProblem(g, (0.0, 2.0, false)), LevenbergMarquardt())
+    @test solve!(cf).u == free.u
 end
 
 # A row refine's result carries the stationarity postcondition on demand (G8, the chart-problem refine's form), and a

@@ -7,6 +7,7 @@
 #   locally_optimize!(L, lo, problem, θ, cs::ConsensusSet, buf::ScoreBuffers, scoring) -> lo_estimate(…)
 #   lo_width(lo) -> nothing | EfficiencyConstant | LossWidth  the width mode of a width-carrying optimizer
 #   with_width(lo, w) -> typeof(lo) at the width mode w
+#   with_stops(lo, stops) -> typeof(lo) at the solve's stop settings (`nothing`: its own)
 #   loss_at(lo, shape, cs, scoring, buf) -> DeployedLoss the loss it runs at, resolved from its mode
 #
 # STATE ON ENTRY of `locally_optimize!`: `residuals(buf)` holds θ's residuals and
@@ -94,6 +95,29 @@ NonFinite)`; otherwise the optimizer's record. The refit computes no residual su
 """
 lo_estimate(model::M, code::ReturnCode.T, rule::StopRule; iterations::Int = 0, residuals_current::Bool = false) where {M} =
     FitResult(model, code, rule, SolveStats(; nsteps = iterations), NaN, 0, LoInfo(residuals_current))
+
+"""
+    with_stops(lo, stops) -> lo′
+
+The strategy `lo` at the local optimization's stop settings given at the solve — `solve(RefineProblem(f, θ),
+LocalOptimization(lo; scoring); stops)` or `solve(EstimationProblem(f), Ransac(…); rng, stops)`, VisualGeometryToolkitEstimation's —
+its own budget replaced: `stops === nothing` (no stop settings given) keeps `lo` as it is. One stops type per
+kind, the one its loop stops on:
+
+- a block-coordinate local optimization (an IRLS, a block-coordinate ascent, a lift: Core's
+  `BlockCoordinateDescent` loop) takes a [`StoppingCriterion`](@ref), its budget [`StopAfterIteration`](@ref)`(n)`
+  (`Irls{K}`'s `max_iter`);
+- an external refine ([`BackendRefit`](@ref)) its algorithm's, a Levenberg–Marquardt's [`LmStops`](@ref).
+
+The owner of the strategy implements it for the stop settings it honours, returning a strategy of the SAME type
+(the workspace a RANSAC composes for `lo` serves `lo′`); a wrapper forwards to its inner strategy. Any other pair is
+an `ArgumentError` naming the strategy and the stops.
+"""
+with_stops(lo::Union{Nothing, AbstractOptimizationStrategy}, ::Nothing) = lo
+with_stops(lo::Union{Nothing, AbstractOptimizationStrategy}, stops) = throw(ArgumentError(string(
+    lo === nothing ? "no local optimization (`nothing`)" : nameof(typeof(lo)), " takes no stop settings ",
+    nameof(typeof(stops)), ": a block-coordinate local optimization takes a StoppingCriterion (its budget ",
+    "StopAfterIteration(n)), an external refine its algorithm's stops (LmStops)")))
 
 """
     lo_width(lo) -> nothing | EfficiencyConstant{Float64} | LossWidth{NTuple{2,Float64}}

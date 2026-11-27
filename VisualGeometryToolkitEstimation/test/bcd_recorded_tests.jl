@@ -52,8 +52,9 @@ function division_arm()
     prior = VgtkEstimation._point_weights(bs)
     N = VgtkEstimation._division_normalization(bs, VgtkEstimation._shared_center(Hs), prior)
     problem = VgtkEstimation.DivisionCameraProblem(Hs, bs, prior, 1, nothing, N, sum(length, bs), false)
-    state, lh, method, state0 = VgtkEstimation._division_irls(problem, VgtkEstimation._division_weighting_default(),
-                                                              VgtkEstimation._division_mixture_em_default(), 2500.0)
+    _, lh, method, state0 = VgtkEstimation._division_irls(problem, VgtkEstimation._division_weighting_default(),
+                                                          VgtkEstimation._division_mixture_em_default(), 2500.0)
+    state = VgtkEstimation._fit_state(method, problem, state0)   # built on the fit's buffers at the seed
     return state, lh, method, problem, state0, 40
 end
 

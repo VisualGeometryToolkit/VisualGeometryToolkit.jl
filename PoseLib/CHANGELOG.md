@@ -9,6 +9,9 @@ No refined number changes: the golden records of 3d8a06da replay bit for bit (`c
 
 ### Breaking
 
+- `LeZach()`'s and a PoseLib `BackendRefit`'s `loss_family` is `LossFamily.tls` (VisualGeometryToolkitCore 0.14's
+  enum, was the Symbol `:tls`).
+
 - **The four refiners are Core's Levenberg–Marquardt with PoseLib's backend, on Core's `RefineProblem` of the
   correspondences and a guess.** `refine_homography`, `refine_fundamental`, `refine_relpose` and
   `refine_absolute_pose` are deleted, with no aliases; the guess's type and the data select PoseLib's residual:

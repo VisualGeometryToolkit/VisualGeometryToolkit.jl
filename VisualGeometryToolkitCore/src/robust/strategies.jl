@@ -243,6 +243,8 @@ lo_width_value(w) = throw(
     )
 )
 with_width(lo::Irls{K}, w) where {K} = Irls{K}(lo.max_iter, lo_width_value(w))
+# The posterior-weight iteration's budget given at the solve: its `max_iter` (`with_stops`).
+with_stops(lo::Irls{K}, stops::StopAfterIteration) where {K} = Irls{K}(stops.n, lo.width)
 # The robustified LM's width mode — an efficiency constant, always supplied, at the
 # keyword and TOML boundary (`lo_field`); `with_width` also takes the absolute
 # width `fixed_width` freezes it at, which no caller spells.
@@ -538,7 +540,9 @@ function _register_lo_rows(M::Module, rows, defaults; retired = (), none::Bool =
         path === nothing || Core.eval(M, :($C.optimization_path(::$T) = $path))
         parametric && Core.eval(M, :($E.lo_parametric(::Type{<:$T}) = true))
         iface === nothing || Core.eval(M, :($C.scale_interface(::$T) = $iface))
-        family === nothing || Core.eval(M, :($C.loss_family(::$T) = $(QuoteNode(family))))
+        family === nothing || family isa LossFamily.T || throw(ArgumentError(string("@lo_registry: the loss family of ",
+            nameof(T), " is a `LossFamily` value (`LossFamily.tls`), got ", repr(family))))
+        family === nothing || Core.eval(M, :($C.loss_family(::$T) = $family))
         label === nothing || Core.eval(M, :($C.lo_label(::$T) = $label))
         shape === nothing || Core.eval(M, quote
             $E.lo_efficiency_constant_shape(::Type{<:$T}) = $shape

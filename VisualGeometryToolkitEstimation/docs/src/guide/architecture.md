@@ -70,8 +70,8 @@ The loop reads a scorer only through VisualGeometryToolkitCore's scoring contrac
 model's residuals, `inlier_count` and `consensus_order` give its consensus
 set; the optional verbs (`is_predictive`, `scored_model`, `scale_prior`,
 `outlier_halfwidth`, `decision_boundary`, `check_workspace`) default in VGC. The
-derived verbs `score_model!`, `consensus_set`, `consensus_s2` and
-`inlier_probabilities!` are stated once in VGC and serve every scorer. See
+derived verbs `score_model!`, `consensus_set` and
+`inlier_probabilities!`, and the consensus scale's estimator `ConsensusScale`, are stated once in VGC and serve every scorer. See
 [Scoring Functions](scoring.md).
 
 ### The composed workspace
@@ -97,7 +97,7 @@ static.
 **The loop knows contracts, not types.** The RANSAC loop
 (`src/estimators/ransac/loop.jl`) calls only VisualGeometryToolkitCore's contract
 verbs: `scored_model`, `score_model!`, `inlier_count`, `consensus_order`,
-`consensus_set`, `consensus_s2`, `inlier_probabilities!`, `is_predictive` and
+`consensus_set`, `ConsensusScale`, `inlier_probabilities!`, `is_predictive` and
 `locally_optimize!`. It names no scorer or strategy type. Any scorer therefore
 composes with any local optimizer and any problem, including the ones that
 live in other packages.

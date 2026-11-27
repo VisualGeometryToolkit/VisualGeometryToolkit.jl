@@ -17,6 +17,7 @@
     using VisualGeometryToolkitCore: stopping_criterion, weights, weight_kind, PosteriorWeights, inlier_mask, noise_scale,
         scale_source, ScaleEstimated, rms
     import VisualGeometryToolkitEstimation as VgtkEstimation
+    import VisualGeometryToolkitCore as VgtkCore
 
     tbl = TOML.parsefile(default_config_path())["division_camera_fit"]
     # the table keeps the fit's own keys and refers to the shared tables
@@ -85,6 +86,10 @@
     pb = VgtkEstimation.DivisionCameraProblem(VgtkEstimation._keyed_views(rc, vw)[2:3]..., nothing, 1, nothing,
         VgtkEstimation._division_normalization(VgtkEstimation._keyed_views(rc, vw)[3], VgtkEstimation._shared_center(VgtkEstimation._keyed_views(rc, vw)[2])),
         sum(length, boards), false)
-    st, lh, method, _ = VgtkEstimation._division_irls(pb, sc, em, 2500.0)
-    @test st isa PosteriorIrlsState && lh isa PosteriorLikelihood && method isa PosteriorIrlsMethod{Nothing, WeightedRefine, ParameterChangeStop}
+    buffers, lh, method, state0 = VgtkEstimation._division_irls(pb, sc, em, 2500.0)
+    @test lh isa PosteriorLikelihood && method isa PosteriorIrlsMethod{<:Any, WeightedRefine, ParameterChangeStop} &&
+          method.lo_ws === buffers
+    # the state is built on the fit's buffers at the guess (VisualGeometryToolkitCore's init_state! of the method)
+    st = VgtkCore.init_state!(method, pb, state0)
+    @test st isa PosteriorIrlsState && st.rws === buffers.rws && st.residuals === buffers.residuals
 end

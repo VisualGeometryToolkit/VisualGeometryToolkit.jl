@@ -259,12 +259,12 @@ A `Triggs{K}` strategy adds its robustified cache. A slot re-points its cache at
 size.
 """
 refit_workspace(::Type{P}, n::Int, lo = nothing) where {P <: AbstractRansacProblem} = _lm_size(P, n) === nothing ? nothing :
-    RefitSlot{Base.promote_op(_refit_cache, P), Base.promote_op(_robust_refit_cache, P, typeof(lo))}(nothing, nothing, 0, P)
+    RefitSlot{Base.promote_op(_refit_cache, P), Base.promote_op(_robust_refit_cache, P, typeof(lo))}(nothing, nothing, 0, P, false)
 function refit_workspace(p::AbstractRansacProblem, lo = nothing)
     _lm_size(p) === nothing && return nothing
     c = _refit_cache(p)
     r = _robust_refit_cache(p, lo)
-    return RefitSlot{typeof(c), typeof(r)}(c, r, first(chart_size(p)), typeof(p))
+    return RefitSlot{typeof(c), typeof(r)}(c, r, first(chart_size(p)), typeof(p), false)
 end
 
 """
@@ -272,13 +272,17 @@ end
 
 The refit workspace of a chart problem (`refit_workspace`): the summary-free `LevenbergMarquardt` refine cache `cache`
 of its last problem, the robustified one `robust` of a `Triggs{K}` local optimization (`nothing` for any other), each
-`nothing` before the first refit of an empty slot, and that problem's chart-LM row count.
+`nothing` before the first refit of an empty slot, and that problem's chart-LM row count. The slot of a workspace built
+for one solve (a one-shot `solve` of a `Ransac` or a `LocalOptimization`) takes its caches from the task (VGC's
+`task_buffers`, one per problem type and row count), so a one-shot solve builds no refit LM of its own; a cache's
+(`init`) holds its own.
 """
 mutable struct RefitSlot{C, R}
     cache::Union{Nothing, C}
     robust::Union{Nothing, R}
     rows::Int
     problem::Type    # the problem type the caches were built for
+    shared::Bool     # the slot of a workspace built for ONE solve: its caches are the task's (one per type and size)
 end
 # The chart LM's summary-free refine of `p`: one chart LM at the caller's weights from the problem's refit chart, the
 # model only (Core's local-optimization refit; no residual sweep).
@@ -296,7 +300,7 @@ function _slot_cache!(slot::RefitSlot{C}, p) where {C}
     _slot_rows!(slot, p)
     c = slot.cache
     c === nothing || return c::C
-    new = _refit_cache(p)::C
+    new = (slot.shared ? _task_refit_cache(p, slot.rows) : _refit_cache(p))::C
     slot.cache = new
     return new
 end
@@ -304,7 +308,7 @@ function _slot_robust!(slot::RefitSlot{<:Any, R}, p, lo) where {R}
     _slot_rows!(slot, p)
     c = slot.robust
     c === nothing || return c::R
-    new = _robust_refit_cache(p, lo)::R
+    new = (slot.shared ? _task_robust_refit_cache(p, lo, slot.rows) : _robust_refit_cache(p, lo))::R
     slot.robust = new
     return new
 end
@@ -353,17 +357,45 @@ _threshold_workspace_scoring(::Type{P}) where {P} = MsacScoring(P; threshold = 1
 function RansacWorkspace(::Type{T}, problem::AbstractRansacProblem, scoring,
                 lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat}
     P, n = typeof(problem), data_size(problem)
-    return RansacWorkspace(n, minimal_sample_size(P), model_type(P), T, scoring_workspace(scoring, n, codimension(P)),
+    return RansacWorkspace(n, Val(minimal_sample_size(P)), model_type(P), T, scoring_workspace(scoring, n, codimension(P)),
                            _lo_with_refit(lo_workspace(P, T, lo, n), problem, _unwrap_strategy(lo)))
 end
 # The local optimizer's workspace of a problem in hand: the posterior buffers with the problem's own refit cache
 # (`refit_workspace(problem)`, concretely typed); another strategy's workspace as it is.
-_lo_with_refit(L::LoBuffers{<:Any, T}, p, lo) where {T} = LoBuffers{T}(refit_workspace(p, lo), length(L.posterior_w), model_type(p))
+_lo_with_refit(L::LoBuffers{<:Any, T}, p, lo) where {T} = LoBuffers{T}(refit_workspace(p, lo), length(L.posterior_w), model_type(p); kept = true)
+
+# The workspace of ONE solve (a one-shot `solve` of a `Ransac` or a `LocalOptimization`): the type form's (no refit LM
+# built ahead), its refit slot taking the task's caches and its block-coordinate cache the task's, so the solve builds
+# no LM it does not run.
+function _one_shot_workspace(::Type{T}, problem::AbstractRansacProblem, scoring, lo) where {T}
+    P, n = typeof(problem), data_size(problem)
+    L = _one_shot_lo(lo_workspace(P, T, lo, n), problem, _unwrap_strategy(lo))
+    return RansacWorkspace(n, Val(minimal_sample_size(P)), model_type(P), T, scoring_workspace(scoring, n, codimension(P)), L)
+end
+# The local optimizer's buffers with the task's refit caches in their slot, and no block-coordinate cache of their own.
+function _one_shot_lo(L::LoBuffers{<:Any, T, S}, p, lo) where {T, S}
+    slot = _shared_refit_workspace(p, lo)
+    return LoBuffers{typeof(slot), T, S}(slot, L.posterior_w, L.posterior_inlier, L.posterior_sq_r, L.lo_residuals,
+                                         L.lo_best_residuals, L.posterior, L.irls, nothing)
+end
+_one_shot_lo(ws, _p, _lo) = ws
+# `refit_workspace(p, lo)` on the task's caches (one per problem type and chart-LM row count, built at the first use).
+function _shared_refit_workspace(p::AbstractRansacProblem, lo)
+    _lm_size(p) === nothing && return nothing
+    rows = first(chart_size(p))
+    c = _task_refit_cache(p, rows)
+    r = _task_robust_refit_cache(p, lo, rows)
+    return RefitSlot{typeof(c), typeof(r)}(c, r, rows, typeof(p), true)
+end
+_task_refit_cache(p, rows) = task_buffers(() -> _refit_cache(p), (:vgtk_refit_cache, typeof(p), rows))
+_task_robust_refit_cache(_p, _lo, _rows) = nothing   # a strategy with no robustified refit (`_robust_refit_cache`)
+_task_robust_refit_cache(p, lo::Triggs, rows) =
+    task_buffers(() -> _robust_refit_cache(p, lo), (:vgtk_robust_refit_cache, typeof(p), typeof(lo), rows))
 _lo_with_refit(ws, _p, _lo) = ws
 function RansacWorkspace(::Type{T}, ::Type{P}, n::Int, scoring::AbstractScoring,
                          lo::Union{Nothing, AbstractOptimizationStrategy} = nothing) where {T <: AbstractFloat, P <: AbstractRansacProblem}
     return RansacWorkspace(
-        n, minimal_sample_size(P), model_type(P), T,
+        n, Val(minimal_sample_size(P)), model_type(P), T,
         scoring_workspace(scoring, n, codimension(P)), lo_workspace(P, T, lo, n)
     )
 end

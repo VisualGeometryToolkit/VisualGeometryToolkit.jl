@@ -26,8 +26,11 @@
 #                          handed (`solve(RefineProblem, LocalOptimization)`); a
 #                          fixed scale `FixedS2(s2)` reaches it as the loss
 #                          width √s2 (the contract's default).
-#   RefusingRefit, ThrowingRefit   an external refiner whose `prepare_external!`
-#                          declines, and a native one whose refine throws.
+#   RefusingRefit, ThrowingRefit   external refiners whose `prepare_external!`
+#                          declines, and whose refine throws (a third-party
+#                          solver's throw: the one fallback that is caught).
+#   UnimplementedRefit     a native strategy with no `locally_optimize!`: its
+#                          refusal is no refit failure, so it propagates.
 #
 # Fixtures: VisualGeometryToolkitEval's synthetic E pool pair (a light `PoolPair` with
 # its residual matrix): `epair` is 30 noisy correspondences, 12 single-model
@@ -47,7 +50,7 @@
         tuning_table, EfficiencyConstantWindow, PairUnit
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, EssentialProblem, FundMatProblem, HomographyProblem, RelposeBundleProblem
     using VisualGeometryToolkitCore: Irls, fixed_width, solve, RefineProblem, found_model
-    using VisualGeometryToolkitEstimation: LocalOptimization, ScoreSelection, PoolSelection
+    using VisualGeometryToolkitEstimation: LocalOptimization, ScoreSelection, PoolSelection, SelectionGrid
     # the pool's best-scoring model under `sc` (the selection estimator)
     pool_best(sc, pair, R) = solve(EstimationProblem(PoolSelection, pair => R), ScoreSelection(sc)).u
     import VisualGeometryToolkitCore as VgtkCore
@@ -90,7 +93,8 @@
         refined::Int
     end
     VgtkCore.RefitFamily(::WidthRefit) = ExternalRefit()
-    VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) = WidthRefitWs(frame, 0, 0)
+    const WIDTH_REFIT_WS = WidthRefitWs[]   # every workspace built, to read the bracket's counts
+    VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) = (ws = WidthRefitWs(frame, 0, 0); push!(WIDTH_REFIT_WS, ws); ws)
     VgtkCore.prepare_external!(ws::WidthRefitWs, ::WidthRefit, _problem, _θ, _width, _scoring) =
         (ws.prepared += 1; true)
     function VgtkCore.external_refit!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)
@@ -106,7 +110,10 @@
     VgtkCore.prepare_external!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = false
     VgtkCore.external_refit!(_ws, ::RefusingRefit, _problem, _θ, _width, _scoring) = error("never called")
 
-    struct ThrowingRefit <: AbstractOptimizationStrategy end   # a native refiner with no locally_optimize!
+    struct ThrowingRefit <: AbstractOptimizationStrategy end   # a third-party refiner that throws
+    VgtkCore.RefitFamily(::ThrowingRefit) = ExternalRefit()
+    VgtkCore.external_refit!(_ws, ::ThrowingRefit, _problem, _θ, ::LossWidth, _scoring) = error("the solver threw")
+    struct UnimplementedRefit <: AbstractOptimizationStrategy end   # a native strategy with no locally_optimize!
 
     # ------------------------------------------------------------------------
     # Fixtures
@@ -191,10 +198,12 @@
         # the guard keeps the refit or the seed
         @test first(refit_imc!(ctx, ScoreGuarded(irls()), seed, a)) in (e, model_imc(seed, ctx))
         @test VgtkCore.optimization_path(ScoreGuarded(irls())) === VgtkCore.optimization_path(irls())
-        # fallbacks: a throwing refine → the seed's imc, or the caller's on_fail
+        # fallbacks: a throwing external refine → the seed's imc, or the caller's on_fail (V4: the one caught throw)
         e_fail, _ = @test_logs (:warn,) match_mode = :any refit_imc!(ctx, ThrowingRefit(), seed, a)
         @test e_fail === model_imc(seed, ctx)
         @test isnan(first(@test_logs (:warn,) match_mode = :any refit_imc!(ctx, ThrowingRefit(), seed, a; on_fail = NaN)))
+        # a native refit records its failures: an exception (a strategy with no local optimization) is no fallback
+        @test_throws ArgumentError refit_imc!(ctx, UnimplementedRefit(), seed, a)
         # refusals: no template, a bundle refit without the bundle problem
         @test_throws ArgumentError refit_imc!(build_pair_ctx(P, pair), irls(), seed, a)
         @test_throws ArgumentError refit_imc!(ctx, irls(), seed, a; refit_on = ReprojectionBundle())
@@ -216,8 +225,8 @@
             E = solve(RefineProblem(ctx.ep, seed), LocalOptimization(Irls{TLSShape}(25, LossWidth(w)); scoring = MsacScoring(1; threshold = w))).u
             @test e_native === model_imc(E, ctx)
         end
-        ws = ctx.lo_ws[:ext_refit_WidthRefit]
-        @test ws.prepared == ws.refined == 6                    # one workspace per (pair, template, refiner)
+        ws = only(filter(w -> w.frame === ctx.geom, WIDTH_REFIT_WS))   # one workspace per (pair, template, refiner)
+        @test ws.prepared == ws.refined == 6                    # each call prepared (reinit!) and refined (solve!) once
         # the frame the external workspace is built from: the pair's two-view geometry
         @test ws.frame.Kc1 == ctx.geom.Kc1 && ws.frame.Kc2 == ctx.geom.Kc2 && ws.frame.cs == ctx.geom.cs
         # a guarded external arm is routed, prepared and refined as the bare arm,
@@ -633,6 +642,25 @@
         @test st == (; pairs, residuals = Rs, backend = VgtkCore.default_device())   # GPU-first: the staging names its device
         @test select_on_grid!(idxs, P, msac, loss_widths, st) === idxs
         @test idxs == Int32[pool_best(MsacScoring(1; threshold = w), pairs[p], Rs[p]) for p in 1:3, w in loss_widths]
+        # V3: the stream's selection IS the ensemble solve of `ScoreSelection` over a `SelectionGrid` (Estimation's),
+        # every (pair, width) cell in column-major order, its record per cell, on the staging's device — for the
+        # residual-quality MSAC's exact kernels and the test-local half-width scorer's per-column argmax alike
+        for (sc, widths) in ((msac, loss_widths), (hwsc, halfwidths))
+            r = solve(VgtkCore.EnsembleProblem(SelectionGrid(P, widths, st), 3 * length(widths)), ScoreSelection(sc),
+                      VgtkCore.EnsembleKernel(st.backend))
+            ref = Matrix{Int32}(undef, 3, length(widths))
+            select_on_grid!(ref, P, sc, widths, st)
+            @test reshape(r.u, 3, length(widths)) == ref
+            @test all(r.retcode .== ifelse.(r.u .== 0, VgtkCore.ReturnCode.Failure, VgtkCore.ReturnCode.Success))
+        end
+        sub = 1:2
+        Ms = stream_selections(refits_of, Float64, P, [() -> engine_scene(pairs, Rs, sub)], grids, template(), nothing, 2)[1]
+        hw_ens = reshape(solve(VgtkCore.EnsembleProblem(SelectionGrid(P, halfwidths, stage_selection(:pool, pairs[sub], Rs[sub])),
+                                                         2 * length(halfwidths)), ScoreSelection(hwsc),
+                               VgtkCore.EnsembleKernel(VgtkCore.default_device())).u, 2, length(halfwidths))
+        want = apply_lo_refits(P, [LoRefitSpec("HW sel", nothing, OutlierHalfwidth(), halfwidths, hw_ens)], pairs[sub];
+                               scoring = template())
+        @test isequal(Ms["HW sel"][1], want["HW sel"])   # the stream's grid is the ensemble's selections
     end
 
     @testset "arms: width sources, deliveries, the evaluation refit" begin

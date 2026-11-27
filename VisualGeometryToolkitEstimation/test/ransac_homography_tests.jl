@@ -16,6 +16,7 @@ using VisualGeometryToolkitCore: homography_4pt
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring
 using VisualGeometryToolkitEstimation: UniformSampler, inlier_ratio, sampler
 using VisualGeometryToolkitCore: refine!
+using VisualGeometryToolkitCore: init, solve!, reinit!
 using VisualGeometryToolkitEstimation
 using Rotations: RotMatrix, RotX, RotZ
 using VisualGeometryToolkitEstimation: minimal_sample_size, data_size, model_type, ProsacSampler, reset!
@@ -38,6 +39,17 @@ VgtkCore.external_workspace(::_ExternalArm, _problem, _frame, _scoring) = Ref(0)
 VgtkCore.prepare_external!(ws, ::_ExternalArm, _problem, _θ, _width, _scoring) = (ws[] += 1; true)
 VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth, _scoring) =
     (ws[] += 10; VgtkCore.FitResult(θ, VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm, VgtkCore.SolveStats(), NaN, 0, nothing))
+# An external strategy that logs its bracket's calls and may decline a seed (its preparation's verdict).
+struct _LoggedArm <: VgtkCore.AbstractOptimizationStrategy
+    accept::Bool
+    log::Vector{Symbol}
+end
+VgtkCore.RefitFamily(::_LoggedArm) = VgtkCore.ExternalRefit()
+VgtkCore.external_workspace(a::_LoggedArm, _problem, frame, _scoring) = (push!(a.log, :workspace); frame)
+VgtkCore.prepare_external!(_ws, a::_LoggedArm, _problem, _θ, _width, _scoring) = (push!(a.log, :prepare); a.accept)
+VgtkCore.external_refit!(ws, a::_LoggedArm, _problem, θ, w::VgtkCore.LossWidth, _scoring) =
+    (push!(a.log, :refit); VgtkCore.FitResult(θ, VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm, VgtkCore.SolveStats(),
+                                              NaN, 0, (; frame = ws, width = VgtkCore.loss_width(w))))
 
 @testset "RANSAC Homography" begin
 
@@ -368,6 +380,60 @@ VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth,
         native = Irls{WelschShape}(efficiency_constant = 1.5)
         @test VgtkCore.RefitFamily(VgtkEstimation.CountedLO(native)) === VgtkCore.RefitFamily(native) === VgtkCore.NativeRefit()
         @test VgtkEstimation.lo_placement(VgtkEstimation.CountedLO(VgtkEstimation.TerminalLO(arm))) === VgtkEstimation.TerminalPlacement()
+    end
+
+    @testset "LocalOptimization: an external refit through the front end (G6); the LO's stops at the solve (G1)" begin
+        src, tgt, _, _ = make_homography_data()
+        problem = HomographyProblem(correspondences(src, tgt))
+        sc = MsacScoring(problem; threshold = 3.0)
+        θ = solve(EstimationProblem(problem), Ransac(; scoring = sc, local_optimization_strategy = nothing); rng = StableRNG(5)).u
+        # G6: an ExternalRefit strategy is its contract's refit, through init / reinit! / solve!
+        arm = _LoggedArm(true, Symbol[])
+        lo = LocalOptimization(arm; scoring = nothing)                 # an external refit scores nothing
+        frame = (; Kc1 = 1.0, Kc2 = 1.0, cs = nothing)
+        c = init(RefineProblem(problem, θ, (; frame)), lo; width = VgtkCore.LossWidth(2.0))
+        @test arm.log == [:workspace]                                  # init builds the workspace, prepares nothing
+        r = solve!(c)                                                  # an unprepared seed: prepared, then refit
+        @test arm.log == [:workspace, :prepare, :refit] && r.u === θ && r.metadata.frame === frame && r.metadata.width == 2.0
+        @test r.prob isa RefineProblem && r.alg === lo                 # recorded by the front end
+        empty!(arm.log)
+        r2 = solve!(reinit!(c, θ; width = VgtkCore.FixedS2(9.0)))     # reinit! prepares (outside the bracket), solve! refits
+        @test arm.log == [:prepare, :refit]
+        @test r2.metadata.width ≈ 3.0                                  # a fixed noise scale is the loss width √s2
+        empty!(arm.log)
+        one = solve(RefineProblem(problem, θ), lo; width = VgtkCore.LossWidth(2.0))   # the one-shot solve: no frame
+        @test arm.log == [:workspace, :prepare, :refit] && one.u === θ && one.metadata.frame === nothing
+        # a preparation that declines the seed makes no refit: the record of a local optimization that did not run
+        no = _LoggedArm(false, Symbol[])
+        rn = solve(RefineProblem(problem, θ), LocalOptimization(no; scoring = sc); width = VgtkCore.LossWidth(2.0))
+        @test no.log == [:workspace, :prepare] && rn.u === nothing &&
+              (rn.retcode, rn.stop_rule, rn.stats.nsteps) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, 0)
+        # the refusals: no width, a width on a native refit, no scorer for a native refit, another context
+        @test_throws ArgumentError init(RefineProblem(problem, θ), lo)
+        native = Irls{WelschShape}(efficiency_constant = 1.5)
+        @test_throws ArgumentError init(RefineProblem(problem, θ), LocalOptimization(native; scoring = sc); width = VgtkCore.LossWidth(2.0))
+        @test_throws ArgumentError LocalOptimization(native; scoring = nothing)
+        @test_throws ArgumentError init(RefineProblem(problem, θ, (; extent = nothing)), lo; width = VgtkCore.LossWidth(2.0))
+
+        # G1: the local optimization's stops given at the solve are the strategy at them (`with_stops`), bit for bit
+        two = Irls{WelschShape}(2, native.width)
+        @test VgtkCore.with_stops(native, VgtkCore.StopAfterIteration(2)) === two && VgtkCore.with_stops(native, nothing) === native
+        s1 = solve(RefineProblem(problem, θ), LocalOptimization(native; scoring = sc); stops = VgtkCore.StopAfterIteration(2))
+        s2 = solve(RefineProblem(problem, θ), LocalOptimization(two; scoring = sc))
+        @test s1.u == s2.u && (s1.retcode, s1.stop_rule, s1.stats) === (s2.retcode, s2.stop_rule, s2.stats)
+        cl = init(RefineProblem(problem, θ), LocalOptimization(native; scoring = sc); stops = VgtkCore.StopAfterIteration(7))
+        @test solve!(reinit!(cl, θ; stops = VgtkCore.StopAfterIteration(2))).u == s2.u
+        @test_throws ArgumentError reinit!(cl, θ; stops = nothing)          # stops of another type: a new cache
+        rr(lo; kw...) = solve(EstimationProblem(problem), Ransac(; scoring = sc, local_optimization_strategy = lo); rng = StableRNG(3), kw...)
+        @test rr(native; stops = VgtkCore.StopAfterIteration(2)).u == rr(two).u
+        # wrappers forward the stops (a counter keeps its counters); a strategy that takes none refuses them
+        counted = VgtkEstimation.CountedLO(native)
+        @test VgtkCore.with_stops(counted, VgtkCore.StopAfterIteration(2)).inner === two &&
+              VgtkCore.with_stops(counted, VgtkCore.StopAfterIteration(2)).calls === counted.calls
+        @test VgtkCore.with_stops(VgtkEstimation.TerminalLO(native), VgtkCore.StopAfterIteration(2)).inner === two
+        @test_throws ArgumentError VgtkCore.with_stops(_ExternalArm(), VgtkCore.StopAfterIteration(2))
+        @test_throws ArgumentError VgtkCore.with_stops(nothing, VgtkCore.StopAfterIteration(2))
+        @test_throws ArgumentError rr(VgtkCore.Triggs{WelschShape}(efficiency_constant = 1.5); stops = VgtkCore.StopAfterIteration(2))
     end
 
     @testset "TerminalLO — a thin incumbent comes back unrefined (its refit's record InitialFailure)" begin

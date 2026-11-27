@@ -1,7 +1,7 @@
 # =============================================================================
 # evaluation/engine/lo_matrix.jl — post-LO error matrices from a selection sweep.
 #
-# A selection sweep (VisualGeometryToolkitCore `select_on_grid!`) gives, per
+# A selection sweep (the ensemble `ScoreSelection` over a `SelectionGrid`) gives, per
 # (pair p, grid column t):
 #     idxs[p,t] — the pool index j* of the model the scorer picked at column t
 #                 (0 ⇒ no consensus / no model)

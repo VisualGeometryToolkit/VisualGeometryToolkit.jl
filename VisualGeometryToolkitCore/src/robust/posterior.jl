@@ -421,25 +421,6 @@ function update_weights!(pws::PosteriorWeightState, n::Int)
 end
 
 """
-    _mixture_ecm!(pws, r, n)
-
-One ECM cycle of the Student-t + uniform mixture with the mixing proportion
-ESTIMATED (ν held fixed), from the residuals `r[1:n]` (unsquared). It squares them
-into [`sq_distances`](@ref)`(pws)`, then runs the E-step ([`update_weights!`](@ref)),
-the scale block ([`update_scale!`](@ref)) and the inlier-prior block
-([`update_inlier_prior!`](@ref)), in that order. Each block is an exact
-conditional maximisation, so the mixture NLL ([`mixture_nll`](@ref)) never
-rises. Returns `nothing`.
-"""
-function _mixture_ecm!(pws::PosteriorWeightState, r::AbstractVector, n::Int)
-    square_distances!(pws.sq_distances, r, n)
-    update_weights!(pws, n)
-    update_scale!(pws, n)
-    update_inlier_prior!(pws, n)
-    return nothing
-end
-
-"""
     mixture_nll(pws::PosteriorWeightState, r, n) -> Float64
 
 The mixture negative log-likelihood `Σ_{i ≤ n} −log[π·t_ν(rᵢ; ŝ²) + (1−π)·p_out]`

@@ -536,7 +536,7 @@ end
 function decision_boundary(s::StudentTUniformScoring{P, DG}, buf::ScoreBuffers) where {P, DG}
     sws = buf.scoring_ws
     k = sws.k
-    s2 = consensus_s2(s, residuals(buf), sws.perm, k; model_dof = s.model_dof + 1, d_g = DG)
+    s2 = _consensus_s2(s, residuals(buf), sws.perm, k; model_dof = s.model_dof + 1, d_g = DG)
     return decision_boundary(GauInlier(s2; d_g = DG), sws.outlier_halfwidth)
 end
 has_decision_boundary(::Type{<:StudentTUniformScoring}) = true

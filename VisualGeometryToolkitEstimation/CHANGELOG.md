@@ -34,6 +34,36 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
 - `KeepModel` and `ParameterChangeStop` take their field as a keyword too; a tagged TOML table builds its type by keyword
   (Core's `construct_from_table`, the values as written), so no positional field splat remains (no DUPLICATION.toml entry).
 - The tests bind the stack's canonical aliases (`VgtkEstimation`, `VgtkCore`).
+- **The front-end gaps (2026-11-27).**
+  - **An external refit runs through `LocalOptimization`** (G6, G-p): a strategy of the `ExternalRefit` family
+    (`BackendRefit`, an adaptive-width arm) is `init(RefineProblem(f, θ₀, (; frame)), LocalOptimization(strategy;
+    scoring); width)`, `reinit!(c, θ₁; width)` (its `prepare_external!`, outside the timing bracket) and `solve!(c)` (its
+    `external_refit!`, the bracket of one refit); a declined preparation is the no-refit record `(InitialFailure,
+    NoRule)`, `u = nothing`. `width` is a `LossWidth` or a `FixedS2`; `scoring` may be `nothing` for an external refit
+    only.
+  - **`LocalOptimization` and `Ransac` take the local optimization's `stops`** (G1, G-g): the strategy at them, Core's
+    `with_stops` (`StopAfterIteration(n)` for an IRLS, `LmStops` for a `BackendRefit`); `reinit!(…; stops)` of the type
+    `init` saw. `CountedLO` and `TerminalLO` forward them.
+  - **`SelectionGrid(problem_type, grid, staged; rng_of)`** (exported): `solve(EnsembleProblem(SelectionGrid(…), n),
+    ScoreSelection(scoring), EnsembleKernel(backend))` is a staged batch's every (pool, width) selection, an
+    `EnsembleResult` (Eval V3). `ScoreSelection`'s type parameter is no longer bound to `AbstractScoring` (a grid family
+    of another package selects through it); its per-pool form still requires a scorer.
+  - **Breaking:** `ConsensusScale` moved to VisualGeometryToolkitCore (import it from there); this package's
+    `export ConsensusScale` is removed. The RANSAC result's σ̂ reads it. Bit-identical.
+  - `PosteriorIrlsMethod(lo_ws, model_update, stop)`: its workspace `lo_ws` is the local optimizer's `LoBuffers` (whose
+    refit workspace the model update hands `refine!`, and whose state `posterior_irls!` seeds), a fit's posterior and
+    residual buffers, or a bare refit workspace; Core's `init_state!` of the method returns the state on those buffers.
+    The run is a `BlockCoordinateDescent` CACHE: `posterior_irls!` keeps one in the `LoBuffers` (one per cache type,
+    `init` once, `solve!(reinit!(c, θ; f, alg, stops))` per call; a workspace built for one solve uses the task's),
+    `ResidualMixture` and `DivisionCameraFit` (its legs, a verbose trace on its buffers) one per fit. Bit-identical.
+  - Performance (one-shot `Ransac` and `LocalOptimization` solves): the scorer–workspace composition is checked once,
+    at `init` and at a `reinit!` that changes it, never per `solve!` (its `which` cost ~45 allocations); a one-shot solve
+    builds its workspace with the task's refit caches (`RefitSlot` of the task, no LM built per solve); the workspace's
+    minimal sample size is a `Val` (`RansacWorkspace(n, Val(k), …)`), so the caches built on it are inferred. Measured
+    allocations / bytes per call, OLD → NEW (`scratchpad/bench014` data, Julia 1.13.4): one-shot `lo_ransac` 225 / 42904
+    → 120 / 19568, `lo_irls_msac` 166 / 39752 → 121 / 19728; batches `lo_ransac` 1807 / 345088 → 966 / 164104,
+    `lo_irls_msac` 1333 / 319760 → 974 / 165784, `lo_irls_stu` 1153 / 439632 → 790 / 286744; a `LocalOptimization`
+    cache's reuse 0 / 0.
 
 - **`Rigid3` is retired** (check_naming R20, a `const` naming one concrete type; owner 2026-11-24). The hand-eye problem
   carries its motion type as a parameter, `HandEyeProblem{S, U, E}` (`model_type` `E`, an unlabeled

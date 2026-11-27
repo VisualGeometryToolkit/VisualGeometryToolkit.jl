@@ -5,7 +5,7 @@
 # The loop calls ONLY contract verbs (VisualGeometryToolkitCore src/robust/
 # scoring_contract.jl and lo_contract.jl): `scored_model`, `score_model!`
 # (residuals → score! → consensus mask), `inlier_count`, `consensus_order`,
-# `consensus_set`, `consensus_s2`, `inlier_probabilities!`, `is_predictive`,
+# `consensus_set`, `ConsensusScale`, `inlier_probabilities!`, `is_predictive`,
 # and `locally_optimize!`. Every dispatch is static: the workspace
 # `RansacWorkspace{K, M, T, W, L}` carries the scorer's workspace type `W` and
 # the local optimizer's `L`, so `_ransac_loop` compiles once per (problem,
@@ -89,16 +89,20 @@ end
 # workspace may be sized for a larger problem, so every internal buffer is
 # trimmed to `data_size(problem)`. And the previous call's incumbent is cleared:
 # a run that never accepts a candidate would otherwise `_finalize` the stale
-# `best_model` as :converged. The composition is checked once, here: a scorer's
-# workspace built for another scorer or configuration, and a local optimizer that follows
-# a scorer with no threshold.
+# `best_model` as :converged.
 function _entry_workspace(ws::RansacWorkspace, problem, scoring, lo)
     set_n!(ws, data_size(problem))
     ws.has_best = false
     ws.best_lo_retcode, ws.best_lo_stop_rule = _LO_NOT_RUN
+    return ws
+end
+# The composition, checked once when the scorer, its workspace and the local optimizer come together (a cache's
+# `init`, a `reinit!` that changes the algorithm or rebuilds the workspace), never per run: a scorer's workspace built
+# for another scorer or configuration, and a local optimizer that follows a scorer with no threshold.
+function _check_entry_composition(ws::RansacWorkspace, scoring, lo)
     check_workspace(scoring, ws.buf.scoring_ws)
     check_composition(scoring, lo)
-    return ws
+    return nothing
 end
 
 _result_buffers(ws::RansacWorkspace{<:Any, <:Any, T}, problem) where {T} = RansacResultBuffers{T}(data_size(problem))
@@ -512,11 +516,13 @@ function _finalize(
     n_in = ws.best_k
     nu = residual_dof(problem, n_in)       # (n_in − m)·d_g, 0 on a thin set
     # The scorer ORIGINATES the scale: the consensus set's Student-t scale under
-    # its prior at the model's own dof (`consensus_s2` at m): √(RSS/ν) under
+    # its prior at the model's own dof (Core's `ConsensusScale` at m): √(RSS/ν) under
     # Jeffreys, floored at √eps. There is no set to scale at ν ≤ 0: ScaleNone.
     # An estimated scale is finite: a non-finite one (an overflowing RSS) is
     # dropped to ScaleNone and recorded (`nonfinite_scale`).
-    s2 = consensus_s2(scoring, ws.best_residuals, ws.best_order, n_in; model_dof = p, d_g)
+    s2 = solve(EstimationProblem(SquaredScale, ws.best_residuals, (; order = ws.best_order, inlier_count = n_in,
+                                                                     model_dof = p, codimension = d_g)),
+               ConsensusScale(scoring)).u
     scale, source, nonfinite_scale = _estimated_scale(nu, s2)
 
     # The weights wᵢ ∈ [0, 1], of the scorer's kind: its posterior, or 0/1.

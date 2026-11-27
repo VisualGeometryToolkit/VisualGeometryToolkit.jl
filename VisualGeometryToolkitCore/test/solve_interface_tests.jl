@@ -128,7 +128,7 @@ end
     @test_throws ArgumentError VgtkCore.BackendRefit(LevenbergMarquardt(), VgtkCore.LmStops(); cheirality_vote_points = 0)
     # its identity is its algorithm's: a Levenberg–Marquardt's strategy's, its scale given (FixedScale)
     tls = VgtkCore.BackendRefit(LevenbergMarquardt(; optimization_strategy = VgtkCore.Irls{VgtkCore.TLSShape}()), VgtkCore.LmStops())
-    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === :tls
+    @test VgtkCore.optimization_path(tls) === VgtkCore.OptimizationPath.irls && VgtkCore.loss_family(tls) === VgtkCore.LossFamily.tls
     @test VgtkCore.lo_label(tls) == "TLS-IRLS" && VgtkCore.lo_marker(tls) === VgtkCore.lo_marker(VgtkCore.Irls{VgtkCore.TLSShape}())
     @test VgtkCore.scale_interface(tls) === VgtkCore.FixedScale()
     # a backend whose package implements no LM: one ArgumentError, from the constructor's default damping and from a

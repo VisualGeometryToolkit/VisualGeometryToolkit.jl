@@ -42,7 +42,7 @@ abstract type AbstractScoring end
 The consensus set a local optimizer starts from — the inlier set of the most
 recent [`score!`](@ref) on a workspace, as [`consensus_set`](@ref) returns it:
 its size k* (`count`), its scale ŝ² (`s2`, the Student-t scale of the set under
-the scorer's prior, [`consensus_s2`](@ref)), the `epoch` of the score
+the scorer's prior, [`ConsensusScale`](@ref)), the `epoch` of the score
 evaluation that produced it and that evaluation's `score` (NaN when the
 producer did not carry it). Construct it by keyword; the field order is not API.
 
@@ -326,16 +326,50 @@ from its path (ℓ₂ uses `:x`).
 lo_marker(lo::Union{Nothing, AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = path_marker(optimization_path(lo))
 
 """
-    loss_family(lo::AbstractOptimizationStrategy) -> Symbol
+    LossFamily
 
-The loss ROW of the design table an arm belongs to (`:welsch` | `:tls` |
-`:gm` | `:cauchy` | …; the Student-t/uniform mixture arms report `:tls` — they
-share the "uniform mixtures" column). Determines the color HUE facet in the
-paper registry. Default `:unspecified` so registries can detect a strategy
-that has not declared its identity.
+The paper's loss axis — the ROW of the design table an arm belongs to — as an isbits `@enum`, `LossFamily.T`, read
+qualified (`LossFamily.tls`), as [`OptimizationPath`](@ref) is the column:
+
+- `l2`          — least squares (the bare ℓ₂ arm)
+- `welsch`      — Welsch
+- `gm`          — Geman–McClure
+- `cauchy`      — Cauchy
+- `tls`         — the truncated / uniform-mixture row: TLS, its smooth surrogate, the Student-t + uniform mixture arms
+                  and Le–Zach's relaxed TLS (they share the "uniform mixtures" column)
+- `huber`       — Huber
+- `barron`      — Barron's adaptive loss
+- `none`        — no local optimization (`nothing`)
+- `unspecified` — a strategy that has not declared its loss family (registries refuse it)
+
+The printed name of a value is its row's old Symbol spelling (`string(LossFamily.tls) == "tls"`).
 """
-loss_family(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = :unspecified
-loss_family(::Nothing) = :none
+module LossFamily
+@enum T::UInt8 l2 welsch gm cauchy tls huber barron none unspecified
+public T, l2, welsch, gm, cauchy, tls, huber, barron, none, unspecified   # read qualified, `LossFamily.tls`
+@doc "`LossFamily.T`: the `LossFamily` enum type, a strategy's `loss_family` (an isbits `@enum`)." T
+@doc "`LossFamily.l2`: a `LossFamily` — least squares." l2
+@doc "`LossFamily.welsch`: a `LossFamily` — the Welsch loss." welsch
+@doc "`LossFamily.gm`: a `LossFamily` — the Geman–McClure loss." gm
+@doc "`LossFamily.cauchy`: a `LossFamily` — the Cauchy loss." cauchy
+@doc "`LossFamily.tls`: a `LossFamily` — the truncated / uniform-mixture row (TLS, its smooth surrogate, the Student-t + uniform mixtures)." tls
+@doc "`LossFamily.huber`: a `LossFamily` — the Huber loss." huber
+@doc "`LossFamily.barron`: a `LossFamily` — Barron's adaptive loss." barron
+@doc "`LossFamily.none`: a `LossFamily` — no local optimization." none
+@doc "`LossFamily.unspecified`: a `LossFamily` — a strategy that has not declared its loss family (registries refuse it)." unspecified
+end
+
+"""
+    loss_family(lo::AbstractOptimizationStrategy) -> LossFamily.T
+
+The loss ROW of the design table an arm belongs to ([`LossFamily`](@ref): `LossFamily.welsch` | `LossFamily.tls` |
+`LossFamily.gm` | `LossFamily.cauchy` | …; the Student-t/uniform mixture arms report `LossFamily.tls` — they share the
+"uniform mixtures" column). Determines the color HUE facet in the paper registry. Default `LossFamily.unspecified`, so
+registries can detect a strategy that has not declared its identity; `nothing` (no local optimization) is
+`LossFamily.none`. A loss shape type answers its own row (`loss_family(WelschShape) === LossFamily.welsch`).
+"""
+loss_family(::Union{AbstractOptimizationStrategy, AbstractEstimationAlgorithm}) = LossFamily.unspecified
+loss_family(::Nothing) = LossFamily.none
 
 # -----------------------------------------------------------------------------
 # Weight policies — the nuisance and weight blocks of BlockCoordinateDescent

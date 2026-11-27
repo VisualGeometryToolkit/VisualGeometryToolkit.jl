@@ -286,7 +286,7 @@ result.stats.nsteps    # for RANSAC, the number of trials (hypotheses drawn)
 The scale is the one the scorer ORIGINATES, from its consensus partition:
 
 ```julia
-noise_scale(result)    # ŝ of the consensus set (consensus_s2 at the model's dof; √(RSS/ν) under the
+noise_scale(result)    # ŝ of the consensus set (ConsensusScale at the model's dof; √(RSS/ν) under the
                        # Jeffreys prior, floored at √eps); a LINEAR scale. The hand-off: a later
                        # stage takes it as `scale = result`
 scale_source(result)   # ScaleEstimated; ScaleNone (no model, or a set too thin to scale) and

@@ -24,7 +24,7 @@
 # stay PAPER-OWNED (fig_colors.tex names), keyed PER ARM.
 # =============================================================================
 
-using VisualGeometryToolkitCore: lo_label, lo_marker, loss_family, optimization_path, OptimizationPath, scale_interface,
+using VisualGeometryToolkitCore: lo_label, lo_marker, loss_family, LossFamily, optimization_path, OptimizationPath, scale_interface,
     FixedScale, UnspecifiedScale
 
 """
@@ -57,7 +57,7 @@ function arm_style_records(probes, table)
              marker    = String(lo_marker(p)),
              dashed    = iface isa FixedScale,
              shade     = get(row, :shade, nothing))
-        (r.family === :unspecified || r.path === OptimizationPath.unspecified || iface isa UnspecifiedScale) &&
+        (r.family === LossFamily.unspecified || r.path === OptimizationPath.unspecified || iface isa UnspecifiedScale) &&
             error("figure_style: arm $k probe has unspecified loss_family/optimization_path/scale_interface traits")
         if haskey(row, :scale)
             (row.scale === :fixed_ext) == (iface isa FixedScale) ||
@@ -73,7 +73,7 @@ end
 # baselines on the left, the two M-estimators side by side (maintainer
 # decision 2026-09-07). Legends follow the same walk (see arm_order).
 "The loss-family facet order, left to right, of every faceted figure and legend."
-const FAMILY_ORDER = (:tls, :welsch, :gm)
+const FAMILY_ORDER = (LossFamily.tls, LossFamily.welsch, LossFamily.gm)
 
 # Mechanism sort rank WITHIN a family (legend + plot order): static → truncated
 # → HQ → GNC, matching the light→dark shade progression. :bcd (exact
@@ -114,7 +114,7 @@ function arm_style(style, key)
     return (family=r.family, label=r.label, color=r.color, marker=r.marker, dashed=r.dashed)
 end
 
-"Loss family (`:welsch`/`:tls`/`:gm`) of arm `key` of `style`."
+"Loss family (`LossFamily.welsch`/`.tls`/`.gm`, VisualGeometryToolkitCore's `LossFamily`) of arm `key` of `style`."
 family_of(style, key) = style.arms[key].family
 
 """
@@ -128,8 +128,8 @@ family_rank(family) = something(findfirst(==(family), FAMILY_ORDER), length(FAMI
 
 "Two-line panel title (TeX) for a loss `family`."
 function panel_title(family)
-    family === :welsch && return "Welsch"
-    family === :tls    && return raw"Uniform mixtures\\(TLS, Stu-$t$U)"
-    family === :gm     && return raw"Geman--McClure\\(GM)"
+    family === LossFamily.welsch && return "Welsch"
+    family === LossFamily.tls    && return raw"Uniform mixtures\\(TLS, Stu-$t$U)"
+    family === LossFamily.gm     && return raw"Geman--McClure\\(GM)"
     error("no panel title for family $family")
 end

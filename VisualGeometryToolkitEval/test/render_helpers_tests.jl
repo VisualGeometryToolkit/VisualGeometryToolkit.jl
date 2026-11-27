@@ -6,6 +6,7 @@
 @testitem "render_helpers" setup = [StyleFixtures] begin
     using Test, JLD2
     using DataFrames: DataFrame
+    using VisualGeometryToolkitCore: LossFamily
     using VisualGeometryToolkitEval.Render: results_by_method, load_results
     using VisualGeometryToolkitEval.Stats: finite_median, eligible_maa
     using VisualGeometryToolkitEval.Render: pgf_coords, evaluation_curve, family_rank, FAMILY_ORDER,
@@ -78,7 +79,7 @@
     @testset "arm records derive from the traits" begin
         style = probe_style(["a" => ProbeLO(:tls, :hq, "TLS-HQ", true)], Dict("a" => (color = "ColorA",)))
         @test has_arm(style, "a") && !has_arm(style, "b")
-        @test arm_style(style, "a") == (family = :tls, label = "TLS-HQ", color = "ColorA", marker = "triangle", dashed = true)
+        @test arm_style(style, "a") == (family = LossFamily.tls, label = "TLS-HQ", color = "ColorA", marker = "triangle", dashed = true)
         @test_throws ErrorException probe_style(["u" => ProbeLO(:unspecified, :hq, "U")], Dict("u" => (color = "C",)))
     end
 

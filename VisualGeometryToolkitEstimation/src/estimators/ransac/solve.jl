@@ -198,8 +198,11 @@ Fields (configuration):
   replaced; `on_hypothesis`: `(trial, model) -> nothing` for every candidate that succeeds at `test_model`.
 - `T`: the per-point storage precision of the workspace and of the result's `resid` and weights.
 
-Solve keyword (run setting): `rng`, the source of every random draw (`supports_solve_rng`); a seeded rng
-(`StableRNG(seed)`) makes the run bit-reproducible, the default is the task-local `Random.default_rng()`.
+Solve keywords (run settings): `rng`, the source of every random draw (`supports_solve_rng`); a seeded rng
+(`StableRNG(seed)`) makes the run bit-reproducible, the default is the task-local `Random.default_rng()`. `stops`, the
+LOCAL OPTIMIZATION's stop settings (the trial budget is `config`'s): the strategy at those stops, VisualGeometryToolkitCore's
+`with_stops(strategy, stops)` — a block-coordinate strategy's `StopAfterIteration(n)` (its `max_iter`), a
+`BackendRefit`'s `LmStops`; `nothing` (the default) keeps the strategy's own budget.
 
 Workspace reuse is `init(problem, Ransac(…); rng)` → `solve!(cache)` → `reinit!(cache; f, alg, rng)` with new data,
 a new configuration of the same `Ransac` type or a new rng: the cache holds the composed workspace and the result
@@ -257,16 +260,42 @@ a new seed and a new configuration of the same type (the scorer at another width
 the result's `resid` and weights ARE the cache's buffers until the next `solve!` (copy what you keep). The timing
 bracket of one refit (the LO timing gate, an evaluation's per-call wall clock) is `solve!(reinit!(cache, θ₁))`:
 the workspace is built once by `init`, outside it.
+
+Solve keyword `stops`: the local optimization's stop settings, the strategy at them (VisualGeometryToolkitCore's
+`with_stops`: a block-coordinate strategy's `StopAfterIteration(n)`, a `BackendRefit`'s `LmStops`); `nothing` (the
+default) keeps the strategy's own. `reinit!(cache, θ₁; stops)` changes them.
+
+# An external refit
+
+A strategy of the `ExternalRefit` family (VisualGeometryToolkitCore's `RefitFamily`: a `BackendRefit` — PoseLib's
+LM and Le–Zach refines —, an adaptive-width arm, a paper's classical LO) runs through the same front end, as its
+contract's model → model refine at an absolute width, no seed score and no consensus test:
+
+    c = init(RefineProblem(f, θ₀, (; frame)), LocalOptimization(strategy; scoring); width)   # external_workspace
+    r = solve!(reinit!(c, θ₁; width))   # reinit! runs prepare_external!, solve! the external_refit! (the bracket)
+
+`width` (required) is the contract's absolute width, a `LossWidth` (`LossWidth(w)`, the loss width `w`) or a fixed
+noise scale `FixedS2(s2)`; `p = (; frame)` the two-view frame the refiner reads beyond the problem (`frame.Kc1`,
+`frame.Kc2`, `frame.cs`: an evaluation's pair geometry), none (`NullParameters()`) for a refiner that reads none;
+`scoring` the refiner's scoring template, or `nothing` for a refiner that anchors on none. `init` builds the
+refiner's workspace once (`external_workspace`), `reinit!` points it at a seed, width or configuration of the same
+type and runs the refiner's preparation (`prepare_external!`: a consensus-scale bootstrap, OUTSIDE the timing bracket
+of one refit, which is `solve!` alone); a one-shot `solve` prepares then refits. The result is the refiner's own
+`FitResult` (`external_refit!`), or — the preparation declined the seed — no refit: `u = nothing`, `(InitialFailure,
+NoRule)`, `stats.nsteps` 0 (the record of a local optimization that did not run).
 """
 struct LocalOptimization{L, S} <: AbstractEstimationAlgorithm
     strategy::L
     scoring::S
     score_guard::Bool
 end
-function LocalOptimization(strategy::Union{Nothing, AbstractOptimizationStrategy}; scoring::AbstractScoring,
+function LocalOptimization(strategy::Union{Nothing, AbstractOptimizationStrategy}; scoring::Union{Nothing, AbstractScoring},
         score_guard::Bool = false, threshold = nothing, outlier_halfwidth = nothing, local_optimization = RetiredKeyword())
     _refuse_width_keywords(threshold, outlier_halfwidth)
     refuse_retired_keyword(local_optimization, :local_optimization, :local_optimization_strategy)
+    scoring === nothing && RefitFamily(strategy) isa NativeRefit && throw(ArgumentError(
+        "LocalOptimization: a native local optimization scores its seed and its refit: give `scoring` (a scorer with " *
+            "its own width); only an external refit (an ExternalRefit strategy) may run without one"))
     return LocalOptimization(strategy, scoring, score_guard)
 end
 estimator_kind(::LocalOptimization) = RefineKind()
@@ -288,7 +317,7 @@ algorithm configuration or rng, keeping its workspace (grown only when the new d
 A result of `solve!` ALIASES the cache's result buffers — its `resid` and weights ARE them — until the next `solve!`
 (SciML's cache rule): a caller that keeps a result across solves copies what it keeps.
 """
-mutable struct RansacCache{P, S, L, W, R, G, A, Q}
+mutable struct RansacCache{P, S, L, W, R, G, A, Q, C}
     problem::P
     scoring::S
     lo::L
@@ -297,33 +326,51 @@ mutable struct RansacCache{P, S, L, W, R, G, A, Q}
     rng::G
     alg::A
     seed::Q
+    stops::C      # the local optimization's stop settings (`nothing`: the strategy's own)
 end
 
-function __init(prob::EstimationProblem{<:Any, <:AbstractRansacProblem}, alg::Ransac{T};
-        rng::Random.AbstractRNG = Random.default_rng()) where {T}
-    problem, scoring, lo = _resolve(alg, prob.f, prob.p)
-    ws = RansacWorkspace(T, problem, scoring, lo)
-    return RansacCache(problem, scoring, lo, ws, _result_buffers(ws, problem), rng, alg, nothing)
+__init(prob::EstimationProblem{<:Any, <:AbstractRansacProblem}, alg::Ransac; rng::Random.AbstractRNG = Random.default_rng(),
+       stops = nothing) = _ransac_cache(prob, alg, false, rng, stops)
+# The one-shot solve: the same run on a workspace built for this solve alone (`_one_shot_workspace`: the task's refit
+# and block-coordinate caches, no LM built that it does not run).
+__solve(prob::EstimationProblem{<:Any, <:AbstractRansacProblem}, alg::Ransac; rng::Random.AbstractRNG = Random.default_rng(),
+        stops = nothing) = solve!(_ransac_cache(prob, alg, true, rng, stops))
+function _ransac_cache(prob, alg::Ransac{T}, one_shot::Bool, rng, stops) where {T}
+    problem, scoring, lo = _resolve(alg, prob.f, prob.p, stops)
+    ws = one_shot ? _one_shot_workspace(T, problem, scoring, lo) : RansacWorkspace(T, problem, scoring, lo)
+    _check_entry_composition(ws, scoring, lo)
+    return RansacCache(problem, scoring, lo, ws, _result_buffers(ws, problem), rng, alg, nothing, stops)
 end
-function __init(prob::RefineProblem{<:AbstractRansacProblem}, alg::LocalOptimization)
-    problem, scoring, lo = _resolve(alg, prob.f, prob.p)
-    ws = RansacWorkspace(problem, scoring, lo)
-    return RansacCache(problem, scoring, lo, ws, _result_buffers(ws, problem), nothing, alg, prob.u0)
+# A local optimization runs natively (the RANSAC loop's local optimization from the seed) or, an `ExternalRefit` strategy, as its
+# external refit (`_ExternalRefitCache`, below): the family of its strategy (VisualGeometryToolkitCore's `RefitFamily`).
+__init(prob::RefineProblem{<:AbstractRansacProblem}, alg::LocalOptimization; stops = nothing, width = nothing) =
+    _lo_cache(RefitFamily(alg.strategy), prob, alg, stops, width, false)
+__solve(prob::RefineProblem{<:AbstractRansacProblem}, alg::LocalOptimization; stops = nothing, width = nothing) =
+    solve!(_lo_cache(RefitFamily(alg.strategy), prob, alg, stops, width, true))   # one-shot: the task's refit caches
+function _lo_cache(::NativeRefit, prob, alg::LocalOptimization, stops, width, one_shot::Bool)
+    width === nothing || throw(ArgumentError(
+        "LocalOptimization: a native local optimization takes its loss width from its strategy's width mode " *
+            "(`with_width(strategy, w)`), not a `width` keyword; only an external refit takes one"))
+    problem, scoring, lo = _resolve(alg, prob.f, prob.p, stops)
+    ws = one_shot ? _one_shot_workspace(_DEFAULT_STORAGE_ELTYPE, problem, scoring, lo) : RansacWorkspace(problem, scoring, lo)
+    _check_entry_composition(ws, scoring, lo)
+    return RansacCache(problem, scoring, lo, ws, _result_buffers(ws, problem), nothing, alg, prob.u0, stops)
 end
 # The run's problem (its context applied), scorer and local optimization, resolved from the algorithm's fields for the
 # data `f` — `ClassDefault()` against the problem's class and data (a class width can read the data: hand-eye's
-# characteristic length) — and the scorer checked against the problem: at `init` and at every `reinit!` with new data.
-function _resolve(alg::Ransac, f, p)
+# characteristic length) — at the solve's stop settings (`with_stops`), and the scorer checked against the problem: at
+# `init` and at every `reinit!` with new data.
+function _resolve(alg::Ransac, f, p, stops)
     problem = _with_context(f, p)
     scoring = _class_scoring(f, alg.scoring)
-    lo = _class_lo(f, alg.local_optimization_strategy, scoring)
+    lo = with_stops(_class_lo(f, alg.local_optimization_strategy, scoring), stops)
     _check_scoring(problem, scoring)
     return problem, scoring, lo
 end
-function _resolve(alg::LocalOptimization, f, p)
+function _resolve(alg::LocalOptimization, f, p, stops)
     problem = _with_context(f, p)
     _check_scoring(problem, alg.scoring)
-    return problem, alg.scoring, alg.strategy
+    return problem, alg.scoring, with_stops(alg.strategy, stops)
 end
 
 # A find on fewer data than a minimal sample is the no-model result (`(Failure, TrialBudget)`) of a search that drew no trial. A physical
@@ -346,7 +393,7 @@ _seed_run!(c::RansacCache, θ₀) = _locally_optimize_seed!(c.ws, c.problem, c.s
     _seed_model(c.problem, θ₀); score_guard = c.alg.score_guard, result = c.result)
 
 """
-    reinit!(cache::RansacCache[, θ₀]; f, p, alg = cache's, rng = cache's) -> cache
+    reinit!(cache::RansacCache[, θ₀]; f, p, alg = cache's, rng = cache's, stops = cache's) -> cache
 
 Point a find's or a local optimization's cache at new data `f` (a family problem of the same type), a new context `p`
 (the caller's form: Core's `reinit!(::EstimationCache)` hands over both, the cache's problem's where the call names none),
@@ -354,29 +401,94 @@ Point a find's or a local optimization's cache at new data `f` (a family problem
 
 `alg` is a new configuration of the cache's algorithm — a value of its concrete type (a `Ransac` or
 `LocalOptimization` of other field types is an `ArgumentError`): a scorer at another width, another strategy setting,
-another `config`. The scorer and local optimization are re-resolved from the (new) algorithm's fields for the (new) data
+another `config`; `stops` new stop settings of the local optimization (`with_stops`), of the type `init` was given. The scorer and local optimization are re-resolved from the (new) algorithm's fields for the (new) data
 (a class width can read the data) and checked against the problem; the workspace and result buffers are kept, and grown only when the new data
 outgrow them. `rng` replaces a find's rng (of the same type; a local optimization draws nothing and takes none). Every
 refusal of the call's arguments comes before anything changes. A scorer whose workspace tables depend on its
-configuration (a scale prior's) is checked against the kept workspace where every run is, at the next `solve!`
-(`check_workspace`, an `ArgumentError`: init a new cache for it).
+configuration (a scale prior's) is checked against the kept workspace when the composition changes — at `init`, and
+at a `reinit!` with a new algorithm, new stops or a grown workspace (`check_workspace`, an `ArgumentError`: init a new
+cache for it) — never per `solve!`.
 
 The next `solve!`'s result aliases the cache's result buffers until the solve after it.
 """
-function reinit!(c::RansacCache{P, S, L, W, R, G, A}, θ₀...; f, p, alg = c.alg, rng = c.rng) where {P, S, L, W, R, G, A}
+function reinit!(c::RansacCache{P, S, L, W, R, G, A, Q, C}, θ₀...; f, p, alg = c.alg, rng = c.rng, stops = c.stops) where {P, S, L, W, R, G, A, Q, C}
     length(θ₀) <= (c.seed === nothing ? 0 : 1) || throw(ArgumentError("reinit!: a find's cache takes no seed"))
+    stops isa C || throw(ArgumentError(string("reinit!: the cache's local-optimization stops are a ", C, "; the new ones a ",
+        typeof(stops), " (init a new cache with stops of that type)")))
     alg isa A || throw(ArgumentError(string("reinit!: the cache was initialized for a ", A, "; the new algorithm is a ",
         typeof(alg), " (init a new cache for an algorithm of another type)")))
     rng === c.rng || rng isa G || throw(ArgumentError(c.rng === nothing ?
         "reinit!: a local optimization draws nothing and takes no rng" :
         string("reinit!: the cache's rng is a ", G, "; the new one is a ", typeof(rng), " (init a new cache)")))
-    problem, scoring, lo = _resolve(alg, f, p)
+    problem, scoring, lo = _resolve(alg, f, p, stops)
     n = data_size(problem)
-    n > _capacity(c.ws) && (c.ws = RansacWorkspace(_storage(c), problem, scoring, lo))
+    grown = n > _capacity(c.ws)
+    ws = grown ? RansacWorkspace(_storage(c), problem, scoring, lo) : c.ws
+    (grown || alg !== c.alg || stops !== c.stops) && _check_entry_composition(ws, scoring, lo)   # a new composition only
+    c.ws = ws
     length(c.result.residuals) == n || (c.result = _result_buffers(c.ws, problem))
-    c.problem, c.scoring, c.lo, c.alg, c.rng = problem, scoring, lo, alg, rng
+    c.problem, c.scoring, c.lo, c.alg, c.rng, c.stops = problem, scoring, lo, alg, rng, stops
     isempty(θ₀) || (c.seed = only(θ₀))
     return c
 end
 _storage(c::RansacCache) = eltype(c.result.residuals)
 _capacity(ws::RansacWorkspace) = length(ws.best_residuals)
+
+# -----------------------------------------------------------------------------
+# The external refit through `LocalOptimization` (an `ExternalRefit` strategy)
+# -----------------------------------------------------------------------------
+
+# The cache of an external refit: the problem, the scorer template, the strategy at the solve's stops, the refiner's
+# workspace (`external_workspace`, built once for the frame), the seed and the width, and whether the refiner's
+# preparation accepted this seed (`nothing`: not yet prepared — the one-shot solve prepares at its `solve!`).
+mutable struct _ExternalRefitCache{P, X, S, L, W, Q, A, C}
+    problem::P
+    context::X     # the solve's context `p`: `(; frame)` or none
+    scoring::S
+    lo::L
+    ws::W
+    seed::Q
+    width::Union{LossWidth{NTuple{2, Float64}}, FixedS2}   # a call's absolute width, or a fixed noise scale
+    alg::A
+    stops::C      # the strategy's stop settings (`nothing`: its own)
+    prepared::Union{Nothing, Bool}
+end
+function _lo_cache(::ExternalRefit, prob, alg::LocalOptimization, stops, width, _one_shot::Bool)
+    w = _external_width(width)
+    problem, frame = prob.f, _external_frame(prob.p)   # the scorer is the refiner's template: it scores nothing here
+    lo = with_stops(alg.strategy, stops)
+    ws = external_workspace(lo, problem, frame, alg.scoring)
+    return _ExternalRefitCache(problem, prob.p, alg.scoring, lo, ws, prob.u0, w, alg, stops, nothing)
+end
+_external_width(w::Union{LossWidth{NTuple{2, Float64}}, FixedS2}) = w
+_external_width(w) = throw(ArgumentError(string(
+    "LocalOptimization: an external refit runs at an absolute width — give `width = LossWidth(w)` (the loss width) or ",
+    "a fixed noise scale `width = FixedS2(s2)`; got ", w === nothing ? "none" : repr(w))))
+# The two-view frame an external refiner reads beyond the problem: the context's `frame`, or none.
+_external_frame(::NullParameters) = nothing
+function _external_frame(p::NamedTuple)
+    keys(p) === (:frame,) || throw(ArgumentError(string("the context `p` of an external refit is `(; frame)` (the two-view ",
+        "frame its refiner reads) or none; got the key(s) ", join(keys(p), ", "))))
+    return p.frame
+end
+
+function reinit!(c::_ExternalRefitCache{P, X, S, L, W, Q, A, C}, θ₀ = c.seed; f = c.problem, p = c.context, alg = c.alg,
+        width = c.width, stops::C = c.stops) where {P, X, S, L, W, Q, A, C}
+    alg isa A || throw(ArgumentError(string("reinit!: the cache was initialized for a ", A, "; the new algorithm is a ",
+        typeof(alg), " (init a new cache for an algorithm of another type)")))
+    w = _external_width(width)
+    lo = with_stops(alg.strategy, stops)
+    if f !== c.problem || p !== c.context                   # new data or frame: the refiner's workspace rebuilt
+        c.ws = external_workspace(lo, f, _external_frame(p), alg.scoring)
+    end
+    c.problem, c.context, c.scoring, c.lo, c.seed, c.width, c.alg, c.stops = f, p, alg.scoring, lo, θ₀, w, alg, stops
+    c.prepared = prepare_external!(c.ws, c.lo, c.problem, c.seed, c.width, c.scoring)   # outside the timing bracket
+    return c
+end
+function solve!(c::_ExternalRefitCache)
+    kept = c.prepared
+    prepared::Bool = kept === nothing ? prepare_external!(c.ws, c.lo, c.problem, c.seed, c.width, c.scoring) : kept
+    c.prepared = nothing                                     # a later solve! without a reinit! prepares again
+    prepared || return FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)   # no refit made
+    return external_refit!(c.ws, c.lo, c.problem, c.seed, c.width, c.scoring)
+end

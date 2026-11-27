@@ -256,7 +256,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test VgtkCore.expected_tag(reg, LeZach) == "le_zach"
         # its identity, as the registry row states it
         @test VgtkCore.loss_family(LeZach()) == VgtkCore.loss_family(TLSShape)
-        @test VgtkCore.optimization_path(LeZach()) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(LeZach()) === :tls &&
+        @test VgtkCore.optimization_path(LeZach()) === VgtkCore.OptimizationPath.gnc && VgtkCore.loss_family(LeZach()) === VgtkCore.LossFamily.tls &&
             VgtkCore.lo_label(LeZach()) == "TLS-LZ"
         @test VgtkCore.lo_efficiency_constant_shape(LeZach) === TLSShape
         @test !VgtkCore.lo_parametric(LeZach) && !VgtkCore.lo_takes_width(LeZach)

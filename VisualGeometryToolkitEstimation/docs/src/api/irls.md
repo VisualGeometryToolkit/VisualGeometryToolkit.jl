@@ -93,8 +93,8 @@ is seeded from a consensus set:
   the scorer's; a scorer without one is refused
   ([`required_outlier_halfwidth`](@ref)).
 
-[`ConsensusScale`](@ref) gives the consensus set's scale alone — the scale a
-consensus-anchored loss runs at — for a refiner outside the loop:
+VisualGeometryToolkitCore's [`ConsensusScale`](@extref VisualGeometryToolkitCore.ConsensusScale) gives the consensus
+set's scale alone — the scale a consensus-anchored loss runs at — for a refiner outside the loop:
 `solve(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(scoring))`,
 its cache reused across models with `reinit!(cache; p = (; model))`.
 
@@ -108,7 +108,6 @@ PosteriorLikelihood
 consensus_posterior
 posterior_irls!
 required_outlier_halfwidth
-ConsensusScale
 ```
 
 ## The reweighted fits' termination record
@@ -208,7 +207,7 @@ because that is the conversion that produces a width in the first place.
     `AbstractScaleEstimator` family (`MadScale`, `WeightedScale`,
     `SpatialMadScale`) were deleted from VisualGeometryToolkitCore
     along with the file that held them. The loss shapes above replace the first;
-    scale is estimated from the scorer's consensus set (`consensus_s2`)
+    scale is estimated from the scorer's consensus set (VisualGeometryToolkitCore's `ConsensusScale`)
     rather than by a standalone estimator object. (`FixedScale` is not
     retired: it is VisualGeometryToolkitCore's `ScaleInterface` label of a strategy
     deployed at an absolute width, `LossWidth`.)

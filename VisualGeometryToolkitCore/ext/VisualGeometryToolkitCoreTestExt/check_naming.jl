@@ -737,6 +737,8 @@ const RETIRED_NAMES = String[
     "bootstrap" * "_argmin",                     # solve(EstimationProblem(Hyperparameter, errors), SelectionBootstrap(criterion; n_resamples); rng)
     "coarse_fine" * "_cv", "probe" * "_curve", "coarse_fine" * "_search", "fine" * "_stage",   # solve(EstimationProblem(Hyperparameter, errorsfn, (; cells)), CoarseFine | JointCoarseFine)
     "VisualGeometryToolkitEval" * ".Pools", "VgtkEval" * ".Pools",   # VisualGeometryToolkitEval.PoolFiles (Core.Pools is the record types)
+    # the front-end gaps (2026-11-27): no public estimator outside `solve`
+    "consensus" * "_s2",                         # solve(EstimationProblem(SquaredScale, residuals, (; order, inlier_count, model_dof, codimension)), ConsensusScale(scoring)).u
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

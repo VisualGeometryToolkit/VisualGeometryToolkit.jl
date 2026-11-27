@@ -26,8 +26,20 @@ keeps the running best, so `solve!(reinit!(c; p = (; budget = k′)))` with `k�
 `k + 1 … k′` only. A smaller budget, or new data (`reinit!(c; f)`), starts over. The workspace and the per-point scratch
 are the cache's, sized for the points of the data `init` saw: new data with no more points reuse them (a pool of many
 pairs is best initialized on its largest), more points grow them.
+
+# The batched grid form
+
+A staged batch of pools selected at every width of a grid (an evaluation's selection sweep) is the ensemble of the
+(pool, width) selections, one launch:
+
+    r = solve(EnsembleProblem(SelectionGrid(problem_type, grid, staged), npools * length(grid)), ScoreSelection(scoring),
+              EnsembleKernel(backend))
+
+`scoring` is then the grid's selection scoring at any width (its native axis, `width_axis`): a scorer, or a grid family
+of another package (a scoring with VisualGeometryToolkitCore's `select_on_grid!`, which a grid family implements); see
+[`SelectionGrid`](@ref). The FIRST strictly best model wins in every cell, as in the per-pool form.
 """
-struct ScoreSelection{S <: AbstractScoring} <: AbstractEstimationAlgorithm
+struct ScoreSelection{S} <: AbstractEstimationAlgorithm
     scoring::S
 end
 estimator_kind(::ScoreSelection) = ClosedFormKind()
@@ -54,7 +66,7 @@ mutable struct ScoreSelectionCache{F, S, W}
 end
 
 function __init(prob::EstimationProblem{PoolSelection, <:Union{AbstractMatrix, Pair{<:PoolPair, <:AbstractMatrix}}},
-                alg::ScoreSelection)
+                alg::ScoreSelection{<:AbstractScoring})
     _check_pool(prob.f)
     R = _pool_residuals(prob.f)
     n = size(R, 1)
@@ -93,3 +105,53 @@ function solve!(c::ScoreSelectionCache)
     return FitResult(c.best_idx, found ? ReturnCode.Success : ReturnCode.Failure, found ? ClosedForm : NoRule,
                      SolveStats(; nsteps = c.folded), NaN, n, (; score = c.best_score))
 end
+
+# =============================================================================
+# The batched grid form: every (pool, width) selection of a staged batch
+# =============================================================================
+
+"""
+    SelectionGrid(problem_type, grid, staged; rng_of = nothing)
+
+The batch of an [`EnsembleProblem`](@extref VisualGeometryToolkitCore.EnsembleProblem) of pool selections:
+the pools of a staged batch (VisualGeometryToolkitCore's `stage_selection(selection_staging(scoring), pairs,
+residuals; backend)`, its pairs of type `problem_type`, whose minimal sample size and codimension a grid family that
+carries neither reads) selected at every width of `grid` (the scoring's native axis, VisualGeometryToolkitCore's
+`width_axis`). `rng_of(fingerprint, t)` is a randomized family's generator per (pool content, column), so a grid is
+independent of the thread schedule (SIMFIT++'s halves); `nothing` for a deterministic one.
+
+`solve(EnsembleProblem(SelectionGrid(P, grid, staged), npools * length(grid)), ScoreSelection(scoring),
+EnsembleKernel(backend))` returns a VisualGeometryToolkitCore `EnsembleResult` over the cells in column-major order —
+pool `p` at width `grid[t]` is item `p + npools·(t − 1)`, so `reshape(r.u, npools, length(grid))` is the selection
+matrix: `u` the selected model's index (`Int32`, `0` none), `retcode`/`stop_rule` `(Success, ClosedForm)` or `(Failure,
+NoRule)` with no model, `nsteps` 0 and `rms` NaN. The selections are VisualGeometryToolkitCore's `select_on_grid!` of
+the scoring — the exact kernels of a residual-quality loss-width family, a per-column best-pool selection otherwise,
+or a grid family's own — on the staging's device: the `EnsembleKernel`'s backend is the one the batch was staged on.
+"""
+struct SelectionGrid{P, G <: AbstractVector, S, R}
+    problem_type::Type{P}
+    grid::G
+    staged::S
+    rng_of::R
+end
+SelectionGrid(problem_type::Type, grid::AbstractVector, staged; rng_of = nothing) =
+    SelectionGrid(problem_type, grid, staged, rng_of)
+
+function __solve(ens::EnsembleProblem{<:SelectionGrid}, alg::ScoreSelection, e::EnsembleKernel)
+    g = ens.f
+    T = length(g.grid)
+    npools, rest = T == 0 ? (0, ens.n) : divrem(ens.n, T)
+    rest == 0 || throw(DimensionMismatch(string("SelectionGrid: ", ens.n, " items are no whole number of pools at ", T,
+        " widths (npools · length(grid))")))
+    hasproperty(g.staged, :backend) && g.staged.backend != e.backend && throw(ArgumentError(string(
+        "SelectionGrid: the batch was staged on ", g.staged.backend, ", the ensemble launches on ", e.backend,
+        ": give EnsembleKernel the staging's backend")))
+    idxs = Matrix{Int32}(undef, npools, T)
+    _select_on_grid!(idxs, g.problem_type, alg.scoring, g.grid, g.staged, g.rng_of)
+    u = vec(idxs)
+    found = u .!= 0
+    return EnsembleResult(u, [f ? ReturnCode.Success : ReturnCode.Failure for f in found],
+                          [f ? ClosedForm : NoRule for f in found], zeros(Int, length(u)), fill(NaN, length(u)))
+end
+_select_on_grid!(idxs, P, scoring, grid, staged, ::Nothing) = select_on_grid!(idxs, P, scoring, grid, staged)
+_select_on_grid!(idxs, P, scoring, grid, staged, rng_of) = select_on_grid!(idxs, P, scoring, grid, staged; rng_of)

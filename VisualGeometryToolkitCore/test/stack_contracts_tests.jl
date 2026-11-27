@@ -169,6 +169,20 @@ end
     @test startswith(only(filter(x -> occursin("_private_two", x), v)), "a.jl:1:")
     # a package's own names are its own
     @test !any(occursin("_qualified", x) for x in private_name_violations(src, "RANSACScoringDoneRight"))
+
+    # the aliases are the PACKAGE's: one bound in the module file reaches the files it includes (Core N6), a nested
+    # module's `_` name included, and the package's ext/ and test/ directories are resolved against it too
+    pkg = mktempdir()
+    write(joinpath(pkg, "Project.toml"), "name = \"MyOwnPackage\"\n")
+    mkpath(joinpath(pkg, "src")); mkpath(joinpath(pkg, "ext"))
+    write(joinpath(pkg, "src", "MyOwnPackage.jl"),
+          "module MyOwnPackage\nimport VisualGeometryToolkitCore as VgtkCore\nconst VgtkEstimation = VisualGeometryToolkitEstimation\ninclude(\"part.jl\")\nend\n")
+    write(joinpath(pkg, "src", "part.jl"), "f(x) = VgtkCore.Cameras._leaves(x)\ng() = VgtkEstimation._via_module_const()\nh() = VgtkCore.public_name\n")
+    write(joinpath(pkg, "ext", "MyExt.jl"), "k() = VgtkCore._from_ext()\n")
+    vs = private_name_violations(joinpath(pkg, "src"), "MyOwnPackage")
+    @test sort(vs) == sort(["part.jl:1: VisualGeometryToolkitCore.Cameras._leaves",
+                            "part.jl:2: VisualGeometryToolkitEstimation._via_module_const"])
+    @test private_name_violations(joinpath(pkg, "ext"), "MyOwnPackage") == ["MyExt.jl:1: VisualGeometryToolkitCore._from_ext"]
 end
 
 @testitem "stack contracts: dependency allow-list" begin

@@ -16,10 +16,13 @@
 #                   scale), or from an absolute scale `s2` the caller supplies
 #                   (`with_width(lo, fixed_width(lo, s2))`).
 #   ExternalRefit — a third-party solver's model → model refine at an absolute
-#                   loss width (VisualGeometryToolkitCore's `external_refit!`, on its
-#                   per-pair `external_workspace`): PoseLib's truncated refiners
-#                   (LocalOptimizationDoneRight's PoseLib extension), RansacLib's
-#                   classical LO (a paper project's).
+#                   loss width, through the same front end: a `LocalOptimization`
+#                   cache of the external strategy (VisualGeometryToolkitEstimation's;
+#                   `init` builds the refiner's per-pair `external_workspace`,
+#                   `reinit!` runs `prepare_external!`, `solve!` the bracketed
+#                   `external_refit!`): PoseLib's truncated refiners, the adaptive-width
+#                   arm (LocalOptimizationDoneRight), RansacLib's classical LO (a paper
+#                   project's).
 # =============================================================================
 
 """
@@ -48,6 +51,9 @@ VgtkCore.prepare_external!(ws, g::ScoreGuarded, problem, θ, width, scoring) =
 # (A fixed noise scale reaches the `LossWidth` method through VGC's `FixedS2` default.)
 VgtkCore.external_refit!(ws, g::ScoreGuarded, problem, θ, width::LossWidth, scoring) =
     external_refit!(ws, g.inner, problem, θ, width, scoring)
+# the solve's stop settings reach the guarded strategy (VisualGeometryToolkitCore's `with_stops`)
+VgtkCore.with_stops(g::ScoreGuarded, stops) = ScoreGuarded(with_stops(g.inner, stops))
+VgtkCore.with_stops(g::ScoreGuarded, ::Nothing) = g
 # Identity + interface traits are forwarded to the guarded strategy.
 VgtkCore.optimization_path(g::ScoreGuarded) = optimization_path(g.inner)
 VgtkCore.scale_interface(g::ScoreGuarded) = scale_interface(g.inner)
@@ -103,13 +109,15 @@ _convert_native(::LossWidth, ::OutlierHalfwidth, x, operating_efficiency_constan
     loss_width_to_outlier_halfwidth(x; operating_efficiency_constant, d_g)
 
 """
-    guarded_refit(opt, score, on_fail; warn_label = nothing)
-        -> (err::Float64, lo_ns::Int64)
+    guarded_refit(opt, score, on_fail) -> (err::Float64, lo_ns::Int64)
 
 The seed-fallback + timing bracket.
 
 - `opt() -> Union{Nothing, M}` — the bracketed optimizer call (data-in →
-  result-out). Throws are caught; `nothing` signals bail / no consensus.
+  result-out); `nothing` signals bail / no consensus / no model (the refit's
+  record is read inside `opt`). A refit failure is its record, never an
+  exception: only an external refiner, a third-party solver, may throw, and
+  its own `opt` catches it (`refit_imc!`'s external path).
 - `score(m::M) -> Float64` — GT scoring of the refined model, NOT timed.
   A non-finite score falls back to `on_fail` (a GT-free decision: the refit
   produced an unusable model).
@@ -118,16 +126,9 @@ The seed-fallback + timing bracket.
   basin ladder supplies `NaN` (a failed refit did not travel).
 - `lo_ns` spans exactly `opt()`.
 """
-function guarded_refit(opt::F, score::G, on_fail::Float64;
-                       warn_label::Union{Nothing,String} = nothing) where {F,G}
+function guarded_refit(opt::F, score::G, on_fail::Float64) where {F,G}
     t0 = time_ns()
-    m = try
-        opt()
-    catch e
-        warn_label === nothing ||
-            @warn "$warn_label failed (fallback applied)" exception = e
-        nothing
-    end
+    m = opt()
     lo_ns = Int64(time_ns() - t0)
     m === nothing && return (on_fail, lo_ns)
     e = Float64(score(m))
@@ -210,26 +211,48 @@ function _refit_algorithm(lo, sc, s2::Union{Nothing, Float64})
 end
 
 # The bracketed call: the pair's cache pointed at this seed and algorithm, solved; the model read before the cache's
-# next solve! overwrites what its result aliases.
+# next solve! overwrites what its result aliases. A native local optimization records its failures (no model: its
+# record), so nothing is caught.
 function _native_refit_imc(cache, seed, alg, imcf::F, fallback::Float64, lo) where {F}
     opt = () -> (r = solve!(reinit!(cache, seed; alg)); found_model(r) ? r.u : nothing)
-    guarded_refit(opt, imcf, fallback; warn_label = "local optimization ($(nameof(typeof(lo))))")
+    guarded_refit(opt, imcf, fallback)
 end
 
 # --- ExternalRefit: the solver's own model → model refine at an absolute loss
 # width — the refiner's own native `nat′`, or a fixed scale `FixedS2(s2)` when
 # the caller supplies one (by default the loss width `√s2`; an adaptive arm
-# reads the scale itself) — on its per-pair workspace. `prepare_external!` runs outside
-# the bracket (a consensus-scale bootstrap); `false` is no refit, no call.
+# reads the scale itself) — through the front end: the pair's `LocalOptimization`
+# cache of the strategy (`init` once per (scoring template, algorithm type, seed
+# type), its `external_workspace` on the pair's frame), `reinit!` per call with the
+# call's seed, width and algorithm (the refiner's `prepare_external!`, a
+# consensus-scale bootstrap, OUTSIDE the bracket), `solve!` the bracketed refit.
+# A preparation that declines the seed makes no refit (the record of a local
+# optimization that did not run): neither timed nor counted.
 function refit_imc!(ctx, ::ExternalRefit, lo, seed, nat′, scoring, fallback, refit_on, s2)
-    prob = ctx.ep
     width = s2 === nothing ? LossWidth(Float64(nat′)) : FixedS2(Float64(s2))
-    ws = get!(() -> external_workspace(lo, prob, ctx.geom, scoring), ctx.lo_ws,
-              Symbol(:ext_, _template_tag(ctx, scoring), :_, nameof(typeof(_unwrap_lo(lo)))))
-    prepare_external!(ws, lo, prob, seed, width, scoring) || return (fallback, Int64(0))
-    guarded_refit(() -> (r = external_refit!(ws, lo, prob, seed, width, scoring); found_model(r) ? r.u : nothing),
-                  m -> model_imc(m, ctx), fallback; warn_label = "external refine ($(nameof(typeof(lo))))")
+    alg = LocalOptimization(_unwrap_lo(lo); scoring)   # a guard is a native refit's: an external refit runs unguarded
+    key = (:external, _template_tag(ctx, scoring), typeof(alg), typeof(seed))
+    cache = get!(() -> init(RefineProblem(ctx.ep, seed, (; frame = ctx.geom)), alg; width), ctx.lo_ws, key)
+    _external_refit_imc(cache, seed, alg, width, m -> model_imc(m, ctx), fallback, lo)
 end
+function _external_refit_imc(cache, seed, alg, width, imcf::F, fallback::Float64, lo) where {F}
+    reinit!(cache, seed; alg, width)
+    made = Ref(true)
+    # a third-party solver may throw: its throw, and only its, is a fallback (with a warning)
+    opt = () -> try
+        r = solve!(cache)
+        made[] = _refit_made(r)
+        found_model(r) ? r.u : nothing
+    catch e
+        @warn "external refine ($(nameof(typeof(lo)))) failed (fallback applied)" exception = e
+        nothing
+    end
+    e, ns = guarded_refit(opt, imcf, fallback)
+    return made[] ? (e, ns) : (fallback, Int64(0))
+end
+# Whether an external refit ran: its preparation declined the seed is the record of no refit (`u = nothing`,
+# `(InitialFailure, NoRule)`, no iteration; VisualGeometryToolkitEstimation's `LocalOptimization`).
+_refit_made(r) = !(r.u === nothing && r.retcode === ReturnCode.InitialFailure && r.stop_rule === NoRule && r.stats.nsteps == 0)
 
 # --- An ABSOLUTE loss width `w` (the solo validations, the loss-width tuning
 # columns): a native refiner sweeps its seed at `nat′` under the context's solo
@@ -285,6 +308,8 @@ function RefitHalfwidth(lo::AbstractOptimizationStrategy, outlier_halfwidth::Rea
 end
 VgtkCore.lo_workspace(::Type{P}, ::Type{T}, r::RefitHalfwidth, n::Int) where {P <: AbstractRansacProblem, T} =
     lo_workspace(P, T, r.lo, n)
+VgtkCore.with_stops(r::RefitHalfwidth, stops) = RefitHalfwidth(with_stops(r.lo, stops), r.outlier_halfwidth, r.scoring_of)
+VgtkCore.with_stops(r::RefitHalfwidth, ::Nothing) = r
 function VgtkCore.locally_optimize!(L, r::RefitHalfwidth, problem, model,
                                               ::ConsensusSet, buf::ScoreBuffers, _scoring)
     # Model-certain scoring only: the re-score scores the PLAIN model; a

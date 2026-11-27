@@ -710,6 +710,7 @@ end
 scale_interface(::BackendRefit{<:LevenbergMarquardt}) = FixedScale()
 external_refit!(_ws, lo::BackendRefit, problem, θ, width::LossWidth, _scoring) =
     solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width))
+with_stops(lo::BackendRefit, stops::LmStops) = BackendRefit(lo.alg, stops; lo.cheirality_vote_points)   # its refine's stops
 
 public honored_stops, check_honored_stops, BackendRefit
 
@@ -979,17 +980,27 @@ end
 """
     block_variables(f::AbstractBlockProblem, u0) -> AbstractVector
     residual_blocks(f::AbstractBlockProblem, u0) -> AbstractVector
+    fixed_variables(f::AbstractBlockProblem, u0) -> indices | nothing
     fixed_variables(f::AbstractBlockProblem) -> indices | nothing
 
 The block contract of a bundle `f` at the guess `u0`: its NLLSsolver variables (any of them — Core
 [`Manifold`](@ref)s, `SVector`s, [`Eliminable`](@ref)s, of one type or several; the Schur system eliminates the
 `Eliminable{true}` ones), its residual blocks (NLLSsolver `AbstractResidual`s, one per observation, each answering
 [`with_robustifier`](@ref); their row counts may differ), and the indices of the variables the solve holds (a gauge,
-an unconstrained track: NLLSsolver's unfixed mask), `nothing` (the default) for none. Contract generics.
+an unconstrained track: NLLSsolver's unfixed mask), `nothing` for none. Contract generics.
+
+The held set is read at the guess, `fixed_variables(f, u0)`, once per `solve`, `init` and `reinit!`: a bundle whose
+held variables depend on the start (a gauge frame chosen from it, a track or a frame the guess leaves without an
+observation) states them there, every variable it has among `block_variables` and the held ones declared, never
+dropped. Its default is `fixed_variables(f)`, a held set fixed by the bundle alone, whose default is `nothing`. A
+`reinit!` to a guess whose held set differs from the cache's rebuilds the multi-block LM (an `ArgumentError` when the
+rebuilt LM is of another type than the cache's — none held against some held: init a new cache); the one-shot
+`solve` re-seeds its task-kept problem only for the same held set.
 """
 function block_variables end
 @doc (@doc block_variables) function residual_blocks end
 @doc (@doc block_variables) fixed_variables(_f) = nothing
+fixed_variables(f, _u0) = fixed_variables(f)
 # A bundle that states no block contract: the one refusal.
 block_variables(f::AbstractBlockProblem, _u0) = _no_method(f, block_variables, _BLOCK_CONTRACT)
 residual_blocks(f::AbstractBlockProblem, _u0) = _no_method(f, residual_blocks, _BLOCK_CONTRACT)
@@ -1071,10 +1082,10 @@ end
 
 # The multi-block LM of `f` from its guess's variables `vars` and blocks `blocks`: the blocks robustified at the parsed
 # loss (none under least squares), its held variables fixed (NLLSsolver's unfixed mask).
-function _block_lm_problem(f::AbstractBlockProblem, vars, blocks, loss, damping::LmDamping)
+function _block_lm_problem(f::AbstractBlockProblem, u0, vars, blocks, loss, damping::LmDamping)
     costs = convert(Vector{_element_union(blocks)}, blocks)
     rob = loss.strategy === nothing ? costs : [_robustified_block(c, loss) for c in costs]
-    return _LmProblem(copy(vars), rob; fixed = fixed_variables(f), damping), costs
+    return _LmProblem(copy(vars), rob; fixed = fixed_variables(f, u0), damping), costs
 end
 # Block `c` robustified at the parsed robust `loss` (its frozen loss_robustifier at unit √weight).
 _robustified_block(c, loss) =
@@ -1097,9 +1108,9 @@ end
 struct _KeptBlockLmSlot{F, V, B, S, D} end   # the kind: the bundle's, variables', blocks', loss's and damping's types
 # The task's kept problem of the kind of (`f`, `vars`, `blocks`, `loss`, `damping`), typed by the problem
 # `_block_lm_problem` builds for it (inferred: the solve on it stays type-stable).
-function _kept_block_lm(f, vars, blocks, loss, damping)
+function _kept_block_lm(f, u0, vars, blocks, loss, damping)
     H = _kept_block_lm_type(Core.Compiler.return_type(_block_lm_problem,
-        Tuple{typeof(f), typeof(vars), typeof(blocks), typeof(loss), typeof(damping)}))
+        Tuple{typeof(f), typeof(u0), typeof(vars), typeof(blocks), typeof(loss), typeof(damping)}))
     slot = _KeptBlockLmSlot{typeof(f), typeof(vars), typeof(blocks), typeof(loss), typeof(damping)}()
     return task_buffers(() -> H(nothing, nothing, false), slot)::H
 end
@@ -1127,7 +1138,7 @@ _slot_bundle_type(::_KeptBlockLmSlot{F}) where {F} = F
 # Re-seed the kept problem `lp` (and its unrobustified `costs`) with the call's `vars` and `blocks` when they have its
 # structure (see `_KeptBlockLm`): true, the problem re-seeded; false, nothing changed. Every check precedes the first
 # write; O(N), allocation-free.
-function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, vars, blocks, loss)
+function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, u0, vars, blocks, loss)
     v = lp.variables
     (length(v) == length(vars) && length(costs) == length(blocks)) || return false
     @inbounds for i in eachindex(v, vars)
@@ -1135,7 +1146,7 @@ function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, vars, block
         (typeof(a) === typeof(b) && NLLSsolver.dynamic(NLLSsolver.nvars(a)) == NLLSsolver.dynamic(NLLSsolver.nvars(b))) ||
             return false
     end
-    _same_fixed(lp.free, lp.unfixed, fixed_variables(f)) || return false
+    _same_fixed(lp.free, lp.unfixed, fixed_variables(f, u0)) || return false
     rob = lp.blocks
     R = eltype(rob)
     @inbounds for k in eachindex(costs, blocks)
@@ -1194,7 +1205,7 @@ function _block_refine_cache(prob::RefineProblem{<:AbstractBlockProblem}, alg::L
     loss = _block_refine_loss(prob, alg; scale, width)
     _too_few(f) && return _BlockRefineCache(f, prob.u0, loss, stops, alg.damping, nothing, nothing, callback, nothing)
     vars, blocks, stated = block_structure(f, prob.u0)
-    lp, costs = _block_lm_problem(f, vars, blocks, loss, alg.damping)
+    lp, costs = _block_lm_problem(f, prob.u0, vars, blocks, loss, alg.damping)
     return _BlockRefineCache(f, prob.u0, loss, stops, alg.damping, lp, costs, callback, stated)
 end
 # The refine's checks (no box, no context) and its parsed loss: the strategy and its scale input (`bundle_loss`).
@@ -1287,14 +1298,14 @@ function __solve(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarq
     loss = _block_refine_loss(prob, alg; scale, width)
     _too_few(f) && return _too_few_block_result(f)
     vars, blocks, stated = block_structure(f, prob.u0)
-    kept = _kept_block_lm(f, vars, blocks, loss, alg.damping)
-    kept.busy && return _block_solve(f, prob.u0, loss, stops, _block_lm_problem(f, vars, blocks, loss, alg.damping)..., callback, stated)
+    kept = _kept_block_lm(f, prob.u0, vars, blocks, loss, alg.damping)
+    kept.busy && return _block_solve(f, prob.u0, loss, stops, _block_lm_problem(f, prob.u0, vars, blocks, loss, alg.damping)..., callback, stated)
     kept.busy = true
     try
         lp, costs = kept.lp, kept.costs
-        if lp === nothing || costs === nothing || !_reseed_block_lm!(lp, costs, f, vars, blocks, loss)
+        if lp === nothing || costs === nothing || !_reseed_block_lm!(lp, costs, f, prob.u0, vars, blocks, loss)
             kept.lp = kept.costs = nothing          # the old structure released before the new is built
-            nlp, ncosts = _block_lm_problem(f, vars, blocks, loss, alg.damping)
+            nlp, ncosts = _block_lm_problem(f, prob.u0, vars, blocks, loss, alg.damping)
             kept.lp = nlp; kept.costs = ncosts
             return _block_solve(f, prob.u0, loss, stops, nlp, ncosts, callback, stated)
         end
@@ -1309,7 +1320,8 @@ __init(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{Nati
 function reinit!(c::_BlockRefineCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         alg = nothing, scale = nothing, width = nothing)
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine of a bundle reads no context `p`"))
-    rebuild = f !== c.f || alg !== nothing || scale !== nothing || width !== nothing
+    rebuild = f !== c.f || alg !== nothing || scale !== nothing || width !== nothing ||
+        (c.lp !== nothing && !_same_fixed(c.lp.free, c.lp.unfixed, fixed_variables(f, u0)))   # a held set of the new guess
     if alg !== nothing || scale !== nothing || width !== nothing
         a = something(alg, LevenbergMarquardt(c.loss.strategy, c.damping, NativeSolver()))
         c.loss = bundle_loss(_resolved_strategy(f, a.optimization_strategy); scale, width, codimension = codimension(f),
@@ -1319,7 +1331,10 @@ function reinit!(c::_BlockRefineCache, u0 = c.u0; f = c.f, p = NullParameters(),
     c.lp === nothing && throw(ArgumentError("reinit!: the cache was built on too few data (no LM): init a new one"))
     if rebuild
         vars, blocks, c.stated = block_structure(f, u0)
-        c.lp, c.costs = _block_lm_problem(f, vars, blocks, c.loss, c.damping)
+        lp, costs = _block_lm_problem(f, u0, vars, blocks, c.loss, c.damping)
+        lp isa fieldtype(typeof(c), :lp) || throw(ArgumentError(string("reinit!: the new guess's bundle (its variables, ",
+            "blocks or held variables) makes a multi-block LM of another type than the cache's: init a new cache")))
+        c.lp, c.costs = lp, costs
     else
         # the same structure: the guess's variables into the kept problem, its blocks and NLLSsolver cache kept
         vars = _reinit_variables!(c, f, u0)

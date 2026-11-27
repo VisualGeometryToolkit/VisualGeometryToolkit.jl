@@ -1135,3 +1135,72 @@ These are done in Core 0.14, each with its own commit:
   `HandEyeProblem`'s `motion_pairs` is `ConsecutivePairs()`/`AllPairs()` through `MOTION_PAIRS_TAGS`; Eval's
   `SoloSpec` role is `SelectionRole()`/`RefinementRole()`. `DivisionCameraMetadata`'s Student-t `ν` is the field `dof`
   (`dof(r)`, a `Float64` there): CaliBlobs reads it as the solve's dof. Bits `===`.
+- 2026-11-27 (front-end gaps, G6/G-p, audit Eval V2): `LocalOptimization` dispatches on its strategy's `RefitFamily`.
+  An `ExternalRefit` strategy (`BackendRefit`, an adaptive-width arm) runs its contract through the front end:
+  `init(RefineProblem(f, θ₀, (; frame)), LocalOptimization(lo; scoring); width)` builds `external_workspace` (once per
+  frame), `reinit!(c, θ; width, alg, stops)` runs `prepare_external!` (outside the timing bracket), `solve!(c)` the
+  `external_refit!` (the bracket of one refit). The context of an external refit is `(; frame)` or none; `width` (a
+  solve keyword) is the contract's `LossWidth` or `FixedS2`; `scoring` may be `nothing` for an external refit only. A
+  declined preparation is the no-refit record of a local optimization that did not run, `u = nothing`, `(InitialFailure,
+  NoRule)`, `nsteps` 0. Eval's external refit is that cache, its bracket `solve!` alone; LocalOptimizationDoneRight's
+  bench adopts the same bracket. A native local optimization refuses a `width` keyword (its width is its strategy's).
+- 2026-11-27 (front-end gaps, G1/G-g, audit L11): the local optimization's stop settings are a solve keyword `stops` of
+  `LocalOptimization` and `Ransac` (for a find: the LO's stops; its trial budget stays `config`'s). They reach the
+  strategy through ONE contract generic, Core's `with_stops(lo, stops) -> lo′` (same type, so the composed workspace
+  serves it): a block-coordinate strategy takes a `StoppingCriterion`, its budget `StopAfterIteration(n)` (Core's
+  `Irls{K}`: `max_iter`), a `BackendRefit` its algorithm's `LmStops`; `nothing` keeps the strategy's own (the strategy
+  field stays the default, ruling 3 of the coordinator). No new stops type. A cache's `reinit!(…; stops)` takes stops of
+  the type `init` was given (another is an `ArgumentError`, as for `rng`).
+- 2026-11-27 (front-end gaps, PS N2): `fixed_variables(f, u0)` is the block contract's held set, read at the guess
+  once per `solve`, `init` and `reinit!`; its default is `fixed_variables(f)` (default `nothing`). A bundle whose held
+  set depends on its start states every variable and declares the held ones. A cache's `reinit!` to a guess whose held
+  set differs rebuilds the LM, or refuses with an `ArgumentError` when the rebuilt LM has another type (none held
+  against some held: NLLSsolver's unfixed mask is part of the type); the one-shot task-kept problem re-seeds only on the
+  same held set. (This required threading `u0` through refine.jl's `_block_lm_problem`/`_reseed_block_lm!`.)
+- 2026-11-27 (front-end gaps, ruling 1, audit LODR N1): a `BlockCoordinateDescent` state is never the problem's
+  context: `RefineProblem(prob, θ₀, state)` is refused. The one-shot `solve` reads the method's `init_state!(method,
+  prob, θ₀)` and builds no cache (a method holds its own buffers: Estimation's `PosteriorIrlsMethod` gains the field
+  `state` … — SUPERSEDED the same day, lead's review: no state in an algorithm either). A cache owns the state and
+  `reinit!(c, θ₀; alg)` re-seeds it through the hook's new form `init_state!(state, method, prob, θ₀)` (default: a new
+  state) — zero allocation for an in-place re-seed, `solve!` inferred. `init_state!` joins `CONTRACT_GENERICS`.
+  Estimation's runs hold a `BlockCoordinateDescent` cache in their workspace: `posterior_irls!` in the `LoBuffers`
+  (`bcd`, one per cache type, typed by `init`'s inferred return; a workspace built for one solve, or pre-allocated by
+  type, uses the task's), `ResidualMixture` and `DivisionCameraFit` one per fit (the division legs `reinit!` it at the
+  leg's start; a capped leg's continuation starts afresh at its last iterate, which under the parameter-change stop is
+  the continued run). `PosteriorIrlsMethod`'s workspace `lo_ws` is the buffers the state lives on (`LoBuffers`, a fit's
+  `_IrlsBuffers`); its `init_state!` returns the state there (the local optimizer's, seeded by `posterior_irls!`) or
+  builds it at the guess (a fit's). Bit-identical.
+- 2026-11-27 (front-end gaps, round 2, the perf helper's diagnosis): a `Ransac`/`LocalOptimization` cache checks the
+  scorer–workspace composition (`check_workspace`, `check_composition`) at `init` and at a `reinit!` that changes the
+  algorithm, the stops or the workspace, never per `solve!`; a one-shot solve (`__solve`) builds its workspace for that
+  solve alone, its refit slot holding the task's chart-LM refit caches (one per problem type and row count, VGC's
+  `task_buffers`, as Core's own one-shot chart refine shares its LM workspace) and its posterior BCD cache the task's;
+  `RansacWorkspace` takes its minimal sample size as `Val(k)`. No lm_core.jl change was needed. Core's dead private
+  `_mixture_ecm!` is deleted.
+- 2026-11-27 (front-end gaps, ruling 3, audit Core N3): `ConsensusScale(scoring)` is Core's (one owner; moved from
+  Estimation, which no longer exports it), with two problems: `EstimationProblem(SquaredScale, residuals, (; order,
+  inlier_count, model_dof, codimension))` (the retired `consensus_s2`'s computation, `u = ŝ²`) and `EstimationProblem(
+  SquaredScale, f, (; model))` on any constraint problem (its cache's score buffers in Float32, as a RANSAC workspace's).
+  Chosen: the `SquaredScale` tag, not `NoiseScale` — the 1B G-m ruling's (ŝ² is a squared scale, and a linear `u` would
+  not replay `===`). `consensus_s2` is in RETIRED_NAMES; Core's inner loops (`consensus_set`, the Student-t scorer's
+  decision boundary) call the private `_consensus_s2`. Bit-identical.
+- 2026-11-27 (front-end gaps, ruling 6, lead's correction): no public ECM helper. `mixture_ecm!` stays retired;
+  LocalOptimizationDoneRight's `_mixture_ecm_cycle!` is replaced by its own composition of Core's four public updates
+  in order, `square_distances!(sq_distances(pws), r, n); update_weights!(pws, n); update_scale!(pws, n);
+  update_inlier_prior!(pws, n)` — no gap, Core unchanged.
+- 2026-11-27 (front-end gaps, audit Core N4): the Jacobi preconditioner is configuration: `CGLS(; preconditioner)` and
+  `NormalCG(; preconditioner)` hold it (the normal matrix's diagonal, `nothing` none); `PenalizedLeastSquaresProblem`
+  and `NormalEquationsProblem` hold data only (their `diagonal` keyword is gone, a `MethodError`). Bit-identical.
+- 2026-11-27 (front-end gaps, audit LODR N2): `loss_family` returns `LossFamily.T`, an isbits `@enum` read qualified
+  (`LossFamily.tls`), as `OptimizationPath` (G-r); `@lo_registry` refuses a Symbol in a row's loss-family column.
+- 2026-11-27 (front-end gaps, ruling 7, audit Core N6): `private_name_violations` resolves a stack package's aliases
+  over the whole package (every `.jl` under the package root of the scanned directory: the module file's `import … as`
+  and `const X = Pkg`), so an included file's `VgtkCore.Cameras._x` is a finding.
+- 2026-11-27 (front-end gaps, audit Eval V3/V4): the batched grid selection is `solve(EnsembleProblem(SelectionGrid(P,
+  grid, staged; rng_of), npools · length(grid)), ScoreSelection(scoring), EnsembleKernel(backend))` (G-k's batch form,
+  Estimation owning the batch type), an `EnsembleResult` over the cells in column-major order, over the contract's
+  `select_on_grid!`; `ScoreSelection{S}` is unbound so a grid family of another package selects through it.
+  `guarded_refit` catches nothing: only an external refiner's throw is caught, in the external path. NOT done: reading
+  a refit's success by `successful_retcode(r)` — a local optimization that spends its budget, `(MaxIters,
+  IterationCap)`, keeps its model, and the evaluation would then fall back to the seed: the refit errors would move.
+  `found_model(r)` stays (owner to rule).

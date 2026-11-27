@@ -444,8 +444,8 @@ optimized by the iteratively reweighted least-squares scheme of Le and Zach
 `TRUNCATED_LE_ZACH` loss. It selects how the truncated loss is optimized, so it
 takes the same `width` as `Irls{TLSShape}`. Like TLS it has no efficiency
 constant, so it takes `width`, not `scale`. A member of the stack's one
-optimization-strategy family: its loss family is TLS's (`:tls`), its path the
-continuation `:gnc` (as LocalOptimizationDoneRight's TLS-LZ arm reports it) and its label `TLS-LZ`.
+optimization-strategy family: its loss family is TLS's (`LossFamily.tls`), its path the
+continuation `OptimizationPath.gnc` (as LocalOptimizationDoneRight's TLS-LZ arm reports it) and its label `TLS-LZ`.
 
 On PoseLib's backend an `optimization_strategy` selects PoseLib's own robust loss, its C loss enum, not Core's
 reweighting loop: `Irls{TLSShape}()`, `Irls{HuberShape}()` and `Irls{CauchyShape}()` are PoseLib's robustified

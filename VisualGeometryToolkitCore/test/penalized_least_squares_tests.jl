@@ -227,7 +227,7 @@ end
 end
 
 @testitem "ToleranceStops: the stop at max(atol, rtol · scale); atol = 0 the relative rule bit for bit" begin
-    using LinearAlgebra: norm, Diagonal
+    using LinearAlgebra: norm, Diagonal, diag
     using SparseArrays: sprandn, sparse, SparseMatrixCSC
     using Random: Xoshiro, randn
     import KernelAbstractions as KA
@@ -271,4 +271,20 @@ end
         capped = solve(prob, alg; stops = ToleranceStops(; max_iter = 3, rtol = 0.0))
         @test capped.stats.nsteps == 3 && (capped.retcode, capped.stop_rule) === (ReturnCode.MaxIters, IterationCap)
     end
+
+    # the Jacobi preconditioner is the ALGORITHM's (Core N4): the problem holds data only, the kernels' diagonal bit for bit
+    dN = Vector(diag(N)); stops = ToleranceStops(; max_iter = 2000, rtol = 1.0e-10)
+    @test fieldnames(PenalizedLeastSquaresProblem) == (:op, :b, :w, :h, :u0) && fieldnames(NormalEquationsProblem) == (:N, :g, :u0)
+    @test CGLS().preconditioner === nothing && NormalCG(; preconditioner = dN).preconditioner === dN
+    @test_throws MethodError PenalizedLeastSquaresProblem(op, b; w, diagonal = dN)
+    @test_throws MethodError NormalEquationsProblem(N, g; diagonal = dN)
+    pc = solve(PenalizedLeastSquaresProblem(op, b; w), CGLS(; preconditioner = dN); stops)
+    kc = VisualGeometryToolkitCore._cgls(op, b; w, diagonal = dN, stops.rtol, stops.atol, stops.max_iter)
+    @test pc.u == kc.x && pc.stats.nsteps == kc.iterations && pc.metadata.relres === kc.relres
+    pn = solve(NormalEquationsProblem(N, g), NormalCG(; preconditioner = dN); stops)
+    kn = VisualGeometryToolkitCore._normal_cg(N, g; diagonal = dN, stops.rtol, stops.atol, stops.max_iter)
+    @test pn.u == kn.x && pn.stats.nsteps == kn.iterations && pn.metadata.relres === kn.relres
+    @test (pn.retcode, pn.stop_rule) === (ReturnCode.Success, ToleranceMet)
+    @test pn.u ≈ N \ g rtol = 1.0e-6
+    @test_throws ArgumentError solve(NormalEquationsProblem(N, g), NormalCG(; preconditioner = -dN); stops)
 end

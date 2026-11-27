@@ -125,7 +125,10 @@ import VisualGeometryToolkitCore: AbstractOptimizationStrategy,
 import VisualGeometryToolkitCore: data_size, codimension, minimal_sample_size, mahalanobis_distances!,
     solver_covariance, provides_solver_covariance, refine!, refit_workspace,
     residual_context, mahalanobis_distance, whitened_residual,
-    locally_optimize!, lo_workspace, lo_width
+    locally_optimize!, lo_workspace, lo_width, with_stops
+# the external refit, run through `LocalOptimization` when the strategy's family is `ExternalRefit`
+using VisualGeometryToolkitCore: RefitFamily, NativeRefit, ExternalRefit, external_workspace, prepare_external!,
+    external_refit!
 # The core optimization strategies and the strategy registry machinery are
 # VisualGeometryToolkitCore's (robust/strategies.jl, A2); this package registers its
 # own (TerminalLO) with the same macro and uses the rest internally (it
@@ -136,7 +139,7 @@ using VisualGeometryToolkitCore: Irls, Triggs, LOSS_TAGS, STRATEGY_TAGS, lo_loss
 import VisualGeometryToolkitCore: strategy_loss, lo_tag, lo_defaults, lo_parametric,
     lo_field_from_toml, lo_efficiency_constant_shape
 using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, ScoreBuffers, score_model!,
-    consensus_mask!, consensus_mask, consensus_set, consensus_order, consensus_s2, inlier_count, inlier_probabilities!,
+    consensus_mask!, consensus_mask, consensus_set, consensus_order, inlier_count, inlier_probabilities!,
     scored_model, is_predictive, check_workspace, scoring_workspace, score!,
     scale_prior, outlier_halfwidth, lo_estimate, check_composition,
     EfficiencyConstant, LossWidth, TagRegistry, MsacScoring, RansacScoring, AbstractThresholdScoring, decision_boundary,
@@ -150,7 +153,7 @@ using VisualGeometryToolkitCore: AbstractConstraintProblem, AbstractScoring, Sco
 # Generic block-coordinate-descent loop (hoisted to VGC
 # robust/block_coordinate_descent.jl): the loop + its extension verbs are VGC generics now — `import`
 # so the RVG problem files' method definitions extend the VGC functions.
-import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, update_model!,
+import VisualGeometryToolkitCore: AbstractBlockCoordinateMethod, init_state!, update_model!,
     update_residuals!, post_iteration!, stopping_criterion, stop_reason,
     block_coordinate_result, current_cost, current_s2
 using VisualGeometryToolkitCore: StoppingCriterion, CONTINUE, BlockCoordinateDescent, StopAfterIteration   # the loop's front end, its budget
@@ -224,7 +227,8 @@ import VisualGeometryToolkitCore: __solve, __init, estimator_kind, supports_solv
     block_structure, block_variables, residual_blocks, residual_summary, block_result, with_robustifier, default_stops,
     reinit!
 import CommonSolve: solve!
-using VisualGeometryToolkitCore: SquaredScale   # ConsensusScale's problem tag (the squared scale)
+using VisualGeometryToolkitCore: EnsembleProblem, EnsembleKernel, EnsembleResult, select_on_grid!   # ScoreSelection's batched grid form
+using VisualGeometryToolkitCore: SquaredScale, ConsensusScale   # the consensus set's scale ŝ² (Core's estimator) and its problem tag
 using VisualGeometryToolkitCore: solve, init, AbstractBlockProblem, AbstractFitMetadata,
     normalized_loss_weight, weighted_support_rms, NoiseScale, RowsWithJacobian
 # #21 solver/correspondence layer: the consolidated MinimalSolveProblem is
@@ -300,9 +304,9 @@ export RotationAveraging, FilteredRotationAveraging   # robust rotation averagin
 export ResidualMixture        # the Student-t + uniform mixture of a held model's residuals (classification)
 export RobotWorldHandEyeProblem, RelativePoseProblem   # the reprojection refine of a robot-world calibration; the two-view bundle of a relative pose (block problems)
 export Hyperparameter, GeneralizedCrossValidation   # a hyperparameter's selection (its problem tag), and the penalty weight by generalized cross-validation
-export ConsensusScale   # the consensus scale ŝ² of a model under a scorer (EstimationProblem(SquaredScale, problem, (; model)))
 export LikelihoodRatioSelection   # model selection between refines: the most likely of several seeded local optimizations
 export ScoreSelection   # the best-scoring stored model of a hypothesis pool (EstimationProblem(PoolSelection, pair => R))
+export SelectionGrid   # a staged batch of pools selected at every width of a grid: EnsembleProblem(SelectionGrid(…), n), ScoreSelection
 export PoolSelection   # SimFitPP's tag of a pool's selected model (its loss-width problem's is Core's `LossWidth`)
 export ImageMeasure, SolidAngleMeasure, UniformMeasure   # a camera regression's sample density (CameraRegressionProblem(…; weight))
 public AbstractImageMeasure

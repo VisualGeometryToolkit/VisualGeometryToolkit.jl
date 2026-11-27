@@ -34,7 +34,7 @@ set the local optimization starts from
 ([`ConsensusSet`](@extref VisualGeometryToolkitCore.ConsensusSet),
 [`inlier_count`](@extref VisualGeometryToolkitCore.inlier_count),
 [`consensus_set`](@extref VisualGeometryToolkitCore.consensus_set)), its scale
-([`consensus_s2`](@extref VisualGeometryToolkitCore.consensus_s2)), and the
+([`ConsensusScale`](@extref VisualGeometryToolkitCore.ConsensusScale)), and the
 result's soft weights
 ([`inlier_probabilities!`](@extref VisualGeometryToolkitCore.inlier_probabilities!)).
 
@@ -72,9 +72,13 @@ with_residual_unit
 A pool's best-scoring stored model under a scorer is [`ScoreSelection`](@ref) on the same tag,
 `solve(EstimationProblem(PoolSelection, pair => R), ScoreSelection(scoring))`; its cache continues a running best
 over a sampling budget (`reinit!(cache; p = (; budget))`), as the sample-budget engine reads it at each checkpoint.
+A staged batch of pools selected at every width of a grid (an evaluation's selection sweep) is one ensemble solve,
+`solve(EnsembleProblem(SelectionGrid(problem_type, grid, staged), npools * length(grid)), ScoreSelection(scoring),
+EnsembleKernel(backend))`, over the scoring's `select_on_grid!` (a grid family of another package implements its own).
 
 ```@docs
 ScoreSelection
+SelectionGrid
 ```
 
 ## Scale priors

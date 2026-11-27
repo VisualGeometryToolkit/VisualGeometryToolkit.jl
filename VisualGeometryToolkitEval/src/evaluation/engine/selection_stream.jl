@@ -1,7 +1,8 @@
 # =============================================================================
 # evaluation/engine/selection_stream.jl — the scene stream of every
-# selection+LO experiment: stage → the experiment's selection grids
-# (VisualGeometryToolkitCore's `select_on_grid!`, a grid family's own kernels) → one
+# selection+LO experiment: stage → the experiment's selection grids (one
+# ensemble solve each: VisualGeometryToolkitEstimation's `ScoreSelection` over a
+# `SelectionGrid`, a grid family's own kernels behind it) → one
 # apply_lo_refits call over `refits_of(idxs_of, scene_index)` (PairCtx built per
 # (pair, spec) for ALL refit specs).
 #
@@ -16,6 +17,9 @@
 # thread schedule and of Julia's version.
 const _SIMFITPP_SEED = Int(_config_default("selection", "simfitpp_seed"))
 _selection_rng(fingerprint, t) = StableRNG(stable_seed(_SIMFITPP_SEED, "simfitpp", fingerprint..., t))
+# The device a staged batch lives on: the staging's own (the `:pool` staging records it), else the stream's backend
+# (or the default device).
+_staged_backend(st, backend) = hasproperty(st, :backend) ? st.backend : something(backend, default_device())
 
 """
     stream_selections(refits_of, T, problem_type, loaders, grids, scoring, backend, batch;
@@ -28,7 +32,8 @@ scenes; residuals = true)`). Per scene: stage each `batch` of pairs once per
 staging kind (VisualGeometryToolkitCore `stage_selection` on `backend`, shared by the
 grids whose scorings declare the same `selection_staging`), evaluate every
 selection grid of `grids` (`key => (widths, scoring)`: the scoring's native
-widths and the scoring itself — VisualGeometryToolkitCore `select_on_grid!`) on it,
+widths and the scoring itself — one `solve(EnsembleProblem(SelectionGrid(…), n), ScoreSelection(scoring),
+EnsembleKernel(backend))`) on it,
 then one [`apply_lo_refits`](@ref) call over `refits_of(idxs_of, scene_index)`
 (`idxs_of[key]` = that grid's per-(pair, column) selections) on the light
 records. `M[label]` holds each refit's per-scene matrix in element type `T`;
@@ -65,9 +70,11 @@ function stream_selections(refits_of::Function, ::Type{T}, problem_type::Type, l
             for (k, (widths, sc)) in grids
                 key = selection_staging(sc)
                 st = get!(() -> stage_selection(key, sub, Rsub; backend), staged, key)
-                idx = Matrix{Int32}(undef, length(sub), length(widths))
-                select_on_grid!(idx, problem_type, sc, widths, st; rng_of = _selection_rng)
-                @views idxs_of[k][bs:be, :] .= idx
+                # every (pair, width) selection of the batch, one ensemble solve (VisualGeometryToolkitEstimation's
+                # `ScoreSelection` over a `SelectionGrid`), on the staging's device
+                r = solve(EnsembleProblem(SelectionGrid(problem_type, widths, st; rng_of = _selection_rng), length(sub) * length(widths)),
+                          ScoreSelection(sc), EnsembleKernel(_staged_backend(st, backend)))
+                @views idxs_of[k][bs:be, :] .= reshape(r.u, length(sub), length(widths))
             end
             staged = nothing
             bs = be + 1

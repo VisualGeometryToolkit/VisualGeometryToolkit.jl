@@ -21,7 +21,7 @@
 #     score_bound(scoring)                     [nothing]   a per-point upper bound of a bounded-sum score
 #     check_workspace(scoring, W)              [nothing]   once at entry
 #   DERIVED (one statement each)
-#     consensus_s2, consensus_set, inlier_probabilities!, score_model!
+#     ConsensusScale, consensus_set, inlier_probabilities!, score_model!
 #
 # Scores: higher is better, comparable within one scoring only. `scores`
 # receives the per-point score the scorer sorts or sums (the squared residual
@@ -246,17 +246,11 @@ Base.resize!(buf::ScoreBuffers, n::Integer) = (resize_buffers!(n, buf.residuals,
 # DERIVED — one statement each
 # =============================================================================
 
-"""
-    consensus_s2(scoring, residuals, order, k; model_dof, d_g) -> Float64
-
-The Student-t scale ŝ² of the consensus set `order[1:k]` under the scorer's
-[`scale_prior`](@ref): `_partition_student_t` of its RSS
-([`partition_rss`](@ref), from the plain `residuals`). `model_dof` is the
-caller's — `m + 1` for a local optimizer's consensus set (the scale's extra
-dof), `m` for a result's σ̂.
-"""
-consensus_s2(scoring, residuals::AbstractVector, order::AbstractVector{Int}, k::Int;
-             model_dof::Integer, d_g::Integer) =
+# THE consensus scale: the Student-t scale ŝ² of the consensus set `order[1:k]` under the scorer's `scale_prior`,
+# `_partition_student_t` of its RSS (`partition_rss`, from the plain `residuals`). `model_dof` is the caller's — `m + 1`
+# for a local optimizer's consensus set (the scale's extra dof), `m` for a result's σ̂. Core's inner loops (a consensus
+# set, the Student-t scorer's decision boundary) call it; every other caller solves `ConsensusScale`.
+_consensus_s2(scoring, residuals::AbstractVector, order::AbstractVector{Int}, k::Int; model_dof::Integer, d_g::Integer) =
     last(
     _partition_student_t(
         scale_prior(scoring), partition_rss(order, residuals, k), k;
@@ -268,15 +262,91 @@ consensus_s2(scoring, residuals::AbstractVector, order::AbstractVector{Int}, k::
     consensus_set(scoring, W, residuals; model_dof, d_g, epoch, score = NaN) -> ConsensusSet
 
 The consensus set of the most recent [`score!`](@ref): its size
-[`inlier_count`](@ref), its scale [`consensus_s2`](@ref) over
+[`inlier_count`](@ref), its scale (the [`ConsensusScale`](@ref) of its residuals) over
 [`consensus_order`](@ref), stamped with `epoch`, carrying that evaluation's
 `score` when the caller has it.
 """
 function consensus_set(scoring, W, residuals::AbstractVector; model_dof::Integer, d_g::Integer, epoch::Integer,
                        score::Real = NaN)
     k = inlier_count(scoring, W)
-    s2 = consensus_s2(scoring, residuals, consensus_order(scoring, W), k; model_dof, d_g)
+    s2 = _consensus_s2(scoring, residuals, consensus_order(scoring, W), k; model_dof, d_g)
     return ConsensusSet(; count = k, s2, epoch, score)
+end
+
+# =============================================================================
+# ConsensusScale — the consensus set's scale as an estimator
+# =============================================================================
+
+"""
+    ConsensusScale(scoring::AbstractScoring)
+
+A [`ClosedFormKind`](@ref): the Student-t scale ŝ² of a consensus set under the scorer's [`scale_prior`](@ref)
+(`_partition_student_t` of the set's residual sum of squares), the scale a consensus-anchored loss runs at. `u` is ŝ²
+(the [`SquaredScale`](@ref) tag: a squared scale, never a linear σ̂), floored at `eps()`. Two problems:
+
+- `solve(EstimationProblem(SquaredScale, residuals, (; order, inlier_count, model_dof, codimension)),
+  ConsensusScale(scoring))`: the consensus set `order[1:inlier_count]` of the plain `residuals` (the scorer's
+  [`consensus_order`](@ref) and [`inlier_count`](@ref) of the score that produced them) at the caller's `model_dof` —
+  `m + 1` for a local optimizer's consensus set (the scale's extra dof), `m` for a result's σ̂ — and the residual's
+  `codimension`. `n` is `inlier_count`, `(Success, ClosedForm)`.
+- `solve(EstimationProblem(SquaredScale, problem, (; model)), ConsensusScale(scoring))` on a constraint problem
+  (a family problem: `HomographyProblem(cs)`, …): the model's residuals scored by `scoring`, and its consensus set's
+  scale taken at a local optimizer's dof (`minimal_sample_size + 1`) — `scale_s2(consensus_set(…))` of the native
+  loop. `n` the consensus count, `(Success, ClosedForm)`; a consensus set too thin to carry a scale (k* ≤ m + 1) is
+  degenerate: `u = nothing`, `(InitialFailure, NoRule)`, `n = 0`. The one scale source for an engine that cannot run in
+  the native loop (an external refiner's adaptive-width arm), never a loss-width-window plug-in. Its workspace is the
+  cache's: `c = init(prob, ConsensusScale(scoring))` once, then `solve!(reinit!(c; p = (; model), alg =
+  ConsensusScale(scoring′)))` per model (`alg`: the same scorer type at another width); the reuse allocates nothing.
+"""
+struct ConsensusScale{S <: AbstractScoring} <: AbstractEstimationAlgorithm
+    scoring::S
+end
+estimator_kind(::ConsensusScale) = ClosedFormKind()
+
+const _ConsensusResiduals = NamedTuple{(:order, :inlier_count, :model_dof, :codimension)}
+function __solve(prob::EstimationProblem{SquaredScale, <:AbstractVector{<:Real}, <:_ConsensusResiduals}, alg::ConsensusScale)
+    p = prob.p
+    k = Int(p.inlier_count)
+    0 <= k <= min(length(p.order), length(prob.f)) || throw(ArgumentError(string("ConsensusScale: the inlier count ", k,
+        " is outside the consensus order (", length(p.order), " entries) or the residuals (", length(prob.f), ")")))
+    s2 = _consensus_s2(alg.scoring, prob.f, p.order, k; p.model_dof, d_g = p.codimension)
+    return FitResult(max(s2, eps()), ReturnCode.Success, ClosedForm, SolveStats(), NaN, k, nothing)
+end
+
+# The family-problem form's cache: the problem, the scorer, the model and the score buffers the residuals and the
+# score are written to (the stack's default storage precision, Float32, as a RANSAC workspace's).
+mutable struct _ConsensusScaleCache{P, S, B, M}
+    problem::P
+    scoring::S
+    buf::B
+    model::M
+end
+function __init(prob::EstimationProblem{SquaredScale, <:AbstractConstraintProblem, <:NamedTuple{(:model,)}}, alg::ConsensusScale)
+    f = prob.f
+    n = data_size(f)
+    buf = ScoreBuffers{Float32}(n, scoring_workspace(alg.scoring, n, codimension(f)))
+    return _ConsensusScaleCache(f, alg.scoring, buf, prob.p.model)
+end
+function reinit!(c::_ConsensusScaleCache{P, S}; f = c.problem, p = (; model = c.model), alg = nothing) where {P, S}
+    f isa P || throw(ArgumentError("reinit!: the cache holds a $P; init a new cache for a $(typeof(f))"))
+    data_size(f) == data_size(c.problem) || throw(DimensionMismatch(
+        "reinit!: the cache's buffers hold $(data_size(c.problem)) data; init a new cache for $(data_size(f))"))
+    c.problem = f
+    c.model = p.model
+    alg === nothing || (c.scoring = (alg::ConsensusScale{S}).scoring)
+    return c
+end
+# The model's residuals and score on the buffers, its consensus set's Student-t scale at a local optimizer's dof,
+# floored at eps; degenerate on a set too thin. One result type for both branches (a scale, or none): the cache's
+# `solve!` is type-stable and allocates nothing.
+function solve!(c::_ConsensusScaleCache)
+    problem, scoring, buf = c.problem, c.scoring, c.buf
+    _, k = score_model!(buf, scoring, problem, c.model)
+    m = minimal_sample_size(problem) + 1
+    k > m || return FitResult{Union{Float64, Nothing}}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+    s2 = _consensus_s2(scoring, buf.residuals, consensus_order(scoring, buf.scoring_ws), k;
+                       model_dof = m, d_g = codimension(problem))
+    return FitResult{Union{Float64, Nothing}}(max(s2, eps()), ReturnCode.Success, ClosedForm, SolveStats(), NaN, k, nothing)
 end
 
 """

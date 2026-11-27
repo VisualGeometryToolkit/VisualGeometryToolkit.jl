@@ -1064,3 +1064,18 @@ These are done in Core 0.14, each with its own commit:
   allocations, inferred); bits `===`.
 - 2026-11-27 (lead, C15): `stop_tolerance(stops::ToleranceStops, scale)` is public, the one owner of a ToleranceStops run's
   bound; a solver outside Core reads it rather than restating `max(atol, rtol · scale)`.
+- 2026-11-27 (coordinator's ruling 1, the `rw_l2_M20` runtime gate): the row-refine benchmark at M = 20 (the
+  GC-dominated path; 5 steps, 5360 residuals) is gated on the minimum of a batch and on allocations, not on the median.
+  Its median is set by when a collection lands (≈107–112 MB a solve), and the kept problem of A3 (the 2026-11-26 entry)
+  keeps more alive between solves (62.4 MB live after a GC against 57.5 MB), which is the designed trade-off of keeping
+  one problem per task. Measured in one session, base then new, two rounds (`_wt-joint-base` against `_wt-joint2`):
+  minimum 231.9 / 171.5 ms (base) against 173.2 / 173.9 ms (new), the best of each +1.0 % (gate 3 %); bytes a solve
+  112 027 928 → 106 742 616; allocations a solve 6079 → 5848; bits `===` (the same `u` hash, `d879b5b6808a0bd7`, in
+  both). Every other touched path stays on the median gate.
+- 2026-11-27 (coordinator's ruling 3, audit L11): a LODR local-optimization strategy's budget `max_iter` is a field of
+  the strategy, as an algorithm argument should be, and becomes the stops where the strategy solves:
+  `solve(RefineProblem(problem, model, state), BlockCoordinateDescent(method); stops = StopAfterIteration(lo.max_iter))`
+  (LODR `strategies/irls.jl`, `strategies/essential.jl`, `lift/lifts.jl`). StuTuBCD's `tol` (the least score gain that
+  keeps it iterating) is a setting of its BCD method (`ScoreBcdMethod`), the method's own progress test, as Core's
+  block-coordinate descent places it. No second stops type and no keyword bag exist, so L11 is closed as satisfied by
+  this design.

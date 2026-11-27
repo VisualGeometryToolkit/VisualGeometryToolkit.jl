@@ -323,8 +323,7 @@ struct PhotonTransfer <: AbstractEstimationAlgorithm
     significance::Float64
     # the one owner of the configuration's validation: the kernels take its fields as they are
     function PhotonTransfer(block::Integer, normalize::Bool, significance::Real)
-        0 < significance < 1 || throw(ArgumentError("PhotonTransfer: significance is in (0, 1), got $significance"))
-        return new(Int(block), normalize, Float64(significance))
+        return new(Int(block), normalize, checked_float(significance, 0 < significance < 1, "PhotonTransfer: significance is in (0, 1)"))
     end
 end
 PhotonTransfer(; block::Integer = 8, normalize::Bool = true, significance::Real = _PTC_SIGNIFICANCE) =

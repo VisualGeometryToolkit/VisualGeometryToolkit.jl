@@ -74,7 +74,7 @@ _core_tol(::Type{T}) where {T <: AbstractFloat} = sqrt(eps(T))
 @inline _contraction_settled(δ2, scale2, ::Type{S}) where {S} = !(δ2 > (8 * eps(S))^2 * max(scale2, one(S)))
 
 # The structure-blind inverse of an in-plane distortion `d` at `xd`: Core's one
-# static LM (`_static_lm`, spline_lens.jl) on the residual d(x) − x_d from `seed`
+# static LM (`_static_lm`, robust/lm_core.jl) on the residual d(x) − x_d from `seed`
 # (x_d by default), with the distortion's analytic Jacobian (`_distort_jacobian`,
 # its `transform_deriv`) — no Dual in the loop — and COLMAP's step clipping
 # (relative and absolute radius 0.1, IterativeUndistortion) as the LM's step

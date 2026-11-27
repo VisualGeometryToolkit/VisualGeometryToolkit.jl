@@ -233,8 +233,7 @@ function _chart_refit(ws, f, ch, rows::R, weights; robustifier = nothing, stops:
     lm = _ZeroWeightRows(rows(f, ch, sqrt_weights(ews)), sqrt_weights(ews), nrows)
     r = robustifier === nothing ? _lmsolve_chart!(ews, lm, stops, damping; callback) :
         _lmsolve_chart!(ews, lm, robustifier, Val(codimension(f)), stops, damping; callback)
-    x = r.u
-    stats = SolveStats(; nsteps = r.stats.nsteps)
+    x, stats = r.u, r.stats
     any(isnan, x) && return FitResult(nothing, ReturnCode.Failure, NonFinite, stats, NaN, 0, nothing)
     return FitResult(chart_model(f, recenter(ch, x)), r.retcode, r.stop_rule, stats, NaN, 0, nothing)
 end
@@ -633,29 +632,18 @@ lm_backend_refine(backend::AbstractSolverBackend, u0, data, p, alg; kw...) = thr
 """
     solve(RefineProblem(data, u0[, p]), LevenbergMarquardt(backend; optimization_strategy, damping); stops, scale | width)
         -> FitResult
-
-The refine of the guess `u0` on raw data (a correspondence vector, not a problem), run by a solver backend:
-[`lm_backend_refine`](@ref)`(backend, u0, data, p, alg; stops, scale, width)`, which the backend's package implements
-(PoseLib.jl: `LevenbergMarquardt(PoseLibSolver())`). `stops` defaults to `LmStops()`; a box (`lb`, `ub`) is refused, as
-by every host LM.
-"""
-function __solve(prob::RefineProblem{<:AbstractVector}, alg::LevenbergMarquardt;
-        scale = nothing, width = nothing, stops::LmStops = LmStops())
-    _refuse_box(prob, :LevenbergMarquardt)
-    check_honored_stops(alg.backend, stops)
-    return lm_backend_refine(alg.backend, prob.u0, prob.f, prob.p, alg; stops, scale, width)
-end
-
-"""
     solve(RefineProblem(f::AbstractConstraintProblem, u0[, p]), LevenbergMarquardt(backend; optimization_strategy, damping);
           stops, scale | width) -> FitResult
 
-The refine of a family problem `f` by a solver backend other than the native one: [`lm_backend_refine`](@ref)`(backend,
-u0, f, p, alg; stops, scale, width)`, the backend's own residual on the problem's data (its package, or the package that
-owns both the backend's binding and the problem, implements the method). `stops` must state only fields the backend
-honours ([`honored_stops`](@ref)).
+The refine of the guess `u0` run by a solver backend other than the native one: [`lm_backend_refine`](@ref)`(backend,
+u0, data | f, p, alg; stops, scale, width)`, which the backend's package implements (PoseLib.jl:
+`LevenbergMarquardt(PoseLibSolver())`). On raw data (a correspondence vector, not a problem) the guess's type and the
+data's shape select the backend's residual; on a family problem `f` it is the backend's own residual on the problem's
+data (its package, or the package that owns both the backend's binding and the problem, implements the method).
+`stops` defaults to `LmStops()` and must state only fields the backend honours ([`honored_stops`](@ref)); a box (`lb`,
+`ub`) is refused, as by every host LM.
 """
-function __solve(prob::RefineProblem{<:AbstractConstraintProblem}, alg::LevenbergMarquardt;
+function __solve(prob::RefineProblem{<:Union{AbstractVector, AbstractConstraintProblem}}, alg::LevenbergMarquardt;
         scale = nothing, width = nothing, stops::LmStops = LmStops())
     _refuse_box(prob, :LevenbergMarquardt)
     check_honored_stops(alg.backend, stops)
@@ -803,7 +791,7 @@ default_optimization_strategy(::AbstractRowProblem) = nothing
 default_algorithm(::RefineProblem{<:AbstractRowProblem}) = LevenbergMarquardt()
 default_algorithm(::RefineProblem{<:AbstractChartProblem}) = LevenbergMarquardt()
 
-# The LM's robustifier of a parsed refine, at `d` rows per datum: `nothing` for least squares.
+# The LM's robustifier of a parsed refine (or bundle loss): `nothing` for least squares.
 _spec_robustifier(spec) = spec.strategy === nothing ? nothing :
     loss_robustifier(strategy_loss(spec.strategy)(), sqrt(sq_loss_width(spec.loss)))
 
@@ -916,12 +904,14 @@ end
 function reinit!(c::_RowRefineCache{F, N}, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         alg = nothing, scale = nothing, width = nothing) where {F, N}
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine reads no context `p`"))
+    f === c.f || _check_kept_chart(c.ews, chart_size(f)...)   # new data: their chart must be the kept workspace's
+    u = SVector{N, Float64}(u0)
     if alg !== nothing || scale !== nothing || width !== nothing
         a = something(alg, LevenbergMarquardt(c.spec.strategy, c.damping, NativeSolver()))
         c.spec = _row_spec(f, a; scale, width)
         c.damping = a.damping
     end
-    c.f = f; c.u0 = SVector{N, Float64}(u0); c.stops = stops
+    c.f = f; c.u0 = u; c.stops = stops
     return c
 end
 
@@ -985,18 +975,31 @@ _chart_problem_lm(ews::_ManifoldLmWorkspace, lm, stops, damping, callback) =
     _lmsolve_chart!(ews, lm, stops, damping; callback)
 function _chart_problem_lm(ews::_ManifoldLmWorkspace{0}, lm, _stops, _damping, _callback)
     x = SVector{0, Float64}()
-    return FitResult(x, ReturnCode.Success, ClosedForm, SolveStats(; nsteps = 0), NaN, 0,
-                     (; objective = 2 * residual_cost!(ews.r, lm, x)))
+    return closed_form_result(x, 0; metadata = (; objective = 2 * residual_cost!(ews.r, lm, x)))
 end
 _chart_problem_stationary(ews::_ManifoldLmWorkspace, lm, x, stops) = () -> is_stationary(ews, lm, x, stops)
 _chart_problem_stationary(::_ManifoldLmWorkspace{0}, _lm, _x, _stops) = () -> true
 
 function reinit!(c::_ChartProblemCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops, alg = nothing)
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine reads no context `p`"))
+    # every refusal before any field moves: the problem's own workspace follows its data, and the chart of new data
+    # must be the cache's (its LM workspace was built at `init`'s; the same data keep their workspace and chart)
+    cws = c.cws
+    if f !== c.f
+        cws = chart_workspace(f, u0)
+        _check_kept_chart(c.ews, chart_size(f, u0, cws)...)
+    end
     alg === nothing || (c.damping = alg.damping)
-    f === c.f || (c.cws = chart_workspace(f, u0))   # the problem's own workspace follows its data
-    c.f = f; c.u0 = u0; c.stops = stops
+    c.cws = cws; c.f = f; c.u0 = u0; c.stops = stops
     return c
+end
+# A cache's `reinit!` keeps its chart LM workspace: the new problem's chart must have its rows and dimension.
+function _check_kept_chart(ews::_ManifoldLmWorkspace{N}, rows::Int, dof::Val) where {N}
+    held = length(sqrt_weights(ews))
+    (rows == held && dof === Val(N)) || throw(DimensionMismatch(string("reinit!: the cache holds a chart LM of ", held,
+        " rows and ", N, " coordinates, the new problem ", rows, " rows and the chart dimension ", dof,
+        " (init a new cache for a problem of another size)")))
+    return nothing
 end
 
 # --- a block problem (a bundle) --------------------------------------------------
@@ -1212,7 +1215,7 @@ function _block_lm_problem(f::AbstractBlockProblem, u0, vars, blocks, loss, damp
 end
 # Block `c` robustified at the parsed robust `loss` (its frozen loss_robustifier at unit √weight).
 _robustified_block(c, loss) =
-    with_robustifier(c, 1.0, loss_robustifier(strategy_loss(loss.strategy)(), sqrt(sq_loss_width(loss.loss))))
+    with_robustifier(c, 1.0, _spec_robustifier(loss))
 
 # The task's kept multi-block LM of the ONE-SHOT refine (`solve`), under the one reuse policy (`task_buffers`): one per
 # task and kind — the bundle's type, its variables' and blocks' element types, the parsed loss's and the damping's

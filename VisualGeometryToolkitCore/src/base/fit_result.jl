@@ -114,10 +114,9 @@ end
 @inline FitResult(u::U, code::ReturnCode.T, rule::StopRule, stats::SolveStats, rms::Real, n::Integer, metadata; kwargs...) where {U} =
     FitResult{U}(u, code, rule, stats, rms, n, metadata; kwargs...)
 
-# THE rebuild: `r` with the estimate `u` (of the result model type `U`), the problem and the algorithm given, every
-# other field as it was.
-@inline _rebuild(r::FitResult, ::Type{U}, u, prob, alg) where {U} =
-    FitResult{U}(u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, r.metadata; resid = r.resid, prob, alg, original = r.original)
+# `r` with the estimate `u` (of the result model type `U`), every other field as it was: `map_estimate`'s rebuild.
+@inline _with_estimate(r::FitResult, ::Type{U}, u) where {U} =
+    FitResult{U}(u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, r.metadata; resid = r.resid, r.prob, r.alg, original = r.original)
 
 """
     with_problem(r::FitResult, prob, alg) -> FitResult
@@ -155,9 +154,9 @@ other result's `u` is concrete and simply mapped.
 """
 function map_estimate(f, r::FitResult{P}) where {P}
     E = r.u
-    Nothing <: P || (u = f(E); return _rebuild(r, typeof(u), u, r.prob, r.alg))
+    Nothing <: P || (u = f(E); return _with_estimate(r, typeof(u), u))
     N = Base.promote_op(f, Base.nonnothingtype(P))   # f's image of the present model (f needs no `nothing` method)
-    return _rebuild(r, Union{N, Nothing}, E === nothing ? nothing : f(E), r.prob, r.alg)
+    return _with_estimate(r, Union{N, Nothing}, E === nothing ? nothing : f(E))
 end
 
 # The cross-type contract quantities a result answers through its metadata: read by these functions ONLY

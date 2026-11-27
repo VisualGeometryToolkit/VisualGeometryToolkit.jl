@@ -422,6 +422,7 @@ default_algorithm(prob::AbstractEstimationProblem) = throw(ArgumentError(_no_def
         push!(algs, string(nameof(A)))
     end
     sort!(unique!(algs))
-    return string("a ", nameof(typeof(prob)), " of a ", model_type(prob), " has no default algorithm: name one — ",
+    of = applicable(model_type, prob) ? string(" of a ", model_type(prob)) : ""   # a problem may state no model type
+    return string("a ", nameof(typeof(prob)), of, " has no default algorithm: name one — ",
         isempty(algs) ? "no loaded algorithm solves it" : join(algs, ", "), " (solve(problem, algorithm))")
 end

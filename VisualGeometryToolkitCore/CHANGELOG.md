@@ -346,6 +346,12 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   so a solver outside Core (PanoramaStitching's bisection) reads the one rule instead of restating it.
 
 ### Changed
+- **Whole-branch review (2026-11-27; bits `===`).** A row or chart-problem LevenbergMarquardt cache's `reinit!` refuses
+  (`DimensionMismatch`) new data whose chart has other rows or another dimension than the workspace `init` built,
+  before any field moves (it ran the LM on the old workspace: a `BoundsError` or truncated rows); the same data keep
+  their chart, unchecked (the reuse path is unchanged). `solve(problem)` of a
+  problem that states no `model_type` (an `EnsembleProblem`) is the documented `ArgumentError` listing the algorithms
+  (was a `MethodError` from the message builder).
 - **Hot-path allocations and inference (2026-11-27; bits `===`, spec §9).** `check_honored_stops` allocates nothing on
   a call that refuses nothing (the fields compared as a tuple; the refused fields listed only on the throw). The chart-problem
   refine (`AbstractChartProblem`) solves behind a function barrier at its chart, so a chart whose type is decided at run

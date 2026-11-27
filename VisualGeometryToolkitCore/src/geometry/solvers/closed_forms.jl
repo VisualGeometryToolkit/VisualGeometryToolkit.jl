@@ -208,7 +208,7 @@ weight drops the point. Without them every point weighs 1. Throws
 non-finite weight, or a `weights` whose length differs from `points`'.
 
 For points carrying their own covariances, VisualGeometryToolkitEstimation's
-`the heteroscedastic line fit` (an iterative weighted fit) applies.
+heteroscedastic line fit (an iterative weighted fit) applies.
 
 The default algorithm of a line from points.
 """

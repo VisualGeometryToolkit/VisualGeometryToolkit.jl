@@ -461,7 +461,7 @@ const _POSELIB_STRATEGY_DEFAULTS = Dict{String, Any}("le_zach" => Dict{String, A
 
 #   type     tag        path    scale    family   label        shape     parametric
 const _POSELIB_STRATEGY_ROWS = (
-    (LeZach, "le_zach", VisualGeometryToolkitCore.OptimizationPath.gnc,  nothing, nothing, raw"TLS-LZ", TLSShape, false),
+    (LeZach, "le_zach", VgtkCore.OptimizationPath.gnc,  nothing, nothing, raw"TLS-LZ", TLSShape, false),
 )
 
 """
@@ -473,7 +473,7 @@ A caller that reads strategies from TOML merges it with the core's,
 `merge(VisualGeometryToolkitCore.STRATEGY_TAGS, PoseLib.POSELIB_STRATEGY_TAGS)` (or with
 VisualGeometryToolkitEstimation's `OPTIMIZATION_STRATEGY_TAGS`).
 """
-const POSELIB_STRATEGY_TAGS = VisualGeometryToolkitCore.@lo_registry _POSELIB_STRATEGY_ROWS defaults = _POSELIB_STRATEGY_DEFAULTS
+const POSELIB_STRATEGY_TAGS = VgtkCore.@lo_registry _POSELIB_STRATEGY_ROWS defaults = _POSELIB_STRATEGY_DEFAULTS
 
 public POSELIB_STRATEGY_TAGS
 
@@ -641,7 +641,7 @@ const _BEARING_REMEDY = "Back-project with the camera: `backproject_with_jacobia
 const _Mat33 = SMatrix{3, 3, Float64, 9}
 
 # A 3×3 matrix (or a rotation) into the C wrapper's column-major (Eigen) buffer, and a translation into its buffer:
-# small heap vectors handed to `ccall` (which the compiler does not keep on the heap where they do not escape).
+# small heap vectors handed to `ccall` (a buffer C reads escapes, so each is a heap allocation).
 _colmajor9(A) = collect(Float64, vec(_Mat33(A)))
 _c_translation(t) = collect(Float64, SVector{3, Float64}(t))
 

@@ -663,21 +663,19 @@ _chart_problem_type(::Type{P}, ::Type{B}, d::D) where {P, B, D <: LmDamping} =
     return new
 end
 
-# THE solve, every form's: NLLSsolver under the stop settings on the kept problem and cache, its stop code
-# (`nlls_stop_code`) and termination record (`nlls_termination`) under THE success rule (owner ruling, Core 0.11.0):
+# THE solve, every form's: NLLSsolver under the stop settings on the kept problem and cache, and its termination record
+# (`nlls_termination`) under THE success rule (owner ruling, Core 0.11.0):
 # a stop on a TOLERANCE — the relative cost decrease (`ftol`), the step size (`xtol`, absolute, or `xtol_rel`) — is
 # converged, `Success`, whatever the gradient there (whether the tolerance is too loose is the configuration's
 # question). The stationarity postcondition (`postcondition(exact)`, at the returned point, its exact-fit threshold
 # the final point's `_exact_fit_threshold` floored by `stops.residual_resolution`²: `_FinalRounding`) decides only the
 # stops that are no tolerance: the consecutive-rejection cap (and a callback-free stop of no rule: the iteration after a
 # cost disagreement, NLLSsolver's bit 10 alone, Core 0.11.1). A stop it fails is
-# `_LM_STALLED`. `nlls_termination` is the one decider: it reads the postcondition (lazily) only where it decides, and the
-# stop code follows its record.
+# `ReturnCode.Stalled`. `nlls_termination` is the one decider: it reads the postcondition (lazily) only where it decides.
 @inline function _lm_run!(p::_LmProblem, stops::LmStops, callback::F, postcondition::G) where {F, G}
     result = NLLSsolver.optimize!(p.problem, _nlls_options(stops, p.damping), p.unfixed, _RelativeIncrementStop(callback, stops.xtol_rel, p.unfixed), p.cache)
     record = nlls_termination(result, () -> postcondition(_FinalRounding(stops.residual_resolution))::Bool)
-    code = record[1] === ReturnCode.Stalled ? _LM_STALLED : nlls_stop_code(result.termination)
-    return result, code, record
+    return result, record
 end
 
 # THE exact-fit threshold (Core 0.10.4) — of the host LM's success rule and of `_static_lm`'s, one derivation:
@@ -751,8 +749,7 @@ const _NLLS_NONFINITE_BITS = (0, 1, 4, 5, 11, 12)
     nlls_stop_code(bits::Integer) -> Int
 
 THE decoder of NLLSsolver's termination bits (`result.termination`, listed at
-`_nlls_stop_reasons`) into one stop code — the one both the chart LM's code
-(`_lmsolve_chart!`'s `converged`) and `nlls_termination` are views
+`_nlls_stop_reasons`) into one stop code — the one `nlls_termination` is a view
 of, and the one a caller running its own `NLLSsolver.optimize!` reads (with
 `_nlls_stop_reasons` for every bit that is set). One order, the first
 that applies:
@@ -895,9 +892,7 @@ const _LM_MAX_TIME = -4
 """
     _LM_STALLED
 
-The code `_lmsolve_chart!` returns in place of the tolerance-free stop
-(`4`: the rejection cap, a stop of no rule) when the returned point fails the
-stationarity test, and `nlls_stop_code` returns for a step-size stop at a non-finite trial (a NaN wall): `-2`; its
+The stop code `nlls_stop_code` returns for a step-size stop at a non-finite trial (a NaN wall): `-2`; its
 record is `ReturnCode.Stalled` (the rule `RejectionCap`/`NoRule`, or `NonFinite` at a NaN wall). A tolerance stop
 at a finite step (`1`, `2`) is converged without the test (Core 0.11.0).
 """
@@ -977,7 +972,7 @@ function _lmsolve_chart!(ews::_ManifoldLmWorkspace{N}, lm::L, stops::LmStops = L
     end
     run.blocks[1].state.lm = lm
     run.variables[1] = u0
-    result, _, record = _lm_run!(run, stops, _nlls_callback(callback),
+    result, record = _lm_run!(run, stops, _nlls_callback(callback),
         exact -> _lm_stationary(ews, lm, run.variables[1], stops.stationarity_tol, exact))
     return _lm_result(run.variables[1], result, record)
 end
@@ -1066,7 +1061,7 @@ function _lmsolve_chart!(
     state = run.blocks[1].state
     state.lm = lm; state.kernel = robustifier; state.rows = false; state.jac = false
     run.variables[1] = u0
-    result, _, record = _lm_run!(run, stops, _nlls_callback(callback),
+    result, record = _lm_run!(run, stops, _nlls_callback(callback),
         exact -> _blocks_stationary!(ews.g, ews.w, _CHART_OFFSETS, run.blocks, run.variables, _ONE_FREE, stops.stationarity_tol, exact))
     x = run.variables[1]
     _robust_rows!(state, x)            # the solver's last evaluation may have been a rejected trial
@@ -1095,7 +1090,7 @@ function _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb::F = NLLS
     _prepare_evaluation!(f, p)
     out === nothing &&
         return FitResult(p.variables, ReturnCode.Failure, NonFinite, SolveStats(), NaN, 0, (; objective = NaN))
-    result, _, record = out
+    result, record = out
     return _lm_result(p.variables, result, record)
 end
 

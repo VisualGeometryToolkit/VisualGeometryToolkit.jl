@@ -1269,3 +1269,8 @@ These are done in Core 0.14, each with its own commit:
   (`_linearized_block`) with every variable selected (`_EveryVariable`, which compiles the full evaluation only), and
   `_full_block_jacobian` is the one `computeresjac(static(2ⁿ − 1))` of every reader (the stall postcondition's
   accumulation, `nlls_rows`). Bits `===` (the golden records in both modes).
+- 2026-11-27 (whole-branch review, Core/PoseLib): a row or chart-problem LevenbergMarquardt cache's `reinit!` to NEW
+  data checks the new chart against the kept LM workspace (`DimensionMismatch`, before any field moves); the same data
+  keep their workspace and chart, unchecked, so `solve!(reinit!(c, u0))` allocates as before. The two backend
+  `__solve` methods of a `LevenbergMarquardt` (raw data, a family problem) are one method on their `Union`; `_lm_run!`
+  returns `(result, record)` (the stop code no caller read is gone; `nlls_stop_code` stays the decoder). Bits `===`.

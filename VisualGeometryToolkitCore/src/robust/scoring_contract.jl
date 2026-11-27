@@ -310,7 +310,7 @@ function __solve(prob::EstimationProblem{SquaredScale, <:AbstractVector{<:Real},
     0 <= k <= min(length(p.order), length(prob.f)) || throw(ArgumentError(string("ConsensusScale: the inlier count ", k,
         " is outside the consensus order (", length(p.order), " entries) or the residuals (", length(prob.f), ")")))
     s2 = _consensus_s2(alg.scoring, prob.f, p.order, k; p.model_dof, d_g = p.codimension)
-    return FitResult(max(s2, eps()), ReturnCode.Success, ClosedForm, SolveStats(), NaN, k, nothing)
+    return closed_form_result(max(s2, eps()), k)
 end
 
 # The family-problem form's cache: the problem, the scorer, the model and the score buffers the residuals and the
@@ -343,10 +343,10 @@ function solve!(c::_ConsensusScaleCache)
     problem, scoring, buf = c.problem, c.scoring, c.buf
     _, k = score_model!(buf, scoring, problem, c.model)
     m = minimal_sample_size(problem) + 1
-    k > m || return FitResult{Union{Float64, Nothing}}(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+    k > m || return closed_form_result(Union{Float64, Nothing}, nothing, k)
     s2 = _consensus_s2(scoring, buf.residuals, consensus_order(scoring, buf.scoring_ws), k;
                        model_dof = m, d_g = codimension(problem))
-    return FitResult{Union{Float64, Nothing}}(max(s2, eps()), ReturnCode.Success, ClosedForm, SolveStats(), NaN, k, nothing)
+    return closed_form_result(Union{Float64, Nothing}, max(s2, eps()), k)
 end
 
 """

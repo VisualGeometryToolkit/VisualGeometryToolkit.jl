@@ -2,11 +2,11 @@
 # The total-least-squares line (one closed-form step): TotalLeastSquares' kernel
 # =============================================================================
 #
-# Moved up from VisualGeometryToolkitEstimation's unweighted `the heteroscedastic line fit` (taxonomy v2: one
+# Moved up from VisualGeometryToolkitEstimation's unweighted heteroscedastic line fit (taxonomy v2: one
 # deterministic step is an algorithm, and algorithms live here). The weighted
 # form (FIXED weights) is the same one step, so it lives here too; the line fit
 # that REWEIGHTS by per-point covariances along the normal stays
-# VisualGeometryToolkitEstimation's `the heteroscedastic line fit`, built on `tls_line_statistics`.
+# VisualGeometryToolkitEstimation's heteroscedastic line fit, built on `tls_line_statistics`.
 
 # Kernel of [`TotalLeastSquares`](@ref), whose docstring is the one copy of its documentation: `_tls_line(points) -> Uncertain{Line2D{T}}`.
 function _tls_line(points::AbstractVector{<:StaticVector{2}})

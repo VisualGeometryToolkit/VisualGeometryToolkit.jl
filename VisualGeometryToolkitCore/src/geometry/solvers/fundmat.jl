@@ -240,7 +240,7 @@ camera; the z = 1 chart this used to build through K⁻¹ does not exist for a r
 at 90°. `t` is unit (the essential's translation direction).
 
 Ray depth is right in meaning and camera-general, not a rate fix: see
-the recorded negative result beside the triangulation kernel (`_triangulate`, the comment above it in
+the recorded negative result beside the triangulation kernel (`triangulate_bearings`, the comment above it in
 geometry/solvers/fundmat.jl) before re-attempting it as one.
 Moved here from VisualGeometryToolkitEstimation's relative-pose bundle, which
 the evaluation protocol's cheirality also called.

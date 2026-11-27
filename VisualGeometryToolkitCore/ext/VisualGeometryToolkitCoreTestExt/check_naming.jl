@@ -1291,12 +1291,11 @@ function _callee_name(sig)
     return c isa Symbol ? c : nothing
 end
 
-# The last name of a (possibly qualified, possibly parametric) type expression.
-function _type_symbol(x)
-    x isa Expr && x.head === :curly && return _type_symbol(x.args[1])
-    x isa Expr && x.head === :. && length(x.args) == 2 && x.args[2] isa QuoteNode && return _type_symbol(x.args[2].value)
-    return x isa Symbol ? x : nothing
-end
+# The last name of a (possibly qualified, possibly parametric) name or type expression.
+_type_symbol(x::Symbol) = x
+_type_symbol(x::QuoteNode) = x.value isa Symbol ? x.value : nothing
+_type_symbol(x::Expr) = x.head === :. && length(x.args) == 2 ? _type_symbol(x.args[2]) : x.head === :curly ? _type_symbol(x.args[1]) : nothing
+_type_symbol(_) = nothing
 
 # `T{P, Q <: X}`: the type parameters a declaration binds.
 function _type_params!(acc, x, line)
@@ -2401,7 +2400,7 @@ function _r22_contract_test(src::AbstractString, ex)
     any(l -> startswith(lstrip(l), _R22_TEST_MARKER), first(split(src, '\n'), 20)) && return true
     found = Ref(false)
     _visit_lines(ex, Ref(0)) do x
-        x.head === :call && _last_name(x.args[1]) in _R22_CONTRACT_HELPERS && (found[] = true)
+        x.head === :call && _type_symbol(x.args[1]) in _R22_CONTRACT_HELPERS && (found[] = true)
     end
     return found[]
 end
@@ -2452,12 +2451,12 @@ function _r22_hook_rules!(out, f, ex, hooks; offset::Int = 0)
             line[] = x.line
         elseif x isa Expr
             if _is_definition(x) && _is_signature(x.args[1])
-                implements = _last_name(_unwrap_signature(x.args[1]).args[1]) in hooks
+                implements = _type_symbol(_unwrap_signature(x.args[1]).args[1]) in hooks
                 foreach(a -> walk(a, inside || implements), x.args)
                 return nothing
             end
-            x.head === :call && !inside && _last_name(x.args[1]) in hooks &&
-                push!(out, NamingViolation(f, line[] + offset, string(_last_name(x.args[1]), "(…)"), :R22))
+            x.head === :call && !inside && _type_symbol(x.args[1]) in hooks &&
+                push!(out, NamingViolation(f, line[] + offset, string(_type_symbol(x.args[1]), "(…)"), :R22))
             foreach(a -> walk(a, inside), x.args)
         end
         return nothing
@@ -2558,10 +2557,6 @@ function _loaded_algorithm_names()
     end
     return out
 end
-_last_name(x::Symbol) = x
-_last_name(x::QuoteNode) = x.value isa Symbol ? x.value : nothing
-_last_name(x::Expr) = x.head === :. && length(x.args) == 2 ? _last_name(x.args[2]) : x.head === :curly ? _last_name(x.args[1]) : nothing
-_last_name(_) = nothing
 # `const lhs = rhs` as `(lhs, rhs)`, else `nothing`.
 _const_assignment(x::Expr) =
     x.head === :const && length(x.args) == 1 && x.args[1] isa Expr && x.args[1].head === :(=) ? (x.args[1].args[1], x.args[1].args[2]) : nothing
@@ -2571,7 +2566,7 @@ function _alias_rules!(out, f, ex, algorithms)
         a = _const_assignment(x)
         a === nothing && return
         rhs = a[2]
-        n = rhs isa Expr && rhs.head === :call ? _last_name(rhs.args[1]) : _last_name(rhs)
+        n = rhs isa Expr && rhs.head === :call ? _type_symbol(rhs.args[1]) : _type_symbol(rhs)
         n === nothing && return
         called = rhs isa Expr && rhs.head === :call
         if (n in algorithms) || (!called && n in _SOLVE_VERBS)
@@ -2634,7 +2629,7 @@ _closed_type_expr(a) = !(a isa Expr) || !(a.head in (:<:, :>:, :where)) && all(_
 function _named_arity(arities, ref)
     if ref isa Expr && ref.head === :.
         root = _qualifier_root(ref)
-        return get(arities, (get(_PACKAGE_ALIASES, root, root), _last_name(ref)), nothing)
+        return get(arities, (get(_PACKAGE_ALIASES, root, root), _type_symbol(ref)), nothing)
     end
     ks = Set(k for ((_, n), k) in arities if n === ref)
     return length(ks) == 1 ? only(ks) : nothing
@@ -2648,10 +2643,10 @@ function _concrete_alias_rules!(out, f, ex, arities)
         lhs isa Symbol || return
         curly = rhs isa Expr && rhs.head === :curly
         ref = curly ? rhs.args[1] : rhs
-        (ref isa Symbol || (ref isa Expr && ref.head === :.)) && _last_name(ref) !== lhs || return
+        (ref isa Symbol || (ref isa Expr && ref.head === :.)) && _type_symbol(ref) !== lhs || return
         k = _named_arity(arities, ref)
         k == (curly ? length(rhs.args) - 1 : 0) && _closed_type_expr(rhs) &&
-            push!(out, NamingViolation(f, line[], string(lhs, " = ", _last_name(ref), curly ? "{…}" : ""), :R20))
+            push!(out, NamingViolation(f, line[], string(lhs, " = ", _type_symbol(ref), curly ? "{…}" : ""), :R20))
     end
     return out
 end

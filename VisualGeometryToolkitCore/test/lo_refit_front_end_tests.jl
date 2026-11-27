@@ -256,6 +256,13 @@ end
     @test VgtkCore.successful_retcode(rc)
     @test rc.u ≈ SVector(1.5, -1.8, 2.5) atol = 1.0e-8
     @test_throws ArgumentError VgtkCore.chart_size(_GuessSized(pts))   # the one-argument size is never read
+    # a cache's `reinit!` keeps its LM workspace: data or a guess of another chart size is refused, the cache untouched
+    cr = VgtkCore.init(RefineProblem(_CircleRows(CircleLm(pts)), zero(SVector{3, Float64})), LevenbergMarquardt())
+    @test_throws DimensionMismatch VgtkCore.reinit!(cr; f = _CircleRows(CircleLm(pts[1:(end - 1)])))
+    @test VgtkCore.solve!(cr).u ≈ r.u
+    cc = VgtkCore.init(RefineProblem(_GuessSized(pts), SVector(1.0, -2.0, 3.0)), LevenbergMarquardt(; optimization_strategy = nothing))
+    @test_throws DimensionMismatch VgtkCore.reinit!(cc; f = _GuessSized(pts[1:(end - 1)]))
+    @test VgtkCore.solve!(cc).u ≈ rc.u
 end
 
 # A3: the one-shot block refine runs on the task's kept problem of its kind — re-seeded in place on the same structure

@@ -865,8 +865,8 @@ end
     # whose record is Terminated and whose code stays the stop's (never `_LM_STALLED`)
     calls = Ref(0); probe = exact -> (calls[] += 1; false)
     pr = _LmProblem([SVector(1.0e8 + 1.0e4)], rows)
-    _, code, rec = VgtkCore._lm_run!(pr, LmStops(; ftol = 0, xtol = 0), cb, probe)
-    @test rec == (ReturnCode.Terminated, VgtkCore.Callback) && code == 4 && calls[] == 0
+    res, rec = VgtkCore._lm_run!(pr, LmStops(; ftol = 0, xtol = 0), cb, probe)
+    @test rec == (ReturnCode.Terminated, VgtkCore.Callback) && VgtkCore.nlls_stop_code(res.termination) == 4 && calls[] == 0
     # … whatever non-zero value it returns: one that sets the flag 2¹⁵ (-1, 2¹⁵ itself, shifted by NLLSsolver into bit 31)
     # is the callback's stop, never read as the relative step stop
     for t in (-1, 1 << 15, (1 << 15) | 1)
@@ -954,7 +954,7 @@ end
     for (s, x0) in cases
         rows = [_PixelExp(si, truth[1] * exp(truth[2] * si) + truth[3]) for si in s]
         p = _LmProblem([x0], rows)
-        result, _, _ = VgtkCore._lm_run!(p, stops, NLLSsolver.nullcallback, _ -> true)
+        result, _ = VgtkCore._lm_run!(p, stops, NLLSsolver.nullcallback, _ -> true)
         tripped += result.termination & (1 << 10) != 0
         q = _LmProblem([x0], rows)
         sol = _lmsolve_chart!(q, stops)

@@ -1026,3 +1026,29 @@ These are done in Core 0.14, each with its own commit:
   600 boxed allocations a solve there; now 72777 allocations against the base's 73241. The row-refine test item reads
   `CircleLmScene`'s circle rows (one owner): the duplication gate reads tracked files, so the copy surfaced only once
   `lo_refit_front_end_tests.jl` was committed.
+- 2026-11-27 (set 3, C9): `ToleranceStops(; max_iter, rtol, atol = 0.0)` stays the ONE stops type; every solve that
+  takes it stops at `quantity ≤ max(atol, rtol · scale)` through one private rule, `_stop_tolerance` (CGLS and CG:
+  the right-hand side's norm; PathFollowing's Newton: `1 + ‖v‖`; a downstream bisection: its own stated scale).
+  `atol = 0` is bit-identical (`max(0.0, x) === x` for `x ≥ 0` and NaN). PathFollowing honours `atol` too, so the field
+  is inert for no consumer.
+- 2026-11-27 (set 3, C10): R9's tag exemption reads the same algorithm set as R20 — the package's declarations and
+  every LOADED `AbstractEstimationAlgorithm` subtype (`_loaded_algorithm_names`), computed once. The old test that
+  wrote `[photon_transfer]` "without the algorithm" now uses a retired name no loaded algorithm's tag spells.
+- 2026-11-27 (set 3, C12): `VgtkIO.termination_from_legacy(retcode::AbstractString, rule = NoRule)` holds Core 0.13's
+  eleven rows verbatim (`rule` fills `converged`/`stalled`). The spellings are NOT added to `FOREIGN_FORMAT_TOKENS`:
+  that list holds retired names a foreign or stored format owns, and none of the eleven is retired or banned, so an
+  entry would be consulted by no rule (an inert entry); the stored spellings are documented by the reader's table.
+- 2026-11-27 (set 3): `has_nlls_schur()` (public, lm_core.jl) is the stack's one Schur-system detection, a literal
+  `Bool` fixed at compile time (`@eval`), so `_RelposeRun{has_nlls_schur(), …}` stays concrete; Core's
+  `_nlls_features`/`_NLLS_HAS_SCHUR` and Estimation's `_BUNDLE_SCHUR` are deleted (private: no RETIRED_NAMES entry).
+  Named in the stack's `has_<thing>` form (`has_units`, `has_distortion`).
+- 2026-11-27 (set 3, BB #2): `StopWhenIncrementLess{T}(rtol)` is BB's per-blob test bit for bit: summed in index order
+  in `eltype(θ)`, the guard `T(1e-300)`, strict `<` against `rtol` of its own type (a Float32 kernel compares in
+  Float32). θ and θ_old are indexable real vectors (an SVector, a column view); `θ = nothing` continues
+  (`StopWhenSolveFailed`'s). It is not Estimation's `StopWhenParameterChangeLess` (old-model reference, `eps()` guard,
+  `ParameterChange`), which stays.
+- 2026-11-27 (set 3, C14): the spec is silent on a `BoundedProblem` built directly over an essential problem. Chosen:
+  `_check_extent(::WithExtent{<:HyperRectangle{2}}, _, ::EssentialMat, _) = true` (the radial camera's rule: no image
+  region to validate, the inner consensus decides), so the bounded local optimization is the unbounded one bit for
+  bit (LODR's "validation decorator" test). The context form `p = (; extent)` on an essential problem stays an
+  `ArgumentError`, as the 2026-11-23 entry states.

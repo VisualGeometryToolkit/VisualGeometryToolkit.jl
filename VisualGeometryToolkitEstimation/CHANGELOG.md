@@ -163,6 +163,13 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   take physical data where the old pipelines did (`AbsolutePoseProblem`, `BearingPoseProblem`, `HandEyeProblem`: metres
   stripped at construction, reattached at the solve's exit); the plane problems refuse physical plane points.
 - New dependency: CommonSolve (the cache's `solve!`).
+- **A `BoundedProblem` over an `EssentialProblem` refines** (was a `MethodError` in the extent check of
+  `solve(RefineProblem(BoundedProblem(EssentialProblem(…), rect), θ), LocalOptimization(…))`): an essential matrix maps
+  no image region, so its extent gate is the inner problem's consensus (the radial camera's rule), and the local
+  optimization is the unbounded one's, bit for bit. A solve's context `p = (; extent)` on an essential problem stays an
+  `ArgumentError` (the class takes no extent).
+- The relative-pose bundle reads VisualGeometryToolkitCore's `has_nlls_schur()` for the Schur system (its private
+  `_BUNDLE_SCHUR` copy of the detection is deleted). Bit-identical.
 - The unit-bearing gate of `EssentialProblem` and `RotationProblem` is VisualGeometryToolkitCore's `assert_unit_bearings`
   (this package's copy is deleted). The messages are the same, except that the finite-bearing one no longer ends
   "before building the problem".

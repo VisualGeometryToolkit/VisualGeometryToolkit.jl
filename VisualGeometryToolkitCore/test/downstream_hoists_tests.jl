@@ -380,7 +380,7 @@ end
 
 @testitem "downstream_hoists: Eliminable" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: Eliminable, SphereManifold, _nlls_features
+    using VisualGeometryToolkitCore: Eliminable, SphereManifold, has_nlls_schur
     import NLLSsolver
     using StaticArrays: SVector
     p = Eliminable{true}(SVector(1.0, 2.0, 3.0))
@@ -389,7 +389,7 @@ end
     @test q isa Eliminable{true} && q.value == SVector(1.1, 2.2, 3.3)
     s = Eliminable{false}(SphereManifold(SVector(0.0, 0.0, 1.0)))
     @test NLLSsolver.nvars(s) == NLLSsolver.static(2) && NLLSsolver.update(s, [0.1, 0.0]) isa Eliminable{false}
-    if _nlls_features().schur
+    if has_nlls_schur()
         @test NLLSsolver.iseliminable(typeof(p)) == NLLSsolver.static(true)
     end
 end

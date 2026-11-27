@@ -137,6 +137,13 @@ end
 
 residual_context(::EssentialProblem, θ::EssentialMat) = EssentialMat{Float64}(Tuple(θ))
 
+# An essential matrix maps no image region: it relates two views' bearings, with no plane whose rectangle it could
+# fold (the homography's quad) and no camera of its own to project one through (the absolute pose's). Like the radial
+# camera's, the extent gate of a `BoundedProblem` over an essential problem is the inner problem's consensus — nothing
+# to add. A solve's context `p = (; extent)` on an essential problem stays an `ArgumentError` (the class takes no
+# extent: `_CLASS_TABLE`), since a region requested of a model that cannot be validated over one is a mistake.
+@inline _check_extent(::WithExtent{<:HyperRectangle{2}}, _p, ::EssentialMat, _mask) = true
+
 @inline whitened_residual(p::EssentialProblem, θ::EssentialMat, i::Int) =
     @inbounds only(VgtkCore.sampson_residual(
         EssentialMat{Float64}(Tuple(θ)), _bearing64(sources(p.cs)[i]), _bearing64(targets(p.cs)[i]);

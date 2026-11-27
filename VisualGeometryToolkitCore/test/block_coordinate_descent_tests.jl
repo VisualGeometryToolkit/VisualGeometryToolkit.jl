@@ -158,3 +158,59 @@ end
     @test test_recorded(make(0, 3, 5)) == 3            # converged
     @test test_recorded(make(3, 100, 5)) == 2          # a failed solve records the good iterates only
 end
+
+@testitem "StopWhenIncrementLess: the increment relative to the new model, strict, (Success, IncrementSize); isbits, in a kernel" begin
+    using Test, StaticArrays
+    using Random: Xoshiro, randn
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @Const
+    using VisualGeometryToolkitCore
+    using VisualGeometryToolkitCore: StopWhenIncrementLess, StoppingCriterion, stop_reason, CONTINUE, ReturnCode, IncrementSize,
+        StopAfterIteration, IterationCap
+    c = StopWhenIncrementLess(1.0e-6)
+    @test c isa StoppingCriterion && isbits(c) && isbits(StopWhenIncrementLess(1.0f-6))
+    @test Base.ispublic(VisualGeometryToolkitCore, :StopWhenIncrementLess)
+    reason(c, θ, θ_old) = stop_reason(c, nothing, nothing, nothing, θ, θ_old, 1)
+    # the reweighted fits' rule, written out: the increment's norm over the NEW model's norm (+1e-300), strictly below rtol
+    function reference(θ, θ_old, rtol)
+        T = eltype(θ); diff_sq = zero(T); norm_sq = zero(T)
+        for j in 1:length(θ)
+            d = θ[j] - θ_old[j]
+            diff_sq += d * d
+            norm_sq += θ[j] * θ[j]
+        end
+        return sqrt(diff_sq) / (sqrt(norm_sq) + T(1.0e-300)) < rtol
+    end
+    rng = Xoshiro(21)
+    for T in (Float64, Float32), _ in 1:200
+        θ_old = SVector{6, T}(randn(rng, T, 6))
+        θ = θ_old .+ T(10.0^(-rand(rng, 2:9))) .* SVector{6, T}(randn(rng, T, 6))
+        rtol = T(10.0^(-rand(rng, 2:9)))
+        @test reason(StopWhenIncrementLess(rtol), θ, θ_old) === (reference(θ, θ_old, rtol) ? (ReturnCode.Success, IncrementSize) : CONTINUE)
+    end
+    # relative to the new model, not the old: the same increment converges against a large θ, not a small one
+    @test reason(c, SVector(1.0e3, 0.0), SVector(1.0e3 - 1.0e-4, 0.0)) === (ReturnCode.Success, IncrementSize)
+    @test reason(c, SVector(1.0e-3, 0.0), SVector(1.0e-3 - 1.0e-4, 0.0)) === CONTINUE
+    # strict: a ratio equal to rtol continues; no move at all converges, the zero model included (the 1e-300 guard)
+    @test reason(StopWhenIncrementLess(0.5), SVector(2.0, 0.0), SVector(1.0, 0.0)) === CONTINUE
+    @test reason(c, SVector(0.0, 0.0), SVector(0.0, 0.0)) === (ReturnCode.Success, IncrementSize)
+    # a failed model block is StopWhenSolveFailed's; a composition reads it in order
+    @test reason(c, nothing, SVector(1.0, 2.0)) === CONTINUE
+    @test stop_reason(StopAfterIteration(1) | c, nothing, nothing, nothing, SVector(1.0), SVector(0.0), 1) === (ReturnCode.MaxIters, IterationCap)
+    @test stop_reason(c | StopAfterIteration(1), nothing, nothing, nothing, SVector(1.0), SVector(1.0), 1) === (ReturnCode.Success, IncrementSize)
+
+    # device-evaluable: a KernelAbstractions kernel judges each column of a parameter matrix, as a per-blob IRLS does
+    @kernel function judged!(out, @Const(θ), @Const(θ_old), c, m)
+        k = @index(Global)
+        rr = stop_reason(c, nothing, nothing, nothing, view(θ, 1:m, k), view(θ_old, 1:m, k), 1)
+        @inbounds out[k] = first(rr) === ReturnCode.Success
+    end
+    n = 257
+    θ_old = randn(rng, Float32, 6, n)
+    θ = θ_old .+ Float32.(10.0 .^ (-rand(rng, 2:9, 1, n))) .* randn(rng, Float32, 6, n)
+    cf = StopWhenIncrementLess(1.0f-5)
+    out = zeros(Bool, n)
+    judged!(KA.CPU())(out, θ, θ_old, cf, 5; ndrange = n); KA.synchronize(KA.CPU())
+    @test out == [reference(view(θ, 1:5, k), view(θ_old, 1:5, k), 1.0f-5) for k in 1:n]
+    @test 0 < count(out) < n
+end

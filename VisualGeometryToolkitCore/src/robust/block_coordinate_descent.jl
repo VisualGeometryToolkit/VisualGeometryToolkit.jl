@@ -173,6 +173,37 @@ struct StopNever <: StoppingCriterion end
 @inline stop_reason(::StopNever, state, method, prob, θ, θ_old, iter) = CONTINUE
 
 """
+    StopWhenIncrementLess(rtol)
+
+Stops with `(Success, IncrementSize)` once the last iteration's increment, relative to the NEW model, is strictly
+below `rtol`:
+
+    sqrt(Σⱼ (θⱼ − θ_oldⱼ)²) / (sqrt(Σⱼ θⱼ²) + 1e-300) < rtol
+
+`θ` and `θ_old` are indexable vectors of reals of one length (an `SVector`, a view of a parameter column), summed in
+index order in their element type `T` (the guard `T(1e-300)`), compared with `rtol` as given. Isbits and pure, so
+a device kernel evaluates it on its own parameter column (`stop_reason(c, nothing, nothing, nothing, θ, θ_old,
+iter)`: the state, method and problem are not read). A failed model block (`θ = nothing`) is
+[`StopWhenSolveFailed`](@ref)'s to end. Manopt.jl's `StopWhenChangeLess` measures the change against the old
+iterate; this is the reweighted fits' rule (BlobBoards' per-blob IRLS).
+"""
+struct StopWhenIncrementLess{T <: Real} <: StoppingCriterion
+    rtol::T
+end
+@inline function stop_reason(c::StopWhenIncrementLess, state, method, prob, θ, θ_old, iter)
+    T = eltype(θ)
+    diff_sq = zero(T)
+    norm_sq = zero(T)
+    for j in eachindex(θ, θ_old)
+        d = θ[j] - θ_old[j]
+        diff_sq += d * d
+        norm_sq += θ[j] * θ[j]
+    end
+    return sqrt(diff_sq) / (sqrt(norm_sq) + T(1.0e-300)) < c.rtol ? (ReturnCode.Success, IncrementSize) : CONTINUE
+end
+@inline stop_reason(::StopWhenIncrementLess, state, method, prob, ::Nothing, θ_old, iter) = CONTINUE
+
+"""
     StopWhenAny(criteria::Tuple)
     a | b
 

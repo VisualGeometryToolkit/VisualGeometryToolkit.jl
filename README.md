@@ -101,7 +101,7 @@ using Pkg
 Pkg.add(PackageSpec(url = "https://github.com/prittjam/NLLSsolver.jl", rev = "stack"))
 ```
 
-`stack` is the latest upstream release plus #60. Verify with `using NLLSsolver; isdefined(NLLSsolver, :MultiVariateLSschur)` → `true`. When an upstream release contains #60, `Pkg.free("NLLSsolver")` returns the environment to the registry and this note is removed.
+`stack` is the latest upstream release plus #60. Verify with `using VisualGeometryToolkitCore; VisualGeometryToolkitCore.has_nlls_schur()` → `true`. When an upstream release contains #60, `Pkg.free("NLLSsolver")` returns the environment to the registry and this note is removed.
 
 ## Development
 

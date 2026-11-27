@@ -225,3 +225,48 @@ end
     # m̄ reads the rows as any operator (RadiometricCamera's focus charts divide by it)
     @test mean_positive_eigenvalue(L) ≈ sum(abs2, bending_factor(tps)) / (K - 3) rtol = 1.0e-9
 end
+
+@testitem "ToleranceStops: the stop at max(atol, rtol · scale); atol = 0 the relative rule bit for bit" begin
+    using LinearAlgebra: norm, Diagonal
+    using SparseArrays: sprandn, sparse, SparseMatrixCSC
+    using Random: Xoshiro, randn
+    import KernelAbstractions as KA
+    using VisualGeometryToolkitCore: difference_rows, PenalizedOperator, PenalizedLeastSquaresProblem, NormalEquationsProblem,
+        CGLS, NormalCG, ToleranceStops, ReturnCode, ToleranceMet, IterationCap, _stop_tolerance
+    st = ToleranceStops()
+    @test isbits(st) && fieldnames(ToleranceStops) == (:max_iter, :rtol, :atol)
+    @test (st.max_iter, st.rtol, st.atol) === (500, 1.0e-6, 0.0)
+    @test ToleranceStops(; max_iter = 7, rtol = 1.0e-3, atol = 2) === ToleranceStops(7, 1.0e-3, 2.0)
+    @test_throws ArgumentError ToleranceStops(; atol = -1.0e-9)
+    # the one rule: the relative bound when atol is 0 (bit for bit, NaN and 0 included), the floor when it is larger
+    for scale in (0.0, 3.25, 1.0e300, NaN)
+        @test _stop_tolerance(0.0, 1.0e-6, scale) === 1.0e-6 * scale
+    end
+    @test _stop_tolerance(1.0e-3, 1.0e-6, 2.0) === 1.0e-3 && _stop_tolerance(1.0e-9, 1.0e-6, 2.0) === 2.0e-6
+
+    rng = Xoshiro(15)
+    TW, TH = 9, 7; n = TW * TH
+    A = sprandn(rng, 150, n, 0.08) + sparse(1:n, 1:n, 0.3 .+ rand(rng, n), 150, n)
+    D = difference_rows((TW, TH), 1)
+    b = randn(rng, 150); w = 0.5 .+ rand(rng, size(D, 1))
+    op = PenalizedOperator(A, D; device = KA.CPU())
+    N = SparseMatrixCSC(A' * A + D' * Diagonal(w) * D); g = A' * b
+    for (prob, alg) in ((PenalizedLeastSquaresProblem(op, b; w), CGLS()), (NormalEquationsProblem(N, g), NormalCG()))
+        rel = ToleranceStops(; max_iter = 2000, rtol = 1.0e-10)
+        r0 = solve(prob, alg; stops = rel)
+        r1 = solve(prob, alg; stops = ToleranceStops(; max_iter = 2000, rtol = 1.0e-10, atol = 0.0))
+        # atol = 0: the relative rule, the same bits as before the field existed
+        @test r0.u == r1.u && r0.stats.nsteps == r1.stats.nsteps && r0.metadata.relres === r1.metadata.relres
+        @test (r0.retcode, r0.stop_rule) === (ReturnCode.Success, ToleranceMet)
+        # a floor above the relative bound: fewer iterations, still a met tolerance
+        coarse = solve(prob, alg; stops = ToleranceStops(; max_iter = 2000, rtol = 1.0e-10, atol = 1.0e-3 * norm(g)))
+        @test (coarse.retcode, coarse.stop_rule) === (ReturnCode.Success, ToleranceMet)
+        @test 0 < coarse.stats.nsteps < r0.stats.nsteps && coarse.metadata.relres > 1.0e-10
+        # a floor above the start's residual: no iteration, the start judged as it is
+        start = solve(prob, alg; stops = ToleranceStops(; max_iter = 2000, rtol = 0.0, atol = 2 * norm(g)))
+        @test start.stats.nsteps == 0 && (start.retcode, start.stop_rule) === (ReturnCode.Success, ToleranceMet)
+        # rtol = 0 and atol = 0: the cap ends the run
+        capped = solve(prob, alg; stops = ToleranceStops(; max_iter = 3, rtol = 0.0))
+        @test capped.stats.nsteps == 3 && (capped.retcode, capped.stop_rule) === (ReturnCode.MaxIters, IterationCap)
+    end
+end

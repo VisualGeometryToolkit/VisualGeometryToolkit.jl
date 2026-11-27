@@ -69,7 +69,7 @@ using ..VisualGeometryToolkitCore: FundMat, Rect2, Line2D, LineConfidenceBand, e
 # hands an E problem what an E problem takes (3-vector bearings plus their pixel
 # Jacobians), with the noise model moving into the same frame.
 using ..VisualGeometryToolkitCore: bearing_correspondences, project, Correspondences, withattrs, sources, targets
-using ..VisualGeometryToolkitCore: RefineProblem, FitResult, ReturnCode, ToleranceMet, LeftBasin, SolveStats, ToleranceStops,
+using ..VisualGeometryToolkitCore: RefineProblem, FitResult, ReturnCode, ToleranceMet, LeftBasin, SolveStats, ToleranceStops, _stop_tolerance,
     AbstractEstimationAlgorithm, RefineKind, successful_retcode, solve   # PathFollowing, the continuation as a refine (calibration.jl)
 import ..VisualGeometryToolkitCore: estimator_kind, __solve
 using ..VisualGeometryToolkitCore: cd_pair, _chart_rows   # a correspondence's per-pair constraint factors (manifolds/covariance.jl)

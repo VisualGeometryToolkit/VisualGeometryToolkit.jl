@@ -7,7 +7,7 @@
 # check_duplication's `:lm_primitive`, lets this file reach its internals.)
 import VisualGeometryToolkitCore as VgtkCore
 using Test, LinearAlgebra, StaticArrays
-using VisualGeometryToolkitCore: _ManifoldLmWorkspace, _lmsolve_chart!, successful_retcode, _nlls_features, LmStops
+using VisualGeometryToolkitCore: _ManifoldLmWorkspace, _lmsolve_chart!, successful_retcode, has_nlls_schur, LmStops
 import NLLSsolver
 
 # A 4-parameter nonlinear fit with a closed-form Jacobian: y = a·exp(b·s) + c·s + d.
@@ -42,7 +42,9 @@ VgtkCore.residual_jacobian_rows!(J, w::_NaNBeyond, x) = VgtkCore.residual_jacobi
 @testset "the open upstream addition, detected" begin
     # the Schur-complement system (upstream #60, open): detected by name; the
     # bundle's comparison runs whichever path the loaded NLLSsolver has
-    @test _nlls_features() === (; schur = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
+    @test has_nlls_schur() === (isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
+    @test Base.ispublic(VisualGeometryToolkitCore, :has_nlls_schur) && Base.return_types(has_nlls_schur, ()) == [Bool]
+    @test Core.Compiler.is_foldable(Base.infer_effects(has_nlls_schur, ()))   # a constant: a type parameter, a branch that folds
 end
 
 @testset "a reused run gives a fresh workspace's results" begin

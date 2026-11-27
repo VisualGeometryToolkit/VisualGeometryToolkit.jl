@@ -468,6 +468,60 @@ JSON.lift(::VgioStyle, ::Type{<:FitResult}, x::Record) =
     FitResult(nothing, _named_instance(_RETCODES, _RETCODE_NAMES, x.retcode::String, "ReturnCode"),
               _named_instance(_STOP_RULES, _STOP_RULE_NAMES, x.stop_rule::String, "StopRule"),
               SolveStats(; nsteps = x.iterations::Integer), x.rms::Real, x.n::Integer, nothing)
+
+# THE stored-format reader of a termination written before FitResult carried a record: the legacy spelling a record of
+# Core ≤ 0.13 stores (a session's `"retcode": "converged"`), its row of Core 0.13's one table, verbatim. `nothing` in
+# the rule's place is the caller's `rule` (the tolerance a successful or stalled stop of that loop fired).
+const _LEGACY_TERMINATIONS = (
+    "converged" => (VgtkCore.ReturnCode.Success, nothing),
+    "solved" => (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm),
+    "stalled" => (VgtkCore.ReturnCode.Stalled, nothing),
+    "max_iterations" => (VgtkCore.ReturnCode.MaxIters, VgtkCore.IterationCap),
+    "max_time" => (VgtkCore.ReturnCode.MaxTime, VgtkCore.TimeCap),
+    "solve_failed" => (VgtkCore.ReturnCode.Failure, VgtkCore.NonFinite),
+    "degenerate" => (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule),
+    # a RANSAC's former local-optimization statuses
+    "not_run" => (VgtkCore.ReturnCode.Default, VgtkCore.NoRule),
+    "guard_kept_seed" => (VgtkCore.ReturnCode.Success, VgtkCore.SeedKept),
+    "no_lo" => (VgtkCore.ReturnCode.Success, VgtkCore.ClosedForm),
+    "thin_partition" => (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule),
+)
+
+"""
+    termination_from_legacy(retcode::AbstractString, rule::StopRule = NoRule) -> (ReturnCode.T, StopRule)
+
+The termination record of a fit stored before VisualGeometryToolkitCore 0.14 as one legacy spelling (`"converged"`, a
+session's stored `retcode`): the stored-format reader of records written before `FitResult` carried
+`(r.retcode, r.stop_rule)`, for a kind's version step. `rule` is the rule a SUCCESSFUL stop of the loop that wrote it
+fired (its tolerance: `CostDecrease`, `IncrementSize`, …), also the one whose postcondition a `"stalled"` stop failed;
+the stored spelling does not say it, so the caller states it (`NoRule` when the step does not know it).
+
+| stored | `ReturnCode` | `StopRule` |
+|:--|:--|:--|
+| `"converged"` | `Success` | `rule` |
+| `"solved"` | `Success` | `ClosedForm` |
+| `"stalled"` | `Stalled` | `rule` |
+| `"max_iterations"` | `MaxIters` | `IterationCap` |
+| `"max_time"` | `MaxTime` | `TimeCap` |
+| `"solve_failed"` | `Failure` | `NonFinite` |
+| `"degenerate"` | `InitialFailure` | `NoRule` |
+| `"not_run"` | `Default` | `NoRule` |
+| `"guard_kept_seed"` | `Success` | `SeedKept` |
+| `"no_lo"` | `Success` | `ClosedForm` |
+| `"thin_partition"` | `InitialFailure` | `NoRule` |
+
+The last four are a RANSAC's former local-optimization statuses. Any other spelling (a RANSAC's `"no_model"`, whose
+record its producer stated) is an `ArgumentError` listing these. A record written since stores the pair by name and
+reads through `JSON.lift(style, FitResult, record)`.
+"""
+function termination_from_legacy(retcode::AbstractString, rule::VgtkCore.StopRule = VgtkCore.NoRule)
+    k = findfirst(e -> first(e) == retcode, _LEGACY_TERMINATIONS)
+    k === nothing && throw(ArgumentError(string(repr(retcode), " is no stored legacy termination (one of ",
+        join(map(e -> repr(first(e)), _LEGACY_TERMINATIONS), ", "), ")")))
+    code, stored = last(_LEGACY_TERMINATIONS[k])
+    return (code, stored === nothing ? rule : stored)
+end
+
 # The instance of an enum whose name is `name` (`names` the instances' names, in their order).
 function _named_instance(instances, names, name::String, what::String)
     i = findfirst(==(name), names)

@@ -523,7 +523,7 @@ _unit(H::HomographyMat) = HomographyMat{Float64}(Tuple(unit_normalize(H)))
 # (whitened) ∂_v g or a line-search stall.
 function _manifold_newton(
         ch, v0::SVector{D, Float64}, cs;
-        tol::Float64, maxiter::Int
+        tol::Float64, atol::Float64 = 0.0, maxiter::Int
     ) where {D}
     v = v0
     g = manifold_constraints(ch, v, cs)
@@ -537,7 +537,7 @@ function _manifold_newton(
         Δ === nothing && return nothing
         # already converged (covers the zero-perturbation residual g ≈ 0,
         # where a strict line-search decrease is impossible at machine level)
-        norm(Δ) <= tol * (1 + norm(v)) && return v + Δ
+        norm(Δ) <= _stop_tolerance(atol, tol, 1 + norm(v)) && return v + Δ
         gnorm = norm(Wg)
         # Gauss–Newton converges to a NONZERO residual: its sufficient decrease is
         # the cost's (Armijo against the predicted ‖W·A·Δ‖²), and a prediction at
@@ -645,7 +645,7 @@ end
 # fails at `min_dt`.
 function _track_manifold_solution(
         ch, cs_clean::AbstractVector, cs_noisy::AbstractVector;
-        stages::Int = 4, tol::Float64 = 1.0e-11,
+        stages::Int = 4, tol::Float64 = 1.0e-11, atol::Float64 = 0.0,
         maxiter::Int = 50, min_dt::Float64 = 1 / 64
     )
     D = tangent_size(ch)
@@ -657,7 +657,7 @@ function _track_manifold_solution(
     while t < 1.0 - 1.0e-12
         tn = min(t + dt, 1.0)
         cs_t = tn >= 1.0 - 1.0e-12 ? cs_noisy : _lerp_pairs(cs_clean, cs_noisy, tn)
-        vn = _manifold_newton(ch, v, cs_t; tol = tol, maxiter = maxiter)
+        vn = _manifold_newton(ch, v, cs_t; tol = tol, atol = atol, maxiter = maxiter)
         if vn === nothing
             dt /= 2
             dt < min_dt && return nothing
@@ -686,7 +686,7 @@ Newton basin), down to `min_dt`.
           stops = ToleranceStops(; max_iter = 50, rtol = 1e-11))
 
 `u0` is the chart's anchor (the model at the clean data). `stops` are each stage's Newton settings (its iteration cap
-and its relative step tolerance, `‖Δ‖ ≤ rtol·(1 + ‖v‖)`). The result's `u` is the model at the tracked point,
+and its increment tolerance, `‖Δ‖ ≤ max(atol, rtol·(1 + ‖v‖))`). The result's `u` is the model at the tracked point,
 `retract(ch, v)`, `metadata = (; v)` the chart point and `stats.nsteps` the stages taken: `(Success, ToleranceMet)`; a
 stage that still fails at `min_dt` — the perturbation left the continuation radius of this sample's geometry, the
 DIVERGENCE event the Monte Carlo calibration tables report — is `(Failure, LeftBasin)`, `u` the anchor's model and `v`
@@ -708,7 +708,7 @@ function __solve(prob::RefineProblem{<:NoisePathProblem}, alg::PathFollowing;
     f = prob.f
     ch = f.chart
     D = tangent_size(ch)
-    out = _track_manifold_solution(ch, f.clean, f.noisy; stages = alg.stages, tol = stops.rtol, maxiter = stops.max_iter,
+    out = _track_manifold_solution(ch, f.clean, f.noisy; stages = alg.stages, tol = stops.rtol, stops.atol, maxiter = stops.max_iter,
                                    min_dt = alg.min_dt)
     out === nothing && return FitResult(retract(ch, zero(SVector{D, Float64})), ReturnCode.Failure, LeftBasin, SolveStats(),
                                         NaN, 0, (; v = fill(NaN, SVector{D, Float64})))

@@ -249,7 +249,7 @@ using VisualGeometryToolkitCore: PerspectiveMap, transform_deriv
 using ForwardDiff: ForwardDiff
 import NLLSsolver   # the block-structured LMs' residual protocol (the relpose bundle, the camera-and-poses bundles)
 using VisualGeometryToolkitCore: LmStops   # Core's one LM: its stop settings
-using VisualGeometryToolkitCore: finite_cost, Eliminable   # a finite cost; a variable the Schur system eliminates
+using VisualGeometryToolkitCore: finite_cost, Eliminable, has_nlls_schur   # a finite cost; a variable the Schur system eliminates, and whether the loaded NLLSsolver has that system
 using SparseArrays: sparse   # the rotation averaging's update
 # CameraRegression's spline families: the penalized normal equations (a sparse
 # Cholesky), the direction chart, Core's lattice and its batched maps.

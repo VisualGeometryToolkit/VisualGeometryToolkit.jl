@@ -146,7 +146,7 @@ function PenalizedOperator(A::SparseMatrixCSC, D::SparseMatrixCSC = SparseMatrix
 end
 
 """
-    _cgls(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+    _cgls(op::PenalizedOperator, b; w = 1, h = nothing, diagonal = nothing, x0 = nothing, rtol = 1e-6, atol = 0, max_iter = 500)
         -> (; x, iterations, converged, relres)
 
 The least-squares solution of `min_x ‖A x − b‖² + ‖√w ∘ (D x − h)‖²` (`op`'s `A` and `D`;
@@ -163,8 +163,8 @@ every run).
 iteration (Jacobi: the unknowns' columns scaled to unit norm, `S C` with `C =
 diagonal^-½`), `nothing` none.
 
-The stopping rule is relative to the normal equations' right-hand side, `‖C sₖ‖ ≤ rtol ·
-‖C (Aᵀb + DᵀWh)‖`, `sₖ = Aᵀ(b − A xₖ) + DᵀW(h − D xₖ)` the normal-equation residual (`C`
+The stopping rule is relative to the normal equations' right-hand side, `‖C sₖ‖ ≤ max(atol, rtol ·
+‖C (Aᵀb + DᵀWh)‖)`, `sₖ = Aᵀ(b − A xₖ) + DᵀW(h − D xₖ)` the normal-equation residual (`C`
 the Jacobi scaling, 1 without one): a reference fixed by the problem, not by the start,
 so a start that is already close needs few or no iterations. `converged` when the rule is
 met within `max_iter` iterations; `relres` is the left side over the right side's norm.
@@ -174,7 +174,7 @@ formed) solves with `_normal_cg`.
 """
 function _cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothing, AbstractVector} = nothing,
         diagonal::Union{Nothing, AbstractVector} = nothing, x0::Union{Nothing, AbstractVector} = nothing,
-        rtol::Real = 1.0e-6, max_iter::Integer = 500)
+        rtol::Real = 1.0e-6, atol::Real = 0.0, max_iter::Integer = 500)
     dev = op.device
     n = op.A.n; m = op.A.m; mD = op.D.m
     length(b) == m || throw(DimensionMismatch("_cgls: b has $(length(b)) entries, A $m rows"))
@@ -194,7 +194,7 @@ function _cgls(op::PenalizedOperator, b::AbstractVector; w = 1.0, h::Union{Nothi
         LinearAlgebra.mul!(r, S, S.c === nothing ? x : x ./ S.c)
         rhs .-= r
     end
-    goal = Float64(rtol) * sref
+    goal = _stop_tolerance(atol, rtol, sref)
     max_iter >= 1 || (s = norm(LinearAlgebra.mul!(g, S', rhs)); return (; x, iterations = 0, converged = s <= goal, relres = sref > 0 ? s / sref : 0.0))
     z, stats = Krylov.cgls(S, rhs; atol = goal, rtol = 0.0, itmax = Int(max_iter), history = true)
     x .+= S.c === nothing ? z : S.c .* z
@@ -251,7 +251,7 @@ function LinearAlgebra.mul!(x::AbstractVector, T::_StackedAdjoint, y::AbstractVe
 end
 
 """
-    _normal_cg(N, g; diagonal = nothing, x0 = nothing, rtol = 1e-6, max_iter = 500)
+    _normal_cg(N, g; diagonal = nothing, x0 = nothing, rtol = 1e-6, atol = 0, max_iter = 500)
         -> (; x, iterations, converged, relres)
 
 The solution of the normal equations `N x = g` of a penalized least squares, `N = AᵀA +
@@ -266,13 +266,13 @@ digits to forming `N`.
 scaling `C N C`, `C = diagonal^-½`), `nothing` none; `x0` is a start (`nothing`: 0; the
 iteration solves for the correction to it). The vectors live on `g`'s KernelAbstractions
 backend (`diagonal` and `x0` moved there; `x` returned on it), and `N` applies there. The
-stopping rule is relative to the right-hand side, `‖C (g − N xₖ)‖ ≤ rtol · ‖C g‖` (`C` the
+stopping rule is relative to the right-hand side, `‖C (g − N xₖ)‖ ≤ max(atol, rtol · ‖C g‖)` (`C` the
 Jacobi scaling, 1 without one), so a start at the solution takes 0 iterations. `converged`
 when it is met within `max_iter` iterations; `relres` is the left side over the right
 side's norm.
 """
 function _normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVector} = nothing,
-        x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, max_iter::Integer = 500)
+        x0::Union{Nothing, AbstractVector} = nothing, rtol::Real = 1.0e-6, atol::Real = 0.0, max_iter::Integer = 500)
     dev = get_backend(g)
     n = length(g)
     gd = on_device(Float64, dev, g)
@@ -280,7 +280,7 @@ function _normal_cg(N, g::AbstractVector; diagonal::Union{Nothing, AbstractVecto
     S = _ScaledNormal(N isa CSRMatrix ? _solve_operator(N) : N, dinv === nothing ? nothing : sqrt.(dinv), similar(gd), n)
     scaled(v) = S.c === nothing ? v : S.c .* v
     sref = norm(scaled(gd))                                        # the reference: ‖C g‖
-    goal = Float64(rtol) * sref
+    goal = _stop_tolerance(atol, rtol, sref)
     x = x0 === nothing ? device_zeros(Float64, dev, n) : copy(on_device(Float64, dev, x0))
     rhs = copy(gd)                                                 # the correction's right-hand side: C (g − N x0)
     x0 === nothing || (_apply_normal!(S.t, S.N, x); rhs .-= S.t)
@@ -326,22 +326,30 @@ end
 # =============================================================================
 
 """
-    ToleranceStops(; max_iter = 500, rtol = 1e-6)
+    ToleranceStops(; max_iter = 500, rtol = 1e-6, atol = 0.0)
 
-The stop settings of an iteration with an iteration cap and a relative tolerance — the stack's Krylov least squares
-([`CGLS`](@ref), [`NormalCG`](@ref)) and a bisection: the solve keyword `stops`. `max_iter` is the iteration cap
-(`0`: no iteration, the start judged as it is); `rtol` the relative tolerance the solver states (CGLS and CG: the
-normal-equation residual relative to the right-hand side's). Isbits.
+The stop settings of an iteration with an iteration cap and a tolerance — the stack's Krylov least squares
+([`CGLS`](@ref), [`NormalCG`](@ref)), the continuation Newton of [`PathFollowing`](@ref) and a bisection: the solve
+keyword `stops`. `max_iter` is the iteration cap (`0`: no iteration, the start judged as it is). The solve stops
+when the quantity it tests is at most `max(atol, rtol · scale)`, `scale` the solver's own reference (CGLS and CG: the
+normal-equation residual against the right-hand side's norm; PathFollowing: the Newton increment against `1 + ‖v‖`;
+a bisection: the bracket's width against the solver's stated scale). `atol = 0` (the default) is the relative rule
+alone; an absolute floor serves a scale that can reach zero (a bisection towards 0). Isbits.
 """
 struct ToleranceStops
     max_iter::Int
     rtol::Float64
+    atol::Float64
 end
-function ToleranceStops(; max_iter::Integer = 500, rtol::Real = 1.0e-6)
+function ToleranceStops(; max_iter::Integer = 500, rtol::Real = 1.0e-6, atol::Real = 0.0)
     max_iter >= 0 || throw(ArgumentError("ToleranceStops: max_iter is a count of iterations, ≥ 0; got $max_iter"))
     rtol >= 0 || throw(ArgumentError("ToleranceStops: rtol is a tolerance, ≥ 0; got $rtol"))
-    return ToleranceStops(Int(max_iter), Float64(rtol))
+    atol >= 0 || throw(ArgumentError("ToleranceStops: atol is a tolerance, ≥ 0; got $atol"))
+    return ToleranceStops(Int(max_iter), Float64(rtol), Float64(atol))
 end
+# The bound a `ToleranceStops` run stops at, for the solver's reference `scale` (≥ 0): `max(atol, rtol · scale)`, the
+# one copy of the rule. With `atol = 0` it is `rtol · scale` bit for bit (`max(0.0, x) === x` for `x ≥ 0` and NaN).
+@inline _stop_tolerance(atol, rtol, scale) = max(Float64(atol), Float64(rtol) * scale)
 
 # The parent of the numerics' problems: solved by a fit-kind algorithm (iterative, from its own start).
 abstract type _NumericsProblem <: AbstractEstimationProblem end
@@ -391,8 +399,8 @@ NormalEquationsProblem(N, g::AbstractVector; diagonal = nothing, u0 = nothing) =
 The stack's Krylov solvers of a penalized least squares, fit-kind algorithms: `CGLS()` (Krylov.jl's `cgls` on the
 stacked operator `[A; √W D]`, its rows applied, never the normal matrix formed) solves a
 [`PenalizedLeastSquaresProblem`](@ref); `NormalCG()` (Krylov.jl's `cg` on the applied normal operator) a
-[`NormalEquationsProblem`](@ref). Both stop at `stops = `[`ToleranceStops`](@ref)`(; rtol, max_iter)` — the
-normal-equation residual relative to the right-hand side's, `‖C sₖ‖ ≤ rtol · ‖C g‖` (`C` the Jacobi scaling) — and
+[`NormalEquationsProblem`](@ref). Both stop at `stops = `[`ToleranceStops`](@ref)`(; rtol, max_iter, atol)` — the
+normal-equation residual against the right-hand side's, `‖C sₖ‖ ≤ max(atol, rtol · ‖C g‖)` (`C` the Jacobi scaling) — and
 return a `FitResult`: `u` the solution (on the operator's device), `(Success, ToleranceMet)` when the rule is met
 within the cap, else `(MaxIters, IterationCap)`, `stats.nsteps` the iterations, `metadata = (; relres)` the final
 relative residual.
@@ -405,8 +413,8 @@ estimator_kind(::NormalCG) = FitKind()
 _krylov_result(s) = FitResult(s.x, s.converged ? ReturnCode.Success : ReturnCode.MaxIters, s.converged ? ToleranceMet : IterationCap,
     SolveStats(; nsteps = s.iterations), NaN, 0, (; relres = s.relres))
 __solve(prob::PenalizedLeastSquaresProblem, ::CGLS; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(_cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+    _krylov_result(_cgls(prob.op, prob.b; prob.w, prob.h, prob.diagonal, x0 = prob.u0, stops.rtol, stops.atol, stops.max_iter))
 __solve(prob::NormalEquationsProblem, ::NormalCG; stops::ToleranceStops = ToleranceStops()) =
-    _krylov_result(_normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, rtol = stops.rtol, max_iter = stops.max_iter))
+    _krylov_result(_normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, stops.rtol, stops.atol, stops.max_iter))
 
 public ToleranceStops, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG

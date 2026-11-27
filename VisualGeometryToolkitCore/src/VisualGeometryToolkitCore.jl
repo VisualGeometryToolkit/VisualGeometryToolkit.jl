@@ -719,7 +719,7 @@ public init_state!, update_model!, update_residuals!, post_iteration!,
 # The loop in Manopt.jl's names (public, never exported: a future `using Manopt`
 # must not clash): the stopping criteria and the recorder. The solver steps (`initialize_solver!`, `step_solver!`,
 # `stop_solver!`) are Core-internal drivers (CORE_INTERNAL_DRIVERS).
-public StoppingCriterion, stop_reason, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny,
+public StoppingCriterion, stop_reason, StopAfterIteration, StopWhenSolveFailed, StopNever, StopWhenAny, StopWhenIncrementLess,
     Recorded, current_cost, current_s2
 # Best-tracking of an instance that claims descent (robust/block_coordinate_descent.jl):
 # the best iterate is `Attributed(θ, (; cost))`.
@@ -731,7 +731,7 @@ public residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_
 public reduce_normal_equations, reduce_cost   # a device state's two reductions from its per-work-item partial sums
 # The LM's stop settings (their one owner), its multi-block problem and the device LM's stop settings; whether the
 # loaded NLLSsolver has the still-unreleased Schur system (robust/lm_core.jl).
-public LmStops, StaticLmStops, LmDamping, MarquardtDamping, LevenbergDamping
+public LmStops, StaticLmStops, LmDamping, MarquardtDamping, LevenbergDamping, has_nlls_schur
 public Eliminable   # an NLLSsolver variable the Schur system may eliminate (a bundle's structure points)
 public finite_cost   # a block's cost as its LM reads it
 # The stack's naming checker (ext/VisualGeometryToolkitCoreTestExt; loads with Test): every stack package's

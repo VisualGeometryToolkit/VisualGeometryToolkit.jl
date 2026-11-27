@@ -637,7 +637,12 @@ positions of its own moves them between its frame and the file's with
 kind that stores a fit holds the `FitResult` itself in its body (written by
 the style, like a camera or a trajectory) and reads it back with
 `JSON.lift(style, FitResult, record)`; its table is
-[`body_spec`](@ref VisualGeometryToolkitIO.body_spec)`(FitResult)`.
+[`body_spec`](@ref VisualGeometryToolkitIO.body_spec)`(FitResult)`. A record
+written before VisualGeometryToolkitCore 0.14 stored a fit's termination as one
+legacy spelling (`"converged"`, `"max_iterations"`, …); the kind's version step
+reads it as the `(ReturnCode, StopRule)` pair with
+[`termination_from_legacy`](@ref VisualGeometryToolkitIO.termination_from_legacy)`(retcode,
+rule)`, the one reader of those spellings.
 
 VisualRadiometryToolkitIO's kinds (the vignetting, the environment light, the
 radial profile) and PanoramaStitching's panorama are written this way. They

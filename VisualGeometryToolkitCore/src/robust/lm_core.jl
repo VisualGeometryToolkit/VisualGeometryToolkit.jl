@@ -43,21 +43,24 @@
 # a non-finite step or gradient at an accepted point stopped, the damping loop
 # bounded (#68: termination bit 12).
 # One addition is still open upstream and DETECTED, never assumed: the
-# Schur-complement linear system VisualGeometryToolkitEstimation's bundle uses
-# (`_nlls_features`).
+# Schur-complement linear system the bundles that eliminate variables use
+# (`has_nlls_schur`).
 # =============================================================================
 
 """
-    _nlls_features() -> (; schur::Bool)
+    has_nlls_schur() -> Bool
 
 Whether the loaded NLLSsolver has the Schur-complement linear system for
 eliminable variables (`NLLSsolver.MultiVariateLSschur`,
 `NLLSsolver.iseliminable`; upstream pull request #60, open). Until #60 merges a
-registered NLLSsolver lacks it and the bundle takes NLLSsolver's sparse LDL
-over every unknown — the same optimum, slower; the stack's fork has it.
+registered NLLSsolver lacks it, and a bundle that eliminates variables (an
+[`Eliminable`](@ref)`{true}`) takes NLLSsolver's sparse LDL over every unknown —
+the same optimum, slower; the stack's fork has it. The one detection of the
+stack: decided once, when the package is compiled, and a constant of the
+compiled code, so a caller may branch on it or put it in a type parameter.
 """
-_nlls_features() = (; schur = _NLLS_HAS_SCHUR)
-const _NLLS_HAS_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)
+function has_nlls_schur end
+@eval has_nlls_schur() = $(isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable))
 
 # NLLSsolver's consecutive-failure cap (its default, `maxfails = 3`) and no time
 # cap (NLLSsolver's default is 30 s; 1e6 s never fires, and a fit that hits it
@@ -1394,7 +1397,7 @@ true`): the Schur-complement linear system eliminates every such variable
 (a bundle's structure points, a rotation bundle's track directions) before it
 solves for the rest. `nvars` and `update` forward to `value` (an update
 re-wraps the updated value); `iseliminable` is declared only where the
-installed NLLSsolver has the Schur system (`_nlls_features``().schur`),
+installed NLLSsolver has the Schur system ([`has_nlls_schur`](@ref)`()`),
 and `Eliminable{false}` is the same variable left in the full sparse LDL — what
 a solver without the Schur system takes, and a fallback test forces.
 """
@@ -1405,7 +1408,7 @@ Eliminable{E}(value::V) where {E, V} = Eliminable{E, V}(value)
 NLLSsolver.nvars(e::Eliminable) = NLLSsolver.nvars(e.value)
 NLLSsolver.update(e::Eliminable{E}, δ, start = 1) where {E} = Eliminable{E}(NLLSsolver.update(e.value, δ, start))
 _operand_unit(e::Eliminable, k) = _operand_unit(e.value, k)     # the exact-fit threshold's operand unit (`_lm_run!`)
-if _NLLS_HAS_SCHUR
+if has_nlls_schur()
     NLLSsolver.iseliminable(::Type{<:Eliminable{true}}) = NLLSsolver.static(true)
 end
 # The units an area is read in by `_spline_lm_box`: the reference's pixel constants

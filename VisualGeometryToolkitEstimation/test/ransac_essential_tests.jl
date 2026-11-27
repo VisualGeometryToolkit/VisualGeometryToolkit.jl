@@ -311,4 +311,25 @@ end
     pc = EssentialProblem(IDCAM, IDCAM, correspondences(calibrated_point.(Ref(cam), a), calibrated_point.(Ref(cam), b)))
     @test solve(RefineProblem(pc, θ), LocalOptimization(lo; scoring = MsacScoring(pc; threshold = 0.002))) !== nothing
 end
+
+@testset "a BoundedProblem over an essential problem: no extent to check, the inner consensus (C14)" begin
+    rng = StableRNG(2036)
+    cam = CameraModel(800.0px, SA[960.0px, 540.0px])
+    a, b, R, t = _e_pixel_scene(rng, cam, cam)
+    p = EssentialProblem(cam, cam, correspondences(a, b))
+    rect = VgtkCore.Rect(0.0, 0.0, 1920.0, 1080.0)
+    bp = VgtkEstimation.BoundedProblem(p, rect)
+    θ = EssentialMat(R, t)
+    # the extent gate adds nothing to an essential matrix (it maps no image region): true for any mask
+    @test VgtkEstimation._check_extent(VgtkEstimation.extent_trait(bp), bp, θ, trues(length(a)))
+    @test VgtkEstimation.test_consensus(bp, θ, trues(length(a))) == VgtkEstimation.test_consensus(p, θ, trues(length(a)))
+    # the local optimization of the bounded problem is the inner problem's, bit for bit (was a MethodError)
+    lo = LocalOptimization(Irls{TLSShape}(); scoring = MsacScoring(p; threshold = 1.0))
+    rb = solve(RefineProblem(bp, θ), lo)
+    ru = solve(RefineProblem(p, θ), lo)
+    @test rb.u == ru.u && (rb.retcode, rb.stop_rule) === (ru.retcode, ru.stop_rule) && rb.resid == ru.resid
+    @test successful_retcode(rb)
+    # a solve's extent context on the essential class stays refused (the class has no extent check)
+    @test_throws ArgumentError solve(RefineProblem(p, θ, (; extent = rect)), lo)
+end
 end

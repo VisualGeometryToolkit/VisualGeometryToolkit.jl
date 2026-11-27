@@ -37,6 +37,42 @@
     @test JSON.json((width = 210.0mm, dpi = 300dpi); style = s) == """{"width":210.0,"dpi":300}"""
 end
 
+@testitem "codec: a termination stored before Core 0.14 as a legacy spelling (termination_from_legacy), every row" begin
+    using Test
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: ReturnCode, StopRule, NoRule, ClosedForm, IterationCap, TimeCap, NonFinite, SeedKept,
+        IncrementSize, CostDecrease, thrown_message
+    using VisualGeometryToolkitIO: termination_from_legacy
+    @test Base.ispublic(VgtkIO, :termination_from_legacy)
+    # Core 0.13's table, row by row; `rule` is the stop a converged or stalled loop's tolerance fired
+    rows = [
+        "converged" => (ReturnCode.Success, IncrementSize),
+        "solved" => (ReturnCode.Success, ClosedForm),
+        "stalled" => (ReturnCode.Stalled, IncrementSize),
+        "max_iterations" => (ReturnCode.MaxIters, IterationCap),
+        "max_time" => (ReturnCode.MaxTime, TimeCap),
+        "solve_failed" => (ReturnCode.Failure, NonFinite),
+        "degenerate" => (ReturnCode.InitialFailure, NoRule),
+        "not_run" => (ReturnCode.Default, NoRule),
+        "guard_kept_seed" => (ReturnCode.Success, SeedKept),
+        "no_lo" => (ReturnCode.Success, ClosedForm),
+        "thin_partition" => (ReturnCode.InitialFailure, NoRule),
+    ]
+    @test length(rows) == length(VgtkIO._LEGACY_TERMINATIONS) == 11
+    for (stored, record) in rows
+        @test termination_from_legacy(stored, IncrementSize) === record
+        @test termination_from_legacy(SubString(" " * stored, 2), IncrementSize) === record   # any AbstractString
+    end
+    # the caller's rule fills only the two rows that take it; the default is NoRule
+    @test termination_from_legacy("converged") === (ReturnCode.Success, NoRule)
+    @test termination_from_legacy("stalled", CostDecrease) === (ReturnCode.Stalled, CostDecrease)
+    @test termination_from_legacy("max_iterations", CostDecrease) === (ReturnCode.MaxIters, IterationCap)
+    # a spelling the table does not hold is refused, naming the ones it does
+    @test_throws ArgumentError termination_from_legacy("no_model")
+    msg = thrown_message(() -> termination_from_legacy("Converged"))
+    @test occursin("\"Converged\"", msg) && occursin("\"thin_partition\"", msg)
+end
+
 @testitem "codec: Size2 is {width, height}, plain or tagged" setup = [VGIoFixtures] begin
     import VisualGeometryToolkitIO as VgtkIO, VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: CovMat, Uncertain

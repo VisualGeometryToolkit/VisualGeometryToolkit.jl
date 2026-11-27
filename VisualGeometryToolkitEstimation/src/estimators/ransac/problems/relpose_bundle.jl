@@ -52,7 +52,7 @@
 # closed-form 4 × 8 Jacobian — and NLLSsolver owns the LM (Marquardt's DᵀD
 # damping, step accept/reject, convergence: Core's one LM, LevenbergMarquardt on the block contract) and, where the
 # loaded NLLSsolver has it (upstream #60, still open: the stack's fork has it;
-# `_BUNDLE_SCHUR` below), the Schur complement: its `MultiVariateLSschur`
+# Core's `has_nlls_schur()`), the Schur complement: its `MultiVariateLSschur`
 # eliminates every point (`iseliminable`). Without it the same problem runs on
 # NLLSsolver's sparse LDL over all 5 + 3N unknowns — the same optimum, slower.
 #
@@ -77,11 +77,10 @@ const _POSE_DOF = 5
 
 # A structure point, free in ℝ³: VGC's `Eliminable` around the point. `E` says
 # whether NLLSsolver may eliminate it (the Schur-complement linear system,
-# upstream #60, open; detected once, `_BUNDLE_SCHUR`); `E = false` is
+# upstream #60, open; detected once, Core's `has_nlls_schur()`); `E = false` is
 # NLLSsolver's sparse LDL over every unknown — which an NLLSsolver without #60
 # takes and the fallback test forces.
 const _BundlePoint{E} = Eliminable{E, SVector{3, Float64}}
-const _BUNDLE_SCHUR = isdefined(NLLSsolver, :MultiVariateLSschur) && isdefined(NLLSsolver, :iseliminable)   # upstream #60
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block. The run OWNS the three vectors
@@ -373,7 +372,7 @@ function _relpose_run(f::RelativePoseProblem)
     end
     w = VgtkCore.weights_column(f.cs)
     w === nothing ? fill!(d.sqrtw, 1.0) : _relpose_sqrt_weights!(d.sqrtw, w, N)
-    return _RelposeRun{_BUNDLE_SCHUR, typeof(d)}(d)
+    return _RelposeRun{has_nlls_schur(), typeof(d)}(d)
 end
 _relpose_guess(f::RelativePoseProblem, pose::PlainEuclideanMap{3}) =
     (SMatrix{3, 3, Float64, 9}(rotation(pose)), Vec3{Float64}(normalize(SVector{3, Float64}(translation(pose)))), _inv3(f.K1), _inv3(f.K2))
@@ -420,14 +419,14 @@ function _refine_relative_pose(
         iK1::SMatrix{3, 3, Float64, 9}, iK2::SMatrix{3, 3, Float64, 9},
         u1::AbstractVector, u2::AbstractVector,
         sqrtw::AbstractVector; stops::LmStops = _RELPOSE_BUNDLE_STOPS,
-        schur::Bool = _BUNDLE_SCHUR, callback::F = nothing
+        schur::Bool = has_nlls_schur(), callback::F = nothing
     ) where {F}
     # (`::F`: a Function-typed argument only handed on is not specialized,
     # which made the call below a dynamic one, boxing every argument)
     N = length(u1)
     N >= 5 || return nothing
     Rb = SMatrix{3, 3, Float64, 9}(R₀); tb = Vec3{Float64}(normalize(SVector{3, Float64}(t₀)))
-    E = schur && _BUNDLE_SCHUR
+    E = schur && has_nlls_schur()
     return E ? _bundle_optimize(Val(true), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback) :
         _bundle_optimize(Val(false), N, K1, K2, u1, u2, sqrtw, Rb, tb, iK1, iK2, stops, callback)
 end

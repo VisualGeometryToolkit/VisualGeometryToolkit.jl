@@ -61,25 +61,37 @@ end
     old = NC.RETIRED_NAMES[1]                    # any retired name
 
     @testset "R9: an algorithm's tag is its one tag, not the retired function's name" begin
-        tag = "photon" * "_transfer"                 # PhotonTransfer's tag, and a retired function's name
+        tag = "fit" * "_scale"                       # a retired function's name, and the tag of an algorithm a package may define
         @test tag in NC.RETIRED_NAMES
-        alg = "struct PhotonTransfer <: AbstractEstimationAlgorithm\n    block::Int\nend\n"
+        alg = "struct FitScale <: AbstractEstimationAlgorithm\n    block::Int\nend\n"
         # the package defines the algorithm: its TOML table and a reader's string literal spell its tag
         @test quiet("src/alg.jl" => alg, "configs/default.toml" => "[$(tag)]\nsignificance = 0.001\n",
                     "src/read.jl" => "const S = toml_default(D, \"$(tag)\", \"significance\")\n")
         # derived through the tag rule, qualified supertype or minimal solver alike
-        @test quiet("src/alg.jl" => "struct PhotonTransfer{T} <: VgtkCore.AbstractEstimationAlgorithm end\n",
+        @test quiet("src/alg.jl" => "struct FitScale{T} <: VgtkCore.AbstractEstimationAlgorithm end\n",
                     "configs/a.toml" => "[$(tag)]\nx = 1\n")
         # under an intermediate abstract type too (the supertype chain, followed)
-        @test quiet("src/alg.jl" => "abstract type SensorAlgorithm <: AbstractEstimationAlgorithm end\nstruct PhotonTransfer <: SensorAlgorithm end\n",
+        @test quiet("src/alg.jl" => "abstract type SensorAlgorithm <: AbstractEstimationAlgorithm end\nstruct FitScale <: SensorAlgorithm end\n",
                     "configs/a.toml" => "[$(tag)]\nx = 1\n")
-        # without the algorithm the table is the retired name; and in code it is the retired name, always
+        # without the algorithm (neither the package's nor a loaded one) the table is the retired name; and in code it is
+        # the retired name, always
         @test rules("configs/default.toml" => "[$(tag)]\nx = 1\n") == [:R9]
         @test rules("src/alg.jl" => alg, "src/a.jl" => "x = $(tag)(frames)\n") == [:R9]
         @test rules("src/alg.jl" => alg, "src/a.jl" => "f(x) = x   # $(tag) of a frame\n") == [:R9]
-        # a retired name that no algorithm's tag spells stays retired in a TOML file
-        other = "fit" * "_scale"
-        @test rules("src/alg.jl" => alg, "configs/a.toml" => "[$(other)]\nx = 1\n") == [:R9]
+        # a LOADED algorithm's tag is its tag in any package (C10): Core's `PhotonTransfer` and `NormalCG`, configured by a
+        # package that defines neither — a table, a tag value, a reader's string literal; prose and code stay retired
+        for loaded in ("photon" * "_transfer", "normal" * "_cg")
+            @test loaded in NC.RETIRED_NAMES
+            @test quiet("configs/a.toml" => "[$(loaded)]\nx = 1\n", "configs/b.toml" => "[solver]\nalgorithm = \"$(loaded)\"\n",
+                        "src/read.jl" => "const S = toml_default(D, \"$(loaded)\", \"x\")\n")
+            @test rules("configs/a.toml" => "x = 1   # the $(loaded) solve\n") == [:R9]
+            @test rules("src/a.jl" => "x = $(loaded)(N, g)\n") == [:R9]
+        end
+        # a retired name that no algorithm's tag spells stays retired in a TOML file, beside a loaded tag
+        other = "grid_brent" * "_minimum"
+        @test other in NC.RETIRED_NAMES
+        @test rules("configs/a.toml" => "[$(other)]\nx = 1\n") == [:R9]
+        @test rules("src/alg.jl" => alg, "configs/a.toml" => "[$(other)]\nsolver = \"normal" * "_cg\"\n") == [:R9]
     end
 
     @testset "R9: a foreign package's function of a retired name is its owner's" begin
@@ -937,7 +949,7 @@ end
         @test !Base.ispublic(VgtkCore, nameof(g)) && !(nameof(g) in names(VgtkCore))
     end
     for n in Symbol.((lk, lp, bcd, "_chart" * "_refit", "_triggs" * "_refit", "_ManifoldLm" * "Workspace", "_grid_brent" * "_minimum",
-                      "_cgls", "_normal" * "_cg", "_nlls" * "_features"))
+                      "_cgls", "_normal" * "_cg"))
         @test isdefined(VgtkCore, n) && !Base.ispublic(VgtkCore, n)
     end
     @test all(g -> g isa Function, VgtkCore.SOLVER_HOOKS) && VgtkCore.score! in VgtkCore.SOLVER_HOOKS

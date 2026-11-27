@@ -8,6 +8,25 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- `ToleranceStops(; max_iter, rtol, atol = 0.0)`: the one stops type of the Krylov solves (`CGLS`, `NormalCG`), the
+  continuation Newton of `PathFollowing` and a bisection gains an absolute floor. A solve stops at `quantity ≤ max(atol,
+  rtol · scale)`, `scale` its own reference as before (the right-hand side's norm; `1 + ‖v‖`; a bracket's stated
+  scale), so a scale that reaches zero (a bisection towards 0) still stops. `atol = 0` is the relative rule bit for bit
+  (`max(0.0, x) === x`): every existing caller is unchanged (the golden replay `===`).
+- `StopWhenIncrementLess(rtol)`, a `StoppingCriterion` in Manopt's `Stop…` naming: `(Success, IncrementSize)` once
+  `sqrt(Σ(θ − θ_old)²) / (sqrt(Σθ²) + 1e-300) < rtol` — the increment relative to the NEW model, strict, summed in index
+  order in the parameters' element type. Isbits and pure (`rtol` keeps its type), so a device kernel evaluates it on a
+  parameter column: BlobBoards' per-blob IRLS test, bit for bit. It differs from Estimation's
+  `StopWhenParameterChangeLess` (relative to the old model, `(Success, ParameterChange)`), which stays.
+- `has_nlls_schur()` (public): whether the loaded NLLSsolver has the Schur-complement system (upstream #60), a
+  compile-time constant (a type parameter or a folded branch). The one detection of the stack: it replaces Core's
+  private `_nlls_features`/`_NLLS_HAS_SCHUR` and VisualGeometryToolkitEstimation's `_BUNDLE_SCHUR`; downstream bundles
+  (PanoramaStitching's rotation bundle) call it instead of their own `isdefined` test.
+- `check_naming` R9: an algorithm's tag is exempt for EVERY loaded estimation-algorithm type, not only the checked
+  package's own (`_loaded_algorithm_names`, R20's set, now computed once for both rules). A package configures
+  another's algorithm by its tag — `"normal_cg"` (`NormalCG`, Core's) in a downstream TOML — in a TOML table, key or
+  value, or a Julia string literal; prose, comments and code spelling a retired name are still flagged, and so is a
+  retired name that is no loaded algorithm's tag.
 - `block_structure(f::AbstractBlockProblem, u0) -> (vars, blocks, stated)`, a contract generic (in
   `CONTRACT_GENERICS` and `SOLVER_HOOKS`): a bundle stated ONCE per solve. Core's block refine reads it once per
   one-shot `solve`, `init` and `reinit!` (default `(block_variables(f, u0), residual_blocks(f, u0), nothing)`), and

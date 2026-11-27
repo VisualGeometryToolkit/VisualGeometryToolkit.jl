@@ -43,6 +43,13 @@ reproduces byte for byte name their generator 0.12.0.
   `_spec(kind, v)`, and the `version` keyword of `_write_kind` and `_kind_spec`. `json_schema(kind, version)` is removed
   too: `json_schema(kind)` is the schema of the one version written.
 
+### Added
+- `termination_from_legacy(retcode::AbstractString, rule = NoRule) -> (ReturnCode.T, StopRule)` (public), beside the
+  `FitResult` codec: the one stored-format reader of a termination a record of Core ≤ 0.13 stored as a legacy spelling
+  (`"converged"`, `"max_iterations"`, a RANSAC's `"not_run"`, …), for a kind's version step (CaliBlobs' session
+  v3 → v4). It holds Core 0.13's eleven-row table verbatim; `rule` fills the `"converged"` and `"stalled"` rows; any
+  other spelling is an `ArgumentError` listing the eleven.
+
 ### Changed
 - The `vgio/sensor_characterization` reader builds each component, and the characterization, by keyword through
   VisualGeometryToolkitCore's `construct_from_table` (the children first), never by a constructor call of its own: the

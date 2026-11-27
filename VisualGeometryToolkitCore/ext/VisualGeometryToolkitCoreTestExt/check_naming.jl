@@ -1923,10 +1923,15 @@ function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
         end
     end
 
-    # An algorithm's ONE tag (owner, 2026-11-23): `snake_case` of an estimation-algorithm type the package defines, by the
-    # tag rule (`snake_case`), which a TOML table, key or tag string, and a Julia string literal that reads one, may spell
-    # even where it equals a retired function's name (PhotonTransfer's table is its tag, the retired estimator's name).
-    algorithm_tags = Set{String}(snake_case(String(t)) for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes))
+    # The estimation-algorithm types: the package's own declarations and every one loaded (`_loaded_algorithm_names`: the
+    # stack's, whoever runs the check), read by R9's tag exception and by R20.
+    algorithms = union(Set(t for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes)), _loaded_algorithm_names())
+    # An algorithm's ONE tag (owner, 2026-11-23): `snake_case` of an estimation-algorithm type, by the tag rule
+    # (`snake_case`), which a TOML table, key or tag string, and a Julia string literal that reads one, may spell even
+    # where it equals a retired function's name (PhotonTransfer's table is its tag, the retired estimator's name). Any
+    # loaded algorithm's tag, not only the package's own: a package configures another's algorithm by its tag
+    # (`"normal_cg"`, Core's `NormalCG`, in a downstream TOML).
+    algorithm_tags = Set{String}(snake_case(String(t)) for t in algorithms)
 
     # A retired name stands alone: no letter, digit, `_` or `!` on either side — a call form ending in `(` (a function
     # whose bare name is also a word) has no right side to check, its argument follows.
@@ -2007,7 +2012,6 @@ function check_naming(pkgdir::AbstractString; stack_roots = _stack_roots())
         _r15_publications!(out, f, parsed[f])
     end
     # rule 20: no alias of an estimation algorithm or of the solve verbs, and no algorithm value held in a constant
-    algorithms = union(Set(t for t in keys(supertypes) if _descends(t, _ALGORITHM_ROOTS, supertypes)), _loaded_algorithm_names())
     arities = _stack_type_arities(parsed, jl, Symbol(pkg), stack_roots)
     for f in jl
         _alias_rules!(out, f, parsed[f], algorithms)

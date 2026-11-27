@@ -271,6 +271,7 @@ public ColmapModel                    # a COLMAP model directory's contents + it
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)
 public migrate_region              # a region body written before IO 0.12 (a polygon's "centre" key), for an embedding kind's version step (core_json.jl)
+public termination_from_legacy     # a fit's termination stored before Core 0.14 as one legacy spelling, for a kind's version step (core_json.jl)
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
 public save_raster, load_raster       # vgio/raster/v2.0: a raster, its JSON header and its TIFF payload
 public write_tiff, read_tiff          # the stack's one TIFF codec (libtiff): a grey UInt8 or Float32 image

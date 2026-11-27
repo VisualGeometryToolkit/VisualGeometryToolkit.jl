@@ -346,7 +346,13 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   barrier at its chart size (a run-time `Val` of dimensions boxes nothing), and the residual-norm median
   (`MedianNormScale`'s kernel) takes its copy from the task's one scratch vector (`median!` on it, as `median`
   computes): the homography refine 14 → 12 allocations one-shot and 6 → 4 on a reused cache, its `Triggs` 16 → 14 and
-  8 → 6, the camera regression refine 139 → 130.
+  8 → 6, the camera regression refine 139 → 130. Then (phase 2b): a chart problem keeps a workspace across its
+  cache's solves (the new contract generic `chart_workspace(f, u0)`, default `nothing`, handed to
+  `chart_size(f, u0, workspace)` and `model_chart(f, model, workspace)`, whose defaults ignore it; rebuilt by a
+  `reinit!` that changes `f`), and `reduce_normal_equations` sums a host matrix's partials into the task's one scratch
+  column (`sum!`, the reduction `sum(partials; dims = 2)` runs, bit for bit): the camera regression refine 130 → 95
+  allocations and 70 128 → 64 352 bytes one-shot (0.13: 102 / 65 728), 104 / 67 856 → 27 / 6 544 on a reused cache,
+  its `solve!` now `@inferred`.
 - **Breaking: the Phase 1A breaking set (the conformance audit's Core rows).**
   - The block-coordinate stop contract records the enums (C8): `stop_reason(criterion, state, method, prob, θ, θ_old,
     iter)` returns `(ReturnCode.T, StopRule)`, `CONTINUE = (ReturnCode.Default, NoRule)` while a run goes on, and

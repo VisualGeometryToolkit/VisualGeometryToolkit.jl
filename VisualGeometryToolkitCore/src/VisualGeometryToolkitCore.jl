@@ -394,7 +394,7 @@ export RefineMetadata   # the LevenbergMarquardt refine's metadata (robust/refin
 public read_context   # THE reading of a solve's keyed context `p` (any order; one ArgumentError naming missing and unknown keys)
 public s2   # the residual variance a fit recorded (read by this function only)
 public AbstractFitMetadata   # the metadata root whose weights are its producer's (one weight_kind)
-public model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy, refit_chart, refit_rows   # the chart contract of the LevenbergMarquardt refine (contract generics)
+public model_chart, chart_rows, chart_model, chart_size, chart_workspace, guess_model, solution_model, default_optimization_strategy, refit_chart, refit_rows   # the chart contract of the LevenbergMarquardt refine (contract generics)
 public bundle_loss, recorded_scale, scale_record   # a refine's robust loss from its strategy and scale input; the scale it records, and the whole record (scale, source, width)
 public AbstractBlockProblem, with_robustifier, default_stops   # the block contract of a bundle refine, its stops of record
 public default_damping   # the damping a LevenbergMarquardt backend runs by default (a backend contract generic: PoseLib states its own)

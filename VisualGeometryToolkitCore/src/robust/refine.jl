@@ -84,14 +84,17 @@ RefineMetadata{L}(weights::W, scale::Real, source::ScaleSource, loss_width::Real
 
 """
     model_chart(f, model) -> chart
+    model_chart(f, model, workspace) -> chart
 
 The chart a chart problem `f` refines on, anchored at `model` (a model of `model_type(f)`, or one `convert` labels into
 it): the ONE seeding of every chart LM of `f` — a refine's, and VisualGeometryToolkitEstimation's local optimizations
 and lifts. A contract generic of the [`LevenbergMarquardt`](@ref) refine (with [`chart_rows`](@ref),
-[`chart_model`](@ref), [`chart_size`](@ref)).
+[`chart_model`](@ref), [`chart_size`](@ref)). A chart problem's refine calls the three-argument form with its
+[`chart_workspace`](@ref); its default is `model_chart(f, model)`.
 """
 function model_chart end
 model_chart(f, _model) = _no_method(f, model_chart, _CHART_CONTRACT)
+model_chart(f, model, _workspace) = model_chart(f, model)   # a chart problem's refine, with its `chart_workspace`
 
 """
     chart_rows(f, chart, sqrtw) -> state
@@ -114,16 +117,32 @@ chart_model(f, _chart) = _no_method(f, chart_model, _CHART_CONTRACT)
 """
     chart_size(f) -> (rows, Val(dof))
     chart_size(f, u0) -> (rows, Val(dof))
+    chart_size(f, u0, workspace) -> (rows, Val(dof))
 
 The chart LM's size on `f`: its residual row count (`codimension(f)` rows per datum) and the chart's dof. The
 two-argument form is the size at the guess `u0`, for a chart problem whose dof depends on it (a camera regression: the
 guess's family, its lens size, what it holds); its default is `chart_size(f)`. A chart-problem refine reads it once,
-at `init` (`chart_size(f, u0)`): when the dof is not inferable from `typeof(u0)`, that is one function barrier per
-`init`, never on a `solve!`/`reinit!` path.
+at `init` (`chart_size(f, u0, workspace)`, its [`chart_workspace`](@ref); the default `chart_size(f, u0)`): when the
+dof is not inferable from `typeof(u0)`, that is one function barrier per `init`, never on a `solve!`/`reinit!` path.
 """
 function chart_size end
 chart_size(f) = _no_method(f, chart_size, _CHART_CONTRACT)
 chart_size(f, _u0) = chart_size(f)
+chart_size(f, u0, _workspace) = chart_size(f, u0)
+
+"""
+    chart_workspace(f, u0) -> workspace | nothing
+
+What a chart problem `f` keeps across the solves of one refine cache: the part of its chart that depends on its data
+and on the guess's type, never on the guess's values (a camera regression's quadrature samples of its source, on the
+device, and the reduction's buffer). A chart-problem refine builds it once, at `init` (and at a one-shot solve's
+start), rebuilds it when a `reinit!` changes `f`, and hands it to `chart_size(f, u0, workspace)` and
+`model_chart(f, model, workspace)`, whose defaults ignore it (`chart_size(f, u0)`, `model_chart(f, model)`). The
+default is `nothing`: a problem that keeps nothing. A contract generic of the [`LevenbergMarquardt`](@ref) refine of an
+[`AbstractChartProblem`](@ref).
+"""
+function chart_workspace end
+chart_workspace(_f, _u0) = nothing
 
 """
     refit_chart(f, model, weights) -> chart | nothing
@@ -908,13 +927,14 @@ end
 
 # --- a chart problem ------------------------------------------------------------
 
-mutable struct _ChartProblemCache{F, U, D <: LmDamping, N, C}
+mutable struct _ChartProblemCache{F, U, D <: LmDamping, N, C, W}
     f::F
     u0::U
     stops::LmStops
     damping::D
     const ews::_ManifoldLmWorkspace{N}
     const callback::C
+    cws::W   # the problem's `chart_workspace`, of `f` (rebuilt by a `reinit!` that changes `f`)
 end
 function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}, shared::Bool;
         stops::LmStops = default_stops(prob.f), callback = nothing)
@@ -922,15 +942,16 @@ function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::
     prob.p isa NullParameters || throw(ArgumentError("a LevenbergMarquardt refine of a chart problem reads no context `p`"))
     _resolved_strategy(prob.f, alg.optimization_strategy) === nothing || throw(ArgumentError(string("a ",
         nameof(typeof(prob.f)), " is refined by plain least squares: LevenbergMarquardt(; optimization_strategy = nothing)")))
-    rows, dof = chart_size(prob.f, prob.u0)
-    return _chart_problem_cache(prob, alg, shared, rows, dof, stops, callback)
+    cws = chart_workspace(prob.f, prob.u0)
+    rows, dof = chart_size(prob.f, prob.u0, cws)
+    return _chart_problem_cache(prob, alg, shared, rows, dof, stops, callback, cws)
 end
 # A function barrier at the chart's size: a family may state its dimension at run time (`Val(n)` of the camera
 # regression's moving parameters), so the workspace and the cache are built specialized on it, nothing boxed.
 function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}, shared::Bool,
-        rows::Int, dof::Val, stops::LmStops, callback)
+        rows::Int, dof::Val, stops::LmStops, callback, cws)
     ews = shared ? _lm_workspace(nothing, rows, dof) : _ManifoldLmWorkspace(rows, dof)
-    return _ChartProblemCache(prob.f, prob.u0, stops, alg.damping, ews, callback)
+    return _ChartProblemCache(prob.f, prob.u0, stops, alg.damping, ews, callback, cws)
 end
 __solve(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
     solve!(_chart_problem_cache(prob, alg, true; kwargs...))
@@ -938,7 +959,7 @@ __init(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{Nati
     _chart_problem_cache(prob, alg, false; kwargs...)
 function solve!(c::_ChartProblemCache)
     θ = guess_model(c.f, c.u0)
-    return _chart_problem_solve(c, θ, model_chart(c.f, θ))
+    return _chart_problem_solve(c, θ, model_chart(c.f, θ, c.cws))
 end
 # A function barrier at the chart: a family may decide its chart's type at run time (the camera regression's, by its
 # moving parameters), so the solve at it runs specialized on it — the record's NamedTuple and its `stationary` closure
@@ -973,6 +994,7 @@ _chart_problem_stationary(::_ManifoldLmWorkspace{0}, _lm, _x, _stops) = () -> tr
 function reinit!(c::_ChartProblemCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops, alg = nothing)
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine reads no context `p`"))
     alg === nothing || (c.damping = alg.damping)
+    f === c.f || (c.cws = chart_workspace(f, u0))   # the problem's own workspace follows its data
     c.f = f; c.u0 = u0; c.stops = stops
     return c
 end

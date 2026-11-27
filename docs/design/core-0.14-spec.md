@@ -1234,3 +1234,17 @@ These are done in Core 0.14, each with its own commit:
   39.6 → 38.6 ms, the first solve unchanged (refine 478 → 482 ms, RANSAC 1566 → 1544 ms, a Pair-vector refine 479 →
   474 ms, fresh processes, three each): `HomographyProblem` canonicalizes a Pair vector into the same container, so the
   second loop compiled almost nothing of its own. The 10 MB is the refine itself.
+- 2026-11-27 (phase 2b, the camera regression to ruling (b); bits `===`): Core's chart-problem refine keeps the
+  problem's `chart_workspace(f, u0)` (a new contract generic, default `nothing`, in `CONTRACT_GENERICS` and
+  `SOLVER_HOOKS`): built once at `init` and at a one-shot solve's start, rebuilt by a `reinit!` that changes `f`, handed
+  to `chart_size(f, u0, workspace)` and `model_chart(f, model, workspace)` (their defaults drop it). Estimation's
+  camera regression keeps there what does not depend on the guess's values: the source's role, K₀ and offset map, the
+  samples (`_profile_samples`) and their device copies with the reduction's buffer (`device_zeros`), and the chart at
+  the guess it was built at (so `chart_size` no longer builds `_regression_manifold_of` a second time); a later guess's
+  chart is asserted to the workspace's chart type (the guess's type and `fixed` decide it), which makes a reused
+  cache's `solve!` `@inferred`. The one-shot solve stays uninferred: its chart type is decided at run time by the moving
+  parameters (one function barrier per `init`). `reduce_normal_equations` sums a host matrix into the task's scratch
+  column (`sum!`, bitwise the reduction of `sum(partials; dims = 2)`, checked on 2000 random matrices), and the
+  per-sample errors are scaled in place. Measured locally (one thread): one-shot 130 / 70 128 → 95 / 64 352 (OLD
+  102 / 65 728); `solve!(reinit!(c, u0))` 104 / 67 856 → 27 / 6 544, `@inferred`. What a reuse still allocates is the
+  result's own per-sample arrays (`_lens_fit_result`, the errors) and the `pointwise!` launch.

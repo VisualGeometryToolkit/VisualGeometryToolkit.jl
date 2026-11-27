@@ -209,7 +209,7 @@ end
     N = tangent_size(P)
     θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     function regress(dev)
-        lm = VgtkEstimation._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+        lm = VgtkEstimation._LensRegressionLm(dev, P, false, θcap, M, VgtkEstimation._regression_device_data(dev, pr, tangent_size(P)))
         x, record, its = VgtkEstimation._regress_lens(lm, Val(N), VgtkCore.LmStops(; max_iter = VgtkEstimation._dflt("camera_regression_problem", "max_iter")))
         e = K0[1, 1] .* VgtkEstimation._sample_errors(lm, x, θcap)                                    # px
         return (; x, record, its, rms = sqrt(sum(i -> pr.w[i] * sum(abs2, e[i]), eachindex(e)) / sum(pr.w)), max_px = maximum(norm, e))

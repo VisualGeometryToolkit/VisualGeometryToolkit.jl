@@ -223,7 +223,7 @@ import VisualGeometryToolkitCore:
 # its caches) for its OWN algorithm types, declares their `estimator_kind`/`supports_solve_rng`, and the defaults of
 # its own problem types; the chart contract of the LevenbergMarquardt refine is implemented on its family problems.
 import VisualGeometryToolkitCore: __solve, __init, estimator_kind, supports_solve_rng,
-    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, chart_result, default_optimization_strategy,
+    model_chart, chart_rows, chart_model, chart_size, chart_workspace, guess_model, solution_model, chart_result, default_optimization_strategy,
     block_structure, block_variables, residual_blocks, residual_summary, block_result, with_robustifier, default_stops,
     reinit!
 import CommonSolve: solve!

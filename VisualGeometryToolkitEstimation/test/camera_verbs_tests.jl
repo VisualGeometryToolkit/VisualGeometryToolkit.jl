@@ -134,6 +134,16 @@ end
         @test maximum(abs.(collect(parameter_vector(lens(r.u))) .- p)) < 1.0e-5
         @test abs(calibration_matrix(r.u)[1, 1] - K[1, 1]) < 1.0e-5 * K[1, 1]
         @test abs(r.rms - a.rms) <= 1.0e-6 * max(a.rms, 1.0e-9) + 1.0e-12
+        # a cache keeps the problem's chart workspace (Core's `chart_workspace`: the samples, their device copies, the
+        # reduction's buffer): a reused cache's solve is the one-shot solve's, bit for bit, from any guess, inferred,
+        # allocating only the result's own arrays (27 for KB4, 2026-11-27; it rebuilt every sample before: 104)
+        c = VgtkCore.init(RefineProblem(CameraRegressionProblem(mdiv, region), guess), LevenbergMarquardt())
+        again(c, g) = VgtkCore.solve!(VgtkCore.reinit!(c, g))
+        same(x, y) = parameter_vector(lens(x)) == parameter_vector(lens(y)) && calibration_matrix(x) == calibration_matrix(y)
+        @test same(again(c, guess).u, r.u)
+        @test same(again(c, best).u, solve(RefineProblem(CameraRegressionProblem(mdiv, region), best), LevenbergMarquardt()).u)
+        @test same((@inferred again(c, guess)).u, r.u)
+        @test (@allocations again(c, guess)) <= 40
     end
     # a physical source's principal point is data: a guess that moves it is refused
     g = solve(EstimationProblem(CameraRegressionProblem(KB4, mdiv, disc(mdiv, 1500.0))), CameraRegression(; refine = LevenbergMarquardt())).u
@@ -257,7 +267,7 @@ end
     start = VgtkEstimation._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
     pr = VgtkEstimation._profile_samples(role, KB4, mdiv, region, K0, VgtkEstimation.ImageMeasure(), VgtkCore.default_device())
     P = VgtkEstimation._regression_manifold(role, VgtkEstimation._lens_family_manifold(role, lens(guess), moving), start, moving)
-    lm = VgtkEstimation._LensRegressionLm(VgtkCore.default_device(), P, false, Inf, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+    lm = VgtkEstimation._LensRegressionLm(VgtkCore.default_device(), P, false, Inf, M, VgtkEstimation._regression_device_data(VgtkCore.default_device(), pr, tangent_size(P)))
     N = tangent_size(P)
     @test N > 0 && size(lm.partials, 2) > 1
     for x in (zero(SVector{N, Float64}), SVector{N, Float64}(ntuple(a -> 1.0e-6 * (-1)^a / a, N)))

@@ -22,7 +22,8 @@ Pages = ["robust/rows.jl", "robust/lm_core.jl"]
 ## The Refine: Chart and Block Contracts
 
 What a problem implements to be refined by `LevenbergMarquardt` — one model on a minimal chart (`model_chart`,
-`chart_rows`, `chart_model`, `chart_size`) or several blocks ([`AbstractBlockProblem`](@ref): `block_variables`,
+`chart_rows`, `chart_model`, `chart_size`, and `chart_workspace` for what a chart problem keeps across a cache's
+solves) or several blocks ([`AbstractBlockProblem`](@ref): `block_variables`,
 `residual_blocks` or `block_structure`, `fixed_variables`, `residual_summary`, `block_result`, and `prepare_evaluation!`
 for a bundle that evaluates its blocks together) — the parsed robust loss (`bundle_loss`) and the refine's
 metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)). A refine of raw data (a

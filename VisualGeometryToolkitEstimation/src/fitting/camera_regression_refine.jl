@@ -104,14 +104,15 @@ struct _LensRegressionLm{D, TP <: ProductManifold, R, A, Y, B}
 end
 # The work items of the reduction: enough to fill an accelerator, few enough that their columns sum in one reduction.
 const _REDUCTION_ITEMS = 2048
-function _LensRegressionLm(device, P::ProductManifold, angle_residual::Bool, θcap::Float64, M, rays, angles, points, sw)
-    N = tangent_size(P)
+_LensRegressionLm(device, P::ProductManifold, angle_residual::Bool, θcap::Float64, M, data::NamedTuple) =
+    _LensRegressionLm(device, P, angle_residual, θcap, M, data.rays, data.angles, data.points, data.sw, data.partials)
+# The samples `pr` on the device (rays, angles, points and their √weights) and the reduction's partial sums for a chart
+# of `N` coordinates: built once per workspace (every reduction overwrites the partial sums it reads).
+function _regression_device_data(device, pr, N::Int)
     up(T, v) = VgtkCore.on_device(T, device, v)
-    W = max(1, min(length(rays), _REDUCTION_ITEMS))
-    return _LensRegressionLm(
-        device, P, angle_residual, θcap, M, up(SVector{3, Float64}, rays), up(Float64, angles), up(SVector{2, Float64}, points), up(Float64, sw),
-        VgtkCore.device_zeros(Float64, device, 1 + N + N * N, W)
-    )
+    W = max(1, min(length(pr.rays), _REDUCTION_ITEMS))
+    return (; rays = up(SVector{3, Float64}, pr.rays), angles = up(Float64, pr.angles), points = up(SVector{2, Float64}, pr.points),
+            sw = up(Float64, sqrt.(pr.w)), partials = VgtkCore.device_zeros(Float64, device, 1 + N + N * N, W))
 end
 
 # A ray's view angle about ẑ and its azimuth's unit vector (zero on the axis, where the radius is 0). Dual-safe.
@@ -205,13 +206,13 @@ residual_normal_equations!(_, _J, lm::_LensRegressionLm, x::SVector{N, Float64})
 )
 
 # Each sample's round-trip error at the solution `x`, in pixels / fx₀: the forward form, a lift's radius capped at
-# `θcap` (one kernel, the same backend: Core's `pointwise!`), back on the host.
+# `θcap` (one kernel, the same backend: Core's `pointwise!`), back on the host (a host array is returned as written).
 function _sample_errors(lm::_LensRegressionLm, x, θcap)
     n = length(lm.rays)
     out = VgtkCore.device_zeros(SVector{2, Float64}, lm.device, n)
     P, M, θc = lm.P, lm.M, Float64(θcap)
     pointwise!((r, a, q) -> _pixel_offset(_regression_parts(retract(P, x)), M, r, a, q, θc), out, lm.rays, lm.angles, lm.points)
-    return Array(out)
+    return out isa Array ? out : Array(out)
 end
 
 # The chart coordinates of the fit (the anchor is the start: every coordinate at
@@ -304,13 +305,14 @@ function _refine_camera_entry(guess::CameraModel, source::CameraModel, region; s
     VgtkCore.check_region_support(support, region; who = "CameraRegressionProblem")   # Core's one guard: no fit over an extrapolated model
     return _refine_camera(guess, source, region; kwargs...)
 end
-# The refine's chart at the guess, its region checked as the refine's (the contract's `model_chart`).
-function _regression_entry_chart(guess::CameraModel, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...)
+# The refine's workspace at the guess, its region checked as the refine's (the contract's `chart_workspace`).
+function _regression_entry_workspace(guess::CameraModel, source::CameraModel, region; support = VgtkCore.valid_domain(source), kwargs...)
     VgtkCore.check_region_support(support, region; who = "CameraRegressionProblem")
-    return _regression_chart(guess, source, region; kwargs...)
+    return _regression_workspace(guess, source, region; kwargs...)
 end
-_regression_entry_chart(guess::CameraModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
-    _regression_entry_chart(guess, model(source), _bounded_part(source, region, support, "CameraRegressionProblem"); kwargs...)
+_regression_entry_workspace(guess::CameraModel, source::BoundedCamera, region; support = VgtkCore.valid_domain(source), kwargs...) =
+    _regression_entry_workspace(guess, model(source), _bounded_part(source, region, support, "CameraRegressionProblem"); kwargs...)
+_regression_entry_workspace(_guess, source::NoncentralSplineModel, _region; kwargs...) = _refine_camera_entry(nothing, source, nothing)   # the refusal
 # The refine itself, its region checked by the caller (`the camera-regression refine`, `the fit-then-refine recipe`, `OpticalAxis`).
 function _refine_camera(guess::CameraModel, source::CameraModel, region; stops::LmStops = _CAMERA_REGRESSION_STOPS,
                         damping::LmDamping = MarquardtDamping(), kwargs...)
@@ -337,22 +339,50 @@ struct _RegressionChart{TP, R, Q, Y, W, G}
     region::G
     weight::W
 end
-function _regression_chart(
+_regression_chart(guess::CameraModel, source::CameraModel, region; kwargs...) =
+    _regression_chart(guess, _regression_workspace(guess, source, region; kwargs...))
+# What the chart keeps across a cache's solves (the camera regression's `chart_workspace`): everything that does not
+# depend on the guess's values — the source's role, K₀ and offset map, its samples over the region (for the guess's
+# lens family) and their device copies with the reduction's buffer — and the chart `P` at the guess it was built at, so
+# a one-shot refine builds its chart once.
+struct _RegressionWorkspace{S, R, Q, D, G, W, F, U, TP}
+    source::S
+    role::R
+    K0::SMatrix{3, 3, Float64, 9}
+    M::SMatrix{2, 2, Float64, 4}
+    pr::Q
+    data::D           # the samples on the device and the reduction's partial sums (`_regression_device_data`)
+    region::G
+    weight::W
+    device::F
+    fixed::Tuple{Vararg{Symbol}}
+    guess::U
+    P::TP
+end
+function _regression_workspace(
         guess::CameraModel, source::CameraModel, region;
         fixed::Tuple{Vararg{Symbol}} = (), weight = ImageMeasure(), device = default_device(),
         free = RetiredKeyword(), fix = RetiredKeyword(), fixed_params = RetiredKeyword(), hold = RetiredKeyword(),   # refused, naming `fixed`
     )
     _refuse_held_spellings(free, fix, fixed_params, hold)
+    role, K0, M, P = _regression_manifold_of(guess, source, fixed)
+    pr = _profile_samples(role, typeof(lens(guess)), source, region, K0, weight, device)
+    data = _regression_device_data(device, pr, tangent_size(P))
+    return _RegressionWorkspace(source, role, K0, M, pr, data, region, weight, device, fixed, guess, P)
+end
+# The chart at `guess` on the workspace `ws`: its family's chart (the workspace's own at the guess it was built at),
+# the fold cap of a forward guess and the chart-LM state on the workspace's samples.
+function _regression_chart(guess::CameraModel, ws::_RegressionWorkspace)
     gl = lens(guess)
     L = typeof(gl)
-    role, K0, M, P = _regression_manifold_of(guess, source, fixed)
-    pr = _profile_samples(role, L, source, region, K0, weight, device)
+    # the guess's type and the problem's `fixed` decide the chart's type: the workspace's, so the chart is typed by it
+    P = guess === ws.guess ? ws.P : last(_regression_manifold_of(guess, ws.source, ws.fixed))::typeof(ws.P)
     # a forward guess that folds before the domain's edge (a linear fit over a field its family cannot image) images
     # no radius past its fold: its residual there is capped at the fold, as the reported errors are
     # (a guess at the source's own fold, to its rounding, is not capped: 1e-6 rad)
-    θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
-    lm = _LensRegressionLm(device, P, L <: LiftLens, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
-    return _RegressionChart(P, role, K0, M, pr, lm, L <: LiftLens, region, weight)
+    θcap = L <: LiftLens ? Inf : (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < ws.pr.θ_max - 1.0e-6 ? t : Inf)
+    lm = _LensRegressionLm(ws.device, P, L <: LiftLens, θcap, ws.M, ws.data)
+    return _RegressionChart(P, ws.role, ws.K0, ws.M, ws.pr, lm, L <: LiftLens, ws.region, ws.weight)
 end
 # The chart alone (no samples): the guess's lens family at the moving parameters, the source's K₀ and its offset map.
 function _regression_manifold_of(guess::CameraModel, source::CameraModel, fixed)
@@ -373,7 +403,8 @@ function _regression_result(ch::_RegressionChart, p, record, iters, stationary)
     fit = _regression_parts(retract(ch.P, p))
     # a regression that ends non-finite did not converge: its FitResult reports it
     isfinite(fit.s) || (record = (ReturnCode.Failure, NonFinite))
-    e = ch.K0[1, 1] .* _sample_errors(ch.lm, p, _domain_cap(ch.lift ? LiftLens : Lens, fit.lens, isfinite(fit.s), ch.pr.θ_max))   # (camera_regression.jl)
+    e = _sample_errors(ch.lm, p, _domain_cap(ch.lift ? LiftLens : Lens, fit.lens, isfinite(fit.s), ch.pr.θ_max))   # (camera_regression.jl)
+    e .*= ch.K0[1, 1]   # in pixels: scaled in place (the host array is the call's own)
     return _lens_fit_result(ch.role, fit, ch.K0, ch.M, ch.pr, e, ch.region, ch.weight, record, iters;
                             stationary = stationary && isfinite(fit.s))
 end
@@ -390,16 +421,16 @@ _refine_camera_entry(_guess, source::NoncentralSplineModel, _region; kwargs...) 
 # checked against the source's support first), its rows the device state, ONE chart LM from its origin at the solve's
 # `stops` (default [camera_regression_problem] `max_iter`) and the algorithm's damping, plain least squares only; the
 # result assembled from the chart and its solution point (`chart_result`).
-function chart_size(f::CameraRegressionProblem{Nothing}, guess::CameraModel)
-    src = _central_source(f.source)
-    return (1, Val(tangent_size(last(_regression_manifold_of(guess, src, get(f.settings, :fixed, ()))))))
-end
+chart_workspace(f::CameraRegressionProblem{Nothing}, guess::CameraModel) = _regression_entry_workspace(guess, f.source, f.region; f.settings...)
+chart_size(::CameraRegressionProblem{Nothing}, ::CameraModel, ws::_RegressionWorkspace) = (1, Val(tangent_size(ws.P)))
+chart_size(f::CameraRegressionProblem{Nothing}, guess::CameraModel) = chart_size(f, guess, chart_workspace(f, guess))
 chart_size(::CameraRegressionProblem, _guess) = throw(ArgumentError(
     "a CameraRegressionProblem with a target is solved from scratch (CameraRegression, PSpline): its refine is " *
         "`RefineProblem(CameraRegressionProblem(source, region; …), guess)`, the guess giving the family"))
 guess_model(::CameraRegressionProblem, guess) = guess
 solution_model(::CameraRegressionProblem, model, _guess) = model
-model_chart(f::CameraRegressionProblem{Nothing}, guess::CameraModel) = _regression_entry_chart(guess, f.source, f.region; f.settings...)
+model_chart(f::CameraRegressionProblem{Nothing}, guess::CameraModel, ws::_RegressionWorkspace) = _regression_chart(guess, ws)
+model_chart(f::CameraRegressionProblem{Nothing}, guess::CameraModel) = model_chart(f, guess, chart_workspace(f, guess))
 chart_rows(::CameraRegressionProblem, ch::_RegressionChart, _sqrtw) = ch.lm
 VgtkCore.recenter(ch::_RegressionChart, x) = (ch, x)   # the result reads the chart and its point (`chart_result`)
 chart_model(::CameraRegressionProblem, (ch, x)::Tuple{_RegressionChart, Any}) = nothing
@@ -408,10 +439,6 @@ function chart_result(::CameraRegressionProblem, _guess, r::FitResult)
     tangent_size(ch.P) == 0 && return _regression_result(ch, SVector{0, Float64}(), (ReturnCode.Success, ClosedForm), 0, true)
     return _regression_result(ch, x, (r.retcode, r.stop_rule), r.stats.nsteps, all(isfinite, x) && r.metadata.stationary())
 end
-# The central source a refine reads (a bounded camera's model; a non-central one refused).
-_central_source(s::CameraModel) = s
-_central_source(s::BoundedCamera) = model(s)
-_central_source(s::NoncentralSplineModel) = _refine_camera_entry(nothing, s, nothing)   # the refusal
 default_optimization_strategy(::CameraRegressionProblem) = nothing   # a camera-from-camera regression has no outliers: L2
 default_stops(::CameraRegressionProblem) = _CAMERA_REGRESSION_STOPS
 const _CAMERA_REGRESSION_STOPS = LmStops(; max_iter = _dflt("camera_regression_problem", "max_iter"))

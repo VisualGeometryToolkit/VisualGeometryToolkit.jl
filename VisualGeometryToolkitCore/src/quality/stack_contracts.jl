@@ -184,7 +184,7 @@ const CONTRACT_GENERICS = (
     __solve, __init, reinit!, estimator_kind, default_algorithm, supports_solve_rng,
     # the LevenbergMarquardt refine's contracts (robust/refine.jl): the chart contract a chart problem's author
     # implements, its class's strategy of record, and the block contract of a bundle
-    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
+    model_chart, chart_rows, chart_model, chart_size, chart_workspace, guess_model, solution_model, default_optimization_strategy,
     refit_chart, refit_rows, with_robustifier, default_stops, chart_result,
     block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, prepare_evaluation!,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
@@ -309,7 +309,7 @@ const SOLVER_HOOKS = (
     # the chart LM's row protocol (robust/lm_core.jl)
     residual_rows!, residual_jacobian_rows!, residual_cost!, residual_normal_equations!,
     # the LevenbergMarquardt refine's chart and block contracts (robust/refine.jl)
-    model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, chart_result, refit_chart, refit_rows,
+    model_chart, chart_rows, chart_model, chart_size, chart_workspace, guess_model, solution_model, chart_result, refit_chart, refit_rows,
     with_robustifier, block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
     prepare_evaluation!,
     # the local-optimization contract (robust/lo_contract.jl, robust/problem.jl)

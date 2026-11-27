@@ -80,7 +80,12 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   The relative-pose bundle's block contract allocates nothing per point: `block_variables` states the N + 1 variables
   into the task's one vector, `residual_blocks` is a lazy view of the call's data (Core copies both into its kept
   problem), so a one-shot `RelativePoseProblem` refine allocates 1.4 KB at N = 1000 (was 178 KB; 10 allocations,
-  was 15); its test bounds the bytes per point.
+  was 15); its test bounds the bytes per point. The camera-regression refine implements Core's `chart_workspace`:
+  its source's samples over the region, their device copies and the reduction's buffer, and the chart at the guess,
+  built once per cache (a one-shot refine builds its chart once: `chart_size` no longer builds it a second time) and
+  kept across `solve!(reinit!(c, u0))`; the chart is typed by the workspace, so a reused cache's `solve!` infers; the
+  per-sample errors are scaled to pixels in place. One-shot 130 → 95 allocations, 70 128 → 64 352 bytes; reused
+  104 / 67 856 → 27 / 6 544.
 - **The local optimization's refits run through Core's front end.** A chart problem's refit workspace is a
   `RefitSlot` (`refit_workspace(problem)`): Core's summary-free refine cache, `init(RefineProblem(p, zero(M)),
   LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`, re-pointed per refit by

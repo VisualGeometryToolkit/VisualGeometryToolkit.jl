@@ -88,7 +88,8 @@ through one of two contracts.
   [`model_chart`](@ref)`(f, θ)` the chart about the current model,
   [`chart_rows`](@ref)`(f, θ)` its √w-weighted residual rows,
   [`chart_model`](@ref)`(f, ch, θ)` the model back from the chart,
-  [`chart_size`](@ref) its dimension, and the class's defaults
+  [`chart_size`](@ref) its dimension, [`chart_workspace`](@ref) what a chart
+  problem keeps across the solves of one cache (its data's samples), and the class's defaults
   [`default_optimization_strategy`](@ref) and [`default_stops`](@ref). A guess
   in a wider type than the problem's model is mapped in by [`guess_model`](@ref)
   and the estimate back by [`solution_model`](@ref) (the frame labels and units

@@ -453,8 +453,15 @@ end
 function reduce_normal_equations(partials::AbstractMatrix, ::Val{N}) where {N}
     size(partials, 1) == 1 + N + N * N ||
         throw(DimensionMismatch("reduce_normal_equations: $(size(partials, 1)) rows of partial sums for N = $N (1 + N + N² = $(1 + N + N * N))"))
-    t = Array(sum(partials; dims = 2))
+    t = _column_totals(partials)
     return 0.5 * t[1], SVector{N, Float64}(ntuple(a -> t[1 + a], Val(N))), SMatrix{N, N, Float64}(ntuple(k -> t[1 + N + k], Val(N * N)))
+end
+# The partial sums' column totals on the host: summed on the array's backend and brought over; a host matrix's into the
+# task's one scratch column (`sum!`, the reduction `sum(partials; dims = 2)` runs), nothing allocated per call.
+_column_totals(partials::AbstractMatrix) = Array(sum(partials; dims = 2))
+function _column_totals(partials::Matrix{Float64})
+    rows = size(partials, 1)
+    return sum!(task_buffers(Matrix{Float64}, () -> Matrix{Float64}(undef, rows, 1), (:vgc_column_totals, rows)), partials)
 end
 
 """

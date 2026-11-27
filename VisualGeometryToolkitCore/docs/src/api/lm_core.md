@@ -23,7 +23,8 @@ Pages = ["robust/rows.jl", "robust/lm_core.jl"]
 
 What a problem implements to be refined by `LevenbergMarquardt` — one model on a minimal chart (`model_chart`,
 `chart_rows`, `chart_model`, `chart_size`) or several blocks ([`AbstractBlockProblem`](@ref): `block_variables`,
-`residual_blocks` or `block_structure`, `fixed_variables`, `residual_summary`, `block_result`) — the parsed robust loss (`bundle_loss`) and the refine's
+`residual_blocks` or `block_structure`, `fixed_variables`, `residual_summary`, `block_result`, and `prepare_evaluation!`
+for a bundle that evaluates its blocks together) — the parsed robust loss (`bundle_loss`) and the refine's
 metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)). A refine of raw data (a
 correspondence vector, not a problem) by another solver backend, `solve(RefineProblem(cs, guess[, p]),
 LevenbergMarquardt(backend; …))`, is forwarded to the backend contract generic `lm_backend_refine`, which the

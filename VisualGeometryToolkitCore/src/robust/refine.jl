@@ -1024,6 +1024,27 @@ one. The author's own assembly; a contract generic.
 function block_result end
 block_result(f::AbstractBlockProblem, _u0, _r, _summary) = _no_method(f, block_result, _BLOCK_CONTRACT)
 
+"""
+    prepare_evaluation!(f::AbstractBlockProblem, variables::AbstractVector, varnext::AbstractVector) -> nothing
+
+The bundle `f` told the variable vectors its residual blocks are about to be evaluated at, during a refine of it:
+`variables`, the multi-block LM's linearization point, and `varnext`, its trial point (NLLSsolver's two vectors,
+which it swaps as it accepts a step). Each evaluation of a block reads its variables from one of the two
+(`NLLSsolver.getvars(block, v)`, the same objects), so a bundle that evaluates several blocks at once — a device
+batch of the blocks that share a vector, started ahead of NLLSsolver's requests — finds the vector a request's
+variables come from by identity. Core calls it before the LM's first evaluation and again before each evaluation at
+the solution (the stationarity postcondition, the residual summary; with `stops.max_iter == 0`, before the summary
+alone), in the one-shot `solve` and in the cache's `solve!` alike, so every evaluation reads one of the two vectors
+the latest call named. The vectors are the solve's: valid until it returns, and never written by `f`. The default
+does nothing and compiles to nothing; a bundle that evaluates block by block implements none. A contract generic.
+"""
+prepare_evaluation!(_f, _variables, _varnext) = nothing
+# The bundle `f` told the vectors of the multi-block LM `p` as they are now; `p` back.
+@inline function _prepare_evaluation!(f, p::_LmProblem)
+    prepare_evaluation!(f, p.problem.variables, p.problem.varnext)
+    return p
+end
+
 # THE too-few-data guard of every refine: fewer data than a minimal sample (a bundle states none by default: 0).
 _too_few(f::Union{AbstractConstraintProblem, AbstractBlockProblem}) = (m = minimal_sample_size(f); m > 0 && data_size(f) < m)
 minimal_sample_size(::AbstractBlockProblem) = 0
@@ -1190,8 +1211,8 @@ end
 # `stops`, the summary `f` asks for with `block_structure`'s `stated`, the author's result.
 function _block_solve(f, u0, loss, stops::LmStops, lp::_LmProblem, costs, callback, stated)
     r = stops.max_iter == 0 ?
-        FitResult(lp.variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; cost = NaN)) :
-        _lmsolve_chart!(lp, stops, _nlls_callback(callback))
+        FitResult(_prepare_evaluation!(f, lp).variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; cost = NaN)) :
+        _lmsolve_chart!(lp, stops, _nlls_callback(callback), f)
     return block_result(f, u0, r, _with_stated(_residual_summary(residual_summary(f), loss, costs, lp), stated))
 end
 # The summary with the bundle's `stated` (`block_structure`): no field for `nothing`.
@@ -1208,7 +1229,7 @@ function _residual_summary(::RowsWithJacobian, loss, costs, lp)
     blocks = costs
     stationarity = lo === nothing ? blocks :
         [with_robustifier(b, sqrt(s.weights[k]), NLLSsolver.NoRobust()) for (k, b) in enumerate(blocks)]
-    jacobian = Matrix(last(_nlls_rows_and_jacobian(stationarity, collect(lp.variables))))
+    jacobian = Matrix(last(_nlls_rows_and_jacobian(stationarity, lp.variables)))
     return (; s..., jacobian)
 end
 function _block_summary(loss, costs, lp)
@@ -1310,7 +1331,8 @@ function _reinit_variables!(c::_BlockRefineCache, _stated, f, u0)
     return vars
 end
 
-public block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, CodimensionRows, RowsWithJacobian
+public block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, prepare_evaluation!
+public CodimensionRows, RowsWithJacobian
 public task_kept_blocks
 
 public AbstractRowProblem, AbstractChartProblem, chart_result, LmIterationState

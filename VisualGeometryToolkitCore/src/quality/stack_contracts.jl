@@ -165,7 +165,7 @@ const CONTRACT_GENERICS = (
     # implements, its class's strategy of record, and the block contract of a bundle
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, default_optimization_strategy,
     refit_chart, refit_rows, with_robustifier, default_stops, chart_result,
-    block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
+    block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, prepare_evaluation!,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
     # and refine of raw data (robust/lm_core.jl, robust/refine.jl)
     homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine, honored_stops,
@@ -290,6 +290,7 @@ const SOLVER_HOOKS = (
     # the LevenbergMarquardt refine's chart and block contracts (robust/refine.jl)
     model_chart, chart_rows, chart_model, chart_size, guess_model, solution_model, chart_result, refit_chart, refit_rows,
     with_robustifier, block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
+    prepare_evaluation!,
     # the local-optimization contract (robust/lo_contract.jl, robust/problem.jl)
     lo_workspace, locally_optimize!, external_refit!, external_workspace, prepare_external!, refine!, refit_workspace,
     # the scoring contract and pool selection (robust/scoring_contract.jl, robust/partition_sweep.jl, robust/pool_selection.jl)

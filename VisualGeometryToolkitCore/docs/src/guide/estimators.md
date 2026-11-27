@@ -101,7 +101,10 @@ through one of two contracts.
   [`block_structure`](@ref), the bundle stated once with what its result keeps of it),
   the summary it asks for ([`residual_summary`](@ref)) and its result
   ([`block_result`](@ref)), each residual block type answering
-  [`with_robustifier`](@ref). Core builds and solves the multi-block LM.
+  [`with_robustifier`](@ref). Core builds and solves the multi-block LM, and
+  tells a bundle that evaluates its blocks together (a device batch) the
+  variable vectors each evaluation reads ([`prepare_evaluation!`](@ref); a
+  no-op by default).
 
 The robust loss is parsed once, from the solve's `scale`/`width` and the
 algorithm's strategy, by [`bundle_loss`](@ref); the result records the scale it

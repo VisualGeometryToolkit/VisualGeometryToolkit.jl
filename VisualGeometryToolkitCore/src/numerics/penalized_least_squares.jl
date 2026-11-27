@@ -329,7 +329,7 @@ end
     ToleranceStops(; max_iter = 500, rtol = 1e-6, atol = 0.0)
 
 The stop settings of an iteration with an iteration cap and a tolerance — the stack's Krylov least squares
-([`CGLS`](@ref), [`NormalCG`](@ref)), the continuation Newton of [`PathFollowing`](@ref) and a bisection: the solve
+([`CGLS`](@ref), [`NormalCG`](@ref)), the continuation Newton of [`PathFollowing`](@ref VisualGeometryToolkitCore.Synthetic.PathFollowing) and a bisection: the solve
 keyword `stops`. `max_iter` is the iteration cap (`0`: no iteration, the start judged as it is). The solve stops
 when the quantity it tests is at most `max(atol, rtol · scale)`, `scale` the solver's own reference (CGLS and CG: the
 normal-equation residual against the right-hand side's norm; PathFollowing: the Newton increment against `1 + ‖v‖`;

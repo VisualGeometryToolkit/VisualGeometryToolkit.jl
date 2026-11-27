@@ -910,7 +910,7 @@ const _LM_STALLED = -2
                     callback = nothing, u0 = 0) -> FitResult{SVector{N, Float64}}
     _lmsolve_chart!(ews::_ManifoldLmWorkspace{N}, lm, robustifier, ::Val{C}, stops::LmStops = LmStops(),
                     damping::LmDamping = MarquardtDamping(); callback = nothing, u0 = 0) -> FitResult{SVector{N, Float64}}
-    _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb = NLLSsolver.nullcallback) -> FitResult
+    _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb = NLLSsolver.nullcallback, f = nothing) -> FitResult
 
 Core-internal (a refine reaches it through `solve`/`init` on a [`RefineProblem`](@ref) with
 [`LevenbergMarquardt`](@ref)).
@@ -929,7 +929,9 @@ of the knobs) and the step's `damping` ([`LmDamping`](@ref): the chart forms' ar
    own robustifier — in place in `p.variables`; `cost` is `Σₖ ρ(‖rₖ‖²)` (‖r‖² without robustifiers), `callback` an
    NLLSsolver iteration callback (`nothing`: none). An indefinite or singular normal system in NLLSsolver's step solve
    (`PosDefException`, `SingularException`, `ZeroPivotException`, `LAPACKException`) is a failed solve,
-   `(ReturnCode.Failure, NonFinite)`, the variables as the solver left them.
+   `(ReturnCode.Failure, NonFinite)`, the variables as the solver left them. `f`, the bundle the problem was built
+   for, is told the vectors its blocks are evaluated at ([`prepare_evaluation!`](@ref)) before the run and before
+   each sweep at its solution; `nothing` (the default) is told nothing.
 
 The chart forms keep the problem and NLLSsolver's `OptimizeCache` in the workspace (one caching path, plain and
 robust alike), so a refit rebuilds neither. The result's `u` is the solution chart vector (the multi-block form's
@@ -1070,13 +1072,19 @@ const _CHART_OFFSETS = (0,)   # its columns start at 1
 
 # The multi-block kernel, on an NLLSsolver callback `cb` `(cost, problem, data, iterdata) -> (cost, terminate)` (a
 # refine's `callback` is adapted by `_nlls_callback`).
-function _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb::F = NLLSsolver.nullcallback) where {F}
+function _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb::F = NLLSsolver.nullcallback, f = nothing) where {F}
+    # The vectors NLLSsolver evaluates the blocks at, told to the bundle before its first evaluation (`varnext` exists:
+    # the problem's OptimizeCache was built with it). Its LM loop evaluates at these two only, swapping them as it
+    # accepts a step; a run that ends on its best point may have swapped another in, so the bundle is told again
+    # before each evaluation at the solution (the stationarity postcondition here, the residual summary after).
+    _prepare_evaluation!(f, p)
     out = try
-        _lm_run!(p, stops, cb, exact -> _lm_problem_stationary!(p, stops.stationarity_tol, exact))
+        _lm_run!(p, stops, cb, exact -> _lm_problem_stationary!(_prepare_evaluation!(f, p), stops.stationarity_tol, exact))
     catch e
         e isa _LM_LINEAR_FAILURES || rethrow()
         nothing
     end
+    _prepare_evaluation!(f, p)
     out === nothing &&
         return FitResult(p.variables, ReturnCode.Failure, NonFinite, SolveStats(), NaN, 0, (; cost = NaN))
     result, _, record = out

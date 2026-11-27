@@ -286,6 +286,85 @@ end
     @test same(inner[], solve!(init(RefineProblem(g, (0.0, 0.0)), plain)))
 end
 
+# C17: the block refine tells the bundle the two vectors NLLSsolver evaluates its blocks at (`prepare_evaluation!`),
+# before the first evaluation and again before each evaluation at the solution: every block evaluation, in the one-shot
+# solve, the cache's solve! and a `max_iter = 0` run, reads one of the two vectors the latest call named, and both are
+# read (the trial vector too). The default does nothing, allocates nothing and is inferred.
+@testitem "block refine: `prepare_evaluation!` names the vectors every block evaluation reads" begin
+    using Test, StaticArrays
+    import VisualGeometryToolkitCore as VgtkCore
+    using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, LmStops, solve, init, solve!, reinit!, NLLSsolver
+    const _EVENTS = Any[]     # (:told, variables, varnext) and (:read, v), in order
+    struct _ERow <: NLLSsolver.AbstractResidual
+        s::Float64; y::Float64
+    end
+    NLLSsolver.ndeps(::_ERow) = NLLSsolver.static(2)
+    NLLSsolver.nres(::_ERow) = NLLSsolver.static(1)
+    NLLSsolver.varindices(::_ERow) = SVector(1, 2)
+    function NLLSsolver.getvars(::_ERow, vars::Vector)
+        push!(_EVENTS, (:read, vars))
+        return (vars[1]::SVector{1, Float64}, vars[2]::SVector{1, Float64})
+    end
+    Base.eltype(::_ERow) = Float64
+    NLLSsolver.computeresidual(r::_ERow, a, b) = SVector(a[1] + b[1] * r.s - r.y)
+    struct _ELine <: VgtkCore.AbstractBlockProblem
+        s::Vector{Float64}; y::Vector{Float64}
+    end
+    VgtkCore.default_optimization_strategy(::_ELine) = nothing
+    VgtkCore.block_variables(::_ELine, u0) = Union{SVector{1, Float64}}[SVector(u0[1]), SVector(u0[2])]
+    VgtkCore.residual_blocks(f::_ELine, _u0) = [_ERow(si, yi) for (si, yi) in zip(f.s, f.y)]
+    VgtkCore.block_result(::_ELine, _u0, r, summary) = (; u = (r.u[1][1], r.u[2][1]), r.retcode, summary.S)
+    VgtkCore.prepare_evaluation!(::_ELine, variables, varnext) = (push!(_EVENTS, (:told, variables, varnext)); nothing)
+    # every read after the first call of one of the latest call's two vectors; returns (reads before any call — the
+    # problem's construction: NLLSsolver's `addcost!` checks each block's `getvars` once, no evaluation —, calls,
+    # reads of variables, reads of varnext)
+    function audit(events)
+        told = nothing; pre = 0; n = 0; nv = 0; nn = 0
+        for e in events
+            if e[1] === :told
+                told = e; n += 1
+            elseif told === nothing
+                pre += 1
+            else
+                v = e[2]
+                v === told[2] ? (nv += 1) : v === told[3] ? (nn += 1) : @test(false)
+            end
+        end
+        return pre, n, nv, nn
+    end
+    s = collect(0.0:1.0:5.0); y = 0.5 .+ 2.0 .* s .+ 0.01 .* sin.(3 .* s)
+    f = _ELine(s, y)
+    alg = LevenbergMarquardt()
+    for (run, built) in ((() -> solve(RefineProblem(f, (0.0, 0.0)), alg), true),         # the one-shot solve (built)
+                         (() -> solve(RefineProblem(f, (0.1, 1.0)), alg), false),        # the one-shot solve (re-seeded)
+                         (() -> (c = init(RefineProblem(f, (0.0, 0.0)), alg); empty!(_EVENTS); solve!(c)), false))
+        empty!(_EVENTS)
+        r = run()
+        @test r.u[2] ≈ 2.0 atol = 0.05
+        pre, n, nv, nn = audit(_EVENTS)
+        @test pre == (built ? length(s) : 0)
+        @test n >= 2 && nv > 0 && nn > 0                     # told before the run and after it; both vectors read
+    end
+    # the cache, reinit!'d: the same vectors, told again for the new solve
+    c = init(RefineProblem(f, (0.0, 0.0)), alg); solve!(c)
+    reinit!(c, (0.2, 1.5)); empty!(_EVENTS)
+    @test solve!(c).u[2] ≈ 2.0 atol = 0.05
+    pre, n, nv, nn = audit(_EVENTS); @test pre == 0 && n >= 2 && nv > 0 && nn > 0
+    # no LM (`max_iter = 0`): told once, before the summary's evaluation at the guess
+    empty!(_EVENTS)
+    r0 = solve(RefineProblem(f, (0.0, 0.0)), alg; stops = LmStops(; max_iter = 0))
+    @test r0.u === (0.0, 0.0)
+    pre, n, nv, nn = audit(_EVENTS); @test pre == 0 && n == 1 && nv > 0 && nn == 0
+    # the default: nothing, no allocation, inferred (compiled away at the call sites)
+    v = Union{SVector{1, Float64}}[SVector(0.0), SVector(0.0)]
+    struct _Silent <: VgtkCore.AbstractBlockProblem end
+    @test @inferred(VgtkCore.prepare_evaluation!(_Silent(), v, v)) === nothing
+    VgtkCore.prepare_evaluation!(_Silent(), v, v)
+    @test (@allocated VgtkCore.prepare_evaluation!(_Silent(), v, v)) == 0
+    @test Base.return_types(VgtkCore.prepare_evaluation!, (_Silent, typeof(v), typeof(v))) == [Nothing]
+    @test VgtkCore.prepare_evaluation! in VgtkCore.CONTRACT_GENERICS && VgtkCore.prepare_evaluation! in VgtkCore.SOLVER_HOOKS
+end
+
 # C1: a chart problem whose chart has no coordinates (every parameter held) is not solved: the model at the guess,
 # `(Success, ClosedForm)`, no step, its cost there, stationary — one-shot and cache alike.
 @testitem "chart refine: a zero-dimensional chart is the guess, closed form" begin

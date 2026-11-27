@@ -1052,5 +1052,15 @@ These are done in Core 0.14, each with its own commit:
   region to validate, the inner consensus decides), so the bounded local optimization is the unbounded one bit for
   bit (LODR's "validation decorator" test). The context form `p = (; extent)` on an essential problem stays an
   `ArgumentError`, as the 2026-11-23 entry states.
+- 2026-11-27 (set 4, C17, lead's ruling): `prepare_evaluation!(f::AbstractBlockProblem, variables, varnext)` is a
+  contract generic (no public accessor of the block cache): Core's block refine hands the bundle NLLSsolver's two
+  variable vectors before the LM's first evaluation and again before each evaluation at the solution (after a run that
+  ended on its best point another vector may hold the solution), from `_lmsolve_chart!`'s multi-block form, which now
+  takes the bundle. Inside the LM loop NLLSsolver evaluates at those two only (it swaps them on an accepted step; its
+  best-point swap happens only on a non-finite cost, which ends the run), so a bundle that locates a request's vector
+  by identity sees exactly what it read from `LmProblem.variables`/`varnext` before R22 (RadiometricCamera's batched
+  window and view batches). `varnext` exists before the first call: the problem's `OptimizeCache` is built with it. No
+  end hook: RC's registration is torn down by its own `try … finally` around `solve!`. The default is a no-op (0
+  allocations, inferred); bits `===`.
 - 2026-11-27 (lead, C15): `stop_tolerance(stops::ToleranceStops, scale)` is public, the one owner of a ToleranceStops run's
   bound; a solver outside Core reads it rather than restating `max(atol, rtol · scale)`.

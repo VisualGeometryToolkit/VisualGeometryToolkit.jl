@@ -8,6 +8,13 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Added
+- `prepare_evaluation!(f::AbstractBlockProblem, variables, varnext)`, a contract generic (in `CONTRACT_GENERICS` and
+  `SOLVER_HOOKS`): the block refine tells the bundle the two variable vectors NLLSsolver evaluates its blocks at (the
+  linearization point and the trial point), before the LM's first evaluation and before each evaluation at the
+  solution (the stationarity postcondition, the residual summary), in the one-shot `solve` and the cache's `solve!`.
+  A bundle that evaluates its blocks together (RadiometricCamera's device batches over the blocks of one trial) finds
+  a request's vector by identity, as it did through the LM problem's own fields before R22, so no cache internal is
+  reached. The default does nothing and compiles to nothing; no number moves.
 - `ToleranceStops(; max_iter, rtol, atol = 0.0)`: the one stops type of the Krylov solves (`CGLS`, `NormalCG`), the
   continuation Newton of `PathFollowing` and a bisection gains an absolute floor. A solve stops at `quantity ≤ max(atol,
   rtol · scale)`, `scale` its own reference as before (the right-hand side's norm; `1 + ‖v‖`; a bracket's stated

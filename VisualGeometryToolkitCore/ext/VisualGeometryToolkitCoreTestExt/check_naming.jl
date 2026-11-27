@@ -690,6 +690,9 @@ const RETIRED_NAMES = String[
     "sweep" * "_up",                         # `RollFreeUp()` on `EstimationProblem(SweepUp, rotations)`
     # VisualGeometryToolkitEval 0.12: the scale-prior fit is an algorithm (spec §6)
     "fit" * "_prior",                        # `solve(EstimationProblem(IGPrior, σ²s), spec)`, `PriorSpec(family, fitting)` the algorithm (ClosedFormKind)
+    # Core 0.14 hygiene (coordinator's item 7): two downstream task verbs and readings retired in their solve ports
+    "calibrate" * "_linear",                 # CaliBlobs: `solve(board_calibration_problem(…), LinearBoardCalibration(config, calibrate_config))`
+    "additive_level" * "_slope",             # PanoramaStitching: `LevelBisection`'s `metadata.slope` (the objective is internal, `_additive_level_slope`)
     # Phase 2b (C5, lead ruling): RansacScoringDoneRight, LocalOptimizationDoneRight and VRTK's retired public names
     "gpd" * "_support", "gpd" * "_outlier_cost",   # RSDR: internal (`_gpd_support`, `_gpd_outlier_cost`)
     "loss_width" * "_scoring(",              # RSDR: the scorer's constructor, `F(dg)`

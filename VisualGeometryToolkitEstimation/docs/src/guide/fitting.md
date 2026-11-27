@@ -29,7 +29,7 @@ optional validity region, `(; extent)`:
 | [`CircleProblem`](@ref)`(points)`, [`EllipseProblem`](@ref)`(points)` | image points | 1 px |
 
 `Ransac()` reads its defaults from the problem's class, the
-`[pipelines.<class>]` table of `configs/default.toml`: the `scoring` table
+`[<problem>.ransac]` table of `configs/default.toml`: the `scoring` table
 (read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml) — every class's is MSAC,
 `{ type = "msac", threshold = … }`) and an `Irls{TLSShape}()` local optimization
 following the scorer's decision point. The thresholds are conventions, not
@@ -61,7 +61,7 @@ noise_scale(h) == noise_scale(r)                                     # the scale
 ```
 
 The strategy is the algorithm's `optimization_strategy`: `Triggs{Shape}` (the
-default, `ClassDefault()`: `configs/default.toml [refine.<class>]`), one
+default, `ClassDefault()`: `configs/default.toml [<problem>.levenberg_marquardt]`), one
 robustified chart LM, the one fixed-scale robust path (an `Irls{Shape}` is
 refused, naming its `Triggs{Shape}`); or `nothing`, plain least squares. A
 robust strategy needs EXACTLY ONE of the solve keywords `scale = σ` (a number,

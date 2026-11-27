@@ -417,15 +417,15 @@ function replay_est_conics_ransac(cases)
         "bearing_pose" => (cr_bearing_pose(), BearingPoseProblem),
         "rotation" => (cr_rotation_pixels(), d -> RotationProblem(FISHEYE, FISHEYE, d)),
         "radial_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc)),
-        "radial_homography_extra_check" => (rh, d -> RadialHomographyProblem(d; center = rhc, extra_check = true)),
-        "radial_homography_minimal_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc, minimal = :homography)),
+        "radial_homography_extra_check" => (rh, d -> RadialHomographyProblem(d; center = rhc, minimal_solver = VgtkCore.Homography5ptRadial(; extra_check = true))),
+        "radial_homography_minimal_homography" => (rh, d -> RadialHomographyProblem(d; center = rhc, minimal_solver = VgtkCore.Homography4pt())),
         "radial_camera" => (cr_radial_board_pairs(), d -> RadialCameraProblem(d; center = _CR_D.RADIAL_BOARD_CENTER)),
         "circle" => (cdata, CircleProblem),
         "ellipse" => (last(cr_ellipse_scenes()[2]), EllipseProblem),
         "line" => (ldata, LineFittingProblem),
         "inhom_line" => (cr_inhom_line_points(), InhomLineFittingProblem),
         "hand_eye" => (cr_hand_eye_motions(), HandEyeProblem),
-        "hand_eye_all_pairs" => (cr_hand_eye_motions(), d -> HandEyeProblem(d; motion_pairs = :all)),
+        "hand_eye_all_pairs" => (cr_hand_eye_motions(), d -> HandEyeProblem(d; motion_pairs = VgtkEstimation.AllPairs())),
         "bounded_homography" => (hdata, d -> BoundedProblem(HomographyProblem(d), VgtkCore.Rect(0.0, 0.0, 200.0, 150.0))),
     ]
     for (name, (data, mk)) in solve_problems

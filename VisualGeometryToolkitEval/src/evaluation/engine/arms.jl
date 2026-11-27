@@ -157,7 +157,7 @@ deployed_ref(::WidthAxis, selection, width) = Float64(width)
 # — a scorer or an LO — whose single width value is supplied in ABSOLUTE
 # residual units, with the other role held out of the loop entirely:
 #
-#   role = :refinement — the basin refiner: refits from δ-perturbed GT seeds;
+#   RefinementRole() — the basin refiner: refits from δ-perturbed GT seeds;
 #     NO scoring consensus may leak into the loss's scale. `axis` names WHAT
 #     the value is, so drivers dispatch mechanically (`solo_refit_imc!`):
 #       LossWidth() — the value IS the loss width: a native refiner's
@@ -165,26 +165,46 @@ deployed_ref(::WidthAxis, selection, width) = Float64(width)
 #               refines at it.
 #       OutlierHalfwidth() — a self-scaled Student-t arm: the value is the
 #               outlier half-width via nat′.
-#   role = :selection — the selection scorer: ctor(value) returns a concrete
+#   SelectionRole() — the selection scorer: ctor(value) returns a concrete
 #     pool scorer; the driver argmaxes the pool per pair and reads the
 #     winner's pose error.
 # =============================================================================
 
 """
-    SoloSpec(base, role, axis::WidthAxis, ctor)
+    ArmRole
 
-One role (`:selection` | `:refinement`) validated in isolation at one width
+The role a [`SoloSpec`](@ref) validates in isolation: [`SelectionRole`](@ref) (a pool scorer) or
+[`RefinementRole`](@ref) (an LO strategy).
+"""
+abstract type ArmRole end
+"""
+    SelectionRole()
+
+The selection scorer's role: a [`SoloSpec`](@ref)'s `ctor(value)` returns a concrete pool scorer; the driver argmaxes
+the pool per pair and reads the winner's pose error.
+"""
+struct SelectionRole <: ArmRole end
+"""
+    RefinementRole()
+
+The basin refiner's role: a [`SoloSpec`](@ref)'s `ctor(value)` returns an LO strategy, refitted from δ-perturbed GT
+seeds ([`solo_refit_imc!`](@ref)).
+"""
+struct RefinementRole <: ArmRole end
+
+"""
+    SoloSpec(base, role::ArmRole, axis::WidthAxis, ctor)
+
+One role ([`SelectionRole`](@ref)`()` | [`RefinementRole`](@ref)`()`) validated in isolation at one width
 value on `axis` (see the block comment above); `ctor(value)` returns a pool
 scorer (selection) or an LO strategy (refinement).
 """
 struct SoloSpec
     base::String
-    role::Symbol
+    role::ArmRole
     axis::WidthAxis
     ctor::Function
-    function SoloSpec(base::AbstractString, role::Symbol, axis::WidthAxis, ctor::Function)
-        role in (:selection, :refinement) ||
-            throw(ArgumentError("SoloSpec $base: role must be :selection or :refinement; got :$role"))
+    function SoloSpec(base::AbstractString, role::ArmRole, axis::WidthAxis, ctor::Function)
         axis isa NativeAxis || throw(ArgumentError(
             "SoloSpec $base: a solo width is absolute (OutlierHalfwidth() or LossWidth()); got $axis"))
         return new(String(base), role, axis, ctor)
@@ -195,7 +215,7 @@ end
     solo_refit_imc!(ctx, spec::SoloSpec, seed_E, width, selection_halfwidth; on_fail = NaN)
         -> (imc°, lo_ns)
 
-The width-delivery dispatch of a `:refinement` solo evaluation, one mechanical
+The width-delivery dispatch of a [`RefinementRole`](@ref) solo evaluation, one mechanical
 map from `spec.axis` to the refit call, shared by the basin tuning's refits and
 the ladder's solo mode so tuning and test deliver the width identically. The
 seed is swept under the context's solo template (`ctx.solo_scoring`):
@@ -208,8 +228,8 @@ seed is swept under the context's solo template (`ctx.solo_scoring`):
 """
 function solo_refit_imc!(ctx, spec::SoloSpec, seed_E, width::Float64, selection_halfwidth::Float64;
                          on_fail = NaN)
-    spec.role === :refinement ||
-        error("solo_refit_imc!: spec $(spec.base) has role :$(spec.role), not :refinement")
+    spec.role isa RefinementRole ||
+        error("solo_refit_imc!: spec $(spec.base) has role $(spec.role), not RefinementRole()")
     lo = spec.ctor(width)
     spec.axis isa LossWidth ?
         _width_refit_imc!(ctx, RefitFamily(lo), lo, seed_E, width, selection_halfwidth; on_fail) :
@@ -229,7 +249,7 @@ sidecar ([`deployed_budget_settings`](@ref), [`deployed_basin_settings`](@ref),
 - `composed(problem::Symbol) -> Vector{ComposedSpec}` — the composed
   score+LO roster (efficiency-constant / outlier-half-width / natively delivered
   loss-width arms) of the composed miscal and budget evaluations;
-- `solo(problem::Symbol; role::Symbol) -> Vector{SoloSpec}` — the solo roster;
+- `solo(problem::Symbol; role::ArmRole) -> Vector{SoloSpec}` — the solo roster;
 - `basin(problem::Symbol) -> Vector{ComposedSpec}` — the basin roster
   (loss-width and outlier-half-width arms only; an efficiency constant has no
   meaning on the basin axis).
@@ -459,7 +479,7 @@ function deployed_basin_settings(roster::Roster, path::AbstractString)
     out = Pair{String,@NamedTuple{spec::SoloSpec, width::Float64}}[]
     for b in tk["arms"]
         arm = by_base[b]
-        push!(out, b => (spec = SoloSpec(b, :refinement, arm.kind, arm.ctor),
+        push!(out, b => (spec = SoloSpec(b, RefinementRole(), arm.kind, arm.ctor),
                          width = tuned_width(tk, arm)))
     end
     return out

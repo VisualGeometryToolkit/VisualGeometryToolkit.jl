@@ -254,7 +254,7 @@ unknown keys or tags are refused.
 A strategy is selected in TOML by tag:
 
 ```toml
-[pipelines.homography]
+[homography_problem.ransac]
 scoring            = { type = "msac", threshold = 3.0 }  # px; a Student-t: { type = "student_t_uniform", outlier_halfwidth = 20.0 }
 local_optimization_strategy = { type = "irls", loss = "tls" }     # no width key: follow the scorer
 # explicit widths: { type = "irls", loss = "welsch", efficiency_constant = 2.5 }

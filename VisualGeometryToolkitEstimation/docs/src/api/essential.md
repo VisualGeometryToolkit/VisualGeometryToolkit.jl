@@ -29,7 +29,7 @@ calibrated leftover, by every run on the problem (a find, a
 
 ## Thresholds and operating points
 
-The find's default threshold, 1 px (`[pipelines.essential]` in
+The find's default threshold, 1 px (`[essential_problem.ransac]` in
 `configs/default.toml`), is a convention (OpenCV's `findEssentialMat`), not a
 tuned value. The paper's cross-validated operating points — the per-class
 efficiency constants of the Welsch half-quadratic lift, with their provenance — are

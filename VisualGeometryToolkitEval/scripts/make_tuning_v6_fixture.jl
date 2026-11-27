@@ -27,16 +27,16 @@ using VisualGeometryToolkitCore: Irls
 const OLD = "scale" * "_multiple"                                     # the v6 name of the efficiency constant
 const OLD_AXIS = getfield(VgtkCore, Symbol("Scale" * "Multiple"))()   # its width axis
 const PLAIN = getfield(VgtkEstimation, Symbol("plain_" * OLD))         # the old currency table
-const F = VisualGeometryToolkitEval.engine_fixtures()
+const ENGINE_FIXTURES = VisualGeometryToolkitEval.engine_fixtures()   # the Test extension's engine fixtures (a module)
 const SHAPES = Dict("HW +Irls(m)" => TLSShape(), "HW +GM(m)" => GemanMcclureShape(),
                     "HW +Welsch(m)" => WelschShape(), "HW +Cauchy(m)" => CauchyShape())
 arms = [ComposedSpec("HW +Irls", :hw, OutlierHalfwidth(), OutlierHalfwidth(), _ -> Irls{TLSShape}());
         [ComposedSpec(b, :hw, OutlierHalfwidth(), OLD_AXIS, m -> Irls{typeof(k)}(; (Symbol(OLD) => m,)...))
          for (b, k) in sort!(collect(SHAPES); by = first)]]
-rt = F.roster_tuning()
+rt = ENGINE_FIXTURES.roster_tuning()
 dir = joinpath(@__DIR__, "..", "test", "data", "tuning_v6")
-F.write_roster_sidecar(joinpath(dir, "composed.jld2"), rt, arms; code = (VisualGeometryToolkitEval,), mode = "miscal")
-F.write_roster_sidecar(joinpath(dir, "clipped.jld2"), rt, arms; code = (VisualGeometryToolkitEval,), mode = "miscal",
+ENGINE_FIXTURES.write_roster_sidecar(joinpath(dir, "composed.jld2"), rt, arms; code = (VisualGeometryToolkitEval,), mode = "miscal")
+ENGINE_FIXTURES.write_roster_sidecar(joinpath(dir, "clipped.jld2"), rt, arms; code = (VisualGeometryToolkitEval,), mode = "miscal",
                        hits = Dict(a.base => (a.base == "HW +GM(m)" ? [OLD * "_hi"] : String[]) for a in arms))
 m = rt.values[Symbol(OLD)][3]                           # every arm is tuned at the third grid value
 art = VisualGeometryToolkitEval.Tuning.load_tuning_artifact(joinpath(dir, "composed.jld2"))

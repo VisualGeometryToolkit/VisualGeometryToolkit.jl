@@ -3,7 +3,7 @@
 # E-step is the posterior of the shared Student-t + uniform scorer (`weighting`, read by
 # `scoring_from_toml`, absent keys inheriting [scoring.student_t_uniform]); its loop is the
 # posterior-weight iteration (`PosteriorIrlsMethod`, `PosteriorIrlsState`) of a `MixtureEmConfig`
-# (`mixture_em`, read by `mixture_em_from_toml`, absent keys inheriting [mixture_em]), stopped
+# (`mixture_em`, read by `mixture_em_from_toml`, absent keys inheriting [residual_mixture.config]), stopped
 # by the shared schema's parameter-change rule (STOP_TAGS "parameter_change": the last iterate).
 # The private `outlier_halfwidth` and `max_iter` keys are gone: refused, naming the new form.
 # Every other user of the shared iteration keeps the no-improvement rule (the incumbent).
@@ -38,7 +38,7 @@
 
     # the stop rule is a key of the shared schema: required (stated in the defaults file, nowhere in code),
     # its tags refused when unknown or short of a field, and every other user keeps the no-improvement rule
-    @test TOML.parsefile(default_config_path())["mixture_em"]["stop"] == "no_improvement"
+    @test TOML.parsefile(default_config_path())["residual_mixture"]["config"]["stop"] == "no_improvement"
     @test MixtureEmConfig().stop === NoImprovementStop() && config_dict(MixtureEmConfig())["stop"] == "no_improvement"
     @test STOP_TAGS["parameter_change"] === ParameterChangeStop && STOP_TAGS["no_improvement"] === NoImprovementStop
     @test_throws ArgumentError mixture_em_from_toml(Dict("stop" => "parameter_change"))

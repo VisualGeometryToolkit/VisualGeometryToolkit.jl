@@ -166,7 +166,7 @@ using VisualGeometryToolkitEstimation
         for class in (:homography, :fundmat, :essential, :rotation, :absolute_pose, :radial_homography, :radial_camera, :hand_eye)
             @test VgtkEstimation._dflt_lo(class) == Irls{TLSShape}()
         end
-        # the circle's and the ellipse's are the robustified LM (configs/default.toml [pipelines.circle], [pipelines.ellipse])
+        # the circle's and the ellipse's are the robustified LM (configs/default.toml [circle_problem.ransac], [ellipse_problem.ransac])
         @test VgtkEstimation._dflt_lo(:circle) == Triggs{WelschShape}(efficiency_constant = 2.5)
         @test VgtkEstimation._dflt_lo(:ellipse) == Triggs{WelschShape}(efficiency_constant = 2.5)
     end

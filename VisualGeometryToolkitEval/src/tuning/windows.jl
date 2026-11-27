@@ -19,7 +19,7 @@ supplied scale (`window_columns`), and the window of the efficiency-constant axi
 itself ([`StandardizedWindow`](@ref)). It carries no grid: the grids are
 built by the spacings.
 """
-struct EfficiencyConstantWindow
+Base.@kwdef struct EfficiencyConstantWindow
     lo::Float64
     hi::Float64
     function EfficiencyConstantWindow(lo::Real, hi::Real)
@@ -72,7 +72,7 @@ abstract type WindowRule end
 
 A window stated in the axis's native units. TOML tag `"fixed"`.
 """
-struct FixedWindow <: WindowRule
+Base.@kwdef struct FixedWindow <: WindowRule
     lo::Float64
     hi::Float64
     function FixedWindow(lo::Real, hi::Real)
@@ -114,7 +114,7 @@ modes that have many. (It replaced a separate `StandardizedNativeWindow` rule,
 which was this rule with its band collapsed and was a distinct type only
 because the constructor forbade `q_lo == q_hi`.)
 """
-struct CoverageWindow <: WindowRule
+Base.@kwdef struct CoverageWindow <: WindowRule
     q_lo::Float64
     q_hi::Float64
     log_margin::Float64
@@ -134,7 +134,7 @@ end
 `[center / factor, center · factor]` about a center the caller supplies: a
 transferred operating point centres on itself. TOML tag `"centered"`.
 """
-struct CenteredWindow <: WindowRule
+Base.@kwdef struct CenteredWindow <: WindowRule
     factor::Float64
     function CenteredWindow(factor::Real)
         factor > 1 || throw(ArgumentError("CenteredWindow: factor = $factor must be > 1"))

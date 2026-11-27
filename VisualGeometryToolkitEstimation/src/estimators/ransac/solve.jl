@@ -11,37 +11,45 @@
 # kind law, the problem recorded on the result); this file adds `__init` and the cache's `solve!`/`reinit!` for the
 # two algorithms, which run the one loop (loop.jl) on the one composed workspace (`RansacWorkspace`).
 #
-# A family problem's CLASS (`_problem_class`) names its configuration of record: `[pipelines.<class>]` (the
-# scorer and local optimization a `ClassDefault()` field resolves to) and `[refine.<class>]` (the strategy a
-# LevenbergMarquardt refine's `ClassDefault()` resolves to, `default_optimization_strategy`).
+# A family problem's CLASS (`_problem_class`) names its configuration of record, the problem's tables
+# (`_class_table`): `[<problem>.ransac]` (the scorer and local optimization a `ClassDefault()` field of `Ransac`
+# resolves to) and `[<problem>.levenberg_marquardt]` (the strategy a LevenbergMarquardt refine's `ClassDefault()`
+# resolves to, `default_optimization_strategy`).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # The class of a family problem, and its configuration of record
 # -----------------------------------------------------------------------------
 
-# THE table of the family problems' classes: the problem type, its class — its `configs/default.toml` tables' name
-# (`[pipelines.<class>]`, `[refine.<class>]`) — and whether its model class has an extent check (a context `extent` of
-# any other problem is refused). One row per class; `_problem_class`, `_REFINE_CLASSES` and `_takes_extent` read it.
+# THE table of the family problems' classes: the problem type, its class (the name the per-class tuning constants are
+# keyed by, LocalOptimizationDoneRight's too), its `configs/default.toml` table — the problem type's tag (`snake_case`
+# of its name: `[<problem>.ransac]`, `[<problem>.levenberg_marquardt]`) — and whether its model class has an extent
+# check (a context `extent` of any other problem is refused). One row per class; `_problem_class`, `_REFINE_CLASSES`,
+# `_class_table` and `_takes_extent` read it.
 const _CLASS_TABLE = (
-    (HomographyProblem, :homography, true), (FundMatProblem, :fundmat, false), (EssentialProblem, :essential, false),
-    (RotationProblem, :rotation, false), (CircleProblem, :circle, false), (EllipseProblem, :ellipse, false),
-    (AbsolutePoseProblem, :absolute_pose, true), (BearingPoseProblem, :bearing_pose, false),
-    (RadialHomographyProblem, :radial_homography, true), (RadialCameraProblem, :radial_camera, true),
-    (HandEyeProblem, :hand_eye, false))
+    (HomographyProblem, :homography, "homography_problem", true), (FundMatProblem, :fundmat, "fund_mat_problem", false),
+    (EssentialProblem, :essential, "essential_problem", false), (RotationProblem, :rotation, "rotation_problem", false),
+    (CircleProblem, :circle, "circle_problem", false), (EllipseProblem, :ellipse, "ellipse_problem", false),
+    (AbsolutePoseProblem, :absolute_pose, "absolute_pose_problem", true),
+    (BearingPoseProblem, :bearing_pose, "bearing_pose_problem", false),
+    (RadialHomographyProblem, :radial_homography, "radial_homography_problem", true),
+    (RadialCameraProblem, :radial_camera, "radial_camera_problem", true), (HandEyeProblem, :hand_eye, "hand_eye_problem", false))
 # The class of a problem type, or `nothing` (no class: a caller's own problem, the line problems, a pool-frame problem
 # names its scorer).
 _problem_class(p) = _problem_class(typeof(p))
 _problem_class(::Type) = nothing
 _problem_class(::Type{<:BoundedProblem{P}}) where {P} = _problem_class(P)
 _takes_extent(_f) = false
-for (P, class, extent) in _CLASS_TABLE
+for (P, class, _, extent) in _CLASS_TABLE
     @eval _problem_class(::Type{<:$P}) = $(QuoteNode(class))
     extent && @eval _takes_extent(::$P) = true
 end
+# A class's configuration table, its problem's tag.
+const _CLASS_TABLES = NamedTuple{map(row -> row[2], _CLASS_TABLE)}(map(row -> row[3], _CLASS_TABLE))
+_class_table(class::Symbol) = getfield(_CLASS_TABLES, class)::String
 
 # The scorer a find runs: the algorithm's, or (`ClassDefault()`) the class's scorer of record — configs/default.toml
-# `[pipelines.<class>] scoring`, read by the one scorer reader for the problem's type — its width in the problem's
+# `[<problem>.ransac] scoring`, read by the one scorer reader for the problem's type — its width in the problem's
 # residual unit (`_in_problem_unit`).
 _class_scoring(_problem, scoring::AbstractScoring) = scoring
 _class_scoring(problem, ::ClassDefault) = _class_scoring(problem, _problem_class(problem), ClassDefault())
@@ -49,11 +57,11 @@ _class_scoring(problem, ::Nothing, ::ClassDefault) = throw(ArgumentError(
     "a $(nameof(typeof(problem))) has no class of record to default its scorer from: give `Ransac(; scoring = …)` " *
         "(a threshold scorer such as MsacScoring, the Student-t + uniform scorer with its outlier half-width, …)"))
 _class_scoring(problem, class::Symbol, ::ClassDefault) =
-    _in_problem_unit(scoring_from_toml(_dflt("pipelines.$class", "scoring"); problem = typeof(problem),
-                                       section = "pipelines.$class.scoring"), problem)
+    _in_problem_unit(scoring_from_toml(_dflt("$(_class_table(class)).ransac", "scoring"); problem = typeof(problem),
+                                       section = "$(_class_table(class)).ransac.scoring"), problem)
 
 # The local optimization a find runs: the algorithm's, or (`ClassDefault()`) the class's of record (configs/default.toml
-# `[pipelines.<class>] local_optimization_strategy`); a problem without a class takes its scorer's
+# `[<problem>.ransac] local_optimization_strategy`); a problem without a class takes its scorer's
 # (`default_local_optimization_strategy(scoring)`).
 _class_lo(_problem, lo, _scoring) = lo
 _class_lo(problem, ::ClassDefault, scoring) = _class_lo(_problem_class(problem), scoring)
@@ -77,14 +85,14 @@ _in_unit(sc::RansacScoring{DG}, u::Float64) where {DG} = RansacScoring(DG; thres
 _in_unit(sc::MsacScoring{DG}, u::Float64) where {DG} = MsacScoring(DG; threshold = sc.threshold * u)
 _width_unit(_problem) = nothing   # a unit-free class's width unit is its problem's (hand_eye.jl, bearing_pose.jl)
 
-# The strategy of record of a refine class: configs/default.toml [refine.<class>] `optimization_strategy`. Read once,
+# The strategy of record of a refine class: configs/default.toml [<problem>.levenberg_marquardt] `optimization_strategy`. Read once,
 # into the constant `_REFINE_STRATEGY_DEFAULTS` (after config_toml.jl), and looked up by a class known at compile time
 # (`Val`), so the default is inferred.
 const _REFINE_CLASSES = map(row -> row[2], _CLASS_TABLE)
 _dflt_strategy(section::AbstractString, class::Symbol) =
     optimization_strategy_from_toml(_dflt(section, "optimization_strategy"); class, section = "$section.optimization_strategy")
 _read_refine_strategy_defaults() =
-    NamedTuple{_REFINE_CLASSES}(map(c -> _dflt_strategy("refine.$c", c), _REFINE_CLASSES))
+    NamedTuple{_REFINE_CLASSES}(map(c -> _dflt_strategy("$(_class_table(c)).levenberg_marquardt", c), _REFINE_CLASSES))
 _refine_default(::Val{C}) where {C} = getfield(_REFINE_STRATEGY_DEFAULTS, C)
 
 # The LevenbergMarquardt refine's `ClassDefault()` of a family problem (Core's contract generic); a problem without a
@@ -111,7 +119,7 @@ function _refuse_width_keywords(threshold, outlier_halfwidth)
     threshold === nothing || throw(ArgumentError(
         "`threshold` is no keyword of a RANSAC algorithm: it is a threshold scorer's width — give " *
             "`scoring = MsacScoring(problem; threshold)` (or `RansacScoring`); the class default is " *
-            "configs/default.toml [pipelines.<class>] `scoring`"))
+            "configs/default.toml [<problem>.ransac] `scoring`"))
     outlier_halfwidth === nothing || throw(ArgumentError(
         "`outlier_halfwidth` is no keyword of a RANSAC algorithm: it is the Student-t + uniform " *
             "scorer's width — give `scoring = StudentTUniformScoring(problem, outlier_halfwidth; " *
@@ -176,12 +184,12 @@ Fields (configuration):
 - `scoring`: the scorer, an object of VisualGeometryToolkitCore's scoring contract carrying its own width IN THE
   PROBLEM'S RESIDUAL UNIT — a threshold scorer's `threshold` (`MsacScoring(HomographyProblem; threshold = 2.0)`,
   `RansacScoring`), the Student-t + uniform scorer's `outlier_halfwidth`, a paper's scorer. `ClassDefault()`: the
-  problem class's scorer of record (`configs/default.toml [pipelines.<class>] scoring`, its width in the problem's
+  problem class's scorer of record (`configs/default.toml [<problem>.ransac] scoring`, its width in the problem's
   unit); a problem without a class needs one. A bare `threshold` or `outlier_halfwidth` keyword is refused
   (`ArgumentError`): a width belongs to its scorer.
 - `local_optimization_strategy`: the LO-RANSAC strategy, run in the loop's Phase 2 through `locally_optimize!`, or — a
   [`TerminalLO`](@ref) ([`lo_placement`](@ref)) — once on the final incumbent of a raw race; `nothing` is none.
-  `ClassDefault()`: the class's (`[pipelines.<class>] local_optimization_strategy`), or the scorer's
+  `ClassDefault()`: the class's (`[<problem>.ransac] local_optimization_strategy`), or the scorer's
   (`default_local_optimization_strategy(scoring)`) for a problem without a class.
 - `config`: the [`RansacConfig`](@ref) (`max_trials`, `min_trials`, `success_prob`).
 - `score_guard`: per-candidate ScoreGuarded acceptance: a refined model scoring BELOW its own seed re-enters the race as

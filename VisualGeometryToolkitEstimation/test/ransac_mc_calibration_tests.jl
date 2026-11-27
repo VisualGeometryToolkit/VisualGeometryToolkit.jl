@@ -246,7 +246,7 @@ function _predictive_trial_hand_eye(; σ, m = 12, L = 0.5)
         end
         s = VgtkEstimation._build_sampler(length(motions), 2, nothing)
         p = try                                                  # the constructor's rotation gate
-            HandEyeProblem{typeof(s)}(motions, L, deg2rad(VgtkEstimation._dflt("robot_world_hand_eye", "min_rel_angle_deg")), s)
+            HandEyeProblem{typeof(s)}(motions, L, deg2rad(VgtkEstimation._dflt("hand_eye_problem", "min_rel_angle_deg")), s)
         catch err
             err isa ArgumentError || rethrow()
             return nothing
@@ -442,7 +442,7 @@ end
     # (Tsai–Lenz fitted on its sample, `sample_hypothesis`; the bare Tsai–Lenz
     # solve measured 2.42× in median before it). Calibrated at both noise
     # levels (6.02/6 and 5.76/6) now that the problem admits only motions
-    # rotating ≥ `min_rel_angle` (the [robot_world_hand_eye] authority). Before
+    # rotating ≥ `min_rel_angle` (the [hand_eye_problem] authority). Before
     # 2026-09-22 it admitted any motion above 1e-6 rad: the bulk was calibrated
     # (median ratio 1.03) but the mean was 229/6 and 623/6, a tail of
     # near-identity sample motions whose axes are noise.
@@ -713,7 +713,7 @@ end
         return map(1:N) do _
             Hs, boards, _ = _dc_scene(rng; kw...)
             res = _dc_fit(Hs, boards; focal_seed)
-            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = VisualGeometryToolkitCore.noise_scale(res), ν = res.metadata.ν)
+            res === nothing ? (ok = false, s = NaN, ν = NaN) : (ok = _dc_ok(res), s = VisualGeometryToolkitCore.noise_scale(res), ν = VisualGeometryToolkitCore.dof(res))
         end
     end
     # GATE — the currency: the Sampson-whitened residuals are in calibrated

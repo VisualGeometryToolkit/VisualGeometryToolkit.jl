@@ -8,12 +8,16 @@ CurrentModule = VisualGeometryToolkitEstimation
 
 ```@docs
 HandEyeProblem
+MotionPairs
+ConsecutivePairs
+AllPairs
+MOTION_PAIRS_TAGS
 ```
 
 ## Find and refine
 
 `solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng)` is the find
-(`[pipelines.hand_eye]`: MSAC at `0.01·L`) and
+(`[hand_eye_problem.ransac]`: MSAC at `0.01·L`) and
 `solve(RefineProblem(HandEyeProblem(A .=> B), X₀), LevenbergMarquardt(); scale | width)`
 the refine. Physical (metre) poses are stripped at construction and the estimate
 comes back in metres.
@@ -39,8 +43,9 @@ eliminated via the relative-motion ratio:
 
 `A_i = T_WR` (rig in world, e.g. from motion capture) and `B_i = T_CP`
 (pattern in camera, e.g. from PnP). With `N` observations, `motion_pairs
-= :consecutive` (default) builds `N - 1` relative motions from adjacent
-frames; `:all` uses every `(i, j)` with `i < j`.
+= ConsecutivePairs()` (the default, `[hand_eye_problem] motion_pairs`) builds
+`N - 1` relative motions from adjacent frames; `AllPairs()` uses every `(i, j)`
+with `i < j`.
 
 The minimal sample is **2 motion pairs** (Tsai–Lenz solvability condition:
 two non-parallel rotation axes). The minimal solver is the closed-form

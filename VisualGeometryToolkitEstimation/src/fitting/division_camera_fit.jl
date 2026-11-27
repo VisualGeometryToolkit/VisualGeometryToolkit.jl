@@ -195,7 +195,7 @@ function _check_division_config(weighting::StudentTUniformScoring, mixture_em::M
 end
 
 # The defaults of record: configs/default.toml [division_camera_fit] `weighting` and
-# `mixture_em`, absent keys inheriting [scoring.student_t_uniform] and [mixture_em].
+# `mixture_em`, absent keys inheriting [scoring.student_t_uniform] and [residual_mixture.config].
 function _division_weighting_default()
     sc = scoring_from_toml(_dflt("division_camera_fit", "weighting"); problem = DivisionCameraProblem,
                            section = "division_camera_fit.weighting")
@@ -236,7 +236,8 @@ robust-estimation contract's record of the final E-step:
   take (prior weight zero, or a view the final iteration left without a pose),
   and a posterior below `eps()`, is an exact 0; read by `weights(result)`;
 - `scale` = ŝ (pixels, a LINEAR scale) with `scale_source` `ScaleEstimated`,
-  read by `noise_scale(result)`; and the Student-t `ν`.
+  read by `noise_scale(result)`; and `dof`, the E-step's Student-t degrees of freedom ν, read by
+  `dof(result)` (VisualGeometryToolkitCore's contract reading).
 
 The core fields carry the camera (`estimate`), `retcode`, `iterations`, the
 support `n` (the rows of positive weight) and the whitened-residual `rms`
@@ -249,7 +250,7 @@ struct DivisionCameraMetadata{S, C, V} <: AbstractFitMetadata{PosteriorWeightSta
     weights::Vector{Float64}
     scale::Float64
     scale_source::ScaleSource
-    ν::Float64
+    dof::Float64
 end
 
 # A view with its weights as the `weights` column (its other columns kept).
@@ -297,7 +298,7 @@ THE ROBUST MACHINERY IS THE STACK'S SHARED ONE (configs/default.toml
   incumbent rule stopped the contaminated stacks at their second iteration, f 2 %
   off), its nuisance policies the posterior's and its `max_iter` the budget
   (default the table's `mixture_em`, read by [`mixture_em_from_toml`](@ref);
-  absent keys inherit [mixture_em]). Anything else is an `ArgumentError`.
+  absent keys inherit [residual_mixture.config]). Anything else is an `ArgumentError`.
 
 `outlier_halfwidth` and `max_iter` are no keywords since 0.9 (an
 `ArgumentError` naming the form above): the half-width is the weighting's, the cap

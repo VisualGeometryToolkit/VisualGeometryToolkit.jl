@@ -260,6 +260,10 @@
         @test default_spline_grid(4240, 2832) == (70, 48)
         @test default_spline_grid(2570, 2569) == (44, 44)
         @test default_spline_grid(10, 10) == (4, 4)
+        # any spacing, in the area's units: a whole number of cells is that number (+ 3 border nodes)
+        @test default_spline_grid(640, 480; spacing = 32) == (23, 18)
+        @test default_spline_grid(2.0, 1.0; spacing = 0.25) == (11, 7)
+        @test default_spline_grid(4240, 2832) === default_spline_grid(4240, 2832; spacing = 64)
     end
 
     @testset "one spelling each: the image size a Size2, the calibrated area a Rect" begin

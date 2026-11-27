@@ -7,6 +7,9 @@ VisualGeometryToolkitEstimation `"0.13"`), whose estimators are `solve(problem, 
 The numbers are unchanged: the golden records of `detect_image_circle` (`ci/golden/`, group `features_image_circle`)
 replay bit for bit.
 
+### Conformance hygiene
+- The tests bind the canonical alias `VgtkFeatures` (was `VGF`, `VF`) and import `SensorSource` rather than rebinding it.
+
 ### Conformance
 - **`bilinear_green([T = Float32,] m::RawMosaic; sensor_model, device)` is public** (new export): the green image of a
   Bayer mosaic the mosaic detectors read, with its planes `(; value, support, density, photosite, saturated)`; the

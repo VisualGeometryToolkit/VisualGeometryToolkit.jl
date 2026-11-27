@@ -365,9 +365,10 @@ function config_dict(sc::StudentTUniformScoring{Nothing, DG, L, FixedHalfwidth})
 end
 
 # The default strategy of a pipeline — read from the shipped file's
-# [pipelines.<class>] table. This is what every find_* signature defaults to.
+# [<problem>.ransac] table. This is what every find's `ClassDefault()` resolves to.
 _dflt_lo(class::Symbol) =
-    optimization_strategy_from_toml(_dflt("pipelines.$class", "local_optimization_strategy"); class, section = "pipelines.$class.local_optimization_strategy")
+    optimization_strategy_from_toml(_dflt("$(_class_table(class)).ransac", "local_optimization_strategy"); class,
+                                    section = "$(_class_table(class)).ransac.local_optimization_strategy")
 
 # -----------------------------------------------------------------------------
 # The inverse: config → Dict, derived from fieldnames
@@ -416,7 +417,7 @@ _width_to_toml!(d, w::EfficiencyConstant{Float64}) = (d["efficiency_constant"] =
 _width_to_toml!(d, w::LossWidth{NTuple{2, Float64}}) = (d["loss_width"] = VgtkCore.loss_width(w); d)
 
 # -----------------------------------------------------------------------------
-# [mixture_em] → MixtureEmConfig — the model-update and nuisance-part tags
+# [residual_mixture.config] → MixtureEmConfig — the model-update and nuisance-part tags
 # -----------------------------------------------------------------------------
 #
 # A tagged value is spelled as its tag alone when it carries nothing, or as an
@@ -471,7 +472,7 @@ cost, returning the incumbent) and `"parameter_change"`
 relative change of the parameters, returning the last iterate).
 """
 const STOP_TAGS = TagRegistry(:stop, "Stop", "no_improvement" => NoImprovementStop, "parameter_change" => ParameterChangeStop;
-                              paths = [r"^(.*\.)?mixture_em\.stop(\.type)?$"])
+                              paths = [r"^(.*\.)?(mixture_em|residual_mixture\.config)\.stop(\.type)?$"])
 
 function _tagged_from_toml(tags, v, section::AbstractString)
     known = sort(collect(keys(tags)))
@@ -492,10 +493,8 @@ function _tagged_from_toml(tags, v, section::AbstractString)
         return T()
     end
     _check_keys(d, ["type"; fkeys], section)
-    for k in fkeys
-        haskey(d, k) || throw(ArgumentError("[$section] needs `$k`"))
-    end
-    return T((d[k] for k in fkeys)...)
+    # by keyword, Core's one construction from a table (a missing key named); the values as written, for `T`'s own checks
+    return VgtkCore.construct_from_table(T, d; skip = ("type",), section, from_toml = (_, _, v) -> v)
 end
 
 function _tagged_to_toml(tags, x)
@@ -527,19 +526,19 @@ toml_field(c::MixtureEmConfig, ::Val{:stop}) = _tagged_to_toml(STOP_TAGS, c.stop
 toml_field(c::MixtureEmConfig, ::Val{:nuisance}) =
     Dict{String, Any}(String(k) => _tagged_to_toml(NUISANCE_TAGS[k], c.nuisance[k]) for k in keys(NUISANCE_TAGS))
 
-_from_toml(::Type{<:MixtureEmConfig}, ::Val{:model_update}, v) = _model_update_from_toml(v, "mixture_em.model_update")
-_from_toml(::Type{<:MixtureEmConfig}, ::Val{:nuisance}, v) = _nuisance_from_toml(v, "mixture_em.nuisance")
-_from_toml(::Type{<:MixtureEmConfig}, ::Val{:stop}, v) = _stop_from_toml(v, "mixture_em.stop")
+_from_toml(::Type{<:MixtureEmConfig}, ::Val{:model_update}, v) = _model_update_from_toml(v, "residual_mixture.config.model_update")
+_from_toml(::Type{<:MixtureEmConfig}, ::Val{:nuisance}, v) = _nuisance_from_toml(v, "residual_mixture.config.nuisance")
+_from_toml(::Type{<:MixtureEmConfig}, ::Val{:stop}, v) = _stop_from_toml(v, "residual_mixture.config.stop")
 _from_toml(::Type{<:MixtureEmConfig}, ::Val{:max_iter}, v) = convert(Int, v)
 
 """
-    mixture_em_from_toml(table; section = "mixture_em") -> MixtureEmConfig
+    mixture_em_from_toml(table; section = "residual_mixture.config") -> MixtureEmConfig
 
 Build a [`MixtureEmConfig`](@ref) from its TOML table: present keys override,
-absent keys inherit `configs/default.toml`'s `[mixture_em]`, and an unknown
+absent keys inherit `configs/default.toml`'s `[residual_mixture.config]`, and an unknown
 key, tag or tag field is an `ArgumentError`.
 """
-function mixture_em_from_toml(d::AbstractDict; section::AbstractString = "mixture_em")
+function mixture_em_from_toml(d::AbstractDict; section::AbstractString = "residual_mixture.config")
     _check_keys(d, allowed_keys(MixtureEmConfig), section)
     return MixtureEmConfig(; _table_kwargs(MixtureEmConfig, d)...)
 end

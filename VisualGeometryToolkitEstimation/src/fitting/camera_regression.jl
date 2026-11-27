@@ -528,9 +528,9 @@ struct _NoLinearForm end
 const _FixedProjection = Union{Perspective, Equidistant, Stereographic, Equisolid, Orthographic}
 _linear_form(::Type{<:LiftLens}) = _LiftForm()
 function _linear_form(::Type{L}) where {L <: Lens}
-    leaves = VgtkCore.Cameras._leaves(zero(L))   # zero(L): an ArgumentError for a type without its arities
-    first(leaves) isa _FixedProjection || return _NoLinearForm()
-    terms = Base.tail(leaves)
+    all_terms = VgtkCore.lens_terms(zero(L))   # zero(L): an ArgumentError for a type without its arities
+    first(all_terms) isa _FixedProjection || return _NoLinearForm()
+    terms = Base.tail(all_terms)
     ok = all(t -> t isa Union{Radial{Even}, Tangential, ThinPrism}, terms) && count(t -> t isa Radial, terms) <= 1
     return ok ? _ProjectionForm() : _NoLinearForm()
 end
@@ -722,7 +722,7 @@ end
 # K's samples); with one it is the pixel error times D, so the rows are divided by the denominator of a first solve
 # (one reweighting, Steiglitz–McBride's; the second solve is the fit). The focal rescale and the lens.
 function _linear_lens(::_ProjectionForm, a::Lens, ρ, θ, w, free)
-    r = VgtkCore.Cameras._bounding_radial(a)
+    r = VgtkCore.bounding_radial(a)
     P, Q = r === nothing ? (0, 0) : (length(r.k), length(r.d))
     k̄ = r === nothing ? () : Tuple(Float64.(r.k))     # the target's values: the held coefficients keep them
     d̄ = r === nothing ? () : Tuple(Float64.(r.d))
@@ -1088,9 +1088,9 @@ const _EDGE_DIRECTIONS = ntuple(k -> SVector(cospi((k - 1) / 8), sinpi((k - 1) /
 _normalized_points(K, pixels::AbstractVector) = map(u -> SVector{2, Float64}(VgtkCore.normalized_point(K, SVector{2, Float64}(u))), pixels)
 
 # One sample's design row: the 16 controls of its spline window and their
-# weights, at their nodes' linear indices in a `ny`-row control matrix — the
-# column-major node order of Core's control vector (`_control_vector`), the
-# window's columns outer, its rows inner: increasing, as a CSC column needs.
+# weights, at their nodes' linear indices in a `ny`-row control matrix (column-major,
+# the order `_penalized_solve` reads its solution back in), the window's columns
+# outer, its rows inner: increasing, as a CSC column needs.
 @inline function _design_row(window, ny::Int)
     ix, iy, wx, wy = window
     # control [iy - 3 + r, ix - 3 + c] (spline_window's layout) at linear index (column − 1)·ny + row
@@ -1110,8 +1110,8 @@ _rhs_matrix(vs::AbstractVector{<:StaticVector{K}}) where {K} = [v[k] for v in vs
 # The P-spline least squares of an `ny × nx` lattice: the controls minimizing
 # ‖A c − B‖² + λ(‖Dₓ³c‖² + ‖Dᵧ³c‖²) for the design rows `rows` and the targets `B`
 # (one column per component), λ = `_PSPLINE_BETA` · penalty_scale(tr AᵀA, nodes, m̄ of Δ³); the
-# controls as an `ny × nx` matrix of `SVector{K}` (read back through Core's one
-# control-vector layout, `_with_control_vector`) and λ.
+# controls as an `ny × nx` matrix of `SVector{K}` (node `i` of the design rows' linear
+# index, `_design_row`'s column-major order, holding row `i` of the solution) and λ.
 function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx::Int, ::Val{K}) where {K}
     _check_lattice_size(ny, nx)
     N = length(rows)
@@ -1131,7 +1131,7 @@ function _penalized_solve(rows::AbstractVector, B::Matrix{Float64}, ny::Int, nx:
     AtB = Matrix(At * B)
     F = cholesky(Symmetric(M); check = false)
     X = issuccess(F) ? F \ AtB : lu(M) \ AtB   # a pivot lost to rounding: the sparse LU, never a dense copy
-    controls = VgtkCore.Cameras._with_control_vector(fill(zero(SVector{K, Float64}), ny, nx), nothing, vec(permutedims(X)))
+    controls = reshape([SVector{K, Float64}(ntuple(k -> X[i, k], Val(K))) for i in axes(X, 1)], ny, nx)
     return controls, λ
 end
 
@@ -1271,11 +1271,11 @@ _lattice_m̄(ny::Integer, nx::Integer, D) = lock(() -> get!(() -> mean_positive_
 
 # The spacing search's lattice (the backward's and the forward's): `cells` cells along
 # the longer of the widths `(w₁, w₂)`, the spacing h = max(w) / cells, and Core's node
-# counts at it (`_node_counts`: ⌈wᵢ / h⌉ + 3 per axis) — the spacing and the counts
+# counts at it (`default_spline_grid`: ⌈wᵢ / h⌉ + 3 per axis) — the spacing and the counts
 # `(n₁, n₂)` along the two axes (x, y).
 function _knot_counts(w1::Real, w2::Real, cells::Integer)
     h = max(w1, w2) / cells
-    return h, VgtkCore.Cameras._node_counts(w1, w2, h)
+    return h, VgtkCore.default_spline_grid(w1, w2; spacing = h)
 end
 # The image's lattice of `cells` cells along its longer side, as Core's
 # `grid_size` (columns, rows).
@@ -1566,7 +1566,7 @@ function _chart_quadrature(cam, region, device)
     lo, hi = zip(extrema(c -> c[1], fit_charts), extrema(c -> c[2], fit_charts))
     margin = 1.0e-6
     area = Rect2(lo[1] - margin, lo[2] - margin, hi[1] - lo[1] + 2margin, hi[2] - lo[2] + 2margin)
-    pixel = VgtkCore.Cameras._pixel_affine(cam.intrinsics)   # Core's x ↦ K x, what the camera's `project` applies
+    pixel = VgtkCore.calibration_stage(cam.intrinsics)   # Core's x ↦ K x, the affine the camera's `project` applies
     return (; q..., chart, fit_charts, held_charts, area, pixel, rhs = _rhs_matrix(_normalized_points(cam.intrinsics, q.fit_px)))
 end
 

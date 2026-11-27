@@ -324,11 +324,12 @@ struct Estimated end
 
 """
     FixedS2(s2)
+    FixedS2(; s2)
 
 The update policy of a scale HELD at the squared scale `s2` (positive, finite):
 the ŝ² block writes it.
 """
-struct FixedS2
+Base.@kwdef struct FixedS2
     s2::Float64
     FixedS2(s2::Real) = new(checked_float(s2, isfinite(s2) && s2 > 0, "FixedS2: a held scale must be a positive finite ŝ²"))
 end
@@ -336,11 +337,12 @@ scale_s2(policy::FixedS2) = policy.s2
 
 """
     FixedPrior(inlier_prior)
+    FixedPrior(; inlier_prior)
 
 The update policy of an inlier prior HELD at `inlier_prior ∈ (0, 1)`: the π
 block writes it (through the E-step's one clamp, `[1e-3, 1 − 1e-3]`).
 """
-struct FixedPrior
+Base.@kwdef struct FixedPrior
     inlier_prior::Float64
     FixedPrior(inlier_prior::Real) =
         new(checked_float(inlier_prior, 0 < inlier_prior < 1, "FixedPrior: the inlier prior must lie in (0, 1)"))
@@ -348,11 +350,12 @@ end
 
 """
     FixedNu(ν)
+    FixedNu(; ν)
 
 The update policy of a Student-t dof HELD at `ν` (positive, finite): the ν
 block writes it.
 """
-struct FixedNu
+Base.@kwdef struct FixedNu
     ν::Float64
     FixedNu(ν::Real) = new(checked_float(ν, isfinite(ν) && ν > 0, "FixedNu: ν must be positive and finite"))
 end

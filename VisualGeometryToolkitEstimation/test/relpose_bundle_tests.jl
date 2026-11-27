@@ -152,7 +152,7 @@ end
     # rotation and 2.9e-11° in translation direction of it), is the baseline:
     # the cost agrees to 1e-12 relative and the pose to 1e-6°.
     #
-    # WHY 1e-6°: the bundle stops at `[relpose_bundle] ftol = 1e-10`
+    # WHY 1e-6°: the bundle stops at `[relative_pose_problem] ftol = 1e-10`
     # (NLLSsolver's relative cost-decrease stop), one step short of the cost's
     # rounding floor; measured there (Julia 1.13): cost ≤ 6.2e-14 relative,
     # rotation ≤ 2.1e-8°, translation direction ≤ 1.8e-7°. The statistical pose uncertainty on these scenes is ~3e-2° /

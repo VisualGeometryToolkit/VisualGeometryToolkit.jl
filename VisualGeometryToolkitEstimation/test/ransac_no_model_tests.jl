@@ -155,7 +155,7 @@ end
     too_few_refine(solve(RefineProblem(EllipseProblem(pts(4)), Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0)), LevenbergMarquardt(); scale = 1.0), Ellipse(Point2(0.0, 0.0), 2.0, 1.0, 0.0), 4)
     c = Point2(500.0, 400.0)
     too_few(solve(EstimationProblem(RadialHomographyProblem(cs(4); center = c)), Ransac()), 4)
-    too_few(solve(EstimationProblem(RadialHomographyProblem(cs(3); center = c, minimal = :homography)), Ransac()), 3)
+    too_few(solve(EstimationProblem(RadialHomographyProblem(cs(3); center = c, minimal_solver = VgtkCore.Homography4pt())), Ransac()), 3)
     too_few_refine(solve(RefineProblem(RadialHomographyProblem(cs(4); center = VgtkCore.center(RadialHomography{Float64}(H, 0.0))), RadialHomography{Float64}(H, 0.0)), LevenbergMarquardt(); scale = 1.0), RadialHomography{Float64}(H, 0.0), 4)
     too_few(solve(EstimationProblem(RadialCameraProblem(cs(4); center = c)), Ransac()), 4)
     too_few_refine(solve(RefineProblem(RadialCameraProblem(cs(4); center = VgtkCore.center(RadialCamera(H, c))), RadialCamera(H, c)), LevenbergMarquardt(); scale = 1.0), RadialCamera(H, c), 4)

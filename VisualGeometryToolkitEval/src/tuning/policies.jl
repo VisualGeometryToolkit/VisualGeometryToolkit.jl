@@ -25,7 +25,7 @@ abstract type TuningAxis end
 An axis whose grid is `spacing` over the window `window` evaluates to. TOML
 tag `"spaced"`.
 """
-struct SpacedAxis <: TuningAxis
+Base.@kwdef struct SpacedAxis <: TuningAxis
     window::WindowRule
     spacing::GridSpacing
 end
@@ -36,7 +36,7 @@ end
 An axis of hand-chosen settings (a factorial tuning's axis). TOML tag
 `"listed"`.
 """
-struct ListedAxis <: TuningAxis
+Base.@kwdef struct ListedAxis <: TuningAxis
     values::Vector{Float64}
     ListedAxis(values::AbstractVector{<:Real}) = new(ListedGrid(values).values)
 end
@@ -62,7 +62,7 @@ The expand-on-boundary rule of a GRID axis: on a boundary argmin, `extend` the
 grid by `npts` points on the clipped side, at most `max_rounds` rounds
 (a still-clipped argmin is then recorded and refused by the readers).
 """
-struct GridExtension
+Base.@kwdef struct GridExtension
     npts::Int
     max_rounds::Int
     function GridExtension(npts::Integer, max_rounds::Integer)
@@ -81,7 +81,7 @@ by `factor` on the clipped side (its `lo` divided, its `hi` multiplied), at
 most `max_rounds` rounds. [`GridExtension`](@ref)'s twin for a window, which
 has no points to add.
 """
-struct WindowExtension
+Base.@kwdef struct WindowExtension
     factor::Float64
     max_rounds::Int
     function WindowExtension(factor::Real, max_rounds::Integer)
@@ -195,7 +195,7 @@ millimetres cannot. It is retired (2026-10-03) along with its `"maa"` tag; the
 `[schemes.factorial]` default that named it now names this one. The statistic
 itself is VisualGeometryToolkitCore's, the stack's one definition.
 """
-struct MeanAverageAccuracy <: TuningCriterion
+Base.@kwdef struct MeanAverageAccuracy <: TuningCriterion
     max_error::Float64
     function MeanAverageAccuracy(max_error::Real)
         max_error > 0 || throw(ArgumentError("MeanAverageAccuracy: max_error = $max_error must be > 0"))

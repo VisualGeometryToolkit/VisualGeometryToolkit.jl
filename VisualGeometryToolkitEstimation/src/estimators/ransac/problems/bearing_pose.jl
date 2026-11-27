@@ -230,7 +230,7 @@ end
 @inline mahalanobis_distance(p::BearingPoseProblem, pose::PlainEuclideanMap{3, Float64}, i::Int) =
     norm(whitened_residual(p, pose, i))
 
-# The unit of the class's file scorer width (`[pipelines.bearing_pose] scoring`): the
+# The unit of the class's file scorer width (`[bearing_pose_problem.ransac] scoring`): the
 # residual's BOUND — π (the largest angle between two rays) times the largest
 # whitening gain — so the file's 1.0 admits every correspondence to the
 # consensus set and the default refine is least squares over all of them.

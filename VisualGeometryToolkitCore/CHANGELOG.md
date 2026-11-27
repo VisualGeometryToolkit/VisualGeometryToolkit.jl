@@ -7,6 +7,22 @@
 implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is in `check_naming`'s
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
+### Conformance hygiene (the stack reaches no `Cameras._x` internal)
+- Public, for the lens fits and the spline bundles downstream (VisualGeometryToolkitEstimation's camera regression and
+  SplineLens bundle reached them as internals): `lens_terms(lens)` (a lens's terms in parameter order: its projection,
+  then its distortion's terms), `bounding_radial(lens)` (the radial factor that bounds what a lens images: `radial(lens)`,
+  or a composition's first radial stage's), `radial_distance(p)` (`|(p₁, p₂)|`, Dual-safe on the axis; was the
+  internal `_radius`), `has_present_window(lens::SplineLens, ix, iy)` (whether a window holds present nodes only), and
+  the batched lens projection `project(lens::SplineLens, rays, seeds; iters, tol, device, fold = false) -> (; x, ok,
+  fold)`, the camera form's solve to the normalized plane, with `fold` the backward's Gram determinant (was the
+  internal `_spline_projections`). The camera's pixel affine is `calibration_stage(intrinsics)`, as before.
+- `default_spline_grid(width, height; spacing = 64)`: THE node-count rule at any node spacing (was the internal
+  `_node_counts(w₁, w₂, h)`; RadiometricCamera's `region_layout` reads it). Bit-identical (the same quotient).
+- `FixedS2`, `FixedPrior` and `FixedNu` take their field as a keyword too (`FixedNu(; ν)`), so a tagged TOML table builds
+  them by keyword (`construct_from_table`). `dof(r)` documents both readings (a residual dof, or a mixture's Student-t ν).
+- The monorepo's `DUPLICATION.toml` is gone (zero entries): its two `[[splat]]` exceptions are removed structurally and
+  its stale private-reach note with them.
+
 ### Added
 - `prepare_evaluation!(f::AbstractBlockProblem, variables, varnext)`, a contract generic (in `CONTRACT_GENERICS` and
   `SOLVER_HOOKS`): the block refine tells the bundle the two variable vectors NLLSsolver evaluates its blocks at (the

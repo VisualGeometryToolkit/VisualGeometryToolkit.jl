@@ -139,7 +139,7 @@ residual_summary(::RobotWorldHandEyeProblem) = RowsWithJacobian()
 block_structure(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers}, guess) =
     (st = _robot_world_hand_eye_run(f, guess); (st.vars0, st.blocks, st))
 block_result(::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers}, _guess, r::FitResult, s) = _robot_world_hand_eye_solved(r, s)
-_robot_world_hand_eye_solved(r::FitResult, s) = _assembled(r, s, Val((:residuals, :weights, :jacobian)))
+_robot_world_hand_eye_solved(r::FitResult, s) = s.stated.finish(r, s)
 
 function _robot_world_hand_eye_run(f::RobotWorldHandEyeProblem{<:Any, <:_PlainRigMarkers{K}},
                                    guess::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3}}) where {K}
@@ -262,13 +262,13 @@ function _robot_world_hand_eye_bundle(
     # (`optimization_strategy = nothing`), or the refine contract's one fixed-scale robust path from the guess with no
     # least-squares stage, Triggs, ONE robustified LM at the caller's frozen scale or width (an Irls is refused by
     # `bundle_loss`). Its termination record is the solve's (NLLSsolver's bits under Core's success rule).
-    return _BundleStatement(costs, poses0, (sol, parsed) -> _robot_world_hand_eye_assembly(guess, counts, fr, n, sol, parsed))
+    return _BundleStatement(costs, poses0, (r, s) -> _robot_world_hand_eye_assembly(guess, counts, fr, n, r, s))
 end
-# The calibration's result from the bundle's solve `sol` at the parsed loss: the poses read back, refused when not
-# finite, the covariance from the rows' Jacobian, the record and the scale record.
-function _robot_world_hand_eye_assembly(guess::RobotWorldHandEyeCalibration, counts, fr, n, sol, parsed)
-    weights = sol.weights
-    charts = collect(sol.variables)   # each anchored at its estimate
+# The calibration's result from Core's solution `r` and residual summary `s` (its parsed loss `s.loss`): the poses read
+# back, refused when not finite, the covariance from the rows' Jacobian, the record and the scale record.
+function _robot_world_hand_eye_assembly(guess::RobotWorldHandEyeCalibration, counts, fr, n, r::FitResult, s)
+    weights = s.weights
+    charts = collect(r.u)   # each anchored at its estimate
     poses = map(model, charts)
     all(_finite_pose, poses) ||   # camera_poses.jl
         throw(ErrorException("RobotWorldHandEyeProblem: the LM step is not finite"))
@@ -276,7 +276,7 @@ function _robot_world_hand_eye_assembly(guess::RobotWorldHandEyeCalibration, cou
     # the reprojection rows' dense 2n × 6(M + 1) Jacobian at the charts' origins — the covariance's (point k's rows
     # 2k − 1, 2k; its columns those of Y and of its X_m), √ρ′-scaled under a robust strategy: the eigen-diagnostics and
     # the covariance are the weighted problem's
-    J = sol.jacobian   # the rows' Jacobian at the estimate, √ρ′-scaled under a robust strategy (Core's `RowsWithJacobian`)
+    J = s.jacobian   # the rows' Jacobian at the estimate, √ρ′-scaled under a robust strategy (Core's `RowsWithJacobian`)
     # The covariance's blocks are the ELEMENTS — one rig pose's features, whose
     # points are contiguous (flattened element by element) — each a dense view
     # of its rows of J with observation Jacobian −I: the same (JᵀJ)⁻¹ as per-
@@ -290,10 +290,10 @@ function _robot_world_hand_eye_assembly(guess::RobotWorldHandEyeCalibration, cou
         Σ̃ = implicit_covariance(e -> (view(J, rows(e), :), Diagonal(fill(-1.0, length(rows(e))))), eachindex(starts))
         return Σ̃ === nothing ? nothing : s2 .* Σ̃
     end
-    r_raw = sol.residuals   # the reprojection rows themselves
+    r_raw = s.residuals   # the reprojection rows themselves
     return _robot_world_hand_eye_result(
         _robot_world_hand_eye_calibration(poses, guess.ids), r_raw, J, 2, counts, covariance, nothing, nothing;
-        retcode = sol.code, stop_rule = sol.rule, iterations = sol.iterations, rms_rows = n, strategy = parsed.strategy, weights,
-        VgtkCore.scale_record(parsed)...
+        retcode = r.retcode, stop_rule = r.stop_rule, iterations = r.stats.nsteps, rms_rows = n, strategy = s.loss.strategy, weights,
+        VgtkCore.scale_record(s.loss)...
     )
 end

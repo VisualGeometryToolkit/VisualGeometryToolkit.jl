@@ -18,6 +18,6 @@ FundMatProblem
 ## Find and refine
 
 `solve(EstimationProblem(FundMatProblem(cs)), Ransac(); rng)` is the find
-(`[pipelines.fundmat]`: MSAC at 3 px) and
+(`[fund_mat_problem.ransac]`: MSAC at 3 px) and
 `solve(RefineProblem(FundMatProblem(cs), F₀), LevenbergMarquardt(); scale | width)`
-the refine (`[refine.fundmat]`). See [`Ransac`](@ref).
+the refine (`[fund_mat_problem.levenberg_marquardt]`). See [`Ransac`](@ref).

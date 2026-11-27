@@ -474,7 +474,7 @@ end
 # through `match`, `nn_match_stacked` and the written-out reference.
 @testitem "ratios and the ratio test when min_similarity ≤ 0" setup = [Fixtures] begin
     using Random: MersenneTwister
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # Entries k/64 with |k| ≤ 64: every dot product is exact in Float32 whatever
     # the GEMM's blocking or summation order, a device's included, so the paths
     # must agree bit for bit — ratios too, not just indices and rounded scores.
@@ -499,17 +499,17 @@ end
     # The POSITIVE branch, unchanged: a positive best keeps the quotient, a
     # negative value included — a runner-up worse than orthogonal makes the best
     # MORE distinctive, and such a match belongs through a ratio test.
-    pos = VGF.match(gals["pos"], F, NN(); min_similarity = -Inf)
+    pos = VgtkFeatures.match(gals["pos"], F, NN(); min_similarity = -Inf)
     @test !isempty(pos) && all(m -> m.score > 0 && isfinite(m.ratio), pos)
-    mixed = VGF.match(gals["mixed"], F, NN(); min_similarity = -Inf)
+    mixed = VgtkFeatures.match(gals["mixed"], F, NN(); min_similarity = -Inf)
     @test any(m -> m.score > 0 && m.ratio < 0, mixed)          # positive best, negative runner-up
     @test all(m -> m.score > 0 ? isfinite(m.ratio) : m.ratio === Inf32, mixed)
 
     # The NON-POSITIVE branch: the ratio is undefined, so it is Inf32. Both
     # cases are present — every score negative, and a best of exactly 0.
-    neg = VGF.match(gals["neg"], F, MutualNN(); min_similarity = -Inf)
+    neg = VgtkFeatures.match(gals["neg"], F, MutualNN(); min_similarity = -Inf)
     @test !isempty(neg) && all(m -> m.score < 0 && m.ratio === Inf32, neg)
-    zero_match = only(VGF.match(gals["zero"], F, NN(); min_similarity = 0.0))
+    zero_match = only(VgtkFeatures.match(gals["zero"], F, NN(); min_similarity = 0.0))
     @test zero_match.score == 0 && zero_match.ratio === Inf32
 
     # …and so no ratio test admits one. This is what the rule buys: the plain
@@ -517,15 +517,15 @@ end
     # threshold, and made negative bests report s_2nd/s_best ≥ 1, which a
     # threshold above 1 admitted.
     for τ in (0.8, 1.0, 2.0)
-        @test isempty(VGF.match(gals["neg"], F, NN(); min_similarity = -Inf, ratio_threshold = τ))
-        @test isempty(VGF.match(gals["zero"], F, NN(); min_similarity = -Inf, ratio_threshold = τ))
+        @test isempty(VgtkFeatures.match(gals["neg"], F, NN(); min_similarity = -Inf, ratio_threshold = τ))
+        @test isempty(VgtkFeatures.match(gals["zero"], F, NN(); min_similarity = -Inf, ratio_threshold = τ))
     end
 
     for min_similarity in (0.0, -2.0, -Inf), strat in (NN(), MutualNN(), KnnMatch(3))
         st = nn_match_stacked(strat, gals, F; backend = KA.CPU(), min_similarity)
         for (k, G) in gals
-            @test isequal(match_key(st[k]), match_key(VGF.match(G, F, strat; min_similarity)))
-            @test isequal(match_key(VGF.match(G, F, strat; min_similarity)), ref_match(G * F', strat; min_similarity))
+            @test isequal(match_key(st[k]), match_key(VgtkFeatures.match(G, F, strat; min_similarity)))
+            @test isequal(match_key(VgtkFeatures.match(G, F, strat; min_similarity)), ref_match(G * F', strat; min_similarity))
         end
     end
 end
@@ -620,13 +620,13 @@ end
 end
 
 @testitem "device memory query: a backend without one warns, then runs unchunked" setup = [Fixtures] begin
-    VGF = VisualGeometryToolkitFeatures
-    @test (@test_logs (:warn, r"no free-memory query") VGF.device_free_bytes(FakeGPU())) ==
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    @test (@test_logs (:warn, r"no free-memory query") VgtkFeatures.device_free_bytes(FakeGPU())) ==
         typemax(Int)
-    @test (@test_logs (:warn, r"no free-memory query") VGF._chunk_warps(FakeGPU(), 25, 1, 0)) == 25   # no query: all warps resident
-    @test VGF._chunk_warps(KA.CPU(), 25, typemax(Int) ÷ 4, 0) == 1   # the budget clamps to one
-    @test VGF._chunk_warps(KA.CPU(), 25, 1, 3) == 3                 # an explicit chunk is honoured
-    @test VGF.device_free_bytes(KA.CPU()) > 0
+    @test (@test_logs (:warn, r"no free-memory query") VgtkFeatures._chunk_warps(FakeGPU(), 25, 1, 0)) == 25   # no query: all warps resident
+    @test VgtkFeatures._chunk_warps(KA.CPU(), 25, typemax(Int) ÷ 4, 0) == 1   # the budget clamps to one
+    @test VgtkFeatures._chunk_warps(KA.CPU(), 25, 1, 3) == 3                 # an explicit chunk is honoured
+    @test VgtkFeatures.device_free_bytes(KA.CPU()) > 0
 end
 
 # There is one matcher — the KernelAbstractions kernels, on the CPU for `match`
@@ -636,44 +636,44 @@ end
 @testitem "the one matcher ≡ the reference rules" setup = [Fixtures] begin
     using Random: MersenneTwister
     using LinearAlgebra: normalize
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     rng = MersenneTwister(7)
     unit(n) = permutedims(reduce(hcat, [Float32.(normalize(randn(rng, 32))) for _ in 1:n]))
     d1 = unit(40); d2 = unit(55)
     for (metric, similarity) in ((CosineSimilarity(), true), (L2(), false))
         # on the CPU, as `match`: the default device is a GPU once CUDA is loaded in the process (another item's), and
         # a GPU's Float32 dot products may differ from the CPU's in the last bit
-        dm = VGF.pairwise_matrix(metric, d1, d2, KA.CPU())
+        dm = VgtkFeatures.pairwise_matrix(metric, d1, d2, KA.CPU())
         for strat in (NN(), MutualNN(), KnnMatch(1), KnnMatch(3), KnnMatch(7)),
                 kw in (
                     (;), (; min_similarity = 0.2), (; max_distance = 1.1), (; ratio_threshold = 0.9),
                     (; min_similarity = 0.1, max_distance = 1.2, ratio_threshold = 0.95),
                 )
-            ms = VGF.match(d1, d2, strat; metric, kw...)
+            ms = VgtkFeatures.match(d1, d2, strat; metric, kw...)
             @test match_key(ms) == ref_match(dm, strat; similarity, kw...)
             # best first: descending similarity, ascending distance
             @test issorted([m.score for m in ms]; rev = similarity)
             # a precomputed matrix gives the same, and so does every keyword on nn_match
-            @test match_key(VGF.match(d1, d2, strat; metric, dm, kw...)) == match_key(ms)
+            @test match_key(VgtkFeatures.match(d1, d2, strat; metric, dm, kw...)) == match_key(ms)
             @test match_key(nn_match(d1, d2, strat; device = KA.CPU(), metric, kw...)) == match_key(ms)
         end
     end
     # Float64 descriptors are matched in Float64 (a score is stored as Float32)
     D1 = Float64.(d1); D2 = Float64.(d2)
     for strat in (NN(), MutualNN(), KnnMatch(3))
-        @test match_key(VGF.match(D1, D2, strat)) == ref_match(D1 * D2', strat)
+        @test match_key(VgtkFeatures.match(D1, D2, strat)) == ref_match(D1 * D2', strat)
     end
     # a ratio exactly at the threshold is rejected (strict <)
-    r = VGF.match(d1, d2, NN())[1].ratio
-    at_r = VGF.match(d1, d2, NN(); ratio_threshold = r)
+    r = VgtkFeatures.match(d1, d2, NN())[1].ratio
+    at_r = VgtkFeatures.match(d1, d2, NN(); ratio_threshold = r)
     @test all(m -> m.ratio < r, at_r)
-    @test match_key(at_r) == ref_match(VGF.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU()), NN(); ratio_threshold = r)
+    @test match_key(at_r) == ref_match(VgtkFeatures.pairwise_matrix(CosineSimilarity(), d1, d2, KA.CPU()), NN(); ratio_threshold = r)
     # one gallery row: no second neighbour, so ratio Inf32 and any ratio test
     # rejects (the device path once reported −Inf32 and kept every match)
     one = unit(1)
-    @test all(m -> m.ratio == Inf32, VGF.match(d1, one, NN()))
-    @test isempty(VGF.match(d1, one, NN(); ratio_threshold = 0.8))
-    @test_throws DimensionMismatch VGF.match(d1, d2; dm = zeros(Float32, 3, 3))
+    @test all(m -> m.ratio == Inf32, VgtkFeatures.match(d1, one, NN()))
+    @test isempty(VgtkFeatures.match(d1, one, NN(); ratio_threshold = 0.8))
+    @test_throws DimensionMismatch VgtkFeatures.match(d1, d2; dm = zeros(Float32, 3, 3))
 end
 
 # One pairwise_matrix serves every backend (it had a host twin whose L2 used a

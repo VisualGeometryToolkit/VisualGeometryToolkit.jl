@@ -233,8 +233,9 @@
         end
     end
 
-    # A scheme with a Greek field (none ships): its TOML key is `toml_key`'s ASCII "mu".
-    struct GreekToyScheme <: VgtkEval.Tuning.TuningScheme
+    # A scheme with a Greek field (none ships): its TOML key is `toml_key`'s ASCII "mu". A tuning type takes its fields
+    # as keywords (the table builds it by keyword: Core's construct_from_table).
+    Base.@kwdef struct GreekToyScheme <: VgtkEval.Tuning.TuningScheme
         μ::Float64
         n::Int
     end

@@ -108,14 +108,14 @@ end
 
 @testitem "asift_detect on a stabilized image: the threshold in noise σ of the noisiest DoG slice" setup = [NoisyMosaic] begin
     using VisualGeometryToolkitFeatures: variance_stabilize, asift_detect, asift_detect!, AsiftPlan, StabilizedImage
-    import VisualGeometryToolkitFeatures as VF
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     import KernelAbstractions as KA
     using Random: Xoshiro
     using Statistics: std
     # the unit-noise intensity threshold against the DoG of white noise through the same pyramid: the finest octave's
     # noisiest searched slice (the interior ones the extremum search reads, 2 … NS − 1), measured, is the derived σ (the
     # impulse response's energy), within the sampling error
-    thr1 = VF._noise_intensity_thr(1.6, true)
+    thr1 = VgtkFeatures._noise_intensity_thr(1.6, true)
     n = 512
     plan = AsiftPlan(n, n; device = KA.CPU(), tilts = [(1.0, 0.0)])
     asift_detect!(plan, randn(Xoshiro(2), Float32, n, n); intensity_thr = 1.0e9)
@@ -128,7 +128,7 @@ end
     asift_detect!(plan2, randn(Xoshiro(4), Float32, n2, n2); intensity_thr = 1.0e9)
     dog2 = Array(plan2.dogs[1])[65:(4n2 - 64), 65:(4n2 - 64), :, 1]
     empirical2 = maximum(std(dog2[px:4:end, py:4:end, sl]) for px in 1:4, py in 1:4, sl in 2:(size(dog2, 3) - 1))
-    @test isapprox(VF._noise_intensity_thr(1.6, 2, 5) / 5, empirical2; rtol = 0.03)
+    @test isapprox(VgtkFeatures._noise_intensity_thr(1.6, 2, 5) / 5, empirical2; rtol = 0.03)
     # on pure noise of σ 1, a threshold of k σ admits fewer extrema as k grows, and few at 5σ
     rng = Xoshiro(3)
     img = 100 .+ randn(rng, 256, 256)

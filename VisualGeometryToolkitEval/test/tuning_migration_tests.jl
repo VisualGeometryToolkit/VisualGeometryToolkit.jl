@@ -11,7 +11,7 @@
     import VisualGeometryToolkitIO as VgtkIO
     import VisualGeometryToolkitEval as VgtkEval
     using VisualGeometryToolkitEval.Tuning: load_tuning_artifact, tuning_hash, EfficiencyConstantWindow
-    using VisualGeometryToolkitEval.Evaluation: ComposedSpec, Roster, SoloSpec, deployed_budget_settings, tuned_width
+    using VisualGeometryToolkitEval.Evaluation: ComposedSpec, Roster, SoloSpec, RefinementRole, deployed_budget_settings, tuned_width
     using VisualGeometryToolkitCore: Irls
 
     F = VgtkEval.engine_fixtures()
@@ -28,7 +28,7 @@
             [ComposedSpec(b, :hw, OutlierHalfwidth(), EfficiencyConstant(), c -> Irls{typeof(k)}(; efficiency_constant = c);
                           format6_constant = format6(b))
              for (b, k) in sort!(collect(shapes); by = first)]]
-    roster = Roster(p -> arms, (p; role = :refinement) -> SoloSpec[], p -> ComposedSpec[])
+    roster = Roster(p -> arms, (p; role = RefinementRole()) -> SoloSpec[], p -> ComposedSpec[])
     rt = F.roster_tuning()
     v6 = joinpath(dir, "composed.jld2")
 

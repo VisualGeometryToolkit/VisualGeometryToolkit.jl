@@ -23,7 +23,7 @@ algorithm of its own.
   `reinit!` reuses its [`RansacWorkspace`](@ref). Two-level gating, adaptive trial counts,
   PROSAC ordered sampling. See [RANSAC](guide/ransac.md).
 - **Core defaults**: `Ransac()` on a family problem runs VisualGeometryToolkitCore's MSAC
-  (`[pipelines.<class>] scoring`, MSAC at the class's threshold) and a local optimization read from
+  (`[<problem>.ransac] scoring`, MSAC at the class's threshold) and a local optimization read from
   `configs/default.toml`: least squares on the inliers
   ([`Irls`](@extref VisualGeometryToolkitCore.Irls)`{TLSShape}`, following the scorer's decision point) for most
   problems, the robustified chart LM [`Triggs`](@extref VisualGeometryToolkitCore.Triggs) for the circle and the

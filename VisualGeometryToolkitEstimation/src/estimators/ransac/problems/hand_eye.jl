@@ -105,13 +105,46 @@ struct HandEyeProblem{S <: AbstractSampler, U, E <: _UnlabeledMap3} <: AbstractR
 end
 
 """
+    MotionPairs
+
+The frame pairs a [`HandEyeProblem`](@ref) forms its relative motions from: [`ConsecutivePairs`](@ref) or
+[`AllPairs`](@ref). A TOML value names one by its tag in [`MOTION_PAIRS_TAGS`](@ref) (`"consecutive"`, `"all"`).
+"""
+abstract type MotionPairs end
+
+"""
+    ConsecutivePairs()
+
+Neighbouring frames in time, `(i, i + 1)`: `N − 1` relative motions of `N` frames. TOML tag `"consecutive"`.
+"""
+struct ConsecutivePairs <: MotionPairs end
+
+"""
+    AllPairs()
+
+Every pair of frames, `(i, j)` with `i < j`: `N(N − 1)/2` relative motions of `N` frames. TOML tag `"all"`.
+"""
+struct AllPairs <: MotionPairs end
+
+"""
+    MOTION_PAIRS_TAGS
+
+The motion-pair registry (VisualGeometryToolkitCore's `TagRegistry`, suffix `Pairs`): `"consecutive"` →
+[`ConsecutivePairs`](@ref), `"all"` → [`AllPairs`](@ref); the TOML key `[hand_eye_problem] motion_pairs` holds one.
+"""
+const MOTION_PAIRS_TAGS = TagRegistry(:motion_pairs, "Pairs", "consecutive" => ConsecutivePairs, "all" => AllPairs;
+                                      paths = [r"^(.*\.)?hand_eye_problem\.motion_pairs$"])
+# The class default (configs/default.toml [hand_eye_problem] `motion_pairs`), read through the registry once.
+const _HAND_EYE_MOTION_PAIRS = MOTION_PAIRS_TAGS[_dflt("hand_eye_problem", "motion_pairs")]()
+
+"""
     HandEyeProblem(cs; motion_pairs, char_length=nothing, min_rel_angle)
 
 Build a `HandEyeProblem` from synchronized absolute-pose observations.
 
 # Arguments
 - `cs` — one correspondence between rigid transforms per frame, in TIME order
-  (`motion_pairs = :consecutive` pairs neighbours): `A_i => B_i`, the
+  (`motion_pairs = ConsecutivePairs()` pairs neighbours): `A_i => B_i`, the
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
   labeled `CameraExtrinsics` accepted — unlabeled at the boundary). Any
   `sources`/`targets` container of `Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
@@ -120,16 +153,16 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
   solve's calibration comes back in metres. A mix is a `MethodError`.
 
 # Keywords
-- `motion_pairs::Symbol` — `:consecutive` uses pairs `(i, i+1)` yielding
-  `N-1` motion pairs; `:all` uses every `(i, j)` with `i < j`. Defaults to
-  `configs/default.toml` `[pipelines.hand_eye]` (`"consecutive"`), the same
-  authority the hand-eye class reads.
+- `motion_pairs::MotionPairs` — [`ConsecutivePairs`](@ref)`()` uses pairs `(i, i+1)`
+  yielding `N-1` motion pairs; [`AllPairs`](@ref)`()` uses every `(i, j)` with
+  `i < j`. Defaults to `configs/default.toml` `[hand_eye_problem]` `motion_pairs`
+  (`"consecutive"`, read through [`MOTION_PAIRS_TAGS`](@ref)).
 - `char_length` — characteristic length to balance rotation (rad) and
   translation residuals. Default: median translation magnitude of the
   relative motions A_ij.
 - `min_rel_angle` — the smallest rotation (rad) a relative motion may have:
   motions below it are dropped here, before the inner constructor's gate.
-  Defaults to `configs/default.toml` `[robot_world_hand_eye]`
+  Defaults to `configs/default.toml` `[hand_eye_problem]`
   `min_rel_angle_deg`, the SAME authority the robot–world fit's init reads:
   the rotation below which a relative motion is degenerate for recovering X.
 
@@ -139,9 +172,9 @@ refused here rather than as a no-model result after every RANSAC trial).
 """
 function HandEyeProblem(
         cs::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}};
-        motion_pairs::Symbol = Symbol(_dflt("pipelines.hand_eye", "motion_pairs")),
+        motion_pairs::MotionPairs = _HAND_EYE_MOTION_PAIRS,
         char_length::Union{Nothing, Real} = nothing,
-        min_rel_angle::Real = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
+        min_rel_angle::Real = deg2rad(_dflt("hand_eye_problem", "min_rel_angle_deg"))
     )
     A = sources(cs); B = targets(cs)
     length(A) >= 3 ||
@@ -377,29 +410,29 @@ end
 # Helpers
 # =============================================================================
 
-"""
-    _form_relative_motions(A, B, mode, min_angle) -> Vector{Tuple{E, E}}
+# The frame pairs `(i, j)` of `N` frames, in time order.
+_frame_pairs(::ConsecutivePairs, N::Int) = ((i, i + 1) for i in 1:(N - 1))
+_frame_pairs(::AllPairs, N::Int) = ((i, j) for i in 1:(N - 1) for j in (i + 1):N)
 
-Form `(A_ij, B_ij) = (A_j^{-1} A_i, B_j^{-1} B_i)` from consecutive or
-all-pair frames. Discards pairs whose rig or pattern motion rotates less than
+"""
+    _form_relative_motions(A, B, motion_pairs, min_angle) -> Vector{Tuple{E, E}}
+
+Form `(A_ij, B_ij) = (A_j^{-1} A_i, B_j^{-1} B_i)` from the frame pairs
+`motion_pairs` ([`ConsecutivePairs`](@ref), [`AllPairs`](@ref)). Discards pairs whose rig or pattern motion rotates less than
 `min_angle` (rad) — the predicate the inner constructor's gate applies, so
 every motion kept succeeds at it — and throws when fewer than two remain.
 """
 function _form_relative_motions(
         A::AbstractVector{<:PlainEuclideanMap{3}},
         B::AbstractVector{<:PlainEuclideanMap{3}},
-        mode::Symbol,
+        motion_pairs::MotionPairs,
         min_angle::Float64
     )
     N = length(A)
     E = typeof(_plain_motion(unlabel(first(A))))
     motions = Tuple{E, E}[]
 
-    pairs = mode == :consecutive ? ((i, i + 1) for i in 1:(N - 1)) :
-        mode == :all ? ((i, j) for i in 1:(N - 1) for j in (i + 1):N) :
-        throw(ArgumentError("motion_pairs must be :consecutive or :all, got $mode"))
-
-    for (i, j) in pairs
+    for (i, j) in _frame_pairs(motion_pairs, N)
         # `unlabel` at the boundary: p3p/PnP hand in labeled `CameraExtrinsics`
         # (world→camera), and `inv(A[j]) ∘ A[i]` over labeled maps yields a
         # {WorldFrame, WorldFrame} map that will not convert into the

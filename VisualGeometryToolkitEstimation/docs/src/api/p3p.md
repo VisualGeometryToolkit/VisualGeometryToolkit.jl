@@ -34,7 +34,7 @@ different type.
 
 The class default deploys `Irls{TLSShape}()` (least squares on the
 inliers, at the default MSAC scorer's 8 px threshold;
-`[pipelines.absolute_pose]` in `configs/default.toml`). Any other strategy
+`[absolute_pose_problem.ransac]` in `configs/default.toml`). Any other strategy
 composes, LocalOptimizationDoneRight's half-quadratic lifts on the 6-dof pose
 chart among them. The per-iteration M-step for
 `AbsolutePoseProblem` is a Levenberg–Marquardt refit on the 6-dof left-perturbation

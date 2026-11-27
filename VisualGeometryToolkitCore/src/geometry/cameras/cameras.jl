@@ -1200,6 +1200,9 @@ export reprojection_error              # project(camera, pose(X)) − u, Jacobia
 export has_distortion
 # The lens contract's derived perspective view and radial profile.
 export monotone_radius
+export bounding_radial                 # the radial factor that bounds what a lens images (public, not exported, at the top level)
+export lens_terms                      # a lens's terms in parameter order (public, not exported, at the top level)
+export radial_distance                 # a point's or ray's distance from the optical axis, Dual-safe on it (public, not exported, at the top level)
 export distort_normalized
 export view_angle, projected_radius   # the radial projection function r(θ) and its inverse
 # Framed imaging chain (0.10): typed frame-to-frame stages with checked
@@ -1293,6 +1296,7 @@ export plane_map                         # a posed camera's z = 0 plane → imag
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export forward_chart                     # the chart of every SplineLens forward spline (public, not exported, at the top level)
 export has_spline_gauge                  # whether a SplineLens pixel lattice gives its own K (public, not exported, at the top level)
+export has_present_window                # whether a SplineLens window holds present nodes only (public, not exported, at the top level)
 export with_model                         # same camera/rig, new model — rebuilds through the validating constructor
 export reference_frame                    # rig/target-rig reference-frame type (submodule-level only:
 #   the top module deliberately does not re-export it — import explicitly)

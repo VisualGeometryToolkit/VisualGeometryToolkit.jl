@@ -771,15 +771,15 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, KannalaBrandt, Size2, BoundedCamera, model, lens, project, calibration_matrix, imaged_region, backproject
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraRegressionProblem, ForwardSpline
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, CameraModel, SplineLens, KannalaBrandt, Size2, BoundedCamera, model, lens, project, calibration_matrix, imaged_region, backproject
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation, CameraRegressionProblem, ForwardSpline
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
     cam = BoundedCamera(CameraModel(SplineLens, kb, Size2(1280, 960); grid_size = (12, 10)), Size2(1280, 960))
     @test lens(model(cam)).forward === nothing
     r = solve(EstimationProblem(CameraRegressionProblem(cam)), ForwardSpline(; tolerance = 1.0e-3))
     est = r.u
-    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) || VC.successful_retcode(r)
+    @test (r.retcode, r.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.ToleranceMet) || VgtkCore.successful_retcode(r)
     @test est isa BoundedCamera && lens(model(est)).forward !== nothing
     # everything but the forward is the camera's own, bit for bit
     @test lens(model(est)).backward.controls == lens(model(cam)).backward.controls && lens(model(est)).backward.area == lens(model(cam)).backward.area

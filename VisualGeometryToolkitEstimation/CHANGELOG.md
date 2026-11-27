@@ -7,6 +7,34 @@ A breaking release on VisualGeometryToolkitCore 0.14 (`[compat]` VisualGeometryT
 docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the golden records of 0.12.2 replay bit for bit
 (`ci/golden/`), the deliberate exceptions listed in `ci/golden/intended_changes.toml`.
 
+### Conformance hygiene
+- **`configs/default.toml` is version 3**: every table is named after the algorithm or problem it configures.
+  `[pipelines.<class>]` is `[<problem>.ransac]` and `[refine.<class>]` `[<problem>.levenberg_marquardt]`
+  (`[homography_problem.ransac]`, `[fund_mat_problem.levenberg_marquardt]`, …); `[hand_eye_problem]` holds
+  `motion_pairs` and `min_rel_angle_deg` (the robot-world fit's init reads the same default), the robot-world fit's
+  `tol` is `[reweighted_least_squares.robot_world_hand_eye_calibration]`, the lift seed
+  `[radial_homography_problem.lift_seed]`, `[relpose_bundle]` `[relative_pose_problem]`, `[simfitpp]` `[sim_fit_pp]`
+  and `[mixture_em]` `[residual_mixture.config]` (`ResidualMixture`'s `config`). `ESTIMATION_CONFIG_VERSIONS` gains the
+  version-2 → 3 step: a stored 0.12 or 0.13 file reads at version 3 (tested on both shipped files).
+- **`RadialHomographyProblem(pairs; center, sampler, minimal_solver = Homography5ptRadial(; extra_check = true))`**: the
+  hypothesis path is the minimal solver itself (`Homography4pt()` for the four-point path); `extra_check` is the 5-point
+  solver's field and the backend the solver's. The keywords `minimal`, `extra_check` and `backend` are refused, naming
+  `minimal_solver`. Bit-identical.
+- **`HandEyeProblem(cs; motion_pairs = ConsecutivePairs())`**: the frame pairs are types, `ConsecutivePairs()` and
+  `AllPairs()` (exported; supertype `MotionPairs`), a TOML value their tag in `MOTION_PAIRS_TAGS` (`"consecutive"`,
+  `"all"`); a `Symbol` is refused. Bit-identical.
+- **`DivisionCameraMetadata`'s Student-t `ν` field is `dof`**, read by `dof(result)` (Core's contract reading), as the
+  bundles' metadata spell it.
+- The camera-and-poses, rotation-centre and robot-world bundles assemble their results from Core's `FitResult` and
+  residual summary, read by field (`r.u`, `r.retcode`, `r.stop_rule`, `r.stats.nsteps`, the summary's rows): the
+  internal repacking into the retired block-LM tuple is gone. Bit-identical.
+- The camera regression and the SplineLens bundle reach no Core internal: they read Core's public `lens_terms`,
+  `bounding_radial`, `radial_distance`, `default_spline_grid(…; spacing)`, `calibration_stage`, `has_present_window`
+  and the batched lens `project(lens, rays, seeds; fold)`. Bit-identical.
+- `KeepModel` and `ParameterChangeStop` take their field as a keyword too; a tagged TOML table builds its type by keyword
+  (Core's `construct_from_table`, the values as written), so no positional field splat remains (no DUPLICATION.toml entry).
+- The tests bind the stack's canonical aliases (`VgtkEstimation`, `VgtkCore`).
+
 - **`Rigid3` is retired** (check_naming R20, a `const` naming one concrete type; owner 2026-11-24). The hand-eye problem
   carries its motion type as a parameter, `HandEyeProblem{S, U, E}` (`model_type` `E`, an unlabeled
   `PlainEuclideanMap{3, Float64}` with a `RotMatrix{3}` rotation and a `Vec3` translation), and the robot-world

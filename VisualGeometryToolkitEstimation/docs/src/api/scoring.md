@@ -44,7 +44,7 @@ MSAC and RANSAC at a threshold,
 [`MsacScoring`](@extref VisualGeometryToolkitCore.MsacScoring) and
 [`RansacScoring`](@extref VisualGeometryToolkitCore.RansacScoring), with their
 [`residual_quality`](@extref VisualGeometryToolkitCore.residual_quality).
-MSAC (`[pipelines.<class>] scoring`) is `Ransac()`'s default scorer for every
+MSAC (`[<problem>.ransac] scoring`) is `Ransac()`'s default scorer for every
 problem class.
 
 ## SIMFIT++ loss-width estimation

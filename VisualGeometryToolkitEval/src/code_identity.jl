@@ -20,7 +20,9 @@
 # DEPENDENCY-FREE BY CONTRACT (Base and the stdlibs TOML and SHA; and `canonical_json`, VisualGeometryToolkitCore's
 # Base-only src/base/canonical.jl, which a bare `julia` includes by path before src/cli.jl): src/cli.jl includes it, so
 # the package has it (the Experiments records, the runner) and so does a project's launcher, which includes src/cli.jl
-# and reproduce/runner.jl by path from a bare `julia` before the project's environment is instantiated.
+# and reproduce/runner.jl by path from a bare `julia` before the project's environment is instantiated. So it hashes with
+# SHA.sha256 directly (`file_sha256`, `tree_sha256`, `_toml_hash`), not through VisualGeometryToolkitCore's `sha256_hex`,
+# which a bare `julia` cannot load: the digests are the same SHA-256.
 # =============================================================================
 using TOML: TOML
 using SHA: sha256

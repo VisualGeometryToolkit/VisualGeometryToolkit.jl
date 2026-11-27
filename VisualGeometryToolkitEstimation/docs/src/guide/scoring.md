@@ -46,7 +46,7 @@ scoring = RansacScoring(problem; threshold = 2.0)
 result  = solve(EstimationProblem(problem), Ransac(; scoring); rng = Xoshiro(1))
 ```
 
-`Ransac()` reads its problem class's scorer, `[pipelines.<class>] scoring` in
+`Ransac()` reads its problem class's scorer, `[<problem>.ransac] scoring` in
 `configs/default.toml` (read by [`scoring_from_toml`](@ref VisualGeometryToolkitEstimation.scoring_from_toml)), when no
 `scoring` is given; every class's is MSAC. The thresholds are in the problem's residual unit —
 pixels for every pixel-data class, E and PnP included, whose residuals are

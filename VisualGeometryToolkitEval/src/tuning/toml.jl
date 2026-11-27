@@ -211,13 +211,12 @@ function _registered(::Type{RegisteredSceneSplit}, d, inherited, path)
     return out
 end
 
-# The field walk is VgtkCore's `read_table` (the writer's `fieldnames`/`toml_key`
-# walk); what stays here is the layering it does not do. Every key is handed
-# to it as the pair (config value, inherited value), so it visits every field
-# in field order, and `_read_toml_field` reads the pair: a nested table layered
-# over its own default, a leaf from the config or else the default, absent
-# from both an error naming the key path. No type here skips a field, so the
-# struct is built positionally from the walk.
+# The construction is VgtkCore's `construct_from_table` (by keyword: every type here
+# takes its fields as keywords, `@kwdef`); what stays here is the layering it does
+# not do. Every key is handed to it as the pair (config value, inherited value), so
+# it reads every field, and `_read_toml_field` reads the pair: a nested table
+# layered over its own default, a leaf from the config or else the default, absent
+# from both an error naming the key path.
 function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) where {C}
     d === nothing && dflt === nothing && throw(ArgumentError("[$path]: missing table"))
     d === nothing || d isa AbstractDict || throw(ArgumentError("[$path]: expected a table, got $(repr(d))"))
@@ -225,22 +224,16 @@ function _read_struct(::Type{C}, d, dflt, path, tagged::Bool, inherit::Bool) whe
     layered = Dict{String,Any}(key => (d === nothing ? nothing : get(d, key, nothing),
                                        dflt === nothing ? nothing : get(dflt, key, nothing)) for key in VgtkCore.allowed_keys(C))
     from_toml(::Type{C}, ::Val{F}, (u, v)) where {F} = _read_toml_field(fieldtype(C, F), u, v, "$path.$(VgtkCore.toml_key(C, F))", inherit)
-    # `Any` on purpose: the fields of `C` have different types, so a narrower element type is a Union JET
-    # reports against each positional field type of `C(args...)`; the constructor checks them.
-    args = Any[v for (_, v) in VgtkCore.read_table(C, layered; from_toml)]
-    try
-        return C(args...)
-    catch e
-        e isa ArgumentError && throw(ArgumentError("[$path]: $(e.msg)"))
-        rethrow()
-    end
+    return VgtkCore.construct_from_table(C, layered; section = path, from_toml)
 end
 
 _is_table(::Type{T}) where {T} = _family(T) !== nothing || haskey(_TYPE_KEYS, T)
 
 function _read_toml_field(::Type{T}, u, v, path, inherit::Bool) where {T}
     T === Union{Nothing,Incumbent} && return u === nothing && v === nothing ? nothing : _read(Incumbent, u, v, path, inherit)
-    _is_table(T) && return _read(T, u, v, path, inherit)
+    # a number is never a table (`isprimitivetype` folds per field type, so a leaf's read never reaches the struct
+    # builder's field lookup, which a primitive type has no fields for)
+    !isprimitivetype(T) && _is_table(T) && return _read(T, u, v, path, inherit)
     x = u === nothing ? v : u
     x === nothing && throw(ArgumentError("missing key `$path`"))
     return _toml_leaf(T, x, path, inherit)

@@ -101,7 +101,7 @@ steps inside, as the rect builders' margin does.
 """
 function monotone_radius(l::AbstractLensModel)
     lf = _precision(Float64, l)
-    r = _bounding_radial(lf)
+    r = bounding_radial(lf)
     r === nothing && return Inf
     u = _branch_end(r, lf isa Lens ? _frame_cap(lf.projection) : Inf)
     T = eltype(parameter_vector(l))                  # the lens's coefficient precision
@@ -109,11 +109,19 @@ function monotone_radius(l::AbstractLensModel)
     return T(lf isa Lens ? sqrt(u) * radial_ratio(r, u) : _radius_at(r, u))
 end
 
-# The radial factor that bounds what a lens images: `radial(lens)`, or for a
-# composed distortion its first radial stage's factor (`radial` stays `nothing` for one:
-# `radial_part` and the fit read it as the lens's ONE radially symmetric factor).
-_bounding_radial(l) = radial(l)
-_bounding_radial(l::Lens{<:AbstractProjection, <:ComposedTransformation}) = _first_radial_factor(_stages(l.distortion))
+"""
+    bounding_radial(lens) -> Union{Radial, Nothing}
+
+The radial factor that bounds what `lens` images: [`radial`](@ref)`(lens)`, or for
+a composed distortion (a `ComposedTransformation` of stages) its first radial
+stage's factor; `nothing` when it has none. `radial` stays `nothing` for a
+composition, since [`radial_part`](@ref) and a regression onto a radially
+symmetric family read it as the lens's ONE radially symmetric factor; this is
+the factor [`monotone_radius`](@ref) and [`view_angle_limit`](@ref) bound the
+lens by, and the one a linear fit of the lens's radial profile solves for.
+"""
+bounding_radial(l) = radial(l)
+bounding_radial(l::Lens{<:AbstractProjection, <:ComposedTransformation}) = _first_radial_factor(_stages(l.distortion))
 _first_radial_factor(::Tuple{}) = nothing
 _first_radial_factor(ds::Tuple) = _is_radial(first(ds)) ? _radial_factor(first(ds)) : _first_radial_factor(Base.tail(ds))
 _radial_factor(r::Radial) = r
@@ -211,7 +219,7 @@ end
 # by Brent's method between its neighbours. A composition without a radial
 # stage: the plain scan.
 function _chain_view_angle_limit(l::Lens, edge)
-    _bounding_radial(_precision(Float64, l)) === nothing &&
+    bounding_radial(_precision(Float64, l)) === nothing &&
         return invoke(view_angle_limit, Tuple{AbstractLensModel}, l; cap = edge)
     _is_radial(first(_stages(l.distortion))) &&
         return _nan_onset(θ -> isfinite(projected_radius(l, θ)), edge)

@@ -18,8 +18,11 @@
 # =============================================================================
 
 # The version of this file's layout (`ESTIMATION_CONFIG_VERSIONS`): version 1 (0.12 and earlier, no key) named its tables after
-# the retired estimator functions; a stored file of it is read through `VisualGeometryToolkitCore.migrate_config`.
-config_version = 2
+# the retired estimator functions, version 2 (0.13) its family problems' tables `[pipelines.<class>]` and `[refine.<class>]`;
+# every table is now named after the algorithm or problem it configures (`[<problem>.ransac]`,
+# `[<problem>.levenberg_marquardt]`, `[<problem>]`). A stored file of an earlier version is read through
+# `VisualGeometryToolkitCore.migrate_config`.
+config_version = 3
 
 [ransac]
 # The three RansacConfig fields. `min_trials` is 100 everywhere now — the
@@ -30,7 +33,8 @@ max_trials     = 10000
 min_trials     = 100
 
 # -----------------------------------------------------------------------------
-# Per-problem-class defaults of `Ransac(; scoring = ClassDefault(), local_optimization_strategy = ClassDefault())`:
+# Per-problem defaults of `Ransac(; scoring = ClassDefault(), local_optimization_strategy = ClassDefault())`, one
+# `[<problem>.ransac]` table per family problem:
 # the scorer (`scoring = { type = …, … }`, read by scoring_from_toml for the problem's
 # type) and the local optimization (`local_optimization_strategy = { type = …, … }`,
 # read by optimization_strategy_from_toml) — the one robust-estimation schema.
@@ -46,23 +50,23 @@ min_trials     = 100
 # optimizers (the half-quadratic lifts, GNC, the cross-validated operating
 # points) are LocalOptimizationDoneRight's: give one as `local_optimization_strategy`.
 # -----------------------------------------------------------------------------
-[pipelines.homography]
+[homography_problem.ransac]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findHomography's ransacReprojThreshold), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.fundmat]
+[fund_mat_problem.ransac]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (OpenCV findFundamentalMat's ransacReprojThreshold), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.essential]
+[essential_problem.ransac]
 scoring            = { type = "msac", threshold = 1.0 }   # px — a convention (OpenCV findEssentialMat's threshold), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.rotation]
+[rotation_problem.ransac]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the essential problem's convention: both are bearing residuals whitened into pixels
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.circle]
+[circle_problem.ransac]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the circle (≈ the geometric one); a convention of this package for points located to a pixel, not a tuned value
 # The robustified LM (Triggs): one NLLSsolver LM under the Welsch loss,
 # its width efficiency_constant·ŝ at the hypothesis's Student-t scale (the plain
@@ -74,18 +78,18 @@ scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson d
 # consensus-anchored LM width (LocalOptimizationDoneRight's poselib_adapt).
 local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
-[pipelines.ellipse]
+[ellipse_problem.ransac]
 scoring            = { type = "msac", threshold = 1.0 }   # px — the Sampson distance to the ellipse (≈ the geometric one); the circle's convention
 # The circle's robustified LM (Triggs{WelschShape}). 2.5: owner-decided (2026-10-29), the
 # stack's operating multiple of a consensus-anchored LM width
 # (LocalOptimizationDoneRight's poselib_adapt).
 local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
 
-[pipelines.absolute_pose]
+[absolute_pose_problem.ransac]
 scoring            = { type = "msac", threshold = 8.0 }   # px — a convention (OpenCV solvePnPRansac's reprojectionError), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.bearing_pose]
+[bearing_pose_problem.ransac]
 # the absolute-pose refine on caller-supplied bearings (a BearingPoseProblem; refine
 # only — no Ransac find). The MSAC threshold is UNIT-FREE here: a fraction of the residual's
 # bound, π (the largest angle between two rays) times the largest pixel
@@ -98,17 +102,17 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 scoring            = { type = "msac", threshold = 1.0 }   # × π·max‖(BᵀM)⁻¹‖ (dimensionless)
 local_optimization_strategy = { type = "irls", loss = "gaussian" }
 
-[pipelines.radial_homography]
+[radial_homography_problem.ransac]
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.radial_camera]
+[radial_camera_problem.ransac]
 # The 1-D radial camera of a board (distortion-free verification): the residual
 # is the pixel distance to the predicted radial line (codimension 1).
 scoring            = { type = "msac", threshold = 3.0 }   # px — a convention (the homography class's), not a tuned value
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
-[pipelines.hand_eye]
+[hand_eye_problem.ransac]
 # The MSAC threshold is UNIT-FREE here: a fraction of the problem's characteristic
 # length L (median rig translation per motion), so the hand-eye find's default
 # MSAC threshold of 0.01·L is the same whether the poses are in metres or
@@ -116,49 +120,48 @@ local_optimization_strategy = { type = "irls", loss = "tls" }
 # `scoring` is a length (the poses' unit; metres for physical poses). A convention of this
 # package (no external one exists), not a tuned value.
 scoring            = { type = "msac", threshold = 0.01 }   # × L (dimensionless; rotation enters the residual as L·θ)
-motion_pairs       = "consecutive"
 local_optimization_strategy = { type = "irls", loss = "tls" }
 
 # -----------------------------------------------------------------------------
-# Per-problem-class defaults of `LevenbergMarquardt(; optimization_strategy = ClassDefault())` on
-# `RefineProblem(f, θ₀)`: the strategy a refine runs from the caller's model — no scorer, no consensus set.
+# Per-problem defaults of `LevenbergMarquardt(; optimization_strategy = ClassDefault())` on
+# `RefineProblem(f, θ₀)`, one `[<problem>.levenberg_marquardt]` table per family problem: the strategy a refine runs from the caller's model — no scorer, no consensus set.
 # Triggs{Welsch}, ONE robustified chart LM, is the stack's default (owner,
 # 2026-11-11; Huber where a fit has chosen it for accuracy). It has no width of
 # its own here: its loss width is efficiency_constant(Welsch, codimension) times
 # the caller's `scale` (or the caller's `width`) — a scale is data, never a
 # default of this file. A class's ruling is an edit of its line.
 # -----------------------------------------------------------------------------
-[refine.homography]
+[homography_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.fundmat]
+[fund_mat_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.essential]
+[essential_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.rotation]
+[rotation_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.circle]
+[circle_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.ellipse]
+[ellipse_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.absolute_pose]
+[absolute_pose_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.bearing_pose]
+[bearing_pose_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.radial_homography]
+[radial_homography_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.radial_camera]
+[radial_camera_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
-[refine.hand_eye]
+[hand_eye_problem.levenberg_marquardt]
 optimization_strategy = { type = "triggs", loss = "welsch" }
 
 [division_camera_fit]
@@ -181,10 +184,17 @@ branch_audit_efficiency_constant = 3.5322300675464233
 # the ν update's ν_max): a near-Gaussian start, which the EM's estimated ν then moves.
 seed_nu = 1.0e4
 
-[robot_world_hand_eye]
-min_rel_angle_deg = 5.0          # relative motions below this are degenerate for the init
-# The robust fit's (optimization_strategy = Irls{K}): converged when an
-# iteration moves every transform by less than `tol` in the whitened units
+[hand_eye_problem]
+# `HandEyeProblem(cs; motion_pairs, min_rel_angle)`'s defaults. The motion pairs: "consecutive" (`ConsecutivePairs()`,
+# neighbours in time) or "all" (`AllPairs()`, every pair).
+motion_pairs      = "consecutive"
+# Relative motions below this are degenerate for recovering X: the problem drops them, and the robot-world fit's
+# initialization (`EstimationProblem(RobotWorldHandEyeCalibration, markers, (; min_rel_angle))`) reads the same default.
+min_rel_angle_deg = 5.0
+
+[reweighted_least_squares.robot_world_hand_eye_calibration]
+# The robust robot-world fit's (`ReweightedLeastSquares` on a RobotWorldHandEyeCalibration, optimization_strategy =
+# Irls{K}): converged when an iteration moves every transform by less than `tol` in the whitened units
 # (rotation / σ_rot, translation / σ_trans).
 tol = 1.0e-10
 
@@ -197,10 +207,10 @@ optimization_strategy = { type = "triggs", loss = "welsch" }
 # settings (max_iter, ftol, xtol): no settings of its own.
 
 [camera_poses_problem]
-# The strategy, as every refine_*'s (the refine contract): its loss width is
+# The strategy, as `LevenbergMarquardt`'s `optimization_strategy` (the refine contract): its loss width is
 # efficiency_constant(Welsch, 2) times the caller's `scale` (pixels), or `width`.
 optimization_strategy = { type = "triggs", loss = "welsch" }
-max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see Core's [lm])
+max_iter = 100                   # the camera + poses LM's cap on ACCEPTED iterations (NLLSsolver's count; see Core's [levenberg_marquardt.stops])
 # NLLSsolver's relative cost decrease and step tolerance (chart units), and the
 # stall postcondition's exact-fit test (F < ftol, px²): the values the
 # experiments' camera + poses bundle ran with (RadiometricCamera, until 2026-10-28).
@@ -233,7 +243,7 @@ tol                = 1.0e-12     # converged when an iteration moves x by less (
 # default is the classical least-squares alignment (optimization_strategy =
 # nothing, in code); a robust call gives an Irls strategy and its scale.
 tol                = 1.0e-12     # rad, and × the loss width: converged when an iteration moves the transform by less
-[pipelines.radial_homography.lift_seed]
+[radial_homography_problem.lift_seed]
 # The plain-homography seed of the radial homography's lifted local optimization
 # (LocalOptimizationDoneRight's HQ/GNC, `lift_init`): k is seeded on the
 # correspondences inside a TLS loss at `efficiency_constant` × σ̂, σ̂ the noise scale
@@ -242,15 +252,15 @@ tol                = 1.0e-12     # rad, and × the loss width: converged when an
 efficiency_constant = 3.5322300675464233
 # The chart LMs' stop settings (the LO refits, a refine's least squares and Triggs, the camera regression's lens families)
 # and every bundle's stall tolerance are Core's one owner, `LmStops` (VisualGeometryToolkitCore configs/default.toml
-# `[lm]`: max_iter 1000, ftol 1e-10, xtol 1e-10, stationarity_tol 0.05, with their measurements); Estimation's
+# `[levenberg_marquardt.stops]`: max_iter 1000, ftol 1e-10, xtol 1e-10, stationarity_tol 0.05, with their measurements); Estimation's
 # `[chart_lm]` table, equal to it, retired in 0.11.0. A fit overrides a field only from its own table below.
 
-[relpose_bundle]
+[relative_pose_problem]
 # the relative-pose bundle's LM cap (its `refine!` and the RelativePoseProblem refine) on
 # ACCEPTED iterations: NLLSsolver's count, each one possibly hiding ~8–10 rejected
-# candidate steps; see Core's [lm]
+# candidate steps; see Core's [levenberg_marquardt.stops]
 max_iter = 100
-# Its relative cost tolerance (NLLSsolver's `reldcost`, as Core's [lm]). At the
+# Its relative cost tolerance (NLLSsolver's `reldcost`, as Core's [levenberg_marquardt.stops]). At the
 # cost's rounding floor the reduction is rounding noise of 1e-15–5e-14
 # relative (0.5 px residuals of ~600 px coordinates), and NLLSsolver accepts a
 # step whose cost does not rise, so below the floor every iteration is a full
@@ -265,7 +275,7 @@ ftol = 1.0e-10
 # a lens family's refine (`solve(RefineProblem(CameraRegressionProblem(source, region), guess), LevenbergMarquardt())`,
 # and `OpticalAxis`'s): the LM cap on
 # ACCEPTED iterations (NLLSsolver's count, each possibly hiding ~8–10 rejected
-# candidate steps; see Core's [lm])
+# candidate steps; see Core's [levenberg_marquardt.stops])
 max_iter = 100
 
 [optical_axis]
@@ -288,7 +298,7 @@ start_radial_terms = 1
 
 # SIMFIT++ (`SimFitPP`, Edstedt 2025): the reference implementation's constructor
 # defaults (github.com/Parskatt/simfitpp).
-[simfitpp]
+[sim_fit_pp]
 alpha          = 0.99            # the inlier coverage the loss width targets: loss_width² = ppf_{χ²_dg}(alpha)·σ²
 max_iter       = 4               # train/validation rounds at most
 ftol           = 0.01            # stop when an accepted proposal moves the loss width by less (absolute, residual unit)
@@ -297,7 +307,7 @@ min_loss_width = 0.25            # px (the residual unit; `with_residual_unit` r
 max_loss_width = 8.0             # px: largest acceptable loss width
 dg             = 1               # the residual codimension (χ² degrees of freedom): the reference's scalar Sampson residual
 
-# The EM of the Student-t + uniform mixture (`MixtureEmConfig`): what an
+# The EM of the Student-t + uniform mixture, `ResidualMixture`'s `config` (a `MixtureEmConfig`): what an
 # iteration does to the model, and to each part of the noise model. Under
 # `ResidualMixture` the model is a held fit's, so the update is "keep_model";
 # its `tol` stops the EM once an iteration lowers the mixture NLL by no more
@@ -306,7 +316,7 @@ dg             = 1               # the residual codimension (χ² degrees of fre
 # `{ type = "fixed_prior", inlier_prior = … }` or `{ type = "fixed_nu", nu = … }`;
 # ν may also be "consensus_dof", held at the consensus seed's posterior-
 # predictive dof).
-[mixture_em]
+[residual_mixture.config]
 max_iter = 200
 model_update = { type = "keep_model", tol = 1.0e-10 }
 # the stop rule: "no_improvement" (the incumbent's cost — under keep_model its NLL at `tol` —

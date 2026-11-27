@@ -448,6 +448,19 @@ _param_fields(::Type{<:Radial}) = 2
 @inline _leaves(x::Union{AbstractLensModel, Additive, ComposedTransformation}) = _leaves(_fields(x))
 @inline _leaves(leaf) = (leaf,)
 
+"""
+    lens_terms(lens::AbstractLensModel) -> Tuple
+
+The terms of `lens` in parameter order: its projection (a [`Lens`](@ref)'s; a
+[`LiftLens`](@ref) has none), then its distortion's terms depth-first, left to
+right — an [`Additive`](@ref)'s head and deltas, a composition's stages in
+CoordinateTransformations' order, the outer map first. The coefficients of each
+term are `Cameras.coefficient_names(typeof(term))`,
+and the lens's [`parameter_names`](@ref) are theirs in this order. A lens type is
+read through its zero value, `lens_terms(zero(L))`.
+"""
+@inline lens_terms(l::AbstractLensModel) = _leaves(l)
+
 @inline _coefficients(leaf) = _flatmap(f -> f isa Tuple ? f : (f,), _fields(leaf))
 @inline _coefficients_of(x) = _flatmap(_coefficients, _leaves(x))
 @generated function coefficient_names(::Type{X}) where {X}

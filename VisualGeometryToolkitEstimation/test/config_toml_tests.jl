@@ -46,7 +46,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         # following the scorer — the circle and the ellipse the robustified LM
         # at its stated multiple. (The strategies' tables and their cross-validated operating
         # points are LocalOptimizationDoneRight's.)
-        for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
+        for class in map(row -> row[2], VgtkEstimation._CLASS_TABLE)
             @test _dflt_lo(class) == (class in (:circle, :ellipse) ? Triggs{WelschShape}(efficiency_constant = 2.5) :
                                       class === :bearing_pose ? Irls{GaussianShape}() : Irls{TLSShape}())
         end
@@ -57,7 +57,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         lo_from(loss, efficiency_constant) = optimization_strategy_from_toml(
             Dict("type" => "irls", "loss" => loss, "efficiency_constant" => efficiency_constant); class = :homography
         )
-        for class in Symbol.(keys(_TOML_DEFAULTS["pipelines"]))
+        for class in map(row -> row[2], VgtkEstimation._CLASS_TABLE)
             @test _dflt_lo(class) isa AbstractOptimizationStrategy
         end
         # The core has no tuning constants: the request is refused with the way
@@ -92,13 +92,13 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             @test haskey(_TOML_DEFAULTS["ransac"], toml_key(Any, f))
         end
         for f in fieldnames(VgtkEstimation.MixtureEmConfig)
-            @test haskey(_TOML_DEFAULTS["mixture_em"], toml_key(Any, f))
+            @test haskey(_TOML_DEFAULTS["residual_mixture"]["config"], toml_key(Any, f))
         end
-        # SIMFIT++'s constructor defaults are the file's [simfitpp] table, every field, and nothing else
-        @test Set(keys(_TOML_DEFAULTS["simfitpp"])) == Set(toml_key(Any, f) for f in fieldnames(VgtkEstimation.SimFitPP))
+        # SIMFIT++'s constructor defaults are the file's [sim_fit_pp] table, every field, and nothing else
+        @test Set(keys(_TOML_DEFAULTS["sim_fit_pp"])) == Set(toml_key(Any, f) for f in fieldnames(VgtkEstimation.SimFitPP))
         let cfg = VgtkEstimation.SimFitPP()
             for f in fieldnames(VgtkEstimation.SimFitPP)
-                @test getfield(cfg, f) == _dflt("simfitpp", toml_key(Any, f))
+                @test getfield(cfg, f) == _dflt("sim_fit_pp", toml_key(Any, f))
             end
         end
         # Every strategy table names every keyword its constructor defaults —
@@ -128,7 +128,8 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
                 @test !haskey(tbl, toml_key(Any, f))
             end
         end
-        for (class, tbl) in _TOML_DEFAULTS["pipelines"]
+        for (_, _, table, _) in VgtkEstimation._CLASS_TABLE
+            tbl = _TOML_DEFAULTS[table]["ransac"]
             @test haskey(tbl, "scoring")              # the class's scorer table (scoring_from_toml)
             @test !haskey(tbl, "threshold") && !haskey(tbl, "outlier_halfwidth")   # never a bare width: it is its scorer's
             @test haskey(tbl, "local_optimization_strategy")
@@ -143,10 +144,10 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
                 [ransac]
                 max_trials = 42
 
-                [pipelines.homography]
+                [homography_problem.ransac]
                 local_optimization_strategy = { type = "irls", loss = "huber", efficiency_constant = 2.0 }
 
-                [pipelines.essential]
+                [essential_problem.ransac]
                 local_optimization_strategy = { type = "irls", loss = "welsch", max_iter = 7 }
                 """
             )
@@ -156,13 +157,13 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             @test rc.success_prob == _dflt("ransac", "success_prob")
 
             # A strategy table from the file: present keys override, absent inherit.
-            pipes = TOML.parsefile(p)["pipelines"]
-            h = optimization_strategy_from_toml(pipes["homography"]["local_optimization_strategy"]; class = :homography)
+            run = TOML.parsefile(p)
+            h = optimization_strategy_from_toml(run["homography_problem"]["ransac"]["local_optimization_strategy"]; class = :homography)
             @test h isa Irls{HuberShape}
             @test sm(h) == 2.0
             @test h.max_iter == VgtkCore.lo_defaults(Irls)["irls"]["max_iter"]   # inherited
 
-            e = optimization_strategy_from_toml(pipes["essential"]["local_optimization_strategy"]; class = :essential)
+            e = optimization_strategy_from_toml(run["essential_problem"]["ransac"]["local_optimization_strategy"]; class = :essential)
             @test e isa Irls{WelschShape}
             @test e.max_iter == 7
             @test VgtkCore.lo_width(e) === nothing                 # no width: follows the scorer
@@ -176,7 +177,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
             # A misspelled or missing [ransac] table is refused, not read as the defaults.
             @test_throws ArgumentError RansacConfig(bad("b.toml", "[ransc]\nmax_trials = 5\n"))
             @test_throws ArgumentError RansacConfig(bad("c.toml", "[RANSAC]\nmax_trials = 5\n"))
-            @test_throws ArgumentError RansacConfig(bad("d.toml", "[pipelines.homography]\nthreshold = 3.0\n"))
+            @test_throws ArgumentError RansacConfig(bad("d.toml", "[homography_problem.ransac]\nthreshold = 3.0\n"))
             # Out-of-range values are refused at construction, for every sampler.
             @test_throws ArgumentError RansacConfig(bad("e.toml", "[ransac]\nmax_trials = 0\n"))
             @test_throws ArgumentError RansacConfig(max_trials = 0)
@@ -248,7 +249,7 @@ using VisualGeometryToolkitEstimation: _dflt, _TOML_DEFAULTS, _dflt_lo
         sc = MsacScoring(prob; threshold = 5.0)
         @test_throws ArgumentError solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; threshold = 5.0, scoring = sc))
         @test_throws ArgumentError solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; threshold = 5.0))
-        r_tbl = solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; scoring = VgtkEstimation.scoring_from_toml(_dflt("pipelines.homography", "scoring"); problem = HomographyProblem{Float64})); rng = StableRNG(282))
+        r_tbl = solve(EstimationProblem(HomographyProblem(pairs)), Ransac(; scoring = VgtkEstimation.scoring_from_toml(_dflt("homography_problem.ransac", "scoring"); problem = HomographyProblem{Float64})); rng = StableRNG(282))
         @test r_tbl.u == r_default.u && inlier_mask(r_tbl) == inlier_mask(r_default)
         lo = nothing
         θ₀ = r_default.u

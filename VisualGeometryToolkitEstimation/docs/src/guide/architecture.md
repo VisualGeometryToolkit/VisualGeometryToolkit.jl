@@ -121,7 +121,7 @@ refines them; the bundles implement its block contract (`block_variables` and
 bundles, each stated once per solve —, `fixed_variables`, `residual_summary`,
 `block_result`, `with_robustifier`), from which Core builds and solves the
 multi-block LM. A
-problem's class (`[pipelines.<class>]`, `[refine.<class>]`) names its
+problem's class (`[<problem>.ransac]`, `[<problem>.levenberg_marquardt]`) names its
 configuration of record.
 
 **A width is resolved once.** A strategy that carries a loss width, such as
@@ -163,7 +163,7 @@ iterations, residuals_current)` (its termination record). The core strategies ar
 - `Irls{K}` — static IRLS on a VGC loss shape `K` at a frozen width.
   `Irls{TLSShape}()` with no width (it follows the scorer's
   `decision_boundary`) is `Ransac()`'s class default for most classes
-  (`[pipelines.<class>]` in `configs/default.toml`).
+  (`[<problem>.ransac]` in `configs/default.toml`).
 
 Every other strategy — the half-quadratic lifts `HQ{K}`, `Gnc{S}`, the
 Student-t + uniform IRLS `StudentTUniform`, the score-matched

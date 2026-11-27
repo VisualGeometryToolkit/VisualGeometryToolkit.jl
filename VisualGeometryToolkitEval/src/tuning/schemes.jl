@@ -33,7 +33,7 @@ bracketing neighbours and take the free argmin. `criterion` aggregates a
 candidate's validation errors over the validation units of
 `cross_validation`. TOML tag `"coarse_fine"`.
 """
-struct CoarseFine <: TuningScheme
+Base.@kwdef struct CoarseFine <: TuningScheme
     coarse::TuningAxis
     extension::GridExtension
     edge_margin::Int
@@ -57,7 +57,7 @@ costs a run the cheap axes reuse (a detection run, say), so the search asks
 for the grid points one expensive value at a time. Untagged; defaults
 `[types.coarse_fine_axis]`.
 """
-struct CoarseFineAxis
+Base.@kwdef struct CoarseFineAxis
     coarse::TuningAxis
     extension::GridExtension
     fine::GridSpacing
@@ -73,7 +73,7 @@ search's selection replaces it only when a paired bootstrap of the units
 the incumbent's with probability at least `confidence`. Untagged; defaults
 `[types.incumbent]`.
 """
-struct Incumbent
+Base.@kwdef struct Incumbent
     values::Dict{String,Float64}
     confidence::Float64
     n_resamples::Int
@@ -91,7 +91,7 @@ argmin and its free argmin. [`CoarseFine`](@ref) is its one-axis case. An
 optional [`Incumbent`](@ref) is kept unless the selection beats it (its
 solve). TOML tag `"joint_coarse_fine"`.
 """
-struct JointCoarseFine <: TuningScheme
+Base.@kwdef struct JointCoarseFine <: TuningScheme
     axes::Dict{String,CoarseFineAxis}
     edge_margin::Int
     criterion::TuningCriterion
@@ -115,7 +115,7 @@ the efficiency-constant window at the draw's reference scale. `outlier_halfwidth
 and `loss_width` are the native grids, `efficiency_constant` the standardized display
 axis. TOML tag `"windowed_bootstrap"`.
 """
-struct WindowedBootstrap <: TuningScheme
+Base.@kwdef struct WindowedBootstrap <: TuningScheme
     efficiency_constant_window::EfficiencyConstantWindow
     outlier_halfwidth::TuningAxis
     loss_width::TuningAxis
@@ -138,7 +138,7 @@ this package: a downstream product-grid spec reads its axes through it, and
 a joint operating-point search is one. Deleting it on the
 strength of a grep over `src/` and `test/` alone breaks them.
 """
-struct Factorial <: TuningScheme
+Base.@kwdef struct Factorial <: TuningScheme
     axes::Dict{String,TuningAxis}
     criterion::TuningCriterion
     cross_validation::CrossValidation

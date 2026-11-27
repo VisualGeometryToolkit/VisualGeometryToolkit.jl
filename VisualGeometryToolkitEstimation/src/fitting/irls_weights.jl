@@ -38,7 +38,7 @@ solve, until an iteration moves the estimate by less than `tol` or the strategy'
 solve's scale input, `scale = σ` (or an upstream result) or `width = w`, and is never re-estimated.
 `ClassDefault()` is the problem class's configuration of record (configs/default.toml
 `[reweighted_least_squares.<class>]`; the rigid alignment's and the robot-world calibration's strategy is
-`nothing`, the latter's `tol` its `[robot_world_hand_eye]` table's).
+`nothing`, the latter's `tol` its `[reweighted_least_squares.robot_world_hand_eye_calibration]` table's).
 
 | problem | the one-step solve | residual (codimension) |
 |---|---|---|

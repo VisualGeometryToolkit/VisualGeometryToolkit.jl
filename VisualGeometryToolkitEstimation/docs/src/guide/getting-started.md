@@ -68,7 +68,7 @@ julia> result = solve(problem,                          # a scorer overrides the
 ```
 
 `Ransac()` reads its defaults from the problem's class, the
-`[pipelines.homography]` table of `configs/default.toml`: VisualGeometryToolkitCore's
+`[homography_problem.ransac]` table of `configs/default.toml`: VisualGeometryToolkitCore's
 `MsacScoring(problem; threshold)` and an `Irls{TLSShape}()` local optimization
 (least squares on the inliers, its truncation following the scorer's
 threshold). Every family problem works the same way; the default thresholds are
@@ -89,7 +89,7 @@ refined = solve(RefineProblem(HomographyProblem(correspondences(src, dst)), resu
                 LevenbergMarquardt(); scale = result)
 ```
 
-Its default strategy is the class's (`[refine.homography]`: one robustified LM,
+Its default strategy is the class's (`[homography_problem.levenberg_marquardt]`: one robustified LM,
 `Triggs{WelschShape}` at the efficiency constant times the scale);
 `LevenbergMarquardt(; optimization_strategy = nothing)` is plain least squares
 and takes no `scale`. A refine estimates no scale and forms no consensus set.

@@ -1146,7 +1146,7 @@ function projected_radius(lens::AbstractLensModel, θ::Real)
     θf < 0 && throw(ArgumentError("projected_radius: the view angle must be non-negative"))
     θf >= π && return typeof(θf)(NaN)
     u = project(lens, SVector(sin(θf), zero(θf), cos(θf)))
-    return _radius(u)
+    return radial_distance(u)
 end
 
 """
@@ -1159,13 +1159,20 @@ where the lens does not image.
 function view_angle(lens::AbstractLensModel, ρ::Real)
     ρf = float(ρ)
     b = backproject(lens, SVector(ρf, zero(ρf)))
-    return atan(_radius(b), b[3])
+    return atan(radial_distance(b), b[3])
 end
 
-# |(p₁, p₂)| off the azimuth-0 axis; on it (p₂ = 0: every radial lens, and the
-# optical axis of any lens) |p₁|, with the same first derivative and none of
-# hypot's 0/0 at the origin — so a Dual radius stays finite on the axis.
-@inline _radius(p) = p[2] == 0 ? abs(p[1]) : hypot(p[1], p[2])
+"""
+    radial_distance(p) -> Real
+
+The distance of a point or a ray `p` (a 2- or 3-vector) from the optical axis,
+`|(p₁, p₂)|`: `hypot(p₁, p₂)` off the azimuth-0 axis, and on it (`p₂ = 0`: every
+radial lens's samples, and the axis of any lens) `|p₁|`, with the same first
+derivative and none of `hypot`'s 0/0 at the origin, so a ForwardDiff `Dual`
+radius stays finite on the axis. The radius [`projected_radius`](@ref) and
+[`view_angle`](@ref) read (`atan(radial_distance(X), X[3])` is a ray's view angle).
+"""
+@inline radial_distance(p) = p[2] == 0 ? abs(p[1]) : hypot(p[1], p[2])
 
 # -----------------------------------------------------------------------------
 # LiftLens: the lift (x_d·N, D) is a ray

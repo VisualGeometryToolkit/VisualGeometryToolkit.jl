@@ -25,7 +25,7 @@ parts' update policies `nuisance = (; scale, inlier_prior, nu)` (each
 posterior-predictive dof), the stop rule `stop` ([`NoImprovementStop`](@ref): the
 incumbent's cost, returning the incumbent; [`ParameterChangeStop`](@ref)`(rtol)`:
 the relative change of the parameters, returning the last iterate) and the
-iteration cap. Every default reads the `[mixture_em]` table of
+iteration cap. Every default reads the `[residual_mixture.config]` table of
 `configs/default.toml` (every key is required there: none is defaulted in code);
 [`mixture_em_from_toml`](@ref) loads a caller's table and [`config_dict`](@ref)
 writes one back.
@@ -45,10 +45,10 @@ MixtureEmConfig(model_update, nuisance::NamedTuple, stop, max_iter::Integer) =
     MixtureEmConfig(model_update, (; scale = nuisance.scale, inlier_prior = nuisance.inlier_prior, nu = nuisance.nu),
                     stop, max_iter)
 MixtureEmConfig(;
-    model_update = _model_update_from_toml(_dflt("mixture_em", "model_update"), "mixture_em.model_update"),
-    nuisance = _nuisance_from_toml(_dflt("mixture_em", "nuisance"), "mixture_em.nuisance"),
-    stop = _stop_from_toml(_dflt("mixture_em", "stop"), "mixture_em.stop"),
-    max_iter::Integer = _dflt("mixture_em", "max_iter"),
+    model_update = _model_update_from_toml(_dflt("residual_mixture.config", "model_update"), "residual_mixture.config.model_update"),
+    nuisance = _nuisance_from_toml(_dflt("residual_mixture.config", "nuisance"), "residual_mixture.config.nuisance"),
+    stop = _stop_from_toml(_dflt("residual_mixture.config", "stop"), "residual_mixture.config.stop"),
+    max_iter::Integer = _dflt("residual_mixture.config", "max_iter"),
 ) = MixtureEmConfig(model_update, nuisance, stop, max_iter)
 
 # The EM's block-coordinate method on the refit workspace `refine_ws` (`nothing`

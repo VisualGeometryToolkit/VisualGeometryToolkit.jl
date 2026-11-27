@@ -26,8 +26,8 @@ h = solve(RefineProblem(f, r.u), LevenbergMarquardt(); scale = r)   # the refine
 ```
 
 [`Ransac`](@ref) documents the find's configuration (its class default is
-`[pipelines.homography]`: MSAC at 3 px, `Irls{TLSShape}()`); VisualGeometryToolkitCore's
-`LevenbergMarquardt` the refine's (`[refine.homography]`: `Triggs{WelschShape}()`). The
+`[homography_problem.ransac]`: MSAC at 3 px, `Irls{TLSShape}()`); VisualGeometryToolkitCore's
+`LevenbergMarquardt` the refine's (`[homography_problem.levenberg_marquardt]`: `Triggs{WelschShape}()`). The
 extent validates a fitted `H` over a world-plane rectangle (`BoundedProblem`): a
 bow-tie or orientation-reversing `H` is refused. Physical (unitful) plane points
 are refused at construction: a homography cannot record their unit.

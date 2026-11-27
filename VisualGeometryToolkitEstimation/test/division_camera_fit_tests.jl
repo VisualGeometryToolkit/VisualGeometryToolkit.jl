@@ -45,7 +45,8 @@ include(joinpath(pkgdir(VgtkEstimation), "test", "fixtures", "division_camera_em
     @test @inferred(noise_scale(res)) isa Float64
     md = res.metadata
     @test @inferred(DivisionCameraMetadata(md.state, md.radial_cameras, md.views, md.weights, md.scale, md.scale_source,
-                                           md.ν)) isa DivisionCameraMetadata
+                                           md.dof)) isa DivisionCameraMetadata
+    @test @inferred(VgtkCore.dof(res)) isa Float64 && VgtkCore.dof(res) > 0   # the E-step's Student-t ν, the contract reading
     @test sort!(collect(keys(res.metadata.views))) == 1:6
     w = reduce(vcat, [res.metadata.views[i].weights for i in 1:6])               # posterior weights, as the views' column
     @test count(<(0.2), w) >= 0.05 * length(w)                          # the outliers are down-weighted

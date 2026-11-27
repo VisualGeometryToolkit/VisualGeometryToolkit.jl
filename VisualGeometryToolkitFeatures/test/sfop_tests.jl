@@ -119,7 +119,7 @@ end
 
 @testitem "detect_sfop's maxima: no edge test, a maximum beside a failed window kept" begin
     import KernelAbstractions as KA
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # one octave's precision cube (−1/w): a dot, a peak of w at pixel (20, 20) on level 3, and one neighbour whose window
     # failed the λ₂ test (−∞). The extraction's quadratic interpolation fails there, so the maximum is kept on its pixel
     # and level; the edge test (ASIFT's, meant off in the precision mode) must not drop it either: its curvature across
@@ -127,7 +127,7 @@ end
     S = 3
     cube = [-1.0f0 - 0.01f0 * Float32((i - 20)^2 + (j - 20)^2 + (l - 3)^2) for i in 1:40, j in 1:40, l in 1:(S + 3), _ in 1:1]
     found(c) = (pool = zeros(Float32, 5, 16); count = zeros(Int32, 2);
-                VGF._sfop_maxima!(pool, count, KA.CPU(), c, 1.0f0, Int32(0), Int32(S)); pool[:, 1:count[1]])
+                VgtkFeatures._sfop_maxima!(pool, count, KA.CPU(), c, 1.0f0, Int32(0), Int32(S)); pool[:, 1:count[1]])
     @test found(cube)[1:2, :] == reshape(Float32[19, 19], 2, 1)    # 0-based octave pixels
     beside = copy(cube)
     beside[21, 20, 3, 1] = -Inf32
@@ -139,14 +139,14 @@ end
 
 @testitem "detect_sfop's detections: each keeps its own precision when two octaves find the same point" begin
     import KernelAbstractions as KA
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # two maxima at the same input position and scale, one per octave (adjacent octaves share a level), w = 4 and 2:
     # the NMS keeps the stronger, and its precision is its own w (a table keyed by position and scale alone gave the
     # other octave's)
     raw = Float32[50 50; 50 50; 3 3; -1/4 -1/2; 1 1]
-    rows = VGF._sfop_detections(KA.CPU(), (; nb_scales = 3), raw, [1, 2], 100, 100, 0.0)
+    rows = VgtkFeatures._sfop_detections(KA.CPU(), (; nb_scales = 3), raw, [1, 2], 100, 100, 0.0)
     @test length(rows) == 1 && only(rows).precision == 4.0
-    flipped = VGF._sfop_detections(KA.CPU(), (; nb_scales = 3), raw[:, [2, 1]], [1, 2], 100, 100, 0.0)
+    flipped = VgtkFeatures._sfop_detections(KA.CPU(), (; nb_scales = 3), raw[:, [2, 1]], [1, 2], 100, 100, 0.0)
     @test length(flipped) == 1 && only(flipped).precision == 4.0
 end
 

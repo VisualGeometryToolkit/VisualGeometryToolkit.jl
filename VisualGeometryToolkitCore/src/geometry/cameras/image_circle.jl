@@ -187,7 +187,7 @@ end
 # 10⁻⁹ for what the refinement leaves, so the disc of that radius lies inside
 # the image of the cone. An azimuth the lens does not image counts as Inf.
 function _inscribed_radius(l::AbstractLensModel, θ::Float64)
-    rim(t) = ψ -> (v = _radius(project(l, SVector(sin(t) * cos(ψ), sin(t) * sin(ψ), cos(t)))); isfinite(v) ? Float64(v) : Inf)
+    rim(t) = ψ -> (v = radial_distance(project(l, SVector(sin(t) * cos(ψ), sin(t) * sin(ψ), cos(t)))); isfinite(v) ? Float64(v) : Inf)
     ρ = _azimuth_minimum(rim(θ), 360)
     if !isfinite(ρ)
         # `project` inverts some lenses numerically (a lift) and may fail just

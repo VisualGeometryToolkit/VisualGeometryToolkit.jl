@@ -1115,3 +1115,23 @@ These are done in Core 0.14, each with its own commit:
     above OLD in bytes (and `lo_irls_msac`, `ensemble_10k` in allocations): open under ruling (b), fixed in a follow-up. Typing the RANSAC workspace's sample size at compile time
     (`@constprop` on `RansacWorkspace(n, k, …)`) made `lo_ransac` infer but boxed every trial's closure (189 → 789
     allocations: inference meets the LO's nested `solve` recursion), so it was not taken.
+- 2026-11-27 (hygiene helper, coordinator's rulings 5, 7, 8): no package reaches a `Cameras._x` internal. Each reach
+  became a public Core reading, or an existing one: `lens_terms(lens)` (was `_leaves`), `bounding_radial(lens)` (was
+  `_bounding_radial`), `radial_distance(p)` (was `_radius`), `has_present_window(lens::SplineLens, ix, iy)` (on
+  `_window_present`), the batched lens `project(lens::SplineLens, rays, seeds; fold)` (was `_spline_projections`, which
+  only Estimation called), `default_spline_grid(w, h; spacing = 64)` (was `_node_counts`; RadiometricCamera's
+  `region_layout` adopts it), `calibration_stage(intrinsics)` for `_pixel_affine` (the same `A x + t`), and a reshape of
+  the penalized solve's rows for `_with_control_vector` (the design rows' own column-major node order). The golden replay
+  harness keeps its two reaches (`_distort_and_jacobian`, `_spline_direction_differential`, N13): it rebuilds Core's
+  own device-LM closures, recorded at 3d8a06da, bit for bit, and a public reading of a second rounding (`‖S‖⁻¹S`) would
+  be API for a harness alone. The bundles' `finish(r, s)` reads Core's `FitResult` and residual summary by field
+  (`_assembled`, the block-LM tuple repack, deleted). DUPLICATION.toml holds zero entries and is deleted: a tagged TOML
+  table builds its type by keyword through `construct_from_table` (Eval's tuning types and Estimation's policy types
+  gain keyword constructors; Estimation supplies the values as written, so the constructors' own checks refuse as
+  before). Estimation's `configs/default.toml` is version 3 (`[<problem>.ransac]`, `[<problem>.levenberg_marquardt]`,
+  `[hand_eye_problem]`, `[relative_pose_problem]`, `[sim_fit_pp]`, `[residual_mixture.config]`, …; a key that leaves a
+  table moves before the table); the class symbols (`:homography`, `:fundmat`, …) stay, since
+  LocalOptimizationDoneRight keys its tuning constants by them. `RadialHomographyProblem` takes `minimal_solver`;
+  `HandEyeProblem`'s `motion_pairs` is `ConsecutivePairs()`/`AllPairs()` through `MOTION_PAIRS_TAGS`; Eval's
+  `SoloSpec` role is `SelectionRole()`/`RefinementRole()`. `DivisionCameraMetadata`'s Student-t `ν` is the field `dof`
+  (`dof(r)`, a `Float64` there): CaliBlobs reads it as the solve's dof. Bits `===`.

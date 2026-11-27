@@ -1,0 +1,179 @@
+# VisualGeometryToolkitEstimation 0.13 configs/default.toml (core-0.14/solve-interface, 1a99638c): configuration version 2,
+# its data as stored (comments dropped). The converter test (config_versions_tests.jl) reads it at the current version.
+
+config_version = 2
+
+[ransac]
+
+success_prob   = 0.99
+max_trials     = 10000
+min_trials     = 100
+
+[pipelines.homography]
+scoring            = { type = "msac", threshold = 3.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.fundmat]
+scoring            = { type = "msac", threshold = 3.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.essential]
+scoring            = { type = "msac", threshold = 1.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.rotation]
+scoring            = { type = "msac", threshold = 1.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.circle]
+scoring            = { type = "msac", threshold = 1.0 }
+
+local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
+
+[pipelines.ellipse]
+scoring            = { type = "msac", threshold = 1.0 }
+
+local_optimization_strategy = { type = "triggs", loss = "welsch", efficiency_constant = 2.5 }
+
+[pipelines.absolute_pose]
+scoring            = { type = "msac", threshold = 8.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.bearing_pose]
+
+scoring            = { type = "msac", threshold = 1.0 }
+local_optimization_strategy = { type = "irls", loss = "gaussian" }
+
+[pipelines.radial_homography]
+scoring            = { type = "msac", threshold = 3.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.radial_camera]
+
+scoring            = { type = "msac", threshold = 3.0 }
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[pipelines.hand_eye]
+
+scoring            = { type = "msac", threshold = 0.01 }
+motion_pairs       = "consecutive"
+local_optimization_strategy = { type = "irls", loss = "tls" }
+
+[refine.homography]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.fundmat]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.essential]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.rotation]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.circle]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.ellipse]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.absolute_pose]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.bearing_pose]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.radial_homography]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.radial_camera]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[refine.hand_eye]
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[division_camera_fit]
+ncoef = 1
+
+weighting  = { type = "student_t_uniform", outlier_halfwidth = 20.0, scale_prior = "jeffreys", label_prior = "flat" }
+
+mixture_em = { max_iter = 30, model_update = { type = "weighted_refine" }, stop = { type = "parameter_change", rtol = 1.0e-9 }, nuisance = { scale = "estimated", nu = "estimated", inlier_prior = { type = "fixed_prior", inlier_prior = 0.5 } } }
+
+branch_audit_efficiency_constant = 3.5322300675464233
+
+seed_nu = 1.0e4
+
+[robot_world_hand_eye]
+min_rel_angle_deg = 5.0
+
+tol = 1.0e-10
+
+[robot_world_hand_eye_problem]
+
+optimization_strategy = { type = "triggs", loss = "welsch" }
+
+[camera_poses_problem]
+
+optimization_strategy = { type = "triggs", loss = "welsch" }
+max_iter = 100
+
+ftol = 1.0e-12
+xtol = 1.0e-12
+[reweighted_least_squares.rotation]
+
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12
+[rotation_averaging]
+
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 100 }
+max_iter           = 100
+tol                = 1.0e-12
+[reweighted_least_squares.linear]
+
+optimization_strategy = { type = "irls", loss = "huber", max_iter = 50 }
+tol                = 1.0e-12
+[reweighted_least_squares.rigid_alignment]
+
+tol                = 1.0e-12
+[pipelines.radial_homography.lift_seed]
+
+efficiency_constant = 3.5322300675464233
+
+[relpose_bundle]
+
+max_iter = 100
+
+ftol = 1.0e-10
+
+[camera_regression_problem]
+
+max_iter = 100
+
+[optical_axis]
+
+radial_terms = 4
+
+start_radial_terms = 1
+
+[simfitpp]
+alpha          = 0.99
+max_iter       = 4
+ftol           = 0.01
+train_fraction = 0.5
+min_loss_width = 0.25
+max_loss_width = 8.0
+dg             = 1
+
+[mixture_em]
+max_iter = 200
+model_update = { type = "keep_model", tol = 1.0e-10 }
+
+stop = "no_improvement"
+nuisance = { scale = "estimated", inlier_prior = "estimated", nu = "estimated" }
+
+[scoring.student_t_uniform]
+
+scale_prior = "jeffreys"
+label_prior = "flat"
+
+[optimization_strategy]

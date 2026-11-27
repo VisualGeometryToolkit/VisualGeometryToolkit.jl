@@ -35,10 +35,10 @@
 # loops (`Irls`, LocalOptimizationDoneRight's `StudentTUniform`) with their best-cost tracking; the chart-lift family
 # (HQ/GNC) rides the same kernels through its `ManifoldLiftProvider`.
 #
-#   4. TWO HYPOTHESIS PATHS. `minimal = :radial` (the default) samples five
+#   4. TWO HYPOTHESIS PATHS. `Homography5ptRadial` (the default minimal solver) samples five
 #      correspondences and solves (H, k) with the 5-point kernel — whose
 #      redundant-equation root pick fails on boards small enough that k is
-#      not identifiable from one board. `minimal = :homography` samples FOUR
+#      not identifiable from one board. `minimal_solver = Homography4pt()` samples FOUR
 #      and solves the plain homography (`Homography4pt`): the hypothesis is a
 #      radial homography with no distortion term, scored with the same
 #      reprojection residual, and the local optimization estimates (H, k) on
@@ -49,8 +49,8 @@
 #      given H (`_radial_k_seed`) — the linear fit, never a zero start.
 # =============================================================================
 
-# `K` is the minimal sample size — 5 for the radial 5-point kernel, 4 for
-# plain-homography hypotheses (`minimal = :homography`, below). A partial
+# `K` is the minimal sample size — the minimal solver's `sample_size`: 5 for the radial
+# 5-point kernel, 4 for plain-homography hypotheses (`Homography4pt`, below). A partial
 # application, as the correspondence.jl aliases.
 const RadialHomographyProblem = MinimalSolveProblem{VgtkCore.RadialHomography{T, 1}, K, T} where {T <: AbstractFloat, K}
 
@@ -59,17 +59,9 @@ codimension(::Type{<:MinimalSolveProblem{<:VgtkCore.RadialHomography}}) = 2  # d
 # The fixed-center normalization for RadialHomography is VisualGeometryToolkitCore's
 # `CorrespondenceNormalization(RadialHomography, cs; center)`.
 
-# The minimal sample size of each hypothesis path — the one statement of it
-# (the constructor's `K` and a find's too-few exit).
-function _radial_sample_size(minimal::Symbol)
-    minimal === :radial && return 5
-    minimal === :homography && return 4
-    throw(ArgumentError("minimal must be :radial or :homography, got :$minimal"))
-end
-
 """
-    RadialHomographyProblem(pairs; center, sampler=nothing, backend=NativeSolver(),
-                            extra_check=nothing, minimal=:radial)
+    RadialHomographyProblem(pairs; center, sampler = nothing,
+                            minimal_solver = Homography5ptRadial(; extra_check = true))
 
 Construct a radially distorted homography problem (one-sided division
 model on the target side) from 2D-2D point correspondences.
@@ -77,16 +69,14 @@ model on the target side) from 2D-2D point correspondences.
 - `center`: the distortion center in TARGET pixels, REQUIRED — the target
   side is normalized about it (Hartley, mean distance √2). Data, not
   configuration: the division model is meaningless without its center.
-- `extra_check`: `true` (the default when unset) keeps only the cubic root
-  consistent with the redundant 4.5-pt equation per minimal sample (the
-  reference's RANSAC setting); `false` scores all real roots. It selects a
-  root of the 5-point kernel, so supplying it with `minimal = :homography` is an
-  `ArgumentError` rather than a setting that silently does nothing.
-- `minimal = :radial`: the hypothesis path — `:radial` samples five
-  correspondences for the 5-point (H, k) kernel; `:homography` samples four
-  for the plain homography, the (H, k) local optimization supplying k on the
-  consensus (header, point 4).
-- `pairs` (and its `:score` prior)/`sampler`/`backend`: as [`HomographyProblem`](@ref).
+- `minimal_solver`: the hypothesis path, a minimal solver (its backend its own
+  field). VisualGeometryToolkitCore's `Homography5ptRadial` samples five correspondences for the
+  5-point (H, k) kernel; its `extra_check = true` (the default here, the
+  reference's RANSAC setting) keeps only the cubic root consistent with the
+  redundant 4.5-pt equation per minimal sample, `false` scores all real roots.
+  `Homography4pt` samples four for the plain homography, the (H, k)
+  local optimization supplying k on the consensus (header, point 4).
+- `pairs` (and its `:score` prior)/`sampler`: as [`HomographyProblem`](@ref).
   The sources are `exact` or plain and the targets plain (any other covariance
   is an `ArgumentError`), so the residual is the reprojection error in target
   pixels: with an exact source and a plain target that is the whitened
@@ -96,21 +86,15 @@ function RadialHomographyProblem(
         pairs;
         center,
         sampler::Union{Nothing, AbstractSampler} = nothing,
-        backend::AbstractSolverBackend = NativeSolver(),
-        extra_check::Union{Nothing, Bool} = nothing,
-        minimal::Symbol = :radial
+        minimal_solver::Union{VgtkCore.Homography5ptRadial, VgtkCore.Homography4pt} = VgtkCore.Homography5ptRadial(; extra_check = true),
+        backend = RetiredKeyword(), extra_check = RetiredKeyword(), minimal = RetiredKeyword()   # refused, naming `minimal_solver`
     )
+    VgtkCore.refuse_retired_keyword(minimal, :minimal, "minimal_solver = Homography5ptRadial(…) | Homography4pt(…)")
+    VgtkCore.refuse_retired_keyword(extra_check, :extra_check, "minimal_solver = Homography5ptRadial(; extra_check)")
+    VgtkCore.refuse_retired_keyword(backend, :backend, "the minimal solver's backend, minimal_solver = Homography4pt(backend)")
     _refuse_physical_plane(pairs, "RadialHomographyProblem")
-    K = _radial_sample_size(minimal)
-    minimal === :homography && extra_check !== nothing && throw(
-        ArgumentError(
-            "extra_check selects a root of the radial 5-point kernel; it has no " *
-                "meaning for minimal = :homography (four-point hypotheses)"
-        )
-    )
-    slv = minimal === :radial ? VgtkCore.Homography5ptRadial(backend, something(extra_check, true)) :
-        VgtkCore.Homography4pt(backend)
-    return _make_centered_problem(VgtkCore.RadialHomography, K, pairs, slv, sampler, center, nothing)
+    K = VgtkCore.sample_size(minimal_solver)
+    return _make_centered_problem(VgtkCore.RadialHomography, K, pairs, minimal_solver, sampler, center, nothing)
 end
 
 # The model class of a hypothesis: a plain-homography hypothesis (the 4-point
@@ -259,7 +243,7 @@ end
 
 The closed-form weighted least squares in k given H — the LINEAR fit that
 seeds the joint (H, k) step for a hypothesis carrying no distortion term (a
-plain-homography hypothesis, `minimal = :homography`). An observation's
+plain-homography hypothesis, `minimal_solver = Homography4pt()`). An observation's
 division-model lift `(d − c ; 1 + k‖d − c‖²)` is proportional to the ray
 `(x, y, z) = T₋c·H·s̃`, so with `λ = ((d − c)·(x, y)) / (x² + y²)` from the
 first two components the third reads `k·r² = λz − 1`: one unknown, linear.

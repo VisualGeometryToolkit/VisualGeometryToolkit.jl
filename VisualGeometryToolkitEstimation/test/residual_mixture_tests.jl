@@ -9,9 +9,9 @@
 # policies (ŝ², ν estimated; π held at the state's own value) are the
 # two-part update the RANSAC local optimization always ran, bit for bit;
 # `ResidualMixture` refuses a model update that is not `KeepModel`; the
-# `[mixture_em]` TOML round trip, and refusal of unknown tags and keys; and
+# `[residual_mixture.config]` TOML round trip, and refusal of unknown tags and keys; and
 # `ResidualMixture` itself — its scale, inlier fraction and MAP labels on a
-# known mixture, its `[mixture_em]` defaults, and a calibration pipeline's call —
+# known mixture, its `[residual_mixture.config]` defaults, and a calibration pipeline's call —
 # under a test-only scorer with a uniform outlier model (`HalfwidthScoring`
 # below: the scoring contract at a threshold, plus `outlier_halfwidth`).
 # =============================================================================
@@ -130,7 +130,7 @@ end
     @test thin.u === nothing && thin.retcode == VisualGeometryToolkitCore.ReturnCode.InitialFailure
 end
 
-@testset "residual mixture: the [mixture_em] defaults" begin
+@testset "residual mixture: the [residual_mixture.config] defaults" begin
     c = MixtureEmConfig()
     @test c.model_update == KeepModel(1.0e-10) && c.max_iter == 200
     @test c.nuisance.scale isa Estimated && c.nuisance.inlier_prior isa Estimated && c.nuisance.nu isa Estimated
@@ -184,7 +184,7 @@ end
     @test student_t_dof(pws) == student_t_dof(seed.u)
 end
 
-@testset "[mixture_em] TOML: round trip, refusals" begin
+@testset "[residual_mixture.config] TOML: round trip, refusals" begin
     c = MixtureEmConfig()
     @test mixture_em_from_toml(config_dict(c)) == c
     held = MixtureEmConfig(model_update = KeepModel(1.0e-6),

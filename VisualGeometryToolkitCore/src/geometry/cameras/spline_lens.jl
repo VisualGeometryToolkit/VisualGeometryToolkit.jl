@@ -144,20 +144,19 @@ function _area_bounds(r::GeometryBasics.HyperRectangle{2})
 end
 
 """
-    default_spline_grid(width, height) -> (gw, gh)
+    default_spline_grid(width, height; spacing = 64) -> (gw, gh)
 
-The control grid the reference lays over a `width × height` pixel area: one
-node every 64 px plus the three border nodes the cubic window needs
-(`ceil(width / 64) + 3`, likewise in y; at least 4). Apply it to the
-CALIBRATED AREA, not the frame, when the two differ — a circular fisheye's
-lit field is smaller than its sensor.
+The control grid of a uniform cubic lattice over a `width × height` area at the
+node spacing `spacing` (in the area's units): one node every `spacing` plus the
+three border nodes the cubic window needs (`ceil(width / spacing) + 3`, likewise
+in y; at least 4). A quotient within rounding of an integer is that integer. THE
+node-count rule of the stack's lattices: the reference's grid (64 px, the
+default) and the spline fits' spacing search alike. Apply it to the CALIBRATED
+AREA, not the frame, when the two differ — a circular fisheye's lit field is
+smaller than its sensor.
 """
-default_spline_grid(width, height) = _node_counts(width, height, 64)
-# THE node-count rule of a lattice over a `w₁ × w₂` area at the node spacing `h`: ⌈wᵢ / h⌉ + 3
-# nodes per axis (the cubic window's three border nodes), at least 4 — the reference's grid
-# (`h` = 64 px) and the spline fits' spacing search alike. A quotient within rounding of
-# an integer is that integer (the `1 − 1e-12`).
-_node_counts(w1::Real, w2::Real, h::Real) = (max(4, ceil(Int, w1 / h * (1 - 1.0e-12)) + 3), max(4, ceil(Int, w2 / h * (1 - 1.0e-12)) + 3))
+default_spline_grid(width::Real, height::Real; spacing::Real = 64) =
+    (max(4, ceil(Int, width / spacing * (1 - 1.0e-12)) + 3), max(4, ceil(Int, height / spacing * (1 - 1.0e-12)) + 3))
 
 # ------------------------------------------------------------------------------
 # Initialization from a source: the direction controls of a pixel lattice
@@ -484,6 +483,17 @@ end
     end
     return _window_present(l.present, ix, iy)
 end
+
+"""
+    has_present_window(lens::SplineLens, ix, iy) -> Bool
+
+Whether every node of the 4 × 4 window `(ix, iy)` of `lens`'s backward lattice —
+the controls `[iy - 3 + r, ix - 3 + c]`, `r, c ∈ 1:4`, the window
+[`spline_window`](@ref) returns for a point — is present (`true` for a lens
+built without a presence mask). A point on a window that is not is not imaged by
+the lens. Device-safe: no allocation.
+"""
+@inline has_present_window(l::SplineLens, ix, iy) = _window_present(l.present, ix, iy)
 
 # The ray of the normalized point `x`: the backward spline's value there (`backward(x)`:
 # its lattice coordinates and continued window formed once, for the value and for
@@ -849,13 +859,23 @@ end
     return all(isfinite, s) ? s : _cold_start(l)
 end
 
-# The batched projection of the camera-frame points `rays` through the lens `l` to its
-# normalized plane (`project`'s solve, `iters` iterations, converged below `tol`),
-# seeded at the normalized points `seeds` (a non-finite one, or `nothing`: the cold
-# start), on `device`: `(; x, ok)` in the rays' array kind. With `fold`, also the
-# backward's Gram determinant `det(JxᵀJx)` at each point (NaN where not imaged): 0 or
-# not finite where the lattice folds (no projection Jacobian exists there).
-function _spline_projections(
+"""
+    project(lens::SplineLens, rays::AbstractVector{<:StaticVector{3}}, seeds; iters, tol, device = default_device(),
+            fold = false) -> (; x, ok, fold)
+
+The batched projection of the camera-frame points `rays` through the lens alone,
+to its normalized plane: the scalar [`project`](@ref)`(lens, X)`'s solve per ray
+(at most `iters` iterations, converged below `tol`), seeded at the normalized
+points `seeds` (a non-finite one, or `seeds = nothing`: the scalar solve's own
+start), on the KernelAbstractions backend `device`. `x` the normalized points
+(NaN where not imaged) and `ok` the mask of the imaged ones, in the rays' array
+kind. With `fold = true`, `fold` is the backward's Gram determinant
+`det(JxᵀJx)` at each point (NaN where not imaged): zero or not finite where the
+lattice folds, so the point has no projection Jacobian; `nothing` otherwise. The
+camera form, [`project`](@ref)`(camera, rays, seeds)`, maps the same solve on to
+pixels.
+"""
+function project(
         l::SplineLens, rays::AbstractVector{<:StaticVector{3}}, seeds::Union{Nothing, AbstractVector{<:StaticVector{2}}};
         iters::Int = _STATIC_LM_MAX_ITER, tol::Real = _PROJECT_TOL, device::KA.Backend = default_device(), fold::Bool = false
     )

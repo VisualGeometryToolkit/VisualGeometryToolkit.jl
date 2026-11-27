@@ -37,7 +37,7 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
     @testset "problem-level: minimal solve composes exact pixel-frame models" begin
         pairs, _ = radial_homography_pairs(rng, m_gt; n_in = 20, n_out = 0)
         p = RadialHomographyProblem(
-            pairs; center = (_RW / 2, _RH / 2), extra_check = true
+            pairs; center = (_RW / 2, _RH / 2), minimal_solver = VgtkCore.Homography5ptRadial(; extra_check = true)
         )
         idx = collect(1:5)
         sols = VgtkEstimation.sample_models(p, idx)
@@ -103,11 +103,11 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test sum(abs2, r1) < sum(abs2, r0)
     end
 
-    @testset "minimal = :homography — the global search for H with the (H, k) optimizer" begin
+    @testset "Homography4pt — the global search for H with the (H, k) optimizer" begin
         using VisualGeometryToolkitEstimation: minimal_sample_size, _radial_k_seed
         rng2 = StableRNG(77)
         pairs, gt = radial_homography_pairs(rng2, m_gt; n_in = 80, n_out = 25, σ = 0.3)
-        p4 = RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography)
+        p4 = RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal_solver = VgtkCore.Homography4pt())
         @test minimal_sample_size(p4) == 4
         # a four-point hypothesis is a plain homography with no distortion term
         idx = findall(gt)[[1, 12, 30, 55]]
@@ -122,20 +122,19 @@ const _RW, _RH = RADIAL_HOMOGRAPHY_FRAME
         @test abs(k_lin - division_coeff(m_gt)) < 0.15 * abs(division_coeff(m_gt))
         # RANSAC: the four-point search finds the board, the (H, k) local
         # optimization brings the distorted-away inliers in and recovers k
-        est = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography)), Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0)); rng = StableRNG(5))
+        est = solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal_solver = VgtkCore.Homography4pt())), Ransac(; scoring = VgtkCore.MsacScoring(RadialHomographyProblem; threshold = 3.0)); rng = StableRNG(5))
         @test est !== nothing
         m = inlier_mask(est)
         @test count(m .& gt) >= count(gt) - 3 && count(m .& .!gt) == 0
         @test abs(division_coeff(est.u) - division_coeff(m_gt)) < 0.1 * abs(division_coeff(m_gt))
         @test sign(division_coeff(est.u)) == sign(division_coeff(m_gt))
-        @test_throws ArgumentError RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :other)
-        # `extra_check` filters the 5-point kernel's roots: on the four-point path
-        # it used to be accepted and ignored; now it is refused, and the wrapper
-        # (which forwards it) still runs the four-point path when it is unset.
-        @test_throws ArgumentError RadialHomographyProblem(
-            pairs; center = (_RW / 2, _RH / 2), minimal = :homography, extra_check = true
-        )
-        @test_throws ArgumentError solve(EstimationProblem(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), minimal = :homography, extra_check = false)), Ransac())
+        # the hypothesis path is the solver itself: its root filter, `extra_check`, is the 5-point solver's field, so
+        # no setting of the four-point path is meaningless; the retired keywords are refused, naming `minimal_solver`
+        @test VgtkEstimation.minimal_sample_size(RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2))) == 5
+        @test RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2)).solver === VgtkCore.Homography5ptRadial(; extra_check = true)
+        for kw in ((; minimal = :homography), (; minimal = :other), (; extra_check = true), (; backend = VgtkCore.NativeSolver()))
+            @test occursin("minimal_solver", VgtkCore.thrown_message(() -> RadialHomographyProblem(pairs; center = (_RW / 2, _RH / 2), kw...)))
+        end
     end
 
     @testset "extent gate: corner cheirality (< 180° across the board)" begin
@@ -191,7 +190,7 @@ end
     W, H = RADIAL_HOMOGRAPHY_FRAME
     m_gt = radial_homography_truth(-0.25)
     # The multiple is the file's (no literal in code): three medians of a 2-D norm.
-    m = _dflt("pipelines.radial_homography.lift_seed", "efficiency_constant")
+    m = _dflt("radial_homography_problem.lift_seed", "efficiency_constant")
     @test m ≈ 3 * sqrt(quantile(Chisq(2), 0.5)) rtol = 1.0e-15
     for seed in 1:5
         pairs, _ = radial_homography_pairs(StableRNG(seed), m_gt; n_in = 70, n_out = 30, σ = 0.5)

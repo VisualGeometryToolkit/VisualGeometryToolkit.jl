@@ -277,7 +277,7 @@ end
 # their rig-motion axes, so the covariance differentiates the same stage.
 function _robot_world_hand_eye_init(
         RA, tA, obs_marker, RB, tB, by_marker;
-        min_rel_angle::Float64,   # required: the caller holds the [robot_world_hand_eye] default
+        min_rel_angle::Float64,   # required: the caller holds the [hand_eye_problem] default
         wobs = nothing            # the robust fit's per-observation weights (nothing: least squares)
     )
     M = length(by_marker)
@@ -588,7 +588,7 @@ const _PhysicalMarkers{K} = AbstractDict{K, <:AbstractVector{<:Correspondence{<:
 
 # The robot-world fit's context: `σ_rot`, `σ_trans` and `min_rel_angle`, each optional (Core's keyed-context reader).
 _robot_world_context(p) = VgtkCore.read_context(p, (), (; σ_rot = nothing, σ_trans = nothing,
-    min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))), "ReweightedLeastSquares (robot-world hand-eye)")
+    min_rel_angle = deg2rad(_dflt("hand_eye_problem", "min_rel_angle_deg"))), "ReweightedLeastSquares (robot-world hand-eye)")
 
 __solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_PlainMarkers{K}}, alg::ReweightedLeastSquares;
         scale = nothing, width::Union{Nothing, Real} = nothing) where {K} = _robot_world_plain(prob.f, prob.p, alg; scale, width)
@@ -600,7 +600,7 @@ function _robot_world_plain(markers::_PlainMarkers{K}, p, alg::ReweightedLeastSq
     σ_rot isa Union{Nothing, Real} && σ_trans isa Union{Nothing, Real} || throw(ArgumentError(
         "ReweightedLeastSquares (robot-world hand-eye): σ_rot and σ_trans are plain numbers beside plain poses (or nothing)"))
     who = "ReweightedLeastSquares (robot-world hand-eye)"
-    optimization_strategy, tol = _reweighted_settings(alg, "robot_world_hand_eye", who; strategy = false)
+    optimization_strategy, tol = _reweighted_settings(alg, "reweighted_least_squares.robot_world_hand_eye_calibration", who; strategy = false)
     f = _fit_irls(who, optimization_strategy, scale, width, 6)
     f === nothing || (σ_rot !== nothing && σ_trans !== nothing) || throw(ArgumentError(
         "$who: a robust fit needs `σ_rot` and `σ_trans` — the whitening its scale is in; " *

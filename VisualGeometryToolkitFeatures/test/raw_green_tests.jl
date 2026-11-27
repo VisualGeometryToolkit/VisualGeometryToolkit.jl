@@ -61,17 +61,17 @@ end
 @testitem "the bilinear green image: a constant field, a ramp, a saturated green censored, a defect missing (its 3×3 fallback), a defect cluster without a value" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitCore: RawMosaic, SensorModel, sensor_fixture, parse_unit, linearview, value_variance
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     mosaic(raw) = RawMosaic(raw, RGGB, (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), size(raw), (; model = "synthetic"))
     green(i, j) = RGGB[mod1(i, 2), mod1(j, 2)] in (0x01, 0x03)
     H, W = 20, 24
     # a constant green field: a constant image, no ripple (red and blue photosites never read)
     raw = [green(i, j) ? UInt16(30000) : UInt16(rand(100:60000)) for i in 1:H, j in 1:W]
-    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = SensorModel(), device = KA.CPU())
+    g = VgtkFeatures.bilinear_green(Float64, mosaic(raw); sensor_model = SensorModel(), device = KA.CPU())
     @test all(==(30000 / 65535), g.value) && count(>(0), g.photosite) == 0 && all(g.support .>= 1) && !any(g.saturated)
     # a ramp in the greens' codes: reproduced at every pixel whose four greens lie in the image
     ramp(i, j) = 1000.0 + 7i + 11j
-    g = VGF.bilinear_green(Float64, mosaic([UInt16(ramp(i, j)) for i in 1:H, j in 1:W]); sensor_model = SensorModel(), device = KA.CPU())
+    g = VgtkFeatures.bilinear_green(Float64, mosaic([UInt16(ramp(i, j)) for i in 1:H, j in 1:W]); sensor_model = SensorModel(), device = KA.CPU())
     @test all(isapprox(g.value[i, j], ramp(i, j) / 65535; rtol = 1.0e-14) for i in 2:(H - 1), j in 2:(W - 1))
     @test g.value[1, 1] ≈ (ramp(1, 2) + ramp(2, 1)) / 2 / 65535        # a corner red: its two greens, renormalised
     # a saturated green (8, 7): CENSORED, a sample at 1, flagged with every pixel that reads it; a defect green (8, 5):
@@ -85,19 +85,19 @@ end
     cluster = ((14, 15), (13, 14), (15, 14), (13, 16), (15, 16))
     defects = (x = [5; [c for (_, c) in cluster]], y = [8; [r for (r, _) in cluster]], onset = fill(0.001s, 6), size = (H, W))
     model = sensor_fixture(; read_noise = (3.0, 3.0, 3.0, 3.0), defects).model
-    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = model, device = KA.CPU())
+    g = VgtkFeatures.bilinear_green(Float64, mosaic(raw); sensor_model = model, device = KA.CPU())
     @test g.value[8, 7] == 1 && g.saturated[8, 7] && g.saturated[8, 6] && g.saturated[8, 8] && !g.saturated[8, 9]
     @test g.value[8, 6] ≈ (10000 + 10000 + 65535) / 3 / 65535         # (8, 5) dropped, (8, 7) censored at 1
     @test g.value[8, 5] ≈ (20000 + 10000 + 20000 + 10000) / 4 / 65535 # the 3×3 fallback: (7, 4), (9, 4), (7, 6), (9, 6)
-    @test g.support[8, 5] == (0x04 | VGF._SUPPORT_3X3) && g.support[8, 6] == 0x03 && g.support[8, 9] == 0x01
+    @test g.support[8, 5] == (0x04 | VgtkFeatures._SUPPORT_3X3) && g.support[8, 6] == 0x03 && g.support[8, 9] == 0x01
     @test isnan(g.value[14, 15]) && g.support[14, 15] == 0 && count(isnan, g.value) == 1
-    @test g.support[13, 14] == (0x03 | VGF._SUPPORT_3X3)               # a cluster's green: three usable diagonal greens
+    @test g.support[13, 14] == (0x03 | VgtkFeatures._SUPPORT_3X3)               # a cluster's green: three usable diagonal greens
     # a window of the mosaic (an odd offset: another colour phase): the defects are the visible raw's photosites
-    w = VGF.bilinear_green(Float64, view(mosaic(raw), 3:H, 2:W); sensor_model = model, device = KA.CPU())
+    w = VgtkFeatures.bilinear_green(Float64, view(mosaic(raw), 3:H, 2:W); sensor_model = model, device = KA.CPU())
     @test isnan(w.value[14 - 2, 15 - 1]) && count(isnan, w.value) == 1 && w.value[8 - 2, 5 - 1] == g.value[8, 5]
     # under a variance law the censored photosite carries the law's variance at 1 (never 0)
     pg = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0)).model
-    g = VGF.bilinear_green(Float64, mosaic(raw); sensor_model = pg, device = KA.CPU())
+    g = VgtkFeatures.bilinear_green(Float64, mosaic(raw); sensor_model = pg, device = KA.CPU())
     @test g.photosite[8, 7] ≈ value_variance(linearview(mosaic(raw); sensor_model = pg), 8, 7, 1.0) > 0
     @test g.photosite[8, 5] > 0 && g.photosite[8, 6] == 0              # no defect here; a blue site carries none
 end
@@ -106,16 +106,16 @@ end
     import KernelAbstractions as KA
     using Random: Xoshiro
     using Statistics: var, mean
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     model = pg_model(2.5, 3.0)
     rng = Xoshiro(3)
     n = 4000
-    draws = [VGF.bilinear_green(Float64, noisy_mosaic(rng, (i, j) -> 3000.0, 6, 6; electrons_per_dn = 2.5, read_dn = 3.0); sensor_model = model, device = KA.CPU())
+    draws = [VgtkFeatures.bilinear_green(Float64, noisy_mosaic(rng, (i, j) -> 3000.0, 6, 6; electrons_per_dn = 2.5, read_dn = 3.0); sensor_model = model, device = KA.CPU())
              for _ in 1:n]
     # Var Ī = Σw²σ²/(Σw)² = density/(2n) (the white-equivalent density twice the photosites' mean variance under the
     # cross, n its usable greens), the law's at each draw's value, averaged, against the draws' variance at a green site
     # (σ²) and at a red and a blue one (≈ σ²/4); n draws: the sample variance's relative standard error √(2/n)
-    varĪ(d, i, j) = d.density[i, j] / (2 * VGF._support_count(d.support[i, j]))
+    varĪ(d, i, j) = d.density[i, j] / (2 * VgtkFeatures._support_count(d.support[i, j]))
     for (i, j) in ((3, 4), (3, 3), (4, 4))
         empirical = var([d.value[i, j] for d in draws])
         @test abs(empirical / mean(varĪ(d, i, j) for d in draws) - 1) < 4 * sqrt(2 / n)
@@ -127,12 +127,12 @@ end
 @testitem "the bilinear green image: G1 and G2 taken alike, an imbalance left as a checkerboard (the known limit)" setup = [NoisyMosaic] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitCore: RawMosaic, SensorModel
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # G1 (colour index 1) 1 % brighter than G2 (index 3): the sensor model carries no per-channel response, so nothing
     # equalises them — the image holds the two levels at the green sites and their mean at the red and blue ones
     H, W = 12, 12
     code(i, j) = (c = RGGB[mod1(i, 2), mod1(j, 2)]; c == 0x01 ? 20200 : c == 0x03 ? 20000 : 5000)
-    g = VGF.bilinear_green(Float64, RawMosaic(UInt16[code(i, j) for i in 1:H, j in 1:W], RGGB, (0.0, 0.0, 0.0, 0.0),
+    g = VgtkFeatures.bilinear_green(Float64, RawMosaic(UInt16[code(i, j) for i in 1:H, j in 1:W], RGGB, (0.0, 0.0, 0.0, 0.0),
                                                          65535.0, (0, 0), (H, W), (; model = "synthetic")); sensor_model = SensorModel(), device = KA.CPU())
     interior = [g.value[i, j] * 65535 for i in 2:(H - 1), j in 2:(W - 1)]
     @test sort(unique(round.(interior; digits = 6))) == [20000.0, 20100.0, 20200.0]
@@ -143,21 +143,21 @@ end
     using VisualGeometryToolkitCore: RawMosaic, SensorModel, Disc, Point2
     using Random: Xoshiro, randn
     using Statistics: mean, var
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # pure noise in the codes (every photosite white): the bilinear image's windows at ρ = 12 (σ = 3), Ω = Iᵀ Q I of the
     # green photosites; ν = 2E²/Var against `_residual_dof` under that noise, and below the white input pixels' ν
     N = 1200
     raw = round.(UInt16, 8000 .+ 40 .* randn(Xoshiro(5), N, N))
-    g = VGF.bilinear_green(Float64, RawMosaic(raw, UInt8[0 1; 3 2], (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), (N, N), (;));
+    g = VgtkFeatures.bilinear_green(Float64, RawMosaic(raw, UInt8[0 1; 3 2], (0.0, 0.0, 0.0, 0.0), 65535.0, (0, 0), (N, N), (;));
                             sensor_model = SensorModel(), device = KA.CPU()).value
     doubled = zeros(2N, 2N)
-    VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, N, N, 1); ndrange = size(doubled))
+    VgtkFeatures._launch!(VgtkFeatures._upsample_doubled!, KA.CPU(), doubled, reshape(g, N, N, 1); ndrange = size(doubled))
     seeds = [Detection(Disc(Point2(x, y), 3.0), (; precision = 1.0)) for x in 50:40:(N - 50) for y in 50:40:(N - 50)]
-    f = VGF._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
+    f = VgtkFeatures._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
     @test f.ρ[1] == 12 && length(seeds) == 784
     ν(x) = 2mean(x)^2 / var(x)
-    bilinear = VGF._residual_dof(f.taps, 12, VGF._BilinearGreenStructure())
-    white = VGF._residual_dof(f.taps, 12)
+    bilinear = VgtkFeatures._residual_dof(f.taps, 12, VgtkFeatures._BilinearGreenStructure())
+    white = VgtkFeatures._residual_dof(f.taps, 12)
     # m = 784 windows (spaced past their reach): ν̂'s relative standard error ≈ √(2/m)·√(1 + 12/ν) ≈ 7 %; the circular
     # sum's ν is line 423's, measured lower as for white noise (the test conservative)
     @test abs(ν(f.estimates[7, :]) / bilinear.corner.ν - 1) < 0.15

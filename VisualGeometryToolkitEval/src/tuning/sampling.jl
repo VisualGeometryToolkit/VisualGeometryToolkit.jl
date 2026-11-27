@@ -68,7 +68,7 @@ registry, so the complete table — and with it the spec hash and every
 artifact — carries the lists the run used. Both lists are nonempty, free of
 duplicates and DISJOINT; they are kept sorted. TOML tag `"registered"`.
 """
-struct RegisteredSceneSplit <: SceneSplit
+Base.@kwdef struct RegisteredSceneSplit <: SceneSplit
     name::String
     validation_scenes::Vector{String}
     test_scenes::Vector{String}
@@ -142,7 +142,7 @@ returned in the scene's own order. Scene `s` draws from
 `rng(stable_seed(seed, s))` — its NAME, so adding or reordering other scenes
 leaves its sample unchanged. TOML tag `"stratified"`.
 """
-struct StratifiedSampling <: UnitSampling
+Base.@kwdef struct StratifiedSampling <: UnitSampling
     fraction::Float64
     cap_per_scene::Int
     seed::Int
@@ -166,7 +166,7 @@ each scene's units in its own order). The draw is `rng(stable_seed(seed,
 a sample is unchanged by the type's rename. TOML tag `"uniform"` (retired:
 `"simple_random"`).
 """
-struct UniformSampling <: UnitSampling
+Base.@kwdef struct UniformSampling <: UnitSampling
     fraction::Float64
     cap::Int
     seed::Int
@@ -237,7 +237,7 @@ calls (say `cv::CrossValidation{<:SceneSplit, StratifiedSampling}`), so an
 unsupported spec is a `MethodError`. Applied by [`validation_units`](@ref) and
 [`test_units`](@ref).
 """
-struct CrossValidation{S<:SceneSplit, V<:UnitSampling, T<:UnitSampling}
+Base.@kwdef struct CrossValidation{S<:SceneSplit, V<:UnitSampling, T<:UnitSampling}
     scene_split::S
     validation::V
     test::T
@@ -289,7 +289,7 @@ random samples of `n` validation units ([`budget_units`](@ref)), draw `r`
 from [`budget_rng`](@ref)`(b, n, r)`; the confidence interval over a budget's
 draws resamples from [`resampling_rng`](@ref)`(b, n)`.
 """
-struct BudgetSampling
+Base.@kwdef struct BudgetSampling
     sizes::Vector{Int}
     n_draws::Int
     seed::Int

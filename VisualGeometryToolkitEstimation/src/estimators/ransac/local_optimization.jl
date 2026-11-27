@@ -40,6 +40,7 @@ struct WeightedRefine end
 
 """
     KeepModel(tol)
+    KeepModel(; tol)
 
 The model update of a [`PosteriorIrlsMethod`](@ref) that HOLDS the model: it
 returns `θ` unchanged, so an iteration moves only the noise model (the
@@ -48,7 +49,7 @@ model's fixed residuals. The iteration's cost is then the mixture negative
 log-likelihood (`mixture_nll`), which that EM never raises, and the loop
 converges once an iteration lowers it by no more than `tol` relative.
 """
-struct KeepModel
+Base.@kwdef struct KeepModel
     tol::Float64
     KeepModel(tol::Real) = new(VgtkCore.checked_float(tol, isfinite(tol) && tol >= 0, "KeepModel: tol must be finite and ≥ 0"))
 end
@@ -66,13 +67,14 @@ an iteration fails to lower the INCUMBENT's cost
 ([`StopWhenNoImprovement`](@ref): from the second iteration under
 [`WeightedRefine`](@ref), the cost Σ wᵢrᵢ²; from the first under
 [`KeepModel`](@ref), the mixture NLL at its `tol`), and returns the incumbent.
-The RANSAC local optimization's rule, and `[mixture_em]`'s. TOML tag
+The RANSAC local optimization's rule, and `[residual_mixture.config]`'s. TOML tag
 `"no_improvement"`.
 """
 struct NoImprovementStop end
 
 """
     ParameterChangeStop(rtol)
+    ParameterChangeStop(; rtol)
 
 The stop rule of a [`PosteriorIrlsMethod`](@ref) that ends the iteration once
 an iteration moves the parameters by less than `rtol` RELATIVE,
@@ -82,7 +84,7 @@ fixed-point iteration with no fixed objective to track — one that re-linearize
 its residuals at every iterate ([`DivisionCameraFit`](@ref)), where the cost of one
 iteration is not comparable to the next. TOML tag `"parameter_change"`.
 """
-struct ParameterChangeStop
+Base.@kwdef struct ParameterChangeStop
     rtol::Float64
     ParameterChangeStop(rtol::Real) =
         new(VgtkCore.checked_float(rtol, isfinite(rtol) && rtol >= 0, "ParameterChangeStop: rtol must be finite and ≥ 0"))

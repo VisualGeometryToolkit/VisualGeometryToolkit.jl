@@ -208,15 +208,15 @@ function _camera_poses(
     p = 6 + 3N
     2length(blocks) > p || throw(ArgumentError(
         "CameraPosesProblem: underdetermined: $(length(blocks)) correspondences ($(2length(blocks)) rows) for $p unknowns"))
-    return _BundleStatement(blocks, vars0, (sol, loss) -> _rotation_center_result(K, camera, ids, sol, loss, without))
+    return _BundleStatement(blocks, vars0, (r, s) -> _rotation_center_result(K, camera, ids, r, s, without))
 end
-# The rotation-centre bundle's result from its solve `sol` at the parsed `loss`: the views read back, the record, the
-# metadata (the bearing stage's dropped correspondences, and the pixel stage's when given).
-function _rotation_center_result(::Type{K}, camera, ids, sol, loss, without_bearing, without_projection...) where {K}
-    c, d, Rout = _center_read_back(K, sol, ids)
-    md = RotationCenterRefineMetadata{typeof(loss.strategy)}(sol.residuals, sol.S / sol.ν, sol.ν, _row_norms(sol.residuals), sol.weights,
-        VgtkCore.scale_record(loss)..., length(without_bearing), without_bearing, without_projection...)
-    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), sol.code, sol.rule, SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, md)
+# The rotation-centre bundle's result from Core's solution `r` and residual summary `s` (its parsed loss `s.loss`): the
+# views read back, the record, the metadata (the bearing stage's dropped correspondences, and the pixel stage's when given).
+function _rotation_center_result(::Type{K}, camera, ids, r::FitResult, s, without_bearing, without_projection...) where {K}
+    c, d, Rout = _center_read_back(K, r.u, ids)
+    md = RotationCenterRefineMetadata{typeof(s.loss.strategy)}(s.residuals, s.S / s.ν, s.ν, _row_norms(s.residuals), s.weights,
+        VgtkCore.scale_record(s.loss)..., length(without_bearing), without_bearing, without_projection...)
+    return FitResult((; camera, views = RotationCenterViews{K}(Rout, c, d)), r.retcode, r.stop_rule, SolveStats(; nsteps = r.stats.nsteps), s.rms, s.n, md)
 end
 
 
@@ -245,7 +245,7 @@ function _rotation_center_reprojection(camera, cm, views::RotationCenterViews{K}
         "CameraPosesProblem: underdetermined pixel stage: $(length(blocks)) correspondences project at the bearing estimate ($(2length(blocks)) rows) for $p unknowns"))
     vars0 = _center_variables(views, ids)
     return _BundleStatement(blocks, vars0,
-                            (sol, loss) -> _rotation_center_result(K, camera, ids, sol, loss, without_bearing, without_projection))
+                            (r, s) -> _rotation_center_result(K, camera, ids, r, s, without_bearing, without_projection))
 end
 # The rotation-centre bundle's variables, in block order: the centre, the offset, then each view's rotation chart.
 function _center_variables(views::RotationCenterViews, ids)
@@ -254,9 +254,9 @@ function _center_variables(views::RotationCenterViews, ids)
     return vars0
 end
 # The estimate read back from those variables (the centre, the offset, the views' rotations), refused when not finite.
-function _center_read_back(::Type{K}, sol, ids) where {K}
-    c, d = sol.variables[1]::SVector{3, Float64}, sol.variables[2]::SVector{3, Float64}
-    Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(sol.variables[2 + v]::VgtkCore.SO3Manifold{Float64})))
+function _center_read_back(::Type{K}, variables, ids) where {K}
+    c, d = variables[1]::SVector{3, Float64}, variables[2]::SVector{3, Float64}
+    Rout = Dict{K, RotMatrix{3, Float64, 9}}(k => RotMatrix{3, Float64}(SMatrix{3, 3, Float64, 9}(model(variables[2 + v]::VgtkCore.SO3Manifold{Float64})))
                                              for (v, k) in enumerate(ids))
     (all(isfinite, c) && all(isfinite, d) && all(R -> all(isfinite, R), values(Rout))) ||
         throw(ErrorException("CameraPosesProblem: the LM step is not finite"))

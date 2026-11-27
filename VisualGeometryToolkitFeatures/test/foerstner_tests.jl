@@ -57,11 +57,11 @@ end
 @testitem "detect_foerstner: the reference's back-map is biased, the exact inverse is not" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using LinearAlgebra: norm
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     H, W = 100, 140
     truth, img = blob_grid(H, W)
     # the reference's sampling grid (imresize), its own windows and estimates
-    found = VGF._foerstner_windows(
+    found = VgtkFeatures._foerstner_windows(
         KA.CPU(), matlab_imresize2(img); method = :foerstner, noise_sigma = 2.0, derivative = :gaussian2d,
         integration = :box, derivative_sigma = 1.0, integration_sigma = 1.41, precision_threshold = 0.5,
         roundness_threshold = 0.3
@@ -124,14 +124,14 @@ end
     end
     # the labels from the statistic (ip_fop.m line 429), and an unknown row:
     # its window centre, a NaN covariance (the reference's noclass)
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     estimates = zeros(14, 3)
     estimates[[3, 6, 10, 13], :] .= 1.0                 # N⁻¹ = I for both models
     estimates[7, :] .= (1.0, 50.0, 10.0)                # Ω_corner
     estimates[14, :] .= (50.0, 1.0, 10.0)               # Ω_circular: F = 0.02, 50, 1
-    taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)                     # derivative_sigma 1, doubled
+    taps = hcat(VgtkFeatures._derivative_taps(:gaussian2d, 2.0)...)                     # derivative_sigma 1, doubled
     found = (; centers = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, ρ = 6, redundancy = 167, upscale = 2, taps)
-    rows = VGF._foerstner_points(found, VGF._foerstner_classes(found, 0.999), VGF._undouble)
+    rows = VgtkFeatures._foerstner_points(found, VgtkFeatures._foerstner_classes(found, 0.999), VgtkFeatures._undouble)
     @test [d.label for d in rows] == [:corner, :circular, :unknown]
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
     u = rows[3]
@@ -157,19 +157,19 @@ end
     using VisualGeometryToolkitCore: Disc, Point2
     using Random: Xoshiro, randn
     using Statistics: mean, var
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # white noise: each residual sum is the quadratic form Iᵀ Q I, E = σ² tr Q and ν = (tr Q)²/tr Q² (`_residual_dof`)
     σn, level = 0.5, 0.999
     img = Float32.(0.5 .+ (σn / 255) .* randn(Xoshiro(3), 600, 600))
     σ = 6.0                                                     # a seed's scale: ρ = 22 doubled px
     seeds = [Detection(Disc(Point2(x, y), σ), (; precision = 1.0)) for x in 30.0:24:570 for y in 30.0:24:570]   # disjoint windows
     n = length(seeds)
-    g = VGF.ka_upload(Float32, KA.CPU(), img)
+    g = VgtkFeatures.ka_upload(Float32, KA.CPU(), img)
     doubled = KA.allocate(KA.CPU(), Float32, 2 .* size(g)...)
-    VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
-    found = VGF._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
+    VgtkFeatures._launch!(VgtkFeatures._upsample_doubled!, KA.CPU(), doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
+    found = VgtkFeatures._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
     @test length(found.centers) == n && all(==(22), found.ρ)
-    dof = VGF._residual_dof(found.taps, 22)
+    dof = VgtkFeatures._residual_dof(found.taps, 22)
     # E[Ω] = σ² tr Q, within 4 standard errors of the mean (Var Ω = 2(σ² tr Q)²/ν); the corner sum's variance gives ν
     # within 4 standard errors (a sample variance's relative SE is √(2/(n − 1)))
     for (row, d) in ((7, dof.corner), (14, dof.circular))
@@ -186,12 +186,12 @@ end
     p = 2 * (1 - level)                                         # the labelled rate on noise, both sides
     small = [Detection(Disc(Point2(x, y), 1.3), (; precision = 1.0)) for x in 20.0:16:580 for y in 20.0:16:580]
     m = length(small)
-    f6 = VGF._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
-    ν6 = VGF._residual_dof(f6.taps, 6).corner.ν
+    f6 = VgtkFeatures._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
+    ν6 = VgtkFeatures._residual_dof(f6.taps, 6).corner.ν
     Ω6 = f6.estimates[7, :]
     @test length(f6.centers) == m && all(==(6), f6.ρ) && 11 < ν6 < 13
     @test abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt((2 + 12 / ν6) / (m - 1))
-    @test count(!=(0), VGF._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
+    @test count(!=(0), VgtkFeatures._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
     # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
     # at the pixel count it was about a fifth per side
     rows = detect_foerstner(Float64, img, seeds; device = KA.CPU(), significance_level = level)
@@ -206,15 +206,15 @@ end
     using Random: Xoshiro, randn
     using LinearAlgebra: norm
     using VisualGeometryToolkitCore: SVector, SMatrix
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     rng = Xoshiro(7)
     nees_kept, nees_derived = Float64[], Float64[]
     for _ in 1:100
         t = (24 + rand(rng), 24 + rand(rng))
         img = render((x, y) -> (x - t[1])^2 + (y - t[2])^2 < 2.5^2 ? 0.8 : 0.2, 48, 48) .+ 0.01 .* randn(rng, 48, 48)
         doubled = zeros(96, 96)
-        VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(img, 48, 48, 1); ndrange = size(doubled))
-        f = VGF._foerstner_windows(
+        VgtkFeatures._launch!(VgtkFeatures._upsample_doubled!, KA.CPU(), doubled, reshape(img, 48, 48, 1); ndrange = size(doubled))
+        f = VgtkFeatures._foerstner_windows(
             KA.CPU(), doubled; method = :foerstner, noise_sigma = 2.55, derivative = :gaussian2d, integration = :box,
             derivative_sigma = 1.0, integration_sigma = 1.41, precision_threshold = 0.5, roundness_threshold = 0.3
         )
@@ -310,7 +310,7 @@ end
     using Random: Xoshiro
     using Test
     import VisualGeometryToolkitCore
-    const SensorSource = VisualGeometryToolkitCore.SensorSource
+    using VisualGeometryToolkitCore: SensorSource
     # a bright dot in the green cells (photosite (i, j) at cell ((i + 1) ÷ 2, (j + 1) ÷ 2))
     dot(i, j) = hypot((j + 1) ÷ 2 - 20.3, (i + 1) ÷ 2 - 18.7) < 3 ? 6000.0 : 600.0
     m = noisy_mosaic(Xoshiro(9), dot, 80, 80; electrons_per_dn = 2.5, read_dn = 3.0)
@@ -493,14 +493,14 @@ end
 @testitem "gaussian_gradient: a linear ramp's gradient, Förstner's correlation bit for bit, gaussian_blur's mask" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitFeatures: gaussian_gradient
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     H, W = 60, 70
     α, β = 0.013, -0.007                                  # ∂/∂column, ∂/∂row per pixel
     ramp = [0.3 + α * c + β * r for r in 1:H, c in 1:W]
     for σ in (1.0, 2.0, 2.8)
         gx, gy = gaussian_gradient(ramp, σ)
         @test size(gx) == size(gy) == (H, W) && eltype(gx) == Float64
-        d, c = VGF._derivative_taps(:gaussian2d, σ)
+        d, c = VgtkFeatures._derivative_taps(:gaussian2d, σ)
         r = length(d) ÷ 2
         inner = (r + 1):(H - r), (r + 1):(W - r)
         # the taps' first moment Σ x·d[x] is 1 less the Gaussian's second-moment mass beyond the truncation ⌈3.3σ⌉:
@@ -509,8 +509,8 @@ end
         @test all(isapprox.(gx[inner...], α; rtol = 0.0125)) && all(isapprox.(gy[inner...], β; rtol = 0.0125))
         # the correlation Förstner ran before: rows with (d, c), columns with (c, d), zero padded — the same bits
         tmp = zeros(H, W, 2); ref = zeros(H, W, 2)
-        VGF._launch!(VGF._correlate_rows!, KA.CPU(), tmp, reshape(ramp, H, W, 1), [d c]; ndrange = size(tmp))
-        VGF._launch!(VGF._correlate_columns!, KA.CPU(), ref, tmp, [c d]; ndrange = size(ref))
+        VgtkFeatures._launch!(VgtkFeatures._correlate_rows!, KA.CPU(), tmp, reshape(ramp, H, W, 1), [d c]; ndrange = size(tmp))
+        VgtkFeatures._launch!(VgtkFeatures._correlate_columns!, KA.CPU(), ref, tmp, [c d]; ndrange = size(ref))
         @test gy == ref[:, :, 1] && gx == ref[:, :, 2]
     end
     # :gaussian1d: no smoothing across; an integer image is read as float
@@ -524,7 +524,7 @@ end
     @test mx == nx && my == ny
     @test all(iszero, mx[disc .== 0]) && all(iszero, my[disc .== 0])
     px, py = gaussian_gradient(ramp, 2.0)
-    r2 = length(first(VGF._derivative_taps(:gaussian2d, 2.0))) ÷ 2
+    r2 = length(first(VgtkFeatures._derivative_taps(:gaussian2d, 2.0))) ÷ 2
     deep = [hypot(r - 30.5, c - 35.5) < 22 - sqrt(2) * r2 - 1 for r in 1:H, c in 1:W]   # the whole square stencil (its corners at √2·r) inside the mask
     # there D = 1 to rounding (the unit-sum taps over ones) and ∂D = 0, so the quotient is N's gradient: rounding only
     @test maximum(abs.(mx[deep] .- px[deep])) <= 64 * eps() * maximum(abs, px)
@@ -539,7 +539,7 @@ end
 @testitem "gaussian_gradient: CUDA matches the CPU" setup = [FoerstnerFixture] begin
     import KernelAbstractions as KA
     using VisualGeometryToolkitFeatures: gaussian_gradient
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     cuda = try
         m = Base.require(Main, :CUDA)
         (m !== nothing && Base.invokelatest(getproperty(m, :functional))) ? m : nothing
@@ -555,7 +555,7 @@ end
         for σ in (1.0f0, 2.5f0), mask in (nothing, disc)
             cx, cy = gaussian_gradient(img, σ, mask)
             gx, gy = Base.invokelatest(gaussian_gradient, cu(img), σ, mask === nothing ? nothing : cu(mask))
-            d, c = VGF._derivative_taps(:gaussian2d, σ)
+            d, c = VgtkFeatures._derivative_taps(:gaussian2d, σ)
             r = length(d) ÷ 2
             bound = 2 * (2r + 1) * eps(Float32) * maximum(abs, img) * sum(abs, d) * sum(abs, c)
             if mask === nothing
@@ -565,8 +565,8 @@ end
                 # |Δg| ≤ (bound·D + |∂N|·bound + bound·|∂D| + |N|·bound)/D² + 2|g|·bound/D, per pixel, plus the quotient's
                 # own rounding, a few eps(T)·|g|
                 H, W = size(img)
-                n = VGF._separable_correlate(KA.CPU(), reshape(Float64.(img .* disc), H, W, 1), [c d c], [c c d])
-                dd = VGF._separable_correlate(KA.CPU(), reshape(Float64.(disc), H, W, 1), [c d c], [c c d])
+                n = VgtkFeatures._separable_correlate(KA.CPU(), reshape(Float64.(img .* disc), H, W, 1), [c d c], [c c d])
+                dd = VgtkFeatures._separable_correlate(KA.CPU(), reshape(Float64.(disc), H, W, 1), [c d c], [c c d])
                 inside = disc .> 0
                 for (k, gpu, cpu) in ((3, gx, cx), (2, gy, cy))
                     N, ∂N, D, ∂D = n[:, :, 1], n[:, :, k], dd[:, :, 1], dd[:, :, k]
@@ -658,13 +658,13 @@ end
 # A table entry is the value the call without a table computes for ITS level: two levels that compare equal as Float64
 # (0.999 and 999//1000, 0.999f0 and its Float64) but give different `1 − level` keep their own entries.
 @testitem "FoerstnerTests: each significance level its own entry, as the call without a table computes it" begin
-    VGF = VisualGeometryToolkitFeatures
-    taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)
-    noise = VGF._WhiteNoise()
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    taps = hcat(VgtkFeatures._derivative_taps(:gaussian2d, 2.0)...)
+    noise = VgtkFeatures._WhiteNoise()
     for levels in ((0.999, 999 // 1000), (Float64(0.999f0), 0.999f0))
         table = FoerstnerTests()
         for level in levels, ρ in (2, 3)
-            @test VGF._f_critical(table, taps, ρ, noise, level) === VGF._f_critical(nothing, taps, ρ, noise, level)
+            @test VgtkFeatures._f_critical(table, taps, ρ, noise, level) === VgtkFeatures._f_critical(nothing, taps, ρ, noise, level)
         end
         @test length(table) == 4
     end

@@ -184,40 +184,40 @@ end
     using CUDA: CUDA
     using StaticArrays: SMatrix
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, rotation, calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, model, free_parameter_names, tangent_size, view_angle_limit
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraRegressionProblem, CameraRegression
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, rotation, calibration_matrix, parameter_vector, lens, imaged_region, with_lens_coverage, KannalaBrandt, model, free_parameter_names, tangent_size, view_angle_limit
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation, CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     # the reduction kernel (each sample's 2-D residual and Jacobian rows, Σ‖r‖², Jᵀr, JᵀJ) is the same KernelAbstractions
     # kernel on every backend: on the SAME samples the CPU's and the GPU's regressions agree to the reduction's rounding
     # (the work items' sums in another order), with the same steps. Since 0.11.0 `device` also draws a gauge-K source's
     # samples (its rays back-projected on that device, E6), so the public calls no longer share them; the kernel alone
     # is compared on the host's samples, and the public call on a physical K, whose samples are its host-side profile.
-    cpu = VC.KA.CPU()
+    cpu = VgtkCore.KA.CPU()
     # a physical K: the samples are the lens's radial profile, on the host whatever the device
     rc = solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, FISHEYE, REGION; device = cpu)), CameraRegression(; refine = LevenbergMarquardt()))
     @test (rc.retcode, rc.stop_rule) === (VgtkCore.ReturnCode.Success, VgtkCore.IncrementSize)
     # a gauge K (the off-axis spline over its disc): the regression state built as the camera-regression refine builds it, its samples
     # the host's, then the one kernel on each backend
     b = with_lens_coverage(OFF_BOUNDED, DISC)
-    src = model(b); region = imaged_region(b); L = typeof(VE._AXIS_LENS); fixed = VE._AXIS_FIXED
-    role = VC.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VE._offset_matrix(K0)
-    guess = VE._approximation_start(VE._linear_form(L), L, src, region, VE.ImageMeasure(), fixed, cpu)
+    src = model(b); region = imaged_region(b); L = typeof(VgtkEstimation._AXIS_LENS); fixed = VgtkEstimation._AXIS_FIXED
+    role = VgtkCore.Cameras.IntrinsicsRole(lens(src)); K0 = SMatrix{3, 3, Float64}(calibration_matrix(src)); M = VgtkEstimation._offset_matrix(K0)
+    guess = VgtkEstimation._approximation_start(VgtkEstimation._linear_form(L), L, src, region, VgtkEstimation.ImageMeasure(), fixed, cpu)
     gl = lens(guess); moving = free_parameter_names(guess, fixed)
-    start = VE._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
-    pr = VE._profile_samples(role, L, src, region, K0, VE.ImageMeasure(), cpu)
-    P = VE._regression_manifold(role, VE._lens_family_manifold(role, gl, moving), start, moving)
+    start = VgtkEstimation._refine_start(role, SMatrix{3, 3, Float64}(calibration_matrix(guess)), K0, M)
+    pr = VgtkEstimation._profile_samples(role, L, src, region, K0, VgtkEstimation.ImageMeasure(), cpu)
+    P = VgtkEstimation._regression_manifold(role, VgtkEstimation._lens_family_manifold(role, gl, moving), start, moving)
     N = tangent_size(P)
     θcap = (t = Float64(view_angle_limit(gl)) - 1.0e-9; t < pr.θ_max - 1.0e-6 ? t : Inf)
     function regress(dev)
-        lm = VE._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
-        x, record, its = VE._regress_lens(lm, Val(N), VC.LmStops(; max_iter = VE._dflt("camera_regression_problem", "max_iter")))
-        e = K0[1, 1] .* VE._sample_errors(lm, x, θcap)                                    # px
+        lm = VgtkEstimation._LensRegressionLm(dev, P, false, θcap, M, pr.rays, pr.angles, pr.points, sqrt.(pr.w))
+        x, record, its = VgtkEstimation._regress_lens(lm, Val(N), VgtkCore.LmStops(; max_iter = VgtkEstimation._dflt("camera_regression_problem", "max_iter")))
+        e = K0[1, 1] .* VgtkEstimation._sample_errors(lm, x, θcap)                                    # px
         return (; x, record, its, rms = sqrt(sum(i -> pr.w[i] * sum(abs2, e[i]), eachindex(e)) / sum(pr.w)), max_px = maximum(norm, e))
     end
     c = regress(cpu)
-    @test c.record[1] == VC.ReturnCode.Success
+    @test c.record[1] == VgtkCore.ReturnCode.Success
     if CUDA.functional()
-        gpu = VC.default_device()
+        gpu = VgtkCore.default_device()
         g = regress(gpu)
         @test g.record == c.record && g.its == c.its
         @test maximum(abs, g.x - c.x) < 1.0e-9                                                  # chart coordinates
@@ -238,19 +238,19 @@ end
     using StaticArrays: SVector, SMatrix
     using LinearAlgebra: normalize
     import Rotations, ForwardDiff
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation
     z = SVector(0.0, 0.0, 1.0)
     ref(a) = SMatrix{3, 3}(Rotations.rotation_between(a, z))
     for a in (z, -z, SVector(1.0, 0.0, 0.0), SVector(0.0, -1.0, 0.0), normalize(SVector(0.3, -0.2, 0.9)),
               normalize(SVector(-0.7, 0.1, -0.4)), normalize(SVector(1.0e-9, 2.0e-9, -1.0)), normalize(SVector(0.2, 0.2, 0.1)))
-        @test VE._axis_rotation(a) == ref(a)
-        @test VE._axis_rotation(a) * a ≈ z atol = 1.0e-8    # (the half turn of an axis within rounding of −ẑ is exact to the axis's own offset)
+        @test VgtkEstimation._axis_rotation(a) == ref(a)
+        @test VgtkEstimation._axis_rotation(a) * a ≈ z atol = 1.0e-8    # (the half turn of an axis within rounding of −ẑ is exact to the axis's own offset)
     end
     for u in (SVector(0.0, 0.0, -1.0), SVector(0.5, -0.5, 0.5), SVector(-2.0, 1.0, 1.0), SVector(0.1, 0.3, -0.2), SVector(1.0, 1.0, 1.0))
-        @test VE._perpendicular(u) == Rotations.perpendicular_vector(u)
+        @test VgtkEstimation._perpendicular(u) == Rotations.perpendicular_vector(u)
     end
     a0 = normalize(SVector(0.3, -0.2, 0.9))
-    J = ForwardDiff.jacobian(a -> vec(VE._axis_rotation(a)), a0)
+    J = ForwardDiff.jacobian(a -> vec(VgtkEstimation._axis_rotation(a)), a0)
     @test J == ForwardDiff.jacobian(a -> vec(ref(a)), a0)
 end
 
@@ -261,21 +261,21 @@ end
 @testitem "OpticalAxis and CameraRegression(SplineLens) of a gauge-K source on a CUDA device: the host's result" setup = [OffAxisSpline] begin
     using Test
     using CUDA: CUDA
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, imaged_region, SplineLens, rotation, calibration_matrix
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, imaged_region, SplineLens, rotation, calibration_matrix
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     if CUDA.functional()
-        cpu = VC.KA.CPU(); gpu = VC.default_device()
+        cpu = VgtkCore.KA.CPU(); gpu = VgtkCore.default_device()
         region = imaged_region(OFF_BOUNDED)
         rc = solve(EstimationProblem(CameraRegressionProblem(OFF_BOUNDED; device = cpu)), OpticalAxis())
         rg = solve(EstimationProblem(CameraRegressionProblem(OFF_BOUNDED; device = gpu)), OpticalAxis())
-        @test VC.successful_retcode(rc) && VC.successful_retcode(rg)
+        @test VgtkCore.successful_retcode(rc) && VgtkCore.successful_retcode(rg)
         # the two devices draw the gauge-K source's samples themselves (its rays back-projected there), so the fits
         # agree to the samples' rounding, not bit for bit
         @test maximum(abs, calibration_matrix(rg.u) - calibration_matrix(rc.u)) < 1.0e-6
         fc = solve(EstimationProblem(CameraRegressionProblem(SplineLens, OFF_BOUNDED, region; device = cpu)), CameraRegression(; tolerance = 1.0e-2))
         fg = solve(EstimationProblem(CameraRegressionProblem(SplineLens, OFF_BOUNDED, region; device = gpu)), CameraRegression(; tolerance = 1.0e-2))   # its optical axis first, on the device
-        @test VC.successful_retcode(fc) && VC.successful_retcode(fg)
+        @test VgtkCore.successful_retcode(fc) && VgtkCore.successful_retcode(fg)
         @test maximum(abs, calibration_matrix(fg.u) - calibration_matrix(fc.u)) < 1.0e-6
     else
         @test_skip "no functional CUDA device: the device path of OpticalAxis is not exercised"
@@ -285,26 +285,23 @@ end
 # The caller's `device` reaches a SplineLens source's ray sampling — the expensive step: with the default device's
 # resolution made to throw, every camera verb given `device` still runs (until 0.11.0 `OpticalAxis` took none, and
 # the samples of a gauge-K source were drawn on the default device whatever the caller gave).
-@testitem "device: a SplineLens source's rays are sampled on the caller's device — the default is never resolved" setup = [CameraRecipes, OffAxisSpline] begin
+@testitem "device: a SplineLens source's rays are sampled on the caller's device — the default is never used" setup = [CameraRecipes, OffAxisSpline] begin
     using Test
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, imaged_region, KannalaBrandt, SplineLens
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, imaged_region, KannalaBrandt, SplineLens
+    struct _NoDefaultBackend <: VgtkCore.KA.Backend end
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    cpu = VC.KA.CPU()
+    cpu = VgtkCore.KA.CPU()
     region = imaged_region(OFF_BOUNDED)
-    resolver = VC._DEVICE_RESOLVER[]
-    VC._DEVICE_RESOLVER[] = () -> error("default_device() resolved: the caller's `device` did not reach this call")
-    VC.reset_default_device!()
-    try
+    # the default device, for the block, a backend nothing can run on (Core's one scope of the default): a call the
+    # caller's `device` does not reach fails on it (no method), so every call below runs on `cpu`
+    VgtkCore.with_default_device(_NoDefaultBackend()) do
         r = solve(EstimationProblem(CameraRegressionProblem(OFF_BOUNDED; device = cpu)), OpticalAxis())
-        @test VC.successful_retcode(r)
-        @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression()))
-        @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression(; refine = LevenbergMarquardt())))
-        @test solve(RefineProblem(CameraRegressionProblem(OFF_AXIS, region; device = cpu), r.u), LevenbergMarquardt()).u isa VC.CameraModel   # from its own optimum: runs on `cpu`
-        @test VC.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(SplineLens, OFF_BOUNDED, region; device = cpu)), CameraRegression(; tolerance = 1.0e-2)))   # its optical axis first
-    finally
-        VC._DEVICE_RESOLVER[] = resolver
-        VC.reset_default_device!()
+        @test VgtkCore.successful_retcode(r)
+        @test VgtkCore.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression()))
+        @test VgtkCore.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(KannalaBrandt{4}, OFF_BOUNDED, region; device = cpu)), CameraRegression(; refine = LevenbergMarquardt())))
+        @test solve(RefineProblem(CameraRegressionProblem(OFF_AXIS, region; device = cpu), r.u), LevenbergMarquardt()).u isa VgtkCore.CameraModel   # from its own optimum: runs on `cpu`
+        @test VgtkCore.successful_retcode(solve(EstimationProblem(CameraRegressionProblem(SplineLens, OFF_BOUNDED, region; device = cpu)), CameraRegression(; tolerance = 1.0e-2)))   # its optical axis first
     end
 end
 
@@ -314,14 +311,14 @@ end
 # lower). Until 0.11.0 it was Fisheye624's 6 (θ³…θ¹³).
 @testitem "OpticalAxis: the axis family's radial order is the config's (4 terms)" setup = [OffAxisSpline] begin
     using Test
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, Lens, Equidistant, Additive, Tangential, ThinPrism, Radial, lens, parameter_names, with_lens_coverage
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraRegressionProblem, OpticalAxis
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, Lens, Equidistant, Additive, Tangential, ThinPrism, Radial, lens, parameter_names, with_lens_coverage
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation, CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    n = VE._dflt("optical_axis", "radial_terms")
+    n = VgtkEstimation._dflt("optical_axis", "radial_terms")
     @test n == 4
     # the order continuation's first order: the 1-term linear fit and refine, then 2, 3 and 4 terms, each from the last
-    @test VE._dflt("optical_axis", "start_radial_terms") == 1
-    @test typeof(VE._AXIS_LENS) === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
+    @test VgtkEstimation._dflt("optical_axis", "start_radial_terms") == 1
+    @test typeof(VgtkEstimation._AXIS_LENS) === typeof(Lens(Equidistant(), Additive(Tangential(0.0, 0.0), ThinPrism((0.0, 0.0), (0.0, 0.0))) ∘ Radial(ntuple(_ -> 0.0, n))))
     names = parameter_names(lens(solve(EstimationProblem(CameraRegressionProblem(with_lens_coverage(OFF_BOUNDED, DISC))), OpticalAxis()).u))
     @test :k4 in names && !(:k5 in names)
 end
@@ -335,7 +332,7 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     using StaticArrays: SVector, SMatrix
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect, LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, imaged_region, model, KannalaBrandt
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, Rect, LogicalIntrinsics, CameraCalibrationMat, RegionBeyondSupport, imaged_region, model, KannalaBrandt
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     c = include(joinpath(@__DIR__, "fixtures", "rc_siemens_start_camera.jl"))
@@ -406,7 +403,7 @@ end
     using VisualGeometryToolkitCore: CameraModel, SplineLens, BoundedCamera, Size2
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    import VisualGeometryToolkitEstimation as E
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     f = 600.0; r0 = 350.0
     θof(r) = theta_fold(r; turn = deg2rad(25.0), f, r0)
     src = folding_source(θof)
@@ -421,7 +418,7 @@ end
     @test norm(axis_pixel(r) - AXIS_PIXEL) < 1.0                      # the axis pixel: (512, 494), not (500, 500)
     # the fallback: the whole-order start folds inside the region (its widest angle θ(478 px) ≈ 67°), recorded, and the
     # axis is refitted inside the fold
-    rf, fold, ok = E._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
+    rf, fold, ok = VgtkEstimation._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
     @test ok && successful_retcode(rf)
     @test fold isa Float64 && fold < θof(478.0) && rf.metadata.family.θ_max < fold
     @test rf.metadata.region != part
@@ -446,7 +443,7 @@ end
     using VisualGeometryToolkitCore: view_angle_limit, lens
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    import VisualGeometryToolkitEstimation as E
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     f = 600.0; r0 = 350.0
     θof(r) = theta_fold(r; turn = deg2rad(19.5), f, r0)
     src = folding_source(θof; ε = 0.02)
@@ -454,16 +451,16 @@ end
     # the premise: the 4-term start folds past the region's widest angle, within the band a refit leaves out, and its
     # refine does not find the axis: it stalls (Core ≤ 0.10.11), or (a tolerance stop converged, Core 0.11) ends ~12 px off
     # with its lens folding outside the region, where no fold gate sees it
-    start = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), VgtkCore.model(src), part, E.ImageMeasure(), E._AXIS_FIXED,
+    start = VgtkEstimation._approximation_start(VgtkEstimation._linear_form(typeof(VgtkEstimation._AXIS_LENS)), typeof(VgtkEstimation._AXIS_LENS), VgtkCore.model(src), part, VgtkEstimation.ImageMeasure(), VgtkEstimation._AXIS_FIXED,
                                    VgtkCore.default_device())
-    plain = E._refine_camera(start, VgtkCore.model(src), part; fixed = E._AXIS_FIXED)
+    plain = VgtkEstimation._refine_camera(start, VgtkCore.model(src), part; fixed = VgtkEstimation._AXIS_FIXED)
     θfold, θmax = Float64(view_angle_limit(lens(start))), plain.metadata.family.θ_max
-    @test θmax < θfold < θmax / E._INSIDE_FOLD
-    @test !VgtkCore.successful_retcode(plain) || (!E._folds_inside(plain) && norm(axis_pixel(plain) - AXIS_PIXEL) > 5.0)
+    @test θmax < θfold < θmax / VgtkEstimation._INSIDE_FOLD
+    @test !VgtkCore.successful_retcode(plain) || (!VgtkEstimation._folds_inside(plain) && norm(axis_pixel(plain) - AXIS_PIXEL) > 5.0)
     # Estimation's own validity gate refuses that fit whatever the LM's verdict (on the axis: its regression stationary;
     # no fold inside the region), and the whole-order fallback never reports an off-axis fit as holding
-    @test !E._axis_fit_valid(plain)
-    rf, _, ok = E._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
+    @test !VgtkEstimation._axis_fit_valid(plain)
+    rf, _, ok = VgtkEstimation._axis_fold_refits(VgtkCore.model(src), part, VgtkCore.default_device())
     @test !ok || norm(axis_pixel(rf) - AXIS_PIXEL) < 5.0
     # the axis: the continuation over the whole region, on the stepwise path's axis, ~2 px from (512, 494) (the misfit's bias)
     r = solve(EstimationProblem(CameraRegressionProblem(src)), OpticalAxis())
@@ -485,15 +482,15 @@ end
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitEstimation: CameraRegressionProblem, OpticalAxis
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    import VisualGeometryToolkitEstimation as E
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     f = 300.0; r0 = 420.0
     θof(r) = theta_collapse(r; f, r0)
     src = folding_source(θof)
     part = VgtkCore.imaged_region(src); m = VgtkCore.model(src)
     # the direct lift: the 1-term linear start, then the 4-term refine at once
-    s1 = E._approximation_start(E._linear_form(typeof(E._AXIS_LENS)), typeof(E._AXIS_LENS), m, part, E.ImageMeasure(), (E._AXIS_FIXED..., E._axis_held(1)...),
+    s1 = VgtkEstimation._approximation_start(VgtkEstimation._linear_form(typeof(VgtkEstimation._AXIS_LENS)), typeof(VgtkEstimation._AXIS_LENS), m, part, VgtkEstimation.ImageMeasure(), (VgtkEstimation._AXIS_FIXED..., VgtkEstimation._axis_held(1)...),
                                 VgtkCore.default_device())
-    direct = E._refine_camera(s1, m, part; fixed = E._AXIS_FIXED)
+    direct = VgtkEstimation._refine_camera(s1, m, part; fixed = VgtkEstimation._AXIS_FIXED)
     @test norm(axis_pixel(direct) - AXIS_PIXEL) > 1.0
     r = solve(EstimationProblem(CameraRegressionProblem(src)), OpticalAxis())
     md = r.metadata

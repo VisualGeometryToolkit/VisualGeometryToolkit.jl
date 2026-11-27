@@ -7,6 +7,13 @@
 VisualGeometryToolkitEstimation `"0.13"`). The scale-prior fit is an algorithm of that interface. Numerics are
 unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`) replay bit for bit.
 
+### Conformance hygiene
+- **A `SoloSpec`'s role is a type**: `SoloSpec(base, role::ArmRole, axis, ctor)` with `SelectionRole()` or
+  `RefinementRole()` (was the `Symbol` `:selection` / `:refinement`); a roster's `solo(problem; role)` takes the same.
+- Every `[tuning]` strategy type takes its fields as keywords too (`@kwdef`): a tuning table builds its type by keyword
+  through VisualGeometryToolkitCore's `construct_from_table` (no positional field splat; no DUPLICATION.toml entry).
+  The same values: an `==` round trip.
+
 ### American in identifiers (decision 11, wave 2)
 - **Breaking:** `Experiments.cancelled()` → `Experiments.canceled()`, and `live_runs`' keyword `cancelled` →
   `canceled` (`RETIRED_NAMES` lists the call form). Private names follow (`_colour_axis` → `_color_axis`,

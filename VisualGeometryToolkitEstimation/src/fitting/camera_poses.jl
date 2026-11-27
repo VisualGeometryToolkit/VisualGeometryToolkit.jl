@@ -116,25 +116,21 @@ function _camera_poses_run(f::CameraPosesProblem, u0::NamedTuple{(:camera, :view
     return _camera_poses(u0.camera, u0.views, f.correspondences, residual; rest...)
 end
 block_structure(f::CameraPosesProblem, u0) = (s = _camera_poses_run(f, u0); (s.vars0, s.blocks, s))
-# The result: the statement's assembly from Core's solved variables, its record and the residual summary (the rows, S,
-# ν, the weights and their support and rms, the parsed loss the metadata records).
-block_result(::CameraPosesProblem, _u0, r::FitResult, s) = _assembled(r, s, Val((:rms, :n, :residuals, :S, :ν, :weights)))
+# The result: the statement's assembly from Core's solution (its variables `r.u`, its record and `r.stats.nsteps`) and
+# the residual summary (the rows, S, ν, the weights and their support and rms, the parsed loss the metadata records).
+block_result(::CameraPosesProblem, _u0, r::FitResult, s) = s.stated.finish(r, s)
 
 # A bundle stated at its guess, what a bundle pipeline's statement returns (the camera-poses and hand-eye bundles'):
-# its residual blocks, its variables, and `finish(sol, loss)`, the assembly of its result from the solved bundle `sol`
-# and the parsed loss (Core's `bundle_loss`). A wrapper of the pipeline composes its own reading of the result onto
-# `finish` (`_then`). Concrete (the closures' types), so the block contract's reads and the refine are inferred.
+# its residual blocks, its variables, and `finish(r, s)`, the assembly of its result from Core's solution `r` (a
+# FitResult, read by field) and Core's residual summary `s` (its rows, weights and the parsed loss `s.loss`, Core's
+# `bundle_loss`). A wrapper of the pipeline composes its own reading of the result onto `finish` (`_then`). Concrete
+# (the closures' types), so the block contract's reads and the refine are inferred.
 struct _BundleStatement{B, V, F}
     blocks::B
     vars0::V
     finish::F
 end
-_then(g, st::_BundleStatement) = _BundleStatement(st.blocks, st.vars0, (sol, loss) -> g(st.finish(sol, loss)))
-# A stated bundle's result (its `block_result`): its assembly on Core's solved variables and record and the
-# residual-summary fields `keys` it reads, at the summary's parsed loss.
-_assembled(r::FitResult, s::NamedTuple, ::Val{keys}) where {keys} =
-    s.stated.finish(merge((; variables = r.u, code = r.retcode, rule = r.stop_rule, iterations = r.stats.nsteps),
-                          NamedTuple{keys}(s)), s.loss)
+_then(g, st::_BundleStatement) = _BundleStatement(st.blocks, st.vars0, (r, s) -> g(st.finish(r, s)))
 
 # The cameras refined: a camera model, or a bounded one (refined as its model, returned bounded alike).
 const _RefinedCamera = Union{CameraModel, BoundedCamera{<:CameraModel}}
@@ -556,15 +552,15 @@ function _refine_bundle(
     chc === nothing || push!(vars0, chc)
     foreach(v -> held_views[v] || push!(vars0, view_charts[v]), 1:V)
     foreach(b -> held_boards[b] || push!(vars0, board_charts[b]), 1:B)
-    return _BundleStatement(blocks, vars0, (sol, loss) -> _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards,
-                                                                          view_charts, board_charts, view_var, board_var; spline))
+    return _BundleStatement(blocks, vars0, (r, s) -> _bundle_assembly(r, s, bounded, camera, chc, free, poses, boards,
+                                                                      view_charts, board_charts, view_var, board_var; spline))
 end
-# The bundle's result from its solve `sol` at the parsed `loss`: the camera, the views' and the boards' poses read back
-# (a held one as given), refused when not finite, with the record and the metadata.
-function _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards, view_charts, board_charts, view_var, board_var;
+# The bundle's result from Core's solution `r` and residual summary `s`: the camera, the views' and the boards' poses
+# read back (a held one as given), refused when not finite, with the record and the metadata.
+function _bundle_assembly(r::FitResult, s, bounded, camera, chc, free, poses, boards, view_charts, board_charts, view_var, board_var;
                           spline)
     plain(ch) = model(ch)::PlainEuclideanMap{3, Float64}
-    variables = sol.variables
+    variables = r.u
     model_out = chc === nothing ? camera : model(variables[1])
     pose_of(charts, var, i) = var[i] == 0 ? plain(charts[i]) : plain(variables[var[i]]::LeftRigidManifold6{Float64})
     poses_out = PlainEuclideanMap{3, Float64}[pose_of(view_charts, view_var, v) for v in eachindex(view_charts)]
@@ -572,8 +568,8 @@ function _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards, 
     all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(model_out)) ||
         throw(ErrorException("CameraPosesProblem: the LM step is not finite"))
     camera_out = model_out === camera ? bounded : VgtkCore.with_model(bounded, model_out)
-    return (; camera = camera_out, poses = _relabeled(poses, poses_out), boards = _relabeled(boards, boards_out)), sol.code, sol.rule,
-        SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, _bundle_metadata(sol, free, loss; spline)
+    return (; camera = camera_out, poses = _relabeled(poses, poses_out), boards = _relabeled(boards, boards_out)), r.retcode, r.stop_rule,
+        SolveStats(; nsteps = r.stats.nsteps), s.rms, s.n, _bundle_metadata(s, free; spline)
 end
 
 # The shared solve of every parametrization (Core's multi-block LM through the block contract): the stated residual
@@ -585,6 +581,6 @@ end
 # contract's one fixed-scale robust path (an Irls is refused by `bundle_loss`). A refine estimates no scale. Returns the variables at the estimate, the termination record (`code`, `rule`), the iterations, the reprojection rows,
 # their sum of squares, ν, the weights, and `n` the weights' support and `rms` the weighted one (the stack's one rule,
 # loop.jl: under least squares every correspondence and √(S/n)); the metadata records them with the parsed loss.
-_bundle_metadata(sol, free, loss; spline = nothing) = CameraPosesRefineMetadata{typeof(loss.strategy)}(sol.residuals, sol.S / sol.ν, sol.ν, free, spline,
-    _row_norms(sol.residuals), sol.weights, VgtkCore.scale_record(loss)...)
+_bundle_metadata(s, free; spline = nothing) = CameraPosesRefineMetadata{typeof(s.loss.strategy)}(s.residuals, s.S / s.ν, s.ν, free, spline,
+    _row_norms(s.residuals), s.weights, VgtkCore.scale_record(s.loss)...)
 

@@ -57,7 +57,7 @@ re-scored, and a second gate ``S_{\mathrm{lo}}`` tracks the best locally
 optimized score — the returned model is always the best LO result.
 
 `Ransac()`'s `local_optimization_strategy = ClassDefault()` reads the problem
-class's from `configs/default.toml` (`[pipelines.<class>]`: `Irls{TLSShape}()`
+class's from `configs/default.toml` (`[<problem>.ransac]`: `Irls{TLSShape}()`
 for most classes); a problem without a class takes its scorer's,
 `default_local_optimization_strategy(scoring)` (`nothing`, no local
 optimization, for the core scorers).

@@ -6,7 +6,7 @@
 using StableRNGs: StableRNG
 using StaticArrays: SVector
 using Rotations: RotXYZ
-using VisualGeometryToolkitCore: RadialCamera, CameraModel, CorrespondenceNormalization, Correspondences, intrinsics, lens, focal_length, parameter_vector, rotation, translation, noise_scale
+using VisualGeometryToolkitCore: RadialCamera, CameraModel, CorrespondenceNormalization, Correspondences, intrinsics, lens, focal_length, parameter_vector, rotation, translation, noise_scale, dof
 using VisualGeometryToolkitEstimation: DivisionCameraState, DivisionCameraFit
 import VisualGeometryToolkitEstimation as VgtkEstimation
 using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
@@ -28,7 +28,7 @@ function _golden_fit!(out, name, res)
     push!(out, "$name.coefficients" => collect(Float64, parameter_vector(lens(cam))))
     _golden_state!(out, "$name.state", res.metadata.state)
     push!(out, "$name.sigma" => [noise_scale(res)])   # the key predates `noise_scale`
-    push!(out, "$name.nu" => [res.metadata.ν])
+    push!(out, "$name.nu" => [dof(res)])   # the key predates `dof`
     push!(out, "$name.iterations" => [Float64(res.stats.nsteps)])
     for id in sort!(collect(keys(res.metadata.views)))
         push!(out, "$name.weights[$id]" => collect(Float64, res.metadata.views[id].weights))

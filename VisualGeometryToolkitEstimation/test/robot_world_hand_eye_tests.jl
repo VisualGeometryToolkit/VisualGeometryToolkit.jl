@@ -162,19 +162,18 @@ _nobs(markers) = sum(length, values(markers))
     @testset "a robust result whose weights leave no degrees of freedom: dof 0, no variance factor, no covariance" begin
         # 6Σw − N ≤ 0 (a redescending loss that zeroes most rows): until 0.11.0 recorded a negative dof and a
         # variance factor RSS/eps ≈ 1e15 that scaled the covariance, silently
-        VE = VgtkEstimation
         rng = StableRNG(2)
         Id = EuclideanMap(RotMatrix{3}(1.0I), SVector(0.0, 0.0, 0.0))
         cal = RobotWorldHandEyeCalibration(Id, Dict(1 => Id))
         n = 4; N = 12
         r = randn(rng, 6n); J = randn(rng, 6n, N)
-        res = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
+        res = VgtkEstimation._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
                                               retcode = VgtkCore.ReturnCode.Success, stop_rule = VgtkCore.NoRule, iterations = 3, rms_rows = 6n,
                                               strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 0.5, 0.0, 0.0])
         md = res.metadata
         @test md.dof == 0 && isnan(md.s2) && all(isinf, md.cov)
         # with dof left, the weighted variance factor as before
-        ok = VE._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
+        ok = VgtkEstimation._robot_world_hand_eye_result(cal, r, J, 6, [n], s2 -> s2 * Matrix(1.0I, N, N), 0.01, 0.01;
                                              retcode = VgtkCore.ReturnCode.Success, stop_rule = VgtkCore.NoRule, iterations = 3, rms_rows = 6n,
                                              strategy = VgtkCore.Irls{VgtkCore.WelschShape}(), weights = [1.0, 1.0, 1.0, 0.5])
         @test VgtkCore.dof(ok) == 9 && isfinite(VgtkCore.s2(ok))

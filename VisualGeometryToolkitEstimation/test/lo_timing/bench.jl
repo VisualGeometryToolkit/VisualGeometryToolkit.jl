@@ -59,7 +59,7 @@ const PROBS = [problem_of(pr) for pr in PAIRS]
 # the pool frame, where one pixel is the recorded half-width over the 20 px it
 # was recorded at.
 const POOL_PX = HALFWIDTH / 20.0
-const THRESHOLD = VgtkEstimation._dflt("pipelines.essential", "scoring")["threshold"] * POOL_PX   # its scorer table (since 0.10)
+const THRESHOLD = VgtkEstimation._dflt("essential_problem.ransac", "scoring")["threshold"] * POOL_PX   # its scorer table (since 0.10)
 const SCORINGS = [MsacScoring(EssentialProblem; threshold = THRESHOLD) for _ in PROBS]
 const NCALLS = call_set_size(PAIRS)
 

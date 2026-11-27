@@ -1,11 +1,12 @@
 # The pose estimators on the new API (record/est_pose.jl, case for case): the RANSAC find and the LevenbergMarquardt
 # refine of the absolute-pose (pixel and bearing), hand-eye, radial-homography and radial-camera problems. A problem's
-# own construction keywords (`center`, `minimal`, `extra_check`, `motion_pairs`, `char_length`, `min_rel_angle`) are
-# its constructor's; the extent is the find's context `p`.
+# own construction keywords (`center`, `motion_pairs`, `char_length`, `min_rel_angle`) are its constructor's, and the
+# radial homography's old `minimal`/`extra_check` its minimal solver (`minimal_solver`); the extent is the find's
+# context `p`.
 using VisualGeometryToolkitCore: MsacScoring, RansacScoring, Irls, Triggs, TLSShape, WelschShape, CauchyShape, HuberShape,
-    GaussianShape
+    GaussianShape, Homography4pt, Homography5ptRadial
 using VisualGeometryToolkitEstimation: AbsolutePoseProblem, BearingPoseProblem, HandEyeProblem, RadialHomographyProblem,
-    RadialCameraProblem, RansacConfig, RansacWorkspace, TerminalLO, scoring_from_toml, data_size
+    RadialCameraProblem, RansacConfig, RansacWorkspace, TerminalLO, scoring_from_toml, data_size, MOTION_PAIRS_TAGS
 Base.include(@__MODULE__, joinpath(@__DIR__, "_common.jl"))
 
 const PO_LOS = [
@@ -44,15 +45,23 @@ function po_find_replays!(cases, family, name, fx, find, problem, thr; full = tr
     return cases
 end
 
-# A hand-eye problem from the old keyword set: its construction keywords to the constructor, the rest to the solve.
+# A hand-eye problem from the old keyword set: its construction keywords to the constructor, the rest to the solve. The
+# old Symbol `motion_pairs` is its TOML tag, read through the registry (an unknown one, the recorded refusal, its
+# ArgumentError).
 function _hand_eye(cs; motion_pairs = nothing, char_length = nothing, min_rel_angle = nothing, kw...)
-    pkw = (; (motion_pairs === nothing ? (;) : (; motion_pairs))..., (char_length === nothing ? (;) : (; char_length))...,
+    pkw = (; (motion_pairs === nothing ? (;) : (; motion_pairs = MOTION_PAIRS_TAGS[String(motion_pairs)]()))...,
+            (char_length === nothing ? (;) : (; char_length))...,
             (min_rel_angle === nothing ? (;) : (; min_rel_angle))...)
     return HandEyeProblem(cs; pkw...), kw
 end
+# A radial-homography problem from the old keyword set: `minimal = :homography` is `Homography4pt()`, the default and
+# `extra_check` the `Homography5ptRadial(; extra_check)`. A combination no solver states (the recorded refusals:
+# `extra_check` on the four-point path, an unknown `minimal`) is the retired keyword itself, refused (an ArgumentError).
 function _radial_h(cs, center; extra_check = nothing, minimal = nothing, kw...)
-    pkw = (; center, (extra_check === nothing ? (;) : (; extra_check))..., (minimal === nothing ? (;) : (; minimal))...)
-    return RadialHomographyProblem(cs; pkw...), kw
+    solver = minimal === :homography && extra_check === nothing ? Homography4pt() :
+        minimal in (nothing, :radial) ? Homography5ptRadial(; extra_check = something(extra_check, true)) : nothing
+    p = solver === nothing ? RadialHomographyProblem(cs; center, minimal) : RadialHomographyProblem(cs; center, minimal_solver = solver)
+    return p, kw
 end
 
 function replay_est_pose(cases)

@@ -22,7 +22,7 @@ abstract type GridSpec end
 The grid `grid(lo, hi, spacing)` extended by `n_lo` points below `lo` and
 `n_hi` above `hi` at the same step (log or linear). TOML tag `"spaced"`.
 """
-struct SpacedGrid <: GridSpec
+Base.@kwdef struct SpacedGrid <: GridSpec
     lo::Float64
     hi::Float64
     spacing::GridSpacing
@@ -43,7 +43,7 @@ A grid given by its values (finite, strictly increasing): the
 factorial tunings whose axes are hand-chosen settings. It has no spacing, so
 it cannot be extended. TOML tag `"listed"`.
 """
-struct ListedGrid <: GridSpec
+Base.@kwdef struct ListedGrid <: GridSpec
     values::Vector{Float64}
     function ListedGrid(values::AbstractVector{<:Real})
         v = collect(Float64, values)

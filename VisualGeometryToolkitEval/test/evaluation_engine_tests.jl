@@ -303,7 +303,7 @@
                       first(refit_imc!(ctx, ext, seed(j), consumed_native(ext, OutlierHalfwidth(), hw[c]; d_g = 1)))
                 # an absolute width: the solo delivery, bitwise, for either family
                 for (lab, lo) in (("widths", irls_sm(1.0)), ("widths_ext", ext))
-                    solo = SoloSpec("s", :refinement, LossWidth(), _ -> lo)
+                    solo = SoloSpec("s", RefinementRole(), LossWidth(), _ -> lo)
                     @test M[lab][p, c] === first(solo_refit_imc!(ctx, solo, seed(j), hw[c] / 5, hw[c]; on_fail = nothing))
                 end
                 @test M["widths"][p, c] ===
@@ -652,9 +652,9 @@
         @test width_delivery(LossWidth(), irls(), 2.0, 2) == (; widths = [2.0, 2.0])
         @test width_delivery(OutlierHalfwidth(), irls(), 2.0, 2) == (; natives = [2.0, 2.0])
         @test width_delivery(EfficiencyConstant(), irls(), 2.0, 2) == (;)
-        @test_throws ArgumentError SoloSpec("x", :refinement, EfficiencyConstant(), identity)
-        @test_throws ArgumentError SoloSpec("x", :tuning, LossWidth(), identity)
-        @test_throws ErrorException solo_refit_imc!(nothing, SoloSpec("x", :selection, LossWidth(), identity), nothing, 1.0, 1.0)
+        @test_throws ArgumentError SoloSpec("x", RefinementRole(), EfficiencyConstant(), identity)
+        @test_throws MethodError SoloSpec("x", :refinement, LossWidth(), identity)   # a role is a type, never a Symbol
+        @test_throws ErrorException solo_refit_imc!(nothing, SoloSpec("x", SelectionRole(), LossWidth(), identity), nothing, 1.0, 1.0)
         # the evaluation refit: the matched arm is the tuned arm at width = a*, bitwise
         grids = Dict(:outlier_halfwidth => sort!([a * ζ for ζ in (0.25, 1.0, 4.0)]),
                      :efficiency_constant => [1.0, 2.0, 3.0], :loss_width => [0.001, 0.002, 0.004])
@@ -714,7 +714,7 @@
             ComposedSpec("HW +Irls(w)", :hw, OutlierHalfwidth(), LossWidth(), _ -> irls_sm(1.0)),
             ComposedSpec("HW +Ext",     :hw, OutlierHalfwidth(), LossWidth(), _ -> WidthRefit(25)),
         ]
-        roster = Roster(composed, (p; role = :refinement) -> SoloSpec[], basin)
+        roster = Roster(composed, (p; role = RefinementRole()) -> SoloSpec[], basin)
         rt = roster_tuning()
         spec, gs, g = rt.spec, rt.grids, rt.values
         write_sidecar(path, arms; kw...) = write_roster_sidecar(path, rt, arms; code = (VisualGeometryToolkitEval,), kw...)
@@ -734,7 +734,7 @@
             bpath = joinpath(dir, "basin.jld2"); write_sidecar(bpath, basin(:E); mode = "basin")
             dep = Dict(deployed_basin_settings(roster, bpath))
             @test dep["HW +Ext"].spec.axis === LossWidth() && dep["HW +Ext"].width == g[:loss_width][3]
-            @test dep["HW +Irls(w)"].spec.role === :refinement
+            @test dep["HW +Irls(w)"].spec.role === RefinementRole()
             @test audit_operating_points(roster, bpath)
             @test_throws ErrorException deployed_budget_settings(roster, bpath)
 

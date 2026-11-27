@@ -99,7 +99,7 @@ end
 
 @testitem "quality: no data-length splat" begin
     # No call splats a collection whose length is data (VisualGeometryToolkitCore's check_splat: the callee is
-    # compiled once per length); the inherent ones are DUPLICATION.toml [[splat]] entries.
+    # compiled once per length). No exception: a tuning table builds its type by keyword (Core's construct_from_table).
     import VisualGeometryToolkitCore as VgtkCore
     using Test
     import VisualGeometryToolkitEval as VgtkEval

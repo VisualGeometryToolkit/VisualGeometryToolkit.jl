@@ -173,10 +173,12 @@ adds a method.
 weights(r::FitResult) = r.metadata.weights
 
 """
-    dof(r::FitResult) -> Int
+    dof(r::FitResult) -> Real
 
-Residual degrees of freedom, recorded in the metadata. Errors on
-a metadata type that carries none.
+The degrees of freedom recorded in the metadata: a fit's residual degrees of
+freedom (an `Int`: a bundle's, a line fit's), or the Student-t degrees of
+freedom ν of a mixture's final E-step (a `Float64`: VisualGeometryToolkitEstimation's
+`DivisionCameraFit`). Errors on a metadata type that carries none.
 """
 dof(r::FitResult) = r.metadata.dof
 

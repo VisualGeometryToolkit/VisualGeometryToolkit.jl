@@ -290,6 +290,9 @@ public project_with_jacobians
 public reprojection_error   # project(camera, pose(X)) − u (cameras/camera_models.jl)
 export has_distortion
 public monotone_radius
+public bounding_radial   # the radial factor that bounds what a lens images (a composition's first radial stage)
+public lens_terms        # a lens's terms in parameter order (its projection, then its distortion's)
+public radial_distance   # |(p₁, p₂)|: a point's or ray's distance from the optical axis, Dual-safe on it
 export distort_normalized
 export view_angle, projected_radius
 public radial_ratio
@@ -412,6 +415,7 @@ public pixel_center        # the COLMAP centre (col − ½, row − ½) of an im
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
 public forward_chart   # the chart of every SplineLens forward spline: equidistant_chart(ẑ)
 public has_spline_gauge   # whether a SplineLens pixel lattice gives its own K (its gauge pixel's window complete)
+public has_present_window   # whether a SplineLens window (spline_window's (ix, iy)) holds present nodes only
 export with_model          # same camera/rig, new model (validated rebuild)
 # `ids(rig)` (0.9): the rig's view-identity symbols, READ FROM the labeled
 # extrinsics' frame parameters (single source of truth — no stored duplicate).

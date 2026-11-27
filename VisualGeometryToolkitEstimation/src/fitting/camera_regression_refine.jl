@@ -26,9 +26,9 @@ function _lens_family_manifold(role, a::AbstractLensModel, free::Tuple{Vararg{Sy
     length(names) == tangent_size(ch) && return ch
     return restrict(ch, names)
 end
-# The names of a lens's decentering deltas (Core's `isdelta` leaves: tangential, thin prism).
+# The names of a lens's decentering deltas (Core's `isdelta` terms: tangential, thin prism).
 _decentering_names(a::AbstractLensModel) =
-    Tuple(Iterators.flatten(VgtkCore.Cameras.coefficient_names(typeof(t)) for t in VgtkCore.Cameras._leaves(a) if t isa VgtkCore.AbstractDistortionTerm && VgtkCore.isdelta(t)))
+    Tuple(Iterators.flatten(VgtkCore.Cameras.coefficient_names(typeof(t)) for t in VgtkCore.lens_terms(a) if t isa VgtkCore.AbstractDistortionTerm && VgtkCore.isdelta(t)))
 _decentering_names(::LiftLens) = ()
 # The refine's chart, by the role of the source's K: the focal's log-scale (an `EuclideanManifold` at the guess's
 # `log s₀`, `s = exp`; `:f` in `free`) before the lens family's manifold. For a GAUGE K, whose focal lengths are the
@@ -116,7 +116,7 @@ end
 
 # A ray's view angle about ẑ and its azimuth's unit vector (zero on the axis, where the radius is 0). Dual-safe.
 @inline function _angle_azimuth(x)
-    ρ = VgtkCore.Cameras._radius(x)
+    ρ = VgtkCore.radial_distance(x)
     az = iszero(VgtkCore.primal_value(ρ)) ? zero(SVector{2, typeof(ρ)}) : SVector(x[1], x[2]) / ρ
     return atan(ρ, x[3]), az
 end
@@ -147,7 +147,7 @@ end
     v = y - fit.δ
     θB, azB = _angle_azimuth(backproject(fit.lens, SVector(v[1] / fit.s, v[2] / (fit.s * fit.a))))
     θ′, az = _fitted_ray(fit.R, d, θ)
-    return VgtkCore.Cameras._radius(v) * (θB * azB - θ′ * az)
+    return VgtkCore.radial_distance(v) * (θB * azB - θ′ * az)
 end
 @inline _sample_offset(angle_residual::Bool, M, fit, d, θ, y, θcap) =
     angle_residual ? _chart_offset(fit, d, θ, y) : _pixel_offset(fit, M, d, θ, y, θcap)

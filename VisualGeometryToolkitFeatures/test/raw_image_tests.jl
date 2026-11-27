@@ -7,11 +7,11 @@
 
 @testitem "raw: the decoder needs its package" begin
     using VisualGeometryToolkitFeatures
-    VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     @test_throws ArgumentError load_raw_mosaic(joinpath(@__DIR__, "no-such-file.ARW"))
     # LibRaw_jll is the one decoder (the rawpy extension is retired)
-    @test !isdefined(VGF, Symbol("Raw" * "pyDecoder"))
-    if Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) === nothing
+    @test !isdefined(VgtkFeatures, Symbol("Raw" * "pyDecoder"))
+    if Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesLibRawExt) === nothing
         for mode in (:bin2, :demosaic)
             err = try load_raw(@__FILE__; mode) catch e; e end
             @test err isa ArgumentError && occursin("using LibRaw_jll", err.msg)
@@ -25,8 +25,8 @@ end
     using VisualGeometryToolkitCore: LinearRaw, RawMosaic, raw_frame_map, bayer_plane_map, green_cell_sites, raw_provenance, linearview, photosite_colors
     using VisualGeometryToolkitFeatures
     using LibRaw_jll: LibRaw_jll, libraw
-    VGF = VisualGeometryToolkitFeatures
-    X = Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt)
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    X = Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesLibRawExt)
     # A synthetic Bayer buffer opened by LibRaw itself (libraw_open_bayer), RGGB, its top-left
     # quadrant dark and the rest bright, with the EXIF orientation set the way a camera records it
     # held upside down (flip 3: 180°) or upright (5: 90° CCW, 6: 90° CW). The display image keeps
@@ -68,7 +68,7 @@ end
     @test (large[4] - small[4]) / (3H * W) < 7                       # bytes per added pixel: the image's 6, not 6 + 2
     for flip in (3, 5, 6)
         m, rgb, md, _ = demosaic_with_flip(flip)
-        L = VGF._demosaic_image(Float64, rgb, md, 1.0, nothing)
+        L = VgtkFeatures._demosaic_image(Float64, rgb, md, 1.0, nothing)
         @test L isa LinearRaw{:demosaic} && L.geometry === nothing
         @test size(L.image) == (H, W, 3)          # the sensor's grid: the flip is never applied
         g = L.image[:, :, 2]
@@ -81,13 +81,13 @@ end
         @test isapprox(g[40, 50], linearview(m)[i, j]; rtol = 1e-3)
     end
     m, rgb, md = demosaic_with_flip(0)
-    L = VGF._demosaic_image(Float64, rgb, md, 1.0, nothing)
+    L = VgtkFeatures._demosaic_image(Float64, rgb, md, 1.0, nothing)
     # the one demosaic of a mosaic in memory: LibRaw's, on the mosaic's photosites, phase and levels — bit for bit the
     # demosaic of the same buffer opened as a file is, with the mosaic's own metadata
     Lm = load_raw(m; mode = :demosaic)
     @test Lm isa LinearRaw{:demosaic} && Lm.image == L.image && Lm.saturated == L.saturated && Lm.metadata === m.metadata
     @test load_raw(m; mode = :demosaic, gain = 2.0, white_balance = (2.0, 1.0, 0.5)).image ==
-          VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5)).image
+          VgtkFeatures._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5)).image
     # a corrected mosaic (its photosites changed in memory) is displayed through it: brighter photosites, a brighter image
     bright = RawMosaic(parent(m) .+ UInt16(1000), m.pattern, m.black, m.white, m.visible_origin, m.raw_size, m.metadata)
     @test sum(load_raw(bright; mode = :demosaic).image) > sum(Lm.image)
@@ -109,7 +109,7 @@ end
     @test raw_provenance(L).mode == "demosaic" && raw_provenance(L).frame_map === nothing
     @test startswith(raw_provenance(L).libraw_version, "0.22")
     # white balance, if asked, is applied in Julia: per channel, after LibRaw's linear output
-    Lw = VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
+    Lw = VgtkFeatures._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
     @test Lw.image[:, :, 1] == L.image[:, :, 1] .* 2.0 .* 2.0 && Lw.image[:, :, 3] == L.image[:, :, 3] .* 0.5 .* 2.0
 end
 
@@ -346,22 +346,22 @@ end
 # to load; a decoder whose extension is loaded but has no method for the arguments raises the call's MethodError.
 @testitem "raw: a decoder without its extension names the package; with it, the call's MethodError" begin
     using VisualGeometryToolkitFeatures
-    const VGF = VisualGeometryToolkitFeatures
-    struct UnloadedDecoder <: VGF.RawDecoder end
-    VGF._decoder_trigger(::UnloadedDecoder) = "SomeDecoder_jll"
-    VGF._decoder_extension(::UnloadedDecoder) = :VisualGeometryToolkitFeaturesSomeDecoderExt
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    struct UnloadedDecoder <: VgtkFeatures.RawDecoder end
+    VgtkFeatures._decoder_trigger(::UnloadedDecoder) = "SomeDecoder_jll"
+    VgtkFeatures._decoder_extension(::UnloadedDecoder) = :VisualGeometryToolkitFeaturesSomeDecoderExt
     err = try
         load_raw_mosaic(@__FILE__; decoder = UnloadedDecoder())
     catch e
         e
     end
     @test err isa ArgumentError && occursin("needs `using SomeDecoder_jll`", err.msg)
-    @test_throws ArgumentError VGF._decode_demosaic(UnloadedDecoder(), @__FILE__)
-    struct LoadedDecoder <: VGF.RawDecoder end                           # its extension (LibRaw's) is loaded below
-    VGF._decoder_extension(::LoadedDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
+    @test_throws ArgumentError VgtkFeatures._decode_demosaic(UnloadedDecoder(), @__FILE__)
+    struct LoadedDecoder <: VgtkFeatures.RawDecoder end                           # its extension (LibRaw's) is loaded below
+    VgtkFeatures._decoder_extension(::LoadedDecoder) = :VisualGeometryToolkitFeaturesLibRawExt
     using LibRaw_jll
-    @test Base.get_extension(VGF, :VisualGeometryToolkitFeaturesLibRawExt) !== nothing
-    @test_throws MethodError Base.invokelatest(VGF._decode_raw, LoadedDecoder(), @__FILE__)
+    @test Base.get_extension(VgtkFeatures, :VisualGeometryToolkitFeaturesLibRawExt) !== nothing
+    @test_throws MethodError Base.invokelatest(VgtkFeatures._decode_raw, LoadedDecoder(), @__FILE__)
 end
 
 # load_raw forwards the frame's sensor model to Core's LinearRaw, the one black subtraction; the display demosaic
@@ -387,12 +387,12 @@ end
     using VisualGeometryToolkitFeatures: load_raw
     using Random: Xoshiro
     using Test
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # a decoder that "decodes" any file to one synthetic mosaic, counting its calls
-    struct SyntheticDecoder <: VGF.RawDecoder end
+    struct SyntheticDecoder <: VgtkFeatures.RawDecoder end
     const DECODES = Ref(0)
     const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
-    VGF._decode_raw(::SyntheticDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
+    VgtkFeatures._decode_raw(::SyntheticDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
     m1 = sensor_fixture(; black = (512.0, 500.0, 520.0, 508.0)).model
     m2 = sensor_fixture(; black = (520.0, 508.0, 528.0, 516.0)).model
     cache = Dict{String, Any}()
@@ -416,11 +416,11 @@ end
     using VisualGeometryToolkitFeatures: load_raw
     using Random: Xoshiro
     using Test
-    const VGF = VisualGeometryToolkitFeatures
-    struct TypedDecoder <: VGF.RawDecoder end
+    import VisualGeometryToolkitFeatures as VgtkFeatures
+    struct TypedDecoder <: VgtkFeatures.RawDecoder end
     const DECODES = Ref(0)
     const MOSAIC = noisy_mosaic(Xoshiro(8), (i, j) -> 300.0, 16, 16; electrons_per_dn = 2.5, read_dn = 3.0)
-    VGF._decode_raw(::TypedDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
+    VgtkFeatures._decode_raw(::TypedDecoder, ::AbstractString) = (DECODES[] += 1; MOSAIC)
     model = pg_model(2.5, 3.0)
     # forwarded: the mosaic and the file forms, every exact mode, with and without a model
     for mode in (:green_cells, :bin2), sm in (SensorModel(), model), T in (Float16, Float32, Float64)
@@ -428,7 +428,7 @@ end
         @test isequal(load_raw(T, @__FILE__; mode, sensor_model = sm, decoder = TypedDecoder()).image, LinearRaw(T, MOSAIC; mode, sensor_model = sm).image)
     end
     # the default: Core's (its lazy view's element type), today Float64, bit for bit
-    @test VGF._DEFAULT_RAW_ELTYPE === eltype(linearview(MOSAIC)) === Float64
+    @test VgtkFeatures._DEFAULT_RAW_ELTYPE === eltype(linearview(MOSAIC)) === Float64
     @test load_raw(MOSAIC; mode = :green_cells).image == LinearRaw(MOSAIC; mode = :green_cells).image
     @test eltype(load_raw(MOSAIC; mode = :green_cells).image) === Float64
     # the cache: Float64, then Float16 — two entries, two element types, the default the Float64 one
@@ -443,8 +443,8 @@ end
     @test length(cache) == 3 && eltype(value_of.(green_plane(c))) === Float16
     # the display demosaic in T, each value rounded once; a gain that could overflow T refused
     rgb = rand(Xoshiro(3), UInt16, 4, 6, 3); md = (; black = 0, white = 65535)
-    d64 = VGF._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
-    @test VGF._demosaic_image(Float16, rgb, md, 2.0, (2.0, 1.0, 0.5)).image == Float16.(d64.image)
-    @test_throws ArgumentError VGF._demosaic_image(Float16, rgb, md, 7.0e4, nothing)
+    d64 = VgtkFeatures._demosaic_image(Float64, rgb, md, 2.0, (2.0, 1.0, 0.5))
+    @test VgtkFeatures._demosaic_image(Float16, rgb, md, 2.0, (2.0, 1.0, 0.5)).image == Float16.(d64.image)
+    @test_throws ArgumentError VgtkFeatures._demosaic_image(Float16, rgb, md, 7.0e4, nothing)
     @test_throws MethodError load_raw(Int, MOSAIC; mode = :green_cells)
 end

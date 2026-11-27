@@ -103,12 +103,12 @@ lift_valid(p::_PnPProvider) = p.lws.valid
 # RadialHomography — the lift has no LO weights, so a plain-homography
 # hypothesis (no distortion term) seeds k on the correspondences its H already
 # explains: the TLS weights of the plain-H reprojection norms at
-# `efficiency_constant · σ̂`, σ̂ their noise scale (Core's stack-internal `_mad_scale_norms`, codimension
-# 2) and the multiple configs/default.toml's [pipelines.radial_homography.lift_seed]
+# `efficiency_constant · σ̂`, σ̂ their noise scale (`solve(EstimationProblem(NoiseScale, norms, (; codimension)),
+# MedianNormScale())`, codimension 2) and the multiple configs/default.toml's [radial_homography_problem.lift_seed]
 # (3·√quantile(Chisq(2), 0.5): three medians of the norms); the refit's own
 # `_radial_seed_chart` otherwise. The scale is floored at floatmin, so on an
 # exact plain H the seed is the exactly explained correspondences.
-const _LIFT_SEED_EFFICIENCY_CONSTANT = _dflt("pipelines.radial_homography.lift_seed", "efficiency_constant")::Float64
+const _LIFT_SEED_EFFICIENCY_CONSTANT = _dflt("radial_homography_problem.lift_seed", "efficiency_constant")::Float64
 function lift_init(p::ManifoldLiftProvider{<:RadialHomographyProblem}, m::VgtkCore.RadialHomography)
     iszero(division_coeff(m)) || return _radial_seed_chart(p.problem, m, nothing)
     H = unit_normalize(SMatrix{3, 3, Float64, 9}(homography(m)))

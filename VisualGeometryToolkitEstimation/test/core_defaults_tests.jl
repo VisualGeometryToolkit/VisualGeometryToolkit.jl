@@ -7,7 +7,7 @@
 # =============================================================================
 # The core's defaults (K+ phase 4): every `find_*` scores with
 # its class's scorer of record, MSAC at the class's threshold convention
-# (configs/default.toml `[pipelines.<class>] scoring`, read by scoring_from_toml;
+# (configs/default.toml `[<problem>.ransac] scoring`, read by scoring_from_toml;
 # hand-eye's a fraction of the characteristic length) and refines with
 # `Irls{TLSShape}()`, which follows the scorer's decision point. A width is its
 # scorer's: no entry takes a bare `threshold` or `outlier_halfwidth` keyword
@@ -28,9 +28,9 @@ using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: MsacScoring, TLSShape, correspondences, radial_transfer, RadialHomography, HomographyMat, decision_boundary, rotation, translation, StudentTUniformScoring
 using VisualGeometryToolkitEstimation
 using VisualGeometryToolkitCore: CauchyShape, GaussianShape, WelschShape, HuberShape, Circle
-using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _width_unit, RadialHomographyProblem, RadialCameraProblem, HandEyeProblem, RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
+using VisualGeometryToolkitEstimation: _dflt, _dflt_lo, _class_scoring, _class_table, _width_unit, RadialHomographyProblem, RadialCameraProblem, HandEyeProblem, RansacConfig, RansacWorkspace, scoring_from_toml, RotationProblem, CircleProblem, EllipseProblem
 
-thr(class) = Float64(_dflt("pipelines.$class", "scoring")["threshold"])
+thr(class) = Float64(_dflt("$(_class_table(class)).ransac", "scoring")["threshold"])
 
 # --- the scenes: FindScenes (scenes_testsetups.jl), one definition shared with termination_record_tests.jl
 # The default run and the run with its default spelled out (MSAC at the class
@@ -45,8 +45,8 @@ end
 @testset "the class scorers of record: MSAC at the threshold conventions" begin
     for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
                   :radial_homography, :radial_camera, :hand_eye)
-        @test _dflt("pipelines.$class", "scoring")["type"] == "msac"
-        @test !haskey(_dflt("pipelines.$class", "scoring"), "outlier_halfwidth")
+        @test _dflt("$(_class_table(class)).ransac", "scoring")["type"] == "msac"
+        @test !haskey(_dflt("$(_class_table(class)).ransac", "scoring"), "outlier_halfwidth")
     end
     @test (thr(:homography), thr(:fundmat), thr(:essential), thr(:absolute_pose)) == (3.0, 3.0, 1.0, 8.0)
     @test (thr(:radial_homography), thr(:radial_camera), thr(:hand_eye)) == (3.0, 3.0, 0.01)
@@ -112,7 +112,7 @@ end
     @testset "hand-eye (a fraction of the characteristic length)" begin
         cs, X = hand_eye_scene()
         r = solve(EstimationProblem(HandEyeProblem(cs)), Ransac(); rng = StableRNG(7))
-        p = HandEyeProblem(cs; min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg")))
+        p = HandEyeProblem(cs; min_rel_angle = deg2rad(_dflt("hand_eye_problem", "min_rel_angle_deg")))
         @test _width_unit(p) == p.char_length
         same_run(r, solve(EstimationProblem(HandEyeProblem(cs)), Ransac(; scoring = MsacScoring(p; threshold = thr(:hand_eye) * p.char_length)); rng = StableRNG(7)))
         @test norm(translation(r.u) - translation(X)) < 0.01
@@ -136,7 +136,7 @@ function run(p, nt::NamedTuple)
     return haskey(nt, :rng) ? solve(EstimationProblem(p), alg; rng = nt.rng) : solve(EstimationProblem(p), alg)
 end
 
-# The find_* pipelines on the one robust-estimation schema: each class's scorer is its [pipelines.<class>] `scoring`
+# The finds on the one robust-estimation schema: each class's scorer is its [<problem>.ransac] `scoring`
 # table, read by scoring_from_toml; the defaults are today's (MSAC at the class conventions), bit for bit; a Student-t +
 # uniform scorer built from a table reaches the pipeline with exactly its outlier half-width and runs as `ransac` on
 # the class's problem; each scorer takes its own width key, and a bare width keyword is refused.
@@ -153,7 +153,7 @@ end
     pts_c, _ = circle_scene(Xoshiro(33), 300; outl = 0.3)
     pts_e, _ = ellipse_scene(Xoshiro(34), 300; outl = 0.3)
     cs_r = rotation_scene(Xoshiro(35), RotMatrix(RotXYZ(0.1, -0.2, 0.3)), 120; outl = 0.3)[1]
-    min_rel_angle = deg2rad(_dflt("robot_world_hand_eye", "min_rel_angle_deg"))
+    min_rel_angle = deg2rad(_dflt("hand_eye_problem", "min_rel_angle_deg"))
     cases = (   # class, the class's family problem on its data
         (:homography, HomographyProblem(cs_h)), (:fundmat, FundMatProblem(cs_f)), (:essential, EssentialProblem(ECAM, ECAM, cs_e)),
         (:rotation, RotationProblem(FISHEYE, FISHEYE, cs_r)), (:circle, CircleProblem(pts_c)), (:ellipse, EllipseProblem(pts_e)),
@@ -163,7 +163,7 @@ end
     for (seed, (class, p)) in enumerate(cases)
         @testset "$class" begin
             P = typeof(p)
-            tbl = _dflt("pipelines.$class", "scoring")
+            tbl = _dflt("$(_class_table(class)).ransac", "scoring")
             # the class's scorer of record: today's MSAC at today's value, in the problem's unit
             τ = TODAY[class] * (class === :hand_eye ? p.char_length : 1.0)
             @test tbl == Dict("type" => "msac", "threshold" => TODAY[class])
@@ -197,11 +197,13 @@ end
     @test occursin("takes `outlier_halfwidth`", err.msg)
     err = try scoring_from_toml(Dict("type" => "msac", "outlier_halfwidth" => 3.0); problem = HomographyProblem{Float64}) catch e; e end
     @test occursin("takes `threshold`", err.msg)
-    # a [pipelines.<class>] table holds the class's scorer and strategy (hand-eye its motion pairs, the radial
-    # homography the lift seed's table), never a bare width
-    for (class, t) in VgtkEstimation._TOML_DEFAULTS["pipelines"]
-        @test issubset(keys(t), ("scoring", "local_optimization_strategy", "motion_pairs", "lift_seed"))
+    # a [<problem>.ransac] table holds the class's scorer and strategy, never a bare width; the problem's own
+    # defaults (hand-eye's motion pairs, the radial homography's lift seed) are the problem table's, beside it
+    for (_, class, table, _) in VgtkEstimation._CLASS_TABLE
+        @test issubset(keys(VgtkEstimation._TOML_DEFAULTS[table]["ransac"]), ("scoring", "local_optimization_strategy"))
     end
+    @test VgtkEstimation._TOML_DEFAULTS["hand_eye_problem"]["motion_pairs"] == "consecutive"
+    @test haskey(VgtkEstimation._TOML_DEFAULTS["radial_homography_problem"], "lift_seed")
 end
 
 @testset "the width keywords: refused, a width is its scorer's" begin
@@ -258,7 +260,7 @@ end
                                         LevenbergMarquardt{VgtkCore.NativeSolver})))
     @test Set(Base.kwarg_decl(m)) == Set([:scale, :width, :stops, :callback, :weights, :summary])
     @test fieldnames(LevenbergMarquardt) == (:optimization_strategy, :damping, :backend)
-    # the class default of record: Triggs{Welsch}, no width of its own ([refine.<class>])
+    # the class default of record: Triggs{Welsch}, no width of its own ([<problem>.levenberg_marquardt])
     for class in (:homography, :fundmat, :essential, :rotation, :circle, :ellipse, :absolute_pose, :bearing_pose,
                   :radial_homography, :radial_camera, :hand_eye)
         @test VgtkEstimation._refine_default(Val(class)) == Triggs{WelschShape}()

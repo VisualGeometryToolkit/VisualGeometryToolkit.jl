@@ -127,16 +127,16 @@ end
     using VisualGeometryToolkitCore: centroid, characteristic_scale
     using VisualGeometryToolkitFeatures: ImasFeatureKA
     using Random: Xoshiro
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     # the rule, by brute force: the pixel holding the centre is clear when its distance to every masked pixel,
     # √(Δi² + Δj²) in pixels, exceeds three scales
     function clear(f, mask)
-        fr = VGF._asift_frame(f)
+        fr = VgtkFeatures._asift_frame(f)
         H, W = size(mask)
         c = centroid(fr)
         i, j = clamp(floor(Int, c[2]) + 1, 1, H), clamp(floor(Int, c[1]) + 1, 1, W)
         d = minimum((sqrt(Float64((k - i)^2 + (l - j)^2)) for k in 1:H, l in 1:W if mask[k, l]); init = Inf)
-        return d > VGF._MASK_REACH * characteristic_scale(fr)
+        return d > VgtkFeatures._MASK_REACH * characteristic_scale(fr)
     end
     rng = Xoshiro(7)
     for (H, W, density) in ((40, 60, 0.002), (37, 23, 0.05), (50, 50, 0.3), (16, 16, 1.0))
@@ -149,20 +149,20 @@ end
                      ImasFeatureKA(Float32(rand(rng) * (W + 4) - 2), Float32(rand(rng) * (H + 4) - 2), σ, 1.0f0,
                                    σ^2 * a, σ^2 * b, σ^2 / a + σ^2 * b^2 / a, Int32(0))
                  end for _ in 1:400]
-        @test VGF._clear_of_mask(feats, mask) == [clear(f, mask) for f in feats]
+        @test VgtkFeatures._clear_of_mask(feats, mask) == [clear(f, mask) for f in feats]
     end
 end
 
 @testitem "ASIFT pool: the canonical order sorts the columns lexicographically, the covariances alike" begin
     using Random: Xoshiro
-    const VGF = VisualGeometryToolkitFeatures
+    import VisualGeometryToolkitFeatures as VgtkFeatures
     rng = Xoshiro(5)
     for n in (1, 2, 7, 500), with_cov in (false, true)
         # few distinct values, so that columns tie in their leading rows (and some in every row); signed zeros
         fh = Float32.(rand(rng, -2:2, 9, n)) ./ 2; fh[rand(rng, 1:9n, n ÷ 3 + 1)] .= -0.0f0
         ch = with_cov ? Float32.(rand(rng, 0:1, 6, n)) : nothing
         cols = [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n]
-        VGF._canonical_order!(fh, ch)
+        VgtkFeatures._canonical_order!(fh, ch)
         @test [with_cov ? (fh[:, i]..., ch[:, i]...) : (fh[:, i]...,) for i in 1:n] == sort(cols)
     end
 end

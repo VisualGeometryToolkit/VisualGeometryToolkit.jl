@@ -26,7 +26,7 @@ and its log10 step is `d / (n - 1)` — `1 / per_decade` when `d·per_decade`
 is an integer. (`d·per_decade` POINTS would space them coarser
 than advertised: the fencepost.) TOML tag `"log_per_decade"`.
 """
-struct LogPerDecade <: GridSpacing
+Base.@kwdef struct LogPerDecade <: GridSpacing
     per_decade::Int
     function LogPerDecade(per_decade::Integer)
         per_decade >= 1 || throw(ArgumentError("LogPerDecade: per_decade = $per_decade must be ≥ 1"))
@@ -41,7 +41,7 @@ Log spacing at a density per factor of two: `round(Int, log2(hi / lo)·per_octav
 points (at least 2) — the half-octave ladders (`per_octave = 2`) of the PnP
 and detector tunings. TOML tag `"log_per_octave"`.
 """
-struct LogPerOctave <: GridSpacing
+Base.@kwdef struct LogPerOctave <: GridSpacing
     per_octave::Int
     function LogPerOctave(per_octave::Integer)
         per_octave >= 1 || throw(ArgumentError("LogPerOctave: per_octave = $per_octave must be ≥ 1"))
@@ -55,7 +55,7 @@ end
 `n ≥ 2` log-spaced points over the window (a COUNT, whatever the window's
 width in decades). TOML tag `"log_count"`.
 """
-struct LogCount <: GridSpacing
+Base.@kwdef struct LogCount <: GridSpacing
     n::Int
     function LogCount(n::Integer)
         n >= 2 || throw(ArgumentError("LogCount: n = $n must be ≥ 2"))
@@ -68,7 +68,7 @@ end
 
 `n ≥ 2` linearly spaced points over the window. TOML tag `"linear_count"`.
 """
-struct LinearCount <: GridSpacing
+Base.@kwdef struct LinearCount <: GridSpacing
     n::Int
     function LinearCount(n::Integer)
         n >= 2 || throw(ArgumentError("LinearCount: n = $n must be ≥ 2"))

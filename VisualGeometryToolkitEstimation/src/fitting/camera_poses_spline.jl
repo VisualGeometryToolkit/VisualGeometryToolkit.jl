@@ -51,7 +51,7 @@ end
 # refines, `(view, 1, X, u)` each (the one held board), and the counts of the correspondences dropped on an absent window
 # and of those the camera does not project within a cell of one (it images them onto the absent nodes: possibly
 # inliers), or the `_NotProjected` of the first other correspondence that does not project (or projects where the
-# lattice folds). The projections run batched on the device (Core's `_spline_projections`).
+# lattice folds). The projections run batched on the device (Core's batched lens `project`, with its fold test).
 function _spline_problem(cam::CameraModel, poses::AbstractVector, views::AbstractVector)
     l = cam.lens
     b = l.backward
@@ -61,7 +61,7 @@ function _spline_problem(cam::CameraModel, poses::AbstractVector, views::Abstrac
     for (v, cs) in enumerate(views), (j, c) in enumerate(cs)
         X, u = _correspondence(v, j, c)
         ox, oy, _, _ = spline_window(b.area, gsz, VgtkCore.normalized_point(cam.intrinsics, u))
-        if !VgtkCore.Cameras._window_present(l.present, ox, oy)   # detected on an absent window: the lens does not image it
+        if !VgtkCore.has_present_window(l, ox, oy)   # detected on an absent window: the lens does not image it
             dropped += 1
             continue
         end
@@ -69,12 +69,12 @@ function _spline_problem(cam::CameraModel, poses::AbstractVector, views::Abstrac
     end
     pose_charts = _pose_charts(poses)
     Xcs = [(P = model(pose_charts[c[1]]); rotation(P) * c[3] + translation(P)) for c in cands]
-    proj = VgtkCore.Cameras._spline_projections(l, Xcs, nothing; fold = true)
+    proj = VgtkCore.project(l, Xcs, nothing; fold = true)
     obs = Tuple{Int, Int, SVector{3, Float64}, SVector{2, Float64}}[]
     unprojected = 0
     for (q, (v, j, X, u, ox, oy)) in enumerate(cands)
         ok, g = proj.ok[q], proj.fold[q]
-        if !ok && _near_absent(l.present, ox, oy, gsz)
+        if !ok && _near_absent(l, ox, oy, gsz)
             unprojected += 1
             continue
         end
@@ -88,9 +88,8 @@ function _spline_problem(cam::CameraModel, poses::AbstractVector, views::Abstrac
 end
 
 # Whether a window within one cell of window `(ix, iy)` holds an absent node.
-_near_absent(::Nothing, ix, iy, gsz) = false
-_near_absent(present::AbstractMatrix{Bool}, ix, iy, (gh, gw)) =
-    any(!VgtkCore.Cameras._window_present(present, jx, jy) for jx in max(3, ix - 1):min(gw - 1, ix + 1), jy in max(3, iy - 1):min(gh - 1, iy + 1))
+_near_absent(l::SplineLens, ix, iy, (gh, gw)) = l.present !== nothing &&
+    any(!VgtkCore.has_present_window(l, jx, jy) for jx in max(3, ix - 1):min(gw - 1, ix + 1), jy in max(3, iy - 1):min(gh - 1, iy + 1))
 
 # The SplineLens route: the camera held (`fixed = (:controls,)`), checked first — a call that would free the controls
 # (the default `fixed = ()`, or a `penalty`) is refused by name (`_refuse_spline_image_space`). The rest are the

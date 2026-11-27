@@ -112,7 +112,7 @@ end
     using LinearAlgebra: norm
     import ForwardDiff
     using VisualGeometryToolkitCore: LeftRigidManifold6, ParameterManifold, restrict, retract, project, action_jacobian, reprojection_error, model
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation
     cam = fisheye_camera(); Es = truth_poses(2)
     views = views_of(cam, Es, deg2rad(95); n = 8)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
@@ -120,7 +120,7 @@ end
     chc = restrict(ParameterManifold(cam), free)
     chs = [LeftRigidManifold6(P) for P in poses0]
     world = model(LeftRigidManifold6(SMatrix{3, 3, Float64}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), SVector(0.0, 0.0, 0.0)))   # the held identity board
-    costs = [VE._BoardViewResidual{2, (true, true, false), typeof(cam)}(SVector(1, 1 + v), cam, world, world, SVector{3, Float64}(first(c)), last(c))
+    costs = [VgtkEstimation._BoardViewResidual{2, (true, true, false), typeof(cam)}(SVector(1, 1 + v), cam, world, world, SVector{3, Float64}(first(c)), last(c))
              for v in 1:2 for c in views[v]]
     # the rows and their Jacobian at the charts' origins: Core's `RowsWithJacobian` summary of a refine that takes no
     # step (`max_iter = 0`), on a bundle of these blocks and variables
@@ -428,7 +428,7 @@ end
     using VisualGeometryToolkitCore: dof, s2
     
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region, lens
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, CameraModel, SplineLens, ChartSpline, KannalaBrandt, BoundedCamera, Size2, backproject, imaged_region, lens
     using VisualGeometryToolkitEstimation: CameraPosesProblem, CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     kb = CameraModel(; focal = 420.0, pp = (640.0, 480.0), lens = KannalaBrandt(-0.02, 0.004, -0.001, 0.0002))
@@ -461,14 +461,14 @@ end
     using VisualGeometryToolkitCore: dof, s2
     using StaticArrays: SVector
     using LinearAlgebra: norm
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, reprojection_error, model, lens, spline_window, project
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE, CameraPosesProblem
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, reprojection_error, model, lens, spline_window, project
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation, CameraPosesProblem
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     truth = spline_truth(); Es = truth_poses(3)
     views = spline_views(truth, Es, 1.1)
     poses0 = [perturbed_pose(E, v) for (v, E) in enumerate(Es)]
     # the held problem's filter: every correspondence kept (a full lattice), each on its view and the one held board
-    p = VE._spline_problem(VE._without_forward(truth), poses0, views)
+    p = VgtkEstimation._spline_problem(VgtkEstimation._without_forward(truth), poses0, views)
     @test length(p.obs) == 360 && all(o -> o[2] == 1, p.obs) && p.dropped == 0 && p.unprojected == 0
     # many points change cells between the guess and the truth
     b = lens(truth).backward
@@ -493,7 +493,7 @@ end
     using VisualGeometryToolkitCore: dof, s2
     
     using StaticArrays: SVector
-    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VC, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, lens, model, with_present, spline_window, imaged_region
+    using VisualGeometryToolkitCore: VisualGeometryToolkitCore as VgtkCore, CameraModel, SplineLens, ChartSpline, BoundedCamera, Size2, lens, model, with_present, spline_window, imaged_region
     using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation, CameraPosesProblem, CameraRegressionProblem, CameraRegression
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
     truth = spline_truth(); Es = truth_poses(3)
@@ -524,7 +524,7 @@ end
     present = trues(10, 12); present[1:3, 9:12] .= false
     masked = with_present(cam0, present)
     b = lens(masked).backward
-    absent(u) = (w = spline_window(b.area, size(b.controls), VC.normalized_point(masked.intrinsics, u)); !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
+    absent(u) = (w = spline_window(b.area, size(b.controls), VgtkCore.normalized_point(masked.intrinsics, u)); !all(present[(w[2] - 2):(w[2] + 1), (w[1] - 2):(w[1] + 1)]))
     n_absent = count(absent(last(x)) for cs in views for x in cs)
     @test n_absent > 0
     rm = solve(RefineProblem(CameraPosesProblem(views; fixed = (:controls,)), (; camera = bounded(masked), poses = poses0)), LevenbergMarquardt(; optimization_strategy = nothing))
@@ -777,7 +777,7 @@ end
     import VisualGeometryToolkitCore
     using VisualGeometryToolkitEstimation: CameraPosesProblem, RotationCenterViews
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VE
+    using VisualGeometryToolkitEstimation: VisualGeometryToolkitEstimation as VgtkEstimation
     using VisualGeometryToolkitCore: SO3Manifold
     # a camera whose back-projection Jacobian is zero at one pixel (the singular-Jacobian testset)
     struct SingularAt{C}
@@ -859,21 +859,21 @@ end
         singular = SingularAt(cam, u0)
         fM = VisualGeometryToolkitCore.backproject_with_jacobian(singular, u0)
         f0 = normalize(fM[1])
-        @test VE.pixel_whitening_defect(f0, fM[2]) === :singular
+        @test VgtkEstimation.pixel_whitening_defect(f0, fM[2]) === :singular
         fg, Mg = VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(exact[3][1]))
-        @test VE.pixel_whitening_defect(normalize(fg), Mg) === nothing
-        @test VE.pixel_whitening_defect(normalize(fg), Mg .* NaN) === :nonfinite
-        @test VE.pixel_whitening_defect(normalize(fg), hcat(normalize(fg), Mg[:, 2])) === :not_tangent
+        @test VgtkEstimation.pixel_whitening_defect(normalize(fg), Mg) === nothing
+        @test VgtkEstimation.pixel_whitening_defect(normalize(fg), Mg .* NaN) === :nonfinite
+        @test VgtkEstimation.pixel_whitening_defect(normalize(fg), hcat(normalize(fg), Mg[:, 2])) === :not_tangent
         good = [VisualGeometryToolkitCore.backproject_with_jacobian(cam, last(c)) for c in exact[3][1:3]]
-        @test_throws r"singular" VE.BearingPoseProblem(VisualGeometryToolkitCore.Correspondences(
+        @test_throws r"singular" VgtkEstimation.BearingPoseProblem(VisualGeometryToolkitCore.Correspondences(
             [first(c) for c in exact[3][[1, 2, 3, 30]]], push!([normalize(g[1]) for g in good], f0); M = push!([g[2] for g in good], fM[2])))
         ids = sort(collect(keys(t.R)))
-        blocks, without = VE._rotation_center_bearing_blocks(singular, ids, exact)
+        blocks, without = VgtkEstimation._rotation_center_bearing_blocks(singular, ids, exact)
         @test without == [(3, 30)] && length(blocks) == 5 * 63 - 1
     end
     @testset "held_parameters: the `fixed` that holds the camera" begin
-        @test VE.held_parameters(cam) == (:controls,)
-        r = solve(RefineProblem(CameraPosesProblem(exact; fixed = VE.held_parameters(cam)), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
+        @test VgtkEstimation.held_parameters(cam) == (:controls,)
+        r = solve(RefineProblem(CameraPosesProblem(exact; fixed = VgtkEstimation.held_parameters(cam)), (; camera = cam, views = start)), LevenbergMarquardt(; optimization_strategy = nothing))
         @test successful_retcode(r) && r.u.camera === cam
     end
     @testset "refusals: a free camera, a box, a `fixed` that is not the controls" begin
@@ -883,7 +883,7 @@ end
     end
     @testset "the bearing block: its Jacobian (ForwardDiff through the bearing residual) matches finite differences; type-stable" begin
         ids = sort(collect(keys(t.R)))
-        blocks, without = VE._rotation_center_bearing_blocks(cam, ids, exact)
+        blocks, without = VgtkEstimation._rotation_center_bearing_blocks(cam, ids, exact)
         @test length(blocks) == 5 * 63 && isempty(without)
         vars = Union{SVector{3, Float64}, SO3Manifold{Float64}}[start.center, start.offset]
         foreach(k -> push!(vars, SO3Manifold{Float64}(SMatrix{3, 3, Float64, 9}(start.rotations[k]))), ids)
@@ -917,14 +917,14 @@ end
     using VisualGeometryToolkitCore: exp_so3, backproject, project, reprojection_error
     using VisualGeometryToolkitEstimation: CameraPosesProblem, RotationCenterViews, rotation_center_pose, BearingResidual, ReprojectionResidual
     using VisualGeometryToolkitCore: solve, EstimationProblem, RefineProblem, LevenbergMarquardt, LmStops, successful_retcode, RadialCamera, CameraModel
-    import VisualGeometryToolkitEstimation as VE
+    import VisualGeometryToolkitEstimation as VgtkEstimation
     cam = spline_truth()
     axes = 4 .* [SVector(0.0, 0.0, 0.0), SVector(0.08, 0.0, 0.0), SVector(0.0, 0.08, 0.0), SVector(-0.06, 0.05, 0.03), SVector(0.05, -0.07, -0.04)]
     t = center_truth(axes)
     start = RotationCenterViews(Dict(k => SMatrix{3, 3, Float64, 9}(exp_so3(SVector(0.002, -0.001, 0.0015))) * R for (k, R) in t.R),
                                 t.c + SVector(0.01, -0.008, 0.012), t.d + SVector(-0.005, 0.004, 0.006))
     views = center_views(cam, t; σ = 0.5)
-    exact_cam = VE._without_forward(cam)
+    exact_cam = VgtkEstimation._without_forward(cam)
     # the pixel residual of a result's views: the rms over every dot of the exact reprojection error
     function pixel_rms(v)
         e = [reprojection_error(exact_cam, rotation_center_pose(v.rotations[k], v.center, v.offset), X, u) for k in keys(views) for (X, u) in views[k]]

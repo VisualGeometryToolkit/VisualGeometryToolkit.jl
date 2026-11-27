@@ -45,7 +45,7 @@ SIMFIT++ ([Edstedt2025](@citet); the reference calls the loss width its threshol
     solve(EstimationProblem(PoolSelection, residuals::AbstractMatrix, (; initial_loss_width[, …])), SimFitPP(); rng)
     solve(EstimationProblem(PoolSelection, pair::PoolPair, (; initial_loss_width[, …])), SimFitPP(); rng)
 
-Every field defaults to configs/default.toml's `[simfitpp]` table, which holds the reference's constructor defaults.
+Every field defaults to configs/default.toml's `[sim_fit_pp]` table, which holds the reference's constructor defaults.
 `alpha` is the inlier coverage the loss width targets (loss_width² = ppf_{χ²_dg}(alpha)·σ²);
 `min_loss_width` and `max_loss_width` bound an acceptable loss width in the
 residual unit of the residuals handed to the estimator (pixels in the
@@ -72,13 +72,13 @@ defaults, 0.25–8 px) and the loss width are all pixels; to work in the pool fr
 pair's stored residual matrix with bounds in that unit ([`with_residual_unit`](@ref)).
 """
 Base.@kwdef struct SimFitPP <: AbstractEstimationAlgorithm
-    alpha::Float64          = _dflt("simfitpp", "alpha")
-    max_iter::Int           = _dflt("simfitpp", "max_iter")
-    ftol::Float64           = _dflt("simfitpp", "ftol")
-    train_fraction::Float64 = _dflt("simfitpp", "train_fraction")
-    min_loss_width::Float64 = _dflt("simfitpp", "min_loss_width")
-    max_loss_width::Float64 = _dflt("simfitpp", "max_loss_width")
-    dg::Int                 = _dflt("simfitpp", "dg")
+    alpha::Float64          = _dflt("sim_fit_pp", "alpha")
+    max_iter::Int           = _dflt("sim_fit_pp", "max_iter")
+    ftol::Float64           = _dflt("sim_fit_pp", "ftol")
+    train_fraction::Float64 = _dflt("sim_fit_pp", "train_fraction")
+    min_loss_width::Float64 = _dflt("sim_fit_pp", "min_loss_width")
+    max_loss_width::Float64 = _dflt("sim_fit_pp", "max_loss_width")
+    dg::Int                 = _dflt("sim_fit_pp", "dg")
 end
 estimator_kind(::SimFitPP) = FitKind()
 supports_solve_rng(::AbstractEstimationProblem, ::SimFitPP) = true   # randomized without being a find: its train/validation splits

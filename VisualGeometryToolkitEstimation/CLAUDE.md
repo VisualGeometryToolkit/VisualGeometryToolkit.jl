@@ -64,7 +64,9 @@ lo = solve(RefineProblem(f, θ₀), LocalOptimization(Irls{TLSShape}(); scoring)
   implement Core's chart contract (`model_chart`, `chart_rows`, `chart_model`,
   `chart_size`, `default_optimization_strategy`, `default_stops`); the bundles
   (`CameraPosesProblem`, `CameraRegressionProblem`, `RobotWorldHandEyeProblem`,
-  `RelativePoseProblem`) its block contract (`block_refit`).
+  `RelativePoseProblem`) its block contract (`block_structure`, `block_variables`, `residual_blocks`,
+  `fixed_variables`, `residual_summary`, `block_result`, `with_robustifier`), from
+  which Core builds and solves the multi-block LM.
 - **Fits** are one algorithm type each: `ReweightedLeastSquares` (on `RotMatrix{3}`,
   `EuclideanMap{3}`, `LinearModel`, `RobotWorldHandEyeCalibration`),
   `RotationAveraging`, `FilteredRotationAveraging`, `ResidualMixture`,
@@ -203,7 +205,7 @@ src/
 │   ├── division_camera_stack.jl  # DivisionCameraProblem, DivisionCameraState, DivisionCameraError: one iteration of DivisionCameraFit
 │   ├── gcv.jl                 # Hyperparameter, GeneralizedCrossValidation, gcv_curve, gcv_score, check_penalty_weight
 │   ├── camera_regression.jl   # CameraRegressionProblem, CameraRegression, PSpline, ForwardSpline, CameraFitMetadata
-│   ├── camera_regression_refine.jl  # the regression's LevenbergMarquardt refine (block_refit), OpticalAxis
+│   ├── camera_regression_refine.jl  # the regression's LevenbergMarquardt refine (block contract), OpticalAxis
 │   ├── pose.jl                # the absolute-pose and bearing-pose physical forms (strip at construction, reattach at solve)
 │   ├── irls_weights.jl        # ReweightedLeastSquares and the fixed-scale IRLS of the reweighted fits
 │   ├── robot_world_hand_eye.jl          # RobotWorldHandEyeCalibration, its staged ReweightedLeastSquares fit

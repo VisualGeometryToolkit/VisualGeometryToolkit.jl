@@ -141,13 +141,11 @@ _check_scoring(_problem, _scoring) = nothing
 # problem's extent is a physical rectangle, stripped in its unit (`_context_extent`).
 _with_context(f, ::NullParameters) = f
 function _with_context(f, p::NamedTuple)
-    keys(p) === (:extent,) || throw(ArgumentError(string(
-        "the context `p` of a RANSAC problem is `(; extent)` (a validity region of the model) or none; got the key(s) ",
-        join(keys(p), ", "))))
+    (; extent) = VgtkCore.read_context(p, (:extent,), (;), "a RANSAC family problem's solve (`extent`, a validity region of the model)")
     _takes_extent(f) || throw(ArgumentError(string("a ", nameof(typeof(f)), " has no extent check: its model is ",
         "validated over no region (an extent context is taken by the homography, the absolute pose, the radial homography ",
         "and the radial camera)")))
-    return with_extent(f, _context_extent(_problem_unit(f), p.extent))
+    return with_extent(f, _context_extent(_problem_unit(f), extent))
 end
 _context_extent(::Nothing, ::Nothing) = nothing
 _context_extent(::Nothing, extent::HyperRectangle{2, <:Real}) = extent
@@ -384,7 +382,7 @@ _run!(c::RansacCache, alg::Ransac) =
         on_improvement = alg.on_improvement, on_hypothesis = alg.on_hypothesis, score_guard = alg.score_guard, rng = c.rng) :
     _no_model_result(model_type(c.problem), c.scoring, c.result, 0, NaN)
 function _run!(c::RansacCache, alg::LocalOptimization)
-    _entry_workspace(c.ws, c.problem, c.scoring, c.lo)
+    _reset_workspace!(c.ws, c.problem)
     return _seed_run!(c, c.seed)
 end
 _seed_run!(c::RansacCache, models::FixedModels) =
@@ -468,11 +466,8 @@ _external_width(w) = throw(ArgumentError(string(
     "a fixed noise scale `width = FixedS2(s2)`; got ", w === nothing ? "none" : repr(w))))
 # The two-view frame an external refiner reads beyond the problem: the context's `frame`, or none.
 _external_frame(::NullParameters) = nothing
-function _external_frame(p::NamedTuple)
-    keys(p) === (:frame,) || throw(ArgumentError(string("the context `p` of an external refit is `(; frame)` (the two-view ",
-        "frame its refiner reads) or none; got the key(s) ", join(keys(p), ", "))))
-    return p.frame
-end
+_external_frame(p::NamedTuple) =
+    VgtkCore.read_context(p, (:frame,), (;), "an external refit (`frame`, the two-view frame its refiner reads)").frame
 
 function reinit!(c::_ExternalRefitCache{P, X, S, L, W, Q, A, C}, θ₀ = c.seed; f = c.problem, p = c.context, alg = c.alg,
         width = c.width, stops::C = c.stops) where {P, X, S, L, W, Q, A, C}
@@ -493,7 +488,7 @@ function solve!(c::_ExternalRefitCache)
     c.prepared = nothing                                     # a later solve! without a reinit! prepares again
     T = _external_record_type(c)
     prepared || return _declined_record(T)                   # no refit made
-    return _as_record(T, _external_refit(c, c.width))
+    return _as_refit_record(T, _external_refit(c, c.width))
 end
 # The refit at the call's width, the width's concrete type dispatched (the cache holds a small Union).
 _external_refit(c, w) = external_refit!(c.ws, c.lo, c.problem, c.seed, w, c.scoring)
@@ -514,6 +509,6 @@ _widened(_) = nothing
 _declined_record(::Type{T}) where {T <: FitResult} =
     T(nothing, nothing, ReturnCode.InitialFailure, SolveStats(), nothing, nothing, nothing, NoRule, NaN, 0, nothing)
 _declined_record(::Nothing) = FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
-_as_record(::Type{T}, r::FitResult) where {T <: FitResult} =
+_as_refit_record(::Type{T}, r::FitResult) where {T <: FitResult} =
     T(r.u, r.resid, r.retcode, r.stats, r.prob, r.alg, r.original, r.stop_rule, r.rms, r.n, r.metadata)
-_as_record(::Nothing, r) = r
+_as_refit_record(::Nothing, r) = r

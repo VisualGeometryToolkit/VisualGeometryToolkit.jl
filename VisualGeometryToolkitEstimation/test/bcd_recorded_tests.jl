@@ -21,7 +21,7 @@ const VgtkCore = VisualGeometryToolkitCore
 # The consensus set of `model`, as `_locally_optimize_seed!` hands it to the
 # local optimizer (`_lo_on_partition!`), on a workspace composed for `lo`.
 function seeded(p, sc, model, lo)
-    ws = VgtkEstimation._entry_workspace(VgtkEstimation.RansacWorkspace(p, sc, lo), p, sc, lo)
+    ws = VgtkEstimation._reset_workspace!(VgtkEstimation.RansacWorkspace(p, sc, lo), p)
     VgtkEstimation._prepare!(p)
     buf = ws.buf
     VgtkCore.score_model!(buf, sc, p, VgtkEstimation._seed_scored!(ws, p, sc, model))

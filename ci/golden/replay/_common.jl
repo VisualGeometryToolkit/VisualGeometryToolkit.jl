@@ -16,6 +16,9 @@ const REFINE_MAP = FieldMap(; renames = ["u" => "estimate", "stats.nsteps" => "i
 # A result whose residuals were never in its metadata (a fit, a pooled scale): `resid` is new.
 const RESULT_MAP = FieldMap(; renames = ["u" => "estimate", "stats.nsteps" => "iterations"],
                             new_only = [_NEW_FIELDS; "resid"], retyped = [""])
+# A bare value (a model, a tuple) replaced by a FitResult: its `u` is the recorded value, every other field new.
+const BARE_MAP = FieldMap(; renames = ["u" => ""], new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original",
+                                                               "stop_rule", "rms", "n", "metadata"])
 # A refusal whose message named the old entry or keywords: the exception's type is compared, its message not.
 const REFUSAL_MAP = FieldMap(; ignored = ["exception.msg"])
 

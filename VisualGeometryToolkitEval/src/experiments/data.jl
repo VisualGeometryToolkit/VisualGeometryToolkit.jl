@@ -372,16 +372,8 @@ _is_under(p, root) = _path_within(_resolved_path(p), _resolved_path(root))
 # Whether the artifact view's Artifacts.toml publishes `name` (a tier that is no artifact is only looked up). The
 # parsed file is cached by path and mtime.
 const _VIEW_TOML = Dict{String, Tuple{Float64, Set{String}}}()
-function _view_has(av::ArtifactView, name::AbstractString)
-    isfile(av.toml) || return false
-    t = mtime(av.toml)
-    c = get(_VIEW_TOML, av.toml, nothing)
-    if c === nothing || c[1] != t
-        c = (t, Set{String}(keys(TOML.parsefile(av.toml))))
-        _VIEW_TOML[av.toml] = c
-    end
-    return name in c[2]
-end
+_view_has(av::ArtifactView, name::AbstractString) =
+    isfile(av.toml) && name in _cached_read(path -> Set{String}(keys(TOML.parsefile(path))), _VIEW_TOML, av.toml)
 
 # Whether `path` is an artifact view or lies inside one (its marker at or above the nearest existing ancestor).
 function _inside_view(path::AbstractString)

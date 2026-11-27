@@ -220,7 +220,9 @@ end
 # only the keys its spec declares: a newer minor's key, which the validator tolerates, is not a keyword.
 
 _four_from(x) = ntuple(i -> Float64(x[i]::Real), 4)
-_source_from(x) = only(s for s in instances(VgtkCore.SensorSource.T) if string(s) == x::String)
+const _SENSOR_SOURCES = instances(VgtkCore.SensorSource.T)
+const _SENSOR_SOURCE_NAMES = map(string, _SENSOR_SOURCES)
+_source_from(x) = _named_instance(_SENSOR_SOURCES, _SENSOR_SOURCE_NAMES, x::String, "SensorSource")
 _declared(spec, b) = Dict{String, Any}(String(k) => v for (k, v) in b if _declares(spec, Symbol(k)))
 _alt(s::_ByType, type) = last(only(a for a in s.alts if first(a) == type))
 

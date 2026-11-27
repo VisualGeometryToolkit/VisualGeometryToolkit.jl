@@ -14,8 +14,6 @@ const HOMOGRAPHY_LOS = [
 ]
 
 # A closed form that returned a bare model now returns a FitResult: its `u` is the old value.
-const DLT_MAP = FieldMap(; renames = ["u" => ""], new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original", "stop_rule",
-                                                             "rms", "n", "metadata"])
 dlt(cs) = solve(EstimationProblem(HomographyMat, cs), DLT())
 
 function replay_homography(cases)
@@ -27,15 +25,15 @@ function replay_homography(cases)
         if !attributed
             inl = collect(1:min(n, 50))
             mask = falses(n); mask[inl] .= true
-            replay!(cases, "dlt/$name/plain", cs, dlt; map = DLT_MAP)
+            replay!(cases, "dlt/$name/plain", cs, dlt; map = BARE_MAP)
             # a mask is data selection (spec §9): the masked correspondences
-            replay!(cases, "dlt/$name/index_mask", (cs, inl), ((cs, m),) -> dlt(cs[m]); map = DLT_MAP)
-            replay!(cases, "dlt/$name/bool_mask", (cs, mask), ((cs, m),) -> dlt(cs[m]); map = DLT_MAP)
+            replay!(cases, "dlt/$name/index_mask", (cs, inl), ((cs, m),) -> dlt(cs[m]); map = BARE_MAP)
+            replay!(cases, "dlt/$name/bool_mask", (cs, mask), ((cs, m),) -> dlt(cs[m]); map = BARE_MAP)
             # `svd_ws` left the public form (a workspace keyword): the same solve
-            replay!(cases, "dlt/$name/svd_ws", cs, dlt; map = DLT_MAP)
+            replay!(cases, "dlt/$name/svd_ws", cs, dlt; map = BARE_MAP)
             w = collect(range(0.2, 1.0; length = n))
             csw = withattrs(Correspondences(VgtkCore.sources(cs), VgtkCore.targets(cs)); weights = w)
-            replay!(cases, "dlt/$name/weights", csw, dlt; map = DLT_MAP)
+            replay!(cases, "dlt/$name/weights", csw, dlt; map = BARE_MAP)
             rng = StableRNG(1)
             idxs = [randperm(rng, n)[1:4] for _ in 1:300]
             replay!(cases, "minimal4pt/$name/300samples", (cs, idxs),
@@ -72,7 +70,7 @@ function replay_homography(cases)
         replay!(cases, "find/too_few_3/seed$seed", few, cs -> hfind(cs; rng = StableRNG(seed)); map = FIND_MAP)
     end
     replay!(cases, "refine/too_few_3/scale1", (few, H), ((cs, H),) -> hrefine(cs, H; scale = 1.0); map = REFINE_MAP)
-    replay!(cases, "dlt/too_few_3", few, dlt; map = DLT_MAP)
+    replay!(cases, "dlt/too_few_3", few, dlt; map = BARE_MAP)
     cs = last(first(homography_scenes()))
     replay!(cases, "refine/refused/no_scale", (cs, H), ((cs, H),) -> hrefine(cs, H); map = REFUSAL_MAP)
     replay!(cases, "refine/refused/scale_and_width", (cs, H), ((cs, H),) -> hrefine(cs, H; scale = 1.0, width = 1.0); map = REFUSAL_MAP)

@@ -143,7 +143,7 @@ function __solve(prob::EstimationProblem{Hyperparameter, ValidationErrors, <:Nam
     for (i, j) in drawn
         v = m.scene_sigma2[i][j]; isfinite(v) && push!(s2, v)
     end
-    isempty(s2) && return FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+    isempty(s2) && return closed_form_result(Union{Int, Nothing}, nothing, 0)
     # FREE ARGMIN within the standardized window at the drawn pairs' reference scale: every native-grid column inside
     # it is a candidate. The WINDOW anchoring (what a scale corruption slides) is the whole mechanism.
     cols = window_columns(scheme.efficiency_constant_window, m.native_grid, prob.p.to_native, reference_scale(s2))
@@ -158,7 +158,7 @@ function __solve(prob::EstimationProblem{Hyperparameter, ValidationErrors, <:Nam
         o = tune_objective(scheme.criterion, view(errbuf, 1:nfin))
         o < best_obj && (best_obj = o; best_col = col)
     end
-    return FitResult(best_col, ReturnCode.Success, ClosedForm, SolveStats(), NaN, length(s2), nothing)
+    return closed_form_result(Union{Int, Nothing}, best_col, length(s2))
 end
 
 # The test errors at the selected column: a precomputed lookup `scene_errors[i][j, col]`.

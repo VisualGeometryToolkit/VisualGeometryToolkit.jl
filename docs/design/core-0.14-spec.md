@@ -1274,3 +1274,12 @@ These are done in Core 0.14, each with its own commit:
   keep their workspace and chart, unchecked, so `solve!(reinit!(c, u0))` allocates as before. The two backend
   `__solve` methods of a `LevenbergMarquardt` (raw data, a family problem) are one method on their `Union`; `_lm_run!`
   returns `(result, record)` (the stop code no caller read is gone; `nlls_stop_code` stays the decoder). Bits `===`.
+- 2026-11-27 (phase-3 review, Estimation/Eval/IO/Features/ci): `refit_workspace(::BoundedProblem)` (both forms) and
+  the one-shot `_shared_refit_workspace` are the inner problem's, since `refine!(ws, ::BoundedProblem, …)` refits the
+  inner problem (an extent-bounded run's refits had all fallen back to a one-shot LM). `ScoreSelection`'s `reinit!(c; alg)` checks the new scorer against the kept workspace (`check_workspace`). Tried and
+  NOT kept, measured on bench014/new.jl (pkgimage code, one thread): the typed `task_buffers(promote_op(…), …, rows)`
+  for the one-shot refit caches makes a one-shot `Ransac`/`LocalOptimization` solve inferred but costs `lo_ransac`
+  128 → 715 allocations per call (fresh-compiled 99: `promote_op` evidently not folded in the pkgimage); the one-shot
+  `solve(RefineProblem(problem, model), BlockCoordinateDescent(…))` in `posterior_irls!` in place of the kept BCD cache
+  saves nothing (fresh-compiled, untyped caches: 127 either way; with the typed caches, pkgimage, 727). Both reverted;
+  the kept-cache design above stands.

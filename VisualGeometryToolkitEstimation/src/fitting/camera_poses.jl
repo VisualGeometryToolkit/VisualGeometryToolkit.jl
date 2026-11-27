@@ -233,7 +233,7 @@ scratch and the camera keeps its family (its lens type).
   (VisualGeometryToolkitCore's `ParameterManifold(camera; box)`), or `nothing`;
   with every parameter `fixed` (nothing to bound) a box is an `ArgumentError`.
 - `optimization_strategy` — the refine contract's strategy, as every
-  `refine_*` takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`,
+  `LevenbergMarquardt` refine takes it: `Triggs{Shape}` (the default, `Triggs{WelschShape}`,
   `configs/default.toml [camera_poses_problem]`), one robustified LM
   (Core's `loss_robustifier`), starting directly from the caller's start
   (`camera`, `poses`, board poses): it runs no least-squares stage, so gross

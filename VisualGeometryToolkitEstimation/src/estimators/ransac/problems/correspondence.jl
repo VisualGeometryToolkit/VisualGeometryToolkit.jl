@@ -231,9 +231,6 @@ const _PointCorrespondences{T} = VgtkCore.Correspondences{
 # silently narrowed (a Float64 pixel set against Float32 board points).
 _canonicalize_pairs(pairs) = _canonicalize_pairs(_correspondence_scalar(pairs), pairs)
 _correspondence_scalar(pairs) = float(promote_type(_point_scalar(eltype(sources(pairs))), _point_scalar(eltype(targets(pairs)))))
-# A plane-point endpoint as the public `find_*` signatures accept it: a 2-vector,
-# plain or with its observation noise (`Uncertain`, `exact`).
-const _PlanePoint = Union{StaticArrays.StaticVector{2}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{2}}}
 # A world-point endpoint of the absolute-pose problem: plain numbers, with or
 # without observation noise (physical points are stripped by the public entry).
 const _PlainPoint3 = Union{StaticArrays.StaticVector{3, <:Real}, VgtkCore.Uncertain{<:StaticArrays.StaticVector{3, <:Real}}}

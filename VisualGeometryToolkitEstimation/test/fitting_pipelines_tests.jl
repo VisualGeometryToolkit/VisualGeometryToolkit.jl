@@ -28,7 +28,6 @@ using Rotations: RotMatrix, RotXYZ, RotY
 using VisualGeometryToolkitCore
 using VisualGeometryToolkitCore: rotation, translation
 using VisualGeometryToolkitCore: MsacScoring
-using VisualGeometryToolkitEstimation: RansacWorkspace
 using VisualGeometryToolkitEstimation
 
 @testset "fitting pipelines" begin
@@ -50,10 +49,8 @@ using VisualGeometryToolkitEstimation
         Ĥ = r.u / r.u[3, 3]
         @test norm(Ĥ - H / H[3, 3]) / norm(H / H[3, 3]) < 1.0e-2
 
-        # A pre-allocated workspace must give the same answer as an internal one:
-        # the same draws (same seed as `r`), the same model and consensus — and
-        # again when the workspace is reused.
-        ws = RansacWorkspace(HomographyProblem{Float64}, length(src))
+        # A solve at the same seed as `r` gives the same answer (the same draws, the same model and consensus) —
+        # again on a second run in the same task, whose refit caches are the task's.
         for _ in 1:2
             r2 = solve(EstimationProblem(HomographyProblem(StructArray(src .=> dst))), Ransac(); rng = StableRNG(134))
             @test r2 !== nothing && successful_retcode(r2)
@@ -91,7 +88,6 @@ using VisualGeometryToolkitEstimation
             @test sampson_distance(r.u, u₁[i], u₂[i]) < 5.0
         end
 
-        ws = RansacWorkspace(FundMatProblem{Float64}, length(u₁))
         @test solve(EstimationProblem(FundMatProblem(StructArray(u₁ .=> u₂))), Ransac(); rng = StableRNG(138)) !== nothing
     end
 
@@ -145,7 +141,6 @@ using VisualGeometryToolkitEstimation
         @test rotation_error_deg(r.u, R_gt) < 1.0
         @test translation_error(r.u, t_gt) < 0.05
 
-        ws = RansacWorkspace(AbsolutePoseProblem, length(src))
         @test solve(EstimationProblem(AbsolutePoseProblem(cam, StructArray(src .=> dst))), Ransac(); rng = StableRNG(142)) !== nothing
         # fewer than the P3P minimal sample: no hypothesis; a minimal sample is
         # searched, and holds no consensus beyond itself

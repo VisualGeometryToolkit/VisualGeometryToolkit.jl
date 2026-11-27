@@ -28,8 +28,6 @@ const POSELIB_FAMILY = (relpose_cam = "relpose_pixels_refine", relpose_bearing =
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "..", "..", "PoseLib", "test", "refine_shim.jl"))
 
 # A closed form that returned a bare model (or `nothing`): `u` is it, every other field new.
-const PL_BARE = FieldMap(; renames = ["u" => ""], new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original",
-                                                              "stop_rule", "rms", "n", "metadata"])
 
 # The shape of a loss-parametric strategy.
 _strategy_shape(::Irls{S}) where {S} = S
@@ -121,7 +119,7 @@ function _replay_poselib_contract!(cases)
 end
 
 function _replay_poselib_refine_scene!(cases)
-    M, R, B = RESULT_MAP, REFUSAL_MAP, PL_BARE
+    M, R, B = RESULT_MAP, REFUSAL_MAP, BARE_MAP
     s = poselib_refine_scene()
     kw(w) = (; max_iter = 25, optimization_strategy = Irls{TLSShape}(), width = w)
     edlt(cs) = solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))

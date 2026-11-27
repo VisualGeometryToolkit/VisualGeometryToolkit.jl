@@ -61,7 +61,8 @@ unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`
     `fine_search`, `coarse_fine_search`, `coarse_fine_cv`, `coarse_fine_cv_batched`, `probe_curve` and `fine_stage`
     are deleted (the two stages are internal);
   - the bootstrap harness's per-draw selection: `solve(EstimationProblem(Hyperparameter, ValidationErrors(label,
-    scene_errors, scene_sigma2, native_grid), (; pairs, to_native)), scheme::WindowedBootstrap)` (`ClosedFormKind`);
+    scene_errors, scene_sigma2, native_grid), (; pairs, to_native)), scheme::WindowedBootstrap)` (`ClosedFormKind`;
+    Core's `closed_form_result`, a `FitResult{Union{Int, Nothing}}` either way, so the per-draw solve is inferred);
     `bootstrap_trials(errors, scheme, protocol, n; to_native)` and `compute_method_rows(errors, scheme; protocol,
     to_native)` take the data and the scheme. `WindowedGridMethod`, `BootstrapMethod`, `tune` and `evaluate` are
     deleted;

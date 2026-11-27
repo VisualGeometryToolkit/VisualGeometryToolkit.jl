@@ -1,7 +1,8 @@
 @testitem "ScoreSelection: the best-scoring stored model of a pool, one-shot and streamed over a budget" begin
     using Test, StableRNGs
     using VisualGeometryToolkitCore: solve, init, solve!, reinit!, EstimationProblem, MsacScoring, ReturnCode, ClosedForm,
-        NoRule, ClosedFormKind, estimator_kind
+        NoRule, ClosedFormKind, estimator_kind, StudentTUniformScoring, JeffreysPrior, IGPrior, FlatLabelPrior, with_width,
+        OutlierHalfwidth
     using VisualGeometryToolkitEstimation: ScoreSelection, PoolSelection
     import VisualGeometryToolkitEstimation as VgtkEstimation
 
@@ -30,6 +31,16 @@
     allocs(c, M) = @allocations solve!(reinit!(c; p = (; budget = M)))   # a function barrier: no global in the call
     allocs(c, M)
     @test allocs(c, M) == 0
+
+    # a new scorer of the cache's type: one whose workspace tables match is taken; another scale prior is refused
+    # (its tables are not the kept workspace's) — init a new cache for it
+    st = StudentTUniformScoring(1, 3.0; scale_prior = JeffreysPrior(), label_prior = FlatLabelPrior())
+    cs = init(EstimationProblem(PoolSelection, D), ScoreSelection(st))
+    solve!(cs)
+    st4 = with_width(st, OutlierHalfwidth(4.0))
+    @test solve!(reinit!(cs; alg = ScoreSelection(st4))).u === solve(EstimationProblem(PoolSelection, D), ScoreSelection(st4)).u
+    @test_throws ArgumentError reinit!(cs; alg = ScoreSelection(
+        StudentTUniformScoring(1, 3.0; scale_prior = IGPrior(2.0, 1.0), label_prior = FlatLabelPrior())))
 
     # no model scores above −Inf (here: no model): index 0, a failure
     rf = solve(EstimationProblem(PoolSelection, zeros(n, 0)), ScoreSelection(sc))

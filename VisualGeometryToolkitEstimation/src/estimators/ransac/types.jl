@@ -125,14 +125,12 @@ struct RansacMetadata{T, S} <: AbstractFitMetadata{S}
     lo_stop_rule::StopRule
     nonfinite_scale::Bool
 end
-# A result whose scale was not dropped (every result before the field, and every search with no model).
+# A result whose scale was not dropped as non-finite (`nonfinite_scale = false`; every search with no model).
 RansacMetadata{T, S}(weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule) where {T, S} =
     RansacMetadata{T, S}(weights, quality, scale, scale_source, dof, sample_acceptance_rate, lo_retcode, lo_stop_rule, false)
 
 # The local-optimization record of a model no local optimization ran for: SciMLBase's "not run".
 const _LO_NOT_RUN = (ReturnCode.Default, NoRule)
-
-# The weights' kind is the scorer's, the producer (Core's one `AbstractFitMetadata` method).
 
 """
     RansacEstimate{M, T, S} = FitResult{Union{M, Nothing}, RansacMetadata{T, S}}
@@ -225,7 +223,7 @@ function _pooled_scale(scales::AbstractVector, dofs::AbstractVector)
     end
     pooled == 0 && return FitResult(NaN, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, PooledScaleMetadata(NaN, ScaleNone, 0, 0, left_out))
     σ = sqrt(num / den)
-    return FitResult(σ, ReturnCode.Success, ClosedForm, SolveStats(), NaN, pooled, PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
+    return closed_form_result(σ, pooled; metadata = PooledScaleMetadata(σ, ScaleEstimated, den, pooled, left_out))
 end
 
 # The lean result of one local-optimization refit is VisualGeometryToolkitCore's
@@ -399,8 +397,8 @@ _set_n!(r::RansacResultBuffers, n::Int) = (VgtkCore.resize_buffers!(n, r.residua
 """
     set_n!(ws::RansacWorkspace, n::Int) -> ws
 
-In-place trim every internal length-`data_size` buffer of `ws` to `n`. Used by
-every entry when an oversized shared workspace is supplied via `workspace=`,
+In-place trim every internal length-`data_size` buffer of `ws` to `n`. Run at
+the entry of every solve on a cache's workspace (kept from a larger problem),
 so all consumers see vectors whose `length` equals the current problem's
 `data_size(problem)`. `resize!` is O(1) on shrink.
 

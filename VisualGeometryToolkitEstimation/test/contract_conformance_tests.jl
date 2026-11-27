@@ -83,14 +83,11 @@ function line_scenes()
     pih = InhomLineFittingProblem([SVector(q[1], q[2]) for q in pts])
     return (pl, fitted(pl, 0.25)), (pih, fitted(pih, 0.25))
 end
+# FindScenes' hand-eye motions (test/fixtures/find_scenes.jl)
 function hand_eye_scene()
-    rng = StableRNG(29)
-    sc = robot_world_hand_eye_scene(rng; N = 30, Y = (ang_max = π, t_scale = 2.0), X = (ang_max = π, t_scale = 0.1),
-                                    A = (ang_max = π / 3, t_scale = 0.5))
-    X, Y, A = only(sc.X), sc.Y, sc.A
-    B = [perturb_pose(rng, marker_pose(Y, A[i], X); σ_R = 0.001, σ_t = 0.001) for i in eachindex(A)]
-    p = HandEyeProblem(A .=> B)
-    r = solve(EstimationProblem(HandEyeProblem(A .=> B)), Ransac(); rng = StableRNG(31))
+    AB, _ = RadialCameraScene.hand_eye_scene()
+    p = HandEyeProblem(AB)
+    r = solve(EstimationProblem(HandEyeProblem(AB)), Ransac(); rng = StableRNG(31))
     @test successful_retcode(r)
     return p, convert(model_type(p), r.u)
 end

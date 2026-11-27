@@ -4,8 +4,8 @@
 #
 # The hypothesis generator of a benchmark pool: the RANSAC trial (`_draw_trial!`,
 # loop.jl — the same draw → test_sample → sample_models → sample_hypothesis → test_model
-# that `ransac` runs) repeated until enough samples have produced a model. It
-# verifies no consensus and selects nothing, so it is not a `find_*`; a random
+# that a `Ransac` solve runs) repeated until enough samples have produced a model. It
+# verifies no consensus and selects nothing, so it is not a find; a random
 # draw is a trial, and `draw_sample!` names one trial's sample.
 # =============================================================================
 

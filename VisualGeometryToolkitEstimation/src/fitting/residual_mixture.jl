@@ -69,7 +69,7 @@ mahalanobis_distances!(d::AbstractVector, p::_FixedDistances, _held) = copyto!(d
 # posterior below eps stored as an exact 0, and a datum the fit did not take a
 # weight of 0), its scale the E-step's σ̂ (`ScaleEstimated`), `n` the support
 # (the data of positive weight) and `rms` the weight-weighted root mean square —
-# the find_* results' own rule, `_posterior_support_rms!`.
+# a `Ransac` result's own rule, `_posterior_support_rms!`.
 
 """
     ResidualMixtureMetadata <: AbstractFitMetadata{PosteriorWeightState}

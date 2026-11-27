@@ -58,15 +58,15 @@ using VisualGeometryToolkitCore: VisualGeometryToolkitCore,
 # VisualGeometryToolkitCore.optimization_path etc.).
 # THE estimator result type and the accessors RVG reads it through (VGC
 # base/fit_result.jl). Every fit here returns a FitResult.
-using VisualGeometryToolkitCore: FitResult, weights, successful_retcode, noise_scale, scale_source, dof
+using VisualGeometryToolkitCore: FitResult, closed_form_result, weights, successful_retcode, noise_scale, scale_source, dof
 # Its termination record (VGC base/return_code.jl): every result records its ReturnCode and StopRule
 # through FitResult's constructor.
 using VisualGeometryToolkitCore: ReturnCode, StopRule, found_model,
     worst_retcode, NoRule, ClosedForm, CostDecrease, IncrementSize, ParameterChange, NoImprovement,
     ToleranceMet, IterationCap, NonFinite, TrialBudget, AdaptiveCount, SeedKept
 # The robust contract's scale record and weight kinds (VGC base/scale_source.jl,
-# robust/weights.jl): RansacMetadata records the scorer's scale and its kind; the refine_* results
-# (fitting/_refine.jl) the scale they were handed.
+# robust/weights.jl): RansacMetadata records the scorer's scale and its kind; a LevenbergMarquardt refine's result
+# (Core's RefineMetadata) the scale it was handed.
 using VisualGeometryToolkitCore: ScaleSource, ScaleEstimated, ScaleNone, BinaryWeights,
     PosteriorWeights, unit_weights
 # Units at the boundary (src/units.jl; VGC conventions/units.md): a public

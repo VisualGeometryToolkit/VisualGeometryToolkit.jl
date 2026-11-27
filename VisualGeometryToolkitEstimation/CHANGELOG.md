@@ -66,6 +66,10 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
     → 120 / 19568, `lo_irls_msac` 166 / 39752 → 121 / 19728; batches `lo_ransac` 1807 / 345088 → 966 / 164104,
     `lo_irls_msac` 1333 / 319760 → 974 / 165784, `lo_irls_stu` 1153 / 439632 → 790 / 286744; a `LocalOptimization`
     cache's reuse 0 / 0.
+  - An extent-bounded run (`p = (; extent)`, a `BoundedProblem`) refits on its workspace's kept refit cache: its
+    `refit_workspace` is its inner problem's, the problem `refine!` refits (a slot built for the wrapper never matched,
+    so every refit was a one-shot LM). The context `p` of a find, an external refit and a `ScoreSelection` is read by
+    Core's one `read_context` (its `ArgumentError`). Bit-identical.
 
 - **`Rigid3` is retired** (check_naming R20, a `const` naming one concrete type; owner 2026-11-24). The hand-eye problem
   carries its motion type as a parameter, `HandEyeProblem{S, U, E}` (`model_type` `E`, an unlabeled
@@ -139,7 +143,8 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   `(InternalLinearSolveFailed, NoRule)`, recorded directly. BlobBoards' per-blob IRLS calls both.
 - **`ScoreSelection(scoring)`** (new, `ClosedFormKind`): the best-scoring stored model of a hypothesis pool,
   `solve(EstimationProblem(PoolSelection, pair => R | R), ScoreSelection(scoring))`, with a streaming cache
-  (`reinit!(c; p = (; budget))` continues a running best over a sampling budget): the sample-budget engine's
+  (`reinit!(c; p = (; budget))` continues a running best over a sampling budget; `reinit!(c; alg)` takes a new scorer
+  of the cache's type, checked against the kept workspace, `check_workspace`): the sample-budget engine's
   selection, formerly hand-rolled in VisualGeometryToolkitEval.
 - **`LikelihoodRatioSelection(refine)`** (new, `RefineKind`): model selection between refines,
   `solve(RefineProblem(f, (θ₁, θ₂, …)), LikelihoodRatioSelection(LocalOptimization(…)))` keeps the candidate whose

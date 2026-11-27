@@ -102,7 +102,7 @@ minimal_sample_size(::Type{<:AbstractRansacProblem{K}}) where {K} = K
     _holds_minimal_sample(m, n) -> Bool
 
 THE rule for "enough data for a minimal sample": `n` points hold one of `m`.
-Every constructor's refusal, every `find_*` pipeline's early `nothing`, the
+Every constructor's refusal, a `Ransac` solve's early no-model result, the
 covariance's degenerate-set exit and a weighted refit's over-determination
 (`m + 1` points) ask this one question.
 """

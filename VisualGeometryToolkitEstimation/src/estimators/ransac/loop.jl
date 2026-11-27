@@ -43,7 +43,7 @@ function _ransac!(
         rng::Random.AbstractRNG
     )
     _check_scoring(problem, scoring)
-    _entry_workspace(ws, problem, scoring, local_optimization_strategy)
+    _reset_workspace!(ws, problem)
     _set_n!(result, data_size(problem))
     return _ransac_placed(
         lo_placement(local_optimization_strategy),
@@ -90,7 +90,7 @@ end
 # trimmed to `data_size(problem)`. And the previous call's incumbent is cleared:
 # a run that never accepts a candidate would otherwise `_finalize` the stale
 # `best_model` as :converged.
-function _entry_workspace(ws::RansacWorkspace, problem, scoring, lo)
+function _reset_workspace!(ws::RansacWorkspace, problem)
     set_n!(ws, data_size(problem))
     ws.has_best = false
     ws.best_lo_retcode, ws.best_lo_stop_rule = _LO_NOT_RUN
@@ -389,8 +389,6 @@ function _seed_scored_predictive!(ws, p, scoring, θ)
     score_model!(ws.buf, scoring, p, θ)
     return _covariance_scored(scoring, p, θ, ws.buf.mask)
 end
-# The storage-boundary `convert` (labels an unlabeled map into the workspace's
-# model type), applied to an uncertain seed's geometry.
 # A seed as the inner loop's model: the problem's refine contract reads it (`guess_model`: its type, its frames, a
 # physical guess stripped in metres), an `Uncertain` seed's covariance kept.
 _seed_model(problem, θ) = guess_model(problem, θ)

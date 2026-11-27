@@ -194,6 +194,11 @@ test_consensus(p::BoundedProblem, m, mask::BitVector) =
 # LO machinery shared with the inner problem: the one local-optimization step.
 refine!(ws, p::BoundedProblem, θ, weights::AbstractVector) =
     refine!(ws, p.inner, θ, weights)
+# ... so its refit workspace is the inner problem's: the slot then holds the problem `refine!` refits (a slot built for
+# the wrapper would never match it, and every refit would fall back to a one-shot LM).
+refit_workspace(::Type{<:BoundedProblem{P}}, n::Int, lo = nothing) where {P} = refit_workspace(P, n, lo)
+refit_workspace(p::BoundedProblem, lo = nothing) = refit_workspace(p.inner, lo)
+_shared_refit_workspace(p::BoundedProblem, lo) = _shared_refit_workspace(p.inner, lo)
 chart_dof(::Type{<:BoundedProblem{P}}) where {P} = chart_dof(P)   # sizes the refit workspace (`_lm_size`)
 # Spelled at RSDR's arity, not `args...`: a Varargs forwarder was AMBIGUOUS with
 # the constraint-problem protocol's `(problem, _model, ::AbstractVector{Int})` fallback,

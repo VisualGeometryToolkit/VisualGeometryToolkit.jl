@@ -285,7 +285,6 @@ VgtkCore.external_refit!(ws, a::_LoggedArm, _problem, θ, w::VgtkCore.LossWidth,
         n_calls = 20_000
         tasks = map(1:4) do _
             Threads.@spawn begin
-                ws = VgtkEstimation.RansacWorkspace(problems[1], sc, hammered)
                 for _ in 1:n_calls
                     solve(RefineProblem(problems[1], θ), LocalOptimization(hammered; scoring = sc))
                 end
@@ -619,13 +618,9 @@ VgtkCore.external_refit!(ws, a::_LoggedArm, _problem, θ, w::VgtkCore.LossWidth,
         )
     end
 
-    @testset "a pipeline workspace serves any threshold scorer" begin
-        # `RansacWorkspace(P, n)` builds MSAC's tables (at threshold 1.0); a
-        # threshold scorer's workspace is width-free, so the same workspace
-        # serves the class default, another threshold and RANSAC counting.
+    @testset "the class default, another threshold and RANSAC counting" begin
         source_pts, target_pts, _, _ = make_homography_data(n_inliers = 40, n_outliers = 10, seed = 3)
         cs = correspondences(source_pts, target_pts)
-        ws = VgtkEstimation.RansacWorkspace(HomographyProblem{Float64}, length(cs))
         p = HomographyProblem(cs)
         @test successful_retcode(solve(EstimationProblem(HomographyProblem(cs)), Ransac(); rng = StableRNG(132)))
         @test successful_retcode(solve(EstimationProblem(HomographyProblem(cs)), Ransac(; scoring = MsacScoring(HomographyProblem; threshold = 2.0)); rng = StableRNG(133)))

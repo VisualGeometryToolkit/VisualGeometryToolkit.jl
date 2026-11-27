@@ -390,8 +390,6 @@ mixture(r; weighting, model_dof, config = MixtureEmConfig(), kw...) =
     solve(EstimationProblem(PosteriorWeightState, r, (; model_dof)), ResidualMixture(; weighting, config, kw...))
 # A partition too thin to carry a scale: the old `nothing` is the new result's `u`; the new root (the FitResult, whose
 # `u` takes the old root's path) and every other field are new (`""` in `new_only` names the root path only).
-const _NONE_MAP = FieldMap(; renames = ["u" => ""], new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original", "stop_rule",
-                                                                "rms", "n", "metadata"])
 function _eof_mixture!(cases)
     M = _FIT_MAP
     a = 40.0
@@ -401,7 +399,7 @@ function _eof_mixture!(cases)
         replay!(cases, "residual_mix/known_400+100/halfwidth_t3/seed$seed", r, r -> mixture(r; weighting = sc, model_dof = 4); map = M)
         replay!(cases, "residual_mix/known_400+100_f32/halfwidth_t3/seed$seed", Float32.(r), r -> mixture(r; weighting = sc, model_dof = 4); map = M)
         replay!(cases, "residual_mix/known_400+100/thin_partition/seed$seed", r,
-            r -> mixture(r; weighting = HalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a), model_dof = 4); map = _NONE_MAP)
+            r -> mixture(r; weighting = HalfwidthScoring(2; threshold = 1.0e-6, outlier_halfwidth = a), model_dof = 4); map = BARE_MAP)
         r2 = eof_mixture_residuals(seed + 6; n_in = 200, n_out = 50, σ = 1.2, halfwidth = 60.0)
         sc2 = HalfwidthScoring(2; threshold = 4.0, outlier_halfwidth = 60.0)
         replay!(cases, "residual_mix/defaults_200+50/omitted_config/seed$seed", r2, r -> mixture(r; weighting = sc2, model_dof = 3); map = M)

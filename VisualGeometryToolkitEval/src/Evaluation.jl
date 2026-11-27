@@ -83,7 +83,7 @@ import ..Tuning: tuning_criterion_label
 # VisualGeometryToolkitEstimation's problem tag.
 using VisualGeometryToolkitEstimation: Hyperparameter
 import VisualGeometryToolkitCore: __solve
-using VisualGeometryToolkitCore: FitResult, ReturnCode, SolveStats, ClosedForm, NoRule, ToleranceMet, IterationCap
+using VisualGeometryToolkitCore: FitResult, ReturnCode, SolveStats, NoRule, ToleranceMet, IterationCap, closed_form_result
 
 export
     # cv_probe.jl — the coarse-fine search (CoarseFine/JointCoarseFine's solve) and the boundary_hit refusal at

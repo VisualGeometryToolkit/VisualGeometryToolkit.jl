@@ -243,7 +243,7 @@ end
     cs = StructArray(src .=> dst)
     H0 = solve(EstimationProblem(HomographyProblem(cs)), Ransac(); rng = StableRNG(1)).u
     c = 3.0
-    for lo in (Triggs{SmoothTLSShape}(), Triggs{HuberShape}())   # an Irls refine is refused (_refine.jl)
+    for lo in (Triggs{SmoothTLSShape}(), Triggs{HuberShape}())   # an Irls refine is refused (Core's LevenbergMarquardt)
         r = solve(RefineProblem(HomographyProblem(cs), H0), LevenbergMarquardt(; optimization_strategy = lo); width = c)
         w = weights(r)
         @test weight_kind(r) isa IrlsWeights

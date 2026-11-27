@@ -25,7 +25,9 @@ Streaming over a sampling budget (the sample-budget engine's checkpoints): `p = 
 keeps the running best, so `solve!(reinit!(c; p = (; budget = k′)))` with `k′ ≥ k` CONTINUES, scoring models
 `k + 1 … k′` only. A smaller budget, or new data (`reinit!(c; f)`), starts over. The workspace and the per-point scratch
 are the cache's, sized for the points of the data `init` saw: new data with no more points reuse them (a pool of many
-pairs is best initialized on its largest), more points grow them.
+pairs is best initialized on its largest), more points grow them. A new scorer (`reinit!(c; alg)`, a `ScoreSelection` of
+the cache's type) starts over too; one whose workspace tables depend on its configuration (a scale prior's) is checked
+against the kept workspace (`check_workspace`, an `ArgumentError`: init a new cache for it).
 
 # The batched grid form
 
@@ -52,7 +54,7 @@ _pool_sample(pool::Pair{<:PoolPair, <:AbstractMatrix}, j) = view(first(pool).sam
 _check_pool(::AbstractMatrix) = nothing
 _check_pool(pool::Pair{<:PoolPair, <:AbstractMatrix}) = check_residual_matrix(first(pool), last(pool))
 _pool_budget(::NullParameters, M::Int) = M
-_pool_budget(p::NamedTuple{(:budget,)}, M::Int) = min(Int(p.budget), M)
+_pool_budget(p::NamedTuple, M::Int) = min(Int(VgtkCore.read_context(p, (:budget,), (;), "ScoreSelection").budget), M)
 
 mutable struct ScoreSelectionCache{F, S, W}
     pool::F
@@ -78,8 +80,15 @@ end
 function reinit!(c::ScoreSelectionCache{F, S}; f = c.pool, p = (; budget = c.budget), alg = nothing) where {F, S}
     f isa F || throw(ArgumentError("reinit!: the cache holds a $F pool; init a new cache for a $(typeof(f))"))
     R = _pool_residuals(f)
-    alg === nothing || (c.scoring = (alg::ScoreSelection{S}).scoring)
-    if size(R, 1) > length(c.scores)                                  # more points than the scratch holds: grow it
+    grown = size(R, 1) > length(c.scores)
+    if alg !== nothing
+        scoring = (alg::ScoreSelection{S}).scoring
+        # a scorer whose tables depend on its configuration (a scale prior's) is checked against the kept workspace
+        # (an `ArgumentError`: init a new cache for it); a grown workspace is rebuilt from it below
+        grown || check_workspace(scoring, c.ws)
+        c.scoring = scoring
+    end
+    if grown                                                           # more points than the scratch holds: grow it
         c.ws = scoring_workspace(c.scoring, size(R, 1), codimension(c.scoring))
         c.scores = Vector{Float64}(undef, size(R, 1))
     end

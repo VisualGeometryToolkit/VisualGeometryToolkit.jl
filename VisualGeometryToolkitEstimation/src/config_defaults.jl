@@ -12,8 +12,8 @@
 # Consequences worth knowing:
 #
 #   * `RansacConfig()` IS the file, and so is every `Irls{K}()`'s `max_iter`,
-#     every `find_*`'s MSAC `threshold`, and the LO strategy each pipeline
-#     deploys. Partial keyword construction inherits file values for everything
+#     every `Ransac` class default's MSAC `threshold`, and the LO strategy each
+#     class deploys. Partial keyword construction inherits file values for everything
 #     it does not name (`RansacConfig(max_trials = 500)` means "the file,
 #     with max_trials overridden").
 #   * The loaders (`RansacConfig(path)`, `optimization_strategy_from_toml`)

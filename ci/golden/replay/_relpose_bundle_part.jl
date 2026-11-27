@@ -5,8 +5,6 @@
 using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, LmStops, solve
 using VisualGeometryToolkitEstimation: RelativePoseProblem
 
-const _RELPOSE_MAP = FieldMap(; renames = ["u" => ""], new_only = ["", "resid", "retcode", "stats", "prob", "alg", "original",
-                                                                    "stop_rule", "rms", "n", "metadata"])
 
 # The old `max_iter` keyword: the bundle's stops of record with that cap.
 _relpose_cap(f, k) = LmStops(; max_iter = k, ftol = VgtkCore.default_stops(f).ftol)
@@ -18,11 +16,11 @@ function relpose_bundle_replays!(cases)
     for (name, fx) in ep_relpose_fixtures()
         # (a physical seed: a MethodError on both sides, its message naming the new function)
         replay!(cases, "relpose_bundle/$name/default", fx, ((pose, K1, K2, cs),) -> relpose(pose, K1, K2, cs);
-                map = name == "physical_seed_10" ? REFUSAL_MAP : _RELPOSE_MAP)
+                map = name == "physical_seed_10" ? REFUSAL_MAP : BARE_MAP)
         name == "exact_30" && replay!(cases, "relpose_bundle/$name/max_iter200", fx,
-            ((pose, K1, K2, cs),) -> relpose(pose, K1, K2, cs; max_iter = 200); map = _RELPOSE_MAP)
+            ((pose, K1, K2, cs),) -> relpose(pose, K1, K2, cs; max_iter = 200); map = BARE_MAP)
         name == "harness_100" && replay!(cases, "relpose_bundle/$name/max_iter1", fx,
-            ((pose, K1, K2, cs),) -> relpose(pose, K1, K2, cs; max_iter = 1); map = _RELPOSE_MAP)
+            ((pose, K1, K2, cs),) -> relpose(pose, K1, K2, cs; max_iter = 1); map = BARE_MAP)
     end
     return cases
 end

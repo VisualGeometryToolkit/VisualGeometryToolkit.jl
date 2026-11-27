@@ -1079,3 +1079,11 @@ These are done in Core 0.14, each with its own commit:
   keeps it iterating) is a setting of its BCD method (`ScoreBcdMethod`), the method's own progress test, as Core's
   block-coordinate descent places it. No second stops type and no keyword bag exist, so L11 is closed as satisfied by
   this design.
+- 2026-11-27 (coordinator's ruling (a), the TTFX gate): the owner's TTFX gate is the user-visible total, `using
+  VisualGeometryToolkitCore` plus `using VisualGeometryToolkitEstimation` plus the first solve, not the Estimation load
+  alone. Measured on the vcai cluster (job 12045, AMD Threadripper PRO 5975WX, fresh process each, five rounds, medians;
+  OLD main 6fceffd6 against NEW 0f2756c0): `using VisualGeometryToolkitEstimation` alone 56.4 → 94.0 ms (refine) and
+  55.9 → 94.8 ms (ransac), +38 ms (+67–70 %); the two `using`s together 2806.5 → 2865.2 ms (+2.1 %) and 2806.3 →
+  2894.4 ms (+3.1 %); the first solve 6464.4 → 717.7 ms (9.0× faster, a refine) and 6768.8 → 2140.6 ms (3.2× faster, a
+  RANSAC). Accepted: the visible total from `using` to the first result falls from 9.3 s to 3.6 s (refine) and from
+  9.6 s to 5.0 s (ransac). The Estimation load grows by the precompiled solve-interface specialisations it now carries.

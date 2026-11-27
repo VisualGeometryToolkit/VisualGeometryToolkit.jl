@@ -1,5 +1,14 @@
 # VisualGeometryToolkitEval changelog
 
+## 0.11.1
+
+### Fixed
+- **Run keys accept `Float32` values** (and `Float16`), hashed as their exact `Float64`: `_content_key` lowers them
+  where it lowers integers, so `run_key`, `tuning_hash` and the runner's stage key no longer fail with
+  "unexpected Float32 in canonical tree" on a config built in code from a struct's `Float32` fields (BlobBoards'
+  `config_dict(find_boards)`: its `nms.cutoff`, `nms.band_octaves`). A `Float32` keys as its exact double
+  (`0.3f0` as `0.30000001192092896`, apart from `0.3`). No existing key changes: a `Float32` was refused before.
+
 ## 0.11.0
 
 **Breaking: a top-level `[render]` in a `Product` record is an error** (it keyed nothing: a product that read it was

@@ -142,16 +142,18 @@ The content key of the evaluation stack: the SHA-256 (hex, first 16) of `tree`'s
 `canonical_json`, the stack's one canonical encoding; `tree` a TOML config's tree: `nothing`, `Bool`, integers,
 `Float64`, strings, vectors and string-keyed dicts). Key order does not move it, nor a number's spelling: an integral
 float is the integer (`3` and `3.0` key alike, as do `1.0` and `1e0`), and an integer of any type is its value (TOML's
-hex `0x0b10b5eed`, an unsigned integer, keys as `2970312429`).
-An integer past ±2^53 (not exactly a double: Core's bound) is an `ArgumentError` naming its key path (`arm.seeds[2]`).
+hex `0x0b10b5eed`, an unsigned integer, keys as `2970312429`), and a float narrower than `Float64` is its exact
+`Float64` (a `Float32` `0.3f0` keys as `0.30000001192092896`, never as `0.3`: a config built in code may hold the
+`Float32` fields of a struct). An integer past ±2^53 (not exactly a double: Core's bound) is an `ArgumentError` naming its key path (`arm.seeds[2]`).
 Fixed across Julia versions (unlike `Base.hash`). Behind Experiments `run_key`, Tuning `tuning_hash` and the runner's
 stage key.
 """
 _content_key(tree) = bytes2hex(sha256(canonical_json(_lower_integers(tree, ""))))[1:16]
 
-# The caller's lowering of a TOML tree for `canonical_json` (Core's encoding takes `Int64` only, and leaves lowering to
-# the caller): every integer to its `Int64`, refused by its key path past ±2^53. Keying only: a config keeps the
-# integers it parsed, as `3` and `3.0` key alike and stay apart.
+# The caller's lowering of a TOML tree for `canonical_json` (Core's encoding takes `Int64` and `Float64` only, and leaves
+# lowering to the caller): every integer to its `Int64`, refused by its key path past ±2^53; every `Float16`/`Float32`
+# to its exact `Float64` (every one is a double). Keying only: a config keeps the numbers it holds, as `3` and `3.0`
+# key alike and stay apart.
 _lower_integers(x, path) = x
 _lower_integers(x::Bool, path) = x                                # an Integer, and stays a Bool
 function _lower_integers(x::Integer, path)
@@ -159,6 +161,7 @@ function _lower_integers(x::Integer, path)
         "the integer $(x) at `$(path)` is not exactly a double (|n| ≤ 2^53): no content key holds it; write it as a string"))
     return Int64(x)
 end
+_lower_integers(x::Union{Float16, Float32}, path) = Float64(x)  # exact: a narrower float is a double
 _lower_integers(x::AbstractVector, path) = Any[_lower_integers(v, "$(path)[$i]") for (i, v) in enumerate(x)]
 _lower_integers(x::AbstractDict, path) = Dict{keytype(x), Any}(k => _lower_integers(v, _key_path(path, k)) for (k, v) in x)
 # A TOML key path: dotted, a key that is not a bare TOML key quoted (`arm."seeds.b"`).

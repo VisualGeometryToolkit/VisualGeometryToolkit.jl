@@ -68,6 +68,21 @@
         @test e isa ArgumentError && occursin("`n`", e.msg)
     end
 
+    @testset "run_key: a Float32 keys as its exact Float64 (a struct's Float32 fields in a config built in code)" begin
+        tree(cutoff, band) = Dict{String,Any}("name" => "x", "find_boards" => Dict{String,Any}("n" => 3,
+            "nms" => Dict{String,Any}("cutoff" => cutoff, "band_octaves" => band)))
+        f32 = tree(0.3f0, 0.5f0)
+        f64 = tree(Float64(0.3f0), 0.5)                                   # 0.30000001192092896: exact, not 0.3
+        @test RR.run_key(f32) == RR.run_key(f64) == VgtkEval._content_key(f32)
+        @test RR.run_key(tree(0.3f0, Float16(0.5))) == RR.run_key(f64)    # a Float16 too
+        @test RR.run_key(f32) != RR.run_key(tree(0.3, 0.5))               # its value, not its decimal spelling
+        @test f32["find_boards"]["nms"]["cutoff"] isa Float32             # run_key lowered a copy
+        # a key recorded before 0.11.1 (Core's canonical_json of the Float64 tree, computed outside Eval) is unchanged:
+        # Float32 used to be refused, so no recorded key can move
+        @test RR.run_key(f64) == VgtkEval._content_key(f64) == "24f3ce65960d6f19"
+        @test_throws ArgumentError RR.run_key(Dict{String,Any}("w" => NaN32))   # non-finite: refused as a Float64 is
+    end
+
     @testset "load_run_config sanity" begin
         dir = mktempdir()
         good = joinpath(dir, "good.toml")

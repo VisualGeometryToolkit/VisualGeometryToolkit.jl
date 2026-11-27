@@ -248,9 +248,9 @@ end
     @test eltype(convert_eltype(D, bc).camera.intrinsics.K) === D
 end
 
-@testitem "downstream_hoists: equidistant_chart, pixel_centre, distortion_map(RadialHomography), lens_label, shape_matrix(Disc)" begin
+@testitem "downstream_hoists: equidistant_chart, pixel_center, distortion_map(RadialHomography), lens_label, shape_matrix(Disc)" begin
     import VisualGeometryToolkitCore as VgtkCore
-    using VisualGeometryToolkitCore: equidistant_chart, pixel_centre, distortion_map, RadialHomography, HomographyMat, project,
+    using VisualGeometryToolkitCore: equidistant_chart, pixel_center, distortion_map, RadialHomography, HomographyMat, project,
         lens_label, KannalaBrandt, Division, Lens, DoubleSphere, Perspective, Disc, OrientedDisc, Point2, shape_matrix, Equidistant,
         Tilt, Tangential, Radial, Even, Additive
     using StaticArrays: SVector, SMatrix
@@ -266,8 +266,8 @@ end
     end
     @test equidistant_chart(SVector(0.0, 0.0, 1.0))(SVector(0.1, 0.2, 1.0)) ≈ Lens(Equidistant())(SVector(0.1, 0.2, 1.0))
     # the index → COLMAP centre (PanoramaStitching's three copies: (I[2] − ½, I[1] − ½))
-    @test pixel_centre(CartesianIndex(3, 7)) === SVector(6.5, 2.5)
-    @test pixel_centre(Float32, CartesianIndex(1, 1)) === SVector(0.5f0, 0.5f0)
+    @test pixel_center(CartesianIndex(3, 7)) === SVector(6.5, 2.5)
+    @test pixel_center(Float32, CartesianIndex(1, 1)) === SVector(0.5f0, 0.5f0)
     # BlobBoards' `_radial_distort` (project of the centred lift) is the map, bit for bit in the field
     rh = RadialHomography(HomographyMat(SMatrix{3, 3}(1.0I)), -2.0e-7, Point2(640.0, 480.0))
     Dm = distortion_map(rh)

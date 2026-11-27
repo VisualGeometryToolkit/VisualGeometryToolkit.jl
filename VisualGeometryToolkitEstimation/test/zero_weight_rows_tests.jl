@@ -23,25 +23,25 @@
         return r[(c * (k - 1) + 1):(c * k)]
     end
     zero_last(n) = (w = ones(n); w[n] = 0.0; w)
-    centre(e) = SVector(e.center[1], e.center[2])
+    center_xy(e) = SVector(e.center[1], e.center[2])
 
     @testset "ellipse: a NaN point at weight 0" begin
         pn, _ = ellipse_scene(StableRNG(91), 100; σ = 1.0, outl = 0.0)
         p = EllipseProblem(vcat(pn, [Point2(NaN, NaN)]))
-        e₀ = Ellipse(Point2((centre(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
+        e₀ = Ellipse(Point2((center_xy(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
         @test !all(isfinite, rows_at(p, e₀, 101))
         e₁ = VgtkCore.refine!(VgtkEstimation.refit_workspace(typeof(p), 101), p, e₀, zero_last(101))
         @test e₁ isa Ellipse{Float64}
-        @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
+        @test norm(center_xy(e₁) - center_xy(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
     end
 
     @testset "the Triggs LO (the robustified LM): a NaN point, weighed 0 by its non-finite seed residual" begin
         pn, _ = ellipse_scene(StableRNG(92), 100; σ = 1.0, outl = 0.0)
         p = EllipseProblem(vcat(pn, [Point2(NaN, NaN)]))
-        e₀ = Ellipse(Point2((centre(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
+        e₀ = Ellipse(Point2((center_xy(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
         r = solve(RefineProblem(p, e₀), LocalOptimization(VgtkCore.Triggs{VgtkCore.CauchyShape}(efficiency_constant = 2.5); scoring = VgtkCore.MsacScoring(p; threshold = 5.0)))
         e₁ = r.u
-        @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
+        @test norm(center_xy(e₁) - center_xy(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01
     end
 
     @testset "hand-eye: a NaN motion at weight 0" begin

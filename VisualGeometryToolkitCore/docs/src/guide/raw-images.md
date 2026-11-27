@@ -97,7 +97,7 @@ linearisation, the one the cell kernel applies.
 v = channelview(m)                      # 4 × H/2 × W/2, a view of parent(m)
 g1 = findfirst(==(:G1), bayer_channels(m))
 S = bayer_plane_map(m, g1)              # G₁'s lattice → the sensor's PixelFrame{:colmap}
-x = S(pixel_centre(CartesianIndex(i, j)))   # where G₁ of cell (i, j) sits on the sensor
+x = S(pixel_center(CartesianIndex(i, j)))   # where G₁ of cell (i, j) sits on the sensor
 y = channelview(linearview(m))[g1, i, j]   # its linear value
 ```
 

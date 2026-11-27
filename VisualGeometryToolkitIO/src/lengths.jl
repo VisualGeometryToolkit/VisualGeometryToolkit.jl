@@ -120,7 +120,7 @@ end
 
 # A plain metre value as FlexUnits' base-form length (the sign of a zero kept:
 # `x * m` would add an offset and lose it).
-_metre_quantity(x::Real) = Quantity(Float64(x), dimension(m))
+_meter_quantity(x::Real) = Quantity(Float64(x), dimension(m))
 
 # The file number `x` of a quantity of length dimension `n` (0, 1 or 2: a
 # ratio, a length, an area), written in `u`ⁿ, as plain base units (mⁿ).
@@ -233,7 +233,7 @@ removed — `read_length(x, u)` becoming `base_quantity(x * u)` — when
 FlexUnits applies a rational scale to a float as `x * num / den`, rounded
 once (Deduction42/FlexUnits.jl#131).
 """
-read_length(x::Real, u::Units) = _metre_quantity(_read_power(x, u, 1))
+read_length(x::Real, u::Units) = _meter_quantity(_read_power(x, u, 1))
 
 """
     write_length(q::Quantity, u::Units) -> Float64

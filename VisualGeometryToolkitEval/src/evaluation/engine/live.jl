@@ -16,7 +16,7 @@
 """
     live_runs(scoring, lo, ctxs; problem_of, seed_of, config = RansacConfig(), warmup = true,
               lo_of = nothing, on_improvement_of = nothing, score_guard = false,
-              cancelled = () -> false, finalize = nothing)
+              canceled = () -> false, finalize = nothing)
         -> (; err, trials, wall_s)            # plus `extras` when `finalize !== nothing`
 
 Run one live production RANSAC find, `solve(EstimationProblem(f), Ransac(…); rng)`, per pair context `ctxs[j]`,
@@ -39,9 +39,9 @@ The keywords below default so that the result is exactly the plain run's.
   type as for real pairs, writing to scratch storage, so the loop compiles once
   and the warmup records nothing) and with `j = 1:n` for the pairs.
 - `score_guard` is the `Ransac`'s: per-candidate ScoreGuarded acceptance.
-- `cancelled()` is polled before each pair; a cancelled pair is not run and keeps
+- `canceled()` is polled before each pair; a cancelled pair is not run and keeps
   `err = Inf`, `trials = 0`, `wall_s = NaN`. Pairs are threaded, so a pair already
-  started finishes. [`VisualGeometryToolkitEval.Experiments.cancelled`](@ref) is the kaimon-aware poll.
+  started finishes. [`VisualGeometryToolkitEval.Experiments.canceled`](@ref) is the kaimon-aware poll.
 - `finalize(j, r)` runs after pair `j`'s find result `r` (a FitResult), on the pair's
   thread and outside its wall bracket; its values come back as
   `extras::Vector{Any}` (`nothing` for a pair not run). Without `finalize` the
@@ -50,7 +50,7 @@ The keywords below default so that the result is exactly the plain run's.
 function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ctxs::AbstractVector{<:PairCtx};
                    problem_of, seed_of, config::RansacConfig = RansacConfig(),
                    warmup::Bool = true, lo_of = nothing, on_improvement_of = nothing,
-                   score_guard::Bool = false, cancelled = () -> false, finalize = nothing)
+                   score_guard::Bool = false, canceled = () -> false, finalize = nothing)
     n = length(ctxs)
     problem_at(j) = problem_of(ctxs[j].pair)
     lo_at(j) = lo_of === nothing ? lo : lo_of(j)
@@ -62,7 +62,7 @@ function live_runs(scoring, lo::Union{Nothing, AbstractOptimizationStrategy}, ct
     err = fill(Inf, n); trials = zeros(Int, n); wall_s = fill(NaN, n)
     extras = Any[nothing for _ in 1:n]
     Threads.@threads for j in 1:n
-        cancelled() && continue
+        canceled() && continue
         prob = problem_at(j)
         rng = StableRNG(seed_of(j))
         loj = lo_at(j); cb = cb_at(j)

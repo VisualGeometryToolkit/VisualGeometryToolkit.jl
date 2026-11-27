@@ -194,12 +194,12 @@ const Record = Union{JSON.Object, NamedTuple}
 # A parameter vector on the wire: lengths (by `mask`) in the style's unit, the
 # rest as they are; and back, plain (lengths in metres, a placed target's chart
 # numbers as stored).
-_parameters_json(θ, mask, u) = Float64[mask[i] ? _metres_json(θ[i], u) : Float64(θ[i]) for i in eachindex(θ)]
+_parameters_json(θ, mask, u) = Float64[mask[i] ? _meters_json(θ[i], u) : Float64(θ[i]) for i in eachindex(θ)]
 function _parameters_from_json(p, mask, u, kind::AbstractString)
     length(p) == length(mask) || throw(
         ArgumentError("a \"$kind\" record takes $(length(mask)) parameters (its kind's parameter_vector); got $(length(p))")
     )
-    return Float64[mask[i] ? metres(p[i], u) : Float64(p[i]::Real) for i in eachindex(mask)]
+    return Float64[mask[i] ? meters(p[i], u) : Float64(p[i]::Real) for i in eachindex(mask)]
 end
 
 # The record of a parametric value `x` of tag `tag`: its structure (`structure`,
@@ -322,7 +322,7 @@ function lattice_json(cs::ChartSpline; name::Symbol, present::Union{Nothing, Abs
     present === nothing || size(present) == size(cs.controls) || throw(
         ArgumentError("lattice_json: `present` is $(size(present, 1)) × $(size(present, 2)), the lattice $(size(cs.controls, 1)) × $(size(cs.controls, 2))")
     )
-    f = length_unit === nothing ? identity : x -> _metres_json(x, length_unit)
+    f = length_unit === nothing ? identity : x -> _meters_json(x, length_unit)
     return _lattice_json(cs.area, _held_mask(present, size(cs.controls)), NamedTuple{(name,)}(((cs.controls, f),)))
 end
 

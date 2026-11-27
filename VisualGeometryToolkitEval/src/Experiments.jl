@@ -89,13 +89,13 @@ export Stage, run_stages, run_driver, run_isolated, set_driver_context!, require
 # Cooperative hooks of a kaimon warm-REPL run: no dependency on kaimon; they act
 # only when the session has defined `Main.KaimonGate`.
 """
-    cancelled() -> Bool
+    canceled() -> Bool
 
 Whether a kaimon `cancel_eval` was requested for the running evaluation
 (`Main.KaimonGate.is_cancelled()`); `false` outside a kaimon session. Poll it from
-long loops, e.g. `live_runs(...; cancelled = Experiments.cancelled)`.
+long loops, e.g. `live_runs(...; canceled = Experiments.canceled)`.
 """
-cancelled() = isdefined(Main, :KaimonGate) && Base.invokelatest(Main.KaimonGate.is_cancelled)::Bool
+canceled() = isdefined(Main, :KaimonGate) && Base.invokelatest(Main.KaimonGate.is_cancelled)::Bool
 
 """
     progress(msg) -> nothing
@@ -108,7 +108,7 @@ function progress(msg::AbstractString)
     return nothing
 end
 
-public cancelled, progress
+public canceled, progress
 
 # The stage runner — Stage, run_stages, require_input.
 include("experiments/stages.jl")

@@ -10,7 +10,7 @@
 # Kernel of [`NearestPoint`](@ref), whose docstring is the one copy of its documentation: `_nearest_point(lines) -> SVector{N}`.
 function _nearest_point(lines::AbstractVector{<:Pair{<:StaticVector{N, <:Quantity}, <:StaticVector{N}}}) where {N}
     # Origins that are lengths: stripped in metres once, the plain solve, metres back.
-    stripped = [strip_metres(first(l)) => last(l) for l in lines]
+    stripped = [strip_meters(first(l)) => last(l) for l in lines]
     w = weights_column(lines)
     return _nearest_point(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w)) .* m
 end

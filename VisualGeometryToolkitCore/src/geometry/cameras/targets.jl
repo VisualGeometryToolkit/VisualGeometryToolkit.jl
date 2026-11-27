@@ -327,7 +327,7 @@ function _check_board(nominal, bd, c, on_board::Bool = true)
     (bd === nothing || nominal === nothing || isempty(nominal) || !on_board) && return nothing
     r = _grown_rect(Rect(bd))
     for p in nominal
-        q = has_units(bd) ? strip_metres(p) : p
+        q = has_units(bd) ? strip_meters(p) : p
         _in_rect(r, q) || throw(
             ArgumentError("PlanarTarget: the nominal point $(Tuple(q)) lies off the board, $(Tuple(r.origin)) to $(Tuple(r.origin + r.widths))")
         )
@@ -730,14 +730,14 @@ _calibration_unit_move(t::PlanarTarget, f) = t.placement === nothing ? f(t.calib
 FlexUnits.ustrip(u::Units, t::PlanarTarget) = _unit_moved(
     t, _move_board(ustrip, u, t.layout, true), p -> strip_point(u, p),
     _calibration_unit_move(t, c -> _ustrip_calibration(u, c)),
-    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_placement(t.placement, x -> _from_metres(x, u))
+    _move_board(ustrip, u, t.board, true), _move_board(ustrip, u, t.canvas, true), _move_placement(t.placement, x -> _from_meters(x, u))
 )
 _unit_attached(u, x) = with_unit(x, u)   # `with_unit` in `ustrip`'s argument order, for `_move_board`
 with_unit(t::PlanarTarget, u::Units) = _unit_moved(
     t, _move_board(_unit_attached, u, t.layout, false), p -> attach_point(u, p),
     _calibration_unit_move(t, c -> _attach_calibration(u, c)),
     _move_board(_unit_attached, u, t.board, false), _move_board(_unit_attached, u, t.canvas, false),
-    _move_placement(t.placement, x -> _to_metres(x, u))
+    _move_placement(t.placement, x -> _to_meters(x, u))
 )
 # A layout target's points are derived from its moved layout by the constructor,
 # so they stay the layout's points exactly.

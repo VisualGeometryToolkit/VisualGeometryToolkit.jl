@@ -131,7 +131,7 @@ weights (`BinaryWeights`) for least squares.
 
 ```julia
 R = solve(EstimationProblem(RotMatrix{3}, cs), ReweightedLeastSquares(); scale = rotation_find_result)
-align = solve(EstimationProblem(EuclideanMap{3}, centres .=> truth),
+align = solve(EstimationProblem(EuclideanMap{3}, centers .=> truth),
               ReweightedLeastSquares(; optimization_strategy = Irls{WelschShape}()); scale = 0.005)
 ```
 

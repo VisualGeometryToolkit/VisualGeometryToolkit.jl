@@ -1003,3 +1003,19 @@ These are done in Core 0.14, each with its own commit:
   `_BundleStatement` (blocks, variables, and the assembly `finish(sol, loss)`, each wrapper's reading composed onto
   it), concrete, so `block_result` never re-states (the 1B port ran the pipeline three times per solve, through a
   `Ref{Any}` record: CameraPoses ~1.5× slower, the robot-world refine not inferred). Bit-identical.
+- 2026-11-27 (1C), decision 11, wave 2: every British-spelled identifier in the monorepo is American; the inventory
+  is the 1C helper's `inventory.tsv`.
+  - Public renames, no aliases: Core `pixel_center`, `pixel_centers`, `strip_meters`, `truncated_log_normalizer`,
+    `is_inside_texel_centers`, `PolygonRegion.center`; IO `meters`; Eval `Experiments.canceled` (and `live_runs`'
+    `canceled` keyword). The released function names are in `RETIRED_NAMES`. A one-word function is listed by its
+    call form (`"metres("`, `"cancelled("`) because the bare word is prose. A field name is not listed.
+  - `honoured_stops`/`check_honoured_stops` (1B set 2, above) were never released: they are renamed
+    `honored_stops`/`check_honored_stops` in place, with no `RETIRED_NAMES` entry (the `PoseLibProblem` precedent).
+  - The stored key: the region body's polygon `"centre"` → `"center"`. No vgio kind embeds a polygon, so no vgio
+    schema steps. IO's public `migrate_region(body)` is the one step body for an embedding kind (RC's
+    `rc/initialization_region`, `rc/image_region`: each owner adds its version step). The RC records found (236
+    `rc/initialization_region/v1.0` files) all hold a rect.
+  - Kept as recorded data: the golden case labels (`units_40_metres`, `centre_board_raw`, …, in `ci/golden/records`)
+    and wave 1's `FOREIGN_FORMAT_TOKENS`. Kept as foreign: KaimonGate's `is_cancelled`. `Disc`/`OrientedDisc`
+    (and the stored `"disc"`/`"oriented_disc"` tags) are left as accepted American spellings (lead's call).
+  - No content identity moves: no hashed tree holds a renamed name. No golden record stores one.

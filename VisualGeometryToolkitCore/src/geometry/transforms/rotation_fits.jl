@@ -13,7 +13,7 @@
 
 # Kernel of [`Kabsch`](@ref), whose docstring is the one copy of its documentation: `_kabsch(cs) -> RotMatrix{3, T}`.
 function _kabsch(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Quantity}, <:StaticVector{3, <:Quantity}}})
-    stripped = [strip_metres(first(p)) => strip_metres(last(p)) for p in cs]
+    stripped = [strip_meters(first(p)) => strip_meters(last(p)) for p in cs]
     w = weights_column(cs)
     return _kabsch(w === nothing ? stripped : withattrs(Correspondences(sources(stripped), targets(stripped)); weights = w))
 end

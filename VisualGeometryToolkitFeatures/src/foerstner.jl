@@ -504,11 +504,11 @@ function _foerstner_windows(
     border = max(integration_radius, nonmax_radius) + 1
     keep = KA.allocate(device, Bool, rows, cols)
     _launch!(_second_suppression!, device, keep, is_max, ranking, Int32(nonmax_radius), Int32(border); ndrange = (rows, cols))
-    centres = _kept_centres(device, keep, is_max, ranking)
+    centers = _kept_centers(device, keep, is_max, ranking)
 
     # 314–423: both point models in each window
     ρ = ceil(Int, sqrt(12 * σi^2 + 1) / 2) + 1
-    return (; _foerstner_estimates(device, gamma, centres, ρ)..., upscale, grad...)
+    return (; _foerstner_estimates(device, gamma, centers, ρ)..., upscale, grad...)
 end
 
 # 184–207 (the gradient half): the gradient of the doubled image at the doubled derivative σ, by the package's one
@@ -532,29 +532,29 @@ function _foerstner_seeded(device, doubled::AbstractMatrix, seeds; derivative::S
     upscale = 2
     grad = _foerstner_gradient(device, doubled; derivative, derivative_sigma, upscale)
     rows, cols = size(doubled)
-    centres, radii = CartesianIndex{2}[], Int[]
+    centers, radii = CartesianIndex{2}[], Int[]
     for d in seeds
         disc = Disc(d)
         r, c = round(Int, upscale * disc.center[2] + 1), round(Int, upscale * disc.center[1] + 1)
         ρ = ceil(Int, sqrt(12 * (upscale * disc.σ)^2 + 1) / 2) + 1
         (ρ < r <= rows - ρ) && (ρ < c <= cols - ρ) || continue
-        push!(centres, CartesianIndex(r, c)); push!(radii, ρ)
+        push!(centers, CartesianIndex(r, c)); push!(radii, ρ)
     end
-    return (; _foerstner_estimates(device, grad.gamma, centres, radii)..., upscale, grad...)
+    return (; _foerstner_estimates(device, grad.gamma, centers, radii)..., upscale, grad...)
 end
 
 # 314–423: both point models in the window of half-width ρ (one for every window, or one per window) around each
 # centre (doubled 1-based CartesianIndex), each window's redundancy `(2ρ + 1)² − 2`.
-function _foerstner_estimates(device, gamma::AbstractArray{T, 3}, centres, ρ) where {T}
-    centre_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centres])
+function _foerstner_estimates(device, gamma::AbstractArray{T, 3}, centers, ρ) where {T}
+    center_list = ka_upload(Int32, device, [Int32(Tuple(p)[k]) for k in 1:2, p in centers])
     radii = ρ isa Integer ? Int32(ρ) : ka_upload(Int32, device, Int32.(ρ))
-    device_estimates = KA.allocate(device, T, 14, length(centres))
-    isempty(centres) ||
-        _launch!(_window_estimates!, device, device_estimates, gamma, centre_list, radii; ndrange = length(centres))
+    device_estimates = KA.allocate(device, T, 14, length(centers))
+    isempty(centers) ||
+        _launch!(_window_estimates!, device, device_estimates, gamma, center_list, radii; ndrange = length(centers))
     KA.synchronize(device)
     return (;
-        centres, estimates = Float64.(Array(device_estimates)), ρ, radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,   # ρ on the host, radii on the device
-        centre_list, device_estimates,
+        centers, estimates = Float64.(Array(device_estimates)), ρ, radii, redundancy = (2 .* ρ .+ 1) .^ 2 .- 2,   # ρ on the host, radii on the device
+        center_list, device_estimates,
     )
 end
 
@@ -565,7 +565,7 @@ end
 # 228, 249–281: the kept window centres (the second suppression's `keep`), compacted on the device — a count, then
 # each kept pixel's linear index appended — and sorted column-major as MATLAB's find. None when every pixel is a
 # regional maximum of positive rank (255–258: the reference discards a constant image).
-function _kept_centres(device, keep, is_max, ranking)
+function _kept_centers(device, keep, is_max, ranking)
     counts = KA.zeros(device, Int32, 2)
     _launch!(_count_kept!, device, counts, keep, is_max, ranking; ndrange = size(keep))
     n, n_max = Array(counts)
@@ -626,7 +626,7 @@ end
 # each lattice phase, the smaller ν kept (the conservative test).
 function _residual_dof(taps::AbstractMatrix, ρ::Integer, noise = _WhiteNoise())
     # each axis' centre parity on its own (a seeded window's doubled centre is rounded per axis), every lattice phase
-    d = [_residual_dof(taps, ρ, noise, (cr, cc), ε) for cr in _noise_centres(noise) for cc in _noise_centres(noise)
+    d = [_residual_dof(taps, ρ, noise, (cr, cc), ε) for cr in _noise_centers(noise) for cc in _noise_centers(noise)
          for ε in _noise_phases(noise)]
     return (; corner = argmin(c -> c.ν, getproperty.(d, :corner)), circular = argmin(c -> c.ν, getproperty.(d, :circular)))
 end
@@ -671,7 +671,7 @@ end
 struct _WhiteNoise end
 _noise_reach(::_WhiteNoise) = 0
 _noise_phases(::_WhiteNoise) = (1,)
-_noise_centres(::_WhiteNoise) = (0,)                       # the doubling's centre parity changes ν by < 1e-5 under white noise
+_noise_centers(::_WhiteNoise) = (0,)                       # the doubling's centre parity changes ν by < 1e-5 under white noise
 _noise_factors(::_WhiteNoise, n, ε) = [(I, I)]
 
 # The bilinear green image's noise (raw_green.jl) from white photosite noise n (unit variance; masked to the green
@@ -682,7 +682,7 @@ _noise_factors(::_WhiteNoise, n, ε) = [(I, I)]
 struct _BilinearGreenStructure end
 _noise_reach(::_BilinearGreenStructure) = 1
 _noise_phases(::_BilinearGreenStructure) = (1, -1)
-_noise_centres(::_BilinearGreenStructure) = (0, 1)         # the checkerboard makes ν depend on the centre's parity too
+_noise_centers(::_BilinearGreenStructure) = (0, 1)         # the checkerboard makes ν depend on the centre's parity too
 function _noise_factors(::_BilinearGreenStructure, n, ε)
     P = Diagonal([(-1.0)^i for i in 1:n])
     S = diagm(1 => ones(n - 1), -1 => ones(n - 1))
@@ -693,9 +693,9 @@ end
 # the reference's a-posteriori `Ω/redundancy · N⁻¹` unless `covariances` (a 4 × K matrix, column-major 2×2 on the
 # doubled grid, (row, column)) gives the propagated one; `covariance_status` names which.
 function _foerstner_points(found, classes, undouble; covariances = nothing, covariance_status::Symbol = :a_posteriori)
-    (; centres, estimates, redundancy, upscale) = found
+    (; centers, estimates, redundancy, upscale) = found
     unknown_cov = CovMat(SMatrix{2, 2, Float64, 4}(NaN, NaN, NaN, NaN))
-    rows = map(enumerate(centres)) do (k, p)
+    rows = map(enumerate(centers)) do (k, p)
         e = view(estimates, :, k)
         class = classes[k]
         window = undouble(p[1], p[2])
@@ -757,16 +757,16 @@ end
 # the variance of photosite k (0 but at a usable green), `support[q]` pixel q's averaged greens (on the device of
 # `found`).
 function _propagated_covariances(device, found, classes, variance::AbstractMatrix, support = nothing)
-    (; centres, radii, gradient_rows, gradient_columns, taps, centre_list, device_estimates) = found
+    (; centers, radii, gradient_rows, gradient_columns, taps, center_list, device_estimates) = found
     H, W = size(variance)
-    K = length(centres)
+    K = length(centers)
     K == 0 && return zeros(Float64, 4, 0)
     T = eltype(device_estimates)
     rows = ka_upload(T, device, _pipeline_bands(taps, H))
     columns = ka_upload(T, device, _pipeline_bands(taps[:, [2, 1]], W))
     out = KA.allocate(device, T, 4, K)
     _launch!(
-        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, support, centre_list, device_estimates,
+        _propagated_covariances!, device, out, gradient_rows, gradient_columns, variance, support, center_list, device_estimates,
         ka_upload(Int8, device, classes), rows, columns, radii, Int32(size(taps, 1) ÷ 2); ndrange = K
     )
     return Float64.(Array(out))
@@ -776,14 +776,14 @@ end
 # usable green photosites k, δ_k = Σ_q δ_q / n_q over the pixels q whose support holds k (the bilinear weight of k at
 # q, n_q its count: `_in_support`). The pixels' δ_q = N⁻¹ Σₚ A(p) ∂∇g(p)/∂I(q) (`_pixel_shift`).
 @kernel function _propagated_covariances!(
-        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(support), @Const(centres), @Const(estimates),
+        out, @Const(gradient_rows), @Const(gradient_columns), @Const(variance), @Const(support), @Const(centers), @Const(estimates),
         @Const(classes), @Const(rows), @Const(columns), radii, r::Int32
     )
     k = @index(Global)
     ρ = Int(_per_window(radii, k))
     T = eltype(out)
     @inbounds class = classes[k]
-    @inbounds rw, cw = Int(centres[1, k]), Int(centres[2, k])
+    @inbounds rw, cw = Int(centers[1, k]), Int(centers[2, k])
     H, W = size(variance)
     w = Int(r) + 2
     Σrr = Σrc = Σcc = zero(T)
@@ -1014,9 +1014,9 @@ end
     @inbounds keep[i, j] = k
 end
 
-@kernel function _window_estimates!(out, @Const(gamma), @Const(centres), radii)
+@kernel function _window_estimates!(out, @Const(gamma), @Const(centers), radii)
     k = @index(Global)
-    @inbounds e = _window_estimate(gamma, centres[1, k], centres[2, k], _per_window(radii, k))
+    @inbounds e = _window_estimate(gamma, centers[1, k], centers[2, k], _per_window(radii, k))
     for n in 1:14
         @inbounds out[n, k] = e[n]
     end

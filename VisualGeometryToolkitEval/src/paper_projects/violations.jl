@@ -546,7 +546,7 @@ end
 _project_catalog(root, catalog) = (path = joinpath(root, catalog); isfile(path) ? load_catalog(path) : nothing)
 
 # The catalog's entry names and their parts (every name a config's tier may name).
-function _catalogued(cat)
+function _cataloged(cat)
     entries = [n for (n, a) in cat.artifacts if !_is_produced(a)]
     names = Set{String}(entries)
     for n in entries
@@ -558,7 +558,7 @@ end
 function _storage!(add!, root::String, configs::AbstractString, catalog::AbstractString, stack_artifacts)
     # A2: every config input is catalogued: a tier it names, or a produced entry that covers it
     cat = _project_catalog(root, catalog)
-    names = cat === nothing ? Set{String}() : _catalogued(cat)
+    names = cat === nothing ? Set{String}() : _cataloged(cat)
     cdir = joinpath(root, configs)
     for f in (isdir(cdir) ? sort(readdir(cdir)) : String[])
         endswith(f, ".toml") || continue
@@ -695,7 +695,7 @@ function _producer_violations(root::String, configs::AbstractString, cat; stack_
     isfile(gpath) || return [v; ["$n: produced by stage $(repr(get(cat.artifacts[n], "producer", ""))), but there is no stage graph ($grel)" for n in produced]]
     g = try load_stage_graph(gpath) catch err; return [v; "the stage graph: $(sprint(showerror, err))"] end
     deps = Dict{String, Vector{String}}()           # produced entry → the produced entries its producer reads
-    published = _catalogued(cat)
+    published = _cataloged(cat)
     for n in produced
         stage = get(cat.artifacts[n], "producer", "")
         k = _stage_index(g, stage)

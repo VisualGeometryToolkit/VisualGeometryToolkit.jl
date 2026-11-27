@@ -424,16 +424,16 @@ function _camera_poses(
         views::AbstractDict{K, <:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     ) where {K}
     st = _camera_poses(
-        camera, Dict(k => _plain_metres(p) for (k, p) in poses), Dict(k => _map_correspondences(_plain_metres, identity, cs) for (k, cs) in views); kwargs...
+        camera, Dict(k => _plain_meters(p) for (k, p) in poses), Dict(k => _map_correspondences(_plain_meters, identity, cs) for (k, cs) in views); kwargs...
     )
-    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = Dict(k => _attach_metres(p) for (k, p) in est.poses)), r), st)
+    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = Dict(k => _attach_meters(p) for (k, p) in est.poses)), r), st)
 end
 function _camera_poses(
         camera::_RefinedCamera, poses::AbstractVector{<:_PhysicalPose3},
         views::AbstractVector{<:AbstractVector{<:Correspondence{<:_PhysicalPoint3, <:StaticVector{2}}}}; kwargs...
     )
-    st = _camera_poses(camera, map(_plain_metres, poses), [_map_correspondences(_plain_metres, identity, cs) for cs in views]; kwargs...)
-    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = map(_attach_metres, est.poses)), r), st)
+    st = _camera_poses(camera, map(_plain_meters, poses), [_map_correspondences(_plain_meters, identity, cs) for cs in views]; kwargs...)
+    return _then(r -> VgtkCore.map_estimate(est -> (; camera = est.camera, poses = map(_attach_meters, est.poses)), r), st)
 end
 
 
@@ -456,7 +456,7 @@ end
 _finite_pose(P::PlainEuclideanMap{3}) = all(isfinite, rotation(P)) && all(isfinite, translation(P))
 _plain_pose(P::PlainEuclideanMap{3}) = EuclideanMap(RotMatrix{3, Float64}(rotation(P)), SVector{3, Float64}(translation(P)))
 # each refined pose under its input's frame labels
-_relabelled(inputs::AbstractVector, outs::AbstractVector{<:PlainEuclideanMap{3}}) =
+_relabeled(inputs::AbstractVector, outs::AbstractVector{<:PlainEuclideanMap{3}}) =
     [relabel(VgtkCore.map_frames(p0)..., _plain_pose(P)) for (p0, P) in zip(inputs, outs)]
 
 # Without boards: every correspondence's point in the world, one held identity board (`_refine_views`).
@@ -572,7 +572,7 @@ function _bundle_assembly(sol, loss, bounded, camera, chc, free, poses, boards, 
     all(_finite_pose, poses_out) && all(_finite_pose, boards_out) && all(isfinite, parameter_vector(model_out)) ||
         throw(ErrorException("CameraPosesProblem: the LM step is not finite"))
     camera_out = model_out === camera ? bounded : VgtkCore.with_model(bounded, model_out)
-    return (; camera = camera_out, poses = _relabelled(poses, poses_out), boards = _relabelled(boards, boards_out)), sol.code, sol.rule,
+    return (; camera = camera_out, poses = _relabeled(poses, poses_out), boards = _relabeled(boards, boards_out)), sol.code, sol.rule,
         SolveStats(; nsteps = sol.iterations), sol.rms, sol.n, _bundle_metadata(sol, free, loss; spline)
 end
 

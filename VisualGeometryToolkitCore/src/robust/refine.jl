@@ -623,7 +623,7 @@ by every host LM.
 function __solve(prob::RefineProblem{<:AbstractVector}, alg::LevenbergMarquardt;
         scale = nothing, width = nothing, stops::LmStops = LmStops())
     _refuse_box(prob, :LevenbergMarquardt)
-    check_honoured_stops(alg.backend, stops)
+    check_honored_stops(alg.backend, stops)
     return lm_backend_refine(alg.backend, prob.u0, prob.f, prob.p, alg; stops, scale, width)
 end
 
@@ -634,37 +634,37 @@ end
 The refine of a family problem `f` by a solver backend other than the native one: [`lm_backend_refine`](@ref)`(backend,
 u0, f, p, alg; stops, scale, width)`, the backend's own residual on the problem's data (its package, or the package that
 owns both the backend's binding and the problem, implements the method). `stops` must state only fields the backend
-honours ([`honoured_stops`](@ref)).
+honours ([`honored_stops`](@ref)).
 """
 function __solve(prob::RefineProblem{<:AbstractConstraintProblem}, alg::LevenbergMarquardt;
         scale = nothing, width = nothing, stops::LmStops = LmStops())
     _refuse_box(prob, :LevenbergMarquardt)
-    check_honoured_stops(alg.backend, stops)
+    check_honored_stops(alg.backend, stops)
     return lm_backend_refine(alg.backend, prob.u0, prob.f, prob.p, alg; stops, scale, width)
 end
 
 """
-    honoured_stops(backend::AbstractSolverBackend) -> Tuple{Vararg{Symbol}}
+    honored_stops(backend::AbstractSolverBackend) -> Tuple{Vararg{Symbol}}
 
 The [`LmStops`](@ref) fields a Levenberg–Marquardt `backend` honours: every field for the native one (the default); a
 backend's package states its library's (PoseLib.jl: `(:max_iter,)`). A contract generic.
-[`check_honoured_stops`](@ref) refuses stops that set any other field away from its configuration of record.
+[`check_honored_stops`](@ref) refuses stops that set any other field away from its configuration of record.
 """
-honoured_stops(::AbstractSolverBackend) = fieldnames(LmStops)
+honored_stops(::AbstractSolverBackend) = fieldnames(LmStops)
 
 """
-    check_honoured_stops(backend, stops::LmStops) -> nothing
+    check_honored_stops(backend, stops::LmStops) -> nothing
 
 The one refusal of stop settings a Levenberg–Marquardt `backend` does not honour: an `ArgumentError` naming the backend
 and every field of `stops` that differs from `LmStops()` (the configuration of record) outside
-[`honoured_stops`](@ref)`(backend)`.
+[`honored_stops`](@ref)`(backend)`.
 """
-function check_honoured_stops(backend::AbstractSolverBackend, stops::LmStops)
-    honoured = honoured_stops(backend)
+function check_honored_stops(backend::AbstractSolverBackend, stops::LmStops)
+    honored = honored_stops(backend)
     d = LmStops()
-    bad = Symbol[k for k in fieldnames(LmStops) if !(k in honoured) && getfield(stops, k) != getfield(d, k)]
+    bad = Symbol[k for k in fieldnames(LmStops) if !(k in honored) && getfield(stops, k) != getfield(d, k)]
     isempty(bad) && return nothing
-    throw(ArgumentError(string(nameof(typeof(backend)), " honours only ", join(honoured, ", "), " of LmStops; ",
+    throw(ArgumentError(string(nameof(typeof(backend)), " honours only ", join(honored, ", "), " of LmStops; ",
         "the stops also set ", join(bad, ", "))))
 end
 
@@ -709,7 +709,7 @@ scale_interface(::BackendRefit{<:LevenbergMarquardt}) = FixedScale()
 external_refit!(_ws, lo::BackendRefit, problem, θ, width::LossWidth, _scoring) =
     solve(RefineProblem(problem, θ), lo.alg; stops = lo.stops, width = loss_width(width))
 
-public honoured_stops, check_honoured_stops, BackendRefit
+public honored_stops, check_honored_stops, BackendRefit
 
 # =============================================================================
 # The refine caches — `init`, `solve!` and `reinit!` of the host LevenbergMarquardt

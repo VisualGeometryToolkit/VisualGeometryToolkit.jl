@@ -244,7 +244,7 @@ end
 @inline (S::SimilarityMap{2})(s::RegionIntersection) = RegionIntersection(S(s.a), S(s.b))
 # A star polygon (the valid domain of a lens that is not radially symmetric) maps vertex by vertex, its centre with it:
 # a similarity keeps it a star polygon about the mapped centre (the constructor re-reads its discs and box). Host-side.
-(S::SimilarityMap{2})(P::PolygonRegion) = PolygonRegion([S(SVector{2, Float64}(v)) for v in P.vertices], S(P.centre))
+(S::SimilarityMap{2})(P::PolygonRegion) = PolygonRegion([S(SVector{2, Float64}(v)) for v in P.vertices], S(P.center))
 @inline function (S::SimilarityMap{2, T, Sc})(l::Line2D{U}) where {T, Sc, U}
     V = promote_type(T, Sc, eltype(S.t), U)   # every part: a Dual scale or translation, a Float64 t over Float32 s, R
     n′ = S.R * normal(l)

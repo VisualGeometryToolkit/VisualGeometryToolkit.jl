@@ -113,6 +113,14 @@ const RETIRED_NAMES = String[
     "Sensor" * "Characterisation",            # a body's per-ISO record: `SensorCharacterization`
     "No" * "Characterisation",                # the `ModelReason` of no record given: `NoCharacterization`
     "sensor" * "_characterisation",           # the IO kind, RC's experiment and stage, the TOML keys: `sensor_characterization` (`vgio/sensor_characterization/v3.0`)
+    # wave 2 (VisualGeometryToolkitCore 0.14, VisualGeometryToolkitIO 0.12, VisualGeometryToolkitEval 0.12): the public names.
+    # A bare prose word (centre, metres) cannot stand here, so a function that is one word is listed by its call form
+    "pixel" * "_centre", "pixel" * "_centres",                # Core: `pixel_center(I)`, `pixel_centers(region, us, vs)`
+    "strip" * "_metres",                                      # Core: `strip_meters(x)`
+    "truncated_log" * "_normaliser",                          # Core: `truncated_log_normalizer(shape, sq_loss_width, depth, r_max)`
+    "is_inside_texel" * "_centres",                           # Core: `is_inside_texel_centers(uv, (W, H))`
+    "metres" * "(",                                           # IO: `VgtkIO.meters(x, u)`, a file length as plain metres
+    "cancelled" * "(",                                        # Eval: `Experiments.canceled()`, the kaimon-aware poll
     "_green" * "_noise", "_noise" * "_digest",   # VisualGeometryToolkitFeatures' privates: the uncertain image; `content_digest(model)`
     "green" * "_dn", "green" * "_colors",     # a LinearRaw's green photosites: `L.geometry.plane_sites`
     "Intensity" * "Noise",                    # PanoramaStitching's value noise: `RelativeNoise(σ_rel; source)`, a noise-slot component

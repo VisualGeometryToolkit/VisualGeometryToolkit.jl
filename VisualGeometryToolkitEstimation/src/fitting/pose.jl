@@ -39,4 +39,4 @@ solution_model(p::_PoseProblem, E::EuclideanMap{3}, pose::EuclideanMap{3}) =
     _pose_out(_problem_unit(p), relabel(VgtkCore.map_frames(pose)...,
         EuclideanMap(RotMatrix{3, Float64}(rotation(E)), SVector{3, Float64}(translation(E)))))
 _pose_out(::Nothing, E) = E
-_pose_out(::_Metres, E) = _attach_metres(E)
+_pose_out(::_Meters, E) = _attach_meters(E)

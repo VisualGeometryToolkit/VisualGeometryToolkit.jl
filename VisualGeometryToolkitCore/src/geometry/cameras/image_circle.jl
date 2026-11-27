@@ -396,15 +396,15 @@ r = imaged_region(camera)
 farthest_radius(r, principal_point)   # a radial profile's domain: ρ ≤ 1 on every imaged pixel
 ```
 """
-farthest_radius(r::Rect{2}, center) = maximum(p -> norm(p - _plain_centre(center)), rect_corners(Rect2{Float64}(r)))
+farthest_radius(r::Rect{2}, center) = maximum(p -> norm(p - _plain_center(center)), rect_corners(Rect2{Float64}(r)))
 function farthest_radius(region, center)
-    c = _plain_centre(center)
+    c = _plain_center(center)
     _check_farthest_center(region, c)
     reach(ψ) = -farthest_radius(region, c, SVector(cos(ψ), sin(ψ)))
     return -_azimuth_minimum(reach, _FARTHEST_AZIMUTHS)
 end
 function farthest_radius(region, center, direction)
-    c = _plain_centre(center)
+    c = _plain_center(center)
     u = SVector{2, Float64}(direction[1], direction[2])
     box = Rect2(region)               # an ArgumentError for the whole plane: the region must be bounded
     _check_farthest_center(region, c)
@@ -419,8 +419,8 @@ function farthest_radius(region, center, direction)
     return a
 end
 const _FARTHEST_AZIMUTHS = 720
-_plain_centre(center) = SVector{2, Float64}(center[1], center[2])
-_check_farthest_center(region, center) = Point2{Float64}(_plain_centre(center)) ∈ region ||
+_plain_center(center) = SVector{2, Float64}(center[1], center[2])
+_check_farthest_center(region, center) = Point2{Float64}(_plain_center(center)) ∈ region ||
     throw(ArgumentError("farthest_radius: the region does not contain the centre $(Tuple(center))"))
 
 """
@@ -430,7 +430,7 @@ The pixels of a `width × height` image whose CENTRES lie in `region` (any 2-D r
 [`imaged_region`](@ref), a `Rect`, an [`Ellipse`](@ref), their `∩`, the
 [`WholePlane`](@ref VisualGeometryToolkitCore.Primitives.WholePlane)), as a `height × width` `BitMatrix` in Julia's array
 layout: `mask[v, u]` is pixel `(u, v)`, whose centre is the COLMAP point `(u − ½, v − ½)` — the conversion
-[`pixel_centres`](@ref) shares, made in one place.
+[`pixel_centers`](@ref) shares, made in one place.
 
 ```julia
 region = imaged_region(camera)                # the sensor ∩ its lens coverage ∩ where its lens model is valid
@@ -438,7 +438,7 @@ mask = pixel_mask(region, width, height)      # the pixels the camera images
 ```
 """
 pixel_mask(region, width::Integer, height::Integer) =
-    BitMatrix([_pixel_centre(u, v) ∈ region for v in 1:Int(height), u in 1:Int(width)])
+    BitMatrix([_pixel_center(u, v) ∈ region for v in 1:Int(height), u in 1:Int(width)])
 
 """
     pixel_mask(region, frame_map, width, height) -> BitMatrix
@@ -453,22 +453,22 @@ frame, at each pixel's mapped centre, never by mapping the region. Without a
 map it is [`pixel_mask`](@ref)`(region, width, height)` (the identity).
 """
 pixel_mask(region, frame_map::CoordinateTransformations.Transformation, width::Integer, height::Integer) =
-    BitMatrix([Point2{Float64}(frame_map(SVector{2, Float64}(_pixel_centre(u, v)))) ∈ region for v in 1:Int(height), u in 1:Int(width)])
+    BitMatrix([Point2{Float64}(frame_map(SVector{2, Float64}(_pixel_center(u, v)))) ∈ region for v in 1:Int(height), u in 1:Int(width)])
 
 """
-    pixel_centres(region, us, vs) -> Vector{SVector{2, Float64}}
+    pixel_centers(region, us, vs) -> Vector{SVector{2, Float64}}
 
 The COLMAP centres `(u − ½, v − ½)` of the pixels `(u, v)`, `u ∈ us`, `v ∈ vs`
 (Julia's 1-based pixel indices, as [`pixel_mask`](@ref) indexes them), that lie
 in `region`, `v` outer and `u` inner: the pixels of a sub-lattice (a stride, an
 offset) without the full image's mask. `pixel_mask(region, W, H)[v, u]` is
-whether pixel `(u, v)`'s centre is among `pixel_centres(region, 1:W, 1:H)`.
+whether pixel `(u, v)`'s centre is among `pixel_centers(region, 1:W, 1:H)`.
 """
-pixel_centres(region, us::AbstractVector{<:Integer}, vs::AbstractVector{<:Integer}) =
-    [SVector{2, Float64}(c) for v in vs for u in us for c in (_pixel_centre(u, v),) if c ∈ region]
+pixel_centers(region, us::AbstractVector{<:Integer}, vs::AbstractVector{<:Integer}) =
+    [SVector{2, Float64}(c) for v in vs for u in us for c in (_pixel_center(u, v),) if c ∈ region]
 
 """
-    pixel_centre([T = Float64,] I::CartesianIndex{2}) -> SVector{2, T}
+    pixel_center([T = Float64,] I::CartesianIndex{2}) -> SVector{2, T}
 
 The centre of the pixel at the array index `I = (row, col)` (Julia's 1-based
 indices, `img[row, col]`) in the COLMAP frame, `(col − ½, row − ½)`, in `T`:
@@ -476,7 +476,7 @@ the one conversion from an image array's index to a pixel point. Allocation-
 and branch-free, so a device functor over `CartesianIndices` calls it at the
 kernel's element type.
 """
-@inline pixel_centre(::Type{T}, I::CartesianIndex{2}) where {T <: Real} = SVector{2, T}(T(I[2]) - T(0.5), T(I[1]) - T(0.5))
-@inline pixel_centre(I::CartesianIndex{2}) = pixel_centre(Float64, I)
+@inline pixel_center(::Type{T}, I::CartesianIndex{2}) where {T <: Real} = SVector{2, T}(T(I[2]) - T(0.5), T(I[1]) - T(0.5))
+@inline pixel_center(I::CartesianIndex{2}) = pixel_center(Float64, I)
 # Pixel `(u, v)` (column, row) as the regions read it.
-_pixel_centre(u::Integer, v::Integer) = Point2{Float64}(pixel_centre(CartesianIndex(v, u)))
+_pixel_center(u::Integer, v::Integer) = Point2{Float64}(pixel_center(CartesianIndex(v, u)))

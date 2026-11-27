@@ -27,7 +27,7 @@
     ]
     append!(radials, [VisualGeometryToolkitCore._precision(Float32, LiftLens(r)).radial for r in radials])
     # the one factor whose stored end sits far short of the per-point sweep's (below)
-    artefact32 = VisualGeometryToolkitCore._precision(Float32, Scaramuzza(-0.17, -0.006, 1.0e-17)).radial
+    artifact32 = VisualGeometryToolkitCore._precision(Float32, Scaramuzza(-0.17, -0.006, 1.0e-17)).radial
     @test count(r -> r isa Radial{<:Any, <:Any, <:Any, Float32}, radials) == length(radials) ÷ 2
 
     # the per-point test the stored end replaced: a sweep from 0 to u, per factor
@@ -56,7 +56,7 @@
             T = eltype(r.k) === Union{} ? typeof(r.u_end) : eltype(r.k)
             for (end_, new, old) in ((r.u_end, u -> C._on_radial_branch(r, u), u -> old_lens(r, u)),
                                      (r.u_fold, u -> u <= r.u_fold, u -> old_lift(r, u)))
-                sliver = T === Float64 ? 1.0e-11 : r === artefact32 ? 0.05 : 1.0e-6
+                sliver = T === Float64 ? 1.0e-11 : r === artifact32 ? 0.05 : 1.0e-6
                 span = isfinite(end_) ? 3 * Float64(end_) : 50.0
                 us = T.(collect(range(0, span, length = 4001)))
                 if isfinite(end_)
@@ -70,7 +70,7 @@
                 end
             end
         end
-        @test length(wide) == 1 && only(wide) === artefact32
+        @test length(wide) == 1 && only(wide) === artifact32
     end
 
     @testset "a Dual factor's ends are its primal's" begin

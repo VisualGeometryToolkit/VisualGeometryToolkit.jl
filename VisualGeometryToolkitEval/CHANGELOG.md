@@ -7,6 +7,11 @@
 VisualGeometryToolkitEstimation `"0.13"`). The scale-prior fit is an algorithm of that interface. Numerics are
 unchanged: the golden records of the prior fit (`ci/golden/`, group `eval_noise`) replay bit for bit.
 
+### American in identifiers (decision 11, wave 2)
+- **Breaking:** `Experiments.cancelled()` → `Experiments.canceled()`, and `live_runs`' keyword `cancelled` →
+  `canceled` (`RETIRED_NAMES` lists the call form). Private names follow (`_colour_axis` → `_color_axis`,
+  `_catalogued` → `_cataloged`). Prose stays British.
+
 ### On Core 0.14's breaking set (R22)
 - The external refit reads its `FitResult` (Core's `external_refit!` returns one): the engine's refit takes `r.u` when
   `found_model(r)`. `ScoreGuarded` forwards the record unchanged.

@@ -24,7 +24,7 @@
     # a grid over the sensor and past it: the polygon's annulus (between its inscribed and circumscribed discs) included
     ps = vec([SVector(x, y) for x in -200.25:7.5:(W + 200), y in -200.25:7.5:(H + 200)])
     host(region) = [p ∈ region for p in ps]
-    @test any(host(q)) && !all(host(q)) && any(p -> q.inner < hypot((p - q.centre)...) < q.outer, ps)
+    @test any(host(q)) && !all(host(q)) && any(p -> q.inner < hypot((p - q.center)...) < q.outer, ps)
     @test adapt(Array, q) == q && adapt(Array, r) == r            # the host form is the region itself
     cuda = try
         mod = Base.require(Main, :CUDA)

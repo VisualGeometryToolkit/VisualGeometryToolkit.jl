@@ -172,13 +172,13 @@ end
 # Physical inputs: the guess, the rig poses and the points stripped in metres
 # once, the plain refinement, the calibration read back in metres once.
 function _plain_problem(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers{K}}) where {K}
-    features(fs) = _map_correspondences(_plain_metres, identity, fs)
-    plain = Dict(id => _map_correspondences(_plain_metres, features, els) for (id, els) in f.markers)::_PlainRigMarkers{K}
+    features(fs) = _map_correspondences(_plain_meters, identity, fs)
+    plain = Dict(id => _map_correspondences(_plain_meters, features, els) for (id, els) in f.markers)::_PlainRigMarkers{K}
     return RobotWorldHandEyeProblem(f.camera, plain)
 end
-block_structure(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers}, guess) = block_structure(_plain_problem(f), _plain_metres(guess))
+block_structure(f::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers}, guess) = block_structure(_plain_problem(f), _plain_meters(guess))
 block_result(::RobotWorldHandEyeProblem{<:Any, <:_PhysicalRigMarkers}, _guess, r::FitResult, s) =
-    _attach_metres(_robot_world_hand_eye_solved(r, s))
+    _attach_meters(_robot_world_hand_eye_solved(r, s))
 
 # One point's reprojection residual as a function of its 12 chart coordinates
 # (δY, δX_m) in the product of its two blocks' charts `chY`, `chX` —

@@ -358,7 +358,7 @@ end
 
 Result of one iteration of the stacked linear focal solve, in DATA (pixel) units,
 keyed by the views' identity `K`: `f`; the division coefficients `k` (of r², r⁴,
-… in pixels centred on `centre`); the pencil's `centre`, the principal point
+… in pixels centred on `center`); the pencil's `center`, the principal point
 every input radial camera shares; `poses[id]`, the board pose — an
 `EuclideanMap{3}` from the board plane (z = 0) into the camera, rotation from
 the radial camera, translation (t₁₂, t₃) — in the plane's units, of each view that admitted one (a view
@@ -964,7 +964,7 @@ end
 # CameraModel(state::DivisionCameraState) -> CameraModel
 #
 # The camera a solve determines: `K = diag(f, f, 1)` with its principal
-# point at the iteration's `centre` (the radial cameras' shared pencil centre,
+# point at the iteration's `center` (the radial cameras' shared pencil centre,
 # VGC's pixel intrinsics `pixel_intrinsics`), and the `Division{ncoef}` lens
 # re-expressed in that K's normalized frame by the coefficient law (`st.k` is in
 # centred pixels; normalized = pixels / f).

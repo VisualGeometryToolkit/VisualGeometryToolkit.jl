@@ -84,7 +84,7 @@ function record_features_image_circle(cases)
             fr = fic_soft_ramp(d, seed)
             case!(cases, "centred_rim/soft_ramp_d$(Int(d))/default/$s", fr, f -> detect_image_circle(rng(), f; outlier_halfwidth = 50, device = FIC_DEV))
             for off in ((0.3, -0.4), (25.0, -15.0), (-25.0, 15.0))
-                case!(cases, "centred_rim/soft_ramp_d$(Int(d))/initial_$(off[1])_$(off[2])/$s", (fr, fic_centred_initial(off)),
+                case!(cases, "centred_rim/soft_ramp_d$(Int(d))/initial_$(off[1])_$(off[2])/$s", (fr, fic_centered_initial(off)),
                     ((f, init),) -> detect_image_circle(rng(), f; outlier_halfwidth = 50, initial = init, device = FIC_DEV))
             end
         end

@@ -205,18 +205,18 @@ end
 # blur does (`_mirror_idx`). `fx`/`fy` columns are each field's composite taps: the cardinal prefilter, convolved with
 # the field's own filter along that axis (none for the spline response; a Farid–Simoncelli prefilter or derivative
 # for stage B). Each item sweeps its column's sample rows once, the x-filtered row added to every coefficient of the
-# column it reaches. `centres` columns: (Xc, Yc, s0, w), 1-based.
-@kernel function _dog_spline_coefficients!(coef, @Const(dog), @Const(centres), @Const(fx), @Const(fy), ::Val{RC}) where {RC}
+# column it reaches. `centers` columns: (Xc, Yc, s0, w), 1-based.
+@kernel function _dog_spline_coefficients!(coef, @Const(dog), @Const(centers), @Const(fx), @Const(fy), ::Val{RC}) where {RC}
     i, tf, k = @index(Global, NTuple)
     NSW = size(coef, 3)
     t = (tf - 1) % NSW + 1; f = (tf - 1) ÷ NSW + 1
     L = size(fx, 1); R = (L - 1) ÷ 2
     W = size(dog, 1); H = size(dog, 2)
     @inbounds begin
-        Xc = Int(centres[1, k]); Yc = Int(centres[2, k])
+        Xc = Int(centers[1, k]); Yc = Int(centers[2, k])
         X = Xc - RC - 1 + i
-        s = Int(centres[3, k]) + t - 1
-        w = Int(centres[4, k])
+        s = Int(centers[3, k]) + t - 1
+        w = Int(centers[4, k])
         acc = ntuple(_ -> 0.0f0, Val(2RC + 1))
         for yy in -(RC + R):(RC + R)
             yb = _mirror_idx(Yc + yy, H)

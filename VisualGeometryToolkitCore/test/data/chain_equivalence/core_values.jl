@@ -19,7 +19,7 @@ using VisualGeometryToolkitCore: m, mm, parameter_vector, parameter_names, param
 
 columns(ps) = isempty(ps) ? zeros(0, 0) : reduce(hcat, [Float64.(collect(p)) for p in ps])
 slices(Js) = cat([Float64.(Matrix(J)) for J in Js]...; dims = 3)
-plain_metres(p) = map(x -> ustrip(m, x), p)
+plain_meters(p) = map(x -> ustrip(m, x), p)
 attempt(f) = try
     f()
 catch e
@@ -70,7 +70,7 @@ function target_values(P, V)
         emit("$k/bounds_lo", collect(lo))
         emit("$k/bounds_hi", collect(hi))
         emit("$k/out", columns(c.(pts)))
-        emit("$k/out_physical", columns(plain_metres.(cp.(ppts[1:50]))))
+        emit("$k/out_physical", columns(plain_meters.(cp.(ppts[1:50]))))
         emit("$k/jacobian_theta", slices([V.jacobian_theta(c, x) for x in jpts]))
         emit("$k/jacobian_x", slices([V.jacobian_x(c, x) for x in jpts]))
         emit("$k/regularizer", collect(regularizer(c)))

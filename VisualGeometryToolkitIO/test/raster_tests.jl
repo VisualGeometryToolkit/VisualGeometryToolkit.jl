@@ -82,7 +82,7 @@ end
     using VisualGeometryToolkitCore: Rect2, sha256_hex
     mktempdir() do dir
         A = awkward_values(48, 64)
-        page = (chart = :page, area = Rect2{Float64}(VgtkIO.metres(-105.0, mm), VgtkIO.metres(-148.5, mm), VgtkIO.metres(210.0, mm), VgtkIO.metres(297.0, mm)))
+        page = (chart = :page, area = Rect2{Float64}(VgtkIO.meters(-105.0, mm), VgtkIO.meters(-148.5, mm), VgtkIO.meters(210.0, mm), VgtkIO.meters(297.0, mm)))
         for (frame, compression, unit) in ((page, :deflate, mm), (page, :none, m), ((chart = :texture, area = page.area), :deflate, mm),
                                            (PixelFrame{:colmap}, :deflate, mm), (PixelFrame{:opencv}, :none, mm))
             p = joinpath(dir, "albedo.json")
@@ -220,7 +220,7 @@ end
         @test_throws "a uint8 raster holds no NaN" VgtkIO.save_raster(p, M; frame = PixelFrame{:colmap}, nan = :unobserved)
         # IO 0.9.5's v1 header beside the same payload: its frame's own length_unit / pixel_frame become the units object
         A = awkward_values(6, 5)
-        page = (chart = :page, area = Rect2{Float64}(VgtkIO.metres(-105.0, mm), VgtkIO.metres(-148.5, mm), VgtkIO.metres(210.0, mm), VgtkIO.metres(297.0, mm)))
+        page = (chart = :page, area = Rect2{Float64}(VgtkIO.meters(-105.0, mm), VgtkIO.meters(-148.5, mm), VgtkIO.meters(210.0, mm), VgtkIO.meters(297.0, mm)))
         for (frame, v1frame) in ((page, Dict("chart" => "page", "length_unit" => "mm", "area" => [-105.0, -148.5, 210.0, 297.0])),
                                  (PixelFrame{:opencv}, Dict("pixel_frame" => "opencv")))
             q = joinpath(dir, "a.json")

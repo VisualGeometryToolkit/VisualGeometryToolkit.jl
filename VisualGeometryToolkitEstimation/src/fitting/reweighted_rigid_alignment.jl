@@ -116,11 +116,11 @@ function __solve(
         alg::ReweightedLeastSquares; scale = nothing, width = nothing,
     )
     cs = prob.f
-    plain = [VgtkCore.strip_metres(a) => VgtkCore.strip_metres(b) for (a, b) in zip(sources(cs), targets(cs))]
+    plain = [VgtkCore.strip_meters(a) => VgtkCore.strip_meters(b) for (a, b) in zip(sources(cs), targets(cs))]
     w_col = VgtkCore.weights_column(cs)
     plain = w_col === nothing ? plain : withattrs(VgtkCore.Correspondences(sources(plain), targets(plain)); weights = w_col)
-    s = scale isa Union{Nothing, FitResult} ? scale : _metres(scale)
-    return _attach_metres(_rigid_alignment_plain(plain, alg; scale = s, width = _metres(width)))
+    s = scale isa Union{Nothing, FitResult} ? scale : _meters(scale)
+    return _attach_meters(_rigid_alignment_plain(plain, alg; scale = s, width = _meters(width)))
 end
 
 function _weighted_rigid(as, bs, w)

@@ -87,7 +87,7 @@ function ecf_off_axis()
 end
 
 # a decentred fisheye's spline (optical_axis_tests)
-function ecf_decentred_spline()
+function ecf_decentered_spline()
     dec = CameraModel(300.0px, SA[500.0px, 500.0px]; lens = Lens(Equidistant(), Additive(Radial((-0.02,)), Tangential(2.0e-3, -1.5e-3))))
     return BoundedCamera(CameraModel(SplineLens, dec, Size2(1000, 1000); grid_size = (40, 40)), Size2(1000, 1000))
 end

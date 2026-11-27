@@ -8,14 +8,14 @@ using Statistics: mean, std, cov
 import KernelAbstractions as KA
 using VisualGeometryToolkitCore: LinearRaw
 using VisualGeometryToolkitFeatures: detect_sfop, detect_foerstner
-export dot_scene, dot_centres, dot_study
+export dot_scene, dot_centers, dot_study
 
-# Dots of radius `radius` (raw px) at COLMAP `centres` on an H × W raw grid, in mean electrons per photosite: each
+# Dots of radius `radius` (raw px) at COLMAP `centers` on an H × W raw grid, in mean electrons per photosite: each
 # photosite's coverage by the disc (4 × 4 supersampled: the photosite's box), blurred by a Gaussian PSF of `psf` raw px,
 # between `background` and `plateau`. Every photosite records the same scene (a grey target).
-function dot_scene(H, W, centres, radius; psf = 1.0, background = 600.0, plateau = 6000.0, ss = 4)
+function dot_scene(H, W, centers, radius; psf = 1.0, background = 600.0, plateau = 6000.0, ss = 4)
     disc = zeros(H, W)
-    for (a, b) in centres
+    for (a, b) in centers
         for c in max(1, floor(Int, a - radius) - 1):min(W, ceil(Int, a + radius) + 2),
                 r in max(1, floor(Int, b - radius) - 1):min(H, ceil(Int, b + radius) + 2)
             disc[r, c] += sum(hypot(c - 1 + (i - 0.5) / ss - a, r - 1 + (j - 0.5) / ss - b) < radius for i in 1:ss, j in 1:ss) / ss^2
@@ -28,7 +28,7 @@ function dot_scene(H, W, centres, radius; psf = 1.0, background = 600.0, plateau
 end
 
 # An n × n grid of dot centres at pitch 30 raw px, one tile of margin: random sub-pixel phases, or `phase` in every tile.
-dot_centres(n; same_phase = false, phase = (0.31, 0.77), seed = 1) = (rng = Xoshiro(seed);
+dot_centers(n; same_phase = false, phase = (0.31, 0.77), seed = 1) = (rng = Xoshiro(seed);
     [same_phase ? (30tx + 15 + phase[1], 30ty + 15 + phase[2]) : (30tx + 15 + rand(rng) - 0.5, 30ty + 15 + rand(rng) - 0.5)
      for ty in 1:n for tx in 1:n])
 
@@ -37,20 +37,20 @@ dot_centres(n; same_phase = false, phase = (0.31, 0.77), seed = 1) = (rng = Xosh
 # error's mean (`bias`), RMS about the truth, spread about the mean and the predicted σ (√(tr Σ/2), RMS over the rows),
 # the NEES about the mean (one geometry per tile: the noise's spread, not the estimator's bias) and the χ²₂ 95 %
 # coverage — and the :circular rows farther than 2 px from every centre (`wrong`).
-function dot_study(m, model, centres; path = :raw, polarity = :none, T = Float64, device = KA.CPU())
+function dot_study(m, model, centers; path = :raw, polarity = :none, T = Float64, device = KA.CPU())
     img, f = path === :raw ? (m, 1.0) : (LinearRaw(m; mode = :green_cells, sensor_model = model), 2.0)
     seeds = detect_sfop(img; sensor_model = model, device, polarity)
     rows = filter(d -> d.label === :circular, detect_foerstner(T, img, seeds; sensor_model = model, device, polarity))
     pos = [f .* d.center for d in rows]
     Σs = [f^2 .* Matrix(cov(d.value)) for d in rows]
     errs, S = Vector{Float64}[], Matrix{Float64}[]
-    for c in centres
+    for c in centers
         isempty(pos) && break
         i = argmin([norm(p .- c) for p in pos])
         norm(pos[i] .- c) < 1 || continue
         push!(errs, collect(pos[i] .- c)); push!(S, Σs[i])
     end
-    wrong = count(p -> minimum(norm(p .- c) for c in centres) > 2, pos)
+    wrong = count(p -> minimum(norm(p .- c) for c in centers) > 2, pos)
     E = reduce(hcat, errs); μ = vec(mean(E; dims = 2))
     q = [(x = E[:, k] .- μ; x' * (S[k] \ x)) for k in axes(E, 2)]
     return (; found = size(E, 2), wrong, bias = μ, rms = sqrt(mean(sum(abs2, E; dims = 1))), spread = sqrt(sum(abs2, std(E; dims = 2)) / 2),
@@ -172,12 +172,12 @@ end
     using Random: Xoshiro
     using LinearAlgebra: norm
     n = 16
-    centres = dot_centres(n; same_phase = true)
-    e = dot_scene(30(n + 2), 30(n + 2), centres, 1.5)
+    centers = dot_centers(n; same_phase = true)
+    e = dot_scene(30(n + 2), 30(n + 2), centers, 1.5)
     model = pg_model(2.5, 3.0)
     m = noisy_mosaic(Xoshiro(107), (i, j) -> e[i, j], size(e)...; electrons_per_dn = 2.5, read_dn = 3.0)
-    raw = dot_study(m, model, centres)
-    cells = dot_study(m, model, centres; path = :cells)
+    raw = dot_study(m, model, centers)
+    cells = dot_study(m, model, centers; path = :cells)
     @test raw.found == cells.found == n^2
     # the photosite noise propagated: NEES and coverage within 4 standard errors of the sampling
     @test abs(raw.nees - 2) < 4 * 2 / sqrt(raw.found)
@@ -188,7 +188,7 @@ end
     @test norm(raw.bias) < norm(cells.bias) + 0.005
     # the windows centred between four dots are circular points of that symmetry (Förstner's model): the raw grid's
     # finer windows label some; the polarity gate keeps the dots alone
-    lit = dot_study(m, model, centres; polarity = :light)
+    lit = dot_study(m, model, centers; polarity = :light)
     @test lit.found == n^2 && lit.wrong == 0
 end
 
@@ -198,27 +198,27 @@ end
     using Random: Xoshiro
     using LinearAlgebra: norm
     n = 8
-    centres = dot_centres(n; seed = 3)
+    centers = dot_centers(n; seed = 3)
     model = pg_model(2.5, 3.0)
     # cores past the white level (80 000 e⁻ at 2.5 e⁻ per code: the codes clip at 16 383): every dot found, :circular,
     # within a tenth of a pixel (the clipped plateau carries no gradient; the rim localises it)
-    e = dot_scene(30(n + 2), 30(n + 2), centres, 2.5; plateau = 80000.0)
+    e = dot_scene(30(n + 2), 30(n + 2), centers, 2.5; plateau = 80000.0)
     m = noisy_mosaic(Xoshiro(5), (i, j) -> e[i, j], size(e)...; electrons_per_dn = 2.5, read_dn = 3.0)
     @test count(>=(WHITE), parent(m)) > 4n^2                           # the cores saturate
-    s = dot_study(m, model, centres)
+    s = dot_study(m, model, centers)
     @test s.found == n^2 && s.rms < 0.1
     # a defective green photosite within a pixel of each dot's centre (the worst place for one): every dot still found, the
     # error within a few hundredths of a pixel more (the 3×3 fallback reads the diagonal greens, off the dot's peak:
     # measured 0.03 → 0.09 px RMS at radius 1.5)
-    e = dot_scene(30(n + 2), 30(n + 2), centres, 1.5)
+    e = dot_scene(30(n + 2), 30(n + 2), centers, 1.5)
     m = noisy_mosaic(Xoshiro(6), (i, j) -> e[i, j], size(e)...; electrons_per_dn = 2.5, read_dn = 3.0)
     green(r, c) = RGGB[mod1(r, 2), mod1(c, 2)] in (0x01, 0x03)
     sites = [first(p for p in ((round(Int, y + 0.5), round(Int, x + 0.5)), (round(Int, y + 0.5), round(Int, x + 0.5) + 1)) if green(p...))
-             for (x, y) in centres]
+             for (x, y) in centers]
     sec = parse_unit("s")
     defective = sensor_fixture(; gain = 2.5, read_noise = (3.0, 3.0, 3.0, 3.0),
                                defects = (x = last.(sites), y = first.(sites), onset = fill(0.001sec, length(sites)), size = size(e))).model
-    clean, holed = dot_study(m, model, centres), dot_study(m, defective, centres)
+    clean, holed = dot_study(m, model, centers), dot_study(m, defective, centers)
     @test holed.found == clean.found == n^2 && holed.rms < 0.15
 end
 
@@ -228,8 +228,8 @@ end
     import VisualGeometryToolkitCore
     using Statistics: cov
     using Random: Xoshiro
-    centres = dot_centres(3)
-    e = dot_scene(150, 150, centres, 2.0)
+    centers = dot_centers(3)
+    e = dot_scene(150, 150, centers, 2.0)
     m = noisy_mosaic(Xoshiro(2), (i, j) -> e[i, j], 150, 150; electrons_per_dn = 2.5, read_dn = 3.0)
     model = pg_model(2.5, 3.0)
     seeds = detect_sfop(m; sensor_model = model, device = KA.CPU())
@@ -269,8 +269,8 @@ end
         @test_skip "no functional CUDA device"
     else
         gpu = Base.invokelatest(getproperty(cuda, :CUDABackend))
-        centres = dot_centres(6)
-        e = dot_scene(240, 240, centres, 1.5)
+        centers = dot_centers(6)
+        e = dot_scene(240, 240, centers, 1.5)
         m = noisy_mosaic(Xoshiro(4), (i, j) -> e[i, j], 240, 240; electrons_per_dn = 2.5, read_dn = 3.0)
         model = pg_model(2.5, 3.0)
         on(device) = (s = detect_sfop(m; sensor_model = model, device); (s, detect_foerstner(Float32, m, s; sensor_model = model, device)))

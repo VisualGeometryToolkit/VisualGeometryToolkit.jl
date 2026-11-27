@@ -425,12 +425,12 @@ end
     if large < zero(W)
         A, bv, cc = -A, -bv, -cc
     end
-    centre = -(A \ bv)
-    γ = cc + dot(bv, centre)
+    center = -(A \ bv)
+    γ = cc + dot(bv, center)
     # γ < 0 is a real ellipse, unless it does not rise above the rounding of the
     # terms that produce it (a point ellipse is γ = 0 up to that rounding)
     κ = abs(large / small)
-    terms = abs(cc) + 2 * norm(bv) * norm(centre) + abs(large) * dot(centre, centre)
+    terms = abs(cc) + 2 * norm(bv) * norm(center) + abs(large) * dot(center, center)
     return γ < -2 * (1 + κ) * ϵ * terms ? EllipseTrait() : DegenerateTrait()
 end
 

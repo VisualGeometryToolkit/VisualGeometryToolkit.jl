@@ -154,8 +154,8 @@ function HandEyeProblem(
     return HandEyeProblem{typeof(smplr)}(motions, L, Float64(min_rel_angle), smplr)
 end
 function HandEyeProblem(cs::AbstractVector{<:Correspondence{<:_PhysicalPose3, <:_PhysicalPose3}}; char_length = nothing, kwargs...)
-    plain = _map_correspondences(_plain_metres, _plain_metres, cs)::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
-    p = HandEyeProblem(plain; char_length = _metres(char_length), kwargs...)
+    plain = _map_correspondences(_plain_meters, _plain_meters, cs)::AbstractVector{<:Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}}
+    p = HandEyeProblem(plain; char_length = _meters(char_length), kwargs...)
     return HandEyeProblem{typeof(p._sampler)}(p.motions, p.char_length, p.min_rel_angle, p._sampler, VgtkCore.m)
 end
 _problem_unit(p::HandEyeProblem) = p.unit

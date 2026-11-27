@@ -116,13 +116,13 @@ end
                 c = m.circle
                 @info "detect_image_circle under the sensor model (real data)" name T c d.circle
                 @test m.rim.statistics === VisualGeometryToolkitFeatures.SensorModelNoise()
-                same_centre = abs(c.center[1] - d.circle.center[1]) <= 3σx + 2 && abs(c.center[2] - d.circle.center[2]) <= 3σy + 2
+                same_center = abs(c.center[1] - d.circle.center[1]) <= 3σx + 2 && abs(c.center[2] - d.circle.center[2]) <= 3σy + 2
                 same_axes = abs(max(c.a, c.b) - A) <= 3σa + 2 && abs(min(c.a, c.b) - B) <= 3σa + 2
                 if name == "14 mm"
-                    @test same_centre
+                    @test same_center
                     @test same_axes
                 else                                                # the known issue: the faint light past the coverage
-                    @test_broken same_centre
+                    @test_broken same_center
                     @test_broken same_axes
                 end
             end

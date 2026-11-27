@@ -179,7 +179,7 @@ function _raster_frame_json(f::NamedTuple, u::Units)
         ArgumentError("save_raster: a chart frame is (chart = :page | :texture, area = Rect2(x, y, w, h)), its area in plain metres; got $(repr(f))")
     )
     String(f.chart) in _RASTER_CHARTS || throw(ArgumentError("save_raster: a chart frame's chart is :$(join(_RASTER_CHARTS, " or :")), got :$(f.chart)"))
-    return ((type = String(f.chart), area = [_metres_json(x, u) for x in JSON.lower(VgioStyle(), f.area)]), PixelFrame{:colmap})
+    return ((type = String(f.chart), area = [_meters_json(x, u) for x in JSON.lower(VgioStyle(), f.area)]), PixelFrame{:colmap})
 end
 _raster_frame_json(f, _) = throw(
     ArgumentError("save_raster: frame is a chart rectangle (chart = :page | :texture, area = Rect2(…)) or a pixel frame (PixelFrame{:colmap}); got $(repr(f))")
@@ -210,7 +210,7 @@ end
 function _raster_frame_from_json(f, s::VgioStyle)
     f.type::String == "pixel" && return _pixel_frame(s)
     u = s.length_unit
-    return (chart = Symbol(f.type::String), area = JSON.lift(VgioStyle(), Rect2, Any[metres(x, u) for x in f.area::Vector{Any}]))
+    return (chart = Symbol(f.type::String), area = JSON.lift(VgioStyle(), Rect2, Any[meters(x, u) for x in f.area::Vector{Any}]))
 end
 
 # vgio/raster/v1 (IO 0.9.5) → v2.0 (IO 0.10): the envelope (v1's frame stated its own `length_unit` or `pixel_frame`:

@@ -1,0 +1,31 @@
+{
+    "schema": "rc/initialization_region/v1.0",
+    "generator": {
+        "name": "VisualGeometryToolkitIO",
+        "version": "0.11.2"
+    },
+    "units": {
+        "length": "m",
+        "time": "s",
+        "angle": "rad",
+        "pixel": "colmap",
+        "density": "dpi",
+        "radiance": "relative",
+        "length_roles": {}
+    },
+    "conventions": {
+        "rotation_encoding": "quaternion_wxyz_hamilton",
+        "transform_convention": "x_to = R * x_from + t",
+        "matrix_layout": "rows",
+        "grid_layout": "row_major",
+        "index_base": 1
+    },
+    "initialization_region": {
+        "rect": [
+            1616.0,
+            593.0,
+            2158.999999999999,
+            2321.0
+        ]
+    }
+}

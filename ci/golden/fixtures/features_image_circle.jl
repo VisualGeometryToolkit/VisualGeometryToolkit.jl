@@ -58,4 +58,4 @@ const FIC_RMAX = hypot(FIC_CW, FIC_CH) / 2
 fic_soft_ramp(d, seed) = (re = 2FIC_RMAX / 3 + d;
     rim_synth(StableRNG(seed), FIC_CW, FIC_CH, (FIC_CW / 2, FIC_CH / 2), re, 0.87re; sat_radius = 0, foot = 4.0, σ = 0.001))
 fic_linear_ramp(re, seed) = rim_synth(StableRNG(seed), FIC_CW, FIC_CH, (FIC_CW / 2, FIC_CH / 2), re, 0.87re; sat_radius = 0)
-fic_centred_initial(off) = VgtkCore.Ellipse(VgtkCore.Point2(FIC_CW / 2 + off[1], FIC_CH / 2 + off[2]), FIC_RMAX, FIC_RMAX, 0.0)
+fic_centered_initial(off) = VgtkCore.Ellipse(VgtkCore.Point2(FIC_CW / 2 + off[1], FIC_CH / 2 + off[2]), FIC_RMAX, FIC_RMAX, 0.0)

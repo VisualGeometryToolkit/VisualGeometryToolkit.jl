@@ -100,8 +100,8 @@
         @test monotone_radius(with_present(cam, one_off).lens) < monotone_radius(cam.lens)
         # an absent node whose windows cover x = 0: the lattice no longer images ẑ there — the gauge's own fallback
         # condition (`_imaged_z`) — so the radius about the principal point is refused, not 0
-        centre_off = trues(gh, gw); centre_off[round(Int, y0), round(Int, x0)] = false
-        @test_throws ArgumentError monotone_radius(with_present(cam, centre_off).lens)
+        center_off = trues(gh, gw); center_off[round(Int, y0), round(Int, x0)] = false
+        @test_throws ArgumentError monotone_radius(with_present(cam, center_off).lens)
         for θ in (0.1, 0.5, 1.0)
             @test fov_radius(cam, θ) == f * tan(θ)
         end

@@ -670,11 +670,11 @@ the rotation–translation block in `rad·u`. The inverse is
 [`with_unit`](@ref)`(X, u)`.
 """
 FlexUnits.ustrip(u::Units, X::Uncertain{<:EuclideanMap{3}}) = Uncertain(
-    ustrip(u, geom(X)), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _metre_factor(u), *)
+    ustrip(u, geom(X)), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _meter_factor(u), *)
 )
 
 with_unit(X::Uncertain{<:EuclideanMap{3}}, u::Units) = Uncertain(
-    _attach_unit(geom(X), u), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _metre_factor(u), /)
+    _attach_unit(geom(X), u), _scale_length_form(getfield(X, :attributes), _POSE_LENGTHS, _meter_factor(u), /)
 )
 
 # =============================================================================
@@ -726,7 +726,7 @@ this compares directions, scale-free: [`angle_between`](@ref)`(t₁, t₂)`,
 """
 function translation_angle(t1::AbstractVector, t2::AbstractVector)
     # lengths are compared in metres (a length against a plain vector is a DimensionError)
-    (has_units(t1) || has_units(t2)) && return translation_angle(strip_metres(t1), strip_metres(t2))
+    (has_units(t1) || has_units(t2)) && return translation_angle(strip_meters(t1), strip_meters(t2))
     (norm(t1) < 1.0e-15 || norm(t2) < 1.0e-15) && return 0.0
     return angle_between(SVector{3}(t1[1], t1[2], t1[3]), SVector{3}(t2[1], t2[2], t2[3]))
 end
@@ -821,7 +821,7 @@ end
 
 # A physical map's translation as plain metres, a plain one's as it is: what a
 # public function reads where it only compares or measures a translation.
-_translation_metres(E::EuclideanMap) = has_units(E) ? strip_metres(translation(E)) : translation(E)
+_translation_meters(E::EuclideanMap) = has_units(E) ? strip_meters(translation(E)) : translation(E)
 
 # -----------------------------------------------------------------------------
 # Units of a point — a target's, a capture's: the same moves as a map's
@@ -846,11 +846,11 @@ function attach_point end
 @doc (@doc strip_point) attach_point
 strip_point(u::Units, p::StaticVector{N, <:Quantity}) where {N} = map(q -> strip_or_bare(u, q), p)
 strip_point(u::Units, p::Uncertain) =
-    Uncertain(strip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), *))
+    Uncertain(strip_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _meter_factor(u), *))
 strip_point(::Units, p) = throw(ArgumentError("ustrip: the point $(p) is plain numbers already; `with_unit` attaches a unit"))
 attach_point(u::Units, p::StaticVector{N, <:Real}) where {N} = map(x -> attach_length(x, u), p)
 attach_point(u::Units, p::Uncertain) =
-    Uncertain(attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _metre_factor(u), /))
+    Uncertain(attach_point(u, geom(p)), _scale_point_form(getfield(p, :attributes), _meter_factor(u), /))
 attach_point(::Units, p) = throw(ArgumentError("with_unit: the point $(p) already has units"))
 
 # every entry of a point is a length

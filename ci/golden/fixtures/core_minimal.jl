@@ -200,7 +200,7 @@ function radial_camera_board()
     end
     c = SVector(931.0, -472.0)
     col = [SVector(t, 2t) => pts[1][2] .* (1 + 0.1t) for t in 1.0:5.0]
-    return (; centred = Correspondences(first.(pts), last.(pts)), raw = Correspondences(first.(pts), [x + c for x in last.(pts)]),
+    return (; centered = Correspondences(first.(pts), last.(pts)), raw = Correspondences(first.(pts), [x + c for x in last.(pts)]),
             center = c, collinear = Correspondences(first.(col), last.(col)))
 end
 # RadialCameraScene's contaminated board (StableRNG(seed) in place of its StableRNG(19)).

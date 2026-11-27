@@ -526,11 +526,11 @@ public PoseLibRefineMetadata
 VgtkCore.default_damping(::PoseLibSolver) = LevenbergDamping()
 
 # The LmStops field PoseLib's wrapper applies: `max_iter` alone (its tolerances are PoseLib's own). Core's front end
-# refuses any other field set away from its default before a refine runs (`check_honoured_stops`, naming the field),
+# refuses any other field set away from its default before a refine runs (`check_honored_stops`, naming the field),
 # so a stop setting is APPLIED or REFUSED, never ignored.
-VgtkCore.honoured_stops(::PoseLibSolver) = (:max_iter,)
+VgtkCore.honored_stops(::PoseLibSolver) = (:max_iter,)
 
-# The iteration budget PoseLib runs, from the solve's `stops` (already checked by Core against `honoured_stops`).
+# The iteration budget PoseLib runs, from the solve's `stops` (already checked by Core against `honored_stops`).
 function _poselib_max_iter(stops::LmStops)
     stops.max_iter <= typemax(Cint) || throw(ArgumentError("PoseLib's max_iter is a C int, ≤ $(typemax(Cint)); got $(stops.max_iter)"))
     return stops.max_iter
@@ -834,11 +834,11 @@ VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3}, cs::_Pla
 # unlabeled.
 function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::UnitfulEuclideanMap{3}, cs::_PhysicalPoints3, p::NamedTuple,
                                     alg::LevenbergMarquardt; stops::LmStops, scale, width)
-    plain = _absolute_pose(VgtkCore.unlabel(ustrip(VgtkCore.m, pose)), cs, p, alg, stops, scale, width, _metres_point)
+    plain = _absolute_pose(VgtkCore.unlabel(ustrip(VgtkCore.m, pose)), cs, p, alg, stops, scale, width, _meters_point)
     return VgtkCore.map_estimate(refined -> VgtkCore.with_unit(EuclideanMap(refined.R, refined.t), VgtkCore.m), plain)
 end
 
-_metres_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_metres(X))
+_meters_point(X::StaticVector{3, <:Quantity}) = SVector{3, Float64}(VgtkCore.strip_meters(X))
 
 # `world` maps each world point to its plain Float64 form as it is packed (`identity` for plain points).
 function _absolute_pose(pose, cs, p, alg, stops::LmStops, scale, width, world::W) where {W}   # `W`: specialized on `world`

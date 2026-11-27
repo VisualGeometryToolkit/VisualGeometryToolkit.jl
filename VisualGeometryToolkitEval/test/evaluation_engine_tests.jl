@@ -582,11 +582,11 @@
         @test all(isfinite, guarded.err)
         # cancellation: polled before each pair; nothing runs
         calls = Threads.Atomic{Int}(0)
-        none = run(; cancelled = () -> true, finalize = (j, r) -> Threads.atomic_add!(calls, 1))
+        none = run(; canceled = () -> true, finalize = (j, r) -> Threads.atomic_add!(calls, 1))
         @test all(==(Inf), none.err) && all(==(0), none.trials) && all(isnan, none.wall_s)
         @test calls[] == 0 && all(isnothing, none.extras)
         # Experiments' kaimon hooks: false / no-op without Main.KaimonGate
-        @test Experiments.cancelled() === false
+        @test Experiments.canceled() === false
         @test Experiments.progress("x") === nothing
     end
 

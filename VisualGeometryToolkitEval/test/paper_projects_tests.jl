@@ -223,7 +223,7 @@
     end
 
     @testset "storage: inputs catalogued, one name one tree, the view's links into the store" begin
-        catalogued(root) = edit(s -> s * """
+        cataloged(root) = edit(s -> s * """
             [artifacts.pools]
             kind = "tree"
             dir = "pools"
@@ -242,14 +242,14 @@
             url = "https://zenodo.org/records/ZENODO_RECORD_DATA/files/pools.tar.gz?download=1"
             """)
         # A2: a config input names a catalogued tier
-        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        root = good(); cataloged(root); bind(root, repeat("a", 40))
         add(root, "configs/run.toml", "[inputs.p]\ntier = \"pools\"\npath = \"heb.jld2\"\n")
         @test isempty(check(root))
         add(root, "configs/run.toml", "[inputs.p]\ntier = \"other\"\npath = \"x\"\n[inputs.q]\npath = \"y\"\n")
         v = check(root)
         @test rules(v) == ["A2"] && length(v) == 2 && all(x -> x.file == "configs/run.toml", v)
         # A3: the same name, another tree, in another project's bindings or in the store's name record
-        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        root = good(); cataloged(root); bind(root, repeat("a", 40))
         other = mktempdir(); bind(other, repeat("c", 40))
         v = check(root; stack_artifacts = [joinpath(other, "Artifacts.toml")])
         @test rules(v) == ["A3"] && occursin(repeat("c", 40), only(v).message)
@@ -260,7 +260,7 @@
         @test rules(check(root)) == ["A3"]
         rm(joinpath(store, "names"); recursive = true)
         # A4: the artifact view's links resolve into the store
-        root = good(); catalogued(root); bind(root, repeat("a", 40))
+        root = good(); cataloged(root); bind(root, repeat("a", 40))
         view = joinpath(root, "data", "exp_raw")
         write(joinpath(view, ".artifact_view"), "view\n")
         tree = joinpath(store, repeat("a", 40)); mkpath(tree); write(joinpath(tree, "heb.jld2"), "x")

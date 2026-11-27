@@ -533,14 +533,14 @@ end
 @noinline _too_small_texture() = throw(ArgumentError("bilinear_sample: the image needs at least 2 × 2 texels"))
 # The half-texel chart, once: the size check and the 0-based texel-centre coordinates of `uv`
 # (`x = 0` at the first column's centre, `x = W − 1` at the last), and the clamp onto the
-# centres' rectangle. `bilinear_weights` and `is_inside_texel_centres` both read these.
+# centres' rectangle. `bilinear_weights` and `is_inside_texel_centers` both read these.
 @inline function _texel_chart(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
     W = Int(dims[1]); H = Int(dims[2])
     (H >= 2 && W >= 2) || _too_small_texture()
     h = one(eltype(uv)) / 2
     return W, H, uv[1] * W - h, uv[2] * H - h
 end
-@inline _clamp_to_centres(v, n::Int) = clamp(v, zero(v), oftype(v, n - 1))
+@inline _clamp_to_centers(v, n::Int) = clamp(v, zero(v), oftype(v, n - 1))
 
 """
     bilinear_weights(uv::StaticVector{2}, (W, H)) -> (i, j, fx, fy)
@@ -566,7 +566,7 @@ texels itself (a footprint's rows, a scatter) instead of reading values.
     Tv = typeof(xv)
     isfinite(xv) || (x = zero(x); xv = zero(Tv))        # a non-finite position reads the corner texel
     isfinite(yv) || (y = zero(y); yv = zero(Tv))
-    xv = _clamp_to_centres(xv, W); yv = _clamp_to_centres(yv, H)
+    xv = _clamp_to_centers(xv, W); yv = _clamp_to_centers(yv, H)
     x0 = min(floor(Int, xv), W - 2); y0 = min(floor(Int, yv), H - 2)
     x0 = max(x0, 0); y0 = max(y0, 0)
     fx = clamp(x - x0, zero(x), one(x)); fy = clamp(y - y0, zero(y), one(y))
@@ -574,7 +574,7 @@ texels itself (a footprint's rows, a scatter) instead of reading values.
 end
 
 """
-    is_inside_texel_centres(uv::StaticVector{2}, (W, H)) -> Bool
+    is_inside_texel_centers(uv::StaticVector{2}, (W, H)) -> Bool
 
 Whether `uv` lies in the closed rectangle of the texel centres of a `W × H`
 texture in [`bilinear_sample`](@ref)'s unit-square, half-texel chart
@@ -587,10 +587,10 @@ read on the position's value under every ForwardDiff `Dual` layer. For a
 caller that drops a position rather than extending the texture (a footprint
 off the grid).
 """
-@inline function is_inside_texel_centres(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
+@inline function is_inside_texel_centers(uv::StaticVector{2}, dims::Tuple{Integer, Integer})
     W, H, x, y = _texel_chart(uv, dims)
     xv = primal_value(x); yv = primal_value(y)
-    return _clamp_to_centres(xv, W) == xv && _clamp_to_centres(yv, H) == yv     # NaN ≠ NaN: a non-finite one is outside
+    return _clamp_to_centers(xv, W) == xv && _clamp_to_centers(yv, H) == yv     # NaN ≠ NaN: a non-finite one is outside
 end
 
 """

@@ -101,9 +101,9 @@ BearingPoseProblem(cs::AbstractVector{<:Pair{<:StaticVector{3, <:Real}, <:Static
 # physical guess comes back in metres.
 function BearingPoseProblem(cs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{3, <:Real}}};
                             sampler::Union{Nothing, AbstractSampler} = nothing)
-    plain = _map_correspondences(_plain_metres, identity, cs)
+    plain = _map_correspondences(_plain_meters, identity, cs)
     if plain isa VgtkCore.Correspondences && VgtkCore.hasattr(plain, :origins)
-        plain = withattrs(plain; origins = map(_plain_metres, plain.origins))
+        plain = withattrs(plain; origins = map(_plain_meters, plain.origins))
     end
     return _bearing_pose_problem(plain, sampler, VgtkCore.m)
 end

@@ -69,7 +69,7 @@ include("robust/problem.jl")          # the constraint-problem protocol (mahalan
 include("robust/scale.jl")            # IGPrior, ScaleMAP, the consensus Student-t scale
 include("robust/mixture.jl")          # StudentTMixture, GauInlier, decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies
-include("robust/normaliser.jl")       # truncated_log_normaliser
+include("robust/normalizer.jl")       # truncated_log_normalizer
 include("robust/scoring_contract.jl") # the scoring contract, ScoreBuffers, score_model!
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring
 include("robust/lo_contract.jl")      # the local-optimization and external-refit contracts, loss_at
@@ -193,7 +193,7 @@ include("quality/conventions.jl")        # conventions_dir, convention_files: th
 ```
 
 **Why last?** The sensor image (`raw/`, moved from VisualGeometryToolkitFeatures in 0.9.2)
-follows Cameras for `pixel_centre`, the one index → COLMAP conversion its photosite
+follows Cameras for `pixel_center`, the one index → COLMAP conversion its photosite
 offsets read, and the warp section for ImageCore's `channelview`. Cameras uses the solvers (P3P, radial calibration), the batched
 maps (lens kernels), and the B-spline numerics (grid models). `check_naming`
 depends on nothing in the package; it sits last because nothing in the package

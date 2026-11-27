@@ -21,6 +21,14 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   (IO's kind, RC's experiment, the TOML keys). The former spellings that recorded data hold are `FOREIGN_FORMAT_TOKENS`.
   `content_digest(::SensorModel)` hashes the reason's recorded name, so no model's digest moves; the absent model is
   still `cee5404683f31de68f9565c174a8ab04c111c0754c3a2f55f7a82000a3ca2fbb`. Prose stays British.
+- **Breaking: American in identifiers, wave 2 (decision 11).** `pixel_centre` → `pixel_center`, `pixel_centres` →
+  `pixel_centers`, `strip_metres` → `strip_meters`, `truncated_log_normaliser` → `truncated_log_normalizer`,
+  `is_inside_texel_centres` → `is_inside_texel_centers`; `PolygonRegion`'s field and constructor argument `centre` →
+  `center` (`P.center`). No aliases; each old function name is in `RETIRED_NAMES` (a field name is a prose word there,
+  so it is not listed). The LM-backend contract added in this release is `honored_stops` / `check_honored_stops`.
+  Every private name, local and test helper of the same kind follows (`_colour_plane` → `_color_plane`,
+  `_metre_factor` → `_meter_factor`, `robust/normalizer.jl`, …). No number moves: no golden record stores one of
+  these names. Prose stays British; the golden case labels and the recorded data names keep their recorded spelling.
 - Added `DarksAndFlats`, a `FitKind` builder (exported):
   `solve(EstimationProblem(SensorCharacterization, (darks, flats), (; body, iso, reference)), DarksAndFlats(; dark =
   MasterDark(…), series = PhotonTransfer(…)))`.
@@ -197,7 +205,7 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - `EnsembleProblem(prob_func, N)` / `EnsembleProblem(batch, N)` with `EnsembleKernel(backend)` and the
   struct-of-arrays `EnsembleResult`: one kernel launch of N kernel-lawful solves (`StaticLevenbergMarquardt`).
 - A backend LM on a family problem: `__solve(RefineProblem{<:AbstractConstraintProblem}, LevenbergMarquardt{<:backend})`
-  routes to `lm_backend_refine`. `honoured_stops(backend)` / `check_honoured_stops` say which `LmStops` fields a backend
+  routes to `lm_backend_refine`. `honored_stops(backend)` / `check_honored_stops` say which `LmStops` fields a backend
   honours, and `BackendRefit(alg, stops; cheirality_vote_points = 256)` is THE `ExternalRefit` strategy of any
   refine algorithm (`estimator_kind(alg) === RefineKind()`, else an `ArgumentError`): its `external_refit!` returns the
   refine's `FitResult` (the external refit's contract, below), its `u` the refined model whatever the record (a

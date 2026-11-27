@@ -636,7 +636,7 @@ end
     using VisualGeometryToolkitCore: HeightField, grid_nodes, has_units, geom, bending_energy, ThinPlateSplineSystem, PlanarTarget
     using Random: Xoshiro
     nodes = grid_nodes(5; lo = 0.0, hi = 1.0)                                       # page fractions, plain
-    h = [VgtkIO.metres(round(x; digits = 4), mm) for x in 0.3 .* randn(Xoshiro(3), 25)]   # metres, mm-born
+    h = [VgtkIO.meters(round(x; digits = 4), mm) for x in 0.3 .* randn(Xoshiro(3), 25)]   # metres, mm-born
     hf = HeightField(nodes, h)
     @test !has_units(hf)
     heights(c) = geom(c).h

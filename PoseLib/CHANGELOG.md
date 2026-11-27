@@ -60,8 +60,8 @@ No refined number changes: the golden records of 3d8a06da replay bit for bit (`c
   refined essential.
 - `LeZach()`'s optimization path is `:gnc` (it was `:irls`), its loss family `:tls` and label `TLS-LZ`: the identity
   LocalOptimizationDoneRight's TLS-LZ arm reports, read through a `BackendRefit` by VisualGeometryToolkitEval's labels and markers.
-- `honoured_stops(::PoseLibSolver) = (:max_iter,)`: Core's front end refuses any other `LmStops` field set away from
-  its default, naming it (`check_honoured_stops`); PoseLib's own refusal of those fields is deleted (one refusal, Core's;
+- `honored_stops(::PoseLibSolver) = (:max_iter,)`: Core's front end refuses any other `LmStops` field set away from
+  its default, naming it (`check_honored_stops`); PoseLib's own refusal of those fields is deleted (one refusal, Core's;
   its message is Core's).
 - `VisualGeometryToolkitCore.default_damping(::PoseLibSolver) = LevenbergDamping()` and
   `VisualGeometryToolkitCore.lm_backend_refine(::PoseLibSolver, …)` (the refines).

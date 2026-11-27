@@ -187,7 +187,7 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         end
         @test_throws MethodError H((; local_optimization = Irls{TLSShape}(), width = 2.0))
         @test_throws MethodError H((; optimization_strategy = Irls{TLSShape}(), width = 2.0, tolerance = 1.0))
-        # the stops are Core's LmStops: PoseLib honours `max_iter` (default 1000; `honoured_stops`), and Core refuses any
+        # the stops are Core's LmStops: PoseLib honours `max_iter` (default 1000; `honored_stops`), and Core refuses any
         # other stop setting, naming it; PoseLib's LM damps by λ·I, so another damping is refused
         lsq = LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing)
         hom = (d.hom, HomographyMat(d.H0))

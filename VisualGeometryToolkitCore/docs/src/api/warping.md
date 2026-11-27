@@ -25,7 +25,7 @@ albedo under ForwardDiff); [`bilinear_sample_clamped`](@ref) reads 1-based
 array positions, rejects one off the image, and is exact at integers (a
 pixel scan). [`bilinear_weights`](@ref) is `bilinear_sample`'s texel block
 and fractions for a caller that spreads a position itself, and
-[`is_inside_texel_centres`](@ref) says whether a position needs no edge
+[`is_inside_texel_centers`](@ref) says whether a position needs no edge
 extension (for a caller that drops it instead). [`image_sample!`](@ref) is `image_warp!`'s tap at points the
 caller holds (the projections of a set of directions), with its boundary.
 

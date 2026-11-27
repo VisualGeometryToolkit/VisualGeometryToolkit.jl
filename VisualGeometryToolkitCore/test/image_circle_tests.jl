@@ -107,7 +107,7 @@
             c = mk(800.0, 800.0, 640.0, 480.0, l)
             q = valid_domain(c)
             @test q isa PolygonRegion
-            @test q.centre ≈ SVector(640.0, 480.0) atol = 1.0e-9   # about the distortion centre, the principal point here
+            @test q.center ≈ SVector(640.0, 480.0) atol = 1.0e-9   # about the distortion centre, the principal point here
             # it contains the disc the rule inscribed before (the θ_max cone's smallest rim radius), to the
             # sampling tolerance: each azimuth's own fold lies at or beyond that cone's rim
             θ = view_angle_limit(l)

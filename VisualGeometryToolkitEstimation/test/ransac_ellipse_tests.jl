@@ -13,14 +13,14 @@
     using VisualGeometryToolkitCore: Point2, Ellipse, residual_rows!, residual_jacobian_rows!, ambient_coordinates, boundary_point, whitened_residuals!
     using VisualGeometryToolkitEstimation: EllipseProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    centre(e) = SVector(e.center[1], e.center[2])
+    center_xy(e) = SVector(e.center[1], e.center[2])
     rng = Xoshiro(31)
     pts, _ = ellipse_scene(rng, 200; σ = 0.0, outl = 0.0)
     p = EllipseProblem(pts)
     @test VgtkEstimation.codimension(p) == 1 && VgtkEstimation.minimal_sample_size(p) == 5 && VgtkEstimation.chart_dof(p) == 5
     sol = VgtkEstimation.sample_models(p, [1, 2, 3, 4, 5])
     e = first(sol)
-    @test sol.count == 1 && norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8 &&
+    @test sol.count == 1 && norm(center_xy(e) - center_xy(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8 &&
         abs(sin(e.θ - E₀.θ)) < 1.0e-10
     r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, e)
     @test maximum(abs, r) < 1.0e-8                                       # pixels
@@ -33,7 +33,7 @@
     # the signed residual is the Sampson residual: the geometric signed distance to first
     # order, and the scoring distance its magnitude.
     # Along the major axis (normal there) a point δ off is (δ − δ²/(2(a + δ)))…
-    off = [Point2{Float64}(centre(E₀) + (E₀.a + δ) * SVector(cos(E₀.θ), sin(E₀.θ))) for δ in range(-5, 5, length = 21)]
+    off = [Point2{Float64}(center_xy(E₀) + (E₀.a + δ) * SVector(cos(E₀.θ), sin(E₀.θ))) for δ in range(-5, 5, length = 21)]
     po = EllipseProblem(off)
     ro = zeros(21); whitened_residuals!(ro, po, E₀)
     δs = collect(range(-5, 5, length = 21))
@@ -49,7 +49,7 @@
     # AD must not see — against central differences, at random weights
     pn, _ = ellipse_scene(rng, 100; σ = 1.0, outl = 0.0)
     pp = EllipseProblem(pn)
-    e₀ = Ellipse(Point2((centre(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
+    e₀ = Ellipse(Point2((center_xy(E₀) .+ SVector(2.0, -1.5))...), E₀.a + 3, E₀.b - 2, E₀.θ + 0.01)
     lm = VgtkEstimation._lm_state(pp, VgtkEstimation._chart(pp, e₀), rand(rng, 100))
     a0 = SVector(0.3, -0.2, 1.0e-3, -2.0e-3, 5.0e-4)
     J = zeros(100, 5); residual_jacobian_rows!(J, lm, a0)
@@ -63,7 +63,7 @@
     ws = VgtkEstimation.refit_workspace(pp)
     e₁ = VgtkCore.refine!(ws, pp, e₀, ones(100))
     @test e₁ isa Ellipse{Float64}
-    @test norm(centre(e₁) - centre(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
+    @test norm(center_xy(e₁) - center_xy(E₀)) < 0.5 && abs(e₁.a - E₀.a) < 0.5 && abs(e₁.b - E₀.b) < 0.5 && abs(e₁.θ - E₀.θ) < 0.01   # σ = 1 px on 100 points
     @test warm_allocated(VgtkCore.refine!, ws, pp, e₀, ones(100)) == 0
 end
 
@@ -76,7 +76,7 @@ end
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Ellipse
     
-    centre(e) = SVector(e.center[1], e.center[2])
+    center_xy(e) = SVector(e.center[1], e.center[2])
     rng = Xoshiro(32)
     for trial in 1:3
         pts, bad = ellipse_scene(rng, 1000; σ = 0.5, outl = 0.4)
@@ -85,7 +85,7 @@ end
         e = res.u
         @test e isa Ellipse{Float64}
         # σ = 0.5 px on 600 inliers: centre and axes σ/√300 ≈ 0.03 px, the angle ≈ 0.03/(a − b) rad
-        @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
+        @test norm(center_xy(e) - center_xy(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
         inl = inlier_mask(res)
         good = setdiff(1:1000, bad)
         @test count(inl[good]) > 0.9 * length(good)                       # 1 px MSAC on a 0.5 px normal residual: P(|z| < 2) = 0.95

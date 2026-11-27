@@ -291,10 +291,10 @@ function with_unit end
 
 # A length unit's factor from metres: `ustrip(u, 1 m)` (1000 for mm). A unit of
 # another dimension is FlexUnits' `ConversionError`.
-_metre_factor(u::Units) = ustrip(u, Quantity(1.0, dimension(m)))   # Float64: a float value over the rational scale
+_meter_factor(u::Units) = ustrip(u, Quantity(1.0, dimension(m)))   # Float64: a float value over the rational scale
 
 """
-    strip_metres(x) -> plain numbers
+    strip_meters(x) -> plain numbers
 
 A length, or a vector of lengths, as plain metres: the one strip at a public
 boundary that takes physical values and computes on plain numbers (a pose's
@@ -306,11 +306,11 @@ static. Values are stored in metres, so the strip is exact; a quantity built
 from an integer (`2m`, exactly rational) comes out as its correctly rounded
 float.
 """
-strip_metres(q::Quantity) = float(ustrip(m, q))
-strip_metres(x::Real) = throw(DimensionError(x, m))
-strip_metres(x::StaticVector{N, <:Quantity}) where {N} = map(strip_metres, x)
-strip_metres(x::AbstractVector{<:Quantity}) = strip_metres.(x)
-strip_metres(x::AbstractVector) = throw(DimensionError(x, m))
+strip_meters(q::Quantity) = float(ustrip(m, q))
+strip_meters(x::Real) = throw(DimensionError(x, m))
+strip_meters(x::StaticVector{N, <:Quantity}) where {N} = map(strip_meters, x)
+strip_meters(x::AbstractVector{<:Quantity}) = strip_meters.(x)
+strip_meters(x::AbstractVector) = throw(DimensionError(x, m))
 
 # -----------------------------------------------------------------------------
 # Pixel-sized values: the length check that survives a dimensionless px

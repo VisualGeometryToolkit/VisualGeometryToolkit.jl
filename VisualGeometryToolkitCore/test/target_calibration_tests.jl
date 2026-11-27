@@ -973,7 +973,7 @@ end
         @test calibration(ustrip(mm, tm)) === hf && calibration(with_unit(t, mm)) === hf     # the calibration never moves
         tmm = with_unit(t, mm)                                       # numbers read as millimetres: the placement in metres
         @test VgtkCore.scale(placement(tmm)) ≈ s / 1000 && VgtkCore.translation(placement(tmm)) ≈ SVector(x0, ytop, 0.0) ./ 1000
-        @test maximum(norm(VgtkCore.strip_metres(a) - b ./ 1000) for (a, b) in zip(points(tmm), points(t))) <= 1.0e-15
+        @test maximum(norm(VgtkCore.strip_meters(a) - b ./ 1000) for (a, b) in zip(points(tmm), points(t))) <= 1.0e-15
         @test maximum(norm(a - b) for (a, b) in zip(points(ustrip(mm, tmm)), points(t))) <= 1.0e-15
         @test VgtkCore.scale(placement(ustrip(mm, tm))) ≈ 1000s
         # a calibration with units is refused; a placement that is not an in-plane similarity without rotation

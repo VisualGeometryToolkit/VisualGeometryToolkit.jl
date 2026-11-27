@@ -469,7 +469,10 @@ src, dst)` that `vgio_migrate` runs — a declared extension point
 schema)`, which moves the record's declarations into the 0.10 envelope, and,
 for a record that declared its units in the retired UnitContract layout
 (`{"world", "density", "lengths"}`), [`migrate_units`](@ref
-VisualGeometryToolkitIO.migrate_units), which gives its `units` object.
+VisualGeometryToolkitIO.migrate_units), which gives its `units` object. A kind
+that embeds a region body steps its records written before IO 0.12 through
+[`migrate_region`](@ref VisualGeometryToolkitIO.migrate_region), which stores a
+polygon's centre under `"center"` (it was `"centre"`).
 
 A package whose own kinds are files reads and writes them through the same two
 verbs: it adds `VisualGeometryToolkitIO.load(::Type{<:T}, path)` and
@@ -511,7 +514,7 @@ frames.
 | `PointTarget`, `PlanarTarget` | `AbstractTarget` (keyword `resolve`, as `target_from_json`'s) | the target body, a planar target's calibration as the parametric record (below) |
 | `AprilGrid`, `SchoepsPattern` | `AbstractTargetLayout` | `{"type": tag, every field}` |
 | `Ellipse`, `Circle`, `Rect2` | `Ellipse`, `Circle`, `Rect2` | `[cx, cy, a, b, θ]`, `[cx, cy, r]`, `[x, y, w, h]`, in the value's own numbers |
-| a region: `Rect2`, `Ellipse`, `Circle`, `PolygonRegion`, `RegionIntersection` (nested), `WholePlane` | the region type, or a `Union` of them | THE region body, `{"rect": […]}` \| `{"ellipse": […]}` \| `{"circle": […]}` \| `{"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}` \| `{"intersection": [<region>, <region>]}` \| `{"whole_plane": {}}`, in pixels of `units.pixel`; a polygon is Core's star polygon (the valid domain of a lens that is not radially symmetric, at least 3 vertices, star-shaped about its centre: refused otherwise on read) and is not a leaf, so never a lens coverage; an intersection is BINARY, Core's `RegionIntersection`: exactly two parts, in order, so every document reads back as one exact type (more parts nest: `[a, {"intersection": [b, c]}]`; a list of another length is refused); a leaf field asks for it by the tag `(; region = true)` (an intersection and the whole plane lower to it by the two-argument form) |
+| a region: `Rect2`, `Ellipse`, `Circle`, `PolygonRegion`, `RegionIntersection` (nested), `WholePlane` | the region type, or a `Union` of them | THE region body, `{"rect": […]}` \| `{"ellipse": […]}` \| `{"circle": […]}` \| `{"polygon": {"center": [cx, cy], "vertices": [[x, y], …]}}` \| `{"intersection": [<region>, <region>]}` \| `{"whole_plane": {}}`, in pixels of `units.pixel`; a polygon is Core's star polygon (the valid domain of a lens that is not radially symmetric, at least 3 vertices, star-shaped about its centre: refused otherwise on read) and is not a leaf, so never a lens coverage; an intersection is BINARY, Core's `RegionIntersection`: exactly two parts, in order, so every document reads back as one exact type (more parts nest: `[a, {"intersection": [b, c]}]`; a list of another length is refused); a leaf field asks for it by the tag `(; region = true)` (an intersection and the whole plane lower to it by the two-argument form) |
 | VisualRadiometryToolkitCore's vignetting fields, binned radial profile and environment light | (VisualRadiometryToolkitIO's methods on this style) | the `vgio/vignetting`, `vgio/radial_profile` and `vgio/environment_light` bodies, as up to IO 0.10 |
 | a fit's termination (`FitResult`) | `FitResult` (a `FitResult{Nothing, Nothing}`: the record holds no estimate or metadata) | `{"retcode", "stop_rule", "iterations", "rms", "n"}`, `iterations` the result's `stats.nsteps` |
 | `GaussianBlur` | `GaussianBlur` | `{"pixel_frame": "colmap" \| "frame": "image:<id>" \| "target:<id>", "covariance": …}` in the storage it holds: px² on a sensor, `units.length`² on a print (read back as m² quantities); the plane is the blur's `CovMat` frame, read back with it |

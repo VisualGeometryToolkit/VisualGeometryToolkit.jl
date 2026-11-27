@@ -1023,7 +1023,7 @@ _coverage(exits, ρ) = count(e -> e >= ρ * (1 - 1.0e-9), exits) / length(exits)
 # ==============================================================================
 
 # The quadrature of the region: the pixel centres (COLMAP) in the region on a
-# lattice of `stride` pixels (Core's `pixel_centres`) — the fit's points, and the
+# lattice of `stride` pixels (Core's `pixel_centers`) — the fit's points, and the
 # held-out check's offset by half a stride — with the source's rays there (a
 # point the source does not image is dropped) and the held-out points' edge band.
 #
@@ -1040,7 +1040,7 @@ function _image_quadrature(samples::F, source, region) where {F}
     W, H = ceil(Int, hi[1]), ceil(Int, hi[2])
     (W > 0 && H > 0) || throw(ArgumentError("CameraRegression: the region $box lies outside the image quadrant"))
     u0, v0 = max(1, floor(Int, lo[1]) + 1), max(1, floor(Int, lo[2]) + 1)
-    lattice(off) = pixel_centres(region, (u0 + off):stride:W, (v0 + off):stride:H)
+    lattice(off) = pixel_centers(region, (u0 + off):stride:W, (v0 + off):stride:H)
     function imaged(pixels)
         data = samples(source, pixels)
         keep = findall(_is_finite_sample, data)

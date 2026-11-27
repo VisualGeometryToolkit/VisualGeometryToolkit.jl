@@ -175,7 +175,7 @@ using VisualGeometryToolkitCore: SensorCharacterization   # sensor_characterizat
 #   pose_json / pose_from_json, camera_json / camera_from_json, target_json / target_from_json,
 #   target_calibration_json / target_calibration_from_json, lattice_json / lattice_from_json
 #                                                building blocks for a package's own kind
-#   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, with_caller
+#   write_record / read_record, VgioStyle(record), migrate_envelope, migrate_units, migrate_region, with_caller
 #                                                a package's own kind in the vgio envelope, and its version steps
 #   KindSpec, write_kind / read_kind, json_schema(kind), migrate_file, the `*_spec` combinators
 #                                                a package's own kind WITH its table: checked on write and on read, its
@@ -266,10 +266,11 @@ public VgioStyle                      # the serialization style every embedded V
 public Record, snap_integer, MATRIX_LAYOUT   # what a lift reads; a file number as a record writes it; the matrix layout a record declares
 public write_record, read_record      # the vgio file boundary for a record of another package's kind (validate.jl)
 public nested_roundtrip, edited_copy  # a kind's tests: its body nested in another record; a record edited to be refused (kind_test_helpers.jl)
-public with_provenance, metres        # a record body with the writer's provenance; a file length as plain metres (a kind of another package's)
+public with_provenance, meters        # a record body with the writer's provenance; a file length as plain metres (a kind of another package's)
 public ColmapModel                    # a COLMAP model directory's contents + its unit contract
 public read_length, write_length   # a file length <-> metres, decimal-exact (power-of-ten units shift the exponent)
 public role_unit, migrate_units   # a contract's length roles; the 0.10 units object of a record in the retired UnitContract layout (core_json.jl)
+public migrate_region              # a region body written before IO 0.12 (a polygon's "centre" key), for an embedding kind's version step (core_json.jl)
 public save_manifest, load_manifest     # vgio/calibration: the manifest binding a result's record files (any owner's) by SHA-256
 public save_raster, load_raster       # vgio/raster/v2.0: a raster, its JSON header and its TIFF payload
 public write_tiff, read_tiff          # the stack's one TIFF codec (libtiff): a grey UInt8 or Float32 image

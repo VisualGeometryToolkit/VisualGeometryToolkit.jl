@@ -265,7 +265,7 @@ function _load_kalibr_target(y, path)
     # rounded once to the metre value (as `read_length` reads a decimal): a
     # float product would round twice (0.088 · 0.3 = 0.026399999999999996)
     ratio = _decimal_rational(y.top["tagSpacing"], path, "tagSpacing")
-    gap = _metre_quantity(Float64(_decimal_rational(y.top["tagSize"], path, "tagSize") * ratio))
+    gap = _meter_quantity(Float64(_decimal_rational(y.top["tagSize"], path, "tagSize") * ratio))
     grid = AprilGrid(;
         tag_rows = _yaml_parse(Int, y.top, "tagRows", path, _KALIBR_APRILGRID), tag_cols = _yaml_parse(Int, y.top, "tagCols", path, _KALIBR_APRILGRID),
         tag_size, tag_spacing = gap,

@@ -280,7 +280,7 @@ _frame_cov_size(f, Σ) = size(Σ, 1) == frame_dof(f) || throw(ArgumentError(
 # -----------------------------------------------------------------------------
 #
 #   {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
-#     | {"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}
+#     | {"polygon": {"center": [cx, cy], "vertices": [[x, y], …]}}
 #     | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
 #
 # Its leaves are the positional records style.jl writes and reads (and validate.jl's `_AREA`, `_ELLIPSE` and `_CIRCLE`
@@ -300,7 +300,7 @@ const _RegionValue = Union{_RegionLeaf, PolygonRegion, RegionIntersection, Whole
 # A star polygon (Core's `PolygonRegion`: the valid domain of a lens that is not radially symmetric): its centre and its
 # vertex ring, counter-clockwise about it. Not a leaf: a lens coverage is never one. Core's constructor checks the rest
 # (star-shaped about the centre) on read, an `ArgumentError`.
-const _POLYGON = _Obj(:centre => _XY, :vertices => _CheckedSpec(_Vec(_XY), v -> length(v) >= 3 ? nothing :
+const _POLYGON = _Obj(:center => _XY, :vertices => _CheckedSpec(_Vec(_XY), v -> length(v) >= 3 ? nothing :
     "a polygon has at least 3 vertices, got $(length(v))"; rule = "at least 3 vertices", schema = ["minItems" => 3]))
 _region_tag(::Rect2) = :rect
 _region_tag(::Ellipse) = :ellipse
@@ -353,7 +353,7 @@ _region_json(s::VgioStyle, r) = _region_record(s, _pixel_region_map(PixelFrame{:
 _region_record(s::VgioStyle, r::_RegionLeaf) = NamedTuple{(_region_tag(r),)}((JSON.lower(s, r),))
 _region_record(s::VgioStyle, r::RegionIntersection) = (intersection = Any[_region_record(s, r.a), _region_record(s, r.b)],)
 _region_record(::VgioStyle, P::PolygonRegion) =
-    (polygon = (centre = Float64[P.centre[1], P.centre[2]], vertices = [Float64[v[1], v[2]] for v in P.vertices]),)
+    (polygon = (center = Float64[P.center[1], P.center[2]], vertices = [Float64[v[1], v[2]] for v in P.vertices]),)
 _region_record(::VgioStyle, ::WholePlane) = (whole_plane = (;),)
 # …and back, in the record's frame: an intersection by Core's constructor, its parts as stored (never `∩`, which
 # would fold two rectangles into one and a circle into its ellipse).
@@ -363,7 +363,7 @@ function _region_from(s::VgioStyle, x)
     k === :intersection && return RegionIntersection(_region_from(s, v[1]), _region_from(s, v[2]))
     k === :whole_plane && return WholePlane()
     k === :polygon && return PolygonRegion([Point2{Float64}(Float64(p[1]), Float64(p[2])) for p in _getkey(v, :vertices)],
-                                           (Float64(_getkey(v, :centre)[1]), Float64(_getkey(v, :centre)[2])))
+                                           (Float64(_getkey(v, :center)[1]), Float64(_getkey(v, :center)[2])))
     return JSON.lift(s, _REGION_LEAVES[k].type, convert(Vector{Any}, v))
 end
 
@@ -378,7 +378,7 @@ radially symmetric), their `RegionIntersection` (nested to any depth) or the
 `WholePlane` — as one tagged object,
 
     {"rect": [x, y, w, h]} | {"ellipse": [cx, cy, a, b, θ]} | {"circle": [cx, cy, r]}
-      | {"polygon": {"centre": [cx, cy], "vertices": [[x, y], …]}}
+      | {"polygon": {"center": [cx, cy], "vertices": [[x, y], …]}}
       | {"intersection": [<region>, <region>]} | {"whole_plane": {}}
 
 its leaves the positional records a `Rect2`, `Ellipse` and `Circle` are
@@ -419,6 +419,31 @@ function JSON.lift(s::VgioStyle, ::Type{T}, x::_ParsedObject, tags::NamedTuple =
     r = _pixel_region_map(_pixel_frame(s), PixelFrame{:colmap})(_region_from(s, x))
     r isa T || throw(ArgumentError("a region read as $(T): the record holds $(typeof(r))"))
     return r
+end
+
+"""
+    migrate_region(body) -> Dict{String, Any}
+
+The region body `body` (a parsed object) as written before VisualGeometryToolkitIO 0.12, as
+the current one: a polygon's star centre is stored under `"center"` (it was `"centre"`;
+the American spelling of identifiers, decision 11), through every intersection's parts
+to any depth; any other part is returned as it is. For the version step
+([`migrate_schema`](@ref)) of a kind that embeds a region body (a record of an earlier
+version holds the old key); a body already current is returned unchanged. An
+`ArgumentError` for a polygon that holds both keys.
+"""
+function migrate_region(x::AbstractDict)
+    length(x) == 1 || return Dict{String, Any}(String(k) => v for (k, v) in pairs(x))
+    k, v = String(only(keys(x))), only(values(x))
+    k == "intersection" && v isa AbstractVector &&
+        return Dict{String, Any}(k => Any[p isa AbstractDict ? migrate_region(p) : p for p in v])
+    (k == "polygon" && v isa AbstractDict) || return Dict{String, Any}(k => v)
+    p = Dict{String, Any}(String(a) => b for (a, b) in pairs(v))
+    if haskey(p, "centre")
+        haskey(p, "center") && throw(ArgumentError("a region body's polygon holds both \"centre\" and \"center\""))
+        p["center"] = pop!(p, "centre")
+    end
+    return Dict{String, Any}(k => p)
 end
 
 # THE TERMINATION RECORD of a FitResult, `{"retcode", "stop_rule", "iterations", "rms", "n"}`: its return code and stop

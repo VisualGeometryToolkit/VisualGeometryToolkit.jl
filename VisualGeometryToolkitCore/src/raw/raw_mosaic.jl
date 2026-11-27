@@ -248,7 +248,7 @@ const _QUAD_SITES = ((0, 0), (1, 0), (0, 1), (1, 1))
 
 # Photosite k of a cell, (di, dj) = _QUAD_SITES[k], is at raw COLMAP (2j − 1.5 + dj, 2i − 1.5 + di):
 # (dj − ½, di − ½) raw pixels from the cell centre — the 0-based site's pixel centre (Core's conversion).
-@inline _site_offset(k) = pixel_centre(CartesianIndex(_QUAD_SITES[k]))
+@inline _site_offset(k) = pixel_center(CartesianIndex(_QUAD_SITES[k]))
 
 # The cell grid's map onto the visible raw: the mode's map (`raw_frame_map(LinearRaw{mode})`, linear_raw.jl:
 # x ↦ 2x, `_CELL_FRAME_MAP`, the same for both cell modes), then the mosaic's own map (a window's offset).
@@ -391,11 +391,11 @@ end
 # its span `white − black`, the codes that run from 0 to 1 — the constants the cell kernel and `linearview` read,
 # computed once per mosaic. Private: the public linear values are `linearview(m)`, and the levels themselves are the
 # mosaic's fields, `m.black` (per colour index) and `m.white`.
-function _bayer_levels(m::RawMosaic, black_by_colour::NTuple{4, Float64} = m.black)
-    all(<(m.white), black_by_colour) ||
-        throw(ArgumentError("the Bayer levels: every black level must be below the white level $(m.white), got $black_by_colour"))
+function _bayer_levels(m::RawMosaic, black_by_color::NTuple{4, Float64} = m.black)
+    all(<(m.white), black_by_color) ||
+        throw(ArgumentError("the Bayer levels: every black level must be below the white level $(m.white), got $black_by_color"))
     cell = _cell_colors(m, "the Bayer levels")
-    black = ntuple(k -> black_by_colour[cell[k] + 1], Val(4))
+    black = ntuple(k -> black_by_color[cell[k] + 1], Val(4))
     return (black, ntuple(k -> m.white - black[k], Val(4)))
 end
 

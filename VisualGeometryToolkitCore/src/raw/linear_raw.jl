@@ -259,7 +259,7 @@ The slope of one plane: `plane` its index `p`, or its colour, `:R`, `:G` or `:B`
 poisson_slope(L::LinearRaw, model::SensorModel) =
     map(ps -> _poisson_slope(L.gain, _inv_gain(model.noise), map(s -> s.dn, ps)), _geometry(L, "poisson_slope").plane_sites)
 poisson_slope(L::LinearRaw, model::SensorModel, plane::Integer) = poisson_slope(L, model)[plane]
-poisson_slope(L::LinearRaw, model::SensorModel, colour::Symbol) = poisson_slope(L, model)[_colour_plane(L, colour)]
+poisson_slope(L::LinearRaw, model::SensorModel, color::Symbol) = poisson_slope(L, model)[_color_plane(L, color)]
 _inv_gain(n::PoissonGaussian) = 1 / n.gain
 _inv_gain(::NoiseComponent) = 0.0
 
@@ -325,7 +325,7 @@ function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, mode
     defects = defect_mask(model.defects, m; backend)
     law = _variance_law(model.noise, model.black, m, backend)
     green_offsets = (_site_offset(g[1]), _site_offset(g[2]))
-    used, colours, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
+    used, colors, sites = mode === :bin2 ? ((r, g, b), (:R, :G, :B), (1, 2, 3, 4)) : ((g,), (:G,), g)
     P = length(used)
     # on the photosites' device: the kernel reads the held array (the channel view's photosites), never the wrapper
     img = similar(raw, T, H2, W2, P)
@@ -337,7 +337,7 @@ function _cell_images(::Type{T}, m::RawMosaic, gain::Float64, mode::Symbol, mode
     # each plane's samples sit at the mean of its photosites' offsets from the cell centre: the one
     # sample-lattice map (`_sample_map`), after the cell grid's (and the mosaic's own, a window's offset)
     grid = _cell_grid_map(m, mode)
-    maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colours, used)
+    maps = map((C, ks) -> _sample_map(grid, Val(C), sum(_site_offset, ks) / length(ks)), colors, used)
     plane_sites = map(ks -> map(k -> (color = Int(cell[k]), dn = span[k]), ks), used)
     geometry = (plane_maps = maps, green_offsets, plane_sites)
     image = var === nothing ? img : StructArrays.StructArray{_view_eltype(T, law)}((img, var))
@@ -389,11 +389,11 @@ raw_frame_map(::Type{<:LinearRaw{:bin2}}) = _CELL_FRAME_MAP      # the green pla
 raw_frame_map(::Type{<:LinearRaw{:demosaic}}) = throw(_display_only("raw_frame_map"))
 
 # THE plane of a colour: bin2's (R, G, B), the green-cell image's G alone; the green plane holds the cell grid.
-_colour_plane(::LinearRaw{:bin2}, c::Symbol) = c === :R ? 1 : c === :G ? 2 : c === :B ? 3 : _no_colour(c, (:R, :G, :B))
-_colour_plane(::LinearRaw{:green_cells}, c::Symbol) = c === :G ? 1 : _no_colour(c, (:G,))
-_colour_plane(::LinearRaw{:demosaic}, c::Symbol) = throw(_display_only("a plane's colour"))
-_no_colour(c, held) = throw(ArgumentError("LinearRaw: no plane of colour :$c; the image holds $held"))
-_green_plane(L::LinearRaw) = _colour_plane(L, :G)
+_color_plane(::LinearRaw{:bin2}, c::Symbol) = c === :R ? 1 : c === :G ? 2 : c === :B ? 3 : _no_color(c, (:R, :G, :B))
+_color_plane(::LinearRaw{:green_cells}, c::Symbol) = c === :G ? 1 : _no_color(c, (:G,))
+_color_plane(::LinearRaw{:demosaic}, c::Symbol) = throw(_display_only("a plane's colour"))
+_no_color(c, held) = throw(ArgumentError("LinearRaw: no plane of colour :$c; the image holds $held"))
+_green_plane(L::LinearRaw) = _color_plane(L, :G)
 
 """
     green_plane(L::LinearRaw) -> AbstractMatrix (of the image's element type)
@@ -471,7 +471,7 @@ green channel's [`bayer_plane_map`](@ref) of the mosaic at that pixel. A
 """
 function green_cell_sites(L::LinearRaw, row::Integer, column::Integer)
     o = _geometry(L, "green_cell_sites").green_offsets
-    x = pixel_centre(CartesianIndex(row, column))   # Core's one index → COLMAP centre
+    x = pixel_center(CartesianIndex(row, column))   # Core's one index → COLMAP centre
     grid = raw_frame_map(L)
     return (_sample_map(grid, Val(:G1), o[1])(x), _sample_map(grid, Val(:G2), o[2])(x))
 end

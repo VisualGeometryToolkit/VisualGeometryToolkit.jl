@@ -82,18 +82,18 @@ function RobotWorldHandEyeCalibration(Y::PlainEuclideanMap{3}, X::AbstractDict{K
     return RobotWorldHandEyeCalibration{K, P}(Yp, Dict{K, P}(id => _plain_motion(unlabel(X[id])) for id in ids), ids)
 end
 RobotWorldHandEyeCalibration(Y::_PhysicalPose3, X::AbstractDict{K, <:_PhysicalPose3}) where {K} =
-    _attach_metres(RobotWorldHandEyeCalibration(_plain_metres(Y), Dict(id => _plain_metres(T) for (id, T) in X)))
+    _attach_meters(RobotWorldHandEyeCalibration(_plain_meters(Y), Dict(id => _plain_meters(T) for (id, T) in X)))
 
 # A calibration's two forms, through its poses: the plain one in metres, and a
 # plain one read as metres (the boundary of the robot-world fit and refine).
-function _plain_metres(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K}
-    Yp = _plain_motion(_plain_metres(cal.Y))
+function _plain_meters(cal::RobotWorldHandEyeCalibration{K, <:_PhysicalPose3}) where {K}
+    Yp = _plain_motion(_plain_meters(cal.Y))
     P = typeof(Yp)
-    return RobotWorldHandEyeCalibration{K, P}(Yp, Dict{K, P}(id => _plain_motion(_plain_metres(T)) for (id, T) in cal.X), cal.ids)
+    return RobotWorldHandEyeCalibration{K, P}(Yp, Dict{K, P}(id => _plain_motion(_plain_meters(T)) for (id, T) in cal.X), cal.ids)
 end
-function _attach_metres(cal::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3, Float64}}) where {K}
-    Y = _attach_metres(cal.Y)
-    return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _attach_metres(T) for (id, T) in cal.X), cal.ids)
+function _attach_meters(cal::RobotWorldHandEyeCalibration{K, <:PlainEuclideanMap{3, Float64}}) where {K}
+    Y = _attach_meters(cal.Y)
+    return RobotWorldHandEyeCalibration{K, typeof(Y)}(Y, Dict{K, typeof(Y)}(id => _attach_meters(T) for (id, T) in cal.X), cal.ids)
 end
 
 # The calibration's chart: VGC's product of `RigidExpManifold6` blocks
@@ -690,10 +690,10 @@ end
 # calibration read back in metres once.
 function __solve(prob::EstimationProblem{<:RobotWorldHandEyeCalibration, <:_PhysicalMarkers{K}}, alg::ReweightedLeastSquares;
                  kwargs...) where {K}
-    plain = Dict(id => _map_correspondences(_plain_metres, _plain_metres, cs) for (id, cs) in prob.f)::_PlainMarkers{K}
+    plain = Dict(id => _map_correspondences(_plain_meters, _plain_meters, cs) for (id, cs) in prob.f)::_PlainMarkers{K}
     ctx = _robot_world_context(prob.p)
-    p = (; σ_rot = ctx.σ_rot, σ_trans = _metres(ctx.σ_trans), min_rel_angle = ctx.min_rel_angle)
-    return _attach_metres(_robot_world_plain(plain, p, alg; kwargs...))
+    p = (; σ_rot = ctx.σ_rot, σ_trans = _meters(ctx.σ_trans), min_rel_angle = ctx.min_rel_angle)
+    return _attach_meters(_robot_world_plain(plain, p, alg; kwargs...))
 end
 
 # The report at the staged estimate, in its chart `P` (a function barrier: P's

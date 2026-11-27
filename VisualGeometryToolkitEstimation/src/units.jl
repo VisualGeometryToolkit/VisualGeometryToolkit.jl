@@ -27,17 +27,17 @@ const _PhysicalPose3 = UnitfulEuclideanMap{3}
 # A length supplied beside physical data (a threshold, a characteristic length,
 # a noise scale), as plain metres. A plain number there is a unit the caller did
 # not state: FlexUnits' `DimensionError`, as the arithmetic would raise.
-_metres(::Nothing) = nothing
-_metres(x::Union{Real, Quantity}) = VgtkCore.strip_metres(x)
+_meters(::Nothing) = nothing
+_meters(x::Union{Real, Quantity}) = VgtkCore.strip_meters(x)
 
 # A physical value as plain metres.
-_plain_metres(E::_PhysicalPose3) = ustrip(VgtkCore.m, E)
-_plain_metres(X::_PhysicalPoint3) = VgtkCore.strip_metres(X)
-_plain_metres(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
+_plain_meters(E::_PhysicalPose3) = ustrip(VgtkCore.m, E)
+_plain_meters(X::_PhysicalPoint3) = VgtkCore.strip_meters(X)
+_plain_meters(r::HyperRectangle{2, <:Quantity}) = ustrip(VgtkCore.m, r)
 
 # A plain pose read as metres: Core's `with_unit`, the one attachment — the
 # rotation (of any parameterization) and the frames kept exactly.
-_attach_metres(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
+_attach_meters(E::EuclideanMap{3, T, R, <:StaticVector{3, <:Real}}) where {T, R} = VgtkCore.with_unit(E, VgtkCore.m)
 
 # A correspondence set with its endpoints mapped: a `Correspondences` keeps its
 # attribute columns (a PROSAC `score`, `weights`), so the plain set samples and
@@ -47,7 +47,7 @@ _map_correspondences(fs, ft, cs::VgtkCore.Correspondences) =
 _map_correspondences(fs, ft, cs::AbstractVector{<:Pair}) = [fs(first(c)) => ft(last(c)) for c in cs]
 
 # A RANSAC (or any) result with its model read as metres: everything else as it was.
-_attach_metres(r::FitResult) = VgtkCore.map_estimate(_attach_metres, r)
+_attach_meters(r::FitResult) = VgtkCore.map_estimate(_attach_meters, r)
 
 # The plane-model estimators (homography, radial homography, radial camera, the
 # division camera) return a matrix model whose entries carry the unit of the
@@ -68,13 +68,13 @@ end
 
 # The unit a physical problem's data were stripped in (the metre; `nothing` for a plain problem): a problem built from
 # physical data records it, so the solve reattaches it to the model at exit (`_with_units`).
-const _Metres = typeof(VgtkCore.m)
+const _Meters = typeof(VgtkCore.m)
 _problem_unit(_p) = nothing
 _with_units(p, r::FitResult) = _with_units(_problem_unit(p), r)
 _with_units(::Nothing, r::FitResult) = r
-_with_units(::_Metres, r::FitResult) = _attach_metres(r)
+_with_units(::_Meters, r::FitResult) = _attach_meters(r)
 
 # A refine's pose guess as the inner loop's: as given for a plain problem, stripped in metres for a physical one (a
 # mix has no method). The pose problems' and hand-eye's `guess_model`.
 _plain_guess(::Nothing, pose::PlainEuclideanMap{3}) = pose
-_plain_guess(::_Metres, pose::_PhysicalPose3) = _plain_metres(pose)
+_plain_guess(::_Meters, pose::_PhysicalPose3) = _plain_meters(pose)

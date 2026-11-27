@@ -356,7 +356,7 @@ end
         store = load(Dict{Symbol, BoundedCamera}, g)
         @test only(keys(store)) === :nc_v3 && lens_coverage(only(values(store))) == VisualGeometryToolkitCore.Ellipse(Point2(32.0, 24.0), 30.0, 25.0, 0.0)
         gm = model(only(values(store)))
-        @test gm.points.controls[1, 1] == SVector{3, Float64}(VgtkIO.metres.(v3["point_grid"][1], Ref(mm))...)
+        @test gm.points.controls[1, 1] == SVector{3, Float64}(VgtkIO.meters.(v3["point_grid"][1], Ref(mm))...)
         # …and a noncentral_spline/v1 file (the kind before IO 0.10) reads as the camera store of its one camera
         f = joinpath(@__DIR__, "fixtures", "old", "noncentral_spline_v1.json")
         @test VgtkIO._peek_schema(f) == "vgio/noncentral_spline/v1"
@@ -487,7 +487,7 @@ end
     import VisualGeometryToolkitIO as VgtkIO
     using VisualGeometryToolkitCore: ChartSpline, Rect2
     area = Rect2{Float64}(-0.7, -0.55, 1.4, 1.1)
-    radii = [SVector(VgtkIO.metres(round(0.5 + 0.01 * gx + 0.001 * gy; digits = 3), mm)) for gy in 1:6, gx in 1:7]   # metres, mm-born
+    radii = [SVector(VgtkIO.meters(round(0.5 + 0.01 * gx + 0.001 * gy; digits = 3), mm)) for gy in 1:6, gx in 1:7]   # metres, mm-born
     r = ChartSpline(area, radii)
     P = trues(6, 7); P[1, 1] = P[1, 2] = P[6, 7] = false
     for (present, unit) in ((nothing, nothing), (P, mm), (P, m), (nothing, mm))

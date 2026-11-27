@@ -63,7 +63,7 @@ using VisualGeometryToolkitEstimation: EssentialProblem, FundMatProblem, Homogra
         end
     end
     # PoseLib honours max_iter alone: Core refuses any other stop setting before the refine runs
-    @test VgtkCore.honoured_stops(PoseLibSolver()) === (:max_iter,)
+    @test VgtkCore.honored_stops(PoseLibSolver()) === (:max_iter,)
     lsq = LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing)
     @test_throws r"honours only max_iter" solve(RefineProblem(HomographyProblem(d.hom), HomographyMat(d.H0)), lsq;
                                                 stops = LmStops(; ftol = 1.0e-3))

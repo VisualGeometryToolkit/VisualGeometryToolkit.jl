@@ -61,7 +61,7 @@ _with_extrinsics(c::BoundedCamera, X::EuclideanMap{3}) =
 # A physical map's translation is read in metres (`atol` is then 1 μm).
 _is_identity(X::EuclideanMap{3}; atol = 1.0e-6) =
     isapprox(SMatrix{3, 3, Float64}(X.R), SMatrix{3, 3, Float64}(LinearAlgebra.I); atol) &&
-    isapprox(SVector{3, Float64}(_translation_metres(X)), zero(SVector{3, Float64}); atol)
+    isapprox(SVector{3, Float64}(_translation_meters(X)), zero(SVector{3, Float64}); atol)
 
 # ------------------------------------------------------------------------------
 # PosedTarget — a target as a rig member: the target and its pose

@@ -29,6 +29,15 @@ reproduces byte for byte name their generator 0.12.0.
   published JSON Schemas: `sensor_characterization/v3.0.json`; the two British-named schemas are removed. The source
   and test files are `sensor_characterization_schema*.jl`. Tested on the recorded IO 0.10.1 fixture (its bytes pinned)
   and on RadiometricCamera's v1.0 and v2.0 records of record.
+- **Breaking: American in identifiers, wave 2 (decision 11).** `VgtkIO.metres(x, u)` → `VgtkIO.meters(x, u)` (in
+  `RETIRED_NAMES` by its call form); the private `_metres_json`, `_read_metres`, `_same_metres`, `_metre_quantity`
+  follow. **The region body's polygon stores its centre under `"center"`** (it was `"centre"`; the detection codec's
+  key was already `"center"`), as Core's `PolygonRegion.center`. No vgio kind embeds a polygon (a camera's lens
+  coverage is a leaf), so no vgio schema moves. A kind of another package that embeds a region body steps its
+  records written before IO 0.12 through the new public `migrate_region(body)`, which renames the key through every
+  intersection to any depth (and refuses a polygon holding both keys): RadiometricCamera's `rc/initialization_region`
+  and `rc/image_region`. Tested on bodies IO's writer wrote before 0.12 (`test/fixtures/old/region_*_centre.json`)
+  and on RadiometricCamera's published `rc/initialization_region/v1.0` record, through a toy kind's step.
 - **One written version per kind.** With the sensor characterisation's earlier-version write gone, these are removed:
   the table of versions a writer emits (`_written_versions`, `_OLDER_WRITTEN_VERSIONS`), the versioned validator
   `_spec(kind, v)`, and the `version` keyword of `_write_kind` and `_kind_spec`. `json_schema(kind, version)` is removed

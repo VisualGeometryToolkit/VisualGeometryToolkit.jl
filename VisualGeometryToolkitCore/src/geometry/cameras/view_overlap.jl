@@ -153,7 +153,7 @@ struct _Footprint{M, G}
     solid_angle::Float64
     reach::Float64
     spacing::Float64
-    centre::SVector{2, Float64}
+    center::SVector{2, Float64}
     affine::SMatrix{2, 2, Float64, 4}
     far::Float64
 end
@@ -303,7 +303,7 @@ end
 function _ring_edge(fi::_Footprint, p)
     ring, az = fi.ring, fi.azimuths
     n = length(ring)
-    φ = atan(p[2] - fi.centre[2], p[1] - fi.centre[1])
+    φ = atan(p[2] - fi.center[2], p[1] - fi.center[1])
     k = clamp(searchsortedlast(az, az[1] + mod(φ - az[1], 2π)), 1, n)
     a, b = ring[k], ring[k == n ? 1 : k + 1]
     e = b - a
@@ -401,8 +401,8 @@ function _draw!(out, far::_FarCircle, fi::_Footprint, d, u)
         v = fi.affine * SVector(d[1], d[2])
         dir = norm(v) > 1.0e-12 ? v / norm(v) : far.dir
         if !far.on      # leaving the image: radially out from the last pixel
-            last = isempty(out) ? fi.centre + dir : SVector{2, Float64}(out[end][1], out[end][2])
-            r = last - fi.centre
+            last = isempty(out) ? fi.center + dir : SVector{2, Float64}(out[end][1], out[end][2])
+            r = last - fi.center
             far.on, far.dir = true, norm(r) > 0 ? r / norm(r) : dir
             push!(out, _far_point(fi, far.dir))
         end
@@ -413,7 +413,7 @@ end
 
 # Back from the far circle to pixel `u`: along the circle to u's azimuth, then radially in.
 function _leave_far!(out, far::_FarCircle, fi::_Footprint, u)
-    r = u - fi.centre
+    r = u - fi.center
     norm(r) > 0 && _far_arc!(out, far, fi, r / norm(r))
     far.on = false
     return out
@@ -433,12 +433,12 @@ function _far_arc!(out, far::_FarCircle, fi::_Footprint, dir)
     return out
 end
 
-_far_point(fi::_Footprint, e) = (p = fi.centre + fi.far * e; Point2{Float64}(p[1], p[2]))
+_far_point(fi::_Footprint, e) = (p = fi.center + fi.far * e; Point2{Float64}(p[1], p[2]))
 
 # An interior point of Ω_i far from the drawn ring: the principal point or one
 # of eight points halfway to the boundary, whichever is farthest from it.
 function _probe_point(fi::_Footprint, subject)
-    c = fi.centre
+    c = fi.center
     n = length(fi.ring)
     candidates = SVector{2, Float64}[c]
     for k in 0:7

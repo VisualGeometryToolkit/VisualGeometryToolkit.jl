@@ -52,12 +52,12 @@ end
 # Generic in the float type (a Float32 kernel computes in Float32: the halves are
 # `/ 2`, exact in every float type), with the log-gamma supplied (a kernel supplies
 # its device's). At Float64 it is bit for bit the `/ 2.0` spelling it replaced.
-@inline function _student_t_log_normaliser(ν::T, s_hat_sq::T, d::Integer, lgamma::F = loggamma) where {T <: Real, F}
+@inline function _student_t_log_normalizer(ν::T, s_hat_sq::T, d::Integer, lgamma::F = loggamma) where {T <: Real, F}
     isinf(ν) && return -(T(d) / 2) * log(2 * T(π) * s_hat_sq)
     return lgamma((ν + T(d)) / 2) - lgamma(ν / 2) - (T(d) / 2) * log(ν * T(π) * s_hat_sq)
 end
-_student_t_log_normaliser(ν::Real, s_hat_sq::Real, d::Integer) =
-    _student_t_log_normaliser(promote(float(ν), float(s_hat_sq))..., d)
+_student_t_log_normalizer(ν::Real, s_hat_sq::Real, d::Integer) =
+    _student_t_log_normalizer(promote(float(ν), float(s_hat_sq))..., d)
 
 function StudentTMixture(ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth::Real, d_g::Integer,
                          inlier_prior::Real = 0.5)
@@ -82,7 +82,7 @@ function StudentTMixture{T}(ν::Real, s_hat_sq::Real, log_two_outlier_halfwidth:
     # Spelled as the E-step always spelled them, so the vector paths built on
     # this are bit-identical to the loops they replace.
     half_νdg = (ν + dg) / 2
-    log_C = _student_t_log_normaliser(ν, s_hat_sq, d_g, lgamma)
+    log_C = _student_t_log_normalizer(ν, s_hat_sq, d_g, lgamma)
     log_pout = -dg * log_two_outlier_halfwidth                          # uniform density (2·outlier_halfwidth)^{-d_g}
     # The inlier prior enters ONLY as an additive shift of the log-odds: the
     # outlier's prior log-odds −logit(π). At inlier_prior = 1/2 the shift is
@@ -367,7 +367,7 @@ GauInlier(s2::Real; nu::Real = Inf, gamma::Real = 0.5, d_g::Integer) =
 @inline _label_logodds(m::GauInlier) = logit(m.gamma)
 
 # log of the inlier density's peak, Student-t or its nu -> Inf Gaussian limit
-@inline _log_peak(m::GauInlier) = _student_t_log_normaliser(m.nu, m.s2, m.d_g)
+@inline _log_peak(m::GauInlier) = _student_t_log_normalizer(m.nu, m.s2, m.d_g)
 
 """
     decision_boundary(m::GauInlier, outlier_halfwidth) -> Float64

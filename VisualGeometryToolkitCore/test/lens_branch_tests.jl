@@ -36,8 +36,8 @@
 
     for (θ, R) in cases
         lens = opencv(θ)
-        normalised(px, py) = SVector((px - θ[3]) / θ[1], (py - θ[4]) / θ[2])
-        ms = [normalised(px, py) for px in range(-R, R, length = 41), py in range(-R, R, length = 41)]
+        normalized(px, py) = SVector((px - θ[3]) / θ[1], (py - θ[4]) / θ[2])
+        ms = [normalized(px, py) for px in range(-R, R, length = 41), py in range(-R, R, length = 41)]
         roots = [undist(lens, m) for m in ms]
         found = filter(x -> all(isfinite, x), roots)
         @test !isempty(found)

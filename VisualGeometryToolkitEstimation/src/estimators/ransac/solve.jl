@@ -143,7 +143,7 @@ function _with_context(f, p::NamedTuple)
 end
 _context_extent(::Nothing, ::Nothing) = nothing
 _context_extent(::Nothing, extent::HyperRectangle{2, <:Real}) = extent
-_context_extent(::_Metres, extent::HyperRectangle{2, <:Quantity}) = _plain_metres(extent)
+_context_extent(::_Meters, extent::HyperRectangle{2, <:Quantity}) = _plain_meters(extent)
 
 """
     with_extent(problem, extent) -> problem or BoundedProblem

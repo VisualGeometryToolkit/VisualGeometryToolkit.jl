@@ -450,7 +450,7 @@ end
 _nominal_from_json(vals, unit::Units) = [_lengths_from_json(Val(2), v::Vector{Any}, unit) for v in vals]
 
 # A plain metre value (a calibration's stored length) as the file's number in `u`.
-_metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
+_meters_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 
 # Where a calibration's lengths go: the file's unit or the identity's persisted
 # metres (`_LeafUnit`), or — for a PLACED target (VGC's placement, a `SimilarityMap{3}`),
@@ -460,10 +460,10 @@ _metres_json(x::Real, u::_LeafUnit) = _leaf_power(Float64(x), u, 1)
 struct _Chart end
 const _CHART = _Chart()
 const _CalUnit = Union{_LeafUnit, _Chart}
-_metres_json(x::Real, ::_Chart) = Float64(x)
+_meters_json(x::Real, ::_Chart) = Float64(x)
 _length_cov_json(Σ::AbstractMatrix, ::_Chart, dims) = _cov_wire((x, n) -> x, Σ, dims)
 _length_cov_from_json(c, n::Int, ::_Chart, dims) = _cov_from_wire((x, k) -> Float64(x), c, n, dims)
-_nodes_json(c, u::_CalUnit) = [[_metres_json(p[1], u), _metres_json(p[2], u)] for p in c.system.nodes]
+_nodes_json(c, u::_CalUnit) = [[_meters_json(p[1], u), _meters_json(p[2], u)] for p in c.system.nodes]
 
 """
     target_calibration_json(s::VgioStyle, c) -> NamedTuple
@@ -596,8 +596,8 @@ _check_writes_back(c::Union{ThinPlateSpline, HeightField}, r, ::_Legacy010mm, hu
     _check_writes_back(c, r, mm, hu isa _Legacy010mm ? mm : hu)
 # A calibration's length as read: a length in metres from the file's unit, or
 # (`_CHART`, a placed target's) the plain chart number as stored.
-_read_metres(x, u::Units) = read_length(x::Real, u)
-_read_metres(x, ::_Chart) = Float64(x::Real)
+_read_meters(x, u::Units) = read_length(x::Real, u)
+_read_meters(x, ::_Chart) = Float64(x::Real)
 const _ReadUnit = Union{Units, _Chart}
 
 # A kind back from its record (by the kind's TYPE, which VGC's registry gives
@@ -613,7 +613,7 @@ _calibration_prototype(::Type{<:EuclideanMap{2}}, u) =   # physical iff the file
 function _calibration_from_record(T::Type{<:Union{ThinPlateSpline, HeightField}}, x, u::_ReadUnit, hu::_ReadUnit = u)
     system = _check_pure_bending(T, x.nodes, x.parameters, u, hu)
     # a spline's fx then fy; the heights: lengths, or (chart nodes, heights in a length unit) plain metres
-    v = [u isa _Chart ? metres(p, hu) : _read_metres(p, hu) for p in x.parameters::Vector{Any}]
+    v = [u isa _Chart ? meters(p, hu) : _read_meters(p, hu) for p in x.parameters::Vector{Any}]
     K = length(x.nodes)
     return T === ThinPlateSpline ? ThinPlateSpline(system, v[1:K], v[(K + 1):end]; project = false) : HeightField(system, v; project = false)
 end
@@ -641,11 +641,11 @@ function _reads_back(nodes, p, u::_ReadUnit, hu::_ReadUnit)
     file = ThinPlateSplineSystem([SVector(Float64(q[1]), Float64(q[2])) for q in nodes])
     pure_in_file = _pure_blocks(file, [Float64(v) for v in p])
     u isa _Chart && return pure_in_file ? file : nothing        # chart nodes: the chart's numbers are the value's
-    in_metres = ThinPlateSplineSystem([SVector(metres(q[1], u), metres(q[2], u)) for q in nodes])
-    return pure_in_file || _pure_blocks(in_metres, [metres(v, hu) for v in p]) ? in_metres : nothing
+    in_meters = ThinPlateSplineSystem([SVector(meters(q[1], u), meters(q[2], u)) for q in nodes])
+    return pure_in_file || _pure_blocks(in_meters, [meters(v, hu) for v in p]) ? in_meters : nothing
 end
 """
-    metres(x::Real, u::Units) -> Float64
+    meters(x::Real, u::Units) -> Float64
 
 The file number `x`, a length in the unit `u`, as plain metres:
 [`read_length`](@ref)`(x, u)` stripped (decimal-exact for a power-of-ten
@@ -653,8 +653,8 @@ unit), what a record's reader hands a kind built on plain numbers (a
 thin-plate kind's nodes and values, a non-central aperture's radii). A
 number of a placed target's chart (no unit) is returned as it is.
 """
-metres(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
-metres(x, ::_Chart) = Float64(x::Real)
+meters(x, u::Units) = strip_or_bare(m, read_length(x::Real, u))
+meters(x, ::_Chart) = Float64(x::Real)
 _pure_blocks(system::ThinPlateSplineSystem{K}, v) where {K} =
     length(v) == K ? is_pure_bending(system, v) : is_pure_bending(system, v[1:K]) && is_pure_bending(system, v[(K + 1):end])
 function _check_pure_bending(::Type{T}, nodes, p, u::_ReadUnit, hu::_ReadUnit) where {T}
@@ -778,11 +778,11 @@ function _placement_json(t, P::SimilarityMap{3}, u::_LeafUnit)
     # the placement carries no unit: its numbers are metres only on a physical target (its points, board or canvas)
     has_units(t) || _refuse_plain("a placed target (its placement's numbers are metres only on a target with lengths)")
     o = translation(P)
-    return (placement = (origin = [_metres_json(o[1], u), _metres_json(o[2], u)], side = _metres_json(scale(P), u)),)
+    return (placement = (origin = [_meters_json(o[1], u), _meters_json(o[2], u)], side = _meters_json(scale(P), u)),)
 end
 function _placement_from_json(x, u::Units)
-    metres(v) = ustrip(m, read_length(v::Real, u))
-    return SimilarityMap(metres(x.side), RotMatrix{3}(SMatrix{3, 3}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0)), SVector(metres(x.origin[1]), metres(x.origin[2]), 0.0))
+    meters(v) = ustrip(m, read_length(v::Real, u))
+    return SimilarityMap(meters(x.side), RotMatrix{3}(SMatrix{3, 3}(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0)), SVector(meters(x.origin[1]), meters(x.origin[2]), 0.0))
 end
 
 # The board ↔ its record. VGC's `Board` holds its size as lengths (metres) and
@@ -798,7 +798,7 @@ _board_from_json(x, u::Units) = Board(_rect_from_json(x, u)...)
 # path and digest as stored.
 _rect_json(r, u::_LeafUnit) = (
     size = (width = _leaf_length(r.size.width, u), height = _leaf_length(r.size.height, u)),
-    origin = [_metres_json(x, u) for x in r.origin],
+    origin = [_meters_json(x, u) for x in r.origin],
 )
 _rect_from_json(x, u::Units) = (
     Size2(width = read_length(x.size.width::Real, u), height = read_length(x.size.height::Real, u)),

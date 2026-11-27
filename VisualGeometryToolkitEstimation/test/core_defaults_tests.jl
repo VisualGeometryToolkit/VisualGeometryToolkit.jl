@@ -328,19 +328,19 @@ end
 end
 
 @testset "LevenbergMarquardt refine: from a perturbed guess on contaminated data, and from the truth on clean data" begin
-    centre(e) = SVector(e.center[1], e.center[2])
+    center_xy(e) = SVector(e.center[1], e.center[2])
     pts, _ = circle_scene(Xoshiro(41), 800)
     g = Circle(Point2(C₀ + SVector(2.0, -1.5)), R₀ + 3.0)
     # the default Triggs{Welsch} at the scene's σ; TLS (no efficiency constant) at a width: 3σ
     for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
         cr = lm(CircleProblem(pts), g; kws...).u
-        @test norm(centre(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
+        @test norm(center_xy(cr) - C₀) < 0.1 && abs(cr.r - R₀) < 0.1
     end
     epts, _ = ellipse_scene(Xoshiro(42), 1000)
     ge = Ellipse(Point2(515.0, 399.0), 303.0, 177.0, 0.62)
     for kws in ((; scale = 0.5), (; optimization_strategy = Triggs{TLSShape}(), width = 1.5))
         e = lm(EllipseProblem(epts), ge; kws...).u
-        @test norm(centre(e) - centre(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
+        @test norm(center_xy(e) - center_xy(E₀)) < 0.2 && abs(e.a - E₀.a) < 0.2 && abs(e.b - E₀.b) < 0.2 && abs(e.θ - E₀.θ) < 2.0e-3
     end
     # the exact model on clean data comes back, under least squares and the default
     clean, _ = circle_scene(Xoshiro(43), 200; σ = 0.0, outl = 0.0)
@@ -348,9 +348,9 @@ end
     eclean, _ = ellipse_scene(Xoshiro(44), 200; σ = 0.0, outl = 0.0)
     for kws in ((; optimization_strategy = nothing), (; scale = 0.5))
         cr = lm(CircleProblem(clean), c₀; kws...).u
-        @test norm(centre(cr) - C₀) < 1.0e-8 && abs(cr.r - R₀) < 1.0e-8
+        @test norm(center_xy(cr) - C₀) < 1.0e-8 && abs(cr.r - R₀) < 1.0e-8
         e = lm(EllipseProblem(eclean), E₀; kws...).u
-        @test norm(centre(e) - centre(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8
+        @test norm(center_xy(e) - center_xy(E₀)) < 1.0e-8 && abs(e.a - E₀.a) < 1.0e-8 && abs(e.b - E₀.b) < 1.0e-8
     end
     src, dst = homography_pairs(StableRNG(45), H_PX; n_in = 100, n_out = 0, σ = 0.0, source = gaussian_source,
                                 target = rng -> randn(rng, 2) .* 400 .+ 300)

@@ -250,14 +250,14 @@ end
         end
         # the same seed and budget: the same solve, bit for bit (the area's centre, the
         # principal point (500, 500) here, which K⁻¹ maps to the normalized centre exactly)
-        centre = fill(SVector(500.0, 500.0), length(rays64))
+        center_seed = fill(SVector(500.0, 500.0), length(rays64))
         for c in (cam, masked, cam_fwd, masked_fwd)
-            b = project(c, rays64, centre; iters = 100, device = KA.CPU())
+            b = project(c, rays64, center_seed; iters = 100, device = KA.CPU())
             o, w = c.lens.backward.area.origin, c.lens.backward.area.widths
             x₀ = SVector(o[1] + w[1] / 2, o[2] + w[2] / 2)
-            from_centre = [SVector{2, Float64}(_pixel_affine(c.intrinsics)(first(_project_lens(c.lens, X, x₀, 100, 1.0e-12)))) for X in rays64]
-            @test all(i -> isequal(b.px[i], from_centre[i]), eachindex(rays64))
-            @test b.ok == [all(isfinite, p) for p in from_centre]
+            from_center = [SVector{2, Float64}(_pixel_affine(c.intrinsics)(first(_project_lens(c.lens, X, x₀, 100, 1.0e-12)))) for X in rays64]
+            @test all(i -> isequal(b.px[i], from_center[i]), eachindex(rays64))
+            @test b.ok == [all(isfinite, p) for p in from_center]
             # the scalar form's own start (the area's centre, the same seed) gives the same
             # projection (through K's affinity, so to its rounding), the same imaged mask
             sc = [project(c, X) for X in rays64]

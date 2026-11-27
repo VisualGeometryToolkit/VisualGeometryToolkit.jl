@@ -63,7 +63,7 @@ using CoordinateTransformations:
 using Rotations: Rotations, RotMatrix, RotationVec, Rotation, QuatRotation, Angle2d
 using LogExpFunctions: xlogx, logit, log1pexp   # the Welsch conjugate's w·log(w); the mixture's log-odds and softplus
 using SpecialFunctions: loggamma, logbeta, digamma, trigamma   # the Student-t normaliser and the ν M-step (robust/mixture.jl); the sweep's log Γ and Beta label-prior tables (robust/partition_sweep.jl)
-using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normaliser.jl)
+using QuadGK: quadgk, gauss   # a loss shape's truncated normaliser (robust/normalizer.jl)
 using Random: Random
 using SHA: sha256   # stable_seed's fixed hash, sha256_hex (base/utils.jl)
 using SparseArrays: sparse, SparseMatrixCSC   # a lattice's difference rows (numerics/bspline_energy.jl); penalized least squares (numerics/penalized_least_squares.jl)
@@ -362,7 +362,7 @@ public farthest_radius   # how far a region reaches from a centre: an imaged reg
 export view_overlap      # the solid angle every pair of a rotating camera's frames share, and its fraction of each footprint (cameras/view_overlap.jl)
 export RotationMap, OrientedCamera   # a rotation-only pose, and a camera posed by one (transforms/rotation_map.jl, cameras/cameras.jl)
 export pixel_mask        # the pixels whose centres lie in a region (COLMAP centres, Julia's array layout)
-export pixel_centres     # the centres of a sub-lattice of pixels that lie in a region (pixel_mask's conversion)
+export pixel_centers     # the centres of a sub-lattice of pixels that lie in a region (pixel_mask's conversion)
 export free_nodes, node_mask   # which of a model's parameters a camera can see (cameras/support.jl)
 public SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position, cubic_bspline_footprint
 public BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region
@@ -408,7 +408,7 @@ public primal_float, primal_value   # the float type, and the plain number, unde
 export SplineLens, NoncentralSplineModel   # the central grid camera as a lens of a CameraModel (cameras/spline_lens.jl); the non-central grid on its directions (cameras/noncentral_spline_model.jl)
 public spline_lattice   # a SplineLens camera's layout from a camera (its lattice and K), without sampling it
 export ChartSpline   # a uniform cubic B-spline on a 2-D chart (a SplineLens's backward and forward maps)
-public pixel_centre        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
+public pixel_center        # the COLMAP centre (col − ½, row − ½) of an image array index, in T (kernel-lawful)
 public equidistant_chart   # the equidistant direction chart about an axis: Lens(Equidistant()) ∘ LinearMap(R), R's rows (e₁, e₂, axis)
 public forward_chart   # the chart of every SplineLens forward spline: equidistant_chart(ẑ)
 public has_spline_gauge   # whether a SplineLens pixel lattice gives its own K (its gauge pixel's window complete)
@@ -490,7 +490,7 @@ export ustrip, uconvert, dimension, DimensionError, ConversionError
 export @ud_str, uparse, qparse
 export parse_unit, unit_string, strip_or_bare
 public strip_pixels, strip_point, attach_point, attach_length   # a pixel-sized argument as a plain number; a point's and a length's unit moves (what a carrier's ustrip / with_unit are built from)
-public has_units, with_unit, strip_metres   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers, strip_metres the boundary's strip
+public has_units, with_unit, strip_meters   # plain or unitful; with_unit is ustrip's inverse on the stack's carriers, strip_meters the boundary's strip
 export Size2
 export Gray, N0f8, N0f16  # Image types
 public filter_kwargs, validate_dir
@@ -553,7 +553,7 @@ public ConsensusSet, consensus_score, is_fresh, check_fresh, NativeRefit, Extern
     inlier_mask
 # -----------------------------------------------------------------------------
 # K+ CONTRACTS (robust/problem.jl, scale.jl, mixture.jl, posterior.jl,
-# normaliser.jl, scoring_contract.jl, baseline_scorers.jl, lo_contract.jl):
+# normalizer.jl, scoring_contract.jl, baseline_scorers.jl, lo_contract.jl):
 # public, reached qualified or imported by name.
 # -----------------------------------------------------------------------------
 # The constraint-problem protocol.
@@ -570,7 +570,7 @@ public IGPrior, JeffreysPrior, seed_posterior!, reset_posterior!, partition_rss,
     PosteriorWeightState, sq_distances, s_hat_sq, student_t_dof, inlier_prior,
     Estimated, FixedS2, FixedPrior, FixedNu, ConsensusDof, update_scale!, update_nu!,
     update_inlier_prior!,
-    GauInlier, truncated_log_normaliser
+    GauInlier, truncated_log_normalizer
 # The scoring contract and the baseline scorers.
 public scoring_workspace, score!, inlier_count, consensus_order, decision_boundary,
     has_decision_boundary, is_predictive, scored_model, scale_prior, outlier_halfwidth,
@@ -940,7 +940,7 @@ public install_artifact, huggingface_token, is_published_url   # the one install
 public ArtifactStore, artifact_store, with_artifact_store, set_site_artifact_store!, store_file, download_verified,
     store_name_clashes, migrate_artifacts, install_built_artifact   # the artifact store: its resolution, the one wrapper of Pkg's override, a single file, a built tree, depot → store
 public lgamma_lanczos, digamma_stirling, trigamma_stirling, normcdf_as, lu_solve!, tree_sum!,
-    bilinear_sample_clamped, bilinear_sample, bilinear_weights, is_inside_texel_centres
+    bilinear_sample_clamped, bilinear_sample, bilinear_weights, is_inside_texel_centers
 public draw_ellipse!, draw_projected_ellipse!, draw_polyline!
 # Reached by qualified access or explicit import from the family's packages
 # (VisualGeometryToolkitEstimation, VisualGeometryToolkitEval, RANSACScoringDoneRight, BlobBoards,
@@ -999,7 +999,7 @@ include("robust/problem.jl")          # AbstractConstraintProblem + data_size/co
 include("robust/scale.jl")            # IGPrior, ScaleMAP, a partition's Student-t, partition_rss, weighted_rss
 include("robust/mixture.jl")          # StudentTMixture, the E-step, the ν update, GauInlier/decision_boundary
 include("robust/posterior.jl")        # PosteriorWeightState, the nuisance policies
-include("robust/normaliser.jl")       # truncated_log_normaliser
+include("robust/normalizer.jl")       # truncated_log_normalizer
 include("robust/scoring_contract.jl") # score!/inlier_count/consensus_order, ScoreBuffers, score_model!
 include("robust/baseline_scorers.jl") # RansacScoring, MsacScoring + their contract glue
 include("robust/partition_sweep.jl")  # label priors, FixedHalfwidth, ScoringWorkspace, partition_score, ig_sweep_kernel!, sweep! (needs scale.jl, the KA imports of base/device.jl)
@@ -1103,7 +1103,7 @@ using .Cameras  # Import all exported symbols into parent namespace
 import .Cameras: pnp_pixel_whitening
 
 # The sensor image (moved from VisualGeometryToolkitFeatures, 0.9.2): after Cameras, whose
-# `pixel_centre` is the one index → COLMAP conversion the photosite offsets read.
+# `pixel_center` is the one index → COLMAP conversion the photosite offsets read.
 include("raw/raw_mosaic.jl")   # RawMosaic, the one phase rule, BayerCellFrame, channelview(::RawMosaic)/photositeview, bayer_plane_map(m, k)
 include("raw/sensor_model.jl") # the sensor model: its components, SensorCharacterization, SensorModel, sensor_model, content_digest (before LinearRaw, which reads a model)
 include("raw/sensor_estimators.jl") # PhotonTransfer, MasterDark, defect_onsets: a characterisation's components from frames (offline)

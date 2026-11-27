@@ -191,7 +191,7 @@ end
         t_build = minimum(@elapsed(valid_domain(cam)) for _ in 1:3)
         @test t_build < 0.5
         q = valid_domain(cam)
-        c = q.centre
+        c = q.center
         ann = [Point2{Float64}(c + (q.inner + (q.outer - q.inner) * ((k * 0.6180339887) % 1)) * SVector(cos(k), sin(k))) for k in 1:10_000]
         count(p -> p ∈ q, ann)
         t_member = minimum(@elapsed(count(p -> p ∈ q, ann)) for _ in 1:3)
@@ -232,7 +232,7 @@ end
     for S in (SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:opencv})), SimilarityMap(EuclideanMap(PixelFrame{:colmap}, PixelFrame{:julia})),
               SimilarityMap(2.0, RotMatrix2(0.4), SVector(1.0, -3.0)), SimilarityMap(0.5, RotMatrix2(π / 2), SVector(7.0, 2.0)))
         Sq = S(q)
-        @test Sq isa PolygonRegion && length(Sq.vertices) == length(q.vertices) && Sq.centre ≈ S(q.centre)
+        @test Sq isa PolygonRegion && length(Sq.vertices) == length(q.vertices) && Sq.center ≈ S(q.center)
         Si = inv(S)
         @test [p ∈ Sq for p in ps] == [Si(p) ∈ q for p in ps]
         @test Si(Sq).vertices ≈ q.vertices
@@ -289,7 +289,7 @@ end
           -0.0005042701635291866, -0.00011669406371264847, 0.006487455083713491, 0.005372244699677389]
     function fingerprint(q)
         h = 0xcbf29ce484222325
-        for x in Iterators.flatten((Iterators.flatten((v[1], v[2]) for v in q.vertices), (q.centre[1], q.centre[2])))
+        for x in Iterators.flatten((Iterators.flatten((v[1], v[2]) for v in q.vertices), (q.center[1], q.center[2])))
             h = (h ⊻ reinterpret(UInt64, Float64(x))) * 0x100000001b3
         end
         return h

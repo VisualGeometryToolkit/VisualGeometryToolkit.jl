@@ -504,7 +504,7 @@ end
     # it, for all four Bayer phases × visible-origin parities × both parities of a window's start in
     # rows and columns; the R and B channels' maps ARE the bin2 planes' (one rule, not a copy).
     using VisualGeometryToolkitCore: LinearRaw, BayerCellFrame, channelview, bayer_channels, bayer_plane_map, raw_coordinates,
-        photosite_colors, pixel_centre, SimilarityMap, PixelFrame
+        photosite_colors, pixel_center, SimilarityMap, PixelFrame
     using StaticArrays: SVector
     raw = UInt16[1000 + 37 * i + 11 * j for i in 1:12, j in 1:16]
     for cell in LAYOUTS, origin in ORIGINS, r0 in (1, 2), c0 in (1, 2)
@@ -520,7 +520,7 @@ end
             di, dj = (k - 1) % 2, (k - 1) ÷ 2
             for i in axes(v, 2), j in axes(v, 3)
                 r, c = 2i - 1 + di, 2j - 1 + dj
-                @test S(pixel_centre(CartesianIndex(i, j))) === raw_coordinates(m, pixel_centre(CartesianIndex(r, c)))
+                @test S(pixel_center(CartesianIndex(i, j))) === raw_coordinates(m, pixel_center(CartesianIndex(r, c)))
                 @test v[k, i, j] == m[r, c]
             end
             names[k] === :R && @test S === bayer_plane_map(L, 1)
@@ -536,7 +536,7 @@ end
     # cell centre plus the green photosite's offset, written out here as they were.
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: LinearRaw, BayerCellFrame, bayer_plane_map, green_cell_sites, raw_frame_map, relabel,
-        SimilarityMap, Translation, scale, pixel_centre
+        SimilarityMap, Translation, scale, pixel_center
     old_plane(m, C, o) = C === :G ? raw_frame_map(m) ∘ VgtkCore._CELL_FRAME_MAP :
         raw_frame_map(m) ∘ (VgtkCore._CELL_FRAME_MAP ∘ relabel(BayerCellFrame{C}, BayerCellFrame{:G}, SimilarityMap(Translation(o))))
     raw = UInt16[1000 + 37 * i + 11 * j for i in 1:10, j in 1:14]
@@ -545,7 +545,7 @@ end
         L = LinearRaw(m; mode = :bin2)
         G = LinearRaw(m; mode = :green_cells)
         cellc = VgtkCore._cell_colors(m, "test")
-        site(k) = pixel_centre(CartesianIndex(VgtkCore._QUAD_SITES[k]))
+        site(k) = pixel_center(CartesianIndex(VgtkCore._QUAD_SITES[k]))
         ks(c) = Tuple(k for k in 1:4 if (cellc[k] == 3 ? 2 : Int(cellc[k]) + 1) == c)
         for (c, C) in enumerate((:R, :G, :B))
             o = sum(site, ks(c)) / (length(ks(c)) * scale(VgtkCore._CELL_FRAME_MAP))
@@ -554,11 +554,11 @@ end
         @test bayer_plane_map(G, 1) === old_plane(m, :G, nothing)
         o = G.geometry.green_offsets
         for i in 1:4, j in 1:6
-            c = raw_frame_map(G)(pixel_centre(CartesianIndex(i, j)))
+            c = raw_frame_map(G)(pixel_center(CartesianIndex(i, j)))
             @test green_cell_sites(G, i, j) === (c + o[1], c + o[2])
             # and each is the green channel's map at that pixel, (G1, G2) in the cell's order
             gk = Tuple(k for k in 1:4 if cellc[k] in (0x01, 0x03))
-            @test green_cell_sites(G, i, j) === Tuple(bayer_plane_map(m, k)(pixel_centre(CartesianIndex(i, j))) for k in gk)
+            @test green_cell_sites(G, i, j) === Tuple(bayer_plane_map(m, k)(pixel_center(CartesianIndex(i, j))) for k in gk)
         end
     end
 end
@@ -653,7 +653,7 @@ end
     # linearview(m): every photosite's (raw − black[c]) / (white − black[c]), read lazily; channelview of it is the
     # linear values channel-first, and the green-cell image is the mean of its two G channels, bit for bit.
     using VisualGeometryToolkitCore: LinearRaw, LinearRawView, SaturationView, linearview, saturationview, channelview,
-        bayer_channels, photosite_colors, green_cell_sites, pixel_centre
+        bayer_channels, photosite_colors, green_cell_sites, pixel_center
     raw = UInt16[(i * 7919 + j * 104729) % 16000 + 200 for i in 1:11, j in 1:15]      # odd: a last row and column
     raw[3, 4] = 16383; raw[6, 7] = 16390
     for cell in LAYOUTS, origin in ORIGINS, (rows, cols) in ((1:11, 1:15), (2:11, 2:15), (2:10, 1:14))

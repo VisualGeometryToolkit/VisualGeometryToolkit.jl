@@ -25,13 +25,13 @@ end
 # identity (the writer's last resort, IO 0.10.1) — its rotation to the
 # encoding's precision (bit for bit when a quaternion reads back to it exactly
 # — `_qvec` — and within a few ulp otherwise).
-_same_length(a, b) = _same_metres(Float64(ustrip(m, a)), Float64(ustrip(m, b)))
+_same_length(a, b) = _same_meters(Float64(ustrip(m, a)), Float64(ustrip(m, b)))
 # Two metre values (or m², a covariance entry's) within the length conversion's
 # guarantee: within 2 ulp, or the same PERSISTED identity (`_persisted`, content_id's
 # length leaf: what the writer writes for a value no file number reads back to,
 # which reads back up to ~22 ulp off), the sign of a zero kept (`ulps = 0`: bit for
 # bit, the persisted identity not accepted).
-_same_metres(x::Float64, y::Float64, ulps::Integer = 2) = x === y ||
+_same_meters(x::Float64, y::Float64, ulps::Integer = 2) = x === y ||
     (ulps > 0 && signbit(x) == signbit(y) && (abs(x - y) <= ulps * eps(abs(x)) || _persisted(x) === _persisted(y)))
 _same_pose(a::EuclideanMap, b::EuclideanMap) =
     all(map(_same_length, a.t, b.t)) && maximum(abs, Matrix(a.R) - Matrix(b.R)) <= 8 * eps()
@@ -580,11 +580,11 @@ function same_value end
 # The migration's comparison is of TYPED records: the old file read by the
 # migration's reader and the new file read by the current reader are compared
 # value for value. A length is compared as its metre value within the length
-# conversion's guarantee (`_same_metres`); every other number is written from
+# conversion's guarantee (`_same_meters`); every other number is written from
 # the identical Float64 by every writer and must come back bit for bit.
 same_value(a::Quantity, b::Quantity; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && dimension(a) == dimension(b) &&
-    (dimension(a) in (dimension(m), dimension(m * m)) ? _same_metres(Float64(ustrip(a)), Float64(ustrip(b)), length_ulps) : ustrip(a) === ustrip(b))
+    (dimension(a) in (dimension(m), dimension(m * m)) ? _same_meters(Float64(ustrip(a)), Float64(ustrip(b)), length_ulps) : ustrip(a) === ustrip(b))
 same_value(a::AbstractFloat, b::AbstractFloat; length_ulps::Integer = 2) = a === b   # (NaN === NaN: an absent node's slot)
 same_value(a::Union{Number, AbstractString, Symbol, Type, Nothing, Missing}, b; length_ulps::Integer = 2) = typeof(a) === typeof(b) && isequal(a, b)
 same_value(a::AbstractDict, b::AbstractDict; length_ulps::Integer = 2) =
@@ -600,7 +600,7 @@ function same_value(a::Uncertain, b::Uncertain; length_ulps::Integer = 2)
     return size(Σa) == size(Σb) && all(
         CartesianIndices(Σa)) do I
             n = p === nothing ? 0 : p[I[1]] + p[I[2]]
-            n == 0 ? Σa[I] === Σb[I] : _same_metres(Float64(Σa[I]), Float64(Σb[I]), length_ulps)
+            n == 0 ? Σa[I] === Σb[I] : _same_meters(Float64(Σa[I]), Float64(Σb[I]), length_ulps)
         end
 end
 # A correspondence set: its endpoints and its attribute columns, through its
@@ -611,7 +611,7 @@ same_value(a::Correspondences, b; length_ulps::Integer = 2) = typeof(a) === type
 same_value(a::NoncentralSplineModel, b::NoncentralSplineModel; length_ulps::Integer = 2) =
     typeof(a) === typeof(b) && all(f -> f === :points ?
         a.points.area === b.points.area && size(a.points.controls) == size(b.points.controls) &&
-        all(map((p, q) -> all(map((x, y) -> isnan(x) && isnan(y) || _same_metres(x, y, length_ulps), Float64.(p), Float64.(q))),
+        all(map((p, q) -> all(map((x, y) -> isnan(x) && isnan(y) || _same_meters(x, y, length_ulps), Float64.(p), Float64.(q))),
             a.points.controls, b.points.controls)) :
         same_value(getfield(a, f), getfield(b, f); length_ulps), fieldnames(typeof(a)))
 # Any other value: field by field.

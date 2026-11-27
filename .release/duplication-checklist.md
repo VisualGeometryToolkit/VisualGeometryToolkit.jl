@@ -43,7 +43,7 @@ The leg's upstream duplication gate (cau-release `upstream_duplication.jl`, owne
 
 | concept | the copies | the one copy | status |
 |---|---|---|---|
-| a length's identity in a comparison | a second tolerance beside the writer's last resort | `_persisted` (content_id's length leaf), read by `_same_metres` | [x] |
+| a length's identity in a comparison | a second tolerance beside the writer's last resort | `_persisted` (content_id's length leaf), read by `_same_meters` | [x] |
 | the versions a file is current at | `_is_current`'s own "current major" beside the writer's table | `_written_versions`, read by `_is_current`, the writer and kinds.md's table | [x] |
 | the persisted-form rule's text | IO's conventions page and Core's units.md each stating it | Core's `conventions/units.md` ("What is exact"); IO's page points at it | [x] |
 | the v1.0 fixture with its rasters in a test | three copy loops | `SensorFixtures`' `copy_v1_fixture` | [x] |
@@ -174,7 +174,7 @@ RadiometricCamera read-only at /raid/data/jpr/rc-080), and what was done. A box 
 | c | a height field with its nodes' and heights' units apart | Core `HeightField` (target_calibration.jl:645: one form for nodes and heights), IO's `_CHART` form of a placed target (rig_schema.jl `_Chart`), RC warping.jl:79 `warping_field` and records.jl "warping"/"warping_aspect"; io10's units object (w10-io10 validate.jl:300-356, `length_roles`) | the existing parametric height-field record with two optional keys, `node_unit` / `height_unit`, read and written by the one calibration codec (`_reads_back` / `_check_writes_back` / `_calibration_from_record` take the second unit); no second height-field codec | [x] |
 | d1 | a TIFF writer and reader | BlobBoards src/authoring/tiff.jl:35 `write_tiff` (libtiff) and src/io.jl:218 `_read_grey_tiff` (libtiff); BB test-only TiffImages (test/items_test.jl:185); nothing else in the stack (grep libtiff/TiffImages/tifffile over every repo) | HOISTED into IO (src/tiff.jl `write_tiff` / `read_tiff`), byte-identical for BB's board TIFFs (bb_tiff_identity.jl); BB's copy deleted by BB's next release (handoffs.md "io095 → bb") | [x] |
 | d2 | a binary sidecar bound by its SHA-256 | IO validate.jl:418 the reserved `payload` key; calibration_manifest.jl `_check_manifest_files` (:206), `_is_inside_path` (:34), `_realpath_inside` (:197); rig_schema.jl canvas texture `{path, sha256}` (:286); Core `sha256_hex` (utils.jl:165); io10's sensor_noise artifacts (`{file, sha256}`, interfaces.md) | the reserved `payload` key, its first kind; the manifest's per-file check extracted as `_check_bound_file` and called by both; `_is_inside_path`, `write_staged` reused | [x] |
-| d3 | a rectangle of the design chart in a length unit | style.jl `JSON.lower/lift(::VgioStyle, ::Rect2)` (:170); rig_schema.jl `_rect_json` (board/canvas `{size, origin}`); validate.jl `_lattice_problem`'s area check | the `[x, y, w, h]` area through the Rect2 lower/lift, each number through `_metres_json` / `metres`; the area check extracted as `_area_problem`, shared with the lattice | [x] |
+| d3 | a rectangle of the design chart in a length unit | style.jl `JSON.lower/lift(::VgioStyle, ::Rect2)` (:170); rig_schema.jl `_rect_json` (board/canvas `{size, origin}`); validate.jl `_lattice_problem`'s area check | the `[x, y, w, h]` area through the Rect2 lower/lift, each number through `_meters_json` / `metres`; the area check extracted as `_area_problem`, shared with the lattice | [x] |
 
 Ticked on the final gate, 458f816b (all green; ~/logs/dgx-agent/io095.md). BlobBoards' copy (d1) leaves with BB's port
 (handoffs.md "io095 → bb"); until then check_duplication does not pair them (below: 0 findings with bb-j113 in the stack).
@@ -306,7 +306,7 @@ Downstream copies, outside this release (listed for their owners; not release it
 
 - [x] rc-hoists (041f3665): each new public name is the ONE body Core's or the package's own callers use, the private
   name gone with no alias. `normalized_point`, `bilinear_weights`, `julia_blocks` and `with_parameters(::MappedSurface)`
-  in Core; `metres` and `with_provenance` in IO; `image_size` in Estimation. A review searched for a second
+  in Core; `meters` and `with_provenance` in IO; `image_size` in Estimation. A review searched for a second
   normalized-point map, bilinear helper or image-size reader and found none.
 - [x] features-image-circle (dfbe5fc6): `detect_image_circle` moved from RadiometricCamera (one copy, Features). Its
   green plane is `LinearRaw(m; mode = :green_cells).image[:, :, 1]` (its `_green_cell_plane` dropped). Its fit is
@@ -338,8 +338,8 @@ Downstream copies, outside this release (listed for their owners; not release it
 ## 0.9.4 (Core alone)
 
 - [x] ONE half-texel chart: the private `_texel_chart` (the size check and a position's 0-based texel-centre
-  coordinates) and `_clamp_to_centres` (the clamp onto the centres' rectangle), read by `bilinear_weights` and the new
-  public `is_inside_texel_centres`. RadiometricCamera's `texel_weights` restated the chart beside its `bilinear_weights`
+  coordinates) and `_clamp_to_centers` (the clamp onto the centres' rectangle), read by `bilinear_weights` and the new
+  public `is_inside_texel_centers`. RadiometricCamera's `texel_weights` restated the chart beside its `bilinear_weights`
   call (RC final audit item 9); it moves onto the predicate on RC's own branch.
 - [x] ONE cell-grid frame map: `raw_frame_map(::Type{LinearRaw{mode}})` returns `_CELL_FRAME_MAP`, and the one
   composition `_cell_grid_map(m, mode) = raw_frame_map(m) ∘ raw_frame_map(LinearRaw{mode})` builds every `LinearRaw`'s

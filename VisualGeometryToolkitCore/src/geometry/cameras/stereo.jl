@@ -80,8 +80,8 @@ function _assert_rig_consistency(
     # a physical relative pose against plain cameras (or the reverse) never compares
     has_units(given) == has_units(expected) || throw(DimensionError(translation(given), translation(expected)))
     dev_rot = Rotations.rotation_angle(RotMatrix{3}(SMatrix{3, 3, Float64, 9}(given.R)' * SMatrix{3, 3, Float64, 9}(expected.R)))
-    t_given, t_expected = _translation_metres(given), _translation_metres(expected)
-    scale = max(norm(t_expected), norm(_translation_metres(pose(source))), norm(_translation_metres(pose(destination))))
+    t_given, t_expected = _translation_meters(given), _translation_meters(expected)
+    scale = max(norm(t_expected), norm(_translation_meters(pose(source))), norm(_translation_meters(pose(destination))))
     Δ = norm(t_given - t_expected)
     dev_t = Δ == 0 ? 0.0 : Δ / scale
     (dev_rot ≤ atol && dev_t ≤ atol) && return nothing
@@ -582,7 +582,7 @@ function _gt_inliers_metric(
     )
     # Residuals are in metres (ETH3D world scale): strip the tolerance in metres
     # (a ConversionError unless it is a length).
-    tol_m = strip_metres(metric_tol)
+    tol_m = strip_meters(metric_tol)
     @inbounds for i in eachindex(valid)
         valid[i] || continue
         r = residuals[i]

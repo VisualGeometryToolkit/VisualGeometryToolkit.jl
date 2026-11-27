@@ -14,13 +14,13 @@
     using VisualGeometryToolkitCore: Point2, Circle, residual_rows!, residual_jacobian_rows!, whitened_residuals!
     using VisualGeometryToolkitEstimation: CircleProblem
     import VisualGeometryToolkitEstimation as VgtkEstimation
-    centre(c) = SVector(c.center[1], c.center[2])
+    center_xy(c) = SVector(c.center[1], c.center[2])
     rng = Xoshiro(31)
     pts, _ = circle_scene(rng, 200; σ = 0.0, outl = 0.0)
     p = CircleProblem(pts)
     @test VgtkEstimation.codimension(p) == 1 && VgtkEstimation.minimal_sample_size(p) == 3 && VgtkEstimation.chart_dof(p) == 3
     sol = VgtkEstimation.sample_models(p, [1, 2, 3])
-    @test sol.count == 1 && norm(centre(first(sol)) - C₀) < 1.0e-9 && abs(first(sol).r - R₀) < 1.0e-9
+    @test sol.count == 1 && norm(center_xy(first(sol)) - C₀) < 1.0e-9 && abs(first(sol).r - R₀) < 1.0e-9
     r = zeros(200); VgtkEstimation.mahalanobis_distances!(r, p, first(sol))
     @test maximum(abs, r) < 1.0e-9                                       # pixels
     @test warm_allocated(VgtkEstimation.mahalanobis_distances!, r, p, first(sol)) == 0
@@ -52,7 +52,7 @@
     ws = VgtkEstimation.refit_workspace(pp)
     c₁ = VgtkCore.refine!(ws, pp, c₀, ones(100))
     @test c₁ isa Circle{Float64}
-    @test norm(centre(c₁) - C₀) < 0.3 && abs(c₁.r - R₀) < 0.3            # σ = 1 px on 100 points: σ/√50 ≈ 0.14 px
+    @test norm(center_xy(c₁) - C₀) < 0.3 && abs(c₁.r - R₀) < 0.3            # σ = 1 px on 100 points: σ/√50 ≈ 0.14 px
     @test warm_allocated(VgtkCore.refine!, ws, pp, c₀, ones(100)) == 0
 end
 
@@ -65,7 +65,7 @@ end
     using Test, Random, LinearAlgebra, StaticArrays
     using VisualGeometryToolkitCore: Point2, Circle
     
-    centre(c) = SVector(c.center[1], c.center[2])
+    center_xy(c) = SVector(c.center[1], c.center[2])
     rng = Xoshiro(32)
     for trial in 1:3
         pts, bad = circle_scene(rng, 1000; σ = 0.5, outl = 0.4)
@@ -73,7 +73,7 @@ end
         @test successful_retcode(res)
         c = res.u
         @test c isa Circle{Float64}
-        @test norm(centre(c) - C₀) < 0.2 && abs(c.r - R₀) < 0.2          # σ = 0.5 px on 600 inliers: σ/√300 ≈ 0.03 px
+        @test norm(center_xy(c) - C₀) < 0.2 && abs(c.r - R₀) < 0.2          # σ = 0.5 px on 600 inliers: σ/√300 ≈ 0.03 px
         inl = inlier_mask(res)
         good = setdiff(1:1000, bad)
         @test count(inl[good]) > 0.9 * length(good)                       # 1 px MSAC on a 0.5 px normal residual: P(|z| < 2) = 0.95

@@ -156,8 +156,8 @@ end
 function bumps(h, w, seed)
     state = UInt64(seed)
     rnd() = (state = state * 6364136223846793005 + 1442695040888963407; (state >> 33) / 2.0^31)
-    centres = [(1 + rnd() * h, 1 + rnd() * w, 2 + 6rnd(), 200rnd() - 100) for _ in 1:12]
-    return [UInt8(clamp(round(Int, 128 + sum(a * exp(-((i - y)^2 + (j - x)^2) / (2s^2)) for (y, x, s, a) in centres)), 0, 255))
+    centers = [(1 + rnd() * h, 1 + rnd() * w, 2 + 6rnd(), 200rnd() - 100) for _ in 1:12]
+    return [UInt8(clamp(round(Int, 128 + sum(a * exp(-((i - y)^2 + (j - x)^2) / (2s^2)) for (y, x, s, a) in centers)), 0, 255))
             for i in 1:h, j in 1:w]
 end
 

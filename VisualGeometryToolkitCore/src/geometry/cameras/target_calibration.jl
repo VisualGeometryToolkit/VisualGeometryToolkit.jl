@@ -100,8 +100,8 @@ end
     DimensionError(x, physical ? "a length (the nodes are lengths)" : "a plain number (the nodes are plain)")
 )
 # One plain length moved between metres and a unit `u` (FlexUnits' conversion).
-@inline _to_metres(x::Real, u::Units) = strip_metres(Quantity(x, u))
-@inline _from_metres(x::Real, u::Units) = strip_or_bare(u, Quantity(x, m))
+@inline _to_meters(x::Real, u::Units) = strip_meters(Quantity(x, u))
+@inline _from_meters(x::Real, u::Units) = strip_or_bare(u, Quantity(x, m))
 @noinline _refuse_strip(c) = throw(ArgumentError("ustrip: the $(nameof(typeof(c))) is plain numbers already; `with_unit` attaches a unit"))
 @noinline _refuse_attach(c) = throw(ArgumentError("with_unit: the $(nameof(typeof(c))) already has units"))
 @noinline _refuse_length(c, θ) = throw(ArgumentError("$(nameof(typeof(c))) takes $(length(parameter_vector(c))) parameters; got $(length(θ))"))
@@ -758,13 +758,13 @@ end
 # other unit refits them from the moved nodes and values, unprojected. (A unit
 # of another dimension is not metres: it takes the rebuild, which refuses it
 # with FlexUnits' `DimensionError`.)
-_in_metres(u::Units) = dimension(u) == dimension(m) && _metre_factor(u) == 1
+_in_meters(u::Units) = dimension(u) == dimension(m) && _meter_factor(u) == 1
 function _move_unit(c::Union{ThinPlateSpline, HeightField}, u::Units, to_physical::Bool, f)
     c.physical == to_physical && (to_physical ? _refuse_attach(c) : _refuse_strip(c))
-    _in_metres(u) && return _with_form(c, to_physical)
+    _in_meters(u) && return _with_form(c, to_physical)
     return _refit(c, [map(f, p) for p in c.system.nodes], map(v -> map(f, v), _values(c)))
 end
-FlexUnits.ustrip(u::Units, c::Union{ThinPlateSpline, HeightField}) = _move_unit(c, u, false, x -> _from_metres(x, u))
+FlexUnits.ustrip(u::Units, c::Union{ThinPlateSpline, HeightField}) = _move_unit(c, u, false, x -> _from_meters(x, u))
 with_unit(c::Union{ThinPlateSpline, HeightField}, u::Units) = _move_unit(c, u, true, x -> attach_length(x, u))
 Base.:(==)(a::HeightField, b::HeightField) = a.system.nodes == b.system.nodes && a.h == b.h && a.physical == b.physical
 Base.hash(c::HeightField, h::UInt) = hash(c.physical, hash(c.h, hash(c.system.nodes, hash(:HeightField, h))))
@@ -960,12 +960,12 @@ _attach_calibration(u::Units, c::TargetCalibration) = _has_lengths(c) ? with_uni
 function _ustrip_calibration(u::Units, c::Uncertain{<:TargetCalibration})
     g = geom(c)
     _has_lengths(g) || return c
-    return Uncertain(ustrip(u, g), _scale_length_form(getfield(c, :attributes), length_mask(g), _metre_factor(u), *))
+    return Uncertain(ustrip(u, g), _scale_length_form(getfield(c, :attributes), length_mask(g), _meter_factor(u), *))
 end
 function _attach_calibration(u::Units, c::Uncertain{<:TargetCalibration})
     g = geom(c)
     _has_lengths(g) || return c
-    return Uncertain(with_unit(g, u), _scale_length_form(getfield(c, :attributes), length_mask(g), _metre_factor(u), /))
+    return Uncertain(with_unit(g, u), _scale_length_form(getfield(c, :attributes), length_mask(g), _meter_factor(u), /))
 end
 
 # The internal pair a target's surface chart reads (target_surfaces.jl): a

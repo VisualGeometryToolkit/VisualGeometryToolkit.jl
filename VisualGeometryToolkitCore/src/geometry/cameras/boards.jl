@@ -74,7 +74,7 @@ _stored_rect(who, size::Size2, origin::AbstractVector) = _refuse_board_mix(who, 
 @noinline _refuse_board_mix(who, size, origin) = throw(
     ArgumentError("$who: the size and the corner are all lengths or all plain numbers; got $(Tuple(size)) and $(Tuple(origin))")
 )
-_board_origin(o::AbstractVector{<:Quantity}) = SVector{2, Float64}(strip_metres(map(_check_length, SVector{2}(o))))
+_board_origin(o::AbstractVector{<:Quantity}) = SVector{2, Float64}(strip_meters(map(_check_length, SVector{2}(o))))
 _board_origin(o::AbstractVector{<:Real}) = SVector{2, Float64}(o)
 _board_origin(o::AbstractVector) = _refuse_board_mix("Board", (), o)
 
@@ -86,11 +86,11 @@ has_units(::Board{<:Quantity}) = true
 has_units(::Board) = false
 _form_sample(bd::Board) = bd.size.width
 FlexUnits.ustrip(u::Units, bd::Board{<:Quantity}) =
-    Board(Size2(width = ustrip(u, bd.size.width), height = ustrip(u, bd.size.height)), map(x -> _from_metres(x, u), bd.origin))
+    Board(Size2(width = ustrip(u, bd.size.width), height = ustrip(u, bd.size.height)), map(x -> _from_meters(x, u), bd.origin))
 FlexUnits.ustrip(::Units, ::Board) = throw(ArgumentError("ustrip: the board is plain numbers already; `with_unit` attaches a unit"))
 with_unit(::Board{<:Quantity}, ::Units) = throw(ArgumentError("with_unit: the board already has units"))
 with_unit(bd::Board, u::Units) =
-    Board(Size2(width = bd.size.width * u, height = bd.size.height * u), map(x -> _to_metres(x, u), bd.origin))
+    Board(Size2(width = bd.size.width * u, height = bd.size.height * u), map(x -> _to_meters(x, u), bd.origin))
 
 # Accessors
 
@@ -236,8 +236,8 @@ end
 @fieldwise Canvas
 
 # Units: the board's rule, the texture moving with its canvas.
-_strip_rect(u, r) = (Size2(width = ustrip(u, r.size.width), height = ustrip(u, r.size.height)), map(x -> _from_metres(x, u), r.origin))
-_attach_rect(u, r) = (Size2(width = r.size.width * u, height = r.size.height * u), map(x -> _to_metres(x, u), r.origin))
+_strip_rect(u, r) = (Size2(width = ustrip(u, r.size.width), height = ustrip(u, r.size.height)), map(x -> _from_meters(x, u), r.origin))
+_attach_rect(u, r) = (Size2(width = r.size.width * u, height = r.size.height * u), map(x -> _to_meters(x, u), r.origin))
 FlexUnits.ustrip(u::Units, x::CanvasTexture{<:Quantity}) = CanvasTexture(x.path, x.sha256, _strip_rect(u, x)...)
 FlexUnits.ustrip(u::Units, c::Canvas{<:Quantity}) =
     Canvas(_strip_rect(u, c)...; texture = c.texture === nothing ? nothing : ustrip(u, c.texture))

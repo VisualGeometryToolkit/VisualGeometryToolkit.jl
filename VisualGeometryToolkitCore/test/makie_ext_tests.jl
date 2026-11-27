@@ -59,8 +59,8 @@
             cam = CameraModel(m)
             @test plot_rectification(cam, img) isa Makie.Figure
             @test_throws ArgumentError plot_rectification(cam, img; max_fov = deg2rad(70.0))
-            centre, r = ext._horizon(cam)
-            @test centre == c && r == VgtkCore.horizon_radius(cam)
+            hc, r = ext._horizon(cam)
+            @test hc == c && r == VgtkCore.horizon_radius(cam)
             @test isfinite(r)
         end
         # unit focal: the horizon is the lens's own monotone radius, in centred pixels

@@ -130,7 +130,7 @@ end
     estimates[7, :] .= (1.0, 50.0, 10.0)                # Ω_corner
     estimates[14, :] .= (50.0, 1.0, 10.0)               # Ω_circular: F = 0.02, 50, 1
     taps = hcat(VGF._derivative_taps(:gaussian2d, 2.0)...)                     # derivative_sigma 1, doubled
-    found = (; centres = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, ρ = 6, redundancy = 167, upscale = 2, taps)
+    found = (; centers = [CartesianIndex(11, 21), CartesianIndex(31, 41), CartesianIndex(51, 61)], estimates, ρ = 6, redundancy = 167, upscale = 2, taps)
     rows = VGF._foerstner_points(found, VGF._foerstner_classes(found, 0.999), VGF._undouble)
     @test [d.label for d in rows] == [:corner, :circular, :unknown]
     @test [d.F for d in rows] ≈ [0.02, 50.0, 1.0]
@@ -168,7 +168,7 @@ end
     doubled = KA.allocate(KA.CPU(), Float32, 2 .* size(g)...)
     VGF._launch!(VGF._upsample_doubled!, KA.CPU(), doubled, reshape(g, size(g)..., 1); ndrange = size(doubled))
     found = VGF._foerstner_seeded(KA.CPU(), doubled, seeds; derivative = :gaussian2d, derivative_sigma = 1.0)
-    @test length(found.centres) == n && all(==(22), found.ρ)
+    @test length(found.centers) == n && all(==(22), found.ρ)
     dof = VGF._residual_dof(found.taps, 22)
     # E[Ω] = σ² tr Q, within 4 standard errors of the mean (Var Ω = 2(σ² tr Q)²/ν); the corner sum's variance gives ν
     # within 4 standard errors (a sample variance's relative SE is √(2/(n − 1)))
@@ -189,7 +189,7 @@ end
     f6 = VGF._foerstner_seeded(KA.CPU(), doubled, small; derivative = :gaussian2d, derivative_sigma = 1.0)
     ν6 = VGF._residual_dof(f6.taps, 6).corner.ν
     Ω6 = f6.estimates[7, :]
-    @test length(f6.centres) == m && all(==(6), f6.ρ) && 11 < ν6 < 13
+    @test length(f6.centers) == m && all(==(6), f6.ρ) && 11 < ν6 < 13
     @test abs(2mean(Ω6)^2 / var(Ω6) - ν6) < 4 * ν6 * sqrt((2 + 12 / ν6) / (m - 1))
     @test count(!=(0), VGF._foerstner_classes(f6, level)) <= m * p + 4 * sqrt(m * p * (1 - p))
     # the labels: at most the stated rate (1 − level per side) of noise windows is labelled, 4 binomial SEs over it;
@@ -218,9 +218,9 @@ end
             KA.CPU(), doubled; method = :foerstner, noise_sigma = 2.55, derivative = :gaussian2d, integration = :box,
             derivative_sigma = 1.0, integration_sigma = 1.41, precision_threshold = 0.5, roundness_threshold = 0.3
         )
-        k = argmin(k -> norm(((f.centres[k][2] - 1) / 2, (f.centres[k][1] - 1) / 2) .- t), eachindex(f.centres))
+        k = argmin(k -> norm(((f.centers[k][2] - 1) / 2, (f.centers[k][1] - 1) / 2) .- t), eachindex(f.centers))
         e = f.estimates[:, k]
-        rw, cw = Tuple(f.centres[k])
+        rw, cw = Tuple(f.centers[k])
         derived = 0.0                                   # Σ (xᵢ − x̂)ᵀ Γ⊥ᵢ (xᵢ − x̂), the circular model's own residuals
         for c in (cw - f.ρ):(cw + f.ρ), r in (rw - f.ρ):(rw + f.ρ)
             a, b, d = f.gamma[r, c, 1], f.gamma[r, c, 2], f.gamma[r, c, 3]
@@ -617,7 +617,7 @@ end
     using VisualGeometryToolkitCore: Disc, Point2
     using Random: Xoshiro
     identical(a, b) = length(a) == length(b) && isequal(collect(a), collect(b))
-    e = dot_scene(150, 150, dot_centres(3), 2.0)
+    e = dot_scene(150, 150, dot_centers(3), 2.0)
     m = noisy_mosaic(Xoshiro(2), (i, j) -> e[i, j], 150, 150; electrons_per_dn = 2.5, read_dn = 3.0)
     model = pg_model(2.5, 3.0)
     raw_seeds = detect_sfop(m; sensor_model = model, device = KA.CPU())

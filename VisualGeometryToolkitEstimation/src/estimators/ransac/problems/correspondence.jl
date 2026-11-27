@@ -827,7 +827,7 @@ function AbsolutePoseProblem(
         model::CameraModel, pairs::AbstractVector{<:Pair{<:_PhysicalPoint3, <:StaticVector{2}}};
         backend::AbstractSolverBackend = NativeSolver()
     )
-    plain = _map_correspondences(_plain_metres, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
+    plain = _map_correspondences(_plain_meters, identity, pairs)::AbstractVector{<:Pair{<:StaticVector{3, <:Real}}}
     return _absolute_pose_problem(model, plain, backend, VgtkCore.m)
 end
 function _absolute_pose_problem(model::CameraModel, pairs, backend::AbstractSolverBackend, unit)

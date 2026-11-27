@@ -114,7 +114,7 @@ end
     fixtures = joinpath(@__DIR__, "fixtures", "units")
     raw = JSON.parse(read(joinpath(fixtures, "transforms.json"), String); dicttype = Dict{String, Any})
     mm_poses = load(Vector{EuclideanMap}, joinpath(fixtures, "transforms.json"))
-    metres(X) = map(q -> ustrip(m, q), translation(geom(X)))
+    meters(X) = map(q -> ustrip(m, q), translation(geom(X)))
     mktempdir() do dir
         # metres, typed by hand: the mm decimals with the point moved — the same metre values, exactly
         dm = deepcopy(raw)
@@ -130,7 +130,7 @@ end
         pm = joinpath(dir, "m.json"); write(pm, JSON.json(dm))
         m_poses = load(Vector{EuclideanMap}, pm)
         for (a, b) in zip(mm_poses, m_poses)
-            @test metres(a) === metres(b)
+            @test meters(a) === meters(b)
         end
         @test cov(m_poses[2]) == cov(mm_poses[2])
         # inches, typed by hand (1 inch = 25.4 mm): within the scale's one rounding
@@ -141,7 +141,7 @@ end
         dmm["transforms"][1]["translation"] = [25.4, 50.8, -254.0]
         pi_, pmm = joinpath(dir, "inch.json"), joinpath(dir, "mm.json")
         write(pi_, JSON.json(di)); write(pmm, JSON.json(dmm))
-        a, b = metres(load(Vector{EuclideanMap}, pmm)[1]), metres(load(Vector{EuclideanMap}, pi_)[1])
+        a, b = meters(load(Vector{EuclideanMap}, pmm)[1]), meters(load(Vector{EuclideanMap}, pi_)[1])
         @test all(abs.(a .- b) .<= eps.(abs.(a)))
         # the writer's unit: any length unit, declared; a power of ten reads back
         # to the identical quantities, an inch to within the scale's rounding
@@ -152,11 +152,11 @@ end
             back = load(Vector{EuclideanMap}, p)
             if u === inch
                 # within the scale's rounding, or (no inch number reads back to it) with its identity, its persisted value (IO 0.10.1)
-                @test all(all((abs.(metres(x) .- metres(y)) .<= eps.(abs.(metres(y)))) .| (VgtkIO._persisted.(metres(x)) .=== VgtkIO._persisted.(metres(y))))
+                @test all(all((abs.(meters(x) .- meters(y)) .<= eps.(abs.(meters(y)))) .| (VgtkIO._persisted.(meters(x)) .=== VgtkIO._persisted.(meters(y))))
                           for (x, y) in zip(back, mm_poses))
                 @test cov(back[2]) ≈ cov(mm_poses[2]) rtol = 4 * eps()
             else
-                @test all(metres(x) === metres(y) for (x, y) in zip(back, mm_poses))
+                @test all(meters(x) === meters(y) for (x, y) in zip(back, mm_poses))
                 @test cov(back[2]) == cov(mm_poses[2])
             end
         end
@@ -218,7 +218,7 @@ end
     # a computed metre value is written as a number that reads back to it, whenever one exists
     n_exact = count(1:20_000) do _
         y = (rand(rng) - 0.5) * 10.0^rand(rng, -4:1)
-        ustrip(m, VgtkIO.read_length(VgtkIO.write_length(VgtkIO._metre_quantity(y), mm), mm)) === y
+        ustrip(m, VgtkIO.read_length(VgtkIO.write_length(VgtkIO._meter_quantity(y), mm), mm)) === y
     end
     @test n_exact > 17_000
 end

@@ -147,8 +147,8 @@ using ..VisualGeometryToolkitCore: RotationMap, WorldFrame, CameraFrame, _mapped
 import ..VisualGeometryToolkitCore: has_units, with_unit   # extended on the carriers: targets, mounts, rigs, cameras, captures
 import ..VisualGeometryToolkitCore: _unit_form, _form_sample   # the one-form rule's view of each carrier (euclidean_map.jl `_check_one_form`)
 using ..VisualGeometryToolkitCore: translation, UnitfulEuclideanMap, _attach_unit, strip_point, attach_point, _stored_point,
-    _check_one_form, strip_metres, _translation_metres,   # the one strip/attach of maps and points, the one-form rule (euclidean_map.jl)
-    attach_length, _metre_factor, _scale_length_form   # one length's attach (its strip is `strip_or_bare`), a unit's metre factor (a calibration's lengths)
+    _check_one_form, strip_meters, _translation_meters,   # the one strip/attach of maps and points, the one-form rule (euclidean_map.jl)
+    attach_length, _meter_factor, _scale_length_form   # one length's attach (its strip is `strip_or_bare`), a unit's metre factor (a calibration's lengths)
 using ..VisualGeometryToolkitCore: ThinPlateSplineSystem, tps_coefficients, tps_pure_bending, tps_evaluate, tps_gradient, nodal_weights, _pure_bending_weights, bending_factor   # the thin-plate calibration kinds (target_calibration.jl)
 using FlexUnits: Units, DimensionError
 using ..VisualGeometryToolkitCore: TargetPlaneFrame, PixelFrame, UnlabeledFrame, relabel, unlabel, map_frames, Frame
@@ -891,7 +891,7 @@ mask = is_in_front.(Ref(camera), world_points)
 """
 is_in_front(c::PosedCamera, p::Point3) = extrinsics(c)(p)[3] > 0
 # a physical camera: the test in metres, the point a length (a plain one is a DimensionError)
-is_in_front(c::_UnitfulPosedCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(strip_metres(p)))
+is_in_front(c::_UnitfulPosedCamera, p::Point3) = is_in_front(ustrip(m, c), Point3(strip_meters(p)))
 
 """
     is_in_front(camera, x, y, z) -> AbstractArray{Bool}
@@ -912,7 +912,7 @@ function is_in_front(
     return z_cam .> zero(eltype(z_cam))
 end
 is_in_front(c::_UnitfulPosedCamera, x::AbstractArray, y::AbstractArray, z::AbstractArray) =
-    is_in_front(ustrip(m, c), strip_metres(x), strip_metres(y), strip_metres(z))
+    is_in_front(ustrip(m, c), strip_meters(x), strip_meters(y), strip_meters(z))
 
 """
     focal_length(camera::PosedCamera)
@@ -1020,7 +1020,7 @@ u = project(camera, X_world)
 # A physical camera strips at entry, in metres: exactly the plain camera's call
 # on the point in metres (a plain point is a `DimensionError`).
 @inline project(camera::_UnitfulPosedCamera, X::AbstractVector) =
-    project(camera.model, ustrip(m, camera.extrinsics)(strip_metres(X)))
+    project(camera.model, ustrip(m, camera.extrinsics)(strip_meters(X)))
 
 """
     project(camera::PosedCamera, shape::Union{Circle, Ellipse}) -> Ellipse or Polygon
@@ -1075,7 +1075,7 @@ end
 # A physical camera: the origin and the displacement are lengths, stripped in
 # metres with the camera (a plain one is a `DimensionError`).
 project(camera::_UnitfulPosedCamera, origin::GeometryBasics.Point3, dir::GeometryBasics.Vec3) =
-    project(ustrip(m, camera), Point3{Float64}(strip_metres(origin)), Vec3{Float64}(strip_metres(dir)))
+    project(ustrip(m, camera), Point3{Float64}(strip_meters(origin)), Vec3{Float64}(strip_meters(dir)))
 
 """
     backproject(camera::PosedCamera, u::StaticVector{2, Float64}) -> Vec3
@@ -1113,7 +1113,7 @@ chosen metric unit, e.g. mm) and `LogicalIntrinsics` (unitless pixels;
 # A physical camera takes a depth that is a length and returns the point in
 # metres: the plain call in metres, its result read back in metres.
 unproject(camera::_UnitfulPosedCamera, u::AbstractVector{Float64}, depth::Quantity) =
-    attach_point(m, unproject(ustrip(m, camera), u, strip_metres(depth)))
+    attach_point(m, unproject(ustrip(m, camera), u, strip_meters(depth)))
 
 # ============================================================================
 # Camera Accessor Functions
@@ -1267,7 +1267,7 @@ export farthest_radius                    # how far a region reaches from a cent
 export view_overlap                       # the solid angle every pair of a rotating camera's frames share (view_overlap.jl)
 export OrientedCamera                     # a PosedCamera posed by a RotationMap: a camera turning about its centre
 export pixel_mask                         # the pixels whose centres lie in a region (COLMAP centres, Julia layout)
-export pixel_centres                      # the centres of a sub-lattice of pixels that lie in a region
+export pixel_centers                      # the centres of a sub-lattice of pixels that lie in a region
 export SupportTrait, GlobalSupport, LocalSupport, support_trait, nodes, support, node_position   # supports on the sensor (support.jl)
 export free_nodes, node_mask, cubic_bspline_footprint
 export BoundaryRule, extend_controls, boundary_rule_jacobian   # the dependent nodes of a lattice outside an imaged region (support.jl)
@@ -1288,7 +1288,7 @@ export with_present, with_directions, with_points, central_model   # a spline mo
 export axis_gauged                      # a SplineLens camera (and its poses) in the frame turned so ẑ is its optical axis (spline_lens.jl)
 export extend_lattice, subdivide_lattice, folded_pixels   # a SplineLens lattice extended on its own spacing; subdivided exactly by integers; where its backward map folds (public, not exported, at the top level)
 export ChartSpline                       # a uniform cubic B-spline on a 2-D chart
-export pixel_centre                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
+export pixel_center                      # an image array index's pixel centre, COLMAP frame, in T (public, not exported, at the top level)
 export plane_map                         # a posed camera's z = 0 plane → image map (public, not exported, at the top level)
 export equidistant_chart                 # the equidistant direction chart about an axis (public, not exported, at the top level)
 export forward_chart                     # the chart of every SplineLens forward spline (public, not exported, at the top level)

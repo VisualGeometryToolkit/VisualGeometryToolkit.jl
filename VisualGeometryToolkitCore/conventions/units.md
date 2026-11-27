@@ -137,7 +137,7 @@ FlexUnits' `Quantity`, and a constructor that stores one converts it with
 `base_quantity(q)` = `float(ubase(q))` (`base_quantity.(s)` for a `Size2`,
 which FlexUnits broadcasts over as it does `ustrip.(u, s)`), or by converting
 into a `BaseQuantity` field. A `Rational` never reaches a struct field or a
-kernel: the stack's strips (`strip_metres`, `strip_or_bare`) return floats. A pixel–length crossing is a product with
+kernel: the stack's strips (`strip_meters`, `strip_or_bare`) return floats. A pixel–length crossing is a product with
 a density (`q * 300dpi` is in px); there is no density-taking conversion
 verb. A dimension mismatch raises `DimensionError` (arithmetic) or
 `ConversionError` (`ustrip`/`uconvert` into a unit of the wrong dimension).

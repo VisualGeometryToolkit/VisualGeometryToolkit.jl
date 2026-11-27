@@ -55,8 +55,8 @@ function write_station_fan(colormap, io::IO, cells; value::Symbol, span::Tuple{R
     end
     println(io, "  \\fill[black] (-0.09, -0.09) rectangle (0.09, 0.09);")
     if ring_labels
-        for metres in (1, 2, 3)
-            println(io, "  \\node[font=\\scriptsize\\bfseries, text=black!60] at ($(metres), -0.22) {$(metres)\\,m};")
+        for meters in (1, 2, 3)
+            println(io, "  \\node[font=\\scriptsize\\bfseries, text=black!60] at ($(meters), -0.22) {$(meters)\\,m};")
         end
     end
     println(io, "\\end{tikzpicture}")
@@ -70,7 +70,7 @@ function write_station_fan(colormap, path::AbstractString, cells; kwargs...)
 end
 
 # A span or a set of ticks on the colour axis: log10 of the statistic's units when `logarithmic`.
-_colour_axis(x, logarithmic::Bool) = logarithmic ? log10.(Float64.(x)) : Float64.(x)
+_color_axis(x, logarithmic::Bool) = logarithmic ? log10.(Float64.(x)) : Float64.(x)
 
 """
     pgf_colormap(colormap; reverse = false, samples = 15) -> String
@@ -116,9 +116,9 @@ function write_station_fan_colorbar(colormap, io::IO; span::Tuple{Real, Real}, t
         throw(ArgumentError("write_station_fan_colorbar: orientation is :vertical or :horizontal, not $(repr(orientation))"))
     Base.length(tick_labels) == Base.length(ticks) ||
         throw(ArgumentError("write_station_fan_colorbar: $(Base.length(ticks)) ticks, $(Base.length(tick_labels)) tick labels"))
-    lo, hi = _colour_axis(span, logarithmic)
+    lo, hi = _color_axis(span, logarithmic)
     hi > lo || throw(ArgumentError("write_station_fan_colorbar: span $(span) is empty"))
-    marks = join(round.(_colour_axis(ticks, logarithmic); digits = 4), ",")
+    marks = join(round.(_color_axis(ticks, logarithmic); digits = 4), ",")
     name = colormap_name * (reverse ? "rev" : "")
     meta = "point meta min=$(round(lo; digits = 4)), point meta max=$(round(hi; digits = 4)),"
     println(io, "% ", comment)

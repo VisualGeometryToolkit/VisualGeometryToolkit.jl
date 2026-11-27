@@ -16,7 +16,7 @@ state, shared by the scorers, the local optimizers and the mixture fits.
 
 ```@autodocs
 Modules = [VisualGeometryToolkitCore]
-Pages = ["robust/scale.jl", "robust/mixture.jl", "robust/posterior.jl", "robust/normaliser.jl"]
+Pages = ["robust/scale.jl", "robust/mixture.jl", "robust/posterior.jl", "robust/normalizer.jl"]
 ```
 
 ## Block Coordinate Descent

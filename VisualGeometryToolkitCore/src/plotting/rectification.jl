@@ -21,22 +21,22 @@ _horizon(camera::CameraModel) = (_principal_point(camera), horizon_radius(camera
 
 # The raw panel's per-camera overlay: the 180° horizon circle (when the lens has
 # one, labelled with its radius for the legend) and the principal-point cross,
-# both in `colour`. The circle goes to `poly!` as a 360-vertex polygon: the
+# both in `color`. The circle goes to `poly!` as a 360-vertex polygon: the
 # default circle tessellation is visibly faceted at a horizon's radius.
-function _raw_overlay!(ax, camera::CameraModel, colour, label::AbstractString)
+function _raw_overlay!(ax, camera::CameraModel, color, label::AbstractString)
     c, r_inf = _horizon(camera)
     isfinite(r_inf) && poly!(
         ax, GeometryBasics.Polygon(boundary_points(Circle(c, r_inf), 360));
-        strokecolor = colour, label = "$label: r∞ $(round(r_inf; digits = 0)) px"
+        strokecolor = color, label = "$label: r∞ $(round(r_inf; digits = 0)) px"
     )
-    Makie.scatter!(ax, [c[1]], [c[2]]; color = colour, marker = :cross, markersize = 18)
+    Makie.scatter!(ax, [c[1]], [c[2]]; color = color, marker = :cross, markersize = 18)
     return isfinite(r_inf)
 end
 
-# ONE rectified panel into a caller's grid slot, its cross and title in `colour`.
+# ONE rectified panel into a caller's grid slot, its cross and title in `color`.
 # Returns the axis so a caller can annotate it.
 function _rectified_panel!(
-        pos, camera::CameraModel, img::AbstractMatrix, max_px::Real, label::AbstractString, colour;
+        pos, camera::CameraModel, img::AbstractMatrix, max_px::Real, label::AbstractString, color;
         max_fov::Real
     )
     H, W = size(img)
@@ -52,7 +52,7 @@ function _rectified_panel!(
     ax, _ = imshow(
         pos, ci;
         title = "$label — $f_txt, pp=($(round(c[1]; digits = 1)), $(round(c[2]; digits = 1)))$fov_txt  (↓×$(round(σ; digits = 2)))",
-        titlecolor = colour
+        titlecolor = color
     )
     # The sensor footprint is the frame rect every other call in this chain
     # hands around (`undistorted_rect`, `undistort!`, `imshow(pos, img, rect)`),
@@ -61,7 +61,7 @@ function _rectified_panel!(
         ax, Rect(0, 0, W, H);
         color = :transparent, strokecolor = :cyan, strokewidth = 1.5, linestyle = :dash
     )
-    Makie.scatter!(ax, [c[1]], [c[2]]; color = colour, marker = :cross, markersize = 18)
+    Makie.scatter!(ax, [c[1]], [c[2]]; color = color, marker = :cross, markersize = 18)
     return ax
 end
 
@@ -102,9 +102,9 @@ function plot_rectification(
     ax1, _ = imshow(fig[1, 1], img; title = "raw")
     any_horizon = false
     for (i, cam) in enumerate(cameras)
-        colour = palette[mod1(i, length(palette))]
-        any_horizon |= _raw_overlay!(ax1, cam, colour, labels[i])
-        _rectified_panel!(fig[1, i + 1], cam, img, max_px, labels[i], colour; max_fov = _panel_max_fov(cam, max_fov))
+        color = palette[mod1(i, length(palette))]
+        any_horizon |= _raw_overlay!(ax1, cam, color, labels[i])
+        _rectified_panel!(fig[1, i + 1], cam, img, max_px, labels[i], color; max_fov = _panel_max_fov(cam, max_fov))
     end
     # a legend needs a labelled horizon: pinhole-like lenses have none to show
     any_horizon && Makie.axislegend(ax1; position = :lt, framevisible = true)

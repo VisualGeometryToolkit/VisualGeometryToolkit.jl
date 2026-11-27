@@ -100,7 +100,7 @@ function record_core_minimal(cases)
     end
     case!(cases, "homography5pt_radial/refused_backend", nothing, _ -> Homography5ptRadial(backend = PoseLibSolver()))
     b = radial_camera_board()
-    for (name, cs, c) in (("centred", b.centred, SVector(0.0, 0.0)), ("raw", b.raw, b.center))
+    for (name, cs, c) in (("centred", b.centered, SVector(0.0, 0.0)), ("raw", b.raw, b.center))
         s = RadialCamera5pt(; center = c)
         case!(cases, "radial_camera5pt/contract_board_$name/corners_and_interior", (s, cs), ((s, cs),) -> solve(s, cs, [1, 5, 8, 21, 25]))
         case!(cases, "radial_camera5pt/contract_board_$name/first_column", (s, cs), ((s, cs),) -> solve(s, cs, 1:5))

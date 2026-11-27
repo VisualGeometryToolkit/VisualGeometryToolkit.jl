@@ -383,8 +383,8 @@ end
     pose = EuclideanMap(one(RotMatrix{3, Float64}), SVector(1.0, 0.0, 0.0))
     f1, f2 = normalize(SVector(0.1, 0.0, 1.0)), normalize(SVector(-0.9, 0.0, 1.0))
     @test solve(EstimationProblem(Point3, f1 => f2, pose)).u isa Point3
-    labelled = relabel(ViewFrame{1}, ViewFrame{2}, pose)
-    @test solve(EstimationProblem(Point3, f1 => f2, labelled)).u === solve(EstimationProblem(Point3, f1 => f2, pose)).u
+    labeled = relabel(ViewFrame{1}, ViewFrame{2}, pose)
+    @test solve(EstimationProblem(Point3, f1 => f2, labeled)).u === solve(EstimationProblem(Point3, f1 => f2, pose)).u
     # no default where a default would guess: the radial camera's centre, a refine with no LM solve yet
     @test_throws ArgumentError default_algorithm(MinimalProblem(RadialCamera, Pair{SVector{2, Float64}, SVector{2, Float64}}[], 1:5))
     @test_throws ArgumentError default_algorithm(RefineProblem(x -> x, SVector(0.0, 0.0)))

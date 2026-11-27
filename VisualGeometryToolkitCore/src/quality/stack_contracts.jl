@@ -168,7 +168,7 @@ const CONTRACT_GENERICS = (
     block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result,
     # the minimal-solver backends PoseLib.jl implements (geometry/solvers/), and a LevenbergMarquardt backend's damping
     # and refine of raw data (robust/lm_core.jl, robust/refine.jl)
-    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine, honoured_stops,
+    homography_4pt, fundamental_7pt, essential_5pt, essential_8pt, p3p, default_damping, lm_backend_refine, honored_stops,
     # the per-datum weights, residual dof and variance a metadata answers otherwise (base/fit_result.jl)
     weights, dof, s2,
     # a refinement state's objective and its residuals, which a downstream state answers (RadiometricCamera's calibration state):

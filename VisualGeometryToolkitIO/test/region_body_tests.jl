@@ -73,8 +73,8 @@ end
         """{"intersection": [{"rect": [0, 0, 1, 1]}, {"whole_plane": {}}, {"circle": [0, 0, 1]}]}""" => "got 3",
         """{"intersection": {"rect": [0, 0, 1, 1]}}""" => "an intersection is two regions",
         """{"polygon": [[0, 0], [1, 0], [0, 1]]}""" => "region.polygon: expected an object",          # a polygon is its centre and ring
-        """{"polygon": {"centre": [0, 0], "vertices": [[1, 0], [0, 1]]}}""" => "a polygon has at least 3 vertices, got 2",
-        """{"polygon": {"vertices": [[1, 0], [0, 1], [-1, -1]]}}""" => "region.polygon.centre: missing",
+        """{"polygon": {"center": [0, 0], "vertices": [[1, 0], [0, 1]]}}""" => "a polygon has at least 3 vertices, got 2",
+        """{"polygon": {"vertices": [[1, 0], [0, 1], [-1, -1]]}}""" => "region.polygon.center: missing",
         """{}""" => "a region is an object of ONE key",
         """{"rect": [0, 0, 1, 1], "circle": [0, 0, 1]}""" => "a region is an object of ONE key",
         """[0, 0, 1, 1]""" => "a region is an object of ONE key",
@@ -241,15 +241,56 @@ end
     end
     s = VgtkIO.VgioStyle()
     text = JSON.json(JSON.lower(s, q, (; region = true)))
-    @test startswith(text, "{\"polygon\":{\"centre\":[")
+    @test startswith(text, "{\"polygon\":{\"center\":[")
     # refused: an unknown kind, a polygon of fewer than 3 vertices, one not star-shaped about its centre, an extra key
     bad = ("""{"hexagon": [0.0, 0.0, 1.0]}""",
-           """{"polygon": {"centre": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0]]}}""",
-           """{"polygon": {"centre": [5.0, 5.0], "vertices": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]}}""",
-           """{"polygon": {"centre": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]], "inner": 0.1}}""")
+           """{"polygon": {"center": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0]]}}""",
+           """{"polygon": {"center": [5.0, 5.0], "vertices": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]}}""",
+           """{"polygon": {"center": [0.0, 0.0], "vertices": [[1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]], "inner": 0.1}}""")
     for b in bad
         @test_throws ArgumentError JSON.lift(s, Union{Rect2, PolygonRegion, RegionIntersection}, JSON.parse(b))
     end
     # a lens coverage is the body restricted to its leaves: a polygon is not one
     @test_throws ArgumentError JSON.lift(s, VgtkIO._RegionLeaf, JSON.parse(text))
+end
+
+@testitem "migrate_region: a region body written before IO 0.12 reads through an embedding kind's version step" begin
+    using Test
+    using JSON
+    import VisualGeometryToolkitIO as VgtkIO
+    using VisualGeometryToolkitCore: PolygonRegion, RegionIntersection, Rect2
+    using StaticArrays: SVector
+    old = joinpath(@__DIR__, "fixtures", "old")
+    s = VgtkIO.VgioStyle()
+    # the bodies IO's writer wrote before 0.12: a polygon's centre under "centre"
+    for (f, T) in (("region_polygon_centre.json", PolygonRegion), ("region_intersection_polygon_centre.json", RegionIntersection))
+        body = JSON.parsefile(joinpath(old, f); dicttype = Dict{String, Any})["region"]
+        @test_throws ArgumentError JSON.lift(s, T, body)                          # the current body names "center"
+        x = VgtkIO.migrate_region(body)
+        r = JSON.lift(s, T, x)
+        P = r isa PolygonRegion ? r : r.b
+        @test r isa T && P isa PolygonRegion && P.center == SVector(960.25, 600.5) && length(P.vertices) == 4
+        r isa RegionIntersection && @test r.a == Rect2{Float64}(0.0, 0.0, 1920.0, 1200.0)
+        @test JSON.parse(JSON.json(JSON.lower(s, r, (; region = true))); dicttype = Dict{String, Any}) == x   # written back: the stepped body
+        @test VgtkIO.migrate_region(x) == x                                       # a current body: unchanged
+    end
+    @test_throws ArgumentError VgtkIO.migrate_region(Dict{String, Any}("polygon" => Dict{String, Any}("centre" => [0, 0], "center" => [0, 0], "vertices" => [])))
+    # an embedding kind's step: RadiometricCamera's published rc/initialization_region/v1.0 record (a rect), under a toy
+    # schema name, and the same envelope holding the old intersection body
+    VgtkIO.migrate_schema(::Val{Symbol("toy/initialization_region/v1.0")}, t::AbstractDict) =
+        merge(t, Dict("schema" => "toy/initialization_region/v2", "initialization_region" => VgtkIO.migrate_region(t["initialization_region"])))
+    rec = JSON.parsefile(joinpath(old, "rc_initialization_region_v1.0.json"); dicttype = Dict{String, Any})
+    @test rec["schema"] == "rc/initialization_region/v1.0" && haskey(rec["initialization_region"], "rect")
+    inter = JSON.parsefile(joinpath(old, "region_intersection_polygon_centre.json"); dicttype = Dict{String, Any})["region"]
+    mktempdir() do dir
+        for (body, T) in ((rec["initialization_region"], Rect2), (inter, RegionIntersection))
+            p = joinpath(dir, "initialization_region.json")
+            open(io -> JSON.json(io, merge(rec, Dict("schema" => "toy/initialization_region/v1.0", "initialization_region" => body))), p, "w")
+            r = VgtkIO.read_record(p)
+            @test startswith(r.schema, "toy/initialization_region/v2")
+            region = JSON.lift(VgtkIO.VgioStyle(r), Union{Rect2, RegionIntersection}, r.initialization_region)
+            @test region isa T
+            T === Rect2 && @test region == Rect2{Float64}(1616.0, 593.0, 2158.999999999999, 2321.0)   # the record of record's numbers
+        end
+    end
 end

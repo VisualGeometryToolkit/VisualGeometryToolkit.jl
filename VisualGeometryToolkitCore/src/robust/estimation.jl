@@ -329,7 +329,7 @@ lo_marker(lo::Union{Nothing, AbstractOptimizationStrategy, AbstractEstimationAlg
     LossFamily
 
 The paper's loss axis — the ROW of the design table an arm belongs to — as an isbits `@enum`, `LossFamily.T`, read
-qualified (`LossFamily.tls`), as [`OptimizationPath`](@ref) is the column:
+qualified (`LossFamily.tls`), as [`OptimizationPath`](@ref VisualGeometryToolkitCore.OptimizationPath) is the column:
 
 - `l2`          — least squares (the bare ℓ₂ arm)
 - `welsch`      — Welsch

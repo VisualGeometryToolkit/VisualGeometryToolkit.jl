@@ -93,8 +93,10 @@
         refined::Int
     end
     VgtkCore.RefitFamily(::WidthRefit) = ExternalRefit()
-    const WIDTH_REFIT_WS = WidthRefitWs[]   # every workspace built, to read the bracket's counts
-    VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) = (ws = WidthRefitWs(frame, 0, 0); push!(WIDTH_REFIT_WS, ws); ws)
+    const WIDTH_REFIT_WS = WidthRefitWs[]   # every workspace built, to read the bracket's counts (threaded refits: locked)
+    const WIDTH_REFIT_LOCK = ReentrantLock()
+    VgtkCore.external_workspace(::WidthRefit, _problem, frame, _scoring) =
+        (ws = WidthRefitWs(frame, 0, 0); @lock WIDTH_REFIT_LOCK push!(WIDTH_REFIT_WS, ws); ws)
     VgtkCore.prepare_external!(ws::WidthRefitWs, ::WidthRefit, _problem, _θ, _width, _scoring) =
         (ws.prepared += 1; true)
     function VgtkCore.external_refit!(ws::WidthRefitWs, lo::WidthRefit, problem, θ, w::LossWidth, _scoring)

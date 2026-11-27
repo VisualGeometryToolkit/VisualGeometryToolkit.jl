@@ -40,7 +40,8 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
     scoring); width)`, `reinit!(c, θ₁; width)` (its `prepare_external!`, outside the timing bracket) and `solve!(c)` (its
     `external_refit!`, the bracket of one refit); a declined preparation is the no-refit record `(InitialFailure,
     NoRule)`, `u = nothing`. `width` is a `LossWidth` or a `FixedS2`; `scoring` may be `nothing` for an external refit
-    only.
+    only. The refit's and the declined record are one type (the refiner's record type widened by `Nothing`),
+    so the cache's `solve!` is inferred and the reuse bracket allocates nothing of its own.
   - **`LocalOptimization` and `Ransac` take the local optimization's `stops`** (G1, G-g): the strategy at them, Core's
     `with_stops` (`StopAfterIteration(n)` for an IRLS, `LmStops` for a `BackendRefit`); `reinit!(…; stops)` of the type
     `init` saw. `CountedLO` and `TerminalLO` forward them.

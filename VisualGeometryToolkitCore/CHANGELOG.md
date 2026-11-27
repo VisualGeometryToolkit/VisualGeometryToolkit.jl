@@ -48,6 +48,10 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   - **Breaking:** the Jacobi preconditioner is the Krylov algorithms' field, `CGLS(; preconditioner)` and `NormalCG(;
     preconditioner)` (the normal matrix's diagonal, `nothing` none); `PenalizedLeastSquaresProblem` and
     `NormalEquationsProblem` lose their `diagonal` keyword and field (data only). Bit-identical.
+  - `with_problem` (the front end's record of the problem and algorithm) keeps the result's declared model, metadata,
+    residual and raw-output types, so records of one type stay one type through `solve`/`solve!` (an external
+    refit's cache and its declined preparation, VisualGeometryToolkitEstimation's). A result built with its own types
+    is unchanged.
   - The private-name gate (`private_name_violations`) learns a stack package's aliases over the whole PACKAGE (the
     module file's `import … as` / `const X = Pkg`), not per file, so an included file's `VgtkCore.Cameras._x` is found.
 - `prepare_evaluation!(f::AbstractBlockProblem, variables, varnext)`, a contract generic (in `CONTRACT_GENERICS` and

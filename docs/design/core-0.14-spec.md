@@ -1204,3 +1204,13 @@ These are done in Core 0.14, each with its own commit:
   a refit's success by `successful_retcode(r)` — a local optimization that spends its budget, `(MaxIters,
   IterationCap)`, keeps its model, and the evaluation would then fall back to the seed: the refit errors would move.
   `found_model(r)` stays (owner to rule).
+- 2026-11-27 (front-end gaps, the external record): an external refit's cache returns ONE concrete record type, the
+  refiner's own `FitResult` type (inferred for both width forms, `LossWidth` and `FixedS2`, which must agree) with its
+  model, residuals, problem, algorithm and raw output widened by `Nothing`; a refit's record is that type with its
+  values, a declined preparation's that type with `u = nothing` (`found_model` false: it still reads as no refit),
+  `(InitialFailure, NoRule)`, `nsteps` 0, no metadata. Chosen over PoseLib's `_unrefined` form (the guess as `u`),
+  which would make `found_model` true for a declined seed. The cache's `solve!` is inferred and the reuse bracket
+  allocates nothing of its own (the +1008 B per call LODR's bench bracket measured was the boxed Union record). For the
+  one type to survive the front end, Core's `with_problem` keeps the result's DECLARED model, metadata, residual and
+  raw-output types (it rebuilt them from the values' types, which split the record again); a result built from its
+  values is unchanged, and the golden records replay `===` in both modes.

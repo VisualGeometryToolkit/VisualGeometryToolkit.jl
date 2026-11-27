@@ -97,6 +97,12 @@
               w.original === r.original && w.stop_rule === r.stop_rule && w.rms === r.rms && w.n === r.n &&
               w.metadata === r.metadata
         @test w isa FitResult{Float64, @NamedTuple{a::Int}}
+        # the declared field types are kept: records of one type (a refit and its declined preparation) stay one type
+        T = FitResult{Union{Nothing, Float64}, Union{Nothing, @NamedTuple{a::Int}}, Union{Nothing, Vector{Float64}}, Nothing, Nothing, Nothing}
+        yes = T(2.0, [0.1], ReturnCode.Success, SolveStats(), nothing, nothing, nothing, CostDecrease, 0.3, 5, (; a = 1))
+        no = T(nothing, nothing, ReturnCode.InitialFailure, SolveStats(), nothing, nothing, nothing, NoRule, NaN, 0, nothing)
+        @test typeof(with_problem(yes, prob, alg)) === typeof(with_problem(no, prob, alg))
+        @test with_problem(yes, prob, alg).metadata === (; a = 1) && with_problem(no, prob, alg).u === nothing
     end
 
     @testset "an isbits result: a device solve returns it" begin

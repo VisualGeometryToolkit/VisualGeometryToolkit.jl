@@ -123,10 +123,12 @@ end
     with_problem(r::FitResult, prob, alg) -> FitResult
 
 `r` with the problem and algorithm that produced it recorded (`prob`, `alg`),
-every other field as it was: what the generic `solve` does to the result of a
-`__solve` method, the one place they are set.
+every other field as it was — its declared model, metadata, residual and raw-output types too, so a solve whose
+records share one type (a refit and its declined preparation) keeps it through the front end: what the generic `solve`
+does to the result of a `__solve` method, the one place they are set.
 """
-@inline with_problem(r::FitResult{U}, prob, alg) where {U} = _rebuild(r, U, r.u, prob, alg)
+@inline with_problem(r::FitResult{U, M, R, <:Any, <:Any, O}, prob::Prob, alg::Alg) where {U, M, R, O, Prob, Alg} =
+    FitResult{U, M, R, Prob, Alg, O}(r.u, r.resid, r.retcode, r.stats, prob, alg, r.original, r.stop_rule, r.rms, r.n, r.metadata)
 with_problem(x, prob, alg) = x   # a minimal solve's FixedModels carries no problem
 
 # `BundleMetadata`, the bundle refinements' metadata, is in base/bundle_metadata.jl (it records a ScaleSource).

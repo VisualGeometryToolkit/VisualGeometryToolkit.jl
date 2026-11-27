@@ -281,8 +281,10 @@ noise scale `FixedS2(s2)`; `p = (; frame)` the two-view frame the refiner reads 
 refiner's workspace once (`external_workspace`), `reinit!` points it at a seed, width or configuration of the same
 type and runs the refiner's preparation (`prepare_external!`: a consensus-scale bootstrap, OUTSIDE the timing bracket
 of one refit, which is `solve!` alone); a one-shot `solve` prepares then refits. The result is the refiner's own
-`FitResult` (`external_refit!`), or — the preparation declined the seed — no refit: `u = nothing`, `(InitialFailure,
-NoRule)`, `stats.nsteps` 0 (the record of a local optimization that did not run).
+`FitResult` (`external_refit!`), or — the preparation declined the seed — no refit: `u = nothing` (`found_model` false),
+`(InitialFailure, NoRule)`, `stats.nsteps` 0 (the record of a local optimization that did not run). Both are ONE type,
+the refiner's record type with its model, residuals and raw output widened by `Nothing`, so `solve!` is inferred and
+its reuse boxes nothing.
 """
 struct LocalOptimization{L, S} <: AbstractEstimationAlgorithm
     strategy::L
@@ -489,6 +491,29 @@ function solve!(c::_ExternalRefitCache)
     kept = c.prepared
     prepared::Bool = kept === nothing ? prepare_external!(c.ws, c.lo, c.problem, c.seed, c.width, c.scoring) : kept
     c.prepared = nothing                                     # a later solve! without a reinit! prepares again
-    prepared || return FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)   # no refit made
-    return external_refit!(c.ws, c.lo, c.problem, c.seed, c.width, c.scoring)
+    T = _external_record_type(c)
+    prepared || return _declined_record(T)                   # no refit made
+    return _as_record(T, _external_refit(c, c.width))
 end
+# The refit at the call's width, the width's concrete type dispatched (the cache holds a small Union).
+_external_refit(c, w) = external_refit!(c.ws, c.lo, c.problem, c.seed, w, c.scoring)
+
+# ONE record type for the refit and the declined preparation, so the cache's `solve!` (and the front end's recorded
+# result) is inferred and boxes nothing: the refiner's own `FitResult` type — inferred for both width forms, which must
+# agree — with its model, residuals, problem, algorithm and raw output widened by `Nothing`. The declined record is that
+# type with every one of them `nothing` (`u = nothing`: `found_model` reads it as no refit), `(InitialFailure, NoRule)`,
+# no step. A refiner whose record type is not inferred keeps its own (the declined record then the plain no-model one).
+function _external_record_type(c::_ExternalRefitCache{P, X, S, L, W, Q}) where {P, X, S, L, W, Q}
+    R1 = Core.Compiler.return_type(external_refit!, Tuple{W, L, P, Q, LossWidth{NTuple{2, Float64}}, S})
+    R2 = Core.Compiler.return_type(external_refit!, Tuple{W, L, P, Q, FixedS2, S})
+    return R1 === R2 ? _widened(R1) : nothing
+end
+_widened(::Type{FitResult{U, M, R, Prob, Alg, O}}) where {U, M, R, Prob, Alg, O} =
+    FitResult{Union{Nothing, U}, Union{Nothing, M}, Union{Nothing, R}, Union{Nothing, Prob}, Union{Nothing, Alg}, Union{Nothing, O}}
+_widened(_) = nothing
+_declined_record(::Type{T}) where {T <: FitResult} =
+    T(nothing, nothing, ReturnCode.InitialFailure, SolveStats(), nothing, nothing, nothing, NoRule, NaN, 0, nothing)
+_declined_record(::Nothing) = FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, 0, nothing)
+_as_record(::Type{T}, r::FitResult) where {T <: FitResult} =
+    T(r.u, r.resid, r.retcode, r.stats, r.prob, r.alg, r.original, r.stop_rule, r.rms, r.n, r.metadata)
+_as_record(::Nothing, r) = r

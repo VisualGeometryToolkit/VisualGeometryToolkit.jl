@@ -408,6 +408,17 @@ VgtkCore.external_refit!(ws, a::_LoggedArm, _problem, θ, w::VgtkCore.LossWidth,
         rn = solve(RefineProblem(problem, θ), LocalOptimization(no; scoring = sc); width = VgtkCore.LossWidth(2.0))
         @test no.log == [:workspace, :prepare] && rn.u === nothing &&
               (rn.retcode, rn.stop_rule, rn.stats.nsteps) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, 0)
+        # ONE record type for the refit and the declined preparation: `solve!` inferred, the reuse bracket allocation-free
+        ce = init(RefineProblem(problem, θ), LocalOptimization(_ExternalArm(); scoring = nothing); width = VgtkCore.LossWidth(2.0))
+        bracket(ce, θ) = solve!(reinit!(ce, θ))
+        bracket(ce, θ); bracket(ce, θ)
+        @test (@allocations bracket(ce, θ)) == 0
+        @test (@inferred solve!(reinit!(ce, θ))).u == θ
+        cn = init(RefineProblem(problem, θ), LocalOptimization(_LoggedArm(false, Symbol[]); scoring = nothing); width = VgtkCore.LossWidth(2.0))
+        cy = init(RefineProblem(problem, θ), LocalOptimization(_LoggedArm(true, Symbol[]); scoring = nothing); width = VgtkCore.LossWidth(2.0))
+        rn2, ry2 = solve!(cn), solve!(cy)
+        @test typeof(rn2) === typeof(ry2) && rn2.u === nothing && !VgtkCore.found_model(rn2) && VgtkCore.found_model(ry2)
+        @test (rn2.retcode, rn2.stop_rule, rn2.stats.nsteps, rn2.metadata) === (VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, 0, nothing)
         # the refusals: no width, a width on a native refit, no scorer for a native refit, another context
         @test_throws ArgumentError init(RefineProblem(problem, θ), lo)
         native = Irls{WelschShape}(efficiency_constant = 1.5)

@@ -271,6 +271,8 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   holds another package's tables (a CaliBlobs run file holding BlobBoards' `[find_boards]`) migrates them by their owner's
   converter, from the owner's version recorded under `[config_versions]` (absent: its version 1); one owner per table,
   no restated steps. An unknown owner, or an owner's version newer than its package's, is refused.
+- `stop_tolerance(stops::ToleranceStops, scale)`: the public bound a `ToleranceStops` run stops at, `max(atol, rtol · scale)`,
+  so a solver outside Core (PanoramaStitching's bisection) reads the one rule instead of restating it.
 
 ### Changed
 - **Breaking: the Phase 1A breaking set (the conformance audit's Core rows).**

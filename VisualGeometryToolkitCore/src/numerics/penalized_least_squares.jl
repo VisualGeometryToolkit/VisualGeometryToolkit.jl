@@ -347,9 +347,17 @@ function ToleranceStops(; max_iter::Integer = 500, rtol::Real = 1.0e-6, atol::Re
     atol >= 0 || throw(ArgumentError("ToleranceStops: atol is a tolerance, ≥ 0; got $atol"))
     return ToleranceStops(Int(max_iter), Float64(rtol), Float64(atol))
 end
-# The bound a `ToleranceStops` run stops at, for the solver's reference `scale` (≥ 0): `max(atol, rtol · scale)`, the
-# one copy of the rule. With `atol = 0` it is `rtol · scale` bit for bit (`max(0.0, x) === x` for `x ≥ 0` and NaN).
+# The rule's one copy, on the stops' two numbers (the solvers hold them unpacked).
 @inline _stop_tolerance(atol, rtol, scale) = max(Float64(atol), Float64(rtol) * scale)
+
+"""
+    stop_tolerance(stops::ToleranceStops, scale) -> Float64
+
+The bound a [`ToleranceStops`](@ref) run stops at, for the solver's reference `scale` (≥ 0): `max(atol, rtol · scale)`.
+A solver outside Core that stops on a `ToleranceStops` (a bisection on its bracket width) reads its bound here, so the
+rule has one owner. With `atol = 0` it is `rtol · scale` bit for bit (`max(0.0, x) === x` for `x ≥ 0` and NaN).
+"""
+@inline stop_tolerance(stops::ToleranceStops, scale) = _stop_tolerance(stops.atol, stops.rtol, scale)
 
 # The parent of the numerics' problems: solved by a fit-kind algorithm (iterative, from its own start).
 abstract type _NumericsProblem <: AbstractEstimationProblem end
@@ -417,4 +425,4 @@ __solve(prob::PenalizedLeastSquaresProblem, ::CGLS; stops::ToleranceStops = Tole
 __solve(prob::NormalEquationsProblem, ::NormalCG; stops::ToleranceStops = ToleranceStops()) =
     _krylov_result(_normal_cg(prob.N, prob.g; prob.diagonal, x0 = prob.u0, stops.rtol, stops.atol, stops.max_iter))
 
-public ToleranceStops, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG
+public ToleranceStops, stop_tolerance, PenalizedLeastSquaresProblem, NormalEquationsProblem, CGLS, NormalCG

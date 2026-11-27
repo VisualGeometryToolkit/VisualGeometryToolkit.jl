@@ -243,6 +243,8 @@ end
         @test _stop_tolerance(0.0, 1.0e-6, scale) === 1.0e-6 * scale
     end
     @test _stop_tolerance(1.0e-3, 1.0e-6, 2.0) === 1.0e-3 && _stop_tolerance(1.0e-9, 1.0e-6, 2.0) === 2.0e-6
+    @test VisualGeometryToolkitCore.stop_tolerance(ToleranceStops(; rtol = 1.0e-6, atol = 1.0e-3), 2.0) === 1.0e-3
+    @test VisualGeometryToolkitCore.stop_tolerance(ToleranceStops(; rtol = 1.0e-6), 2.0) === _stop_tolerance(0.0, 1.0e-6, 2.0)
 
     rng = Xoshiro(15)
     TW, TH = 9, 7; n = TW * TH

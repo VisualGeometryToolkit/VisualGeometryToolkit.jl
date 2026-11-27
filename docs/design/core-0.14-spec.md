@@ -1052,3 +1052,5 @@ These are done in Core 0.14, each with its own commit:
   region to validate, the inner consensus decides), so the bounded local optimization is the unbounded one bit for
   bit (LODR's "validation decorator" test). The context form `p = (; extent)` on an essential problem stays an
   `ArgumentError`, as the 2026-11-23 entry states.
+- 2026-11-27 (lead, C15): `stop_tolerance(stops::ToleranceStops, scale)` is public, the one owner of a ToleranceStops run's
+  bound; a solver outside Core reads it rather than restating `max(atol, rtol · scale)`.

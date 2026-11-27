@@ -91,6 +91,9 @@ const RETIRED_NAMES = String[
     "MEASUREMENT" * "_NOISES", "measurement" * "_noise",          # PanoramaStitching 0.7: `OBSERVATION_NOISES`, `observation_noise`
     "Board" * "Detection",                                        # BlobBoards 0.7: one board observed in one frame, `BoardObservation`
     "board" * "!",                                                # BlobBoards' Makie recipe (BB 9386b68): `projectedboard!` (`ProjectedBoard`, `projectedboard`); Core's `board(::PlanarTarget)` stays
+    "Adapt" * "Config",                                           # BlobBoards (BB d4c977d): `BlobAdaptation` with `blob_adaptation_stops(; max_iter, rtol)`
+    "adapt" * "_config",                                          # BlobBoards (BB d4c977d): `blob_adaptation` and `adaptation_stops`
+    "BlobBoards.adapt" * "(",                                     # BlobBoards (BB d4c977d): `solve(EnsembleProblem(BlobBatch(detections, img), n), BlobAdaptation(…), EnsembleKernel(device); stops)` and `adapted_blobs`
     "load_cs" * "pond_sets",                                      # BlobBoards 0.7: `load_correspondence_sets`
     "BlobBoards" * ".write_tiff",                                 # the one TIFF writer is VisualGeometryToolkitIO's: `VgtkIO.write_tiff`
     "Target" * "Detections",                                      # per frame, per target, the observations of its points: `TargetObservations` (VisualGeometryToolkitCore 0.10)

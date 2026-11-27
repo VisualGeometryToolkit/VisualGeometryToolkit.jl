@@ -923,6 +923,12 @@ function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::
     _resolved_strategy(prob.f, alg.optimization_strategy) === nothing || throw(ArgumentError(string("a ",
         nameof(typeof(prob.f)), " is refined by plain least squares: LevenbergMarquardt(; optimization_strategy = nothing)")))
     rows, dof = chart_size(prob.f, prob.u0)
+    return _chart_problem_cache(prob, alg, shared, rows, dof, stops, callback)
+end
+# A function barrier at the chart's size: a family may state its dimension at run time (`Val(n)` of the camera
+# regression's moving parameters), so the workspace and the cache are built specialized on it, nothing boxed.
+function _chart_problem_cache(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}, shared::Bool,
+        rows::Int, dof::Val, stops::LmStops, callback)
     ews = shared ? _lm_workspace(nothing, rows, dof) : _ManifoldLmWorkspace(rows, dof)
     return _ChartProblemCache(prob.f, prob.u0, stops, alg.damping, ews, callback)
 end

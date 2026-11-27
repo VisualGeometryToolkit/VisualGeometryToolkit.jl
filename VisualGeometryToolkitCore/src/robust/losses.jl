@@ -587,7 +587,16 @@ __solve(prob::EstimationProblem{NoiseScale, <:AbstractVector{<:Real}, <:NamedTup
 # Core-internal: `MedianNormScale`'s scale of residuals of codimension `codimension` given only their NORMS (Core's
 # own inner loops); another package states the norms through the front end, `EstimationProblem(NoiseScale, norms,
 # (; codimension))`.
-_mad_scale_norms(; norms, codimension::Integer) = Statistics.median(norms) / sqrt(Distributions.quantile(Distributions.Chisq(codimension), 0.5))
+_mad_scale_norms(; norms, codimension::Integer) = _median_norm(norms) / sqrt(Distributions.quantile(Distributions.Chisq(codimension), 0.5))
+# The median of the norms: a float vector's on the task's one scratch vector of its element type (`median!` on a copy,
+# as `median` itself computes it, the copy not allocated per call); any other collection's by `median`.
+_median_norm(norms) = Statistics.median(norms)
+function _median_norm(norms::AbstractVector{T}) where {T <: AbstractFloat}
+    scratch = task_buffers(Vector{T}, () -> T[], (:vgc_median_norms,))
+    length(scratch) == length(norms) || resize!(scratch, length(norms))
+    copyto!(scratch, norms)
+    return Statistics.median!(scratch)
+end
 
 # =============================================================================
 # CONSTRUCTING a deployed loss, and reading its width

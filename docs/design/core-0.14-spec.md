@@ -1222,3 +1222,15 @@ These are done in Core 0.14, each with its own commit:
   golden records hold no LM metadata cost, and no tracked fixture or Eval record does — so no converter or schema step.
   `LmIterationState.cost` (the callback state, NLLSsolver's `cost`) and the block-coordinate descent's `cost` (its
   best-iterate record) are other quantities and keep their names. Bits `===`.
+- 2026-11-27 (the TTFX cause, measurement): the +38 ms of `using VisualGeometryToolkitEstimation` (ruling (a)'s entry
+  above) is the Estimation precompile workload (`src/precompile.jl`, decision 13; OLD 6fceffd6 has none), all of it.
+  Measured locally (one thread, `taskset`, after `using VisualGeometryToolkitCore`): `@time_imports` of the package
+  12.1 ms (OLD) → 39.5 ms (NEW 360948ee2), and 12.9 ms for NEW with the workload disabled (PrecompileTools'
+  `precompile_workload = false`); its package image (`.so`) 6.79 → 16.84 MB (6.69 MB without the workload), the `.ji`
+  unchanged (1.12 / 1.10 MB). Everything else is identical: 2 method-table insertions (12 invalidation-log entries) on
+  both, and no load-time compilation on either (`--trace-compile`: 25 statements after `using VisualGeometryToolkitCore`,
+  still 25 after the Estimation load). The workload is kept (the first refine 9× faster, ruling (a)). Running it over
+  one container (`Correspondences`) instead of two was measured and not taken: the image 16.81 → 16.52 MB, the load
+  39.6 → 38.6 ms, the first solve unchanged (refine 478 → 482 ms, RANSAC 1566 → 1544 ms, a Pair-vector refine 479 →
+  474 ms, fresh processes, three each): `HomographyProblem` canonicalizes a Pair vector into the same container, so the
+  second loop compiled almost nothing of its own. The 10 MB is the refine itself.

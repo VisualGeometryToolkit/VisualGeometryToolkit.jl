@@ -342,7 +342,11 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   (a closure name shadowed the body's). The constraint-problem refine reads its squared distances lazily
   (`MappedColumn`), one buffer fewer. Measured (one thread): `RefineProblem` of a homography by
   `LevenbergMarquardt` 20 → 14 allocations, `@inferred`; by its `Triggs` 30 → 16, `@inferred`; PoseLib's refine 28 → 2,
-  `@inferred`; the camera regression refine 233 → 139.
+  `@inferred`; the camera regression refine 233 → 139. Then (phase 2a): the chart-problem cache is built behind a
+  barrier at its chart size (a run-time `Val` of dimensions boxes nothing), and the residual-norm median
+  (`MedianNormScale`'s kernel) takes its copy from the task's one scratch vector (`median!` on it, as `median`
+  computes): the homography refine 14 → 12 allocations one-shot and 6 → 4 on a reused cache, its `Triggs` 16 → 14 and
+  8 → 6, the camera regression refine 139 → 130.
 - **Breaking: the Phase 1A breaking set (the conformance audit's Core rows).**
   - The block-coordinate stop contract records the enums (C8): `stop_reason(criterion, state, method, prob, θ, θ_old,
     iter)` returns `(ReturnCode.T, StopRule)`, `CONTINUE = (ReturnCode.Default, NoRule)` while a run goes on, and

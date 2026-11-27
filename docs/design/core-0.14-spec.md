@@ -89,7 +89,7 @@ Built.
 | `tls_line(points[, weights])` | `solve(EstimationProblem(Line2D, points), TotalLeastSquares())`; weighted: the points' `weights` attribute column, `EstimationProblem(Line2D, withattrs(points; weights))` (as Kabsch, NearestPoint and DLT read theirs) |
 | `direct_ellipse(points)` | `solve(EstimationProblem(Ellipse, points), DirectEllipse())` |
 | `nearest_point(lines)` | `solve(EstimationProblem(Point, lines), NearestPoint())` |
-| `triangulate(pose, f₁, f₂) -> (X, λ₁, λ₂)` | `solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())`: `u = X`, `metadata.depths = (λ₁, λ₂)`. Inner loops call the private `_triangulate` |
+| `triangulate(pose, f₁, f₂) -> (X, λ₁, λ₂)` | `solve(EstimationProblem(Point3, f₁ => f₂, pose), Triangulation())`: `u = X`, `metadata.depths = (λ₁, λ₂)`. Inner loops call the kernel `triangulate_bearings` (through the private `_triangulation_kernel`) |
 | `p3p(model, cs)` | `solve(MinimalProblem(Extrinsics3, cs, 1:3, model), P3P())`: the context `p` is the camera, which back-projects the pixels |
 | `solve(solver, cs, idx)` | `solve(MinimalProblem(M, cs, idx), solver)`, or `solve(MinimalProblem(M, cs, idx))` (the declared default) |
 | `photon_transfer(groups, darks; defects, block, normalize, significance)` | `solve(EstimationProblem(PoissonGaussian, groups, (; darks, defects)), PhotonTransfer(; block, normalize, significance))`; the `ReadNoise`-dict form: `p = (; darks, sensor_model)`; the single-mosaic form: `EstimationProblem(PoissonGaussian, mosaic, (; sensor_model))`, its `u` the `PoissonGaussian` |

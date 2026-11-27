@@ -1,3 +1,16 @@
+docs-pass: afe5c6ff
+landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io aa18513 (searched, not edited: no page names a run key, _content_key or a Float32)
+
+# Eval 0.11.1: run keys accept Float32 values, hashed as their exact Float64 — at afe5c6ff
+
+- Public API against 0.11.0: no name added or removed, no signature changed. `_content_key` (private) lowers a
+  `Float16`/`Float32` to its exact `Float64` beside the integers.
+- Docstrings: `_content_key` (the value types it takes, a narrower float keys as its exact double, `0.3f0` as
+  `0.30000001192092896`), `run_key` (a `Float32` and its exact `Float64` key alike); the lowering's comment. CHANGELOG
+  0.11.1. Pages: `paper-projects.md`, `tuning.md` and `reproduce.md` name the run key without listing its value
+  types; unchanged. README unchanged.
+- Gates: the Eval suite and the strict docs build at afe5c6ff (worktree, Julia 1.13.4); the release gate's fresh clone.
+
 docs-pass: c8fa6023
 landing: VisualGeometryToolkit/visualgeometrytoolkit.github.io aa18513 (searched, not edited: no page names OnBackend, on_device, device_names, device_resident_threads, kernel_float or a saddle)
 

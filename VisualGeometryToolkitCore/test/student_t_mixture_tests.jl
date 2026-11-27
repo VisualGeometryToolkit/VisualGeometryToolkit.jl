@@ -126,7 +126,7 @@ end
     using VisualGeometryToolkitCore: StudentTMixture, inlier_posterior, posterior_weight, _soft_posterior_weights!,
         PosteriorWeightState, JeffreysPrior, update_weights!, update_scale!, update_nu!, update_inlier_prior!,
         _posterior_weights!, _posterior_inlier_probs!, _median_seeded_posterior, is_map_inlier, mixture_nll
-    const VGC = VisualGeometryToolkitCore
+    import VisualGeometryToolkitCore as VgtkCore
 
     mixtures = [StudentTMixture(ν, s2, log(2 * hw), dg, πin)
                 for (ν, s2, hw, dg, πin) in ((5.0, 0.04, 2.0, 1, 0.5), (12.0, 1.3, 30.0, 2, 0.3),
@@ -136,7 +136,7 @@ end
         for m in mixtures, T in (Float64, Float32)
             mT = StudentTMixture{T}(m)
             for x in (T(Inf), T(NaN), -T(NaN))
-                @test VGC._posterior_pair(mT, x) === (zero(T), zero(T))
+                @test VgtkCore._posterior_pair(mT, x) === (zero(T), zero(T))
                 @test inlier_posterior(mT, x) === zero(T)
                 @test posterior_weight(mT, x) === zero(T)
                 @test !is_map_inlier(inlier_posterior(mT, x))
@@ -145,14 +145,14 @@ end
         # unconditionally: a mixture whose constants make the formulas NaN at Inf
         # (an inlier prior of 1, log_odds_out = −Inf; an infinite scale)
         for m in (StudentTMixture(5.0, 0.04, log(4.0), 1, 1.0), StudentTMixture(5.0, Inf, log(4.0), 1)), x in (Inf, NaN)
-            @test VGC._posterior_pair(m, x) === (0.0, 0.0)
+            @test VgtkCore._posterior_pair(m, x) === (0.0, 0.0)
         end
     end
 
     # the pair as the kernel wrote it before the guard, from its unchanged parts
     _unguarded(m::StudentTMixture{T}, x) where {T} =
-        (p = one(T) / (one(T) + exp(m.log_odds_out - VGC._log_inlier_density(m, x)));
-         (p, p * VGC._student_t_weight(m.νdg, m.νs2, m.s2, x)))
+        (p = one(T) / (one(T) + exp(m.log_odds_out - VgtkCore._log_inlier_density(m, x)));
+         (p, p * VgtkCore._student_t_weight(m.νdg, m.νs2, m.s2, x)))
 
     @testset "finite residuals: bit for bit the unguarded kernel" begin
         rng = MersenneTwister(11)
@@ -160,9 +160,9 @@ end
             mT = StudentTMixture{T}(m)
             xs = T[0, nextfloat(zero(T)), floatmin(T), eps(T), 1, floatmax(T), prevfloat(floatmax(T))]
             append!(xs, T.(exp10.(range(-12, 12; length = 400))), rand(rng, T, 400) .* 50)
-            @test all(x -> VGC._posterior_pair(mT, x) === _unguarded(mT, x), xs)
+            @test all(x -> VgtkCore._posterior_pair(mT, x) === _unguarded(mT, x), xs)
             @test all(x -> mixture_nll(mT, x) ===
-                           -(mT.log_mix_out + VGC.log1pexp(VGC._log_inlier_density(mT, x) - mT.log_odds_out)), xs)
+                           -(mT.log_mix_out + VgtkCore.log1pexp(VgtkCore._log_inlier_density(mT, x) - mT.log_odds_out)), xs)
         end
     end
 
@@ -229,7 +229,7 @@ end
         sq_inf = [sq[1:10]; Inf; sq[11:21]]
         pinf = _median_seeded_posterior(sq_inf, 22; kw...)
         @test isfinite(pinf.s_hat_sq) && pinf.w[11] === 0.0
-        @test pinf.s_hat_sq == VGC._mad_scale_norms(; norms = sqrt.(sq_inf), codimension = 2)^2
+        @test pinf.s_hat_sq == VgtkCore._mad_scale_norms(; norms = sqrt.(sq_inf), codimension = 2)^2
         @test isnan(_median_seeded_posterior(fill(NaN, 5), 5; kw...).s_hat_sq)
     end
 end

@@ -1132,7 +1132,7 @@ These are done in Core 0.14, each with its own commit:
   `[hand_eye_problem]`, `[relative_pose_problem]`, `[sim_fit_pp]`, `[residual_mixture.config]`, …; a key that leaves a
   table moves before the table); the class symbols (`:homography`, `:fundmat`, …) stay, since
   LocalOptimizationDoneRight keys its tuning constants by them. `RadialHomographyProblem` takes `minimal_solver`;
-  `HandEyeProblem`'s `motion_pairs` is `ConsecutivePairs()`/`AllPairs()` through `MOTION_PAIRS_TAGS`; Eval's
+  `HandEyeProblem`'s `motion_pairs` is `ConsecutiveMotionPairs()`/`AllMotionPairs()` through `MOTION_PAIRS_TAGS` (not `AllPairs`: PanoramaStitching's pair selection owns that name); Eval's
   `SoloSpec` role is `SelectionRole()`/`RefinementRole()`. `DivisionCameraMetadata`'s Student-t `ν` is the field `dof`
   (`dof(r)`, a `Float64` there): CaliBlobs reads it as the solve's dof. Bits `===`.
 - 2026-11-27 (front-end gaps, G6/G-p, audit Eval V2): `LocalOptimization` dispatches on its strategy's `RefitFamily`.

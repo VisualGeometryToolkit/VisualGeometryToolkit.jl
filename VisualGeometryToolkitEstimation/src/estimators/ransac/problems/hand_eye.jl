@@ -107,32 +107,32 @@ end
 """
     MotionPairs
 
-The frame pairs a [`HandEyeProblem`](@ref) forms its relative motions from: [`ConsecutivePairs`](@ref) or
-[`AllPairs`](@ref). A TOML value names one by its tag in [`MOTION_PAIRS_TAGS`](@ref) (`"consecutive"`, `"all"`).
+The frame pairs a [`HandEyeProblem`](@ref) forms its relative motions from: [`ConsecutiveMotionPairs`](@ref) or
+[`AllMotionPairs`](@ref). A TOML value names one by its tag in [`MOTION_PAIRS_TAGS`](@ref) (`"consecutive"`, `"all"`).
 """
 abstract type MotionPairs end
 
 """
-    ConsecutivePairs()
+    ConsecutiveMotionPairs()
 
 Neighbouring frames in time, `(i, i + 1)`: `N − 1` relative motions of `N` frames. TOML tag `"consecutive"`.
 """
-struct ConsecutivePairs <: MotionPairs end
+struct ConsecutiveMotionPairs <: MotionPairs end
 
 """
-    AllPairs()
+    AllMotionPairs()
 
 Every pair of frames, `(i, j)` with `i < j`: `N(N − 1)/2` relative motions of `N` frames. TOML tag `"all"`.
 """
-struct AllPairs <: MotionPairs end
+struct AllMotionPairs <: MotionPairs end
 
 """
     MOTION_PAIRS_TAGS
 
-The motion-pair registry (VisualGeometryToolkitCore's `TagRegistry`, suffix `Pairs`): `"consecutive"` →
-[`ConsecutivePairs`](@ref), `"all"` → [`AllPairs`](@ref); the TOML key `[hand_eye_problem] motion_pairs` holds one.
+The motion-pair registry (VisualGeometryToolkitCore's `TagRegistry`, suffix `MotionPairs`): `"consecutive"` →
+[`ConsecutiveMotionPairs`](@ref), `"all"` → [`AllMotionPairs`](@ref); the TOML key `[hand_eye_problem] motion_pairs` holds one.
 """
-const MOTION_PAIRS_TAGS = TagRegistry(:motion_pairs, "Pairs", "consecutive" => ConsecutivePairs, "all" => AllPairs;
+const MOTION_PAIRS_TAGS = TagRegistry(:motion_pairs, "MotionPairs", "consecutive" => ConsecutiveMotionPairs, "all" => AllMotionPairs;
                                       paths = [r"^(.*\.)?hand_eye_problem\.motion_pairs$"])
 # The class default (configs/default.toml [hand_eye_problem] `motion_pairs`), read through the registry once.
 const _HAND_EYE_MOTION_PAIRS = MOTION_PAIRS_TAGS[_dflt("hand_eye_problem", "motion_pairs")]()
@@ -144,7 +144,7 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
 
 # Arguments
 - `cs` — one correspondence between rigid transforms per frame, in TIME order
-  (`motion_pairs = ConsecutivePairs()` pairs neighbours): `A_i => B_i`, the
+  (`motion_pairs = ConsecutiveMotionPairs()` pairs neighbours): `A_i => B_i`, the
   rig-in-world pose (e.g. mocap) and the pattern-in-camera pose (e.g. PnP;
   labeled `CameraExtrinsics` accepted — unlabeled at the boundary). Any
   `sources`/`targets` container of `Correspondence{<:PlainEuclideanMap{3}, <:PlainEuclideanMap{3}}`:
@@ -153,8 +153,8 @@ Build a `HandEyeProblem` from synchronized absolute-pose observations.
   solve's calibration comes back in metres. A mix is a `MethodError`.
 
 # Keywords
-- `motion_pairs::MotionPairs` — [`ConsecutivePairs`](@ref)`()` uses pairs `(i, i+1)`
-  yielding `N-1` motion pairs; [`AllPairs`](@ref)`()` uses every `(i, j)` with
+- `motion_pairs::MotionPairs` — [`ConsecutiveMotionPairs`](@ref)`()` uses pairs `(i, i+1)`
+  yielding `N-1` motion pairs; [`AllMotionPairs`](@ref)`()` uses every `(i, j)` with
   `i < j`. Defaults to `configs/default.toml` `[hand_eye_problem]` `motion_pairs`
   (`"consecutive"`, read through [`MOTION_PAIRS_TAGS`](@ref)).
 - `char_length` — characteristic length to balance rotation (rad) and
@@ -411,14 +411,14 @@ end
 # =============================================================================
 
 # The frame pairs `(i, j)` of `N` frames, in time order.
-_frame_pairs(::ConsecutivePairs, N::Int) = ((i, i + 1) for i in 1:(N - 1))
-_frame_pairs(::AllPairs, N::Int) = ((i, j) for i in 1:(N - 1) for j in (i + 1):N)
+_frame_pairs(::ConsecutiveMotionPairs, N::Int) = ((i, i + 1) for i in 1:(N - 1))
+_frame_pairs(::AllMotionPairs, N::Int) = ((i, j) for i in 1:(N - 1) for j in (i + 1):N)
 
 """
     _form_relative_motions(A, B, motion_pairs, min_angle) -> Vector{Tuple{E, E}}
 
 Form `(A_ij, B_ij) = (A_j^{-1} A_i, B_j^{-1} B_i)` from the frame pairs
-`motion_pairs` ([`ConsecutivePairs`](@ref), [`AllPairs`](@ref)). Discards pairs whose rig or pattern motion rotates less than
+`motion_pairs` ([`ConsecutiveMotionPairs`](@ref), [`AllMotionPairs`](@ref)). Discards pairs whose rig or pattern motion rotates less than
 `min_angle` (rad) — the predicate the inner constructor's gate applies, so
 every motion kept succeeds at it — and throws when fewer than two remain.
 """

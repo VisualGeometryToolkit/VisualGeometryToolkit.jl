@@ -3,7 +3,7 @@
 # disagreement — in units in the last place for finite pairs — and the NaN-mask
 # mismatches. Shared by test/lens_oracle_tests.jl and interactive checks.
 using VisualGeometryToolkitCore, StaticArrays, TOML
-const _VGC = VisualGeometryToolkitCore
+import VisualGeometryToolkitCore as VgtkCore
 
 _pairs(v, n) = [SVector{n}(v[i:(i + n - 1)]) for i in 1:n:length(v)]
 _ulps(a, b, ::Type{T} = Float64) where {T} = (a == b) ? 0.0 : abs(a - b) / eps(T(max(abs(a), abs(b), floatmin(T))))
@@ -51,10 +51,10 @@ function compare_oracle(path = joinpath(@__DIR__, "lens_oracle.toml"))
             old = [reshape(J, 2, np)[:, cols] for J in _pairs(d["jac_params"], 2np)]
             r["jac_params"] = _cmp([transform_deriv_params(lens, X) for X in rays[1:8]], old)
         end
-        l32 = _VGC._precision(Float32, lens)
+        l32 = VgtkCore._precision(Float32, lens)
         r["project32"] = _cmp([Float64.(project(l32, SVector{3, Float32}(X))) for X in rays[1:16]], _pairs(d["project32"], 2), Float32)
         r["backproject32"] = _cmp([Float64.(backproject(l32, SVector{2, Float32}(x))) for x in pts[1:min(16, end)]], _pairs(d["backproject32"], 3), Float32)
-        r["monotone_radius"] = _cmp([[Float64(_VGC.monotone_radius(lens))]], [[d["monotone_radius"]]])
+        r["monotone_radius"] = _cmp([[Float64(VgtkCore.monotone_radius(lens))]], [[d["monotone_radius"]]])
         r["view_angle_limit"] = _cmp([[Float64(view_angle_limit(lens))]], [[d["view_angle_limit"]]])
         out[name] = r
     end
@@ -68,7 +68,7 @@ end
 # too (64 ulps at a 179° Kannala–Brandt ray), and "agrees with it to 8 ulps"
 # only held while ForwardDiff rounded the quotient rule as the generator did.
 function jacobian_accuracy(lens, rays)
-    lb = _VGC._precision(BigFloat, lens)
+    lb = VgtkCore._precision(BigFloat, lens)
     worst = 0.0
     for X in rays
         J = transform_deriv(lens, X)

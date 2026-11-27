@@ -20,8 +20,8 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   hypothesis path is the minimal solver itself (`Homography4pt()` for the four-point path); `extra_check` is the 5-point
   solver's field and the backend the solver's. The keywords `minimal`, `extra_check` and `backend` are refused, naming
   `minimal_solver`. Bit-identical.
-- **`HandEyeProblem(cs; motion_pairs = ConsecutivePairs())`**: the frame pairs are types, `ConsecutivePairs()` and
-  `AllPairs()` (exported; supertype `MotionPairs`), a TOML value their tag in `MOTION_PAIRS_TAGS` (`"consecutive"`,
+- **`HandEyeProblem(cs; motion_pairs = ConsecutiveMotionPairs())`**: the frame pairs are types, `ConsecutiveMotionPairs()` and
+  `AllMotionPairs()` (exported; supertype `MotionPairs`), a TOML value their tag in `MOTION_PAIRS_TAGS` (`"consecutive"`,
   `"all"`); a `Symbol` is refused. Bit-identical.
 - **`DivisionCameraMetadata`'s Student-t `ν` field is `dof`**, read by `dof(result)` (Core's contract reading), as the
   bundles' metadata spell it.

@@ -9,13 +9,12 @@
     using TOML: TOML
     import VisualGeometryToolkitCore   # pkgdir: Core's canonical.jl, which a bare julia includes before src/cli.jl
     using VisualGeometryToolkitEval: VisualGeometryToolkitEval, digest_cache_dir, tree_sha256, file_sha256, inspect_input
-    const E = VisualGeometryToolkitEval
-
+    import VisualGeometryToolkitEval as VgtkEval
     # every file kept, however small and new (the fixtures are both); restored at the end, for the worker's other items
-    saved = (E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[])
-    E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[] = 0, 0.0
+    saved = (VgtkEval._DIGEST_CACHE_MIN_BYTES[], VgtkEval._DIGEST_CACHE_MIN_AGE[])
+    VgtkEval._DIGEST_CACHE_MIN_BYTES[], VgtkEval._DIGEST_CACHE_MIN_AGE[] = 0, 0.0
     try
-    cold() = lock(() -> empty!(E._FILE_SHA256), E._FILE_SHA256_LOCK)   # a fresh process's view: no process cache
+    cold() = lock(() -> empty!(VgtkEval._FILE_SHA256), VgtkEval._FILE_SHA256_LOCK)   # a fresh process's view: no process cache
     entries(dir) = isdir(dir) ? sort(filter(endswith(".toml"), readdir(dir; join = true))) : String[]
     entry(dir, f) = only(filter(e -> TOML.parsefile(e)["path"] == realpath(f), entries(dir)))
     function forge!(e, h)          # the entry kept as is, its hash replaced: a hit returns it unread
@@ -59,10 +58,10 @@
             forge!(e, fake); write(f, "ANOTHER SIZE\n"); run(`touch -r $ref $f`); cold()
             @test mtime(f) == mtime(ref) && filesize(f) == 13 && file_sha256(f) == sha(f) != fake
             # a file changed just now is not kept: its entry stays as it was
-            E._DIGEST_CACHE_MIN_AGE[] = 60.0
+            VgtkEval._DIGEST_CACHE_MIN_AGE[] = 60.0
             forge!(e, fake); write(f, "changed now\n"); cold()
             @test file_sha256(f) == sha(f) && TOML.parsefile(e)["sha256"] == fake
-            E._DIGEST_CACHE_MIN_AGE[] = 0.0
+            VgtkEval._DIGEST_CACHE_MIN_AGE[] = 0.0
         end
     end
 
@@ -96,8 +95,8 @@
 
     @testset "a small file is never kept" begin
         cache, t = mktempdir(), tree()
-        E._DIGEST_CACHE_MIN_BYTES[] = 5
-        try withenv(() -> (cold(); tree_sha256(t)), "VGTK_DIGEST_CACHE" => cache) finally E._DIGEST_CACHE_MIN_BYTES[] = 0 end
+        VgtkEval._DIGEST_CACHE_MIN_BYTES[] = 5
+        try withenv(() -> (cold(); tree_sha256(t)), "VGTK_DIGEST_CACHE" => cache) finally VgtkEval._DIGEST_CACHE_MIN_BYTES[] = 0 end
         @test isempty(entries(cache))
     end
 
@@ -131,6 +130,6 @@
         @test length(readdir(cache)) == 32
     end
     finally
-        E._DIGEST_CACHE_MIN_BYTES[], E._DIGEST_CACHE_MIN_AGE[] = saved
+        VgtkEval._DIGEST_CACHE_MIN_BYTES[], VgtkEval._DIGEST_CACHE_MIN_AGE[] = saved
     end
 end

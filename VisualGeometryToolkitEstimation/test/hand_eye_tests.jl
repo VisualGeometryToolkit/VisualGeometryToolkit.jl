@@ -13,7 +13,7 @@ using VisualGeometryToolkitCore: EuclideanMap, log_so3, Vec3
 # Unlabeled rigid motions (the hand-eye currency; the chains `marker_pose(Ygt, A[i], Xgt)` below need frame-free
 # composition).
 using VisualGeometryToolkitCore: rotation, translation
-using VisualGeometryToolkitEstimation: HandEyeProblem, AllPairs
+using VisualGeometryToolkitEstimation: HandEyeProblem, AllMotionPairs
 
 # Synthesize an AX=YB dataset: a robot-world scene (Y*, one X*, N rig poses
 # A_i), its observations B_i = Y⁻¹ A_i X, then return (A, B). Optionally
@@ -70,17 +70,17 @@ end
 
     @testset "all-pairs motion mode" begin
         A, B, Xgt, _, _ = _synth_dataset(rng; N = 20, σ_R = 1.0e-3, σ_t = 1.0e-3, n_outliers = 0)
-        result = solve(EstimationProblem(HandEyeProblem(A .=> B; motion_pairs = AllPairs())), Ransac(); rng = StableRNG(250))
+        result = solve(EstimationProblem(HandEyeProblem(A .=> B; motion_pairs = AllMotionPairs())), Ransac(); rng = StableRNG(250))
         X_est = result.u
         @test norm(log_so3(rotation(X_est)' * rotation(Xgt))) < 0.02
         @test norm(translation(X_est) - translation(Xgt)) < 0.02
         # the frame pairs are types, a TOML value their tag (the registry): the default is the file's, consecutive
-        using VisualGeometryToolkitEstimation: MOTION_PAIRS_TAGS, ConsecutivePairs
-        @test MOTION_PAIRS_TAGS["consecutive"] === ConsecutivePairs && MOTION_PAIRS_TAGS["all"] === AllPairs
+        using VisualGeometryToolkitEstimation: MOTION_PAIRS_TAGS, ConsecutiveMotionPairs
+        @test MOTION_PAIRS_TAGS["consecutive"] === ConsecutiveMotionPairs && MOTION_PAIRS_TAGS["all"] === AllMotionPairs
         @test_throws ArgumentError MOTION_PAIRS_TAGS["other"]
-        n_consecutive = length(HandEyeProblem(A .=> B; motion_pairs = ConsecutivePairs()).motions)
+        n_consecutive = length(HandEyeProblem(A .=> B; motion_pairs = ConsecutiveMotionPairs()).motions)
         @test length(HandEyeProblem(A .=> B).motions) == n_consecutive <= 19   # N − 1 pairs, less those below min_rel_angle
-        @test n_consecutive < length(HandEyeProblem(A .=> B; motion_pairs = AllPairs()).motions) <= 190   # of N(N − 1)/2
+        @test n_consecutive < length(HandEyeProblem(A .=> B; motion_pairs = AllMotionPairs()).motions) <= 190   # of N(N − 1)/2
     end
 
     @testset "argument validation" begin

@@ -9,8 +9,8 @@ CurrentModule = VisualGeometryToolkitEstimation
 ```@docs
 HandEyeProblem
 MotionPairs
-ConsecutivePairs
-AllPairs
+ConsecutiveMotionPairs
+AllMotionPairs
 MOTION_PAIRS_TAGS
 ```
 
@@ -43,8 +43,8 @@ eliminated via the relative-motion ratio:
 
 `A_i = T_WR` (rig in world, e.g. from motion capture) and `B_i = T_CP`
 (pattern in camera, e.g. from PnP). With `N` observations, `motion_pairs
-= ConsecutivePairs()` (the default, `[hand_eye_problem] motion_pairs`) builds
-`N - 1` relative motions from adjacent frames; `AllPairs()` uses every `(i, j)`
+= ConsecutiveMotionPairs()` (the default, `[hand_eye_problem] motion_pairs`) builds
+`N - 1` relative motions from adjacent frames; `AllMotionPairs()` uses every `(i, j)`
 with `i < j`.
 
 The minimal sample is **2 motion pairs** (Tsai–Lenz solvability condition:

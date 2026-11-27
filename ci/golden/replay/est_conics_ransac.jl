@@ -425,7 +425,7 @@ function replay_est_conics_ransac(cases)
         "line" => (ldata, LineFittingProblem),
         "inhom_line" => (cr_inhom_line_points(), InhomLineFittingProblem),
         "hand_eye" => (cr_hand_eye_motions(), HandEyeProblem),
-        "hand_eye_all_pairs" => (cr_hand_eye_motions(), d -> HandEyeProblem(d; motion_pairs = VgtkEstimation.AllPairs())),
+        "hand_eye_all_pairs" => (cr_hand_eye_motions(), d -> HandEyeProblem(d; motion_pairs = VgtkEstimation.AllMotionPairs())),
         "bounded_homography" => (hdata, d -> BoundedProblem(HomographyProblem(d), VgtkCore.Rect(0.0, 0.0, 200.0, 150.0))),
     ]
     for (name, (data, mk)) in solve_problems

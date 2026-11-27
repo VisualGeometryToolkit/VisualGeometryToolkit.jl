@@ -207,7 +207,7 @@ end
     # by iteration 3, stopped at iteration 5 (NLLSsolver's relative
     # cost-decrease stop) on every scene. At NLLSsolver's default tolerance
     # (1e-15) it runs 8 / 8 / 7 — every one a full linearization
-    # (configs/default.toml [relpose_bundle]). The count itself is not tested:
+    # (configs/default.toml [relative_pose_problem]). The count itself is not tested:
     # it can move with the compilation context.
     for N in (100, 1000, 10000)
         iters, k1e6 = iterations_to_stop[N]

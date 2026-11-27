@@ -310,7 +310,7 @@ end
     RelativePoseProblem(K1, K2, cs)
 
     solve(RefineProblem(RelativePoseProblem(K1, K2, cs), pose::PlainEuclideanMap{3}), LevenbergMarquardt(); stops)
-        -> FitResult{Union{EuclideanMap{3}, Nothing}}   # stops default: configs/default.toml [relpose_bundle]
+        -> FitResult{Union{EuclideanMap{3}, Nothing}}   # stops default: configs/default.toml [relative_pose_problem]
 
 The full-3D two-view bundle adjustment of a relative pose, a multi-block problem (VisualGeometryToolkitCore's
 `AbstractBlockProblem`): the exact reprojection MLE over the pose and one 3D landmark per correspondence (profiled out
@@ -410,10 +410,10 @@ end
 # Core routine: robust full-3D two-view BA (camera-aware).  Seed pose (R₀,t₀) +
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
 # per-point √weights → `(; R, t, sol)`: the refined (R, t) (‖t‖=1) and Core's
-# solve record `sol = (; code, rule, iterations, cost)` (Core's chart LM: its one
-# success rule, a tolerance stop converged and the rejection cap judged by the stationarity postcondition; a `:stalled`
-# bundle's pose is still scored by the caller, the LO's acceptance, as a converged
-# one is). `nothing` on failure: a singular system (Core's `Failure`) or a
+# solve record `sol`, a FitResult read by field (`sol.retcode`, `sol.stop_rule`, `sol.stats.nsteps`, and the LM
+# metadata's cost field, the minimized objective) — Core's LM: its one success rule, a tolerance stop converged and the
+# rejection cap judged by the stationarity postcondition; a stalled bundle's pose is still scored by the caller, the LO's
+# acceptance, as a converged one is. `nothing` on failure: a singular system (Core's `Failure`) or a
 # non-finite pose. Positional and
 # allocation-lean: the RANSAC refit (`refine!` below) calls it with the
 # problem's stored K⁻¹ and the √weights it builds. `schur = false` takes
@@ -456,7 +456,7 @@ function _bundle_solve!(
         d.u1[i] = SVector{2, Float64}(u1[i][1], u1[i][2]); d.u2[i] = SVector{2, Float64}(u2[i][1], u2[i][2])
         d.sqrtw[i] = sqrtw[i]
     end
-    # Core's one LM at the bundle's stop settings (default [relpose_bundle] max_iter, ftol; the rest Core's [lm]), from
+    # Core's one LM at the bundle's stop settings (default [relative_pose_problem] max_iter, ftol; the rest Core's [levenberg_marquardt.stops]), from
     # the seed pose and the points triangulated at it; a per-iteration `callback` runs on a cache of its own
     seed = (Rb, tb, iK1, iK2)
     sol = callback === nothing ? solve!(reinit!(run.cache, seed; stops)) :

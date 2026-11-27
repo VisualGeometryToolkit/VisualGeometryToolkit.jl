@@ -185,8 +185,8 @@ branch_audit_efficiency_constant = 3.5322300675464233
 seed_nu = 1.0e4
 
 [hand_eye_problem]
-# `HandEyeProblem(cs; motion_pairs, min_rel_angle)`'s defaults. The motion pairs: "consecutive" (`ConsecutivePairs()`,
-# neighbours in time) or "all" (`AllPairs()`, every pair).
+# `HandEyeProblem(cs; motion_pairs, min_rel_angle)`'s defaults. The motion pairs: "consecutive" (`ConsecutiveMotionPairs()`,
+# neighbours in time) or "all" (`AllMotionPairs()`, every pair).
 motion_pairs      = "consecutive"
 # Relative motions below this are degenerate for recovering X: the problem drops them, and the robot-world fit's
 # initialization (`EstimationProblem(RobotWorldHandEyeCalibration, markers, (; min_rel_angle))`) reads the same default.

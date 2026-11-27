@@ -320,7 +320,7 @@ export RadialCameraFit, DivisionCameraFit   # one board's radial camera; the div
 export HomographyProblem, FundMatProblem, EssentialProblem, AbsolutePoseProblem, BearingPoseProblem, RotationProblem, CircleProblem, EllipseProblem,
     HandEyeProblem, LineFittingProblem, InhomLineFittingProblem,
     RadialHomographyProblem, RadialCameraProblem, RelposeBundleProblem
-export ConsecutivePairs, AllPairs   # a HandEyeProblem's frame pairs (its `motion_pairs`)
+export ConsecutiveMotionPairs, AllMotionPairs   # a HandEyeProblem's frame pairs (its `motion_pairs`)
 public MotionPairs, MOTION_PAIRS_TAGS   # their supertype and TOML tag registry
 
 # -----------------------------------------------------------------------------

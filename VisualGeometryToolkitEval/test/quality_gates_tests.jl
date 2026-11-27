@@ -32,10 +32,10 @@
     using VisualGeometryToolkitEval
     import VisualGeometryToolkitCore
 
-    const _QG_M = VisualGeometryToolkitEval
-    const _QG_MODS = (_QG_M, _QG_M.Stats, _QG_M.Tuning, _QG_M.Evaluation, _QG_M.Experiments,
-                      _QG_M.Render, _QG_M.PoolFiles, _QG_M.Datasets, _QG_M.DataArtifacts,
-                      _QG_M.PaperProjects)
+    import VisualGeometryToolkitEval as VgtkEval
+    const _QG_MODS = (VgtkEval, VgtkEval.Stats, VgtkEval.Tuning, VgtkEval.Evaluation, VgtkEval.Experiments,
+                      VgtkEval.Render, VgtkEval.PoolFiles, VgtkEval.Datasets, VgtkEval.DataArtifacts,
+                      VgtkEval.PaperProjects)
 
     @testset "quality gates" begin
         # The stack contracts (VisualGeometryToolkitCore quality/stack_contracts.jl),
@@ -43,27 +43,27 @@
         # package, methods on other stack packages' functions only on their
         # CONTRACT_GENERICS.
         @testset "stack contracts" begin
-            root = pkgdir(_QG_M)
+            root = pkgdir(VgtkEval)
             @test isempty(VgtkCore.stack_dependency_violations(joinpath(root, "Project.toml"), "VisualGeometryToolkitEval"))
             @test isempty(vcat(VgtkCore.private_name_violations(joinpath(root, "src"), "VisualGeometryToolkitEval"),
                                VgtkCore.private_name_violations(joinpath(root, "ext"), "VisualGeometryToolkitEval")))
-            @test isempty(VgtkCore.contract_generic_violations(_QG_M))
+            @test isempty(VgtkCore.contract_generic_violations(VgtkEval))
         end
         @testset "Aqua" begin
-            Aqua.test_stale_deps(_QG_M)
-            Aqua.test_undefined_exports(_QG_M)
-            Aqua.test_unbound_args(_QG_M)
-            Aqua.test_project_extras(_QG_M)
-            Aqua.test_deps_compat(_QG_M)
-            Aqua.test_piracies(_QG_M)
-            Aqua.test_ambiguities(_QG_M)
-            Aqua.test_persistent_tasks(_QG_M)
+            Aqua.test_stale_deps(VgtkEval)
+            Aqua.test_undefined_exports(VgtkEval)
+            Aqua.test_unbound_args(VgtkEval)
+            Aqua.test_project_extras(VgtkEval)
+            Aqua.test_deps_compat(VgtkEval)
+            Aqua.test_piracies(VgtkEval)
+            Aqua.test_ambiguities(VgtkEval)
+            Aqua.test_persistent_tasks(VgtkEval)
         end
 
         @testset "ExplicitImports" begin
-            @test check_no_implicit_imports(_QG_M) === nothing
-            @test check_no_stale_explicit_imports(_QG_M) === nothing
-            @test check_all_explicit_imports_via_owners(_QG_M) === nothing
+            @test check_no_implicit_imports(VgtkEval) === nothing
+            @test check_no_stale_explicit_imports(VgtkEval) === nothing
+            @test check_all_explicit_imports_via_owners(VgtkEval) === nothing
         end
 
         @testset "no method references an undefined global" begin

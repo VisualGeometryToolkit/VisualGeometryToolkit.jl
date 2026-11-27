@@ -349,7 +349,10 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - **Whole-branch review (2026-11-27; bits `===`).** A row or chart-problem LevenbergMarquardt cache's `reinit!` refuses
   (`DimensionMismatch`) new data whose chart has other rows or another dimension than the workspace `init` built,
   before any field moves (it ran the LM on the old workspace: a `BoundsError` or truncated rows); the same data keep
-  their chart, unchecked (the reuse path is unchanged). `solve(problem)` of a
+  their chart, unchecked (the reuse path is unchanged).
+  A bundle (block) LevenbergMarquardt cache's `reinit!` makes every refusal before any field moves (it assigned the
+  bundle, guess, stops, loss and `stated` before refusing an LM of another type), and refuses (`ArgumentError`) an
+  algorithm of another damping than the cache's LM (its damping is fixed at `init`; the new one was silently ignored). `solve(problem)` of a
   problem that states no `model_type` (an `EnsembleProblem`) is the documented `ArgumentError` listing the algorithms
   (was a `MethodError` from the message builder).
 - **Hot-path allocations and inference (2026-11-27; bits `===`, spec §9).** `check_honored_stops` allocates nothing on

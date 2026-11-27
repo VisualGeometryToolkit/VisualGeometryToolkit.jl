@@ -207,6 +207,10 @@ end
     @test solve!(reinit!(c, (0.1, 2.0, true))).metadata.ν == length(s) - 1    # the same held set: the LM kept
     # another held set makes an LM of another type (here: none held): refused, init a new cache
     @test_throws ArgumentError reinit!(c, (0.0, 2.0, false))
+    @test c.cache.u0 == (0.1, 2.0, true) && c.cache.f === g     # a refused reinit! leaves the cache as it was
+    # the cache's multi-block LM keeps its damping: another one is refused (the owner's reinit!), nothing moved
+    @test_throws ArgumentError reinit!(c.cache, (0.2, 2.0, true); alg = LevenbergMarquardt(; damping = VgtkCore.LevenbergDamping()))
+    @test c.cache.u0 == (0.1, 2.0, true)
     cf = init(RefineProblem(g, (0.0, 2.0, false)), LevenbergMarquardt())
     @test solve!(cf).u == free.u
 end

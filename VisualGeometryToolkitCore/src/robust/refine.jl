@@ -439,8 +439,20 @@ sq_loss_width(::Nothing) = NaN
 _resolved_strategy(f, ::ClassDefault) = default_optimization_strategy(f)
 _resolved_strategy(_f, strategy) = strategy
 
-_refine_spec(f, alg::LevenbergMarquardt{NativeSolver}; scale, width) = bundle_loss(_resolved_strategy(f, alg.optimization_strategy);
-    scale, width, codimension = codimension(f), caller = "LevenbergMarquardt")
+# THE parse of a LevenbergMarquardt refine's strategy and scale input (`bundle_loss`), every refine's: `caller` names the
+# refine in the messages, `d` its residual's codimension (the problem's).
+_refine_spec(f, alg::LevenbergMarquardt; scale, width, caller::AbstractString = "LevenbergMarquardt") =
+    _refine_spec(f, alg, codimension(f); scale, width, caller)
+_refine_spec(f, alg::LevenbergMarquardt, d::Integer; scale, width, caller::AbstractString = "LevenbergMarquardt") =
+    bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = d, caller)
+# A cache's `reinit!` with a new algorithm configuration or scale input (any of them given): the refine re-parsed by
+# `parse(f, alg; scale, width)` (the cache's parse), `alg` defaulting to the cache's own strategy and damping; `nothing`
+# when none is given (the kept parse stands).
+@inline _respec(parse::P, f, strategy, damping, ::Nothing, ::Nothing, ::Nothing) where {P} = nothing
+@inline function _respec(parse::P, f, strategy, damping, alg, scale, width) where {P}
+    a = something(alg, LevenbergMarquardt(strategy, damping, NativeSolver()))
+    return parse(f, a; scale, width), a.damping
+end
 
 """
     recorded_scale(input) -> Float64
@@ -853,11 +865,8 @@ function reinit!(c::_ChartRefineCache, u0 = c.u0; f = c.f, p = NullParameters(),
     rows, dof = chart_size(f)
     rows == length(sqrt_weights(c.ews)) || throw(DimensionMismatch(string("reinit!: the cache holds ",
         length(sqrt_weights(c.ews)), " chart-LM rows, the new problem ", rows, " (init a new cache for data of another size)")))
-    if alg !== nothing || scale !== nothing || width !== nothing
-        a = something(alg, LevenbergMarquardt(c.spec.strategy, c.damping, NativeSolver()))
-        c.spec = _refine_spec(f, a; scale, width)
-        c.damping = a.damping
-    end
+    re = _respec(_refine_spec, f, c.spec.strategy, c.damping, alg, scale, width)
+    re === nothing || ((c.spec, c.damping) = re)
     c.f = f; c.u0 = u0; c.stops = stops; c.weights = weights
     return c
 end
@@ -873,10 +882,9 @@ mutable struct _RowRefineCache{F, N, S, D <: LmDamping, C}
     const ews::_ManifoldLmWorkspace{N}
     const callback::C
 end
-function _row_spec(f, alg::LevenbergMarquardt{NativeSolver}; scale, width)
-    lo = _resolved_strategy(f, alg.optimization_strategy)
-    return bundle_loss(lo; scale, width, codimension = lo === nothing ? 1 : codimension(f), caller = "LevenbergMarquardt")
-end
+# A row problem states its codimension only for a robust strategy (least squares reads none).
+_row_spec(f, alg::LevenbergMarquardt{NativeSolver}; scale, width) =
+    _refine_spec(f, alg, _resolved_strategy(f, alg.optimization_strategy) === nothing ? 1 : codimension(f); scale, width)
 function _row_refine_cache(prob::RefineProblem{<:AbstractRowProblem{N}}, alg::LevenbergMarquardt{NativeSolver}, shared::Bool;
         scale = nothing, width = nothing, stops::LmStops = default_stops(prob.f), callback = nothing) where {N}
     _refuse_box(prob, :LevenbergMarquardt)
@@ -906,11 +914,8 @@ function reinit!(c::_RowRefineCache{F, N}, u0 = c.u0; f = c.f, p = NullParameter
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine reads no context `p`"))
     f === c.f || _check_kept_chart(c.ews, chart_size(f)...)   # new data: their chart must be the kept workspace's
     u = SVector{N, Float64}(u0)
-    if alg !== nothing || scale !== nothing || width !== nothing
-        a = something(alg, LevenbergMarquardt(c.spec.strategy, c.damping, NativeSolver()))
-        c.spec = _row_spec(f, a; scale, width)
-        c.damping = a.damping
-    end
+    re = _respec(_row_spec, f, c.spec.strategy, c.damping, alg, scale, width)
+    re === nothing || ((c.spec, c.damping) = re)
     c.f = f; c.u0 = u; c.stops = stops
     return c
 end
@@ -1210,12 +1215,12 @@ end
 # loss (none under least squares), its held variables fixed (NLLSsolver's unfixed mask).
 function _block_lm_problem(f::AbstractBlockProblem, u0, vars, blocks, loss, damping::LmDamping)
     costs = convert(Vector{_element_union(blocks)}, blocks)
-    rob = loss.strategy === nothing ? costs : [_robustified_block(c, loss) for c in costs]
+    k = _spec_robustifier(loss)
+    rob = k === nothing ? costs : [_robustified_block(c, k) for c in costs]
     return _LmProblem(copy(vars), rob; fixed = fixed_variables(f, u0), damping), costs
 end
-# Block `c` robustified at the parsed robust `loss` (its frozen loss_robustifier at unit √weight).
-_robustified_block(c, loss) =
-    with_robustifier(c, 1.0, _spec_robustifier(loss))
+# Block `c` robustified by `k`, the parsed robust loss's frozen loss_robustifier (`_spec_robustifier`), at unit √weight.
+_robustified_block(c, k) = with_robustifier(c, 1.0, k)
 
 # The task's kept multi-block LM of the ONE-SHOT refine (`solve`), under the one reuse policy (`task_buffers`): one per
 # task and kind — the bundle's type, its variables' and blocks' element types, the parsed loss's and the damping's
@@ -1275,17 +1280,18 @@ function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, u0, vars, b
     _same_fixed(lp.free, lp.unfixed, fixed_variables(f, u0)) || return false
     rob = lp.blocks
     R = eltype(rob)
+    rk = _spec_robustifier(loss)   # the robust loss's robustifier, built once (`nothing`: least squares)
     @inbounds for k in eachindex(costs, blocks)
-        _same_block_structure(costs, k, blocks[k], loss, R) || return false
+        _same_block_structure(costs, k, blocks[k], rk, R) || return false
     end
     copyto!(v, vars)
     copyto!(costs, blocks)
     if rob !== costs
-        if loss.strategy === nothing
+        if rk === nothing
             copyto!(rob, costs)
         else
             @inbounds for k in eachindex(rob, costs)
-                rob[k] = _robustified_block(costs[k], loss)
+                rob[k] = _robustified_block(costs[k], rk)
             end
         end
     end
@@ -1293,14 +1299,14 @@ function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, u0, vars, b
     return true
 end
 # The call's block `b` has the structure of the kept block `costs[k]` (its type, `varindices` and row count) and the
-# kept problem's block type `R` (plain, or robustified at this `loss`): one call per block behind a function barrier,
+# kept problem's block type `R` (plain, or robustified by `rk`, this loss's robustifier): one call per block behind a function barrier,
 # the kept block read inside it, so a bundle whose blocks are an abstract vector (blocks of several types) dispatches
 # once per block on its own value and gets a Bool back, nothing boxed.
-function _same_block_structure(costs, k, b, loss, ::Type{R}) where {R}
+function _same_block_structure(costs, k, b, rk, ::Type{R}) where {R}
     a = @inbounds costs[k]
     return typeof(a) === typeof(b) && NLLSsolver.varindices(a) == NLLSsolver.varindices(b) &&
         NLLSsolver.dynamic(NLLSsolver.nres(a)) == NLLSsolver.dynamic(NLLSsolver.nres(b)) &&
-        (loss.strategy === nothing ? b isa R : _robustified_block(b, loss) isa R)
+        (rk === nothing ? b isa R : _robustified_block(b, rk) isa R)
 end
 # The held variables `fixed` (`fixed_variables`) are the kept problem's (its free mask; `unfixed === nothing`: none).
 _same_fixed(::BitVector, unfixed, ::Nothing) = unfixed === nothing
@@ -1338,10 +1344,10 @@ end
 function _block_refine_loss(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt; scale, width)
     _refuse_box(prob, :LevenbergMarquardt)
     prob.p isa NullParameters || throw(ArgumentError("a LevenbergMarquardt refine of a bundle reads no context `p`"))
-    f = prob.f
-    return bundle_loss(_resolved_strategy(f, alg.optimization_strategy); scale, width, codimension = codimension(f),
-                       caller = string(nameof(typeof(f))))
+    return _block_spec(prob.f, alg; scale, width)
 end
+# A bundle's parse, its messages naming the bundle's type.
+_block_spec(f, alg::LevenbergMarquardt; scale, width) = _refine_spec(f, alg; scale, width, caller = string(nameof(typeof(f))))
 # Too few data for a minimal sample (no LM is built): no estimate, as a chart refine's.
 _too_few_block_result(f) = FitResult(nothing, ReturnCode.InitialFailure, NoRule, SolveStats(), NaN, data_size(f), nothing)
 
@@ -1387,8 +1393,7 @@ function _block_summary(loss, costs, lp)
         sq[k] = _block_sq(r, o, d)
         o += d
     end
-    lo = loss.strategy
-    weights = lo === nothing ? unit_weights(Float64, n) : loss_weights(strategy_loss(lo)(), sq_loss_width(loss.loss), sq)
+    weights = _refine_weights(loss.strategy, loss, sq)
     support, rms = weighted_support_rms(weights, sq)
     unknowns = lp.offsets[end]   # the FREE coordinates: a held variable (fixed_variables) is no unknown
     return (; residuals = r, S = sum(abs2, r), ν = length(r) - unknowns, rms, n = support, weights, loss)
@@ -1445,38 +1450,40 @@ __init(prob::RefineProblem{<:AbstractBlockProblem}, alg::LevenbergMarquardt{Nati
 
 function reinit!(c::_BlockRefineCache, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         alg = nothing, scale = nothing, width = nothing)
+    # every refusal before any field moves, so a refused call leaves the cache as it was
     p isa NullParameters || throw(ArgumentError("reinit!: a LevenbergMarquardt refine of a bundle reads no context `p`"))
-    rebuild = f !== c.f || alg !== nothing || scale !== nothing || width !== nothing ||
-        (c.lp !== nothing && !_same_fixed(c.lp.free, c.lp.unfixed, fixed_variables(f, u0)))   # a held set of the new guess
-    if alg !== nothing || scale !== nothing || width !== nothing
-        a = something(alg, LevenbergMarquardt(c.loss.strategy, c.damping, NativeSolver()))
-        c.loss = bundle_loss(_resolved_strategy(f, a.optimization_strategy); scale, width, codimension = codimension(f),
-                             caller = string(nameof(typeof(f))))
-    end
-    c.f = f; c.u0 = u0; c.stops = stops
     c.lp === nothing && throw(ArgumentError("reinit!: the cache was built on too few data (no LM): init a new one"))
+    alg === nothing || isequal(alg.damping, c.damping) || throw(ArgumentError(string("reinit!: the cache's multi-block LM ",
+        "damps by ", repr(c.damping), ", the new algorithm by ", repr(alg.damping), ": init a new cache")))
+    re = _respec(_block_spec, f, c.loss.strategy, c.damping, alg, scale, width)
+    loss = re === nothing ? c.loss : first(re)
+    loss isa fieldtype(typeof(c), :loss) || throw(ArgumentError(string("reinit!: the new strategy or scale input parses ",
+        "to another loss type than the cache's: init a new cache")))
+    rebuild = f !== c.f || re !== nothing ||
+        !_same_fixed(c.lp.free, c.lp.unfixed, fixed_variables(f, u0))   # a held set of the new guess
     if rebuild
-        vars, blocks, c.stated = block_structure(f, u0)
-        lp, costs = _block_lm_problem(f, u0, vars, blocks, c.loss, c.damping)
+        vars, blocks, stated = block_structure(f, u0)
+        lp, costs = _block_lm_problem(f, u0, vars, blocks, loss, c.damping)
         lp isa fieldtype(typeof(c), :lp) || throw(ArgumentError(string("reinit!: the new guess's bundle (its variables, ",
             "blocks or held variables) makes a multi-block LM of another type than the cache's: init a new cache")))
-        c.lp, c.costs = lp, costs
+        c.lp, c.costs, c.stated = lp, costs, stated
     else
         # the same structure: the guess's variables into the kept problem, its blocks and NLLSsolver cache kept
-        vars = _reinit_variables!(c, f, u0)
+        vars, stated = _reinit_variables(c.stated, f, u0)
         length(vars) == length(c.lp.variables) || throw(DimensionMismatch(
             "reinit!: the guess has $(length(vars)) variables, the cache's bundle $(length(c.lp.variables))"))
         copyto!(c.lp.variables, vars)
+        c.stated = stated
     end
+    c.f = f; c.u0 = u0; c.stops = stops; c.loss = loss
     return c
 end
-# The guess's variables for a `reinit!` that keeps the blocks: a bundle that keeps no `stated` (`block_structure`'s
-# default) answers `block_variables` alone; one that keeps one is stated once, its `stated` the result's.
-_reinit_variables!(c::_BlockRefineCache, f, u0) = _reinit_variables!(c, c.stated, f, u0)
-_reinit_variables!(::_BlockRefineCache, ::Nothing, f, u0) = block_variables(f, u0)
-function _reinit_variables!(c::_BlockRefineCache, _stated, f, u0)
-    vars, _, c.stated = block_structure(f, u0)
-    return vars
+# The guess's variables (and the bundle's `stated`) for a `reinit!` that keeps the blocks: a bundle that keeps no
+# `stated` (`block_structure`'s default) answers `block_variables` alone; one that keeps one is stated once.
+_reinit_variables(::Nothing, f, u0) = (block_variables(f, u0), nothing)
+function _reinit_variables(_stated, f, u0)
+    vars, _, stated = block_structure(f, u0)
+    return vars, stated
 end
 
 public block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, prepare_evaluation!

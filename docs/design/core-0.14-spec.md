@@ -1283,3 +1283,8 @@ These are done in Core 0.14, each with its own commit:
   `solve(RefineProblem(problem, model), BlockCoordinateDescent(…))` in `posterior_irls!` in place of the kept BCD cache
   saves nothing (fresh-compiled, untyped caches: 127 either way; with the typed caches, pkgimage, 727). Both reverted;
   the kept-cache design above stands.
+- 2026-11-27 (review, block area): a bundle cache's `reinit!` refuses before it writes (too few data, another damping,
+  a loss or an LM of another type), and an algorithm of another damping is refused (the damping is the cache's, fixed
+  at `init`). The refines parse through one `_refine_spec(f, alg[, d]; scale, width, caller)` and re-parse on `reinit!`
+  through one `_respec`; a bundle's parsed loss is robustified with one robustifier per call. `RowsWithJacobian`'s
+  `jacobian` stays the dense matrix its docstring promises (Estimation's robot–world hand–eye covariance reads it). Bits `===`.

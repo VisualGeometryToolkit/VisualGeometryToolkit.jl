@@ -939,7 +939,8 @@ These are done in Core 0.14, each with its own commit:
   - The IO reader keeps only the keys a body's spec declares (`_declares`). A newer minor's key, which the validator
     tolerates, would otherwise reach the constructor as an unknown keyword. Tested.
 - 2026-11-26 (1A, lead's ruling C5): Phase 2b's retired names (RSDR, LODR, VRTK) are in RETIRED_NAMES; of VRTK's only
-  the non-math alias names. The papers' math symbols (𝔭, 𝔣, t̂, 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹) stay legitimate notation in prose,
+  the non-math alias names. The papers' math symbols (𝔭, 𝔣, t̂, 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹, and the footprint ℐ_𝐮, its entry
+  removed 2026-11-27 by the lead's ruling) stay legitimate notation in prose,
   docstrings and field names (their bindings are gone: a code use is already an `UndefVarError`).
 - 2026-11-26 (lead, LODR L10): a configuration value that changes FORM (LODR's `adapt_scale::Bool` becoming the
   `scale_interface` tag) is a step of the package's versioned converter: `ConfigMigration`'s `values`, one owner in
@@ -1019,3 +1020,9 @@ These are done in Core 0.14, each with its own commit:
     and wave 1's `FOREIGN_FORMAT_TOKENS`. Kept as foreign: KaimonGate's `is_cancelled`. `Disc`/`OrientedDisc`
     (and the stored `"disc"`/`"oriented_disc"` tags) are left as accepted American spellings (lead's call).
   - No content identity moves: no hashed tree holds a renamed name. No golden record stores one.
+- 2026-11-27 (joint landing, runtime A/B 11930): the task-kept block problem's structure check (`_reseed_block_lm!`)
+  compares each block in one call behind a function barrier (`_same_block_structure`, which reads the kept block
+  itself), so an abstract vector of blocks boxes nothing: CameraPoses' least-squares refine measured +3.9% (gate 3%) with
+  600 boxed allocations a solve there; now 72777 allocations against the base's 73241. The row-refine test item reads
+  `CircleLmScene`'s circle rows (one owner): the duplication gate reads tracked files, so the copy surfaced only once
+  `lo_refit_front_end_tests.jl` was committed.

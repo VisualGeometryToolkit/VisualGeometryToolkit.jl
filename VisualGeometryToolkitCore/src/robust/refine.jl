@@ -1111,11 +1111,7 @@ function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, vars, block
     rob = lp.blocks
     R = eltype(rob)
     @inbounds for k in eachindex(costs, blocks)
-        a = costs[k]; b = blocks[k]
-        (typeof(a) === typeof(b) && NLLSsolver.varindices(a) == NLLSsolver.varindices(b) &&
-            NLLSsolver.dynamic(NLLSsolver.nres(a)) == NLLSsolver.dynamic(NLLSsolver.nres(b))) || return false
-        # the kept problem's block types are the call's (plain, or robustified at this loss)
-        (loss.strategy === nothing ? b isa R : _robustified_block(b, loss) isa R) || return false
+        _same_block_structure(costs, k, blocks[k], loss, R) || return false
     end
     copyto!(v, vars)
     copyto!(costs, blocks)
@@ -1130,6 +1126,16 @@ function _reseed_block_lm!(lp::_LmProblem, costs::AbstractVector, f, vars, block
     end
     foreach(r -> _refill_costs!(r, rob), values(lp.problem.costs))   # NLLSsolver's per-type cost vectors, in order
     return true
+end
+# The call's block `b` has the structure of the kept block `costs[k]` (its type, `varindices` and row count) and the
+# kept problem's block type `R` (plain, or robustified at this `loss`): one call per block behind a function barrier,
+# the kept block read inside it, so a bundle whose blocks are an abstract vector (blocks of several types) dispatches
+# once per block on its own value and gets a Bool back, nothing boxed.
+function _same_block_structure(costs, k, b, loss, ::Type{R}) where {R}
+    a = @inbounds costs[k]
+    return typeof(a) === typeof(b) && NLLSsolver.varindices(a) == NLLSsolver.varindices(b) &&
+        NLLSsolver.dynamic(NLLSsolver.nres(a)) == NLLSsolver.dynamic(NLLSsolver.nres(b)) &&
+        (loss.strategy === nothing ? b isa R : _robustified_block(b, loss) isa R)
 end
 # The held variables `fixed` (`fixed_variables`) are the kept problem's (its free mask; `unfixed === nothing`: none).
 _same_fixed(::BitVector, unfixed, ::Nothing) = unfixed === nothing

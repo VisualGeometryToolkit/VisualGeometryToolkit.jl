@@ -14,7 +14,10 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   `block_result` receives `stated` as the summary's field `stated` (`(; stated)` when the bundle asks for no summary;
   no field for `nothing`). A `reinit!` that keeps the blocks of a bundle with no `stated` reads `block_variables`
   alone, as before. A bundle whose blocks, variables and result come from one reading of its data (Estimation's
-  `CameraPosesProblem` and `RobotWorldHandEyeProblem`) no longer reads it three times per solve.
+  `CameraPosesProblem` and `RobotWorldHandEyeProblem`) no longer reads it three times per solve. The task-kept
+  problem's structure check reads each block behind a function barrier, so a bundle whose blocks are an abstract
+  vector (blocks of several types) boxes nothing there: CameraPoses' pinhole refine is 72777 allocations, against
+  73241 on the non-breaking line (73673 before).
 - **Breaking: American in identifiers (decision 11).** `SensorCharacterisation` → `SensorCharacterization`; the
   `ModelReason` `NoCharacterisation` → `NoCharacterization`; `sensor_fixture`'s field `characterisation` →
   `characterization`. There are no aliases. Each old name is in `RETIRED_NAMES`, together with `sensor_characterisation`
@@ -54,8 +57,9 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 - RETIRED_NAMES gains Phase 2b's retired names (C5): RansacScoringDoneRight's `gpd_support`, `gpd_outlier_cost`
   (internal) and the `loss_width_scoring(…)` constructor; LocalOptimizationDoneRight's `PoseLibLm`, `PoseLibLZ`,
   `PoseLibLmAdaptLossWidth` (each a `BackendRefit`) and `TruncatedRefit`; VRTK's `RADIAL_CHARTS` (`RADIAL_CHART_TAGS`)
-  and its 0.2.0 non-math alias names (`𝐩_of_pixel`, `pixel_of_𝐩`, `ℐ_𝐮`, `𝐩_sample`, `𝐚_sample`, `𝐚_weight`,
-  `𝐚_border`, `Θ_m_nonlinear`, `with_μ`, `Λ_ggx`). The papers' math symbols are not retired. `RADIAL_CHARTS` leaves
+  and its 0.2.0 non-math alias names (`𝐩_of_pixel`, `pixel_of_𝐩`, `𝐩_sample`, `𝐚_sample`, `𝐚_weight`,
+  `𝐚_border`, `Θ_m_nonlinear`, `with_μ`, `Λ_ggx`). The papers' math symbols are not retired, the footprint `ℐ_𝐮`
+  among them (it is notation in VRTK's prose). `RADIAL_CHARTS` leaves
   `MOVED_NAMES` (its refusal named VRTK's old name; the name is retired instead).
 - RETIRED_NAMES gains RadiometricCamera's `CalibrationState` (RC b348450, C4): `calibration_problem(board, settings,
   camera, poses, mat, light, targets; …)`, a `RefineProblem(CalibrationData, CalibrationParameters)`; the

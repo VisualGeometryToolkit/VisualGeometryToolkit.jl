@@ -170,35 +170,30 @@ end
 
 # A row refine's result carries the stationarity postcondition on demand (G8, the chart-problem refine's form), and a
 # chart problem whose dof depends on its guess sizes its LM from `chart_size(f, u0)` at init (G9).
-@testitem "row and chart refines: `stationary()` on demand; the chart size at the guess" begin
+@testitem "row and chart refines: `stationary()` on demand; the chart size at the guess" setup = [CircleLmScene] begin
     using Test, LinearAlgebra, StaticArrays
     import VisualGeometryToolkitCore as VgtkCore
     using VisualGeometryToolkitCore: RefineProblem, LevenbergMarquardt, solve, EuclideanManifold
-    # a circle (cx, cy, ρ) through points, as rows on the chart x about (1, −2, 3)
+    # a circle (cx, cy, ρ) through points, as rows on the chart x about (1, −2, 3): the shared scene's rows
+    # (CircleLmScene) as a row problem, with its analytic Jacobian
     struct _CircleRows <: VgtkCore.AbstractRowProblem{3}
-        pts::Vector{SVector{2, Float64}}
+        lm::CircleLm
     end
-    VgtkCore.chart_size(f::_CircleRows) = (length(f.pts), Val(3))
-    function VgtkCore.residual_rows!(r, f::_CircleRows, x)
-        c = SVector(1.0 + x[1], -2.0 + x[2]); ρ = 3.0 + x[3]
-        for (i, p) in enumerate(f.pts)
-            r[i] = norm(p - c) - ρ
-        end
-        return r
-    end
+    VgtkCore.chart_size(f::_CircleRows) = (length(f.lm.pts), Val(3))
+    VgtkCore.residual_rows!(r, f::_CircleRows, x) = VgtkCore.residual_rows!(r, f.lm, x)
     function VgtkCore.residual_jacobian_rows!(J, f::_CircleRows, x)
         c = SVector(1.0 + x[1], -2.0 + x[2])
-        for (i, p) in enumerate(f.pts)
+        for (i, p) in enumerate(f.lm.pts)
             u = (p - c) / norm(p - c)
             J[i, 1] = -u[1]; J[i, 2] = -u[2]; J[i, 3] = -1.0
         end
         return J
     end
-    pts = [SVector(1.5 + 2.5cos(t), -1.8 + 2.5sin(t)) for t in range(0, 2π; length = 13)[1:12]]
-    r = solve(RefineProblem(_CircleRows(pts), zero(SVector{3, Float64})), LevenbergMarquardt())
+    pts = circle_points()
+    r = solve(RefineProblem(_CircleRows(CircleLm(pts)), zero(SVector{3, Float64})), LevenbergMarquardt())
     @test VgtkCore.successful_retcode(r) && r.metadata.stationary() === true && r.metadata.cost < 1.0e-20
     @test r.metadata.stationary() === VgtkCore.is_stationary(VgtkCore._ManifoldLmWorkspace(length(pts), Val(3)),
-                                                             _CircleRows(pts), r.u, VgtkCore.LmStops())
+                                                             _CircleRows(CircleLm(pts)), r.u, VgtkCore.LmStops())
     # the same circle as a chart problem whose chart is the guess's own size: only `chart_size(f, u0)` is stated
     struct _GuessSized <: VgtkCore.AbstractChartProblem
         pts::Vector{SVector{2, Float64}}
@@ -210,7 +205,7 @@ end
     VgtkCore.model_type(::_GuessSized) = SVector{3, Float64}
     VgtkCore.chart_size(f::_GuessSized, u0::SVector{N}) where {N} = (length(f.pts), Val(N))
     VgtkCore.model_chart(::_GuessSized, θ) = EuclideanManifold(SVector{3, Float64}(θ))
-    VgtkCore.chart_rows(f::_GuessSized, ch, _sqrtw) = _GuessRows(_CircleRows(f.pts), VgtkCore.model(ch) - SVector(1.0, -2.0, 3.0))
+    VgtkCore.chart_rows(f::_GuessSized, ch, _sqrtw) = _GuessRows(_CircleRows(CircleLm(f.pts)), VgtkCore.model(ch) - SVector(1.0, -2.0, 3.0))
     VgtkCore.chart_model(::_GuessSized, ch) = VgtkCore.model(ch)
     VgtkCore.residual_rows!(r, s::_GuessRows, x) = VgtkCore.residual_rows!(r, s.f, s.at + x)
     VgtkCore.residual_jacobian_rows!(J, s::_GuessRows, x) = VgtkCore.residual_jacobian_rows!(J, s.f, s.at + x)

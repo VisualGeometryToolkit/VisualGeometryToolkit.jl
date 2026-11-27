@@ -696,8 +696,9 @@ const RETIRED_NAMES = String[
     "Truncated" * "Refit",                   # LODR: `solve(RefineProblem(cs, cheiral_pose_fast(E, problem.cs; vote_points), (; K1, K2)), LevenbergMarquardt(PoseLibSolver(); …); stops, width)`
     "RADIAL" * "_CHARTS",                    # VRTK: `RADIAL_CHART_TAGS`
     # VRTK 0.2.0's non-math alias names, each its function's (VRTK CHANGELOG 0.2.0). The papers' math symbols (𝔭, 𝔣, t̂,
-    # 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹) are NOT retired: legitimate notation in prose, docstrings and field names (lead ruling).
-    "𝐩" * "_of_pixel", "pixel" * "_of_𝐩", "ℐ" * "_𝐮", "𝐩" * "_sample", "𝐚" * "_sample", "𝐚" * "_weight", "𝐚" * "_border",
+    # 𝔱, 𝛂, 𝛈, ρ_c, 𝔟, π̂⁻¹, the footprint ℐ_𝐮) are NOT retired: legitimate notation in prose, docstrings and field names
+    # (lead ruling).
+    "𝐩" * "_of_pixel", "pixel" * "_of_𝐩", "𝐩" * "_sample", "𝐚" * "_sample", "𝐚" * "_weight", "𝐚" * "_border",
     "Θ_m" * "_nonlinear", "with" * "_μ", "Λ" * "_ggx",
     # VisualGeometryToolkitCore 0.14, the Phase 1A breaking set (the conformance audit's Core rows): no Symbol records,
     # no estimator outside `solve`, the workspace the mutated positional argument

@@ -141,6 +141,10 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
             r = call()
             @test r.retcode == VgtkCore.ReturnCode.InitialFailure && r.stop_rule == VgtkCore.NoRule
             @test r.stats.nsteps == 0 && r.n == 0 && r.u == guess
+            # no C call: `original` is the wrapper's output type, 0 iterations and the guess's buffers (column-major)
+            @test r.original.iterations === Cint(0)
+            @test hasproperty(r.original, :R) ? (r.original.R == vec(Matrix(r.u.R)) && r.original.t == r.u.t) :
+                  last(r.original) == vec(Matrix(r.u))
             VgtkCore.test_termination_record(r)
         end
         @test (poselib_refine(d.hom[1:0], HomographyMat(d.H0); max_iter = 25, optimization_strategy = nothing)).retcode == VgtkCore.ReturnCode.InitialFailure
@@ -160,8 +164,8 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         VgtkCore.test_termination_record(rp)
     end
 
-    # Inferred: a FitResult (a refine on too few data returns the guess with no C call, its `original` `nothing`, so a
-    # solve infers to the small Union of the two results, never Any)
+    # Inferred: ONE FitResult type (a refine on too few data returns the guess with no C call, its `original` of the
+    # call's type: 0 iterations and the guess's buffers)
     @testset "inferred" begin
         for lo in (Irls{TLSShape}(), Irls{HuberShape}(), LeZach(), nothing)
             kw = lo === nothing ? (;) : (; width = 2.0)
@@ -174,6 +178,13 @@ const _CODIM = (relpose_cam = 1, relpose_bearing = 1, fundamental = 1, homograph
         @test (@inferred FitResult poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0)) isa FitResult
         @test (@inferred noise_scale(poselib_refine(d.hom, HomographyMat(d.H0); max_iter = 25, optimization_strategy = Irls{CauchyShape}(), scale = 1.0))) === 1.0
         @test (@inferred PoseLibRefineMetadata(1.0, ScaleGiven, 2.0)) isa PoseLibRefineMetadata
+        # the solve itself is ONE concrete type (the unrefined path's `original` is the call's), and Core's check of
+        # the stops PoseLib honours allocates nothing when it refuses nothing
+        lsq = LevenbergMarquardt(PoseLibSolver(); optimization_strategy = nothing)
+        @test (@inferred solve(RefineProblem(d.hom, HomographyMat(d.H0)), lsq; stops = LmStops(; max_iter = 25))) isa FitResult
+        chk(stops) = VgtkCore.check_honored_stops(PoseLibSolver(), stops)
+        st = LmStops(; max_iter = 25); chk(st)
+        @test (@allocations chk(st)) == 0
     end
 
     msg(f) = try f(); "" catch e; sprint(showerror, e) end

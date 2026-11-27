@@ -109,8 +109,9 @@ Every refine returns a VisualGeometryToolkitCore `FitResult`, read by field:
   no residuals);
 - `result.original`, the C wrapper's raw output: its return value, PoseLib's
   iteration count (`BundleStats.iterations`), and the output buffers as PoseLib
-  wrote them, column-major (`H` or `F`; a pose's `R` and `t`). It is `nothing`
-  when PoseLib was not called;
+  wrote them, column-major (`H` or `F`; a pose's `R` and `t`). When PoseLib
+  was not called it holds 0 iterations and the guess's buffers, so a refine's
+  result has one type whatever the data;
 - `result.prob` and `result.alg`, the problem and the algorithm solved;
 - the scale record in its metadata ([`PoseLibRefineMetadata`](@ref PoseLib.PoseLibRefineMetadata)):
   the scale it was given and its source, read by `noise_scale(result)` and

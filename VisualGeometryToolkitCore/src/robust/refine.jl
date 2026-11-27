@@ -523,7 +523,7 @@ function _refine_pipeline(f, spec::NamedTuple, θ₀, stops::LmStops, damping::L
     n = data_size(f)
     r = Vector{Float64}(undef, n)
     mahalanobis_distances!(r, f, θ̂)
-    sq = [abs2(x) for x in r]
+    sq = MappedColumn(abs2, r)   # the squared distances, read lazily (no buffer of their own)
     w = _refine_weights(spec.strategy, spec, sq)
     support, rms = weighted_support_rms(w, sq)   # n the support, rms weighted
     rs = _mad_scale_norms(; norms = r, codimension = codimension(f))   # the residual norms (mahalanobis_distances!)
@@ -662,8 +662,10 @@ and every field of `stops` that differs from `LmStops()` (the configuration of r
 function check_honored_stops(backend::AbstractSolverBackend, stops::LmStops)
     honored = honored_stops(backend)
     d = LmStops()
-    bad = Symbol[k for k in fieldnames(LmStops) if !(k in honored) && getfield(stops, k) != getfield(d, k)]
-    isempty(bad) && return nothing
+    # per field, unrolled over the field indices (each read at a constant index): a call that refuses nothing allocates nothing
+    off = ntuple(i -> !(fieldname(LmStops, i) in honored) && getfield(stops, i) != getfield(d, i), Val(fieldcount(LmStops)))
+    any(off) || return nothing
+    bad = [fieldname(LmStops, i) for i in 1:fieldcount(LmStops) if off[i]]
     throw(ArgumentError(string(nameof(typeof(backend)), " honours only ", join(honored, ", "), " of LmStops; ",
         "the stops also set ", join(bad, ", "))))
 end
@@ -928,9 +930,14 @@ __solve(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{Nat
 __init(prob::RefineProblem{<:AbstractChartProblem}, alg::LevenbergMarquardt{NativeSolver}; kwargs...) =
     _chart_problem_cache(prob, alg, false; kwargs...)
 function solve!(c::_ChartProblemCache)
+    θ = guess_model(c.f, c.u0)
+    return _chart_problem_solve(c, θ, model_chart(c.f, θ))
+end
+# A function barrier at the chart: a family may decide its chart's type at run time (the camera regression's, by its
+# moving parameters), so the solve at it runs specialized on it — the record's NamedTuple and its `stationary` closure
+# typed at compile time, none built per call.
+function _chart_problem_solve(c::_ChartProblemCache, θ, ch)
     f, ews, stops = c.f, c.ews, c.stops
-    θ = guess_model(f, c.u0)
-    ch = model_chart(f, θ)
     fill!(sqrt_weights(ews), 1.0)
     lm = chart_rows(f, ch, sqrt_weights(ews))
     r = _chart_problem_lm(ews, lm, stops, c.damping, c.callback)

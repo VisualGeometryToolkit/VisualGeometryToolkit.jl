@@ -584,10 +584,16 @@ _returned_pose(pose::PlainEuclideanMap{3}) = _plain_pose(SMatrix{3, 3, Float64, 
 
 # Fewer correspondences than the model's minimal sample (`solver`'s `sample_size`): nothing to refine.
 _fewer_than_sample(cs, solver) = length(cs) < VgtkCore.sample_size(solver)
-# The guess `model`, unrefined: `(InitialFailure, NoRule)` after 0 iterations and `n = 0` (no C call: `original` is
-# `nothing`), as VisualGeometryToolkitCore's LevenbergMarquardt reports it.
-_unrefined(model, meta::PoseLibRefineMetadata) =
-    FitResult(model, VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, SolveStats(), NaN, 0, meta)
+# The guess `model`, unrefined: `(InitialFailure, NoRule)` after 0 iterations and `n = 0`, as VisualGeometryToolkitCore's
+# LevenbergMarquardt reports it. No C call: `original` is the wrapper's output of the same type as a call's, 0 iterations
+# and the guess's buffers (what PoseLib would have been handed), so a refine's result has ONE type whatever the data.
+_unrefined(model, original, meta::PoseLibRefineMetadata) =
+    FitResult(model, VgtkCore.ReturnCode.InitialFailure, VgtkCore.NoRule, SolveStats(), NaN, 0, meta; original)
+# A pose guess unrefined: the returned pose type, its buffers `(; iterations, R, t)` as `_pose_result` reads a call's.
+function _unrefined_pose(pose, meta::PoseLibRefineMetadata)
+    P = _returned_pose(pose)
+    return _unrefined(P, (; iterations = Cint(0), R = SVector{9, Float64}(Tuple(P.R)), t = SVector{3, Float64}(P.t)), meta)
+end
 
 # The guess's and K's 3×3 check: an `ArgumentError` naming the size it got, run before the matrix is read into the
 # ccall's buffer.
@@ -727,7 +733,8 @@ raw output, its return value (PoseLib's `BundleStats.iterations`) and the output
 buffers as written, column-major (`H` or `F`; a pose's `R` and `t`). Fewer
 correspondences than the model's minimal sample (4, 7, 5, 3) return the guess
 unrefined, `(InitialFailure, NoRule)`, `n = 0`, without calling PoseLib
-(`original` `nothing`). A refine ends in the local minimum its guess leads to.
+(`original` then holds 0 iterations and the guess's buffers, so the result has
+one type whatever the data). A refine ends in the local minimum its guess leads to.
 
 # Refused forms
 
@@ -765,7 +772,8 @@ for (M, solver, cfun, d, out) in ((:HomographyMat, :Homography4pt, :poselib_refi
                                               alg::LevenbergMarquardt; stops::LmStops, scale, width)
         w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, $d)
         max_iter = _poselib_max_iter(stops)
-        _fewer_than_sample(cs, $solver(PoseLibSolver())) && return _unrefined($M{Float64}(Tuple(_Mat33(G))), meta)
+        _fewer_than_sample(cs, $solver(PoseLibSolver())) && return _unrefined($M{Float64}(Tuple(_Mat33(G))),
+            NamedTuple{(:iterations, $(QuoteNode(out)))}((Cint(0), SVector{9, Float64}(Tuple(_Mat33(G))))), meta)
         X = _pack(cs)
         G_out = MVector{9, Float64}(undef)
         _require_library()
@@ -783,7 +791,7 @@ function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3},
     w, meta = _deployed_width(_check_poselib_alg(alg), scale, width, 1)
     max_iter = _poselib_max_iter(stops)
     (; K1, K2) = VgtkCore.read_context(p, (:K1, :K2), (;), _WHO_RELPOSE)
-    _fewer_than_sample(cs, Essential5pt(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    _fewer_than_sample(cs, Essential5pt(PoseLibSolver())) && return _unrefined_pose(pose, meta)
     X = _pack(cs)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
@@ -808,7 +816,7 @@ function VgtkCore.lm_backend_refine(::PoseLibSolver, pose::PlainEuclideanMap{3},
     # 3-vector clothing and the 90° exclusion would survive, just invisibly.
     VgtkCore.assert_unit_bearings(sources(cs), "source", "a relative pose on bearings"; remedy = _BEARING_REMEDY)
     VgtkCore.assert_unit_bearings(targets(cs), "target", "a relative pose on bearings"; remedy = _BEARING_REMEDY)
-    _fewer_than_sample(cs, Essential5pt(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    _fewer_than_sample(cs, Essential5pt(PoseLibSolver())) && return _unrefined_pose(pose, meta)
     D = _pack(cs); J = _pack_tangent(cs.M₁, cs.M₂); n = length(cs)
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()
@@ -846,7 +854,7 @@ function _absolute_pose(pose, cs, p, alg, stops::LmStops, scale, width, world::W
     max_iter = _poselib_max_iter(stops)
     (; K) = VgtkCore.read_context(p, (:K,), (;), _WHO_ABSPOSE)
     _require_3x3(K, "K")
-    _fewer_than_sample(cs, P3P(PoseLibSolver())) && return _unrefined(_returned_pose(pose), meta)
+    _fewer_than_sample(cs, P3P(PoseLibSolver())) && return _unrefined_pose(pose, meta)
     X = _pack(cs, world)             # the world points, then the image points
     R_out = MVector{9, Float64}(undef); t_out = MVector{3, Float64}(undef)
     _require_library()

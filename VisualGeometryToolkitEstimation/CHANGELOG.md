@@ -14,6 +14,13 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
   Vec3(t))`. Bit-identical.
 
 ### On Core 0.14's breaking set (R22: one front end; the bundles on the block contract)
+- **Hot paths allocate less and infer (2026-11-27, bits `===`).** `HomographyProblem(cs)` (and `FundMatProblem`,
+  `EssentialProblem`) without observation maps is ONE concrete type: no map given is the identity decided by the types,
+  not a run-time test of default identity matrices (a refine built in place now infers; its boxed problem is gone).
+  The relative-pose bundle's block contract allocates nothing per point: `block_variables` states the N + 1 variables
+  into the task's one vector, `residual_blocks` is a lazy view of the call's data (Core copies both into its kept
+  problem), so a one-shot `RelativePoseProblem` refine allocates 1.4 KB at N = 1000 (was 178 KB; 10 allocations,
+  was 15); its test bounds the bytes per point.
 - **The local optimization's refits run through Core's front end.** A chart problem's refit workspace is a
   `RefitSlot` (`refit_workspace(problem)`): Core's summary-free refine cache, `init(RefineProblem(p, zero(M)),
   LevenbergMarquardt(; optimization_strategy = nothing); weights, summary = nothing)`, re-pointed per refit by

@@ -72,6 +72,8 @@ VgtkCore.external_refit!(ws, ::_ExternalArm, _problem, θ, ::VgtkCore.LossWidth,
         @test data_size(p) == 4
         @test model_type(p) == HomographyMat{Float64}
         @test p isa HomographyProblem{Float64}
+        # without maps the problem is ONE concrete type, decided by the types (no run-time identity test of the maps)
+        @test (@inferred HomographyProblem(correspondences(src, dst))) isa HomographyProblem{Float64}
 
         # Too few correspondences
         # fewer than a minimal sample is a problem too: its solve is the no-model result, not a refusal at construction

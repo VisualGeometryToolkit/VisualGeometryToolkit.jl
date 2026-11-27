@@ -226,16 +226,24 @@ end
     # Julia 1.13 (the untyped cache: 31 / 34 / 34); 19 / 20 / 20 since the
     # callback keyword is specialized (the call into the run no longer boxes
     # its arguments). Flat is asserted directly (max − min ≤ 4), the bound
-    # kept as the ceiling.
+    # kept as the ceiling. The BYTES are bounded too (2026-11-27): a call
+    # states its N + 1 variables into the task's one vector and reads its
+    # blocks lazily, so only the LM's bit masks grow with N (about N/8 bytes:
+    # 1296 / 1408 / 2608 B at N = 100 / 1000 / 10000, 10 allocations each;
+    # 177 B per point before, from fresh per-point vectors on every call).
     ALLOCS_BOUND = 28
-    counts = map((100, 1000, 10000)) do N
+    BYTES_PER_POINT_BOUND = 1.0
+    sizes = (100, 1000, 10000)
+    counts_bytes = map(sizes) do N
         R0, t0, u1, u2 = harness_scene(N)
         cs = correspondences(u1, u2); seed = rigid(R0, t0)
         relative_pose(seed, KP1, KP2, cs)
-        Base.@allocations relative_pose(seed, KP1, KP2, cs)
+        (Base.@allocations(relative_pose(seed, KP1, KP2, cs)), Base.@allocated(relative_pose(seed, KP1, KP2, cs)))
     end
+    counts = first.(counts_bytes); bytes = last.(counts_bytes)
     @test all(<=(ALLOCS_BOUND), counts)
     @test maximum(counts) - minimum(counts) <= 4     # flat in N
+    @test (bytes[end] - bytes[1]) / (last(sizes) - first(sizes)) <= BYTES_PER_POINT_BOUND   # bytes per point, not per call
 end
 
 @testset "RelposeBundle: one kept problem per task, whatever the sizes, holding no caller array" begin

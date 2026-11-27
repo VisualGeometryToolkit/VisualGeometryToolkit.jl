@@ -282,6 +282,14 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   so a solver outside Core (PanoramaStitching's bisection) reads the one rule instead of restating it.
 
 ### Changed
+- **Hot-path allocations and inference (2026-11-27; bits `===`, spec §9).** `check_honored_stops` allocates nothing on
+  a call that refuses nothing (the fields compared as a tuple; the refused fields listed only on the throw). The chart-problem
+  refine (`AbstractChartProblem`) solves behind a function barrier at its chart, so a chart whose type is decided at run
+  time (the camera regression's) builds no record type per call. The robustified chart LM no longer boxes its state
+  (a closure name shadowed the body's). The constraint-problem refine reads its squared distances lazily
+  (`MappedColumn`), one buffer fewer. Measured (one thread): `RefineProblem` of a homography by
+  `LevenbergMarquardt` 20 → 14 allocations, `@inferred`; by its `Triggs` 30 → 16, `@inferred`; PoseLib's refine 28 → 2,
+  `@inferred`; the camera regression refine 233 → 139.
 - **Breaking: the Phase 1A breaking set (the conformance audit's Core rows).**
   - The block-coordinate stop contract records the enums (C8): `stop_reason(criterion, state, method, prob, θ, θ_old,
     iter)` returns `(ReturnCode.T, StopRule)`, `CONTINUE = (ReturnCode.Default, NoRule)` while a run goes on, and

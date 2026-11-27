@@ -1048,10 +1048,11 @@ function _lmsolve_chart!(
     B = _DatumRows{N, C, S}
     R = _chart_problem_type(NLLSsolver.NLLSProblem{SVector{N, Float64}, B}, B, damping)
     run = _kept_run(ews, R) do
-        state = S(lm, robustifier, zero(SVector{N, Float64}), false, false, ews.r, ews.J)
+        # (`st`, not `state`: a name shared with the body below would be captured, boxed, on every call)
+        st = S(lm, robustifier, zero(SVector{N, Float64}), false, false, ews.r, ews.J)
         problem = NLLSsolver.NLLSProblem(SVector{N, Float64}, B)
         NLLSsolver.addvariable!(problem, zero(SVector{N, Float64}))
-        blocks = [B(state, i) for i in 1:(rows ÷ C)]
+        blocks = [B(st, i) for i in 1:(rows ÷ C)]
         foreach(b -> NLLSsolver.addcost!(problem, b), blocks)
         _chart_lm_problem(R, problem, blocks, damping)
     end

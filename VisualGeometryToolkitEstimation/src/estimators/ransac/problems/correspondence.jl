@@ -316,8 +316,9 @@ _model_frames(::Type{<:HomographyMat}) = (ImageFrame{:src}, ImageFrame{:dst})
 @inline _observation_map(::Type{T}, m::HomographyMap{3}) where {T} = HomographyMap{3, T}(m)
 @inline _observation_map(::Type{T}, m::StaticArrays.StaticMatrix{3, 3}) where {T} =
     HomographyMap(SMatrix{3, 3, T, 9}(m))
-# The identity map a problem without an observation frame carries.
+# The identity map a problem without an observation frame carries (`nothing`: no map given).
 @inline _identity_map(::Type{T}) where {T} = _observation_map(T, SMatrix{3, 3, T, 9}(I))
+@inline _observation_map(::Type{T}, ::Nothing) where {T} = _identity_map(T)
 
 # Model → observation-frame boundary for the epipolar family, as VGC's CHECKED
 # frame law, composition: the data-frame form is `inv(C₂) ∘ M ∘ C₁` (C the
@@ -507,8 +508,8 @@ function _make_minimal_problem(
         ::Type{M}, ::Val{K}, pairs;
         sampler::Union{Nothing, AbstractSampler} = nothing,
         backend::AbstractSolverBackend = NativeSolver(),
-        src_map::Union{StaticArrays.StaticMatrix{3, 3}, HomographyMap{3}} = SMatrix{3, 3, Float64, 9}(I),
-        dst_map::Union{StaticArrays.StaticMatrix{3, 3}, HomographyMap{3}} = SMatrix{3, 3, Float64, 9}(I),
+        src_map::Union{Nothing, StaticArrays.StaticMatrix{3, 3}, HomographyMap{3}} = nothing,   # `nothing`: the identity
+        dst_map::Union{Nothing, StaticArrays.StaticMatrix{3, 3}, HomographyMap{3}} = nothing,
         model_frames = nothing,
         coincident_tol::Union{Nothing, Real} = nothing
     ) where {M, K}
@@ -533,7 +534,9 @@ function _make_minimal_problem(
     # DLT refit reads the same view.
     sm_h = _observation_map(T, src_map); dm_h = _observation_map(T, dst_map)
     _check_observation_frames(M, sm_h, dm_h, model_frames)
-    cs_solve = _solve_view(M, cs, to_homogeneous(sm_h), to_homogeneous(dm_h))
+    # no map given: the solve view is `cs` itself, decided by the types (the problem's type does not wait on a run-time
+    # identity test of the default maps)
+    cs_solve = src_map === nothing && dst_map === nothing ? cs : _solve_view(M, cs, to_homogeneous(sm_h), to_homogeneous(dm_h))
     normalization = _needs_normalization(M) ? CorrespondenceNormalization(M, cs_solve) : nothing
     cs_hartley = normalization === nothing ? nothing : LinearAlgebra.normalize(normalization, cs_solve)
     return MinimalSolveProblem{M{T}, K}(cs, cs_hartley, cs_solve, normalization, slv, nothing, smplr, sm_h, dm_h;

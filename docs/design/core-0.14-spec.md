@@ -1087,3 +1087,31 @@ These are done in Core 0.14, each with its own commit:
   2894.4 ms (+3.1 %); the first solve 6464.4 → 717.7 ms (9.0× faster, a refine) and 6768.8 → 2140.6 ms (3.2× faster, a
   RANSAC). Accepted: the visible total from `using` to the first result falls from 9.3 s to 3.6 s (refine) and from
   9.6 s to 5.0 s (ransac). The cause of the +38 ms on the Estimation load is not yet measured.
+- 2026-11-27 (perf fixes after the whole-branch benchmark gate, cluster job 12045; bits `===`, the golden replay 5086 /
+  5086 in both package-image modes). Measured locally (one thread, `taskset`, `bench014/new.jl`, one call: allocations /
+  bytes / `@inferred`, before → after):
+  - `refine_l2` 20 / 14 864 / no → 14 / 11 376 / yes; `refine_triggs` 30 / 18 496 / no → 16 / 12 416 / yes. The cause
+    was not the solve: `HomographyProblem(cs)` was a `Union` of two problem types (its solve view decided by a run-time
+    identity test of the DEFAULT maps), so the caller's problem, recorded as given (§2), was a `Union` too. No map given
+    is now the identity decided by the types (`src_map = dst_map = nothing` inside `_make_minimal_problem`; an explicit
+    identity map keeps the run-time test). The robustified chart LM boxed its state (a closure local named as the
+    body's `state`, a `Core.Box`): renamed. The constraint refine's squared distances are a lazy `MappedColumn`, one
+    buffer fewer. `loss_weights` is the result's weights (kept).
+  - `poselib_refine` 28 / 5 240 / no → 2 / 3 880 / yes: `check_honored_stops` compares the fields as a tuple (unrolled,
+    constant indices) and lists the refused ones only on the throw; PoseLib's unrefined result (below the minimal
+    sample) carries an `original` of the call's type (0 iterations, the guess's buffers), so the result is one type.
+  - `camreg_kb4` 233 / 81 600 → 139 / 70 816 (OLD 102 / 65 728): the chart-problem `solve!` runs behind a function
+    barrier at its chart (`_chart_problem_solve`), so the record NamedTuple and the `stationary` closure are typed at
+    compile time (the 22 SimpleVector, 11 DataType and 30 UnionAll per call are gone, and the intermediate record no
+    longer allocates); the `chart_result` contract is unchanged. The rest is the camera regression's chart, whose
+    type is decided at run time by its moving parameters (Estimation; as on OLD), and its cache, sized by a run-time
+    `Val`.
+  - `relpose_N1000` (one-shot `RelativePoseProblem`, the A3 kept problem) 15 / 178 672 → 10 / 1 408; bytes at N = 100
+    / 1000 / 10000: 19 264 / 178 672 / 1 772 896 → 1 296 / 1 408 / 2 608 (about 0.13 B per point, the LM's bit masks;
+    OLD about 8). The bundle states its variables into the task's one vector (`task_buffers`) and its blocks as a lazy
+    `MappedColumn` of the call's data; Core copies both into the kept problem (`_reseed_block_lm!`, unchanged: every
+    check before the first write), so the block contract stays generic. The test bounds bytes per point (≤ 1 B).
+  - LO-RANSAC, the IRLS/BCD and posterior-BCD local optimizations and `EnsembleProblem` are unchanged here and still
+    above OLD in bytes (and `lo_irls_msac`, `ensemble_10k` in allocations): open under ruling (b), fixed in a follow-up. Typing the RANSAC workspace's sample size at compile time
+    (`@constprop` on `RansacWorkspace(n, k, …)`) made `lo_ransac` infer but boxed every trial's closure (189 → 789
+    allocations: inference meets the LO's nested `solve` recursion), so it was not taken.

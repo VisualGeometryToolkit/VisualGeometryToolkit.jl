@@ -36,8 +36,9 @@ No refined number changes: the golden records of 3d8a06da replay bit for bit (`c
   translation (`EuclideanMap(RotMatrix{3}(R), Vec3(t))` builds one).
 - **The result** is read by field: `r.u` (was `estimate(r)`), `r.retcode`, `r.stop_rule`, `r.stats.nsteps` (was
   `iterations(r)`), `r.metadata.width`; `r.original` is new: the C wrapper's raw output (PoseLib's iteration count
-  and its output buffers), `nothing` below the minimal sample (no call). `r.prob` and `r.alg` record the solve. A
-  refine on too few data and one that ran infer to a small `Union` of two `FitResult`s (their `original` types).
+  and its output buffers); below the minimal sample (no call) it has the same type, 0 iterations and the guess's
+  buffers, so a refine's result is ONE concrete `FitResult` whatever the data (`@inferred`; until 2026-11-27 it was
+  `nothing` there and the result a `Union` of two). `r.prob` and `r.alg` record the solve.
 - **The eight-point essential matrix** is `solve(EstimationProblem(EssentialMat, cs), DLT(PoseLibSolver()))` (a
   `FitResult`, `u` the matrix or `nothing`); `essential_dlt(cs)` and `essential_dlt(PoseLibSolver(), cs)` are
   deleted. PoseLib implements VisualGeometryToolkitCore's contract generic `essential_8pt(::PoseLibSolver, cs)`;

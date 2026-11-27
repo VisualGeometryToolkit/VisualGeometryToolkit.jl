@@ -81,6 +81,8 @@ const _POSE_DOF = 5
 # NLLSsolver's sparse LDL over every unknown — which an NLLSsolver without #60
 # takes and the fallback test forces.
 const _BundlePoint{E} = Eliminable{E, SVector{3, Float64}}
+# A bundle variable: the pose's chart or a point.
+const _BundleVariable{E} = Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}
 
 # The data of the current call — the calibrations, the two views and the
 # √weights — shared by every residual block. The run OWNS the three vectors
@@ -118,7 +120,7 @@ function NLLSsolver.computeresidual(r::_BundleRows, pose::VgtkCore.EssentialMani
     return d.sqrtw[i] * _reprojection_error(d.K1, d.K2, R, t, p.value, d.u1[i], d.u2[i])
 end
 # The block's cost as the LM reads it: non-finite is +Inf (`finite_cost`).
-NLLSsolver.computecost(vars::Vector{Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}}, r::_BundleRows{E}) where {E} =
+NLLSsolver.computecost(vars::Vector{_BundleVariable{E}}, r::_BundleRows{E}) where {E} =
     finite_cost(NLLSsolver.computecost(r, NLLSsolver.getvars(r, vars)...))
 # The closed-form 4 × 8 Jacobian, pose columns (VGC's `pose_action_jacobian`
 # at the variable's own anchor, the derivative of its `update`) then point
@@ -174,10 +176,15 @@ default_stops(::_RelposeRun) = _RELPOSE_BUNDLE_STOPS
 default_optimization_strategy(::_RelposeRun) = nothing
 residual_summary(::_RelposeRun) = nothing
 block_result(::_RelposeRun, _u0, r::FitResult, _summary) = r
+# The variables are stated into the task's ONE vector of the point type (resized to the call, grown only for more
+# points), and the blocks are a lazy view of the call's data: a call allocates nothing per point. Core copies both into
+# its problem before it solves (the kept problem re-seeded in place, or a new one built), so the vector is the
+# statement's, valid until the task's next bundle states its variables.
 function block_variables(f::_RelposeRun{E}, (Rb, tb, iK1, iK2)) where {E}
     d = f.data
     N = length(d.u1)
-    vars = Vector{Union{VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}, _BundlePoint{E}}}(undef, N + 1)
+    vars = task_buffers(Vector{_BundleVariable{E}}, () -> _BundleVariable{E}[], ())
+    length(vars) == N + 1 || resize!(vars, N + 1)
     vars[1] = EssentialManifold5(Rb, tb)::VgtkCore.EssentialManifold{VgtkCore.S2TangentT{Float64}, Float64}
     @inbounds for i in 1:N
         X = _triangulate_rays(iK1, iK2, d.u1[i], d.u2[i], Rb, tb)
@@ -185,7 +192,8 @@ function block_variables(f::_RelposeRun{E}, (Rb, tb, iK1, iK2)) where {E}
     end
     return vars
 end
-residual_blocks(f::_RelposeRun{E, D}, _u0) where {E, D} = [_BundleRows{E, D}(f.data, i, SVector(1, i + 1)) for i in eachindex(f.data.u1)]
+residual_blocks(f::_RelposeRun{E, D}, _u0) where {E, D} =
+    VgtkCore.MappedColumn(i -> _BundleRows{E, D}(f.data, i, SVector(1, i + 1)), eachindex(f.data.u1))
 # The task's slot for its one run of point type `E`.
 mutable struct _BundleSlot{E}
     run::Union{Nothing, _BundleRun{E, _BundleData{Vector{SVector{2, Float64}}, Vector{SVector{2, Float64}}, Vector{Float64}}}}

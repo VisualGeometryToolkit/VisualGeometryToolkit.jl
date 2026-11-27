@@ -403,7 +403,7 @@ function block_result(f::RelativePoseProblem, _pose, r::FitResult, _summary)
     (all(isfinite, R) && all(isfinite, t)) ||
         return FitResult{U}(nothing, ReturnCode.Failure, NonFinite, SolveStats(), NaN, N, nothing)
     return FitResult{U}(EuclideanMap(RotMatrix{3, Float64}(R), t; check = false), r.retcode, r.stop_rule,
-                        SolveStats(; nsteps = r.stats.nsteps), sqrt(r.metadata.cost / N), N, nothing)
+                        SolveStats(; nsteps = r.stats.nsteps), sqrt(r.metadata.objective / N), N, nothing)
 end
 
 # -----------------------------------------------------------------------------
@@ -411,7 +411,7 @@ end
 # intrinsics K₁,K₂ and their inverses + image points u₁,u₂ (in the K frame) +
 # per-point √weights → `(; R, t, sol)`: the refined (R, t) (‖t‖=1) and Core's
 # solve record `sol`, a FitResult read by field (`sol.retcode`, `sol.stop_rule`, `sol.stats.nsteps`, and the LM
-# metadata's cost field, the minimized objective) — Core's LM: its one success rule, a tolerance stop converged and the
+# metadata's `objective`, the minimized cost) — Core's LM: its one success rule, a tolerance stop converged and the
 # rejection cap judged by the stationarity postcondition; a stalled bundle's pose is still scored by the caller, the LO's
 # acceptance, as a converged one is. `nothing` on failure: a singular system (Core's `Failure`) or a
 # non-finite pose. Positional and

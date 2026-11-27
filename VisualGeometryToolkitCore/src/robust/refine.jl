@@ -747,8 +747,8 @@ chart point `u0` (the zero chart, typically). Its author implements the row prot
 (`default_optimization_strategy(f) = nothing`); a `Triggs{K}` strategy robustifies per datum at
 [`codimension`](@ref)`(f)` rows, at the solve's `scale` or `width`.
 
-The result's `u` is the solution chart point (an `SVector{N}`), its record the LM's; `metadata = (; cost, stationary)`
-the final cost and `stationary()`, a call that runs the chart LM's stationarity postcondition on the plain rows at `u`
+The result's `u` is the solution chart point (an `SVector{N}`), its record the LM's; `metadata = (; objective, stationary)`
+the final objective (the minimized cost) and `stationary()`, a call that runs the chart LM's stationarity postcondition on the plain rows at `u`
 ([`is_stationary`](@ref); the chart-problem refine's form); no residual summary (`rms` NaN, `n` 0).
 """
 abstract type AbstractRowProblem{N} end
@@ -762,7 +762,7 @@ units or labels) — without being a RANSAC constraint problem: its rows may be 
 state among them. Solved by `solve(RefineProblem(f, u0), LevenbergMarquardt(; damping); stops, callback)`: the chart at
 the guess, ONE chart LM from its origin, the model at the solution; the result assembled by its author's
 [`chart_result`](@ref). A chart of no coordinates (`chart_size` `(rows, Val(0))`: every parameter held) has nothing
-to solve: the model at the guess, `(Success, ClosedForm)`, no step, `cost` the rows' `‖r‖²` there, `stationary()` true.
+to solve: the model at the guess, `(Success, ClosedForm)`, no step, `objective` the rows' `‖r‖²` there, `stationary()` true.
 """
 abstract type AbstractChartProblem end
 
@@ -771,14 +771,14 @@ abstract type AbstractChartProblem end
 
 The result of a refine of the chart problem `f` from the guess `u0`, from the chart LM's: `r.u` the refined model (the
 caller's form, [`solution_model`](@ref); the guess when the solve went non-finite, `(Failure, NonFinite)`), `r`'s record
-and `stats.nsteps` the LM's, and `r.metadata = (; cost, chart, x, rows, stationary)`: the final `‖r‖²`, the chart and
+and `stats.nsteps` the LM's, and `r.metadata = (; objective, chart, x, rows, stationary)`: the final `‖r‖²` (the minimized objective), the chart and
 its solution point `x`, the row state the LM descended, and `stationary()`, a call that runs the chart LM's
 stationarity postcondition at `x` ([`is_stationary`](@ref)). A contract generic: the default returns `r` with its
-metadata `(; cost)`; a family returns its own (a residual summary, its validity gate).
+metadata `(; objective)`; a family returns its own (a residual summary, its validity gate).
 """
 function chart_result end
 chart_result(_f, _u0, r::FitResult) =
-    FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, (; cost = r.metadata.cost))
+    FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, (; objective = r.metadata.objective))
 
 default_optimization_strategy(::AbstractRowProblem) = nothing
 default_algorithm(::RefineProblem{<:AbstractRowProblem}) = LevenbergMarquardt()
@@ -892,7 +892,7 @@ function solve!(c::_RowRefineCache)
         _lmsolve_chart!(c.ews, c.f, k, Val(codimension(c.f)), c.stops, c.damping; callback = c.callback, u0 = c.u0)
     ews, f, x, stops = c.ews, c.f, r.u, c.stops
     stationary = () -> is_stationary(ews, f, x, stops)   # the chart-problem cache's form: the postcondition on demand
-    return FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, (; cost = r.metadata.cost, stationary))
+    return FitResult(r.u, r.retcode, r.stop_rule, r.stats, r.rms, r.n, (; objective = r.metadata.objective, stationary))
 end
 function reinit!(c::_RowRefineCache{F, N}, u0 = c.u0; f = c.f, p = NullParameters(), stops::LmStops = c.stops,
         alg = nothing, scale = nothing, width = nothing) where {F, N}
@@ -948,7 +948,7 @@ function _chart_problem_solve(c::_ChartProblemCache, θ, ch)
     code, rule = finite ? (r.retcode, r.stop_rule) : (ReturnCode.Failure, NonFinite)
     stationary = _chart_problem_stationary(ews, lm, x, stops)
     res = FitResult(solution_model(f, model, c.u0), code, rule, r.stats, NaN, 0,
-                    (; cost = r.metadata.cost, chart = ch, x, rows = lm, stationary))
+                    (; objective = r.metadata.objective, chart = ch, x, rows = lm, stationary))
     return chart_result(f, c.u0, res)
 end
 # The chart LM of a chart problem; a ZERO-dimensional chart (every parameter held: `chart_size` `(rows, Val(0))`) has
@@ -959,7 +959,7 @@ _chart_problem_lm(ews::_ManifoldLmWorkspace, lm, stops, damping, callback) =
 function _chart_problem_lm(ews::_ManifoldLmWorkspace{0}, lm, _stops, _damping, _callback)
     x = SVector{0, Float64}()
     return FitResult(x, ReturnCode.Success, ClosedForm, SolveStats(; nsteps = 0), NaN, 0,
-                     (; cost = 2 * residual_cost!(ews.r, lm, x)))
+                     (; objective = 2 * residual_cost!(ews.r, lm, x)))
 end
 _chart_problem_stationary(ews::_ManifoldLmWorkspace, lm, x, stops) = () -> is_stationary(ews, lm, x, stops)
 _chart_problem_stationary(::_ManifoldLmWorkspace{0}, _lm, _x, _stops) = () -> true
@@ -1229,7 +1229,7 @@ end
 # `stops`, the summary `f` asks for with `block_structure`'s `stated`, the author's result.
 function _block_solve(f, u0, loss, stops::LmStops, lp::_LmProblem, costs, callback, stated)
     r = stops.max_iter == 0 ?
-        FitResult(_prepare_evaluation!(f, lp).variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; cost = NaN)) :
+        FitResult(_prepare_evaluation!(f, lp).variables, ReturnCode.MaxIters, IterationCap, SolveStats(), NaN, 0, (; objective = NaN)) :
         _lmsolve_chart!(lp, stops, _nlls_callback(callback), f)
     return block_result(f, u0, r, _with_stated(_residual_summary(residual_summary(f), loss, costs, lp), stated))
 end

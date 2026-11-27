@@ -234,7 +234,7 @@ end
     end
     pts = circle_points()
     r = solve(RefineProblem(_CircleRows(CircleLm(pts)), zero(SVector{3, Float64})), LevenbergMarquardt())
-    @test VgtkCore.successful_retcode(r) && r.metadata.stationary() === true && r.metadata.cost < 1.0e-20
+    @test VgtkCore.successful_retcode(r) && r.metadata.stationary() === true && r.metadata.objective < 1.0e-20
     @test r.metadata.stationary() === VgtkCore.is_stationary(VgtkCore._ManifoldLmWorkspace(length(pts), Val(3)),
                                                              _CircleRows(CircleLm(pts)), r.u, VgtkCore.LmStops())
     # the same circle as a chart problem whose chart is the guess's own size: only `chart_size(f, u0)` is stated
@@ -444,7 +444,7 @@ end
     for r in (solve(RefineProblem(_HeldCircle(pts), θ), LevenbergMarquardt(; optimization_strategy = nothing)),
               solve!(init(RefineProblem(_HeldCircle(pts), θ), LevenbergMarquardt(; optimization_strategy = nothing))))
         @test r.u === θ && (r.retcode, r.stop_rule) === (ReturnCode.Success, ClosedForm) && r.stats.nsteps == 0
-        @test r.metadata.cost ≈ cost rtol = 1.0e-14
+        @test r.metadata.objective ≈ cost rtol = 1.0e-14
         @test r.metadata.stationary() === true && r.metadata.x === SVector{0, Float64}()
     end
 end

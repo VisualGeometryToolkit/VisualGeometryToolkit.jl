@@ -59,10 +59,10 @@ end
         y = [ptrue[1] * exp(ptrue[2] * si) + ptrue[3] * si + ptrue[4] + 1.0e-3 * sin(7k * si) for si in s]
         lm = _ExpFitLm(s, y, SVector(1.0, 0.0, 0.0, 0.0))
         _s = _lmsolve_chart!(ws, lm)
-        x1, F1, it1, r1 = _s.u, _s.metadata.cost, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
+        x1, F1, it1, r1 = _s.u, _s.metadata.objective, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
         k == 1 ? (run₁ = ws.run; @test(run₁ !== nothing)) : @test(ws.run === run₁)   # the run is reused
         _s = _lmsolve_chart!(_ManifoldLmWorkspace(length(s), 4), lm)
-        x2, F2, it2, r2 = _s.u, _s.metadata.cost, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
+        x2, F2, it2, r2 = _s.u, _s.metadata.objective, _s.stats.nsteps, (_s.retcode, _s.stop_rule)
         @test successful_retcode(r1[1]) && successful_retcode(r2[1])
         @test isapprox(x1, x2; rtol = 1.0e-10, atol = 1.0e-12)
         @test isapprox(F1, F2; rtol = 1.0e-10)
@@ -99,13 +99,13 @@ end
     @test !hasfield(LmStops, :damping)   # the stops carry no damping
     ws = _ManifoldLmWorkspace(length(s), 4)
     _s = _lmsolve_chart!(ws, lm)
-    xm, Fm, rm = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    xm, Fm, rm = _s.u, _s.metadata.objective, (_s.retcode, _s.stop_rule)
     _s = _lmsolve_chart!(ws, lm, LmStops(), VgtkCore.LevenbergDamping())
-    xl, Fl, rl = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    xl, Fl, rl = _s.u, _s.metadata.objective, (_s.retcode, _s.stop_rule)
     @test successful_retcode(rm[1]) && successful_retcode(rl[1])
     @test isapprox(xm, xl; rtol = 1.0e-8, atol = 1.0e-10) && isapprox(Fm, Fl; rtol = 1.0e-8, atol = 1.0e-20)
     _s = _lmsolve_chart!(ws, lm, LmStops(), VgtkCore.MarquardtDamping())   # back: Marquardt's run
-    xm2, Fm2 = _s.u, _s.metadata.cost
+    xm2, Fm2 = _s.u, _s.metadata.objective
     @test xm2 == xm && Fm2 == Fm
     levenberg = VgtkCore.LevenbergDamping()
     _refit_damped!(ws, lm, levenberg); _refit_damped!(ws, lm, levenberg)
@@ -164,7 +164,7 @@ end
     # FINITE step only), Stalled with the rule NonFinite, the point the wall's.
     lm_wall = _NaNBeyond(_ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0)))
     _s = _lmsolve_chart!(_ManifoldLmWorkspace(5, 4), lm_wall)
-    x, F, term = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    x, F, term = _s.u, _s.metadata.objective, (_s.retcode, _s.stop_rule)
     @test isfinite(F) && x[3] <= 0.25
     @test term === (VgtkCore.ReturnCode.Stalled, VgtkCore.NonFinite)
     @test !VgtkCore._lm_stationary(_ManifoldLmWorkspace(5, 4), lm_wall, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # off a stationary point
@@ -205,7 +205,7 @@ end
     s = collect(range(0.0, 2.0; length = 40))
     lm = _ExpFitLm(s, [100 * (1.5 * exp(-0.8 * si) + 0.3 * si + 0.2 + 0.05 * sin(7si)) for si in s], SVector(1.0, 0.0, 0.0, 0.0))
     _s = _lmsolve_chart!(_ManifoldLmWorkspace(length(s), 4), lm, LmStops(; ftol = 1 - 1.0e-6))
-    x, F, term = _s.u, _s.metadata.cost, (_s.retcode, _s.stop_rule)
+    x, F, term = _s.u, _s.metadata.objective, (_s.retcode, _s.stop_rule)
     @test term === (VgtkCore.ReturnCode.Success, VgtkCore.CostDecrease)
     @test !VgtkCore._lm_stationary(_ManifoldLmWorkspace(length(s), 4), lm, x, LmStops().stationarity_tol, VgtkCore._FinalRounding(0.0))   # not stationary there
     # the same fit at the stack's settings is a success at a stationary point
@@ -226,7 +226,7 @@ end
     # step at the wall does not throw.
     lm2 = _ExpFitLm([0.0, 1.0, 2.0, 3.0, 4.0], [1.0 + 2si for si in [0.0, 1.0, 2.0, 3.0, 4.0]], SVector(0.0, 0.0, 1.0, 1.0))   # optimum at c = 2: x[3] = 1, behind the wall
     _s = _lmsolve_chart!(_ManifoldLmWorkspace(5, 4), _NaNBeyond(lm2))
-    x, F = _s.u, _s.metadata.cost
+    x, F = _s.u, _s.metadata.objective
     @test isfinite(F) && x[3] <= 0.25
 end
 end
@@ -249,7 +249,7 @@ end
     k = loss_robustifier(WelschShape(), 0.1)
     ws = _ManifoldLmWorkspace(n, 3)
     _s = _lmsolve_chart!(ws, lm, k, Val(1))
-    x, F = _s.u, _s.metadata.cost
+    x, F = _s.u, _s.metadata.objective
     @test x ≈ SVector(0.5, 0.2, -0.5) atol = 1.0e-6
     @test ws.r == rows_at(x)
     @test F ≈ sum(r -> NLLSsolver.robustify(k, r^2), rows_at(x)) rtol = 1.0e-10
@@ -257,7 +257,7 @@ end
     run = ws.run
     @test run isa VgtkCore._LmProblem && length(run.blocks) == n
     _s = _lmsolve_chart!(ws, lm, k, Val(1))
-    x2, F2 = _s.u, _s.metadata.cost
+    x2, F2 = _s.u, _s.metadata.objective
     @test ws.run === run && x2 == x && F2 == F
     # the stall postcondition, taken directly on the run's data blocks: stationary, rows untouched
     tol, ftol = LmStops().stationarity_tol, LmStops().ftol
@@ -300,7 +300,7 @@ end
     sol = _lmsolve_chart!(p)                                     # returns, rather than spinning
     @test (sol.retcode, sol.stop_rule) === (ReturnCode.Failure, NonFinite)   # a failed solve (bit 12: the decoder's −3)
     @test sol.stats.nsteps <= 3
-    @test isfinite(sol.metadata.cost) && sol.metadata.cost < start_cost
+    @test isfinite(sol.metadata.objective) && sol.metadata.objective < start_cost
     @test p.variables[1] >= 1                                    # the accepted step is kept
 end
 
@@ -342,14 +342,14 @@ end
     @test sol.retcode === ReturnCode.Success
     @test p.variables[1] ≈ θ[1:2] atol = 1.0e-9
     @test p.variables[2][1] ≈ θ[3] atol = 1.0e-9
-    @test sol.metadata.cost ≈ sum(abs2, A * θ - [y; z]) rtol = 1.0e-8
+    @test sol.metadata.objective ≈ sum(abs2, A * θ - [y; z]) rtol = 1.0e-8
     # reused: the kept problem and cache, restarted in place, give the same bits; a callback sees every iteration
     x1 = copy(p.variables)
     p.variables[1] = SVector(0.0, 0.0); p.variables[2] = SVector(0.0)
     seen = Ref(0)
     sol2 = _lmsolve_chart!(p, LmStops(), (cost, args...) -> (seen[] += 1; (cost, 0)))
-    @test p.variables == x1 && (sol2.retcode, sol2.stop_rule, sol2.stats.nsteps, sol2.metadata.cost) ==
-          (sol.retcode, sol.stop_rule, sol.stats.nsteps, sol.metadata.cost) && seen[] >= 1
+    @test p.variables == x1 && (sol2.retcode, sol2.stop_rule, sol2.stats.nsteps, sol2.metadata.objective) ==
+          (sol.retcode, sol.stop_rule, sol.stats.nsteps, sol.metadata.objective) && seen[] >= 1
     # robust: a Welsch loss on the offset rows (width 3: the start sits 1 off, the outlier 49), one of them a gross outlier, is down-weighted
     zo = copy(z); zo[3] = 50.0
     pr = _LmProblem(vars(), [[_LineRow(si, yi) for (si, yi) in zip(s, y)]; [_OffsetRow(zk, loss_robustifier(WelschShape(), 3.0)) for zk in zo]])
@@ -417,7 +417,7 @@ end
     NLLSsolver.computeresidual(r::_ScaledRosenbrock, x) = r.s .* SVector(10 * (x[2] - x[1]^2), 1 - x[1])
     p = _LmProblem([SVector(-1.2, 1.0)], [_ScaledRosenbrock(1.0e-3)])
     sol = _lmsolve_chart!(p, LmStops(; ftol = 0.5))
-    @test sol.metadata.cost < 0.5                                       # a cost below the relative tolerance's value …
+    @test sol.metadata.objective < 0.5                                       # a cost below the relative tolerance's value …
     @test p.variables[1][1] < 0.9                              # … far from the minimum at (1, 1)
     # a tolerance met is converged (Core 0.11.0's owner ruling; until 0.10.11 Stalled): the gradient is not zero there,
     # the exact-fit test is not ftol, and whether ftol = 0.5 is too loose is the configuration's question
@@ -454,18 +454,18 @@ end
     p = _LmProblem([SVector(1.0, 0.0)], rows)
     first = _lmsolve_chart!(p, LmStops(; ftol = 1.0e-14))
     @test first.retcode === ReturnCode.Success                  # an exact fit: the final cost below its rounding floor
-    @test first.metadata.cost < 1.0e-20
+    @test first.metadata.objective < 1.0e-20
     xstar = p.variables[1]
     restart(stops, x = xstar) = (q = _LmProblem([x], rows); (_lmsolve_chart!(q, stops), q.variables[1]))
     r0, x0 = restart(LmStops())                               # the default, residual_resolution = 0
-    @test r0.metadata.cost < 1.0e-20
+    @test r0.metadata.objective < 1.0e-20
     @test r0.retcode === ReturnCode.Success                      # F₀ at rounding: the final point's floor resolves it
     rn, _ = restart(LmStops(), xstar .+ 1.0e-12)              # near the minimum: F₀ ≈ 1e-21, the final cost rounding
-    @test rn.metadata.cost < 1.0e-20
+    @test rn.metadata.objective < 1.0e-20
     @test rn.retcode === ReturnCode.Success
     rr, xr = restart(LmStops(; residual_resolution = 1.0e-12))  # the data resolve the residual norm to 1e-12
     @test rr.retcode === ReturnCode.Success
-    @test xr == x0 && rr.metadata.cost == r0.metadata.cost                      # the same iterations: only the success rule reads it
+    @test xr == x0 && rr.metadata.objective == r0.metadata.objective                      # the same iterations: only the success rule reads it
     @test LmStops().residual_resolution == 0
     @test_throws ArgumentError LmStops(; residual_resolution = -1.0)
 end
@@ -523,7 +523,7 @@ end
     rows = [_FlippedRow(isodd(i) ? 1.0e-3 : -1.0e-3) for i in 1:m]
     solve(stops) = (p = _LmProblem([SVector(1.0e6)], rows); (_lmsolve_chart!(p, stops), p.variables[1][1], p))
     sol, x, p = solve(LmStops())
-    @test 1 <= sol.metadata.cost < 2                                    # stalled near the minimum, F ≈ 1 …
+    @test 1 <= sol.metadata.objective < 2                                    # stalled near the minimum, F ≈ 1 …
     @test m * eps() * 1.0e18 > 1.0e8                           # … far below m·ε·F₀ (the threshold until 0.10.3)
     @test abs(x) > 1.0e-5                                      # off the minimum: the cosine |x|/√(x² + 10⁻⁶) is large
     # a tolerance stop: converged (Core 0.11.0's owner ruling). The postcondition (the rejection cap's verdict) is NOT
@@ -533,7 +533,7 @@ end
     # … floored by the data's resolution: a residual norm of 2 makes F < 4 zero
     @test VgtkCore._lm_problem_stationary!(p, LmStops().stationarity_tol, VgtkCore._FinalRounding(2.0))
     sr, xr, _ = solve(LmStops(; residual_resolution = 2.0))
-    @test sr.retcode === ReturnCode.Success && xr == x && sr.metadata.cost == sol.metadata.cost
+    @test sr.retcode === ReturnCode.Success && xr == x && sr.metadata.objective == sol.metadata.objective
 end
 
 @testitem "_lmsolve_chart!(::_LmProblem): the damping strategy, the default Core 0.10.1's bit for bit" begin
@@ -565,18 +565,18 @@ end
             (line(MarquardtDamping()), LmStops()))
         sol = _lmsolve_chart!(p, stops)
         @test p.variables[1] === SVector(0.5, 2.193694599112287)
-        @test sol.metadata.cost === 0.04458855362594855 && sol.stats.nsteps == 3 && sol.retcode === ReturnCode.Success
+        @test sol.metadata.objective === 0.04458855362594855 && sol.stats.nsteps == 3 && sol.retcode === ReturnCode.Success
     end
     q = _LmProblem([SVector(-1.2, 1.0)], [_DampRosen()])
     sq = _lmsolve_chart!(q)
     @test q.variables[1] === SVector(0.9999999999999998, 0.9999999999999997)
-    @test sq.metadata.cost === 1.2818989709841442e-30 && sq.stats.nsteps == 18
+    @test sq.metadata.objective === 1.2818989709841442e-30 && sq.stats.nsteps == 18
     # LevenbergDamping: the same minima
     pl = line(LevenbergDamping())
     sl = _lmsolve_chart!(pl, LmStops())
     @test sl.retcode === ReturnCode.Success
     @test pl.variables[1] ≈ SVector(0.5, 2.193694599112287) rtol = 1.0e-10
-    @test sl.metadata.cost ≈ 0.04458855362594855 rtol = 1.0e-10
+    @test sl.metadata.objective ≈ 0.04458855362594855 rtol = 1.0e-10
     ql = _LmProblem([SVector(-1.2, 1.0)], [_DampRosen()]; damping = LevenbergDamping())
     sql = _lmsolve_chart!(ql, LmStops())
     @test sql.retcode === ReturnCode.Success
@@ -617,7 +617,7 @@ end
     sol = _lmsolve_chart!(p, LmStops())
     @test sol.retcode === ReturnCode.Success
     @test p.variables[1] ≈ SVector(2.0, 0.3) atol = 1.0e-8
-    @test sol.metadata.cost < 1.0e-20
+    @test sol.metadata.objective < 1.0e-20
 end
 
 @testitem "_lmsolve_chart!(::_LmProblem): a repeated solve allocates O(1) in the number of variables" begin
@@ -854,7 +854,7 @@ end
     p1 = _LmProblem([SVector(0.0)], [_FarOffset(d) for d in (0.9, 1.0, 1.1)])
     p2 = _LmProblem([SVector(0.0)], [_FarOffset(d) for d in (0.9, 1.0, 1.1)])
     s1 = _lmsolve_chart!(p1); s2 = _lmsolve_chart!(p2, LmStops(; xtol_rel = 0.0))
-    @test (s1.retcode, s1.stop_rule, s1.stats.nsteps, s1.metadata.cost) == (s2.retcode, s2.stop_rule, s2.stats.nsteps, s2.metadata.cost) &&
+    @test (s1.retcode, s1.stop_rule, s1.stats.nsteps, s1.metadata.objective) == (s2.retcode, s2.stop_rule, s2.stats.nsteps, s2.metadata.objective) &&
           p1.variables == p2.variables && s1.retcode === ReturnCode.Success
     # a user callback still terminates the solve as before (Terminated), the relative stop on or off
     cb = (cost, args...) -> (cost, 1)
@@ -959,7 +959,7 @@ end
         q = _LmProblem([x0], rows)
         sol = _lmsolve_chart!(q, stops)
         @test sol.retcode === ReturnCode.Success                   # an exact fit, every residual finite: converged
-        @test sol.stop_rule !== NonFinite && sol.metadata.cost < 1.0e-20
+        @test sol.stop_rule !== NonFinite && sol.metadata.objective < 1.0e-20
         @test maximum(abs, q.variables[1] - truth) < 1.0e-9 * maximum(abs, truth)
     end
     @test tripped >= 1                                          # the cost disagreement is exercised (all four, as recorded)

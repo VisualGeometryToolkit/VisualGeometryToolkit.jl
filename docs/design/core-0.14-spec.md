@@ -1214,3 +1214,11 @@ These are done in Core 0.14, each with its own commit:
   one type to survive the front end, Core's `with_problem` keeps the result's DECLARED model, metadata, residual and
   raw-output types (it rebuilt them from the values' types, which split the record again); a result built from its
   values is unchanged, and the golden records replay `===` in both modes.
+- 2026-11-27 (coordinator's ruling 4, spec §7): the LM record's `cost` is `objective` in every `LevenbergMarquardt`
+  refine's metadata (the row, chart and block refines, the chart problem's default `chart_result`, the kernels'
+  `_lm_result` and failure records); its one in-package reader (the relative-pose bundle's rms) and the Core and
+  Estimation tests read `metadata.objective`. A field, not a name: no RETIRED_NAMES row (the R9 matcher would flag
+  prose about costs). No persisted record carries it — IO's FitResult codec stores the termination record only, the
+  golden records hold no LM metadata cost, and no tracked fixture or Eval record does — so no converter or schema step.
+  `LmIterationState.cost` (the callback state, NLLSsolver's `cost`) and the block-coordinate descent's `cost` (its
+  best-iterate record) are other quantities and keep their names. Bits `===`.

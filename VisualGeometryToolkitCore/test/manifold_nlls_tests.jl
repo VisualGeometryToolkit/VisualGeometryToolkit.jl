@@ -160,7 +160,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
         @test J ≈ ForwardDiff.jacobian(δ -> retract(ch, δ)(r.x) - r.y, zero(SVector{6, Float64})) atol = 1.0e-12
         problem = VgtkCore._LmProblem([RigidExpManifold6(pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))], [_PointResidual(x, truth(x)) for x in xs])
         result = VgtkCore._lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
-        @test result.metadata.cost < 2.0e-20 && result.retcode === VgtkCore.ReturnCode.Success
+        @test result.metadata.objective < 2.0e-20 && result.retcode === VgtkCore.ReturnCode.Success
         @test norm(local_coordinates(problem.variables[1], truth)) < 1.0e-9
     end
 
@@ -176,7 +176,7 @@ ambient(ch) = VgtkCore.ambient_coordinates(model(ch))
             problem = VgtkCore._LmProblem([ch₀], blocks)
             result = VgtkCore._lmsolve_chart!(problem, VgtkCore.LmStops(; max_iter = 100, ftol = 1.0e-15, xtol = 1.0e-10))
             @test problem.variables[1] isa typeof(ch₀)
-            @test result.metadata.cost < sum(abs2, first(VgtkCore._nlls_rows_and_jacobian(blocks, [ch₀])))
+            @test result.metadata.objective < sum(abs2, first(VgtkCore._nlls_rows_and_jacobian(blocks, [ch₀])))
             @test norm(local_coordinates(problem.variables[1], truth)) < (eltype(ch₀.t) === Float32 ? 1.0e-5 : 1.0e-9)
         end
     end

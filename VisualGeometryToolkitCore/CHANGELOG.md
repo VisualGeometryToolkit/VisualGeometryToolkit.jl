@@ -8,6 +8,13 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
 `RETIRED_NAMES` with its replacement; there are no aliases.
 
 ### Conformance hygiene (the stack reaches no `Cameras._x` internal)
+- **The LM record's `cost` is `objective`** (decision 9, SciML's name for the minimized value; spec §7): every
+  `LevenbergMarquardt` refine's result carries `metadata.objective`, the final `‖r‖²` (`Σ ρ(‖rᵢ‖²)` under a robust
+  strategy), where it carried `metadata.cost` — the row and chart refines (`(; objective, stationary)`, `(; objective,
+  chart, x, rows, stationary)`, a chart problem's default `chart_result`), the block refine's record and the kernels'.
+  A field, not a name: no RETIRED_NAMES row. No stored record holds it (IO's FitResult codec persists the termination
+  record only; no golden record carries it), so no version step. `LmIterationState.cost` (a callback's per-iteration
+  state) keeps NLLSsolver's name. Bit-identical.
 - Public, for the lens fits and the spline bundles downstream (VisualGeometryToolkitEstimation's camera regression and
   SplineLens bundle reached them as internals): `lens_terms(lens)` (a lens's terms in parameter order: its projection,
   then its distortion's terms), `bounding_radial(lens)` (the radial factor that bounds what a lens images: `radial(lens)`,

@@ -99,7 +99,7 @@ end
     # sparse LDL and agree trivially — the comparison holds either way.
     @test (fast.sol.retcode, fast.sol.stop_rule) === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.IncrementSize) && (slow.sol.retcode, slow.sol.stop_rule) === (VisualGeometryToolkitCore.ReturnCode.Success, VisualGeometryToolkitCore.IncrementSize)
     @test maximum(abs, fast.R - slow.R) < 1.0e-9 && maximum(abs, fast.t - slow.t) < 1.0e-9
-    @test isapprox(fast.sol.metadata.cost, slow.sol.metadata.cost; rtol = 1.0e-10)
+    @test isapprox(fast.sol.metadata.objective, slow.sol.metadata.objective; rtol = 1.0e-10)
 end
 
 # A NaN wall for the bundle rows: camera 2's K, applied to a camera-2 point Y,
@@ -139,7 +139,7 @@ function _recorded_bundle(seed, u1, u2)
         R0, t0, KP1, KP2, _inv3(KP1), _inv3(KP2), u1, u2, ones(N);
         callback = log
     )
-    F = out.sol.metadata.cost
+    F = out.sol.metadata.objective
     k1e6 = findfirst(Fk -> abs(Fk - F) <= 1.0e-6 * F, log.F)   # log.F[k]: after iteration k
     return out.R, out.t, F, (out.sol.retcode, out.sol.stop_rule), out.sol.stats.nsteps, k1e6
 end
@@ -296,9 +296,9 @@ end
     wall = (e0[k] + e1[k]) / 2                 # crossed by the free optimum, not by the seed
     for E in (true, false)
         res, _, e = wall_fit(E, wall, s)
-        @test isfinite(res.metadata.cost)
+        @test isfinite(res.metadata.objective)
         @test e[k] <= wall                     # stopped at the wall
-        @test res.metadata.cost > free.metadata.cost             # short of the free optimum
+        @test res.metadata.objective > free.metadata.objective             # short of the free optimum
     end
 end
 

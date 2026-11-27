@@ -899,11 +899,11 @@ const _LM_STALLED = -2
 # THE chart LM, the robust chart LM and the multi-block LM, each returning a `FitResult` (Core-internal kernels: a
 # refine reaches them through `solve`/`init` on a `RefineProblem`): `u` the chart vector (the multi-block form's
 # `p.variables`, the problem's own vector: it aliases the problem until its next solve), the termination record,
-# `stats.nsteps` NLLSsolver's accepted iterations, `metadata = (; cost)` the final cost (`‖r‖²`, `Σ ρ(‖rᵢ‖²)` when
+# `stats.nsteps` NLLSsolver's accepted iterations, `metadata = (; objective)` the final cost (`‖r‖²`, `Σ ρ(‖rᵢ‖²)` when
 # robust). No residual summary: `rms` NaN, `n` 0. `callback`: a refine's `callback(state::LmIterationState) -> Bool`, or
 # `nothing` (NLLSsolver's null callback: the solve as without it, bit for bit).
 @inline _lm_result(u, result, record) =
-    FitResult(u, record[1], record[2], SolveStats(; nsteps = result.niterations), NaN, 0, (; cost = 2 * result.bestcost))
+    FitResult(u, record[1], record[2], SolveStats(; nsteps = result.niterations), NaN, 0, (; objective = 2 * result.bestcost))
 
 """
     _lmsolve_chart!(ews::_ManifoldLmWorkspace{N}, lm, stops::LmStops = LmStops(), damping::LmDamping = MarquardtDamping();
@@ -935,7 +935,7 @@ of the knobs) and the step's `damping` ([`LmDamping`](@ref): the chart forms' ar
 
 The chart forms keep the problem and NLLSsolver's `OptimizeCache` in the workspace (one caching path, plain and
 robust alike), so a refit rebuilds neither. The result's `u` is the solution chart vector (the multi-block form's
-`p.variables`), `metadata.cost` the final cost, `stats.nsteps` NLLSsolver's count (one accepted step each; a start at
+`p.variables`), `metadata.objective` the final cost (the minimized objective), `stats.nsteps` NLLSsolver's count (one accepted step each; a start at
 a stationary point takes one zero step, and only a start whose cost or gradient is not finite stops at 0, a failed
 solve), and `(retcode, stop_rule)` the termination record, a [`ReturnCode`](@ref) and a [`StopRule`](@ref)
 (`nlls_termination`'s decode).
@@ -1087,7 +1087,7 @@ function _lmsolve_chart!(p::_LmProblem, stops::LmStops = LmStops(), cb::F = NLLS
     end
     _prepare_evaluation!(f, p)
     out === nothing &&
-        return FitResult(p.variables, ReturnCode.Failure, NonFinite, SolveStats(), NaN, 0, (; cost = NaN))
+        return FitResult(p.variables, ReturnCode.Failure, NonFinite, SolveStats(), NaN, 0, (; objective = NaN))
     result, _, record = out
     return _lm_result(p.variables, result, record)
 end

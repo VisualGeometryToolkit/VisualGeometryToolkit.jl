@@ -8,6 +8,7 @@ docs/design/core-0.14-spec.md in the monorepo). Numerics are unchanged: the gold
 (`ci/golden/`), the deliberate exceptions listed in `ci/golden/intended_changes.toml`.
 
 ### Conformance hygiene
+- The relative-pose bundle reads Core's LM record as `metadata.objective` (was `metadata.cost`, Core 0.14's rename).
 - **`configs/default.toml` is version 3**: every table is named after the algorithm or problem it configures.
   `[pipelines.<class>]` is `[<problem>.ransac]` and `[refine.<class>]` `[<problem>.levenberg_marquardt]`
   (`[homography_problem.ransac]`, `[fund_mat_problem.levenberg_marquardt]`, …); `[hand_eye_problem]` holds

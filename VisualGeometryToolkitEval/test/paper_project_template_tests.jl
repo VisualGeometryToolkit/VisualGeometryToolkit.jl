@@ -113,12 +113,18 @@
     @test verdicts["ExampleIntercept"][[1, 3]] == ("", "NEW")
     @test verdicts["ExampleSlope"][3] == "CHANGED"                 # other draws, another fitted slope
 
-    # One injected breach of each check, each detected under its check.
+    # One injected breach of each check, each detected under its check. The checks run against an empty artifact
+    # store of their own (`VGTK_ARTIFACT_STORE`, the first rung of Core's `artifact_store`), so the environment's store
+    # rungs neither add a finding nor hide one: where NODE_CACHE is set and no store is named (a cluster job) the depot
+    # is refused, and the published-artifact breach would add a :storage finding for the environment, not the breach.
+    store = mktempdir()
     function breach(f)
         dst = joinpath(mktempdir(), "DemoPaper")
         cp(root, dst)
         f(dst)
-        return Set(x.check for x in paper_project_violations(dst))
+        return withenv("VGTK_ARTIFACT_STORE" => store) do
+            Set(x.check for x in paper_project_violations(dst))
+        end
     end
     edit(f, p) = write(p, f(read(p, String)))
     stage = (d) -> joinpath(d, "scripts", "example_stage.jl")

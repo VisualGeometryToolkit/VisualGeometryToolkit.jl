@@ -68,6 +68,17 @@ implementation spec `docs/design/core-0.14-spec.md`. Every removed name below is
   A bundle that evaluates its blocks together (RadiometricCamera's device batches over the blocks of one trial) finds
   a request's vector by identity, as it did through the LM problem's own fields before R22, so no cache internal is
   reached. The default does nothing and compiles to nothing; no number moves.
+- `linearize(f::AbstractBlockProblem, u0; free, classes)` (public): the bundle's dense Gauss–Newton normal equations
+  at the guess over a selection of its variables (`free`, indices; by default every variable `fixed_variables(f, u0)`
+  leaves free), every other variable held, per class of residual blocks (`classes`, a tuple of types: a block belongs
+  to the first it is an instance of; a block of none is not evaluated): `(; G = Σ JᵀJ, h = −Σ Jᵀr, S = Σ‖r‖², nrows)`
+  per class, the columns the selected variables' in ascending index. `prepare_evaluation!(f, v, v)` names the one
+  vector it evaluates at; the blocks are visited in NLLSsolver's order (by type in their `Union`'s order, then as
+  added) and each is evaluated as the LM evaluates a block with those free variables (static flags; `computeresidual`
+  for a block with none). A reading of the block contract, not a solve: what RadiometricCamera's GCV of the grid
+  smoothness reads (audit RC #8), which reached NLLSsolver's `varindices`/`getvars`/`computeresjac` itself. The
+  private `_nlls_rows_and_jacobian` (the stall postcondition's and `RowsWithJacobian`'s rows and Jacobian) is the
+  same per-block evaluation with every variable selected, one owner; its numbers do not move.
 - `ToleranceStops(; max_iter, rtol, atol = 0.0)`: the one stops type of the Krylov solves (`CGLS`, `NormalCG`), the
   continuation Newton of `PathFollowing` and a bisection gains an absolute floor. A solve stops at `quantity ≤ max(atol,
   rtol · scale)`, `scale` its own reference as before (the right-hand side's norm; `1 + ‖v‖`; a bracket's stated

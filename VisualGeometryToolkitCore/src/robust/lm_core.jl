@@ -1284,8 +1284,8 @@ _accumulate_groups!(g, w, offsets, groups::Tuple, variables, free, acc) =
 function _accumulate_blocks!(g, w, offsets, blocks, variables, free, (F, f2, carried, S2))
     for c in blocks
         vi = NLLSsolver.varindices(c)
-        # every variable of the block differentiated (static flags, as `_nlls_rows_and_jacobian`); a held one's columns skipped
-        r, J = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)
+        # every variable of the block differentiated (`_full_block_jacobian`); a held one's columns skipped
+        r, J = _full_block_jacobian(c, NLLSsolver.getvars(c, variables))
         sq = sum(abs2, r)
         ρ′ = max(NLLSsolver.robustifydcost(NLLSsolver.robustkernel(c), sq)[2], 0.0)
         F += sq; f2 += ρ′ * sq; carried |= ρ′ > 0; S2 += sq
@@ -1327,8 +1327,7 @@ function nlls_rows(blocks, variables::AbstractVector)
     rows = Float64[]
     sizehint!(rows, sum(c -> Int(NLLSsolver.dynamic(NLLSsolver.nres(c))), blocks; init = 0))   # one allocation, whatever the size
     for c in blocks
-        vi = NLLSsolver.varindices(c)
-        append!(rows, first(NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)))
+        append!(rows, first(_full_block_jacobian(c, NLLSsolver.getvars(c, variables))))
     end
     return rows
 end
@@ -1338,31 +1337,71 @@ end
 
 The rows of NLLSsolver residual `blocks` at `variables` (an NLLSsolver problem's
 variable vector) and their sparse Jacobian in the variables' chart coordinates
-— `NLLSsolver.computeresjac` of every block with all its variables free —
+— `NLLSsolver.computeresjac` of every block with all its variables free
+(`_linearized_block` with every variable selected) —
 the rows in block order, each variable's `NLLSsolver.nvars` columns in variable
 order (a run-time size included). What `nlls_termination`'s stall
-postcondition reads, and a covariance or a GCV linearization of the same fit.
+postcondition reads, and a covariance of the same fit; the dense normal
+equations of a selection of a bundle's variables are `linearize`'s.
 """
 function _nlls_rows_and_jacobian(blocks, variables::AbstractVector)
-    offsets = cumsum([0; [Int(NLLSsolver.dynamic(NLLSsolver.nvars(v))) for v in variables]])
-    rows = Float64[]; Ii = Int[]; Jj = Int[]; Vv = Float64[]
+    every = _EveryVariable()
+    offsets = _free_offsets(variables, every)
+    rows = Float64[]; Ii = Int[]; Jj = Int[]; Vv = Float64[]; buffer = Int[]
     for c in blocks
-        vi = NLLSsolver.varindices(c)
-        rk, Jk = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vi) - 1), c, NLLSsolver.getvars(c, variables)...)
-        o = length(rows)
-        append!(rows, rk)
-        col = 0
-        for v in vi, q in (offsets[v] + 1):offsets[v + 1]
-            col += 1
-            for i in eachindex(rk)
+        _linearized_block(c, variables, every, offsets, buffer) do rk, Jk, cols
+            o = length(rows)
+            append!(rows, rk)
+            for (col, q) in enumerate(cols), i in eachindex(rk)
                 x = Jk[i, col]
                 iszero(x) && continue
                 push!(Ii, o + i); push!(Jj, q); push!(Vv, x)
             end
+            return nothing
         end
     end
     return rows, sparse(Ii, Jj, Vv, length(rows), offsets[end])
 end
+
+# THE evaluation of a residual block with every variable differentiated, as NLLSsolver's LM evaluates a block whose
+# variables are all free: `computeresjac` at the static flags `2ⁿ − 1` (its statically sized autodiff, where the sizes
+# allow it); the rows are the value part of the derivative.
+@inline _full_block_jacobian(c, vars::Tuple) = NLLSsolver.computeresjac(NLLSsolver.static(2^length(vars) - 1), c, vars...)
+
+# Every variable selected (`_nlls_rows_and_jacobian`'s selection): only the full evaluation is compiled.
+struct _EveryVariable end
+Base.getindex(::_EveryVariable, _v::Integer) = true
+
+# THE linearization of one residual block over the selected variables (`selected[v]` per variable index `v`), as
+# NLLSsolver's LM evaluates a block whose free variables they are: every variable selected, `_full_block_jacobian`;
+# some, `computeresjac` at their mask as a static `varflags` (the Jacobian's columns are the selected variables', in the
+# block's own variable order; the run-time mask dispatched on once per block, as NLLSsolver's LM does past five
+# variables: NLLSsolver's automatic Jacobian takes static flags only, so one compilation per block type and mask); none,
+# `computeresidual`'s rows and no Jacobian (`nothing`). Then `fn(r, J, cols)`, `cols` (the caller's buffer,
+# overwritten) the column of each of `J`'s columns among the selection's: variable `v`'s are `offsets[v] + 1 :
+# offsets[v + 1]` (`_free_offsets` of the selection). The one evaluation of `linearize` and of
+# `_nlls_rows_and_jacobian`.
+@inline function _linearized_block(fn::F, c, variables, selected, offsets, cols::Vector{Int}) where {F}
+    vi = NLLSsolver.varindices(c)
+    vars = NLLSsolver.getvars(c, variables)
+    empty!(cols)
+    flags = 0
+    for (k, v) in enumerate(vi)
+        if selected[v]
+            flags |= 1 << (k - 1)
+            append!(cols, (offsets[v] + 1):offsets[v + 1])
+        end
+    end
+    return _evaluate_linearized(fn, c, vars, flags, 2^length(vi) - 1, selected, cols)
+end
+@inline _evaluate_linearized(fn::F, c, vars, _flags, _all, ::_EveryVariable, cols) where {F} =
+    fn(_full_block_jacobian(c, vars)..., cols)
+@inline function _evaluate_linearized(fn::F, c, vars, flags, all, _selected, cols) where {F}
+    flags == all && return fn(_full_block_jacobian(c, vars)..., cols)
+    flags == 0 && return fn(NLLSsolver.computeresidual(c, vars...), nothing, cols)
+    return _evaluate_selected(fn, c, vars, NLLSsolver.static(flags), cols)     # a function barrier at the static mask
+end
+@inline _evaluate_selected(fn::F, c, vars, flags, cols) where {F} = fn(NLLSsolver.computeresjac(flags, c, vars...)..., cols)
 
 """
     loss_robustifier(shape::AbstractLossShape, loss_width::Real)

@@ -25,7 +25,8 @@ What a problem implements to be refined by `LevenbergMarquardt` — one model on
 `chart_rows`, `chart_model`, `chart_size`, and `chart_workspace` for what a chart problem keeps across a cache's
 solves) or several blocks ([`AbstractBlockProblem`](@ref): `block_variables`,
 `residual_blocks` or `block_structure`, `fixed_variables`, `residual_summary`, `block_result`, and `prepare_evaluation!`
-for a bundle that evaluates its blocks together) — the parsed robust loss (`bundle_loss`) and the refine's
+for a bundle that evaluates its blocks together; `linearize` reads a bundle's Gauss–Newton normal equations over a
+selection of its variables, per class of blocks) — the parsed robust loss (`bundle_loss`) and the refine's
 metadata ([`RefineMetadata`](@ref), its supertype [`AbstractFitMetadata`](@ref)). A refine of raw data (a
 correspondence vector, not a problem) by another solver backend, `solve(RefineProblem(cs, guess[, p]),
 LevenbergMarquardt(backend; …))`, is forwarded to the backend contract generic `lm_backend_refine`, which the

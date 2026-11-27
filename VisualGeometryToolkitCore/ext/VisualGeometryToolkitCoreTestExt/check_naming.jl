@@ -739,6 +739,11 @@ const RETIRED_NAMES = String[
     "VisualGeometryToolkitEval" * ".Pools", "VgtkEval" * ".Pools",   # VisualGeometryToolkitEval.PoolFiles (Core.Pools is the record types)
     # the front-end gaps (2026-11-27): no public estimator outside `solve`
     "consensus" * "_s2",                         # solve(EstimationProblem(SquaredScale, residuals, (; order, inlier_count, model_dof, codimension)), ConsensusScale(scoring)).u
+    # RadiometricCamera's public LM read-backs (RC CHANGELOG): the bundle's `block_result` assembles `u`, the parameters the
+    # solved variables encode; RC's internals `_read_back!`, `_extract_variables`, `_extract_variables_grid` are not hits
+    "read" * "_back!",                           # the bundle's block_result assembles u
+    "extract" * "_variables",                    # the bundle's block_result assembles u
+    "extract" * "_variables_grid",               # the bundle's block_result assembles u
 ]
 
 # Retired names that a FOREIGN party owns — a foreign or stored format's token, or a

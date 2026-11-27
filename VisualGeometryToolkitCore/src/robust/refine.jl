@@ -1081,14 +1081,109 @@ batch of the blocks that share a vector, started ahead of NLLSsolver's requests 
 variables come from by identity. Core calls it before the LM's first evaluation and again before each evaluation at
 the solution (the stationarity postcondition, the residual summary; with `stops.max_iter == 0`, before the summary
 alone), in the one-shot `solve` and in the cache's `solve!` alike, so every evaluation reads one of the two vectors
-the latest call named. The vectors are the solve's: valid until it returns, and never written by `f`. The default
-does nothing and compiles to nothing; a bundle that evaluates block by block implements none. A contract generic.
+the latest call named; [`linearize`](@ref) calls it once, naming its one vector as both, before its first
+evaluation. The vectors are the solve's: valid until it returns, and never written by `f`. The default does nothing
+and compiles to nothing; a bundle that evaluates block by block implements none. A contract generic.
 """
 prepare_evaluation!(_f, _variables, _varnext) = nothing
 # The bundle `f` told the vectors of the multi-block LM `p` as they are now; `p` back.
 @inline function _prepare_evaluation!(f, p::_LmProblem)
     prepare_evaluation!(f, p.problem.variables, p.problem.varnext)
     return p
+end
+
+"""
+    linearize(f::AbstractBlockProblem, u0; free = nothing, classes = (Any,))
+        -> NTuple{K, @NamedTuple{G::Matrix{Float64}, h::Vector{Float64}, S::Float64, nrows::Int}}
+
+The linearization of the bundle `f` at the guess `u0`, its residual blocks' Gauss–Newton normal equations over the
+variables `free` (indices into `block_variables`), every other variable held at its value: per class of blocks
+(`classes`, `K` of them) the dense `G = Σ JᵀJ` and `h = −Σ Jᵀr` (`G δ = h` minimizes `‖r + J δ‖²`), the rows' sum of
+squares `S = Σ ‖r‖²` and their count `nrows`. What a generalized cross-validation of a penalty weight reads
+(VisualGeometryToolkitEstimation's `gcv_curve`: one class the data, another the penalty rows), or a covariance of a
+subset of the variables.
+
+- The bundle is stated once at `u0` ([`block_structure`](@ref)); its variables are copied into one vector of their
+  element type, and [`prepare_evaluation!`](@ref)`(f, variables, variables)` names it (as both vectors: the one point
+  every evaluation reads) before the first evaluation, as a refine does.
+- The columns are the `free` variables' in ascending variable index, each its `NLLSsolver.nvars` chart coordinates.
+  `free = nothing` selects every variable [`fixed_variables`](@ref)`(f, u0)` does not hold; an explicit `free` may
+  select any variables (a held one included).
+- A block belongs to the first class it is an instance of (`classes` a tuple of types: `(Any,)`, one class of every
+  block); a block of no class is not evaluated.
+- The blocks are visited in NLLSsolver's order — by type, in the order of their element `Union` (the repository
+  NLLSsolver's problem holds them in), then as added — and each is evaluated as NLLSsolver's LM evaluates a block
+  whose free variables are the selected ones of it: every one selected, `computeresjac` at its static flags `2ⁿ − 1`;
+  some, at their mask as static flags (the Jacobian's columns theirs, in the block's variable order; one compilation
+  per block type and mask, as in NLLSsolver's LM); none, `computeresidual` (its rows count in `S` and `nrows`, no
+  columns). Its `J' * J` and `J' * r` are added into the class's `G` and subtracted from its `h` at its columns, block
+  after block.
+
+Dense: `G` is `n × n` per class for `n` selected coordinates. A reading of the block contract, not an estimator (no
+estimate, no iteration, nothing that can fail to converge), so a function and not a `solve`.
+"""
+function linearize(f::AbstractBlockProblem, u0; free = nothing, classes::Tuple{Vararg{Type}} = (Any,))
+    vars, blocks, _ = block_structure(f, u0)
+    isempty(vars) && throw(ArgumentError("linearize: the bundle states no variables"))
+    isempty(blocks) && throw(ArgumentError("linearize: the bundle states no residual blocks"))
+    variables = Vector{_element_union(vars)}(vars)
+    nv = length(variables)
+    selected = free === nothing ? _unheld_variables(fixed_variables(f, u0), nv) : _selected_variables(free, nv)
+    offsets = _free_offsets(variables, selected)::Vector{Int}   # the variables' type is the bundle's, known at run time
+    n = offsets[end]
+    out = ntuple(_ -> (; G = zeros(n, n), h = zeros(n), S = Ref(0.0), nrows = Ref(0)), length(classes))
+    costs = NLLSsolver.CostStruct{_element_union(blocks)}()     # NLLSsolver's repository of the blocks: its visit order
+    for b in blocks
+        push!(costs, b)
+    end
+    _evaluate_classes!(out, f, classes, values(costs), variables, selected, offsets)
+    return map(a -> (; a.G, a.h, S = a.S[], nrows = a.nrows[]), out)
+end
+# The selection as a mask over the `n` variables: every variable the held set `held` (`fixed_variables`) leaves free,
+# or the variables `free` names.
+function _unheld_variables(held, n::Int)
+    selected = trues(n)
+    held === nothing && return selected
+    for i in held
+        i isa Integer && 1 <= i <= n || throw(ArgumentError("linearize: fixed_variables holds $(repr(i)), not an index of the $n variables"))
+        selected[i] = false
+    end
+    return selected
+end
+function _selected_variables(free, n::Int)
+    selected = falses(n)
+    for i in free
+        i isa Integer && 1 <= i <= n || throw(ArgumentError("linearize: free holds $(repr(i)), not an index of the $n variables"))
+        selected[i] = true
+    end
+    return selected
+end
+# The evaluation of a linearization, as a refine's: the bundle told the one vector (`prepare_evaluation!`, a
+# notification, as in the non-`!` `solve`), then each type's blocks into its class's normal equations (`groups` the
+# repository's typed vectors, in its order).
+function _evaluate_classes!(out, f, classes, groups, variables, selected, offsets)
+    prepare_evaluation!(f, variables, variables)
+    return _linearize_groups!(out, classes, groups, variables, selected, offsets, Int[])
+end
+_linearize_groups!(out, _classes, ::Tuple{}, _variables, _selected, _offsets, _cols) = out
+function _linearize_groups!(out, classes, groups::Tuple, variables, selected, offsets, cols)
+    _linearize_blocks!(out, classes, first(groups), variables, selected, offsets, cols)
+    return _linearize_groups!(out, classes, Base.tail(groups), variables, selected, offsets, cols)
+end
+function _linearize_blocks!(out, classes, blocks::Vector{T}, variables, selected, offsets, cols) where {T}
+    k = something(findfirst(C -> T <: C, classes), 0)
+    k == 0 && return out
+    a = out[k]
+    for c in blocks
+        _linearized_block(c, variables, selected, offsets, cols) do r, J, jc
+            a.S[] += sum(abs2, r); a.nrows[] += length(r)
+            J === nothing && return nothing
+            a.G[jc, jc] .+= J' * J
+            a.h[jc] .-= J' * r
+            return nothing
+        end
+    end
+    return out
 end
 
 # THE too-few-data guard of every refine: fewer data than a minimal sample (a bundle states none by default: 0).
@@ -1382,6 +1477,7 @@ function _reinit_variables!(c::_BlockRefineCache, _stated, f, u0)
 end
 
 public block_structure, block_variables, residual_blocks, fixed_variables, residual_summary, block_result, prepare_evaluation!
+public linearize
 public CodimensionRows, RowsWithJacobian
 public task_kept_blocks
 

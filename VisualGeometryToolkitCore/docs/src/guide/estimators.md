@@ -105,7 +105,10 @@ through one of two contracts.
   [`with_robustifier`](@ref). Core builds and solves the multi-block LM, and
   tells a bundle that evaluates its blocks together (a device batch) the
   variable vectors each evaluation reads ([`prepare_evaluation!`](@ref); a
-  no-op by default).
+  no-op by default). [`linearize`](@ref) reads a bundle's Gauss–Newton normal
+  equations at a guess over a selection of its variables, the others held, per
+  class of residual blocks (a data class and a penalty class for a
+  generalized cross-validation of the penalty's weight).
 
 The robust loss is parsed once, from the solve's `scale`/`width` and the
 algorithm's strategy, by [`bundle_loss`](@ref); the result records the scale it

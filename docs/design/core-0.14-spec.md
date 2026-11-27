@@ -1248,3 +1248,24 @@ These are done in Core 0.14, each with its own commit:
   per-sample errors are scaled in place. Measured locally (one thread): one-shot 130 / 70 128 → 95 / 64 352 (OLD
   102 / 65 728); `solve!(reinit!(c, u0))` 104 / 67 856 → 27 / 6 544, `@inferred`. What a reuse still allocates is the
   result's own per-sample arrays (`_lens_fit_result`, the errors) and the `pointwise!` launch.
+- 2026-11-27 (lin014, audit RC #8): `linearize(f::AbstractBlockProblem, u0; free = nothing, classes = (Any,))` is the
+  block contract's one public linearization: per class of residual blocks (`classes`, types; a block's class the first
+  it is an instance of, a block of none not evaluated) the dense `G = Σ JᵀJ`, `h = −Σ Jᵀr`, `S = Σ‖r‖²` and `nrows`
+  over the selected variables' columns (ascending variable index, each its `nvars`), every other variable held; `free
+  = nothing` is every variable `fixed_variables(f, u0)` leaves free. A FUNCTION, not a solve: it estimates nothing,
+  iterates nothing and has no failure mode a `ReturnCode` could state (a `FitResult` would carry no `u`), as the other
+  readings of the contract (`residual_summary`'s rows) are plain values; it is not a `SOLVER_HOOK` (Core implements it,
+  no author does), so user-level code may call it. The name is GTSAM's (`NonlinearFactorGraph::linearize`) and a verb:
+  a noun (`normal_equations`) would be the natural variable name of its result (naming.md's noun rule). The bundle is
+  stated once (`block_structure`), its variables copied into one vector of their element type, and
+  `prepare_evaluation!(f, v, v)` names it (one point: both vectors) before the first evaluation. The blocks are visited
+  in NLLSsolver's order — pushed into NLLSsolver's own `CostStruct{Union}` repository, whose typed vectors are its LM's
+  visit order — and each is evaluated as NLLSsolver's LM evaluates a block whose free variables the selected ones are:
+  all, `computeresjac(static(2ⁿ − 1))`; some, `computeresjac(static(mask))`, dispatched on the mask (NLLSsolver's
+  automatic Jacobian takes static flags only: its `Int`-flag path has no `updatevars` method, found by this work's
+  test; one compilation per block type and mask); none, `computeresidual` (rows counted, no columns). Then `G[cols,
+  cols] .+= J' * J` and `h[cols] .-= J' * r` per block, so a caller's per-block loop of the same expressions is
+  reproduced bit for bit. One owner: the private `_nlls_rows_and_jacobian` is the same per-block evaluation
+  (`_linearized_block`) with every variable selected (`_EveryVariable`, which compiles the full evaluation only), and
+  `_full_block_jacobian` is the one `computeresjac(static(2ⁿ − 1))` of every reader (the stall postcondition's
+  accumulation, `nlls_rows`). Bits `===` (the golden records in both modes).
